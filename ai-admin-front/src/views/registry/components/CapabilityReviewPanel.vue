@@ -5,12 +5,12 @@
         <div>
           <div class="section-title">
             <span class="title-mark" />
-            <span>能力变更评审</span>
+            <span>能力同步与变更</span>
           </div>
-          <p>SDK 上报先形成快照；逐项应用、忽略或回滚，不把“已上报”当成“已生效”。</p>
+          <p>查看 SDK 上报形成的快照与字段差异；待评审项可应用或忽略，已应用变更可按规则回滚。</p>
         </div>
         <el-button :icon="Refresh" :loading="loadingSnapshots" @click="loadSnapshots">
-          刷新快照
+          刷新列表
         </el-button>
       </div>
     </template>
@@ -36,9 +36,9 @@
           @click="selectSnapshot(snapshot.id)"
         >
           <strong>{{ formatTimestamp(snapshot.createdAt) }}</strong>
-          <span>{{ snapshot.added }} 新增 · {{ snapshot.changed }} 变更 · {{ snapshot.deleted }} 删除</span>
-          <el-tag size="small" :type="snapshot.status === 'APPLIED' ? 'success' : 'warning'">
-            {{ snapshotStatusLabel(snapshot.status) }}
+          <span>{{ snapshot.added }} 新增 · {{ snapshot.changed }} 变更 · {{ snapshot.deleted }} 停止上报</span>
+          <el-tag size="small" :type="snapshotStatusTone(snapshot)">
+            {{ snapshotStatusLabel(snapshot) }}
           </el-tag>
         </button>
       </div>
@@ -77,8 +77,8 @@
         </el-table-column>
         <el-table-column prop="reviewStatus" label="评审状态" width="120">
           <template #default="{ row }">
-            <el-tag size="small" :type="reviewStatusTone(row.reviewStatus)">
-              {{ reviewStatusLabel(row.reviewStatus) }}
+            <el-tag size="small" :type="reviewStatusTone(row)">
+              {{ reviewStatusLabel(row) }}
             </el-tag>
           </template>
         </el-table-column>
@@ -245,12 +245,23 @@ function formatTimestamp(value?: string) {
   return value ? value.replace('T', ' ').slice(0, 16) : '未知时间'
 }
 
-function snapshotStatusLabel(status: CapabilitySnapshot['status']) {
-  return { PENDING: '待评审', APPLIED: '已应用', PARTIAL: '部分应用', IGNORED: '已忽略' }[status] || status
+function snapshotHasChanges(snapshot: CapabilitySnapshot) {
+  return snapshot.added + snapshot.changed + snapshot.deleted > 0
+}
+
+function snapshotStatusLabel(snapshot: CapabilitySnapshot) {
+  if (!snapshotHasChanges(snapshot)) return '无变化'
+  return { PENDING: '待评审', APPLIED: '已应用', PARTIAL: '部分处理', IGNORED: '已忽略' }[snapshot.status] || snapshot.status
+}
+
+function snapshotStatusTone(snapshot: CapabilitySnapshot) {
+  if (!snapshotHasChanges(snapshot) || snapshot.status === 'IGNORED') return 'info'
+  if (snapshot.status === 'APPLIED') return 'success'
+  return 'warning'
 }
 
 function changeTypeLabel(type: CapabilityDiffReviewItem['changeType']) {
-  return { ADDED: '新增', CHANGED: '变更', UNCHANGED: '无变化', DELETED: '删除' }[type]
+  return { ADDED: '新增', CHANGED: '变更', UNCHANGED: '无变化', DELETED: '停止上报' }[type]
 }
 
 function changeTypeTone(type: CapabilityDiffReviewItem['changeType']) {
@@ -260,19 +271,23 @@ function changeTypeTone(type: CapabilityDiffReviewItem['changeType']) {
   return 'info'
 }
 
-function reviewStatusLabel(status: CapabilityDiffReviewItem['reviewStatus']) {
-  return { PENDING: '待评审', APPLIED: '已应用', IGNORED: '已忽略', ROLLED_BACK: '已回滚' }[status]
+function reviewStatusLabel(item: CapabilityDiffReviewItem) {
+  if (item.changeType === 'UNCHANGED') return '无需评审'
+  return { PENDING: '待评审', APPLIED: '已应用', IGNORED: '已忽略', ROLLED_BACK: '已回滚' }[item.reviewStatus]
 }
 
-function reviewStatusTone(status: CapabilityDiffReviewItem['reviewStatus']) {
-  if (status === 'APPLIED') return 'success'
-  if (status === 'ROLLED_BACK') return 'warning'
-  if (status === 'IGNORED') return 'info'
+function reviewStatusTone(item: CapabilityDiffReviewItem) {
+  if (item.changeType === 'UNCHANGED') return 'info'
+  if (item.reviewStatus === 'APPLIED') return 'success'
+  if (item.reviewStatus === 'ROLLED_BACK') return 'warning'
+  if (item.reviewStatus === 'IGNORED') return 'info'
   return 'warning'
 }
 
 watch(() => props.projectCode, loadSnapshots)
 onMounted(loadSnapshots)
+
+defineExpose({ loadSnapshots })
 </script>
 
 <style scoped lang="scss">

@@ -5,13 +5,10 @@ import com.enterprise.ai.runtime.agent.RuntimeAgentExecutionContext;
 import com.enterprise.ai.runtime.agent.RuntimeAgentExecutionContextResolver;
 import com.enterprise.ai.runtime.agent.RuntimeAgentView;
 import com.enterprise.ai.runtime.agent.RuntimeAgentWorkflowToolEntity;
-import com.enterprise.ai.runtime.memory.RuntimeSessionMemoryService;
-import com.enterprise.ai.runtime.chat.RuntimeChatMemoryStore;
+import com.enterprise.ai.runtime.client.capability.RuntimeCapabilityCatalogClient;
 import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
 import com.enterprise.ai.runtime.execution.interaction.WorkflowInteractionCodes;
-import com.enterprise.ai.runtime.runops.RuntimeRunLifecycleService;
-import com.enterprise.ai.runtime.supervisor.SupervisorApprovalInteractionService;
-import com.enterprise.ai.runtime.supervisor.SupervisorRuntimeAdapter;
+import com.enterprise.ai.runtime.eval.RuntimeEvalExecutionContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -29,37 +26,25 @@ public class RuntimeAgentExecutionService {
 
     private final RuntimeAgentExecutionContextResolver executionContextResolver;
     private final SupervisorRuntimeAdapter supervisorRuntime;
-    private final SupervisorApprovalInteractionService approvalInteractionService;
+    private final RuntimeSupervisorApprovalPort approvalPort;
     private final RuntimeInteractionResumeService interactionResumeService;
-    private final RuntimeSessionMemoryService sessionMemoryService;
-    private final RuntimeRunLifecycleService runLifecycleService;
+    private final RuntimeSessionClearPort sessionClearPort;
+    private final RuntimeAgentRunLifecyclePort runLifecyclePort;
 
     @Autowired
     public RuntimeAgentExecutionService(
             RuntimeAgentExecutionContextResolver executionContextResolver,
             SupervisorRuntimeAdapter supervisorRuntime,
-            SupervisorApprovalInteractionService approvalInteractionService,
+            RuntimeSupervisorApprovalPort approvalPort,
             RuntimeInteractionResumeService interactionResumeService,
-            RuntimeSessionMemoryService sessionMemoryService,
-            RuntimeRunLifecycleService runLifecycleService) {
+            RuntimeSessionClearPort sessionClearPort,
+            RuntimeAgentRunLifecyclePort runLifecyclePort) {
         this.executionContextResolver = executionContextResolver;
         this.supervisorRuntime = supervisorRuntime;
-        this.approvalInteractionService = approvalInteractionService;
+        this.approvalPort = approvalPort;
         this.interactionResumeService = interactionResumeService;
-        this.sessionMemoryService = sessionMemoryService;
-        this.runLifecycleService = runLifecycleService;
-    }
-
-    /** Compatibility constructor for existing isolated tests. */
-    public RuntimeAgentExecutionService(
-            RuntimeAgentExecutionContextResolver executionContextResolver,
-            SupervisorRuntimeAdapter supervisorRuntime,
-            SupervisorApprovalInteractionService approvalInteractionService,
-            RuntimeInteractionResumeService interactionResumeService,
-            RuntimeChatMemoryStore ignoredLegacyMemoryStore,
-            RuntimeRunLifecycleService runLifecycleService) {
-        this(executionContextResolver, supervisorRuntime, approvalInteractionService, interactionResumeService,
-                RuntimeSessionMemoryService.transientOnly(), runLifecycleService);
+        this.sessionClearPort = sessionClearPort;
+        this.runLifecyclePort = runLifecyclePort;
     }
 
     public Map<String, Object> execute(Map<String, Object> request, boolean detailed) {
@@ -133,7 +118,7 @@ public class RuntimeAgentExecutionService {
         body.put("__memoryTurnId", memoryTurnId(body, interactionId));
         Map<String, Object> response;
         if (StringUtils.hasText(interactionId)
-                && interactionId.startsWith(SupervisorApprovalInteractionService.INTERACTION_PREFIX)) {
+                && interactionId.startsWith(RuntimeSupervisorApprovalPort.INTERACTION_PREFIX)) {
             response = resumeSupervisorApproval(interactionId, body, detailed, eventSink, cancellation,
                     trustedIdentity, personalMemory);
         } else if (StringUtils.hasText(interactionId)
@@ -149,6 +134,50 @@ public class RuntimeAgentExecutionService {
     }
 
     /**
+     * Executes the currently active Agent through a server-owned Eval policy. Request fields such
+     * as {@code evalMode} are deliberately ignored; callers cannot manufacture this context.
+     */
+    public Map<String, Object> executeEvaluation(Map<String, Object> request,
+                                                 boolean detailed,
+                                                 RuntimeEvalExecutionContext evalContext) {
+        RuntimeEvalExecutionContext evaluation = requireEvaluation(evalContext);
+        Map<String, Object> lookupBody = normalizeContext(request);
+        String agentLookup = firstText(text(lookupBody.get("agentId")), text(lookupBody.get("keySlug")));
+        if (!StringUtils.hasText(agentLookup)) {
+            return error("RUNTIME_AGENT_REQUIRED", "agentId is required",
+                    null, lookupBody, detailed, List.of());
+        }
+        Optional<RuntimeAgentExecutionContext> context = executionContextResolver.resolve(agentLookup);
+        if (context.isEmpty()) {
+            return error("RUNTIME_AGENT_NOT_FOUND", "Agent not found: " + agentLookup,
+                    null, lookupBody, detailed, List.of());
+        }
+        return executeEvaluation(context.get(), request, detailed, evaluation);
+    }
+
+    /** Executes an already captured server-side target, including an exact DRAFT config snapshot. */
+    public Map<String, Object> executeEvaluation(RuntimeAgentExecutionContext targetContext,
+                                                 Map<String, Object> request,
+                                                 boolean detailed,
+                                                 RuntimeEvalExecutionContext evalContext) {
+        RuntimeEvalExecutionContext evaluation = requireEvaluation(evalContext);
+        if (targetContext == null || targetContext.agent() == null || targetContext.config() == null) {
+            throw new IllegalArgumentException("A captured Eval target context is required");
+        }
+        Map<String, Object> body = prepareEvaluationBody(request);
+        body.put("agentId", targetContext.agent().id());
+        if (StringUtils.hasText(text(body.get("interactionId")))) {
+            return error("EVAL_INTERACTION_RESUME_UNSUPPORTED",
+                    "Eval executions cannot resume a persisted interaction",
+                    targetContext.agentView(), body, detailed, List.of());
+        }
+        return executeResolvedContext(body, detailed, null,
+                SupervisorRuntimeAdapter.SupervisorEventSink.NOOP,
+                RuntimeAgentExecutionCancellation.NOOP,
+                targetContext, false, null, TrustedPersonalMemoryContext.empty(), evaluation);
+    }
+
+    /**
      * Replays an immutable published/archived Agent configuration. This path deliberately does
      * not resolve the Agent's current ACTIVE configuration.
      */
@@ -156,6 +185,23 @@ public class RuntimeAgentExecutionService {
                                                       Long configVersionId,
                                                       Map<String, Object> request,
                                                       boolean detailed) {
+        return executePublishedConfig(agentId, configVersionId, request, detailed,
+                SupervisorRuntimeAdapter.SupervisorEventSink.NOOP,
+                RuntimeAgentExecutionCancellation.NOOP, null);
+    }
+
+    /**
+     * Executes an immutable Agent configuration through a server-attested identity and
+     * request-scoped cancellation token. A2A uses this overload so a published Agent Card
+     * cannot silently drift to the Agent's latest configuration after a Task was accepted.
+     */
+    public Map<String, Object> executePublishedConfig(String agentId,
+                                                      Long configVersionId,
+                                                      Map<String, Object> request,
+                                                      boolean detailed,
+                                                      SupervisorRuntimeAdapter.SupervisorEventSink eventSink,
+                                                      RuntimeAgentExecutionCancellation cancellation,
+                                                      WorkflowExecutionIdentity trustedIdentity) {
         Map<String, Object> body = normalizeContext(request);
         body.put("traceId", firstText(text(body.get("traceId")), newTraceId()));
         body.put("agentId", agentId);
@@ -172,8 +218,10 @@ public class RuntimeAgentExecutionService {
                     "Published Agent configuration not found: " + configVersionId,
                     resolved.agentView(), body, detailed, List.of());
         }
-        return executeResolvedContext(body, detailed, null, SupervisorRuntimeAdapter.SupervisorEventSink.NOOP,
-                RuntimeAgentExecutionCancellation.NOOP, resolved, true, null,
+        return executeResolvedContext(body, detailed, null,
+                eventSink == null ? SupervisorRuntimeAdapter.SupervisorEventSink.NOOP : eventSink,
+                cancellation == null ? RuntimeAgentExecutionCancellation.NOOP : cancellation,
+                resolved, true, trustedIdentity,
                 TrustedPersonalMemoryContext.empty());
     }
 
@@ -183,7 +231,7 @@ public class RuntimeAgentExecutionService {
 
     public void clearSession(String sessionId, WorkflowExecutionIdentity trustedIdentity) {
         if (StringUtils.hasText(sessionId)) {
-            sessionMemoryService.clear(sessionId.trim(), trustedIdentity);
+            sessionClearPort.clear(sessionId.trim(), trustedIdentity);
         }
     }
 
@@ -263,7 +311,7 @@ public class RuntimeAgentExecutionService {
             meta.put("runId", result.get("runId"));
             meta.put("sourceType", "WORKFLOW_INTERACTION_RESUME");
             // Waiting keeps root run open; success/fail/cancel closes the same trace.
-            runLifecycleService.finishAgent(traceId, success && !waiting, code, answer, meta, null,
+            runLifecyclePort.finishAgent(traceId, success && !waiting, code, answer, meta, null,
                     trustedIdentity);
         }
 
@@ -345,7 +393,8 @@ public class RuntimeAgentExecutionService {
                 workflowResult,
                 new SupervisorRuntimeAdapter.SupervisorRequest(
                         agent, config, resolved.tools(), supervisorInput, null, eventSink, cancellation,
-                        trustedIdentity, resolved.resolvedTargets(), personalMemory));
+                        trustedIdentity, resolved.resolvedTargets(), personalMemory,
+                        resolved.skills(), remoteAgentSnapshots(resolved)));
         List<Map<String, Object>> steps = new ArrayList<>();
         steps.add(step("resume-workflow-interaction", text(workflowResult.get("interactionId"))));
         steps.add(step("continue-after-workflow", continued.code()));
@@ -391,8 +440,8 @@ public class RuntimeAgentExecutionService {
                                                          WorkflowExecutionIdentity trustedIdentity,
                                                          TrustedPersonalMemoryContext personalMemory) {
         try {
-            SupervisorApprovalInteractionService.ResumeDecision decision =
-                    approvalInteractionService.prepareResume(interactionId, submission, trustedIdentity);
+            RuntimeSupervisorApprovalPort.ResumeDecision decision =
+                    approvalPort.prepareResume(interactionId, submission, trustedIdentity);
             if (decision.replayResult() != null) {
                 return decision.replayResult();
             }
@@ -411,8 +460,8 @@ public class RuntimeAgentExecutionService {
                     putIfPresent(finishMetadata, "sessionId", firstText(
                             text(submission.get("sessionId")),
                             text(originalInput.get("sessionId"))));
-                    runLifecycleService.resumeAgent(traceId);
-                    runLifecycleService.finishAgent(traceId, false, "SUPERVISOR_ACTION_REJECTED",
+                    runLifecyclePort.resumeAgent(traceId);
+                    runLifecyclePort.finishAgent(traceId, false, "SUPERVISOR_ACTION_REJECTED",
                             decision.message(), finishMetadata, null, trustedIdentity);
                     response = new LinkedHashMap<>();
                     response.put("success", true);
@@ -438,7 +487,7 @@ public class RuntimeAgentExecutionService {
                         firstText(ex.getMessage(), "Supervisor approval resume failed"),
                         null, failureContext, detailed, List.of());
             }
-            return approvalInteractionService.completeResume(
+            return approvalPort.completeResume(
                     interactionId, decision.idempotencyKey(), decision.submittedPayload(), response);
         } catch (IllegalArgumentException ex) {
             return error("SUPERVISOR_APPROVAL_INVALID", ex.getMessage(), null,
@@ -478,6 +527,21 @@ public class RuntimeAgentExecutionService {
                                                        boolean historicalReplay,
                                                        WorkflowExecutionIdentity trustedIdentity,
                                                        TrustedPersonalMemoryContext personalMemory) {
+        return executeResolvedContext(body, detailed, approvalGrant, eventSink, cancellation,
+                context, historicalReplay, trustedIdentity, personalMemory,
+                RuntimeEvalExecutionContext.none());
+    }
+
+    private Map<String, Object> executeResolvedContext(Map<String, Object> body,
+                                                       boolean detailed,
+                                                       SupervisorRuntimeAdapter.PolicyApprovalGrant approvalGrant,
+                                                       SupervisorRuntimeAdapter.SupervisorEventSink eventSink,
+                                                       RuntimeAgentExecutionCancellation cancellation,
+                                                       RuntimeAgentExecutionContext context,
+                                                       boolean historicalReplay,
+                                                       WorkflowExecutionIdentity trustedIdentity,
+                                                       TrustedPersonalMemoryContext personalMemory,
+                                                       RuntimeEvalExecutionContext evalContext) {
         RuntimeAgentView agentView = context.agentView();
         List<Map<String, Object>> bootstrap = new ArrayList<>();
         bootstrap.add(step("resolve-agent", agentView.id()));
@@ -499,10 +563,15 @@ public class RuntimeAgentExecutionService {
 
         List<RuntimeAgentWorkflowToolEntity> tools = context.tools() == null ? List.of() : context.tools();
         bootstrap.add(step("resolve-workflow-tools", String.valueOf(tools.size())));
+        bootstrap.add(step("resolve-agent-skills", String.valueOf(
+                context.skills() == null ? 0 : context.skills().size())));
+        bootstrap.add(step("resolve-a2a-remote-agents", String.valueOf(
+                context.remoteAgents() == null ? 0 : context.remoteAgents().size())));
         SupervisorRuntimeAdapter.SupervisorResult result = supervisorRuntime.execute(
                 new SupervisorRuntimeAdapter.SupervisorRequest(
                         agentView, config, tools, body, approvalGrant, eventSink, cancellation,
-                        trustedIdentity, context.resolvedTargets(), personalMemory));
+                        trustedIdentity, context.resolvedTargets(), personalMemory,
+                        context.skills(), remoteAgentSnapshots(context), evalContext));
         List<Map<String, Object>> steps = new ArrayList<>(bootstrap);
         if (result.steps() != null) steps.addAll(result.steps());
 
@@ -522,6 +591,12 @@ public class RuntimeAgentExecutionService {
         metadata.put("agentConfigVersionId", config.getId());
         metadata.put("agentConfigVersion", config.getVersionNo());
         metadata.put("runtimeType", "AGENTSCOPE");
+        if (evalContext != null && evalContext.isEvaluation()) {
+            metadata.put("evalMode", evalContext.mode().name());
+            putIfPresent(metadata, "evalExperimentId", evalContext.experimentId());
+            putIfPresent(metadata, "evalItemId", evalContext.itemId());
+            putIfPresent(metadata, "evalTargetFingerprint", evalContext.targetFingerprint());
+        }
         metadata.put("traceId", result.traceId());
         metadata.putAll(context.timingMetadata());
         if (result.metadata() != null) metadata.putAll(result.metadata());
@@ -551,6 +626,32 @@ public class RuntimeAgentExecutionService {
         } else {
             body.put("metadata", metadata);
         }
+        return body;
+    }
+
+    private RuntimeEvalExecutionContext requireEvaluation(RuntimeEvalExecutionContext evalContext) {
+        RuntimeEvalExecutionContext evaluation = evalContext == null
+                ? RuntimeEvalExecutionContext.none() : evalContext;
+        if (!evaluation.isEvaluation()) {
+            throw new IllegalArgumentException("A trusted Eval execution context is required");
+        }
+        return evaluation;
+    }
+
+    private Map<String, Object> prepareEvaluationBody(Map<String, Object> request) {
+        Map<String, Object> body = normalizeContext(request);
+        body.remove("evalMode");
+        body.remove("sandboxSideEffects");
+        body.remove("evaluationPolicy");
+        body.remove(RuntimeCapabilityCatalogClient.TRUSTED_EVAL_CONTEXT_ATTRIBUTE);
+        body.remove("__memoryTurnId");
+        body.remove("__memoryUserMessage");
+        body.remove("personalMemory");
+        body.remove("personalMemoryContext");
+        body.remove("__personalMemory");
+        body.putIfAbsent("traceId", newTraceId());
+        body.put("entryType", "EVAL");
+        body.put("__memoryTurnId", memoryTurnId(body, null));
         return body;
     }
 
@@ -608,7 +709,7 @@ public class RuntimeAgentExecutionService {
             metadata.put("projectCode", agent.projectCode());
         }
         response.put("metadata", metadata);
-        runLifecycleService.rejectAgent(text(request.get("traceId")), agent, request, code, answer);
+        runLifecyclePort.rejectAgent(text(request.get("traceId")), agent, request, code, answer);
         return response;
     }
 
@@ -617,6 +718,29 @@ public class RuntimeAgentExecutionService {
         step.put("name", name);
         step.put("detail", detail);
         return step;
+    }
+
+    private List<SupervisorRuntimeAdapter.RemoteAgentBinding> remoteAgentSnapshots(
+            RuntimeAgentExecutionContext context) {
+        if (context == null || context.remoteAgents() == null || context.remoteAgents().isEmpty()) {
+            return List.of();
+        }
+        return context.remoteAgents().stream()
+                .filter(java.util.Objects::nonNull)
+                .map(binding -> new SupervisorRuntimeAdapter.RemoteAgentBinding(
+                        binding.getId(),
+                        binding.getPrincipalId(),
+                        binding.getRemoteAgentId(),
+                        binding.getRemoteAgentRevisionId(),
+                        binding.getRemoteAgentKeySnapshot(),
+                        binding.getToolName(),
+                        binding.getDescriptionSnapshot(),
+                        binding.getAllowedSkillIdsJson(),
+                        binding.getOutputModesJson(),
+                        binding.getRiskLevel(),
+                        binding.getPermissionKey(),
+                        binding.getEnabled()))
+                .toList();
     }
 
     private void putIfPresent(Map<String, Object> target, String key, Object value) {

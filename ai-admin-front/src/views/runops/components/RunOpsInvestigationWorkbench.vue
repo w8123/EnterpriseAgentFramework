@@ -324,6 +324,7 @@
             <div><dt>运行时</dt><dd>{{ formatRuntimeTypeLabel(selectedRow.item.runtimeType || selectedSpan?.runtimeType) }}</dd></div>
             <div><dt>开始时间</dt><dd>{{ formatTimeOnly(selectedRow.item.startedAt || selectedSpan?.startedAt) }}</dd></div>
             <div><dt>耗时</dt><dd>{{ rowDuration(selectedRow) }}</dd></div>
+            <div><dt>尝试</dt><dd>{{ selectedAttemptLabel }}</dd></div>
             <div><dt>Token</dt><dd>{{ selectedSpan?.tokenCost ?? '—' }}</dd></div>
           </dl>
 
@@ -498,6 +499,7 @@ const visibleExecutionRows = computed(() => executionFilter.value === 'all'
 const selectedRow = computed(() => executionRows.value.find((row) => row.key === selectedExecutionKey.value))
 const selectedSpan = computed(() => selectedRow.value?.span)
 const selectedTone = computed(() => statusTone(selectedRow.value?.item.status))
+const selectedAttemptLabel = computed(() => attemptLabel(selectedSpan.value))
 const issueCount = computed(() => executionRows.value.filter((row) => !isHealthyStatus(row.item.status)).length)
 const supervisorEvents = computed(() => props.detail.spans.filter((span) =>
   ['PLAN', 'REPLAN', 'WORKFLOW_TOOL'].includes(span.spanType || ''),
@@ -574,7 +576,7 @@ const selectedEvidence = computed(() => {
   const row = selectedRow.value
   const span = selectedSpan.value
   if (!row) return []
-  return [
+  const evidence = [
     { label: '状态', value: executionStatusLabel(row.item.status) },
     { label: '运行时', value: formatRuntimeTypeLabel(row.item.runtimeType || span?.runtimeType) },
     { label: 'Span ID', value: span?.spanId || row.item.spanId || '-' },
@@ -583,6 +585,19 @@ const selectedEvidence = computed(() => {
     { label: '工具', value: row.item.toolName || span?.toolName || '-' },
     { label: '错误码', value: span?.errorCode || '-' },
   ]
+  const metadata = span?.metadata
+  if (metadata?.nodeType) evidence.push({ label: '节点类型', value: String(metadata.nodeType) })
+  if (metadata?.qualifiedName) evidence.push({ label: '能力全名', value: String(metadata.qualifiedName) })
+  if (metadata?.attempt != null || metadata?.maxAttempts != null) {
+    evidence.push({ label: '执行尝试', value: attemptLabel(span) })
+  }
+  if (metadata?.errorPolicy) evidence.push({ label: '错误策略', value: String(metadata.errorPolicy) })
+  if (metadata?.failureCategory) evidence.push({ label: '失败分类', value: String(metadata.failureCategory) })
+  if (metadata?.retryableFailure != null) {
+    evidence.push({ label: '允许重试', value: metadata.retryableFailure ? '是' : '否' })
+  }
+  if (metadata?.fallbackNodeId) evidence.push({ label: '回退节点', value: String(metadata.fallbackNodeId) })
+  return evidence
 })
 
 watch(executionRows, (rows) => {
@@ -663,9 +678,25 @@ function executionPathLabel(item: RunExecutionPathItem) {
 
 function executionSubtitle(row: ExecutionRow) {
   const span = row.span
-  if (span?.errorCode) return `${selectedRuntime(row)} · ${span.errorCode}`
-  if (span?.toolName && span.toolName !== row.title) return `${selectedRuntime(row)} · ${span.toolName}`
-  return selectedRuntime(row)
+  const parts = [selectedRuntime(row)]
+  if (span?.toolName && span.toolName !== row.title) parts.push(span.toolName)
+  if (span?.metadata?.attempt != null || span?.metadata?.maxAttempts != null) {
+    parts.push(`尝试 ${attemptLabel(span)}`)
+  }
+  if (span?.errorCode) parts.push(span.errorCode)
+  return parts.join(' · ')
+}
+
+function attemptLabel(span?: RunSpan) {
+  const attempt = numericMetadata(span?.metadata?.attempt)
+  const maxAttempts = numericMetadata(span?.metadata?.maxAttempts)
+  if (attempt == null && maxAttempts == null) return '—'
+  return `${attempt ?? 1}/${maxAttempts ?? attempt ?? 1}`
+}
+
+function numericMetadata(value: unknown): number | undefined {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined
 }
 
 function selectedRuntime(row: ExecutionRow) {

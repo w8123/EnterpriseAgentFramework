@@ -1,7 +1,6 @@
 package com.enterprise.ai.control.pageworkbench.application;
 
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.ReadinessItem;
-import com.enterprise.ai.control.client.runtime.RuntimeProxyClient;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.WorkflowReleaseReadinessView;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -17,7 +16,7 @@ public class PageWorkbenchReleaseReadinessApplicationService {
     public static final String KEY = "PRE_RELEASE_READY";
     private static final String LABEL = "Workflow 发布前检查";
 
-    private final RuntimeProxyClient runtimeClient;
+    private final PageWorkbenchRuntimePort runtimeClient;
     private final ObjectMapper objectMapper;
 
     public ReadinessItem evaluate(

@@ -13,13 +13,30 @@
           <template #header>模型配置</template>
           <el-form label-width="80px" size="default">
             <el-form-item label="厂商">
-              <el-select v-model="config.provider" placeholder="请选择厂商" filterable style="width: 100%" @change="onProviderChange">
+              <el-select
+                v-model="config.provider"
+                placeholder="请选择厂商"
+                filterable
+                style="width: 100%"
+                :loading="llmInstancesLoading"
+                @change="onProviderChange"
+                @visible-change="handleModelSelectVisible"
+              >
                 <el-option
                   v-for="item in llmProviderOptions"
                   :key="item"
                   :label="item"
                   :value="item"
                 />
+                <template #empty>
+                  <ModelSelectEmptyState
+                    model-type="LLM"
+                    :option-count="llmProviderOptions.length"
+                    :loading="llmInstancesLoading"
+                    :load-error="llmInstancesLoadError"
+                    @retry="fetchInstances"
+                  />
+                </template>
               </el-select>
             </el-form-item>
             <el-form-item label="实例">
@@ -29,7 +46,9 @@
                 style="width: 100%"
                 filterable
                 :disabled="!config.provider"
+                :loading="llmInstancesLoading"
                 @change="onInstanceChange"
+                @visible-change="handleModelSelectVisible"
               >
                 <el-option
                   v-for="item in filteredLlmInstances"
@@ -37,6 +56,15 @@
                   :label="`${item.name} / ${item.modelName}`"
                   :value="item.id"
                 />
+                <template #empty>
+                  <ModelSelectEmptyState
+                    model-type="LLM"
+                    :option-count="filteredLlmInstances.length"
+                    :loading="llmInstancesLoading"
+                    :load-error="llmInstancesLoadError"
+                    @retry="fetchInstances"
+                  />
+                </template>
               </el-select>
             </el-form-item>
             <el-form-item label="Model">
@@ -163,11 +191,15 @@ import type {
 } from '@/types/model'
 import { MODEL_STREAM_INTERRUPTED } from '@/types/model'
 import { getModelInstances, modelChat } from '@/api/model'
+import ModelSelectEmptyState from '@/components/model/ModelSelectEmptyState.vue'
+import { normalizeActiveModelInstances } from '@/utils/modelSelection'
 import { formatToolArguments } from './modelStream'
 import { useModelStream } from './useModelStream'
 import PageHeader from '@/components/common/PageHeader.vue'
 
 const llmInstances = ref<ModelInstance[]>([])
+const llmInstancesLoading = ref(false)
+const llmInstancesLoadError = ref(false)
 const selectableLlmInstances = computed(() =>
   llmInstances.value.filter((item) => item.status === 'ACTIVE'),
 )
@@ -373,9 +405,11 @@ function handleClear() {
 }
 
 async function fetchInstances() {
+  llmInstancesLoading.value = true
+  llmInstancesLoadError.value = false
   try {
     const { data } = await getModelInstances({ modelType: 'LLM' })
-    llmInstances.value = data?.data ?? (Array.isArray(data) ? data : [])
+    llmInstances.value = normalizeActiveModelInstances(data, 'LLM')
     const allowed = new Set(selectableLlmInstances.value.map((i) => i.id))
     if (config.modelInstanceId && !allowed.has(config.modelInstanceId)) {
       config.modelInstanceId = ''
@@ -386,10 +420,17 @@ async function fetchInstances() {
     }
   } catch {
     llmInstances.value = []
+    llmInstancesLoadError.value = true
     config.modelInstanceId = ''
     config.provider = ''
     config.model = ''
+  } finally {
+    llmInstancesLoading.value = false
   }
+}
+
+function handleModelSelectVisible(visible: boolean) {
+  if (visible) void fetchInstances()
 }
 
 onMounted(async () => {

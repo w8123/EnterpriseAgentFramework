@@ -1,6 +1,7 @@
 package com.enterprise.ai.control.aiassist;
 
 import com.enterprise.ai.control.client.capability.CapabilityProjectOnboardingClient;
+import com.enterprise.ai.control.client.capability.CapabilityAiCodingAccessUpdateRequest;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -117,8 +118,8 @@ class ControlAiAssistProjectControllerTest {
     void forwardsAiCodingAccessUpdatesToCapabilityOwner() {
         CapabilityProjectOnboardingClient client = mock(CapabilityProjectOnboardingClient.class);
         ControlAiAssistProjectController controller = new ControlAiAssistProjectController(client);
-        ControlAiAssistProjectController.AiCodingAccessUpdateRequest request =
-                new ControlAiAssistProjectController.AiCodingAccessUpdateRequest(true, "aic_manual");
+        CapabilityAiCodingAccessUpdateRequest request =
+                new CapabilityAiCodingAccessUpdateRequest(true, "aic_manual");
         when(client.updateAiCodingAccess(7L, request)).thenReturn(Map.of(
                 "enabled", true,
                 "accessKey", "aic_manual"

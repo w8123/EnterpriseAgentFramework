@@ -181,10 +181,10 @@ public class CapabilitySemanticCatalogService {
         ToolDefinitionEntity tool = findToolByName(toolName).orElseThrow(
                 () -> new IllegalArgumentException("tool does not exist: " + toolName));
         String prompt = """
-                请为以下全局 Tool 生成 AI 能力语义文档，使用 Markdown。
+                请为以下能力执行定义生成 AI 能力语义文档，使用 Markdown。
                 必须包含：一句话语义、输入参数理解、输出结果理解、适用场景、调用风险。
 
-                Tool：%s
+                执行定义：%s
                 描述：%s
                 AI 描述：%s
                 HTTP：%s %s

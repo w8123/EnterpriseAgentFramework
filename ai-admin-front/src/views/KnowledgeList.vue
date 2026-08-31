@@ -264,6 +264,8 @@
                 v-model="form.embeddingModelInstanceId"
                 filterable
                 placeholder="请选择向量模型实例"
+                :loading="embeddingInstancesLoading"
+                @visible-change="handleEmbeddingSelectVisible"
               >
                 <el-option
                   v-for="item in embeddingInstances"
@@ -271,6 +273,15 @@
                   :label="`${item.name} / ${item.modelName}`"
                   :value="item.id"
                 />
+                <template #empty>
+                  <ModelSelectEmptyState
+                    model-type="EMBEDDING"
+                    :option-count="embeddingInstances.length"
+                    :loading="embeddingInstancesLoading"
+                    :load-error="embeddingInstancesLoadError"
+                    @retry="fetchEmbeddingInstances"
+                  />
+                </template>
               </el-select>
             </el-form-item>
             <el-form-item label="LLM 实例" prop="llmModelInstanceId">
@@ -278,6 +289,8 @@
                 v-model="form.llmModelInstanceId"
                 filterable
                 placeholder="请选择回答生成模型实例"
+                :loading="llmInstancesLoading"
+                @visible-change="handleLlmSelectVisible"
               >
                 <el-option
                   v-for="item in llmInstances"
@@ -285,6 +298,15 @@
                   :label="`${item.name} / ${item.modelName}`"
                   :value="item.id"
                 />
+                <template #empty>
+                  <ModelSelectEmptyState
+                    model-type="LLM"
+                    :option-count="llmInstances.length"
+                    :loading="llmInstancesLoading"
+                    :load-error="llmInstancesLoadError"
+                    @retry="fetchLlmInstances"
+                  />
+                </template>
               </el-select>
             </el-form-item>
             <el-form-item class="is-wide" label="Rerank 实例（可选）">
@@ -293,6 +315,8 @@
                 clearable
                 filterable
                 placeholder="需要提升结果排序质量时，可选择 Reranker 模型实例"
+                :loading="rerankInstancesLoading"
+                @visible-change="handleRerankSelectVisible"
               >
                 <el-option
                   v-for="item in rerankInstances"
@@ -300,6 +324,15 @@
                   :label="`${item.name} / ${item.modelName}`"
                   :value="item.id"
                 />
+                <template #empty>
+                  <ModelSelectEmptyState
+                    model-type="RERANKER"
+                    :option-count="rerankInstances.length"
+                    :loading="rerankInstancesLoading"
+                    :load-error="rerankInstancesLoadError"
+                    @retry="fetchRerankInstances"
+                  />
+                </template>
               </el-select>
             </el-form-item>
           </div>
@@ -323,6 +356,7 @@
 <script setup lang="ts">
 import GlassDialog from '@/components/common/GlassDialog.vue'
 import GlassSectionHeader from '@/components/common/GlassSectionHeader.vue'
+import ModelSelectEmptyState from '@/components/model/ModelSelectEmptyState.vue'
 import { computed, ref, reactive, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import type { FormInstance, FormRules } from 'element-plus'
@@ -339,6 +373,7 @@ import { createKnowledge, updateKnowledge, deleteKnowledge } from '@/api/knowled
 import { getModelInstances } from '@/api/model'
 import type { KnowledgeBase, KnowledgeBaseForm } from '@/types/knowledge'
 import type { ModelInstance } from '@/types/model'
+import { normalizeActiveModelInstances } from '@/utils/modelSelection'
 
 const router = useRouter()
 const knowledgeStore = useKnowledgeStore()
@@ -388,6 +423,12 @@ const formRef = ref<FormInstance>()
 const embeddingInstances = ref<ModelInstance[]>([])
 const rerankInstances = ref<ModelInstance[]>([])
 const llmInstances = ref<ModelInstance[]>([])
+const embeddingInstancesLoading = ref(false)
+const rerankInstancesLoading = ref(false)
+const llmInstancesLoading = ref(false)
+const embeddingInstancesLoadError = ref(false)
+const rerankInstancesLoadError = ref(false)
+const llmInstancesLoadError = ref(false)
 
 const form = reactive<KnowledgeBaseForm>({
   name: '',
@@ -461,18 +502,57 @@ function handlePageSizeChange(size: number) {
 }
 
 async function fetchEmbeddingInstances() {
-  const { data } = await getModelInstances({ modelType: 'EMBEDDING' })
-  embeddingInstances.value = data?.data ?? (Array.isArray(data) ? data : [])
+  embeddingInstancesLoading.value = true
+  embeddingInstancesLoadError.value = false
+  try {
+    const { data } = await getModelInstances({ modelType: 'EMBEDDING' })
+    embeddingInstances.value = normalizeActiveModelInstances(data, 'EMBEDDING')
+  } catch {
+    embeddingInstances.value = []
+    embeddingInstancesLoadError.value = true
+  } finally {
+    embeddingInstancesLoading.value = false
+  }
 }
 
 async function fetchRerankInstances() {
-  const { data } = await getModelInstances({ modelType: 'RERANKER' })
-  rerankInstances.value = data?.data ?? (Array.isArray(data) ? data : [])
+  rerankInstancesLoading.value = true
+  rerankInstancesLoadError.value = false
+  try {
+    const { data } = await getModelInstances({ modelType: 'RERANKER' })
+    rerankInstances.value = normalizeActiveModelInstances(data, 'RERANKER')
+  } catch {
+    rerankInstances.value = []
+    rerankInstancesLoadError.value = true
+  } finally {
+    rerankInstancesLoading.value = false
+  }
 }
 
 async function fetchLlmInstances() {
-  const { data } = await getModelInstances({ modelType: 'LLM' })
-  llmInstances.value = data?.data ?? (Array.isArray(data) ? data : [])
+  llmInstancesLoading.value = true
+  llmInstancesLoadError.value = false
+  try {
+    const { data } = await getModelInstances({ modelType: 'LLM' })
+    llmInstances.value = normalizeActiveModelInstances(data, 'LLM')
+  } catch {
+    llmInstances.value = []
+    llmInstancesLoadError.value = true
+  } finally {
+    llmInstancesLoading.value = false
+  }
+}
+
+function handleEmbeddingSelectVisible(visible: boolean) {
+  if (visible) void fetchEmbeddingInstances()
+}
+
+function handleRerankSelectVisible(visible: boolean) {
+  if (visible) void fetchRerankInstances()
+}
+
+function handleLlmSelectVisible(visible: boolean) {
+  if (visible) void fetchLlmInstances()
 }
 
 async function handleSubmit() {

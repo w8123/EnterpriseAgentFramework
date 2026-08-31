@@ -165,7 +165,9 @@
             class="rebuild-dialog__control"
             placeholder="请选择厂商"
             filterable
+            :loading="embeddingInstancesLoading"
             @change="handleRebuildProviderChange"
+            @visible-change="handleEmbeddingSelectVisible"
           >
             <el-option
               v-for="provider in embeddingProviderOptions"
@@ -173,6 +175,15 @@
               :label="provider"
               :value="provider"
             />
+            <template #empty>
+              <ModelSelectEmptyState
+                model-type="EMBEDDING"
+                :option-count="embeddingProviderOptions.length"
+                :loading="embeddingInstancesLoading"
+                :load-error="embeddingInstancesLoadError"
+                @retry="loadEmbeddingInstances"
+              />
+            </template>
           </el-select>
         </el-form-item>
         <el-form-item required>
@@ -195,6 +206,8 @@
             placeholder="请选择向量模型实例"
             filterable
             :disabled="!rebuildModelProvider"
+            :loading="embeddingInstancesLoading"
+            @visible-change="handleEmbeddingSelectVisible"
           >
             <el-option
               v-for="item in filteredEmbeddingInstances"
@@ -202,6 +215,15 @@
               :label="`${item.name} / ${item.modelName}`"
               :value="item.id"
             />
+            <template #empty>
+              <ModelSelectEmptyState
+                model-type="EMBEDDING"
+                :option-count="filteredEmbeddingInstances.length"
+                :loading="embeddingInstancesLoading"
+                :load-error="embeddingInstancesLoadError"
+                @retry="loadEmbeddingInstances"
+              />
+            </template>
           </el-select>
         </el-form-item>
       </el-form>
@@ -231,6 +253,8 @@ import WorkbenchPanel from '@/components/common/WorkbenchPanel.vue'
 import DataTableShell from '@/components/common/DataTableShell.vue'
 import StatusTag from '@/components/common/StatusTag.vue'
 import AppDialog from '@/components/common/AppDialog.vue'
+import ModelSelectEmptyState from '@/components/model/ModelSelectEmptyState.vue'
+import { normalizeActiveModelInstances } from '@/utils/modelSelection'
 
 const form = reactive({
   query: '',
@@ -248,6 +272,8 @@ const rebuildDialogVisible = ref(false)
 const rebuildModelProvider = ref('')
 const rebuildModelInstanceId = ref('')
 const embeddingInstances = ref<ModelInstance[]>([])
+const embeddingInstancesLoading = ref(false)
+const embeddingInstancesLoadError = ref(false)
 const task = ref<ToolRebuildTask | null>(null)
 let pollTimer: ReturnType<typeof setInterval> | null = null
 
@@ -300,16 +326,21 @@ function handleRebuildProviderChange() {
 }
 
 async function loadEmbeddingInstances() {
+  embeddingInstancesLoading.value = true
+  embeddingInstancesLoadError.value = false
   try {
     const { data } = await getModelInstances({ modelType: 'EMBEDDING' })
-    const list = data?.data ?? (Array.isArray(data) ? data : [])
-    embeddingInstances.value = list.filter((item) => item.status === 'ACTIVE')
-    if (!embeddingInstances.value.length) {
-      ElMessage.warning('未找到已开启的 Embedding 类型模型实例，请先在「模型实例」中配置')
-    }
+    embeddingInstances.value = normalizeActiveModelInstances(data, 'EMBEDDING')
   } catch {
     embeddingInstances.value = []
+    embeddingInstancesLoadError.value = true
+  } finally {
+    embeddingInstancesLoading.value = false
   }
+}
+
+function handleEmbeddingSelectVisible(visible: boolean) {
+  if (visible) void loadEmbeddingInstances()
 }
 
 async function confirmRebuild() {

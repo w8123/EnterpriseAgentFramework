@@ -1,5 +1,6 @@
 package com.enterprise.ai.runtime.supervisor;
 
+import com.enterprise.ai.runtime.execution.SupervisorRuntimeAdapter;
 import com.enterprise.ai.runtime.agent.RuntimeAgentConfigVersionEntity;
 import com.enterprise.ai.runtime.agent.RuntimeAgentView;
 import com.enterprise.ai.runtime.agent.RuntimeAgentWorkflowToolEntity;
@@ -9,8 +10,10 @@ import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient;
 import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient.ModelChatData;
 import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient.ModelChatResult;
 import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient.ModelUsage;
+import com.enterprise.ai.runtime.execution.RuntimeAgentExecutionCancellation;
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionResult;
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutor;
+import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
 import com.enterprise.ai.runtime.memory.RuntimeSessionMemoryService;
 import com.enterprise.ai.runtime.memory.RuntimeToolResultArtifactService;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionEntity;
@@ -26,13 +29,16 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -46,6 +52,20 @@ class AgentScopeSupervisorRuntimeAdapterTest {
     private final SupervisorExecutionTraceService traceService = mock(SupervisorExecutionTraceService.class);
     private final Map<String, RuntimeWorkflowDefinitionEntity> workflowTargets = new LinkedHashMap<>();
     private final Map<Long, RuntimeWorkflowVersionEntity> workflowVersions = new LinkedHashMap<>();
+
+    AgentScopeSupervisorRuntimeAdapterTest() {
+        // These tests exercise ordinary Supervisor execution and intentionally keep their
+        // per-case behavior on the legacy overload. Eval-specific tests cover propagation of
+        // RuntimeEvalExecutionContext; delegate the new overload so existing workflow stubs do
+        // not silently return Mockito's null default after the Eval execution path is introduced.
+        when(graphExecutor.execute(any(), any(), any(), any(), any(), any()))
+                .thenAnswer(invocation -> graphExecutor.execute(
+                        invocation.getArgument(0),
+                        invocation.getArgument(1),
+                        invocation.getArgument(2),
+                        invocation.getArgument(3),
+                        invocation.getArgument(4)));
+    }
 
     @Test
     void answersDirectlyWithAnImplicitZeroToolPlan() {
@@ -975,6 +995,135 @@ class AgentScopeSupervisorRuntimeAdapterTest {
                 org.mockito.ArgumentMatchers.eq(false),
                 org.mockito.ArgumentMatchers.eq(false),
                 org.mockito.ArgumentMatchers.eq("lease-1"));
+    }
+
+    @Test
+    void delegatesToManagedExecutorAsAnImmediateAsyncToolAndNeverInvokesGraphSpec() throws Exception {
+        RuntimeAgentConfigVersionEntity config = config(false);
+        config.setStatus("PUBLISHED");
+        ManagedExecutorAgentDelegationService delegation = mock(ManagedExecutorAgentDelegationService.class);
+        var managedPolicy = new ManagedExecutorAgentDelegationService.DelegationPolicy(
+                true,
+                false,
+                ManagedExecutorAgentDelegationService.TOOL_NAMES,
+                "ANALYZE_READONLY",
+                "codex-reviewed",
+                "PROJECT_DEFAULT",
+                0,
+                900,
+                300,
+                1);
+        when(delegation.resolvePolicy(any(), any())).thenReturn(managedPolicy);
+        when(delegation.availableTools(any(), any()))
+                .thenReturn(ManagedExecutorAgentDelegationService.TOOL_NAMES);
+        when(delegation.invoke(
+                org.mockito.ArgumentMatchers.eq(ManagedExecutorAgentDelegationService.START_TOOL),
+                any(), any(), any(), any(), any(), any()))
+                .thenReturn(Map.of(
+                        "schema", "reachai.managed-executor.delegation-card.v1",
+                        "kind", "MANAGED_EXECUTION",
+                        "executionId", "mex_1",
+                        "status", "QUEUED",
+                        "async", true,
+                        "productionMutationApplied", false));
+        AgentScopeSupervisorRuntimeAdapter adapter = adapter(model(List.of(
+                calls(call("plan-managed", "record_supervisor_plan", Map.of(
+                        "summary", "Use the selected managed sandbox",
+                        "steps", List.of("Create the asynchronous coding execution"),
+                        "workflowToolNames", List.of(ManagedExecutorAgentDelegationService.START_TOOL)))),
+                calls(call("start-managed", ManagedExecutorAgentDelegationService.START_TOOL,
+                        Map.of("objective", "Inspect the repository and run its governed checks"))),
+                calls(call("final-managed", "begin_final_answer", Map.of())),
+                text("托管执行 mex_1 已进入队列，当前状态为 QUEUED。"),
+                text("托管执行 mex_1 已进入队列，当前状态为 QUEUED。"))));
+        adapter.setManagedExecutorDelegationService(delegation);
+        WorkflowExecutionIdentity identity = WorkflowExecutionIdentity.fromAgent(
+                "tenant-a", 7L, "qmssmp", "user-a");
+
+        SupervisorRuntimeAdapter.SupervisorResult result = adapter.execute(
+                new SupervisorRuntimeAdapter.SupervisorRequest(
+                        agent(),
+                        config,
+                        List.of(),
+                        Map.of(
+                                "message", "请用平台托管执行检查这个复杂代码问题",
+                                "sessionId", "s-managed",
+                                "managedExecutorRequested", true),
+                        null,
+                        SupervisorRuntimeAdapter.SupervisorEventSink.NOOP,
+                        RuntimeAgentExecutionCancellation.NOOP,
+                        identity));
+
+        assertTrue(result.success(), result.code() + " " + result.answer() + " " + result.metadata());
+        assertEquals(1, result.metadata().get("managedExecutorCallCount"));
+        assertEquals(0, result.metadata().get("workflowCallCount"));
+        assertEquals("MANAGED_EXECUTOR", result.metadata().get("decisionMode"));
+        assertEquals(true, result.metadata().get("managedExecutorSelected"));
+        assertTrue(result.answer().contains("mex_1"));
+        verify(delegation).invoke(
+                org.mockito.ArgumentMatchers.eq(ManagedExecutorAgentDelegationService.START_TOOL),
+                org.mockito.ArgumentMatchers.eq(managedPolicy),
+                org.mockito.ArgumentMatchers.eq(config),
+                org.mockito.ArgumentMatchers.argThat(value -> value != null
+                        && value.projectTrusted() && value.userTrusted()
+                        && "qmssmp".equals(value.projectCode()) && "user-a".equals(value.userId())),
+                any(),
+                org.mockito.ArgumentMatchers.eq(Map.of(
+                        "objective", "Inspect the repository and run its governed checks")),
+                org.mockito.ArgumentMatchers.eq("trace-1"));
+        verifyNoInteractions(graphExecutor);
+    }
+
+    @Test
+    void registersOnlyManagedToolsExposedByTheFailClosedPerRunPolicy() {
+        RuntimeAgentConfigVersionEntity config = config(false);
+        config.setStatus("PUBLISHED");
+        ManagedExecutorAgentDelegationService delegation = mock(ManagedExecutorAgentDelegationService.class);
+        var managedPolicy = new ManagedExecutorAgentDelegationService.DelegationPolicy(
+                true,
+                false,
+                ManagedExecutorAgentDelegationService.TOOL_NAMES,
+                "ANALYZE_READONLY",
+                null,
+                "PROJECT_DEFAULT",
+                0,
+                900,
+                300,
+                1);
+        when(delegation.resolvePolicy(any(), any())).thenReturn(managedPolicy);
+        when(delegation.availableTools(any(), any())).thenReturn(Set.of(
+                ManagedExecutorAgentDelegationService.STATUS_TOOL,
+                ManagedExecutorAgentDelegationService.READ_RESULT_TOOL));
+        AtomicReference<Set<String>> registered = new AtomicReference<>(Set.of());
+        RuntimeModelServiceClient modelClient = request -> {
+            Set<String> names = new java.util.LinkedHashSet<>();
+            if (request.getTools() != null) {
+                request.getTools().forEach(tool -> names.add(tool.path("function").path("name").asText()));
+            }
+            registered.set(Set.copyOf(names));
+            return new ModelChatResult(200, "success", text("请先显式选择平台托管执行模式。"));
+        };
+        AgentScopeSupervisorRuntimeAdapter adapter = adapter(modelClient);
+        adapter.setManagedExecutorDelegationService(delegation);
+
+        SupervisorRuntimeAdapter.SupervisorResult result = adapter.execute(
+                new SupervisorRuntimeAdapter.SupervisorRequest(
+                        agent(),
+                        config,
+                        List.of(),
+                        Map.of("message", "分析一下复杂问题", "sessionId", "s-no-auto-route"),
+                        null,
+                        SupervisorRuntimeAdapter.SupervisorEventSink.NOOP,
+                        RuntimeAgentExecutionCancellation.NOOP,
+                        WorkflowExecutionIdentity.fromAgent(
+                                "tenant-a", 7L, "qmssmp", "user-a")));
+
+        assertTrue(result.success());
+        assertFalse(registered.get().contains(ManagedExecutorAgentDelegationService.START_TOOL));
+        assertTrue(registered.get().contains(ManagedExecutorAgentDelegationService.STATUS_TOOL));
+        assertTrue(registered.get().contains(ManagedExecutorAgentDelegationService.READ_RESULT_TOOL));
+        assertEquals(0, result.metadata().get("managedExecutorCallCount"));
+        verify(delegation, never()).invoke(any(), any(), any(), any(), any(), any(), any());
     }
 
     private AgentScopeSupervisorRuntimeAdapter adapter(RuntimeModelServiceClient modelClient) {

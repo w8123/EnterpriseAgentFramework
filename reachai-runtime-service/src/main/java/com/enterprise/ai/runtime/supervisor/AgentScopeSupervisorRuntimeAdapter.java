@@ -1,9 +1,18 @@
 package com.enterprise.ai.runtime.supervisor;
 
+import com.enterprise.ai.runtime.agentscope.AgentScopeAnswerPhase;
+import com.enterprise.ai.runtime.agentscope.ModelStreamFailure;
+import com.enterprise.ai.runtime.agentscope.ReachAiAgentScopeChatModel;
+import com.enterprise.ai.runtime.execution.SupervisorRuntimeAdapter;
+import com.enterprise.ai.runtime.execution.SupervisorRuntimeAdapter.RemoteAgentBinding;
 import com.enterprise.ai.runtime.agent.RuntimeAgentConfigVersionEntity;
+import com.enterprise.ai.runtime.agent.RuntimeAgentSkillRepositoryFactory;
+import com.enterprise.ai.runtime.agent.RuntimeAgentSkillRepositoryFactory.PreparedSkills;
 import com.enterprise.ai.runtime.agent.RuntimeAgentView;
 import com.enterprise.ai.runtime.agent.RuntimeAgentWorkflowToolEntity;
 import com.enterprise.ai.runtime.agent.RuntimeResolvedWorkflowTarget;
+import com.enterprise.ai.runtime.a2a.RuntimeA2aDelegationService;
+import com.enterprise.ai.runtime.client.control.RuntimeA2aControlClient;
 import com.enterprise.ai.runtime.chat.RuntimeChatMemoryStore;
 import com.enterprise.ai.runtime.client.control.RuntimeControlCatalogClient;
 import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient;
@@ -107,6 +116,37 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
     private final SupervisorExecutionTraceService traceService;
     private final ObjectMapper objectMapper;
     private final RuntimeContextEngineeringService contextEngineeringService;
+    private final RuntimeAgentSkillRepositoryFactory skillRepositoryFactory;
+    private RuntimeA2aDelegationService a2aDelegationService;
+    private ManagedExecutorAgentDelegationService managedExecutorDelegationService;
+
+    @Autowired(required = false)
+    void setA2aDelegationService(RuntimeA2aDelegationService service) {
+        this.a2aDelegationService = service;
+    }
+
+    @Autowired(required = false)
+    void setManagedExecutorDelegationService(ManagedExecutorAgentDelegationService service) {
+        this.managedExecutorDelegationService = service;
+    }
+
+    public AgentScopeSupervisorRuntimeAdapter(
+            RuntimeModelServiceClient modelClient,
+            RuntimeModelStreamHttpClient modelStreamClient,
+            RuntimeControlCatalogClient controlCatalogClient,
+            RuntimeWorkflowDefinitionMapper workflowMapper,
+            RuntimeWorkflowVersionMapper workflowVersionMapper,
+            RuntimeGraphSpecExecutor graphSpecExecutor,
+            RuntimeWorkflowInteractionSessionService interactionSessionService,
+            RuntimeSessionMemoryService sessionMemoryService,
+            SupervisorToolPolicyService policyService,
+            SupervisorExecutionTraceService traceService,
+            ObjectMapper objectMapper,
+            RuntimeContextEngineeringService contextEngineeringService) {
+        this(modelClient, modelStreamClient, controlCatalogClient, workflowMapper, workflowVersionMapper,
+                graphSpecExecutor, interactionSessionService, sessionMemoryService, policyService, traceService,
+                objectMapper, contextEngineeringService, null);
+    }
 
     @Autowired
     public AgentScopeSupervisorRuntimeAdapter(
@@ -121,7 +161,8 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
             SupervisorToolPolicyService policyService,
             SupervisorExecutionTraceService traceService,
             ObjectMapper objectMapper,
-            RuntimeContextEngineeringService contextEngineeringService) {
+            RuntimeContextEngineeringService contextEngineeringService,
+            RuntimeAgentSkillRepositoryFactory skillRepositoryFactory) {
         this.modelClient = modelClient;
         this.modelStreamClient = modelStreamClient;
         this.controlCatalogClient = controlCatalogClient;
@@ -134,6 +175,7 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
         this.traceService = traceService;
         this.objectMapper = objectMapper;
         this.contextEngineeringService = contextEngineeringService;
+        this.skillRepositoryFactory = skillRepositoryFactory;
     }
 
     /** Compatibility constructor for existing isolated tests. */
@@ -181,6 +223,7 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
         long traceBeginStart = System.nanoTime();
         TraceHandle trace = traceService.beginOrResume(agent, config, request.workflowTools(), input,
                 resolveTrustedIdentity(request));
+        traceService.skillBindings(trace, request.skills());
         long traceBeginMs = Math.max(0L, (System.nanoTime() - traceBeginStart) / 1_000_000L);
         List<WorkflowTarget> resolvedTargets = resolveTargetsOnce(request);
         RunState state = new RunState(request, trace, resolvedTargets);
@@ -200,8 +243,14 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
             for (WorkflowTarget target : state.targets()) {
                 toolkit.registerAgentTool(workflowTool(state, target.tool(), target));
             }
+            for (RemoteAgentBinding binding : request.remoteAgents()) {
+                toolkit.registerAgentTool(remoteAgentTool(state, binding));
+            }
+            for (String toolName : state.managedExecutorToolNames()) {
+                toolkit.registerAgentTool(managedExecutorTool(state, toolName));
+            }
 
-            SupervisorAnswerPhase answerPhase = state.answerPhase;
+            AgentScopeAnswerPhase answerPhase = state.answerPhase;
             ReachAiAgentScopeChatModel model = new ReachAiAgentScopeChatModel(
                     config.getModelInstanceId(),
                     modelClient,
@@ -233,19 +282,39 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                     .parallelToolCalls(Boolean.TRUE.equals(config.getParallelReadOnly()))
                     .build();
             Hook publicFinalHook = publicFinalHook(answerPhase);
-            ReActAgent.Builder agentBuilder = ReActAgent.builder()
+            try (PreparedSkills preparedSkills = skillRepositoryFactory == null
+                    ? new PreparedSkills(List.of(), List.of(), "")
+                    : skillRepositoryFactory.prepare(request.skills(), agent.projectCode())) {
+                traceService.skillActivation(trace, agent, config, input,
+                        preparedSkills.activeBindings(), preparedSkills.skippedSkills());
+                String boundSkillPrompt = systemPrompt(request, state.targets(), state);
+                if (StringUtils.hasText(preparedSkills.alwaysInstructions())) {
+                    boundSkillPrompt = boundSkillPrompt + "\n\n"
+                            + "The following reviewed Agent Skills are configured as ALWAYS for this exact Agent "
+                            + "configuration version. Follow their instructions within the existing Tool ACL and "
+                            + "approval policy. Skill metadata never grants additional tools or permissions.\n"
+                            + preparedSkills.alwaysInstructions();
+                }
+                ReActAgent.Builder agentBuilder = ReActAgent.builder()
                     .name(agent.keySlug())
                     .description(agent.description())
-                    .sysPrompt(systemPrompt(request, state.targets()))
+                    .sysPrompt(boundSkillPrompt)
                     .model(model)
                     .toolkit(toolkit)
-                    .maxIters(Math.max(6, config.getMaxWorkflowCalls() + config.getMaxReplans() + 4))
+                    .maxIters(Math.max(6, config.getMaxWorkflowCalls() + config.getMaxReplans()
+                            + request.remoteAgents().size() + 4))
                     .generateOptions(options)
                     .hook(publicFinalHook)
                     .stateStore(sessionMemoryService.stateStoreForTurn(
                             state.memoryKey(), state.turnLeaseOwner));
-            contextEngineering.configure(toolkit, agentBuilder);
-            try (ReActAgent reactAgent = agentBuilder.build()) {
+                if (preparedSkills.enabled()) {
+                    agentBuilder.skillRepositories(preparedSkills.repositories())
+                            .dynamicSkillsEnabled(true)
+                            // Reviewed scripts are still data until a separately governed sandbox is installed.
+                            .skillCodeExecutionEnabled(false);
+                }
+                contextEngineering.configure(toolkit, agentBuilder);
+                try (ReActAgent reactAgent = agentBuilder.build()) {
                 String agentScopeSessionId = state.memoryKey().persistent()
                         ? state.memoryKey().stateSessionKey()
                         : state.sessionId();
@@ -303,6 +372,20 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                 responseMeta.put("contentStreamed", model.didStreamContent());
                 responseMeta.put("answerPhase", answerPhase.get().name());
                 responseMeta.put("modelRoundCount", model.modelRoundCount());
+                responseMeta.put("skillBindingCount", request.skills().size());
+                responseMeta.put("a2aRemoteAgentBindingCount", request.remoteAgents().size());
+                responseMeta.put("a2aDelegationCount", state.a2aCallCount.get());
+                responseMeta.put("managedExecutorToolCount", state.managedExecutorToolNames().size());
+                responseMeta.put("managedExecutorCallCount", state.managedExecutorCallCount.get());
+                responseMeta.put("activeSkillCount", preparedSkills.activeBindings().size());
+                responseMeta.put("skippedSkillCount", preparedSkills.skippedSkills().size());
+                responseMeta.put("activeSkillVersions", preparedSkills.activeBindings().stream()
+                        .map(skill -> skill.getPublisher() + "/" + skill.getStandardName() + "@"
+                                + skill.getVersion() + "#" + skill.getSourceSha256())
+                        .toList());
+                responseMeta.put("skippedSkillVersions", preparedSkills.skippedSkills().stream()
+                        .map(skill -> skill.identity() + "@" + skill.version() + ":" + skill.reason())
+                        .toList());
                 responseMeta.putAll(contextEngineering.safeMetadata());
                 if (directTerminal) {
                     responseMeta.put("decisionMode", "DIRECT");
@@ -317,6 +400,7 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                 answerPhase.markCompleted();
                 return finish(state, true, "SUPERVISOR_COMPLETED",
                         firstText(answer, ""), responseMeta);
+                }
             }
         } catch (RuntimeSessionBusyException busy) {
             state.terminateActivePhases("failed", busy.getMessage());
@@ -332,7 +416,7 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                     Map.of("answerPhase", state.answerPhase.get().name(), "cancelled", true));
         } catch (Exception ex) {
             if (cancellation.isCancelled()
-                    || state.answerPhase.get() == SupervisorAnswerPhase.Phase.CANCELLED) {
+                    || state.answerPhase.get() == AgentScopeAnswerPhase.Phase.CANCELLED) {
                 state.answerPhase.markCancelled();
                 state.terminateActivePhases("cancelled", "执行已取消");
                 return finish(state, false, "SUPERVISOR_CANCELLED", "Agent execution cancelled",
@@ -376,8 +460,11 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
         if (!StringUtils.hasText(traceId)) {
             throw new IllegalStateException("Supervisor continuation requires the original traceId");
         }
-        RuntimeSessionMemoryKey memoryKey = sessionMemoryService.resolve(
-                request.agent(), textObj(requestInput.get("sessionId")), resolveTrustedIdentity(request));
+        RuntimeSessionMemoryKey memoryKey = request.evalContext().isEvaluation()
+                ? sessionMemoryService.resolveTransient(
+                        request.agent(), textObj(requestInput.get("sessionId")), resolveTrustedIdentity(request))
+                : sessionMemoryService.resolve(
+                        request.agent(), textObj(requestInput.get("sessionId")), resolveTrustedIdentity(request));
         String turnId = firstText(textObj(requestInput.get("__memoryTurnId")),
                 textObj(requestInput.get("interactionId")), UUID.randomUUID().toString());
         String userMessage = continuationUserMessage(requestInput);
@@ -655,8 +742,9 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
         return new AgentTool() {
             @Override public String getName() { return PLAN_TOOL; }
             @Override public String getDescription() {
-                return "Record the execution plan before calling any Workflow tool, and record a revised plan after a failed Workflow. "
-                        + "After a failure, use an empty workflowToolNames list only when no permitted Workflow can safely continue.";
+                return "Record the execution plan before calling any Workflow or A2A remote-Agent tool, "
+                        + "and record a revised plan after a failed tool. After a failure, use an empty "
+                        + "workflowToolNames list only when no permitted execution tool can safely continue.";
             }
             @Override public Map<String, Object> getParameters() {
                 return Map.of(
@@ -666,7 +754,7 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                                 "steps", Map.of("type", "array", "items", Map.of("type", "string"),
                                         "description", "Ordered executable plan steps"),
                                 "workflowToolNames", Map.of("type", "array", "items", Map.of("type", "string"),
-                                        "description", "Exact ordered Workflow tool names to execute; use only permitted names. "
+                                        "description", "Exact ordered Workflow or A2A remote-Agent tool names to execute; use only permitted names. "
                                                 + "May be empty only in a revised plan that abandons a failed Workflow path"),
                                 "reason", Map.of("type", "string", "description", "Why this plan or replan is needed")),
                         "required", List.of("summary", "steps", "workflowToolNames"),
@@ -711,7 +799,7 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
         };
     }
 
-    private Hook publicFinalHook(SupervisorAnswerPhase answerPhase) {
+    private Hook publicFinalHook(AgentScopeAnswerPhase answerPhase) {
         return new Hook() {
             @Override
             public <T extends HookEvent> Mono<T> onEvent(T event) {
@@ -740,12 +828,13 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
         if (state.confirmationPending() || state.forcedFinalAnswer) {
             return false;
         }
-        if (state.planCount.get() != 0 || state.workflowCallCount.get() != 0) {
+        if (state.planCount.get() != 0 || state.workflowCallCount.get() != 0
+                || state.a2aCallCount.get() != 0 || state.managedExecutorCallCount.get() != 0) {
             return false;
         }
         if (state.answerPhase.isPublicFinal()
-                || state.answerPhase.get() == SupervisorAnswerPhase.Phase.COMPLETED
-                || state.answerPhase.get() == SupervisorAnswerPhase.Phase.CANCELLED) {
+                || state.answerPhase.get() == AgentScopeAnswerPhase.Phase.COMPLETED
+                || state.answerPhase.get() == AgentScopeAnswerPhase.Phase.CANCELLED) {
             return false;
         }
         if (model.didStreamContent()) {
@@ -785,7 +874,7 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
         if (!state.answerPhase.enterPublicFinal()) {
             // CANCELLED / 终态：绝不启动第二次模型请求（含 ToolChoice.None final pass）
             if (cancellation.isCancelled()
-                    || state.answerPhase.get() == SupervisorAnswerPhase.Phase.CANCELLED) {
+                    || state.answerPhase.get() == AgentScopeAnswerPhase.Phase.CANCELLED) {
                 throw new RuntimeAgentExecutionCancellation.CancellationSignal();
             }
             throw new IllegalStateException("Cannot enter PUBLIC_FINAL from phase "
@@ -948,6 +1037,124 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                 return state.executeWorkflow(tool, target, param.getInput());
             }
         };
+    }
+
+    private AgentTool remoteAgentTool(
+            RunState state,
+            RemoteAgentBinding binding) {
+        return new AgentTool() {
+            @Override public String getName() {
+                return binding.getToolName();
+            }
+
+            @Override public String getDescription() {
+                return firstText(binding.getDescriptionSnapshot(),
+                        "Delegate a governed task to remote Agent "
+                                + binding.getRemoteAgentKeySnapshot());
+            }
+
+            @Override public Map<String, Object> getParameters() {
+                List<String> skills = jsonStringList(binding.getAllowedSkillIdsJson());
+                List<String> outputs = jsonStringList(binding.getOutputModesJson());
+                Map<String, Object> properties = new LinkedHashMap<>();
+                properties.put("text", Map.of(
+                        "type", "string",
+                        "minLength", 1,
+                        "maxLength", 262_144,
+                        "description", "Complete task instruction for the remote Agent"));
+                Map<String, Object> skill = new LinkedHashMap<>();
+                skill.put("type", "string");
+                skill.put("description", "Exact protocol AgentSkill id allowed by the fixed binding");
+                if (!skills.isEmpty() && !skills.contains("*")) skill.put("enum", skills);
+                properties.put("protocolSkillId", skill);
+                Map<String, Object> outputModes = new LinkedHashMap<>();
+                outputModes.put("type", "array");
+                Map<String, Object> outputItem = new LinkedHashMap<>();
+                outputItem.put("type", "string");
+                if (!outputs.isEmpty() && !outputs.contains("*/*")) outputItem.put("enum", outputs);
+                outputModes.put("items", outputItem);
+                outputModes.put("description", "Optional accepted media types from the fixed Agent Card");
+                properties.put("acceptedOutputModes", outputModes);
+                properties.put("contextId", Map.of(
+                        "type", "string",
+                        "description", "ReachAI outbound context id from an earlier result, only for continuation"));
+                properties.put("taskId", Map.of(
+                        "type", "string",
+                        "description", "ReachAI outbound task id from an INPUT_REQUIRED result, only for continuation"));
+                return Map.of(
+                        "type", "object",
+                        "properties", properties,
+                        "required", List.of("text", "protocolSkillId"),
+                        "additionalProperties", false);
+            }
+
+            @Override public Mono<ToolResultBlock> callAsync(ToolCallParam param) {
+                return state.executeRemoteAgent(binding, param.getInput());
+            }
+        };
+    }
+
+    private AgentTool managedExecutorTool(RunState state, String toolName) {
+        return new AgentTool() {
+            @Override public String getName() {
+                return toolName;
+            }
+
+            @Override public String getDescription() {
+                return switch (toolName) {
+                    case ManagedExecutorAgentDelegationService.START_TOOL ->
+                            "Create one asynchronous, Runtime-governed coding execution in the fixed sandbox "
+                                    + "profile for this Agent configuration. Returns immediately with a task card.";
+                    case ManagedExecutorAgentDelegationService.STATUS_TOOL ->
+                            "Read a sanitized status card for a Managed Execution created by this exact Agent "
+                                    + "configuration and trusted user.";
+                    case ManagedExecutorAgentDelegationService.READ_RESULT_TOOL ->
+                            "Read verified result metadata and Artifact references for a successful Managed "
+                                    + "Execution created by this exact Agent configuration and trusted user.";
+                    default -> "Unavailable Managed Executor tool";
+                };
+            }
+
+            @Override public Map<String, Object> getParameters() {
+                if (ManagedExecutorAgentDelegationService.START_TOOL.equals(toolName)) {
+                    return Map.of(
+                            "type", "object",
+                            "properties", Map.of(
+                                    "objective", Map.of(
+                                            "type", "string",
+                                            "minLength", 1,
+                                            "maxLength", 65_535,
+                                            "description", "Bounded coding or repository-analysis objective; never include credentials")),
+                            "required", List.of("objective"),
+                            "additionalProperties", false);
+                }
+                return Map.of(
+                        "type", "object",
+                        "properties", Map.of(
+                                "executionId", Map.of(
+                                        "type", "string",
+                                        "pattern", "^mex_[A-Za-z0-9._:-]+$",
+                                        "maxLength", 128,
+                                        "description", "Exact Managed Execution id returned by an earlier task card")),
+                        "required", List.of("executionId"),
+                        "additionalProperties", false);
+            }
+
+            @Override public Mono<ToolResultBlock> callAsync(ToolCallParam param) {
+                return state.executeManagedExecutor(toolName, param.getInput());
+            }
+        };
+    }
+
+    private List<String> jsonStringList(String json) {
+        if (!StringUtils.hasText(json)) return List.of();
+        try {
+            List<String> values = objectMapper.readValue(json, new TypeReference<List<String>>() { });
+            if (values == null) return List.of();
+            return values.stream().filter(StringUtils::hasText).map(String::trim).distinct().toList();
+        } catch (Exception failure) {
+            throw new IllegalStateException("Published A2A binding contains invalid list JSON", failure);
+        }
     }
 
     /**
@@ -1608,29 +1815,30 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
         return messages;
     }
 
-    private String systemPrompt(SupervisorRequest request, List<WorkflowTarget> targets) {
+    private String systemPrompt(SupervisorRequest request, List<WorkflowTarget> targets, RunState state) {
         RuntimeAgentConfigVersionEntity config = request.config();
         StringBuilder prompt = new StringBuilder();
         prompt.append(config.getSystemPrompt()).append("\n\n")
                 .append("You are the ReachAI Supervisor runtime implemented with AgentScope Java 2.0.0 GA.\n")
-                .append("First decide whether any permitted Workflow tool is required to fulfill the user's request.\n")
-                .append("If no Workflow is needed (greetings, clarifications, general chat, or answers you can give from context alone): ")
+                .append("First decide whether any permitted Workflow, A2A remote-Agent, or Managed Executor tool is required to fulfill the user's request.\n")
+                .append("If no execution tool is needed (greetings, clarifications, general chat, or answers you can give from context alone): ")
                 .append("do NOT call record_supervisor_plan, do NOT call begin_final_answer, do NOT call any tool. ")
                 .append("Reply once with the final user-facing plain text only.\n")
-                .append("If one or more Workflow tools are needed: call record_supervisor_plan immediately before the first Workflow call. ")
+                .append("If one or more execution tools are needed: call record_supervisor_plan immediately before the first tool call. ")
                 .append("The plan must have no more than ")
                 .append(config.getMaxPlanSteps()).append(" steps. ")
-                .append("workflowToolNames must list the exact permitted Workflow tool names in execution order; every planned Workflow call must appear exactly once. ")
-                .append("record_supervisor_plan is only allowed when you are about to call a Workflow, except that after a failed Workflow you may record an empty workflowToolNames list to abandon the failed path safely.\n")
-                .append("After a Workflow failure, call record_supervisor_plan again with a revised plan before another Workflow. At most ")
+                .append("workflowToolNames is the structured execution-tool list and must contain exact permitted Workflow, A2A, or Managed Executor tool names in order; every planned tool call must appear exactly once. ")
+                .append("record_supervisor_plan is only allowed when you are about to call an execution tool, except that after a failed tool you may record an empty workflowToolNames list to abandon the failed path safely.\n")
+                .append("After a tool failure, call record_supervisor_plan again with a revised plan before another tool. At most ")
                 .append(config.getMaxReplans()).append(" replans and ")
-                .append(config.getMaxWorkflowCalls()).append(" Workflow calls are allowed.\n")
-                .append("If no permitted Workflow can safely continue after a failure, record one revised plan with workflowToolNames=[] and then call begin_final_answer to explain the failure or ask for clarification; never retry the denied tool in a loop.\n")
-                .append("A non-read-only Workflow is never automatically retryable after failure because its side-effect outcome may be ambiguous. Never include that same tool in a revised plan; explain the outcome or use a different safe read-only Workflow.\n")
+                .append(config.getMaxWorkflowCalls()).append(" planned tool calls are allowed.\n")
+                .append("If no permitted execution tool can safely continue after a failure, record one revised plan with workflowToolNames=[] and then call begin_final_answer to explain the failure or ask for clarification; never retry the denied tool in a loop.\n")
+                .append("A non-read-only Workflow or A2A delegation is never automatically retryable after failure because its side-effect outcome may be ambiguous. Never include that same tool in a revised plan; explain the outcome or use a different safe read-only tool.\n")
                 .append("Use page navigation or page actions for page requests. A request for data, counts, filters, visible rows, or details belonging to the current page is a page request even when the user does not explicitly say open, navigate, or operate; natural-language phrases such as 查、查询、统计、多少、哪些、筛选 are sufficient. If a matching page Workflow is permitted, use it instead of refusing the request. Only prefer an API/data Workflow for a page-independent factual query when such an API/data Workflow is actually permitted; never refuse solely because the user did not describe the internal page action.\n")
-                .append("Never invent Workflow results. If required arguments are missing, ask one concise clarification question.\n")
+                .append("Never invent tool results. If required arguments are missing, ask one concise clarification question.\n")
+                .append("A2A tools are governed delegations, not local Workflows. Use only a declared protocol AgentSkill. Never invent contextId or taskId: send them only when an earlier A2A tool result supplied those exact ReachAI ids for continuation. WORKING, INPUT_REQUIRED, and AUTH_REQUIRED are not completed results; report the state and required next action accurately.\n")
                 .append("Workflow tool results may include resultSummary.pageAction. Treat that as verified evidence: when empty=true or total=0, explicitly say that no matching records were found; when total is present, use that count. When userConfirmed=true, the end user accepted ReachAI's confirmation before execution, so never claim that confirmation was skipped. Never claim that matching records are displayed when the verified result is empty. If outcomeClass=BUSINESS_TERMINAL, explain the supplied message or businessOutcome plainly and never claim that the requested page operation completed.\n")
-                .append("After Workflow tools (or when a planned path needs a gated final answer), call begin_final_answer exactly once, then produce the final plain-text answer. ")
+                .append("After execution tools (or when a planned path needs a gated final answer), call begin_final_answer exactly once, then produce the final plain-text answer. ")
                 .append("Never reveal internal planning, tool arguments, or reasoning in the user-facing answer.\n")
                 .append("Permitted published Workflow tools:\n");
         if (targets == null || targets.isEmpty()) {
@@ -1639,6 +1847,36 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
             for (WorkflowTarget target : targets) {
                 prompt.append("- ").append(target.workflow().getKeySlug())
                         .append(" @ ").append(target.version().getVersion()).append("\n");
+            }
+        }
+        prompt.append("Permitted fixed A2A remote-Agent tools:\n");
+        if (request.remoteAgents().isEmpty()) {
+            prompt.append("- (none)\n");
+        } else {
+            for (RemoteAgentBinding binding : request.remoteAgents()) {
+                prompt.append("- ").append(binding.getToolName())
+                        .append(" -> ").append(binding.getRemoteAgentKeySnapshot())
+                        .append(" #revision-").append(binding.getRemoteAgentRevisionId())
+                        .append("; skills=").append(jsonStringList(binding.getAllowedSkillIdsJson()))
+                        .append("\n");
+            }
+        }
+        prompt.append("Permitted fixed Managed Executor tools:\n");
+        if (state.managedExecutorToolNames().isEmpty()) {
+            prompt.append("- (none)\n");
+        } else {
+            for (String toolName : state.managedExecutorToolNames()) {
+                prompt.append("- ").append(toolName).append("\n");
+            }
+            prompt.append("Managed Executor is asynchronous: managed_executor.start only creates the execution and returns a task card; do not poll it in the same turn or wait for the Worker. ")
+                    .append("Only objective is model-controlled. Never invent or request project, user, workspace, image, network, credential, model, acceptance-command, or budget overrides. ")
+                    .append("Use managed_executor.read_result only after status=SUCCEEDED and treat only its verified Artifact references as evidence. ")
+                    .append("Managed Executor produces an isolated patch and evidence; it never applies production writes, deploys, publishes, pushes Git, deletes production data, or performs irreversible business actions. Those operations must use an explicitly governed Workflow.\n");
+            if (!state.managedExecutorPolicy().autoRouteEnabled()) {
+                prompt.append("Automatic Managed Executor routing is disabled. managed_executor.start is visible only because the original trusted request explicitly selected Managed Executor mode; do not generalize this permission to later turns.\n");
+            }
+            if (request.evalContext().isEvaluation()) {
+                prompt.append("This is a server-owned routing evaluation. managed_executor.start returns a simulated task card and must not be described as a real queued production execution.\n");
             }
         }
         if (request.personalMemory() != null && !request.personalMemory().isEmpty()) {
@@ -1697,7 +1935,7 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
         } else if (success && state.hasUnfinishedPlannedWorkflows()) {
             success = false;
             code = "SUPERVISOR_PLAN_INCOMPLETE";
-            answer = "Supervisor stopped before all structured Workflow plan steps completed";
+            answer = "Supervisor stopped before all structured execution-tool plan steps completed";
         }
         Map<String, Object> metadata = new LinkedHashMap<>();
         metadata.put("runtimeType", "AGENTSCOPE");
@@ -1715,14 +1953,20 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
         metadata.put("planCount", state.planCount.get());
         metadata.put("replanCount", Math.max(0, state.planCount.get() - 1));
         metadata.put("workflowCallCount", state.workflowCallCount.get());
+        metadata.put("a2aDelegationCount", state.a2aCallCount.get());
+        metadata.put("managedExecutorCallCount", state.managedExecutorCallCount.get());
         metadata.put("plannedWorkflowToolNames", state.plannedWorkflowToolNamesSnapshot());
+        metadata.put("plannedExecutionToolNames", state.plannedWorkflowToolNamesSnapshot());
         metadata.put("plannedWorkflowCursor", state.plannedWorkflowCursor.get());
         // Trusted in-memory counters for RunOps finish — avoid remote aggregate COUNT when complete.
-        metadata.put("toolCallCount", state.workflowCallCount.get());
+        metadata.put("toolCallCount", state.workflowCallCount.get() + state.a2aCallCount.get()
+                + state.managedExecutorCallCount.get());
         metadata.put("guardDenyCount", state.guardDenyCount.get());
         metadata.put("approvalCount", state.approvalCount.get());
         metadata.put("decisionMode", state.decisionMode());
         metadata.put("workflowSelected", state.workflowCallCount.get() > 0);
+        metadata.put("remoteAgentSelected", state.a2aCallCount.get() > 0);
+        metadata.put("managedExecutorSelected", state.managedExecutorCallCount.get() > 0);
         metadata.put("steps", List.copyOf(state.steps));
         metadata.put("runtime.traceBeginMs", state.traceBeginMs);
         if (state.pendingInteractionId != null) {
@@ -1838,6 +2082,11 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
             return WorkflowExecutionIdentity.fromAgent(
                     provided.tenantId(), projectId, projectCode, provided.userId());
         }
+        if (provided.source() == WorkflowExecutionIdentity.Source.A2A_REMOTE_AGENT
+                && StringUtils.hasText(provided.userId())) {
+            return WorkflowExecutionIdentity.fromA2aRemoteAgent(
+                    provided.tenantId(), projectId, projectCode, provided.userId());
+        }
         // Debug/Composition/untrusted callers keep project binding from Agent when available.
         if (provided.source() == WorkflowExecutionIdentity.Source.COMPOSITION_UNTRUSTED) {
             return WorkflowExecutionIdentity.untrustedComposition();
@@ -1892,9 +2141,11 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
     private final class RunState {
         private final SupervisorRequest request;
         private final TraceHandle trace;
-        private final SupervisorAnswerPhase answerPhase = new SupervisorAnswerPhase();
+        private final AgentScopeAnswerPhase answerPhase = new AgentScopeAnswerPhase();
         private final AtomicInteger planCount = new AtomicInteger();
         private final AtomicInteger workflowCallCount = new AtomicInteger();
+        private final AtomicInteger a2aCallCount = new AtomicInteger();
+        private final AtomicInteger managedExecutorCallCount = new AtomicInteger();
         private final AtomicInteger guardDenyCount = new AtomicInteger();
         private final AtomicInteger approvalCount = new AtomicInteger();
         private final AtomicInteger stepSequence = new AtomicInteger();
@@ -1913,6 +2164,8 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
         private final String turnId;
         private final String userMessage;
         private final String memoryUserMessage;
+        private final ManagedExecutorAgentDelegationService.DelegationPolicy managedExecutorPolicy;
+        private final Set<String> managedExecutorToolNames;
         private volatile int failureAtPlanNo = -1;
         private volatile String pendingInteractionId;
         private volatile String pendingInteractionKind;
@@ -1942,8 +2195,21 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
             this.request = request;
             this.trace = trace;
             WorkflowExecutionIdentity trustedIdentity = resolveTrustedIdentity(request);
-            this.memoryKey = sessionMemoryService.resolve(
-                    request.agent(), text(request.input().get("sessionId")), trustedIdentity);
+            this.managedExecutorPolicy = managedExecutorDelegationService == null
+                    ? ManagedExecutorAgentDelegationService.DelegationPolicy.disabled()
+                    : request.evalContext().isEvaluation()
+                            ? managedExecutorDelegationService.resolveEvaluationPolicy(
+                                    request.config(), request.agent().projectCode())
+                            : managedExecutorDelegationService.resolvePolicy(request.config(), trustedIdentity);
+            this.managedExecutorToolNames = managedExecutorDelegationService == null
+                    ? Set.of()
+                    : managedExecutorDelegationService.availableTools(
+                            this.managedExecutorPolicy, request.input());
+            this.memoryKey = request.evalContext().isEvaluation()
+                    ? sessionMemoryService.resolveTransient(
+                            request.agent(), text(request.input().get("sessionId")), trustedIdentity)
+                    : sessionMemoryService.resolve(
+                            request.agent(), text(request.input().get("sessionId")), trustedIdentity);
             this.sessionId = memoryKey.publicSessionId();
             this.userId = memoryKey.persistent() ? memoryKey.trustedUserId() : "anonymous";
             this.turnId = firstText(text(request.input().get("__memoryTurnId")),
@@ -2036,6 +2302,14 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
 
         private List<WorkflowTarget> targets() { return List.copyOf(targets); }
 
+        private Set<String> managedExecutorToolNames() {
+            return managedExecutorToolNames;
+        }
+
+        private ManagedExecutorAgentDelegationService.DelegationPolicy managedExecutorPolicy() {
+            return managedExecutorPolicy;
+        }
+
         private String sessionId() {
             return sessionId;
         }
@@ -2107,16 +2381,25 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                     permittedToolNames.add(target.tool().getToolName().trim());
                 }
             }
+            for (RemoteAgentBinding binding : request.remoteAgents()) {
+                if (binding != null && Boolean.TRUE.equals(binding.getEnabled())
+                        && StringUtils.hasText(binding.getToolName())) {
+                    permittedToolNames.add(binding.getToolName().trim());
+                }
+            }
+            permittedToolNames.addAll(managedExecutorToolNames);
             if (!permittedToolNames.containsAll(workflowToolNames)) {
-                return ToolResultBlock.error("workflowToolNames contains a tool outside the permitted published allowlist");
+                return ToolResultBlock.error("workflowToolNames contains a tool outside the permitted published execution-tool allowlist");
             }
             if (workflowToolNames.stream().anyMatch(
                     name -> completedWorkflowToolNames.contains(name) || blockedWorkflowToolNames.contains(name))) {
                 return ToolResultBlock.error(
                         "A revised plan must not include a Workflow tool already completed or marked non-retryable in this run");
             }
-            if (workflowCallCount.get() + workflowToolNames.size() > request.config().getMaxWorkflowCalls()) {
-                return ToolResultBlock.error("Structured plan exceeds the remaining Workflow call limit");
+            if (workflowCallCount.get() + a2aCallCount.get() + managedExecutorCallCount.get()
+                    + workflowToolNames.size()
+                    > request.config().getMaxWorkflowCalls()) {
+                return ToolResultBlock.error("Structured plan exceeds the remaining execution-tool call limit");
             }
             int planNo = planCount.incrementAndGet();
             if (planNo > request.config().getMaxReplans() + 1) {
@@ -2165,7 +2448,7 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                 if (plannedWorkflowToolNames.isEmpty() || cursor >= plannedWorkflowToolNames.size()) {
                     return null;
                 }
-                return "Complete the remaining structured Workflow plan first; next required tool: "
+                return "Complete the remaining structured execution-tool plan first; next required tool: "
                         + plannedWorkflowToolNames.get(cursor);
             }
         }
@@ -2180,24 +2463,24 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
             synchronized (structuredPlanLock) {
                 int cursor = plannedWorkflowCursor.get();
                 if (plannedWorkflowToolNames.isEmpty() || cursor >= plannedWorkflowToolNames.size()) {
-                    return "No remaining structured Workflow plan step permits: " + toolName;
+                    return "No remaining structured execution-tool plan step permits: " + toolName;
                 }
                 int plannedIndex = plannedWorkflowToolNames.indexOf(toolName);
                 if (plannedIndex < 0) {
-                    return "Workflow tool is not present in the structured plan: " + toolName;
+                    return "Execution tool is not present in the structured plan: " + toolName;
                 }
                 if (plannedIndex < cursor) {
-                    return "Workflow tool already completed in the structured plan: " + toolName;
+                    return "Execution tool already completed in the structured plan: " + toolName;
                 }
                 for (int index = cursor; index < plannedIndex; index++) {
                     String predecessor = plannedWorkflowToolNames.get(index);
                     if (!completedWorkflowToolNames.contains(predecessor)
                             && !inFlightWorkflowToolNames.contains(predecessor)) {
-                        return "Workflow tool is out of order; next required tool is: " + predecessor;
+                        return "Execution tool is out of order; next required tool is: " + predecessor;
                     }
                 }
                 if (!inFlightWorkflowToolNames.add(toolName)) {
-                    return "Workflow tool is already running: " + toolName;
+                    return "Execution tool is already running: " + toolName;
                 }
                 return null;
             }
@@ -2229,12 +2512,25 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
         /** 审计用 DIRECT 决策：不发 supervisor.step，不计入 planCount。 */
         private void markDirectDecision() {
             implicitDirectDecision = true;
-            if (workflowCallCount.get() == 0 && planCount.get() == 0) {
+            if (workflowCallCount.get() == 0 && a2aCallCount.get() == 0
+                    && managedExecutorCallCount.get() == 0 && planCount.get() == 0) {
                 decisionMode = "DIRECT";
             }
         }
 
         private String decisionMode() {
+            int selectedModes = (workflowCallCount.get() > 0 ? 1 : 0)
+                    + (a2aCallCount.get() > 0 ? 1 : 0)
+                    + (managedExecutorCallCount.get() > 0 ? 1 : 0);
+            if (selectedModes > 1) {
+                return "HYBRID";
+            }
+            if (managedExecutorCallCount.get() > 0) {
+                return "MANAGED_EXECUTOR";
+            }
+            if (a2aCallCount.get() > 0) {
+                return "A2A";
+            }
             if (workflowCallCount.get() > 0) {
                 return "WORKFLOW";
             }
@@ -2324,6 +2620,318 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
             }
         }
 
+        private Mono<ToolResultBlock> executeManagedExecutor(
+                String toolName,
+                Map<String, Object> args) {
+            if (confirmationPending()) {
+                return Mono.just(ToolResultBlock.error(
+                        "An execution tool is waiting for user confirmation; do not call another tool"));
+            }
+            if (managedExecutorDelegationService == null
+                    || !managedExecutorToolNames.contains(toolName)) {
+                return Mono.just(ToolResultBlock.error("Managed Executor tool is not enabled for this run"));
+            }
+            if (completedWorkflowToolNames.contains(toolName)) {
+                return Mono.just(ToolResultBlock.error(
+                        "Managed Executor tool already completed in this run: " + toolName));
+            }
+            if (blockedWorkflowToolNames.contains(toolName)) {
+                return Mono.just(ToolResultBlock.error(
+                        "Managed Executor tool is non-retryable after failure in this run: " + toolName));
+            }
+            if (planCount.get() == 0) {
+                return Mono.just(ToolResultBlock.error(
+                        "Call record_supervisor_plan before any Managed Executor tool"));
+            }
+            if (failureAtPlanNo == planCount.get()) {
+                return Mono.just(ToolResultBlock.error(
+                        "The previous execution tool failed; record a revised plan before continuing"));
+            }
+            String reservationError = reservePlannedWorkflow(toolName);
+            if (reservationError != null) return Mono.just(ToolResultBlock.error(reservationError));
+            int callNo = managedExecutorCallCount.incrementAndGet();
+            if (workflowCallCount.get() + a2aCallCount.get() + callNo
+                    > request.config().getMaxWorkflowCalls()) {
+                managedExecutorCallCount.decrementAndGet();
+                releasePlannedWorkflow(toolName);
+                return Mono.just(ToolResultBlock.error("Supervisor planned tool call limit exceeded"));
+            }
+            boolean readOnly = !ManagedExecutorAgentDelegationService.START_TOOL.equals(toolName);
+            Lock lock = readOnly ? workflowExecutionLock.readLock() : workflowExecutionLock.writeLock();
+            Map<String, Object> exactArgs = args == null ? Map.of() : new LinkedHashMap<>(args);
+            return Mono.fromCallable(() -> {
+                        request.cancellation().throwIfCancelled();
+                        lock.lock();
+                        try {
+                            request.cancellation().throwIfCancelled();
+                            return runManagedExecutor(callNo, toolName, exactArgs);
+                        } finally {
+                            lock.unlock();
+                        }
+                    })
+                    .subscribeOn(Schedulers.boundedElastic())
+                    .doFinally(signal -> releasePlannedWorkflow(toolName));
+        }
+
+        private ToolResultBlock runManagedExecutor(
+                int callNo,
+                String toolName,
+                Map<String, Object> args) {
+            long started = System.nanoTime();
+            String stepId = "managed-executor-" + callNo;
+            String title = ManagedExecutorAgentDelegationService.START_TOOL.equals(toolName)
+                    ? "创建托管执行" : "读取托管执行";
+            emitPhase(stepId, "managed_executor", "started", "managed_executor_runtime",
+                    title, "正在调用：" + toolName);
+            try {
+                Map<String, Object> payload = request.evalContext().isEvaluation()
+                        ? managedExecutorDelegationService.simulate(
+                                toolName,
+                                managedExecutorPolicy,
+                                request.config(),
+                                request.agent().projectCode(),
+                                request.input(),
+                                args,
+                                trace.traceId())
+                        : managedExecutorDelegationService.invoke(
+                                toolName,
+                                managedExecutorPolicy,
+                                request.config(),
+                                resolveTrustedIdentity(request),
+                                request.input(),
+                                args,
+                                trace.traceId());
+                request.cancellation().throwIfCancelled();
+                completePlannedWorkflow(toolName);
+                decisionMode = "MANAGED_EXECUTOR";
+                long elapsed = Math.max(0L, (System.nanoTime() - started) / 1_000_000L);
+                traceService.managedExecutor(
+                        trace, request.agent(), request.config(), request.input(), toolName,
+                        args, payload, true, "MANAGED_EXECUTOR_TOOL_COMPLETED", elapsed);
+                emitPhase(stepId, "managed_executor", "completed", "managed_executor_runtime",
+                        title, safeManagedExecutorDetail(payload));
+                return ToolResultBlock.text(json(payload));
+            } catch (RuntimeAgentExecutionCancellation.CancellationSignal cancelled) {
+                throw cancelled;
+            } catch (Exception failure) {
+                String code = managedExecutorFailureCode(failure);
+                failureAtPlanNo = planCount.get();
+                blockedWorkflowToolNames.add(toolName);
+                long elapsed = Math.max(0L, (System.nanoTime() - started) / 1_000_000L);
+                traceService.managedExecutor(
+                        trace, request.agent(), request.config(), request.input(), toolName,
+                        args, Map.of(), false, code, elapsed);
+                emitPhase(stepId, "managed_executor", "failed", "managed_executor_runtime",
+                        title, "失败：" + code);
+                return ToolResultBlock.error(json(Map.of(
+                        "success", false,
+                        "code", code,
+                        "retryable", false)));
+            } finally {
+                releasePlannedWorkflow(toolName);
+            }
+        }
+
+        private String safeManagedExecutorDetail(Map<String, Object> payload) {
+            String status = textObj(payload == null ? null : payload.get("status"));
+            return StringUtils.hasText(status) ? "托管执行状态：" + status : "托管执行引用已返回";
+        }
+
+        private String managedExecutorFailureCode(Exception failure) {
+            if (failure instanceof ManagedExecutorAgentDelegationService.DelegationException denied) {
+                return denied.code();
+            }
+            if (failure instanceof com.enterprise.ai.runtime.managed.ManagedExecutionException managed
+                    && StringUtils.hasText(managed.code())
+                    && managed.code().matches("[A-Z0-9_]{1,128}")) {
+                return managed.code();
+            }
+            return "MANAGED_EXECUTOR_TOOL_FAILED";
+        }
+
+        private Mono<ToolResultBlock> executeRemoteAgent(
+                RemoteAgentBinding binding,
+                Map<String, Object> args) {
+            if (confirmationPending()) {
+                return Mono.just(ToolResultBlock.error(
+                        "An execution tool is waiting for user confirmation; do not call another tool"));
+            }
+            String toolName = binding == null ? null : binding.getToolName();
+            if (!StringUtils.hasText(toolName) || a2aDelegationService == null) {
+                return Mono.just(ToolResultBlock.error("A2A delegation runtime is unavailable"));
+            }
+            if (blockedWorkflowToolNames.contains(toolName)) {
+                return Mono.just(ToolResultBlock.error(
+                        "A2A message:send is non-retryable after failure or uncertain delivery: " + toolName));
+            }
+            if (completedWorkflowToolNames.contains(toolName)) {
+                return Mono.just(ToolResultBlock.error(
+                        "A2A remote-Agent tool already completed in this run: " + toolName));
+            }
+            if (planCount.get() == 0) {
+                return Mono.just(ToolResultBlock.error(
+                        "Call record_supervisor_plan before any A2A remote-Agent tool"));
+            }
+            if (failureAtPlanNo == planCount.get()) {
+                return Mono.just(ToolResultBlock.error(
+                        "The previous execution tool failed; record a revised plan before continuing"));
+            }
+            Map<String, Object> exactArgs = args == null ? Map.of() : new LinkedHashMap<>(args);
+            SupervisorToolPolicyService.PolicyDecision decision = policyService.evaluateA2a(
+                    trace, request.agent(), request.config(), binding, request.input(), exactArgs,
+                    request.approvalGrant(), resolveTrustedIdentity(request), request.evalContext());
+            if (!decision.allowed()) {
+                if (decision.confirmationRequired()) {
+                    approvalCount.incrementAndGet();
+                    pendingInteractionId = decision.interactionId();
+                    pendingInteractionKind = "APPROVAL";
+                    pendingReason = decision.reason();
+                    pendingUiRequest = decision.uiRequest();
+                    emitPhase("policy-" + toolName, "policy", "waiting", "runtime_lifecycle",
+                            "等待人工确认", firstText(decision.reason(), decision.decision()));
+                    return Mono.just(ToolResultBlock.error(
+                            "A2A delegation policy is waiting for user confirmation. Stop and return the confirmation request."));
+                }
+                guardDenyCount.incrementAndGet();
+                failureAtPlanNo = planCount.get();
+                blockedWorkflowToolNames.add(toolName);
+                emitPhase("policy-" + toolName, "policy", "failed", "runtime_lifecycle",
+                        "策略拒绝", firstText(decision.reason(), decision.decision()));
+                return Mono.just(ToolResultBlock.error(
+                        "A2A delegation policy denied: " + decision.reason()
+                                + ". Record a revised plan before calling another execution tool."));
+            }
+            String reservationError = reservePlannedWorkflow(toolName);
+            if (reservationError != null) return Mono.just(ToolResultBlock.error(reservationError));
+            int callNo = a2aCallCount.incrementAndGet();
+            if (workflowCallCount.get() + callNo > request.config().getMaxWorkflowCalls()) {
+                a2aCallCount.decrementAndGet();
+                releasePlannedWorkflow(toolName);
+                return Mono.just(ToolResultBlock.error("Supervisor planned tool call limit exceeded"));
+            }
+            Lock lock = "READ".equalsIgnoreCase(binding.getRiskLevel())
+                    ? workflowExecutionLock.readLock() : workflowExecutionLock.writeLock();
+            return Mono.fromCallable(() -> {
+                        request.cancellation().throwIfCancelled();
+                        lock.lock();
+                        try {
+                            request.cancellation().throwIfCancelled();
+                            return runRemoteAgent(callNo, binding, exactArgs);
+                        } finally {
+                            lock.unlock();
+                        }
+                    })
+                    .subscribeOn(Schedulers.boundedElastic())
+                    .doFinally(signal -> releasePlannedWorkflow(toolName));
+        }
+
+        private ToolResultBlock runRemoteAgent(
+                int callNo,
+                RemoteAgentBinding binding,
+                Map<String, Object> args) {
+            String toolName = binding.getToolName();
+            long started = System.nanoTime();
+            String stepId = "a2a-" + callNo;
+            emitPhase(stepId, "a2a_delegation", "started", "a2a_runtime",
+                    "委派远程 Agent", "正在调用：" + toolName);
+            RuntimeA2aControlClient.SendResponse response = null;
+            String code = "A2A_DELEGATION_CALL_FAILED";
+            try {
+                String text = textObj(args.get("text"));
+                String protocolSkillId = textObj(args.get("protocolSkillId"));
+                List<String> outputs = stringList(args.get("acceptedOutputModes"));
+                response = a2aDelegationService.send(
+                        request.agent().id(), request.config().getId(), binding.getId(),
+                        new RuntimeA2aDelegationService.DelegationRequest(
+                                sessionId(), textObj(args.get("contextId")),
+                                textObj(args.get("taskId")), null, text, protocolSkillId,
+                                outboundClassification(), outputs, 0, trace.traceId()));
+                boolean accepted = !Set.of(
+                        "TASK_STATE_FAILED", "TASK_STATE_REJECTED", "TASK_STATE_CANCELED")
+                        .contains(response.state());
+                code = accepted ? "A2A_DELEGATION_ACCEPTED"
+                        : firstText(response.errorCode(), "A2A_REMOTE_TASK_TERMINAL_FAILURE");
+                long elapsed = (System.nanoTime() - started) / 1_000_000L;
+                traceService.a2aDelegation(trace, request.agent(), request.config(), request.input(),
+                        binding, args, response, accepted, code, elapsed);
+                emitPhase(stepId, "a2a_delegation", accepted ? "completed" : "failed",
+                        "a2a_runtime", "委派远程 Agent",
+                        accepted ? ("远程 Task：" + response.state()) : ("失败：" + code));
+                if (accepted) {
+                    completePlannedWorkflow(toolName);
+                } else {
+                    failureAtPlanNo = planCount.get();
+                    blockedWorkflowToolNames.add(toolName);
+                }
+                Map<String, Object> payload = a2aToolPayload(response, code, accepted);
+                return accepted ? ToolResultBlock.text(json(payload)) : ToolResultBlock.error(json(payload));
+            } catch (RuntimeAgentExecutionCancellation.CancellationSignal cancelled) {
+                throw cancelled;
+            } catch (Exception failure) {
+                if (failure instanceof RuntimeA2aControlClient.CallException callFailure) {
+                    code = callFailure.code();
+                }
+                long elapsed = (System.nanoTime() - started) / 1_000_000L;
+                traceService.a2aDelegation(trace, request.agent(), request.config(), request.input(),
+                        binding, args, response, false, code, elapsed);
+                failureAtPlanNo = planCount.get();
+                blockedWorkflowToolNames.add(toolName);
+                emitPhase(stepId, "a2a_delegation", "failed", "a2a_runtime",
+                        "委派远程 Agent", "失败：" + code);
+                return ToolResultBlock.error(json(Map.of(
+                        "success", false,
+                        "code", code,
+                        "remoteAgentKey", binding.getRemoteAgentKeySnapshot(),
+                        "retryable", false,
+                        "deliveryOutcome", code.contains("UNCERTAIN") ? "UNCERTAIN" : "FAILED")));
+            } finally {
+                releasePlannedWorkflow(toolName);
+            }
+        }
+
+        private String outboundClassification() {
+            String value = firstText(textObj(request.input().get("contentClassification")),
+                    textObj(schemaFromObject(request.input().get("metadata"))
+                            .get("contentClassification")), "INTERNAL");
+            String normalized = value.toUpperCase(Locale.ROOT);
+            return normalized.matches("[A-Z][A-Z0-9_-]{1,31}") ? normalized : "INTERNAL";
+        }
+
+        private Map<String, Object> a2aToolPayload(
+                RuntimeA2aControlClient.SendResponse response,
+                String code,
+                boolean accepted) {
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("success", accepted);
+            payload.put("code", code);
+            payload.put("taskId", response.taskId());
+            payload.put("contextId", response.contextId());
+            payload.put("remoteTaskId", response.remoteTaskId());
+            payload.put("remoteContextId", response.remoteContextId());
+            payload.put("state", response.state());
+            payload.put("safeSummary", response.safeSummary());
+            payload.put("errorCode", response.errorCode());
+            payload.put("idempotentReplay", response.idempotentReplay());
+            payload.put("agentMessages", boundedA2aContents(response.agentMessages()));
+            payload.put("artifacts", boundedA2aContents(response.artifacts()));
+            payload.put("retryable", false);
+            return payload;
+        }
+
+        private List<String> boundedA2aContents(List<String> values) {
+            if (values == null || values.isEmpty()) return List.of();
+            List<String> bounded = new ArrayList<>();
+            int total = 0;
+            for (String value : values) {
+                if (bounded.size() >= 8 || total >= 256_000) break;
+                String text = value == null ? "" : value;
+                int max = Math.min(text.length(), Math.min(64_000, 256_000 - total));
+                bounded.add(text.substring(0, max));
+                total += max;
+            }
+            return List.copyOf(bounded);
+        }
+
         private Mono<ToolResultBlock> executeWorkflow(RuntimeAgentWorkflowToolEntity tool,
                                                       WorkflowTarget target,
                                                       Map<String, Object> args) {
@@ -2350,7 +2958,7 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
             Map<String, Object> safeArgs = args == null ? Map.of() : new LinkedHashMap<>(args);
             SupervisorToolPolicyService.PolicyDecision decision = policyService.evaluate(
                     trace, request.agent(), request.config(), tool, request.input(), safeArgs,
-                    request.approvalGrant(), resolveTrustedIdentity(request));
+                    request.approvalGrant(), resolveTrustedIdentity(request), request.evalContext());
             if (!decision.allowed()) {
                 if (decision.confirmationRequired()) {
                     approvalCount.incrementAndGet();
@@ -2394,10 +3002,10 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                 return Mono.just(ToolResultBlock.error(reservationError));
             }
             int callNo = workflowCallCount.incrementAndGet();
-            if (callNo > request.config().getMaxWorkflowCalls()) {
+            if (callNo + a2aCallCount.get() > request.config().getMaxWorkflowCalls()) {
                 workflowCallCount.decrementAndGet();
                 releasePlannedWorkflow(toolName);
-                return Mono.just(ToolResultBlock.error("Supervisor Workflow call limit exceeded"));
+                return Mono.just(ToolResultBlock.error("Supervisor planned tool call limit exceeded"));
             }
             Mono<ToolResultBlock> execution = Mono.fromCallable(() -> runWorkflow(callNo, tool, target, safeArgs))
                     .subscribeOn(Schedulers.boundedElastic())
@@ -2502,7 +3110,8 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                         workflowInput,
                         RuntimeGraphSpecExecutionEventSink.NOOP,
                         workflowCancel,
-                        identity);
+                        identity,
+                        request.evalContext());
                 request.cancellation().throwIfCancelled();
                 if ("RUNTIME_GRAPH_CANCELLED".equals(result.code()) || workflowCancel.isCancelled()) {
                     emitPhase(workflowStepId, "workflow", "cancelled", "workflow_runtime",

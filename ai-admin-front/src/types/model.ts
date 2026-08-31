@@ -91,6 +91,8 @@ export type ModelType = 'LLM' | 'EMBEDDING' | 'RERANKER'
 export type ModelProtocol = 'OPENAI_COMPATIBLE'
 export type ModelInstanceStatus = 'ACTIVE' | 'DISABLED' | 'ARCHIVED'
 export type ModelTestStatus = 'UNKNOWN' | 'SUCCESS' | 'FAILED'
+export type ModelLifecycleStatus = 'UNKNOWN' | 'PREVIEW' | 'ACTIVE' | 'DEPRECATED' | 'RETIRED'
+export type ModelRecommendationStatus = 'UNASSESSED' | 'EVAL_VERIFIED' | 'MANUAL'
 
 export interface ModelConnectionConfig {
   baseUrl?: string
@@ -142,6 +144,21 @@ export interface ModelTemplate {
   defaultOptions: Record<string, unknown>
   paramsSchema: unknown
   capabilities?: unknown
+  sourceKey?: string | null
+  lifecycleStatus?: ModelLifecycleStatus
+  recommendationStatus?: ModelRecommendationStatus
+  recommendationTier?: string | null
+  recommendationReason?: string | null
+  officialPositioning?: string | null
+  releasedAt?: string | null
+  deprecatedAt?: string | null
+  retireAt?: string | null
+  replacementModelName?: string | null
+  lastSeenAt?: string | null
+  lastVerifiedAt?: string | null
+  sourceUrl?: string | null
+  sourceRevision?: string | null
+  syncManaged?: boolean
   iconKey?: string | null
   enabled: boolean
   sortOrder?: number
@@ -219,4 +236,49 @@ export interface ModelTemplateListParams {
   provider?: string
   modelType?: ModelType | string
   enabled?: boolean
+}
+
+export interface ModelCatalogSourceStatus {
+  sourceKey: string
+  provider: string
+  name: string
+  sourceKind: string
+  sourceUrl: string
+  lastCheckedAt?: string | null
+  lastSuccessAt?: string | null
+  lastRunStatus?: string | null
+  attemptCount?: number | null
+  candidateCount?: number | null
+  publishedCount?: number | null
+  reviewCount?: number | null
+  errorCode?: string | null
+  errorMessage?: string | null
+}
+
+export interface ModelCatalogStatus {
+  enabled: boolean
+  autoSyncEnabled: boolean
+  zoneId: string
+  businessDate: string
+  analyzerConfigured: boolean
+  stale: boolean
+  catalogVerifiedAt?: string | null
+  lastAnySuccessfulAt?: string | null
+  sourceCount: number
+  completedToday: number
+  message: string
+  sources: ModelCatalogSourceStatus[]
+}
+
+export interface ModelCatalogSettingsRequest {
+  autoSyncEnabled: boolean
+}
+
+export interface ModelCatalogManualSyncResponse {
+  businessDate: string
+  accepted: boolean
+  sourceCount: number
+  completedToday: number
+  queuedCount: number
+  message: string
 }

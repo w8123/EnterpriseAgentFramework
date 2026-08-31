@@ -35,6 +35,23 @@ public class KnowledgeRetrievalInternalController {
     private static final int MAX_TOP_K = 20;
     private static final int MAX_CONTENT_CHARS = 4_000;
     private static final int MAX_TOTAL_CONTENT_CHARS = 24_000;
+    private static final Set<String> UPSTREAM_DIAGNOSTIC_KEYS = Set.of(
+            "knowledgeBaseCount",
+            "failedKnowledgeBaseCount",
+            "vectorRawCandidateCount",
+            "vectorAcceptedCandidateCount",
+            "keywordRawCandidateCount",
+            "keywordAcceptedCandidateCount",
+            "preMergeCandidateCount",
+            "mergedCandidateCount",
+            "rerankedCandidateCount",
+            "scoreAcceptedCandidateCount",
+            "scoreFilteredCandidateCount",
+            "topKTruncatedCandidateCount",
+            "returnedCandidateCount",
+            "retrievalStageMs",
+            "rerankStageMs",
+            "totalCostMs");
 
     private final KnowledgeRetrievalCore knowledgeRetrievalCore;
     private final PermissionService permissionService;
@@ -44,7 +61,13 @@ public class KnowledgeRetrievalInternalController {
         String userId = request.userId().trim();
         List<String> accessibleFileIds = permissionService.getAccessibleFileIds(userId);
         if (accessibleFileIds == null || accessibleFileIds.isEmpty()) {
-            return ApiResult.ok(new RetrievalData(request.query().trim(), List.of(), 0));
+            return ApiResult.ok(new RetrievalData(
+                    request.query().trim(),
+                    List.of(),
+                    0,
+                    "NO_EVIDENCE",
+                    true,
+                    contentDiagnostics(Map.of(), 0, 0, 0, 0, false)));
         }
         Set<String> allowedFiles = new HashSet<>(accessibleFileIds);
 
@@ -68,23 +91,32 @@ public class KnowledgeRetrievalInternalController {
         List<KnowledgeRetrievalCoreResponse.RetrievalItem> items = response == null || response.getItems() == null
                 ? List.of()
                 : response.getItems();
+        List<KnowledgeRetrievalCoreResponse.RetrievalItem> allowedItems = items.stream()
+                .filter(item -> item != null)
+                .filter(item -> !StringUtils.hasText(item.getFileId()) || allowedFiles.contains(item.getFileId()))
+                .toList();
         List<RetrievalHit> hits = new ArrayList<>();
         int totalContent = 0;
-        for (KnowledgeRetrievalCoreResponse.RetrievalItem item : items) {
-            if (item == null) {
-                continue;
-            }
-            if (StringUtils.hasText(item.getFileId()) && !allowedFiles.contains(item.getFileId())) {
-                continue;
-            }
+        int contentTruncatedCount = 0;
+        int budgetOmittedHitCount = 0;
+        boolean contentBudgetExhausted = false;
+        for (int index = 0; index < allowedItems.size(); index++) {
+            KnowledgeRetrievalCoreResponse.RetrievalItem item = allowedItems.get(index);
             String content = item.getContent() == null ? "" : item.getContent();
+            boolean contentTruncated = false;
             if (content.length() > MAX_CONTENT_CHARS) {
                 content = content.substring(0, MAX_CONTENT_CHARS);
+                contentTruncated = true;
             }
-            totalContent += content.length();
-            if (totalContent > MAX_TOTAL_CONTENT_CHARS) {
+            if (totalContent + content.length() > MAX_TOTAL_CONTENT_CHARS) {
+                contentBudgetExhausted = true;
+                budgetOmittedHitCount = allowedItems.size() - index;
                 break;
             }
+            if (contentTruncated) {
+                contentTruncatedCount++;
+            }
+            totalContent += content.length();
             Map<String, Object> metadata = new LinkedHashMap<>();
             if (StringUtils.hasText(item.getFileId())) {
                 metadata.put("fileId", item.getFileId());
@@ -104,7 +136,46 @@ public class KnowledgeRetrievalInternalController {
                 break;
             }
         }
-        return ApiResult.ok(new RetrievalData(request.query().trim(), hits, hits.size()));
+        boolean empty = hits.isEmpty();
+        Map<String, Object> diagnostics = contentDiagnostics(
+                response == null ? Map.of() : response.getDiagnostics(),
+                hits.size(),
+                totalContent,
+                contentTruncatedCount,
+                budgetOmittedHitCount,
+                contentBudgetExhausted);
+        return ApiResult.ok(new RetrievalData(
+                request.query().trim(),
+                hits,
+                hits.size(),
+                empty ? "NO_EVIDENCE" : "HIT",
+                empty,
+                diagnostics));
+    }
+
+    private static Map<String, Object> contentDiagnostics(Map<String, Object> upstream,
+                                                          int returnedHitCount,
+                                                          int returnedContentChars,
+                                                          int contentTruncatedCount,
+                                                          int budgetOmittedHitCount,
+                                                          boolean contentBudgetExhausted) {
+        Map<String, Object> diagnostics = new LinkedHashMap<>();
+        if (upstream != null) {
+            upstream.forEach((key, value) -> {
+                if (UPSTREAM_DIAGNOSTIC_KEYS.contains(key)
+                        && (value instanceof Number || value instanceof Boolean)) {
+                    diagnostics.put(key, value);
+                }
+            });
+        }
+        diagnostics.put("returnedHitCount", returnedHitCount);
+        diagnostics.put("returnedContentChars", returnedContentChars);
+        diagnostics.put("contentTruncatedCount", contentTruncatedCount);
+        diagnostics.put("budgetOmittedHitCount", budgetOmittedHitCount);
+        diagnostics.put("contentBudgetExhausted", contentBudgetExhausted);
+        diagnostics.put("perHitContentLimit", MAX_CONTENT_CHARS);
+        diagnostics.put("totalContentLimit", MAX_TOTAL_CONTENT_CHARS);
+        return diagnostics;
     }
 
     private static String normalizeSearchMode(String raw) {
@@ -126,7 +197,14 @@ public class KnowledgeRetrievalInternalController {
     ) {
     }
 
-    public record RetrievalData(String query, List<RetrievalHit> hits, Integer hitCount) {
+    public record RetrievalData(
+            String query,
+            List<RetrievalHit> hits,
+            Integer hitCount,
+            String outcome,
+            Boolean empty,
+            Map<String, Object> diagnostics
+    ) {
     }
 
     public record RetrievalHit(

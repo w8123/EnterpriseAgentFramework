@@ -26,11 +26,14 @@ class CapabilityInternalAuthFilterTest {
                 "POST", "/internal/capability/tools/bzjs20%3Ateam.memory.resolve/execute");
         MockHttpServletRequest lookup = new MockHttpServletRequest(
                 "GET", "/internal/capability/tools/bzjs20:team.memory.resolve");
+        MockHttpServletRequest invocation = new MockHttpServletRequest(
+                "POST", "/internal/capability/invocations");
         MockHttpServletRequest projectVerification = new MockHttpServletRequest(
                 "POST", "/internal/capability/registry/project-requests/verify");
 
         assertFalse(filter.shouldNotFilter(plain));
         assertFalse(filter.shouldNotFilter(encoded));
+        assertFalse(filter.shouldNotFilter(invocation));
         assertTrue(filter.shouldNotFilter(lookup));
         assertFalse(filter.shouldNotFilter(projectVerification));
     }

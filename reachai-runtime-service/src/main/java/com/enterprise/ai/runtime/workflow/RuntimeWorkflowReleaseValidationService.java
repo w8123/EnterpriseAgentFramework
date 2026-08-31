@@ -269,7 +269,7 @@ public class RuntimeWorkflowReleaseValidationService {
                 } else if ("VARIABLE_AGGREGATOR".equals(type)) {
                     validateVariableAggregator(node, report);
                 } else if ("KNOWLEDGE_RETRIEVAL".equals(type)) {
-                    validateKnowledgeRetrieval(node, report);
+                    validateKnowledgeRetrieval(node, byId, edges, report);
                 } else if ("HTTP_REQUEST".equals(type)) {
                     validateHttpRequest(node, report);
                 } else if ("LOOP".equals(type)) {
@@ -498,7 +498,9 @@ public class RuntimeWorkflowReleaseValidationService {
     }
 
     private void validateKnowledgeRetrieval(GraphSpec.Node node,
-                                            RuntimeWorkflowReleaseValidationResult.Builder report) {
+                                             Map<String, GraphSpec.Node> byId,
+                                             List<GraphSpec.Edge> edges,
+                                             RuntimeWorkflowReleaseValidationResult.Builder report) {
         Map<String, Object> config = node.getConfig() == null ? Map.of() : node.getConfig();
         Map<String, Object> nested = mapValue(config.get("knowledgeConfig"));
         Map<String, Object> effective = nested.isEmpty() ? config : nested;
@@ -531,6 +533,45 @@ public class RuntimeWorkflowReleaseValidationService {
         if (!Set.of("vector", "keyword", "hybrid").contains(searchMode)) {
             report.error("GRAPH_KNOWLEDGE_SEARCH_MODE_INVALID", node.getId(),
                     "KNOWLEDGE_RETRIEVAL searchMode must be vector, keyword or hybrid");
+        }
+        String rawEvidencePolicy = firstText(
+                text(effective.get("evidencePolicy")),
+                text(config.get("evidencePolicy")));
+        String evidencePolicy = StringUtils.hasText(rawEvidencePolicy)
+                ? rawEvidencePolicy.toUpperCase(Locale.ROOT)
+                : "OPTIONAL";
+        if (!Set.of("REQUIRED", "OPTIONAL").contains(evidencePolicy)) {
+            report.error("GRAPH_KNOWLEDGE_EVIDENCE_POLICY_INVALID", node.getId(),
+                    "KNOWLEDGE_RETRIEVAL evidencePolicy must be REQUIRED or OPTIONAL");
+            return;
+        }
+        if (!StringUtils.hasText(rawEvidencePolicy)) {
+            report.warn("GRAPH_KNOWLEDGE_EVIDENCE_POLICY_LEGACY", node.getId(),
+                    "Legacy KNOWLEDGE_RETRIEVAL has no evidencePolicy and keeps OPTIONAL fallback semantics");
+        }
+        if ("REQUIRED".equals(evidencePolicy)) {
+            if (!hasRouteEdge(edges, node.getId(), "evidence")) {
+                report.error("GRAPH_KNOWLEDGE_EVIDENCE_ROUTE_MISSING", node.getId(),
+                        "REQUIRED KNOWLEDGE_RETRIEVAL must have route:evidence outgoing edge");
+            }
+            if (!hasRouteEdge(edges, node.getId(), "no_evidence")) {
+                report.error("GRAPH_KNOWLEDGE_NO_EVIDENCE_ROUTE_MISSING", node.getId(),
+                        "REQUIRED KNOWLEDGE_RETRIEVAL must have route:no_evidence outgoing edge");
+            }
+            if (hasUnconditionalEdge(edges, node.getId())) {
+                report.error("GRAPH_KNOWLEDGE_EVIDENCE_FALLBACK_UNSAFE", node.getId(),
+                        "REQUIRED KNOWLEDGE_RETRIEVAL must not have always/success fallback edges");
+            }
+            edges.stream()
+                    .filter(edge -> edge != null && node.getId().equals(text(edge.getFrom())))
+                    .filter(edge -> routesEquivalent("no_evidence", routeCondition(edge.getCondition())))
+                    .forEach(edge -> {
+                        GraphSpec.Node target = byId.get(text(edge.getTo()));
+                        if (target == null || !"ANSWER".equalsIgnoreCase(text(target.getType()))) {
+                            report.error("GRAPH_KNOWLEDGE_NO_EVIDENCE_TARGET_UNSAFE", node.getId(),
+                                    "route:no_evidence must target a deterministic ANSWER node");
+                        }
+                    });
         }
     }
 

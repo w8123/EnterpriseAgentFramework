@@ -534,6 +534,7 @@ function canvasNodeToGraphNode(node: CanvasNode, base: AgentForm): WorkflowGraph
     }
   }
   const knowledge = node.data.knowledgeConfig || defaultKnowledgeConfig()
+  const evidencePolicy = knowledge.evidencePolicy === 'REQUIRED' ? 'REQUIRED' : 'OPTIONAL'
   return {
     id: node.id,
     type: 'KNOWLEDGE_RETRIEVAL',
@@ -544,11 +545,12 @@ function canvasNodeToGraphNode(node: CanvasNode, base: AgentForm): WorkflowGraph
       knowledgeBaseCodes: knowledge.knowledgeBaseCodes || [],
       knowledgeBaseGroupId: (knowledge.knowledgeBaseCodes || [])[0] || '',
       query: knowledge.query || 'input',
-      topK: knowledge.topK || 5,
+      topK: Math.max(1, Math.min(20, knowledge.topK || 5)),
       similarityThreshold: knowledge.similarityThreshold,
       searchMode: knowledge.searchMode || 'hybrid',
       rerankEnabled: knowledge.rerankEnabled ?? true,
-      knowledgeConfig: knowledge,
+      evidencePolicy,
+      knowledgeConfig: { ...knowledge, evidencePolicy },
     },
   }
 }
@@ -560,6 +562,7 @@ function commonNodeConfig(node: CanvasNode): Record<string, unknown> {
     outputAlias: node.data.outputAlias,
     needsConfiguration: node.data.needsConfiguration === true,
     placeholderReason: node.data.placeholderReason,
+    marketRef: node.data.marketRef,
     description: node.data.description,
   }
 }
@@ -768,6 +771,9 @@ function graphConfigToNodeData(
     outputAlias: stringValue(config.outputAlias),
     needsConfiguration: config.needsConfiguration === true,
     placeholderReason: stringValue(config.placeholderReason),
+    marketRef: config.marketRef && typeof config.marketRef === 'object' && !Array.isArray(config.marketRef)
+      ? objectRecordValue(config.marketRef)
+      : undefined,
     source: isSdkDefinition(def) ? 'SDK' as const : 'CANVAS' as const,
     category: nodeCategory(kind),
     collapsed: config.ui && typeof config.ui === 'object'
@@ -1064,15 +1070,21 @@ function graphConfigToNodeData(
     }
   }
   if (kind === 'knowledge') {
+    const nested = objectRecordValue(config.knowledgeConfig)
+    const merged = { ...nested, ...config }
+    delete merged.knowledgeConfig
+    const rawEvidencePolicy = stringValue(merged.evidencePolicy).toUpperCase()
     return {
       ...common,
       knowledgeConfig: {
-        knowledgeBaseCodes: arrayValue(config.knowledgeBaseCodes),
-        query: stringValue(config.query) || 'input',
-        topK: numberValue(config.topK, 5),
-        similarityThreshold: numberValue(config.similarityThreshold, 0),
-        searchMode: stringValue(config.searchMode) || 'hybrid',
-        rerankEnabled: config.rerankEnabled !== false,
+        knowledgeBaseCodes: arrayValue(merged.knowledgeBaseCodes),
+        query: stringValue(merged.query) || 'input',
+        topK: Math.max(1, Math.min(20, numberValue(merged.topK, 5))),
+        similarityThreshold: numberValue(merged.similarityThreshold, 0.5),
+        searchMode: stringValue(merged.searchMode) || 'hybrid',
+        rerankEnabled: merged.rerankEnabled !== false,
+        // Missing means a legacy graph. Keep its historical linear fallback semantics.
+        evidencePolicy: rawEvidencePolicy === 'REQUIRED' ? 'REQUIRED' : 'OPTIONAL',
       } satisfies KnowledgeNodeConfig,
     }
   }
@@ -1192,6 +1204,7 @@ function defaultKnowledgeConfig(): KnowledgeNodeConfig {
     similarityThreshold: 0.5,
     searchMode: 'hybrid',
     rerankEnabled: true,
+    evidencePolicy: 'REQUIRED',
   }
 }
 
@@ -1489,7 +1502,7 @@ function emptyCanvas(): CanvasSnapshot {
   }
 }
 
-const CANVAS_BRANCH_SOURCE_NODE_KINDS = new Set<CanvasNodeKind>(['classifier', 'condition', 'approval'])
+const CANVAS_BRANCH_SOURCE_NODE_KINDS = new Set<CanvasNodeKind>(['classifier', 'condition', 'approval', 'knowledge'])
 
 export function normalizeCanvasEdgeHandles(
   edge: CanvasEdge,
@@ -1536,6 +1549,10 @@ function isValidBranchSourceHandle(node: CanvasNode, handle: string): boolean {
   }
   if (node.data.kind === 'approval') {
     return ['approved', 'rejected', 'timeout'].includes(handle)
+  }
+  if (node.data.kind === 'knowledge') {
+    return node.data.knowledgeConfig?.evidencePolicy === 'REQUIRED'
+      && ['evidence', 'no_evidence'].includes(handle)
   }
   if (node.data.kind === 'loop') {
     // FOREACH v1 is linear: one success outgoing edge (always), no continue/done routes.

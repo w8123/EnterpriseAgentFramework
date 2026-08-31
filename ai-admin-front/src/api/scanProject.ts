@@ -137,7 +137,7 @@ export function getScanProjectTool(projectId: number, scanToolId: number) {
   return controlRequest.get<ProjectToolInfo>(`/api/scan-projects/${projectId}/scan-tools/${scanToolId}`)
 }
 
-/** 补齐 SDK 镜像并汇总 API 与全局 Tool 关联状态。 */
+/** 补齐 SDK 镜像并汇总 API 的能力纳管状态。 */
 export function reconcileScanProjectTools(projectId: number) {
   return controlRequest.post<ToolReconcileSummary>(`/api/scan-projects/${projectId}/tools/reconcile`)
 }
@@ -168,21 +168,21 @@ export function promoteScanProjectToolToGlobal(projectId: number, scanToolId: nu
   )
 }
 
-/** 从全局 Tool 中下架并解除关联。 */
+/** 从能力目录移除运行时执行定义并解除关联。 */
 export function unpromoteScanProjectToolFromGlobal(projectId: number, scanToolId: number) {
   return controlRequest.post<ProjectToolInfo>(
     `/api/scan-projects/${projectId}/scan-tools/${scanToolId}/unpromote-from-global`,
   )
 }
 
-/** 用当前扫描行覆盖已关联的全局 Tool。 */
+/** 用当前扫描行更新已关联的运行时执行定义。 */
 export function pushScanProjectToolToGlobalTool(projectId: number, scanToolId: number) {
   return controlRequest.post<ProjectToolInfo>(
     `/api/scan-projects/${projectId}/scan-tools/${scanToolId}/push-to-global-tool`,
   )
 }
 
-/** 将某模块下或未关联模块的扫描接口注册为全局 Tool。 */
+/** 将某模块下或未关联模块的扫描接口纳入能力目录。 */
 export function promoteScanModuleToolsToGlobal(projectId: number, moduleId: number | null) {
   return controlRequest.post<BatchPromoteToToolsResult>(`/api/scan-projects/${projectId}/scan-tools/promote-by-module`, {
     moduleId,

@@ -1,7 +1,5 @@
 package com.enterprise.ai.runtime.credential;
 
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -13,37 +11,22 @@ import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.util.Base64;
 
-@Slf4j
 @Component
 public class RuntimeWorkflowCredentialCipher {
 
     private static final String PREFIX = "aesgcm:";
-    static final String DEVELOPMENT_DEFAULT_SECRET = "dev-only-change-me-please-32-bytes";
     private static final int IV_LENGTH = 12;
     private static final int TAG_LENGTH_BITS = 128;
 
     private final SecureRandom secureRandom = new SecureRandom();
     private final SecretKeySpec keySpec;
 
-    public RuntimeWorkflowCredentialCipher(String secret) {
-        this(secret, false, "");
-    }
-
-    @Autowired
-    RuntimeWorkflowCredentialCipher(
-                                    @Value("${agent.workflow-credential-secret:" + DEVELOPMENT_DEFAULT_SECRET + "}")
-                                    String secret,
-                                    @Value("${reachai.security.workflow-credential-secret.require-non-default:false}")
-                                    boolean requireNonDefaultSecret,
-                                    @Value("${spring.profiles.active:}") String activeProfiles) {
-        this.keySpec = new SecretKeySpec(sha256(secret), "AES");
-        if (usesInsecureSecret(secret)) {
-            if (requireNonDefaultSecret || hasProductionProfile(activeProfiles)) {
-                throw new IllegalStateException("agent.workflow-credential-secret must be configured with a non-default value in production");
-            }
-            log.warn("agent.workflow-credential-secret is using a development default. "
-                    + "Set WORKFLOW_CREDENTIAL_SECRET before production deployment.");
+    public RuntimeWorkflowCredentialCipher(
+            @Value("${agent.workflow-credential-secret:}") String secret) {
+        if (secret == null || secret.isBlank()) {
+            throw new IllegalStateException("AGENT_WORKFLOW_CREDENTIAL_SECRET must be configured");
         }
+        this.keySpec = new SecretKeySpec(sha256(secret), "AES");
     }
 
     public String encrypt(String plainText) {
@@ -95,22 +78,4 @@ public class RuntimeWorkflowCredentialCipher {
         }
     }
 
-    private static boolean usesInsecureSecret(String value) {
-        String normalized = value == null ? "" : value.trim();
-        return normalized.isEmpty()
-                || normalized.startsWith("dev-only-change-me");
-    }
-
-    private static boolean hasProductionProfile(String activeProfiles) {
-        if (activeProfiles == null || activeProfiles.isBlank()) {
-            return false;
-        }
-        for (String profile : activeProfiles.split(",")) {
-            String normalized = profile.trim().toLowerCase();
-            if ("prod".equals(normalized) || "production".equals(normalized)) {
-                return true;
-            }
-        }
-        return false;
-    }
 }

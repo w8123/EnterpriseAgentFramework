@@ -826,6 +826,117 @@ class RuntimeWorkflowReleaseValidationServiceTest {
                 """);
         RuntimeWorkflowReleaseValidationResult result = service.validate(workflow);
         assertTrue(result.valid(), () -> result.errors().toString());
+        assertTrue(hasWarning(result, "GRAPH_KNOWLEDGE_EVIDENCE_POLICY_LEGACY"));
+    }
+
+    @Test
+    void requiredKnowledgeRequiresBothExplicitRoutesAndRejectsFallbackEdge() {
+        RuntimeWorkflowReleaseValidationService service = service(mock(RuntimeControlCatalogClient.class));
+        RuntimeWorkflowDefinitionEntity workflow = workflow("""
+                {
+                  "entryNodeId":"kb",
+                  "exitNodeIds":["answer"],
+                  "nodes":[
+                    {"id":"kb","type":"KNOWLEDGE_RETRIEVAL","config":{
+                      "knowledgeBaseCodes":["kb1"],
+                      "query":"input",
+                      "evidencePolicy":"REQUIRED"
+                    }},
+                    {"id":"answer","type":"ANSWER","config":{"template":"done"}}
+                  ],
+                  "edges":[{"from":"kb","to":"answer","condition":"always"}]
+                }
+                """);
+
+        RuntimeWorkflowReleaseValidationResult result = service.validate(workflow);
+
+        assertFalse(result.valid());
+        assertTrue(hasError(result, "GRAPH_KNOWLEDGE_EVIDENCE_ROUTE_MISSING"));
+        assertTrue(hasError(result, "GRAPH_KNOWLEDGE_NO_EVIDENCE_ROUTE_MISSING"));
+        assertTrue(hasError(result, "GRAPH_KNOWLEDGE_EVIDENCE_FALLBACK_UNSAFE"));
+    }
+
+    @Test
+    void requiredKnowledgeWithEvidenceAndNoEvidenceRoutesCanPublish() {
+        RuntimeWorkflowReleaseValidationService service = service(mock(RuntimeControlCatalogClient.class));
+        RuntimeWorkflowDefinitionEntity workflow = workflow("""
+                {
+                  "entryNodeId":"kb",
+                  "exitNodeIds":["evidence","no_evidence"],
+                  "nodes":[
+                    {"id":"kb","type":"KNOWLEDGE_RETRIEVAL","config":{
+                      "knowledgeBaseCodes":["kb1"],
+                      "query":"input",
+                      "evidencePolicy":"REQUIRED"
+                    }},
+                    {"id":"evidence","type":"ANSWER","config":{"template":"found"}},
+                    {"id":"no_evidence","type":"ANSWER","config":{"template":"not found"}}
+                  ],
+                  "edges":[
+                    {"from":"kb","to":"evidence","condition":"route:evidence"},
+                    {"from":"kb","to":"no_evidence","condition":"route:no_evidence"}
+                  ]
+                }
+                """);
+
+        RuntimeWorkflowReleaseValidationResult result = service.validate(workflow);
+
+        assertTrue(result.valid(), () -> result.errors().toString());
+        assertFalse(hasWarning(result, "GRAPH_KNOWLEDGE_EVIDENCE_POLICY_LEGACY"));
+    }
+
+    @Test
+    void requiredKnowledgeNoEvidenceRouteCannotTargetLlm() {
+        RuntimeWorkflowReleaseValidationService service = service(mock(RuntimeControlCatalogClient.class));
+        RuntimeWorkflowDefinitionEntity workflow = workflow("""
+                {
+                  "entryNodeId":"kb",
+                  "exitNodeIds":["evidence","unsafe_llm"],
+                  "nodes":[
+                    {"id":"kb","type":"KNOWLEDGE_RETRIEVAL","config":{
+                      "knowledgeBaseCodes":["kb1"],
+                      "query":"input",
+                      "evidencePolicy":"REQUIRED"
+                    }},
+                    {"id":"evidence","type":"ANSWER","config":{"template":"found"}},
+                    {"id":"unsafe_llm","type":"LLM","config":{"modelInstanceId":"model-1","prompt":"guess"}}
+                  ],
+                  "edges":[
+                    {"from":"kb","to":"evidence","condition":"route:evidence"},
+                    {"from":"kb","to":"unsafe_llm","condition":"route:no_evidence"}
+                  ]
+                }
+                """);
+
+        RuntimeWorkflowReleaseValidationResult result = service.validate(workflow);
+
+        assertFalse(result.valid());
+        assertTrue(hasError(result, "GRAPH_KNOWLEDGE_NO_EVIDENCE_TARGET_UNSAFE"));
+    }
+
+    @Test
+    void knowledgeEvidencePolicyRejectsUnknownValue() {
+        RuntimeWorkflowReleaseValidationService service = service(mock(RuntimeControlCatalogClient.class));
+        RuntimeWorkflowDefinitionEntity workflow = workflow("""
+                {
+                  "entryNodeId":"kb",
+                  "exitNodeIds":["answer"],
+                  "nodes":[
+                    {"id":"kb","type":"KNOWLEDGE_RETRIEVAL","config":{
+                      "knowledgeBaseCodes":["kb1"],
+                      "query":"input",
+                      "evidencePolicy":"invent"
+                    }},
+                    {"id":"answer","type":"ANSWER","config":{"template":"done"}}
+                  ],
+                  "edges":[{"from":"kb","to":"answer","condition":"always"}]
+                }
+                """);
+
+        RuntimeWorkflowReleaseValidationResult result = service.validate(workflow);
+
+        assertFalse(result.valid());
+        assertTrue(hasError(result, "GRAPH_KNOWLEDGE_EVIDENCE_POLICY_INVALID"));
     }
 
     @Test

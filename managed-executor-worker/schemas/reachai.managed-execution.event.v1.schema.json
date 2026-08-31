@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://reachai.example/schemas/reachai.managed-execution.event.v1.schema.json",
+  "title": "ReachAI Managed Execution Event v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "executionId",
+    "sequence",
+    "eventId",
+    "occurredAt",
+    "type",
+    "phase",
+    "visibility",
+    "persistence",
+    "message",
+    "data"
+  ],
+  "properties": {
+    "schema": {
+      "const": "reachai.managed-execution.event.v1"
+    },
+    "executionId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "eventId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 300
+    },
+    "occurredAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "type": {
+      "enum": [
+        "THREAD_STARTED",
+        "TURN_STARTED",
+        "COMMAND_STARTED",
+        "COMMAND_COMPLETED",
+        "FILE_CHANGE_STARTED",
+        "FILE_CHANGE_COMPLETED",
+        "TOOL_STARTED",
+        "TOOL_COMPLETED",
+        "DIFF_UPDATED",
+        "FINAL_MESSAGE",
+        "APPROVAL_REQUESTED",
+        "APPROVAL_RESOLVED",
+        "TURN_COMPLETED",
+        "APP_SERVER_ERROR"
+      ]
+    },
+    "phase": {
+      "enum": [
+        "PROVISIONING",
+        "RUNNING",
+        "WAITING_APPROVAL",
+        "FINALIZING",
+        "SUCCEEDED",
+        "FAILED",
+        "CANCELLED"
+      ]
+    },
+    "visibility": {
+      "enum": [
+        "OPERATOR",
+        "PUBLIC"
+      ]
+    },
+    "persistence": {
+      "const": "DURABLE"
+    },
+    "message": {
+      "type": "string",
+      "maxLength": 2000
+    },
+    "data": {
+      "type": "object",
+      "maxProperties": 64
+    }
+  }
+}

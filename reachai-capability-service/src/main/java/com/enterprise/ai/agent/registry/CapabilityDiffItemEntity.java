@@ -40,7 +40,7 @@ public class CapabilityDiffItemEntity {
     private String impactJson;
 
     /**
-     * 执行评审前的能力目录状态。仅保存可被 SDK apply 改写的扫描目录与全局 Tool 字段，
+     * 执行评审前的能力目录状态。仅保存可被 SDK apply 改写的扫描目录与运行时调用投影字段，
      * 用于把回滚落实到真实执行资产，而不是只回写 review_status。
      */
     private String beforeStateJson;

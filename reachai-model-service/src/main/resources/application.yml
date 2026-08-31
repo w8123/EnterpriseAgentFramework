@@ -11,12 +11,32 @@ spring:
     driver-class-name: com.mysql.cj.jdbc.Driver
 
 model:
-  credential-secret: ${MODEL_CREDENTIAL_SECRET:dev-only-change-me-please-32-bytes}
+  credential-secret: ${MODEL_CREDENTIAL_SECRET:}
   # Process-local ACTIVE runtime cache. Invalidate on create/update/archive is local only;
   # multi-instance disable/archive/credential changes are eventually consistent within this TTL
   # (default 5s, hard-capped at 30s). No credentials are logged from the cache.
   instance-runtime-cache:
     ttl-ms: ${MODEL_INSTANCE_RUNTIME_CACHE_TTL_MS:5000}
+  catalog-sync:
+    # 数据库设置优先；仅在设置表尚无单例记录时使用该默认值。自动同步默认关闭，手动同步不受影响。
+    enabled: ${MODEL_CATALOG_SYNC_ENABLED:false}
+    zone-id: ${MODEL_CATALOG_SYNC_ZONE_ID:Asia/Shanghai}
+    # 启动 10 分钟后首次轮询；自动开关开启时补齐当天槽位，关闭时仍处理手动槽位和失败重试。
+    initial-delay-ms: ${MODEL_CATALOG_SYNC_INITIAL_DELAY_MS:600000}
+    poll-delay-ms: ${MODEL_CATALOG_SYNC_POLL_DELAY_MS:600000}
+    batch-size: ${MODEL_CATALOG_SYNC_BATCH_SIZE:8}
+    max-attempts: ${MODEL_CATALOG_SYNC_MAX_ATTEMPTS:3}
+    lease-seconds: ${MODEL_CATALOG_SYNC_LEASE_SECONDS:1800}
+    retry-delay-minutes: ${MODEL_CATALOG_SYNC_RETRY_DELAY_MINUTES:30}
+    request-timeout-seconds: ${MODEL_CATALOG_SYNC_REQUEST_TIMEOUT_SECONDS:45}
+    # 阿里云模型上下架页当前已超过 2 MB；原始响应仍限制在 4 MB，送入分析器的文本另有限额。
+    max-content-bytes: ${MODEL_CATALOG_SYNC_MAX_CONTENT_BYTES:4194304}
+    max-analyzer-chars: ${MODEL_CATALOG_SYNC_MAX_ANALYZER_CHARS:120000}
+    # 必须显式绑定一个 ACTIVE LLM 实例；不配置时只保存官方快照并把该来源标记为待处理，绝不暗选业务模型。
+    analyzer-model-instance-id: ${MODEL_CATALOG_ANALYZER_MODEL_INSTANCE_ID:}
+    auto-publish-safe-facts: ${MODEL_CATALOG_AUTO_PUBLISH_SAFE_FACTS:true}
+    auto-publish-min-confidence: ${MODEL_CATALOG_AUTO_PUBLISH_MIN_CONFIDENCE:0.92}
+    stale-after-hours: ${MODEL_CATALOG_STALE_AFTER_HOURS:36}
 
 logging:
   level:

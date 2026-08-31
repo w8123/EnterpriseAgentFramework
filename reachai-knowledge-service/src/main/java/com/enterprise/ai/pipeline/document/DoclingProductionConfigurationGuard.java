@@ -5,11 +5,9 @@ import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
-/** Prevents the discoverable local Docling credential from reaching production. */
+/** Requires the internal Docling credential in production when the provider is enabled. */
 @Component
 public class DoclingProductionConfigurationGuard {
-
-    static final String LOCAL_DEVELOPMENT_API_KEY = "local-dev-change-me";
 
     public DoclingProductionConfigurationGuard(DoclingProperties properties, Environment environment) {
         boolean production = InternalTransportSecurityPolicy.isProduction(environment.getActiveProfiles())
@@ -18,7 +16,7 @@ public class DoclingProductionConfigurationGuard {
             return;
         }
         String apiKey = properties.getApiKey();
-        if (!StringUtils.hasText(apiKey) || LOCAL_DEVELOPMENT_API_KEY.equals(apiKey.trim())) {
+        if (!StringUtils.hasText(apiKey)) {
             throw new IllegalStateException(
                     "REACHAI_DOCLING_API_KEY must be provided from a production Secret");
         }

@@ -11,7 +11,10 @@ export default defineConfig({
   },
   test: {
     environment: 'happy-dom',
-    include: ['src/views/workflow/**/*.test.ts'],
+    include: [
+      'src/views/workflow/**/*.test.ts',
+      'src/views/agent/**/*.test.ts',
+    ],
     css: false,
   },
 })

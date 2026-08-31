@@ -6,7 +6,7 @@ const CAPABILITY_MODULE_CODE_LABELS: Record<string, string> = {
 /** 种子数据常见英文名称 → 中文（已有库未升级时兜底） */
 const CAPABILITY_DISPLAY_NAME_LABELS: Record<string, string> = {
   'System Built-in Capability': '系统内置能力',
-  'Echo Tool': '回声工具',
+  'Echo Tool': '回声动作',
   'Echo Composition': '回声组合',
   'Echo Input Interaction': '回声输入交互',
   'Echo Result Interaction': '回声结果展示',

@@ -1,15 +1,12 @@
 package com.enterprise.ai.control.pageworkbench.application;
 
-import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.ActionView;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.PageView;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.PublishedWorkflowView;
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.ReadinessItem;
-import com.enterprise.ai.control.platform.PlatformEmbedE2eEvidenceService;
-import com.enterprise.ai.control.platform.PlatformEmbedSessionEntity;
-import com.enterprise.ai.control.platform.PlatformEmbedSessionMapper;
-import com.enterprise.ai.control.platform.PlatformPageActionEventEntity;
-import com.enterprise.ai.control.platform.PlatformPageActionEventMapper;
+import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchObservationPort.ActionObservation;
+import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchObservationPort.ConversationEvidence;
+import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchObservationPort.SessionObservation;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
@@ -29,12 +26,8 @@ class PageWorkbenchPageReadinessApplicationServiceTest {
     void passesOnlyWhenCatalogSessionBindingAndRuntimeResultAreObserved() {
         PageCatalogApplicationService pageCatalog =
                 mock(PageCatalogApplicationService.class);
-        PlatformEmbedSessionMapper sessionMapper =
-                mock(PlatformEmbedSessionMapper.class);
-        PlatformPageActionEventMapper eventMapper =
-                mock(PlatformPageActionEventMapper.class);
-        PlatformEmbedE2eEvidenceService embedEvidence =
-                mock(PlatformEmbedE2eEvidenceService.class);
+        PageWorkbenchObservationPort observations =
+                mock(PageWorkbenchObservationPort.class);
         PageWorkbenchPublishedApplicationService publishedService =
                 mock(PageWorkbenchPublishedApplicationService.class);
         PageWorkbenchAgentModelReadinessApplicationService modelReadiness =
@@ -44,12 +37,12 @@ class PageWorkbenchPageReadinessApplicationServiceTest {
         ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
         when(pageCatalog.findPage("orders", 1L))
                 .thenReturn(Optional.of(page()));
-        when(sessionMapper.selectOne(any(Wrapper.class)))
+        when(observations.latestActiveSession(any(), any(), any()))
                 .thenReturn(session());
-        when(eventMapper.selectOne(any(Wrapper.class)))
+        when(observations.latestPageActionEvent(any(), any()))
                 .thenReturn(successfulEvent());
-        when(embedEvidence.latestSuccessfulConversation(any(), any(), any()))
-                .thenReturn(PlatformEmbedE2eEvidenceService.EmbedConversationEvidence.passed(
+        when(observations.latestSuccessfulConversation(any(), any(), any()))
+                .thenReturn(ConversationEvidence.passed(
                         "observed browser conversation",
                         "session=es-orders"));
         when(publishedService.list("orders", "orders.detail"))
@@ -75,9 +68,7 @@ class PageWorkbenchPageReadinessApplicationServiceTest {
         PageWorkbenchPageReadinessApplicationService service =
                 new PageWorkbenchPageReadinessApplicationService(
                         pageCatalog,
-                        sessionMapper,
-                        eventMapper,
-                        embedEvidence,
+                        observations,
                         publishedService,
                         modelReadiness,
                         workflowTraceReadiness,
@@ -170,20 +161,16 @@ class PageWorkbenchPageReadinessApplicationServiceTest {
                 null);
     }
 
-    private PlatformEmbedSessionEntity session() {
-        PlatformEmbedSessionEntity session =
-                new PlatformEmbedSessionEntity();
-        session.setSessionId("es-orders");
-        session.setProjectCode("orders");
-        session.setPageKey("orders.detail");
-        session.setPageInstanceId("page-orders-1");
-        session.setSdkVersion("1.0.0");
-        session.setBridgeActionsJson("[\"getPageState\"]");
-        session.setStatus("ACTIVE");
-        session.setExpiresAt(LocalDateTime.now().plusHours(1));
-        session.setCreatedAt(LocalDateTime.now().minusMinutes(2));
-        session.setUpdatedAt(LocalDateTime.now());
-        return session;
+    private SessionObservation session() {
+        return new SessionObservation(
+                "es-orders",
+                "page-orders-1",
+                "1.0.0",
+                "/orders/1",
+                "[\"getPageState\"]",
+                LocalDateTime.now().minusMinutes(2),
+                LocalDateTime.now(),
+                LocalDateTime.now().plusHours(1));
     }
 
     private PublishedWorkflowView published() {
@@ -214,16 +201,11 @@ class PageWorkbenchPageReadinessApplicationServiceTest {
                 "trace-orders");
     }
 
-    private PlatformPageActionEventEntity successfulEvent() {
-        PlatformPageActionEventEntity event =
-                new PlatformPageActionEventEntity();
-        event.setRequestId("par-orders");
-        event.setSessionId("es-orders");
-        event.setCommandType("PAGE_ACTION");
-        event.setTargetPageKey("orders.detail");
-        event.setActionKey("getPageState");
-        event.setStatus("SUCCESS");
-        event.setCompletedAt(LocalDateTime.now());
-        return event;
+    private ActionObservation successfulEvent() {
+        return new ActionObservation(
+                "par-orders",
+                "getPageState",
+                "SUCCESS",
+                LocalDateTime.now());
     }
 }

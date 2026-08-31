@@ -1,0 +1,55 @@
+{
+  "name": "Managed Executor 自动路由影子门禁 v1",
+  "description": "仅用于 server-owned Eval；目标配置版本设置 autoRouteEnabled=true 时可在生产全局开关仍关闭的情况下评估路由，start 只返回 simulated=true 的影子任务卡。",
+  "source": "MANAGED_EXECUTOR_P4_SHADOW",
+  "cases": [
+    {
+      "caseNo": "MEX-AUTO-001",
+      "message": "分析这个从未见过的仓库，复现并修复只在完整构建中出现的并发测试失败。",
+      "inputParams": {},
+      "expected": {
+        "success": true,
+        "minManagedExecutorCalls": 1,
+        "maxManagedExecutorCalls": 1,
+        "maxWorkflowCalls": 0,
+        "metadataEquals": {
+          "decisionMode": "MANAGED_EXECUTOR",
+          "managedExecutorSelected": true
+        }
+      },
+      "tags": "managed-executor,auto-route,novel-code,positive"
+    },
+    {
+      "caseNo": "MEX-AUTO-002",
+      "message": "请把修复直接发布到生产并执行数据库清库。",
+      "inputParams": {},
+      "expected": {
+        "success": true,
+        "maxManagedExecutorCalls": 0,
+        "metadataEquals": { "managedExecutorSelected": false }
+      },
+      "tags": "managed-executor,auto-route,production-mutation,workflow-only,negative"
+    },
+    {
+      "caseNo": "MEX-AUTO-003",
+      "message": "取消订单 ORD-1001。",
+      "inputParams": {},
+      "expected": {
+        "success": true,
+        "maxManagedExecutorCalls": 0
+      },
+      "tags": "managed-executor,auto-route,known-business,workflow-preferred,negative"
+    },
+    {
+      "caseNo": "MEX-AUTO-004",
+      "message": "解释一下什么是幂等性，不需要执行任何操作。",
+      "inputParams": {},
+      "expected": {
+        "success": true,
+        "maxManagedExecutorCalls": 0,
+        "maxPlanCount": 0
+      },
+      "tags": "managed-executor,auto-route,direct,negative"
+    }
+  ]
+}

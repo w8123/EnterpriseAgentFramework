@@ -11,6 +11,8 @@ import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Map;
 
+import com.enterprise.ai.common.capability.CapabilityInvocationResponse;
+
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -33,16 +35,23 @@ class RuntimeCapabilityCatalogClientContractTest {
         assertArrayEquals(new String[] {"/internal/capability/tools/{qualifiedName}"}, mapping.value());
         assertEquals(Map.class, getToolDefinition.getReturnType());
 
-        Method executeTool = RuntimeCapabilityCatalogFeignClient.class
-                .getMethod("executeTool", String.class, Map.class, byte[].class);
-        PostMapping executeMapping = executeTool.getAnnotation(PostMapping.class);
+        Method invokeTool = RuntimeCapabilityCatalogFeignClient.class
+                .getMethod("invokeTool", String.class, Map.class, byte[].class);
+        PostMapping executeMapping = invokeTool.getAnnotation(PostMapping.class);
         assertArrayEquals(new String[] {"/internal/capability/tools/{qualifiedName}/execute"}, executeMapping.value());
         assertArrayEquals(new String[] {"application/json"}, executeMapping.consumes());
         assertEquals(RequestHeader.class,
-                executeTool.getParameterAnnotations()[1][0].annotationType());
+                invokeTool.getParameterAnnotations()[1][0].annotationType());
         assertEquals(RequestBody.class,
-                executeTool.getParameterAnnotations()[2][0].annotationType());
-        assertEquals(Map.class, executeTool.getReturnType());
+                invokeTool.getParameterAnnotations()[2][0].annotationType());
+        assertEquals(CapabilityInvocationResponse.class, invokeTool.getReturnType());
+
+        Method invokeCapability = RuntimeCapabilityCatalogFeignClient.class
+                .getMethod("invokeCapability", Map.class, byte[].class);
+        PostMapping invocationMapping = invokeCapability.getAnnotation(PostMapping.class);
+        assertArrayEquals(new String[] {"/internal/capability/invocations"}, invocationMapping.value());
+        assertArrayEquals(new String[] {"application/json"}, invocationMapping.consumes());
+        assertEquals(CapabilityInvocationResponse.class, invokeCapability.getReturnType());
 
         Method getCompositionDefinition = RuntimeCapabilityCatalogFeignClient.class
                 .getMethod("getCompositionDefinition", String.class);

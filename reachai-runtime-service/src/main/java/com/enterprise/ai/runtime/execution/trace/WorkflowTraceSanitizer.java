@@ -27,7 +27,17 @@ public final class WorkflowTraceSanitizer {
     private static final Set<String> HTTP_SUMMARY_KEYS = Set.of(
             "statusCode", "bodyBytes", "redirectCount", "contentType", "durationMs");
     private static final Set<String> KNOWLEDGE_SUMMARY_KEYS = Set.of(
-            "queryLength", "hitCount", "topK", "searchMode", "rerankApplied");
+            "queryLength", "hitCount", "topK", "searchMode", "rerankApplied",
+            "evidencePolicy", "outcome", "empty", "route",
+            "knowledgeBaseCount", "failedKnowledgeBaseCount",
+            "vectorRawCandidateCount", "vectorAcceptedCandidateCount",
+            "keywordRawCandidateCount", "keywordAcceptedCandidateCount",
+            "preMergeCandidateCount", "mergedCandidateCount", "rerankedCandidateCount",
+            "scoreAcceptedCandidateCount", "scoreFilteredCandidateCount",
+            "topKTruncatedCandidateCount", "returnedCandidateCount", "returnedHitCount",
+            "returnedContentChars", "contentTruncatedCount", "budgetOmittedHitCount",
+            "contentBudgetExhausted", "perHitContentLimit", "totalContentLimit",
+            "retrievalStageMs", "rerankStageMs", "totalCostMs");
     private static final Set<String> PAGE_ACTION_SUMMARY_KEYS = Set.of(
             "actionKey", "success", "status", "outcomeClass", "businessOutcome",
             "total", "empty");
@@ -220,12 +230,17 @@ public final class WorkflowTraceSanitizer {
         Map<String, Object> node = new LinkedHashMap<>();
         putScalar(node, "nodeId", trace.get("nodeId"));
         putScalar(node, "nodeType", trace.get("nodeType"));
+        putScalar(node, "nodeName", trace.get("nodeName"));
+        putScalar(node, "qualifiedName", trace.get("qualifiedName"));
         putScalar(node, "status", trace.get("status"));
         putScalar(node, "attempt", trace.get("attempt"));
         putScalar(node, "maxAttempts", trace.get("maxAttempts"));
         putScalar(node, "errorPolicy", trace.get("errorPolicy"));
         putScalar(node, "failureCode", trace.get("failureCode"));
+        putScalar(node, "failureCategory", trace.get("failureCategory"));
+        putScalar(node, "retryableFailure", trace.get("retryableFailure"));
         putScalar(node, "fallbackNodeId", trace.get("fallbackNodeId"));
+        putScalar(node, "nextNodeId", trace.get("nextNodeId"));
         putScalar(node, "interactionId", trace.get("interactionId"));
         putScalar(node, "interactionType", trace.get("interactionType"));
         putScalar(node, "outcomeClass", trace.get("outcomeClass"));

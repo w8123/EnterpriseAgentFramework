@@ -57,6 +57,10 @@ public class AiCodingHandoffApplicationService {
             String publicBaseUrl,
             String issuedBy) {
         AiCodingTaskEntity task = requireTask(taskId);
+        if ("MANAGED_SANDBOX".equalsIgnoreCase(task.getExecutionMode())) {
+            throw new IllegalStateException(
+                    "managed sandbox tasks do not support external handoff packages");
+        }
         String normalizedIssuedBy = textOrNull(
                 issuedBy,
                 "issuedBy",

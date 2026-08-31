@@ -1,5 +1,7 @@
 package com.enterprise.ai.runtime.execution;
 
+import com.enterprise.ai.runtime.execution.event.RuntimeExecutionEvent;
+
 import java.util.Map;
 
 /**
@@ -9,6 +11,10 @@ public interface RuntimeGraphSpecExecutionEventSink {
 
     RuntimeGraphSpecExecutionEventSink NOOP = new RuntimeGraphSpecExecutionEventSink() {
     };
+
+    /** Versioned internal event channel used by RunOps projectors and optional exporters. */
+    default void onExecutionEvent(RuntimeExecutionEvent event) {
+    }
 
     default void onNodeStarted(String nodeId, String nodeType, String nodeName, Map<String, Object> safePayload) {
     }

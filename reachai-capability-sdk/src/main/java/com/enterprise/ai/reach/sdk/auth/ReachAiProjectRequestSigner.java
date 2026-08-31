@@ -45,6 +45,11 @@ public final class ReachAiProjectRequestSigner {
                 ReachAiSigner.sign(appSecret, message));
     }
 
+    /**
+     * Builds the newline-separated canonical signing input with a fixed field order.
+     * The body digest is lowercased so that, when all other signed fields are equal,
+     * digests that differ only in hex letter case still yield the same canonical input.
+     */
     public static String canonical(String method,
                                    String path,
                                    String projectCode,
@@ -80,6 +85,10 @@ public final class ReachAiProjectRequestSigner {
         }
     }
 
+    /**
+     * Rejects relative paths, query, fragment, {@code ..} and CR/LF so a signature
+     * computed for one path cannot be replayed against a different resolved target.
+     */
     private static String requiredPath(String value) {
         String path = required(value, "path");
         if (!path.startsWith("/") || path.indexOf('?') >= 0 || path.indexOf('#') >= 0

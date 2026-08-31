@@ -1,5 +1,6 @@
 package com.enterprise.ai.runtime.supervisor;
 
+import com.enterprise.ai.runtime.agentscope.ReachAiAgentScopeChatModel;
 import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient;
 import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient.ModelChatData;
 import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient.ModelChatResult;

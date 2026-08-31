@@ -1,10 +1,20 @@
-const TOKEN_KEY = 'reachai.platform.accessToken'
+const LEGACY_TOKEN_KEY = 'reachai.platform.accessToken'
 const USER_KEY = 'reachai.platform.user'
 const SESSION_ID_KEY = 'reachai.platform.sessionId'
 const SESSION_EXPIRES_AT_KEY = 'reachai.platform.expiresAt'
-const EXPLORATION_NOTICE_ACK_PREFIX = 'reachai.platform.explorationNotice.ack.v3'
+const EXPLORATION_NOTICE_ACK_PREFIX = 'reachai.platform.explorationNotice.ack.v4'
 const LEGACY_EXPLORATION_NOTICE_ACK_KEY_V1 = 'reachai.platform.explorationNotice.ack.v1'
 const LEGACY_EXPLORATION_NOTICE_ACK_PREFIX_V2 = 'reachai.platform.explorationNotice.ack.v2'
+const LEGACY_EXPLORATION_NOTICE_ACK_PREFIX_V3 = 'reachai.platform.explorationNotice.ack.v3'
+
+export const PLATFORM_CSRF_HEADER = 'X-ReachAI-CSRF'
+export const PLATFORM_SESSION_EVENT_KEY = 'reachai.platform.sessionEvent.v1'
+
+export interface PlatformPermissionGrant {
+  permissionCode: string
+  scopeType: string
+  scopeValue: string
+}
 
 export interface PlatformUserProfile {
   userId: number
@@ -12,13 +22,12 @@ export interface PlatformUserProfile {
   displayName?: string
   roles?: string[]
   permissions?: string[]
+  permissionGrants?: PlatformPermissionGrant[]
 }
 
 /**
- * Management-console credentials intentionally use window-scoped storage. A
- * privacy-restricted browser may reject sessionStorage; in that case a
- * best-effort in-memory fallback preserves only the current page lifetime and
- * never widens the session to localStorage.
+ * Only non-secret session metadata is kept in window-scoped storage. The
+ * credential itself is an HttpOnly cookie and is never exposed to JavaScript.
  */
 const inMemorySessionStorage = new Map<string, string>()
 
@@ -48,39 +57,52 @@ function removeSessionValue(key: string) {
   }
 }
 
-/** Removes old cross-window tokens and acknowledgement keys without migrating them. */
+function getLocalValue(key: string): string {
+  try {
+    return localStorage.getItem(key) || ''
+  } catch {
+    return ''
+  }
+}
+
+function setLocalValue(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value)
+  } catch {
+    // Cross-tab convenience is best-effort when persistent storage is disabled.
+  }
+}
+
+function removeLocalValue(key: string) {
+  try {
+    localStorage.removeItem(key)
+  } catch {
+    // Cross-tab convenience is best-effort when persistent storage is disabled.
+  }
+}
+
+/** Removes old script-readable credentials and acknowledgement keys without migrating them. */
 export function discardLegacyPlatformPersistentSession() {
   try {
-    localStorage.removeItem(TOKEN_KEY)
+    localStorage.removeItem(LEGACY_TOKEN_KEY)
     localStorage.removeItem(USER_KEY)
     localStorage.removeItem(SESSION_EXPIRES_AT_KEY)
   } catch {
     // Storage can be disabled; there is no safe persistent fallback.
   }
 
+  removeSessionValue(LEGACY_TOKEN_KEY)
   removeSessionValue(LEGACY_EXPLORATION_NOTICE_ACK_KEY_V1)
   try {
     for (let index = sessionStorage.length - 1; index >= 0; index -= 1) {
       const key = sessionStorage.key(index)
-      if (key?.startsWith(`${LEGACY_EXPLORATION_NOTICE_ACK_PREFIX_V2}.`)) {
+      if (key?.startsWith(`${LEGACY_EXPLORATION_NOTICE_ACK_PREFIX_V2}.`)
+        || key?.startsWith(`${LEGACY_EXPLORATION_NOTICE_ACK_PREFIX_V3}.`)) {
         sessionStorage.removeItem(key)
       }
     }
   } catch {
     // Legacy acknowledgement is best-effort only when storage is unavailable.
-  }
-}
-
-export function getPlatformToken(): string {
-  return getSessionValue(TOKEN_KEY)
-}
-
-export function setPlatformToken(token: string, expiresAt?: string) {
-  setSessionValue(TOKEN_KEY, token)
-  if (expiresAt) {
-    setSessionValue(SESSION_EXPIRES_AT_KEY, expiresAt)
-  } else {
-    removeSessionValue(SESSION_EXPIRES_AT_KEY)
   }
 }
 
@@ -104,16 +126,8 @@ export function getPlatformSessionId(): string {
   return getSessionValue(SESSION_ID_KEY)
 }
 
-export function hasLocallyExpiredPlatformSession(now = Date.now()): boolean {
-  const expiresAt = getPlatformSessionExpiresAt()
-  if (!expiresAt) return false
-  const expiresAtMs = Date.parse(expiresAt)
-  return Number.isFinite(expiresAtMs) && expiresAtMs <= now
-}
-
-export function clearPlatformToken() {
+export function clearPlatformSessionMetadata() {
   const currentSessionId = getPlatformSessionId()
-  removeSessionValue(TOKEN_KEY)
   removeSessionValue(USER_KEY)
   removeSessionValue(SESSION_ID_KEY)
   removeSessionValue(SESSION_EXPIRES_AT_KEY)
@@ -140,19 +154,44 @@ function explorationNoticeAcknowledgementKey(sessionId?: string): string | null 
 
 export function hasAcknowledgedExplorationNotice(sessionId?: string): boolean {
   const key = explorationNoticeAcknowledgementKey(sessionId)
-  return key != null && getSessionValue(key) === 'true'
+  return key != null && getLocalValue(key) === 'true'
 }
 
 export function acknowledgeExplorationNotice(sessionId?: string) {
   const key = explorationNoticeAcknowledgementKey(sessionId)
   if (key) {
-    setSessionValue(key, 'true')
+    setLocalValue(key, 'true')
   }
 }
 
 export function resetExplorationNoticeAcknowledgement(sessionId?: string) {
   const key = explorationNoticeAcknowledgementKey(sessionId)
   if (key) {
-    removeSessionValue(key)
+    removeLocalValue(key)
+  }
+}
+
+export function platformCsrfHeaders(headers?: HeadersInit): Headers {
+  const result = new Headers(headers)
+  const sessionId = getPlatformSessionId()
+  if (sessionId) {
+    result.set(PLATFORM_CSRF_HEADER, sessionId)
+  }
+  return result
+}
+
+export function publishPlatformLogoutEvent() {
+  setLocalValue(PLATFORM_SESSION_EVENT_KEY, JSON.stringify({
+    type: 'LOGOUT',
+    at: Date.now(),
+  }))
+}
+
+export function isPlatformLogoutEvent(event: StorageEvent): boolean {
+  if (event.key !== PLATFORM_SESSION_EVENT_KEY || !event.newValue) return false
+  try {
+    return (JSON.parse(event.newValue) as { type?: string }).type === 'LOGOUT'
+  } catch {
+    return false
   }
 }

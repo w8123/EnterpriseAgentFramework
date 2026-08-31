@@ -158,6 +158,9 @@ class RuntimeWorkflowProposalGenerationServiceTest {
         assertTrue(systemPrompt.contains("Authorable canonical node types"));
         assertTrue(systemPrompt.contains("Closed / non-authorable types are forbidden"));
         assertTrue(systemPrompt.contains("config.interactionType=PRESENT_OUTPUT"));
+        assertTrue(systemPrompt.contains("config.evidencePolicy to REQUIRED"));
+        assertTrue(systemPrompt.contains("route:no_evidence"));
+        assertTrue(systemPrompt.contains("must not ask an LLM to invent an answer"));
         assertFalse(systemPrompt.contains("INTERACTION(confirm_action)"));
         assertFalse(systemPrompt.contains("|approval|"));
     }
@@ -309,6 +312,7 @@ class RuntimeWorkflowProposalGenerationServiceTest {
         assertFalse(json.contains("directReturnThreshold"));
         assertFalse(config.containsKey("directReturnEnabled"));
         assertFalse(config.containsKey("directReturnThreshold"));
+        assertEquals("REQUIRED", config.get("evidencePolicy"));
     }
 
     @SuppressWarnings("unchecked")

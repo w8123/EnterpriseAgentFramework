@@ -3,6 +3,7 @@ package com.enterprise.ai.runtime.execution;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.enterprise.ai.runtime.client.capability.RuntimeCapabilityCatalogClient;
 import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient;
+import com.enterprise.ai.runtime.execution.checkpoint.WorkflowCheckpointCodec;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -286,6 +287,25 @@ class RuntimeInteractionResumeServiceTest {
         Map<String, Object> continuation = (Map<String, Object>) result.get("continuation");
         assertEquals("agent-1", continuation.get("agentId"));
         assertEquals("trace-1", continuation.get("traceId"));
+    }
+
+    @Test
+    void rejectsTamperedV1CheckpointBeforeExecutingResume() {
+        RuntimeInteractionSessionEntity session = waitingSession();
+        WorkflowCheckpointCodec.EncodedCheckpoint encoded = sessionService.encodeCheckpoint(
+                Map.of("traceId", "trace-1", "runId", "run-1"),
+                session.getGraphSpecSnapshotJson(), session.getNodeId());
+        sessionService.applyCheckpoint(session, encoded);
+        session.setResumeCheckpointJson(encoded.json().replace("run-1", "run-X"));
+        when(sessionMapper.selectById("wfi_session1")).thenReturn(session);
+        when(sessionMapper.update(any(), any())).thenReturn(1);
+
+        Map<String, Object> result = service.resume("wfi_session1", Map.of(
+                "values", Map.of("q", "must-not-run"),
+                "idempotencyKey", "tampered-1"), owner());
+
+        assertEquals(false, result.get("success"));
+        assertEquals("RUNTIME_CHECKPOINT_DIGEST_MISMATCH", result.get("code"));
     }
 
     private static void assertForbidden(Map<String, Object> result) {

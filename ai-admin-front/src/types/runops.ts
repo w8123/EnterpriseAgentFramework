@@ -1,6 +1,6 @@
-export type RunType = 'AGENT' | 'WORKFLOW'
+export type RunType = 'AGENT' | 'WORKFLOW' | 'MCP'
 
-export type RunEntryType = 'DEBUG' | 'EMBED' | 'GATEWAY' | 'EVAL' | 'REPLAY' | 'API'
+export type RunEntryType = 'DEBUG' | 'EMBED' | 'GATEWAY' | 'EVAL' | 'REPLAY' | 'API' | 'AUTOMATION' | 'MCP'
 
 export type RunStatus =
   | 'RUNNING'
@@ -24,7 +24,7 @@ export interface RunOpsQueryParams {
   limit?: number
 }
 
-/** 一次 Agent 或 Workflow 根运行。Tool 仅作为运行内事件，不是根运行类型。 */
+/** 一次 Agent、Workflow 或外部 MCP tools/call 根运行。其他 Tool 调用仍作为运行内事件。 */
 export interface RunSummary {
   traceId: string
   runType: RunType
@@ -75,13 +75,31 @@ export interface RunSpan {
   status?: string
   inputSummary?: string
   outputSummary?: string
-  metadata?: Record<string, unknown>
+  metadata?: RunSpanMetadata
   errorCode?: string
   errorMessage?: string
   latencyMs?: number
   tokenCost?: number
   startedAt?: string
   endedAt?: string
+}
+
+/** RuntimeExecutionEvent V1 projected metadata for Workflow node spans. */
+export interface RunSpanMetadata extends Record<string, unknown> {
+  nodeType?: string
+  nodeName?: string
+  qualifiedName?: string
+  attempt?: number
+  maxAttempts?: number
+  errorPolicy?: string
+  failureCode?: string
+  failureCategory?: string
+  retryableFailure?: boolean
+  fallbackNodeId?: string
+  outcomeClass?: string
+  businessOutcome?: string
+  interactionId?: string
+  interactionType?: string
 }
 
 export interface RunToolCall {
@@ -118,6 +136,7 @@ export interface RunSnapshot {
   agentConfigVersionId?: number
   workflowVersionId?: number
   runtimeType?: string
+  snapshot?: Record<string, unknown>
   runtimeConfig?: Record<string, unknown>
   graphSpec?: unknown
   snapshotJson?: string

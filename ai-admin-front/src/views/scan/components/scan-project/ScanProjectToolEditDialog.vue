@@ -25,12 +25,12 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <el-dialog v-model="formDialogVisible" :title="form.title ? `编辑 Tool - ${form.title}` : '编辑 Tool'" width="760px">
+  <el-dialog v-model="formDialogVisible" :title="form.title ? `编辑接口 - ${form.title}` : '编辑接口'" width="760px">
     <el-form label-width="120px">
-      <el-form-item label="工具名称">
+      <el-form-item label="接口名称">
         <el-input v-model="form.title" placeholder="例如：停用班组" />
       </el-form-item>
-      <el-form-item label="工具标识">
+      <el-form-item label="接口标识">
         <el-input v-model="form.name" />
       </el-form-item>
       <el-form-item label="描述">
@@ -135,7 +135,7 @@ const emit = defineEmits<{
     </template>
   </el-dialog>
 
-  <el-dialog v-model="testDialogVisible" :title="`测试工具 - ${testingTool?.title || testingTool?.name}`" width="600px">
+  <el-dialog v-model="testDialogVisible" :title="`测试接口 - ${testingTool?.title || testingTool?.name}`" width="600px">
     <el-form v-if="testingTool" label-width="120px">
       <el-form-item v-for="param in testingTool.parameters" :key="param.name" :label="param.name" :required="param.required">
         <el-input v-model="testArgs[param.name]" :placeholder="param.description || param.type" />

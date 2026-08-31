@@ -4,7 +4,8 @@ import com.enterprise.ai.runtime.agent.RuntimeAgentConfigVersionEntity;
 import com.enterprise.ai.runtime.agent.RuntimeAgentView;
 import com.enterprise.ai.runtime.agent.RuntimeAgentWorkflowToolEntity;
 import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
-import com.enterprise.ai.runtime.supervisor.SupervisorRuntimeAdapter.PolicyApprovalGrant;
+import com.enterprise.ai.runtime.eval.RuntimeEvalExecutionContext;
+import com.enterprise.ai.runtime.execution.SupervisorRuntimeAdapter.PolicyApprovalGrant;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -161,6 +162,29 @@ class SupervisorToolPolicyServiceTest {
         assertFalse(decision.allowed());
         assertFalse(decision.confirmationRequired());
         assertEquals("DENY", decision.decision());
+    }
+
+    @Test
+    void evalBlocksWriteBeforeCreatingApprovalButStillAllowsRead() {
+        RuntimeAgentWorkflowToolEntity write = tool("WRITE", "team:write", false);
+        RuntimeAgentWorkflowToolEntity read = tool("READ", "team:read", true);
+        config.setConfigJson("""
+                {"policy":{"allowedTenantIds":["tenant-a"],"permissionRoles":{
+                  "team:write":["team:user"],"team:read":["team:user"]}}}
+                """);
+        RuntimeEvalExecutionContext evaluation =
+                RuntimeEvalExecutionContext.readOnly("exp-1", "item-1", null);
+
+        SupervisorToolPolicyService.PolicyDecision blocked = service.evaluate(
+                trace, agent, config, write, input("修改班组"), Map.of(), null, null, evaluation);
+        SupervisorToolPolicyService.PolicyDecision allowed = service.evaluate(
+                trace, agent, config, read, input("查询班组"), Map.of(), null, null, evaluation);
+
+        assertFalse(blocked.allowed());
+        assertFalse(blocked.confirmationRequired());
+        assertEquals("EVAL_SIDE_EFFECT_BLOCKED", blocked.decision());
+        assertTrue(allowed.allowed());
+        verifyNoInteractions(approvalService);
     }
 
     @Test

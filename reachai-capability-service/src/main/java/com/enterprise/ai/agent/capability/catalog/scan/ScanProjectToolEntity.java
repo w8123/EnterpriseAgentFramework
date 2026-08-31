@@ -8,8 +8,9 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 /**
- * 扫描项目下的接口定义；「添加为 Tool」后在 {@code capability_tool_definition} 增加一条并写入
- * {@link #globalToolDefinitionId}，本行仍保留供扫描结果页展示与项目内测试。
+ * 扫描项目下的接口定义；纳入能力目录后会在 {@code capability_tool_definition} 生成运行时调用投影并写入
+ * {@link #globalToolDefinitionId}，本行仍保留供扫描结果页展示与项目内测试。字段名沿用兼容契约，
+ * 不表示存在独立的“全局 Tool”产品资产。
  */
 @Data
 @TableName("capability_scan_project_tool")
@@ -57,12 +58,12 @@ public class ScanProjectToolEntity {
 
     private Boolean enabled;
 
-    /** 已注册为全局 Tool 时非空，对应 {@code capability_tool_definition.id} */
+    /** 已生成运行时调用投影时非空，对应 {@code capability_tool_definition.id}。 */
     private Long globalToolDefinitionId;
 
     /**
      * 为 true 表示当前磁盘扫描或 SDK 上报中已不再包含该接口（墓碑行），
-     * 若仍关联 {@link #globalToolDefinitionId} 则全局 Tool 可能仍存在或已被禁用。
+     * 若仍关联 {@link #globalToolDefinitionId}，则对应运行时调用投影可能仍存在或已被禁用。
      */
     private Boolean removedFromSource;
 

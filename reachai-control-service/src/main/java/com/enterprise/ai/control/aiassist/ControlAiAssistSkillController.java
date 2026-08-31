@@ -1,13 +1,9 @@
 package com.enterprise.ai.control.aiassist;
 
+import com.enterprise.ai.control.agentskill.AgentSkillCatalogService;
+import com.enterprise.ai.control.agentskill.AgentSkillContracts.SkillDetail;
+import com.enterprise.ai.control.agentskill.AgentSkillContracts.VersionView;
 import jakarta.servlet.http.HttpServletRequest;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.util.List;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipOutputStream;
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -17,145 +13,80 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * Compatibility facade for the two public AI-assist download URLs.
+ * Canonical package bytes and versions now come from the governed Agent Skill catalog.
+ */
 @RestController
 @RequestMapping("/api/ai-assist")
 public class ControlAiAssistSkillController {
 
-    private static final String SKILL_NAME = "reachai-onboarding";
-    private static final String SKILL_VERSION = "0.6.0";
-    private static final String SKILL_ROOT = "ai-assist/skills/" + SKILL_NAME + "/";
-    private static final String WORKFLOW_AI_CODING_SKILL_NAME = "workflow-ai-coding";
-    private static final String WORKFLOW_AI_CODING_SKILL_VERSION = "0.1.0";
-    private static final String WORKFLOW_AI_CODING_SKILL_ROOT = "ai-assist/skills/" + WORKFLOW_AI_CODING_SKILL_NAME + "/";
+    private static final String PUBLISHER = "reachai";
+    private static final String ONBOARDING = "reachai-onboarding";
+    private static final String WORKFLOW_AI_CODING = "workflow-ai-coding";
 
-    private static final List<String> SKILL_FILES = List.of(
-            "SKILL.md",
-            "agents/openai.yaml",
-            "references/java-sdk-api-reference.md",
-            "references/java-sdk-access.md",
-            "references/platform-apis.md",
-            "references/embed-chat-quick-reference.md",
-            "references/gateway-examples.md",
-            "references/page-action-result.schema.json",
-            "references/page-action-mock.html",
-            "references/page-action-contract.md",
-            "references/angular-page-action.md",
-            "references/security.md",
-            "templates/application-reachai.yml",
-            "templates/pom-dependencies.xml",
-            "templates/reach-capability-example.java",
-            "templates/angular/reachai-page-action.types.ts",
-            "templates/angular/reachai-page-action.service.ts",
-            "templates/angular/page-registry.example.ts",
-            "examples/gateway/README.md",
-            "examples/gateway/spring-cloud-gateway/ReachAiEmbedProxySecurity.java",
-            "examples/gateway/spring-cloud-gateway/application-reachai-gateway.yml",
-            "examples/gateway/nginx/reachai.conf",
-            "examples/gateway/kong/kong.yml",
-            "scripts/install-java-sdk.ps1",
-            "scripts/install-embed-chat.mjs",
-            "scripts/reachai-page-actions.ps1",
-            "scripts/reachai-doctor.mjs",
-            "scripts/set-reachai-registry-secret.ps1",
-            "scripts/verify-reachai-access.py"
-    );
+    private final AgentSkillCatalogService catalogService;
 
-    private static final String EMBED_CHAT_ARTIFACT_ZIP_PATH =
-            ControlEmbedChatArtifactSupport.SKILL_RELATIVE_PATH;
-
-    private static final List<String> WORKFLOW_AI_CODING_SKILL_FILES = List.of(
-            "SKILL.md",
-            "references/graphspec.md",
-            "references/page-assistant.md",
-            "references/safety.md",
-            "references/workflow-apis.md"
-    );
+    public ControlAiAssistSkillController(AgentSkillCatalogService catalogService) {
+        this.catalogService = catalogService;
+    }
 
     @GetMapping("/skills/reachai-onboarding/latest")
     public ResponseEntity<SkillPackageResponse> latestSkill(HttpServletRequest request) {
-        return ResponseEntity.ok(skillResponse(
-                request,
-                SKILL_NAME,
-                SKILL_VERSION,
-                "ReachAI SDK onboarding skill for AI coding tools.",
-                SKILL_FILES));
+        return ResponseEntity.ok(skillResponse(request, ONBOARDING));
     }
 
     @GetMapping("/skills/workflow-ai-coding/latest")
     public ResponseEntity<SkillPackageResponse> latestWorkflowAiCodingSkill(HttpServletRequest request) {
-        return ResponseEntity.ok(skillResponse(
-                request,
-                WORKFLOW_AI_CODING_SKILL_NAME,
-                WORKFLOW_AI_CODING_SKILL_VERSION,
-                "ReachAI Workflow AI Coding skill for editing, validating, and debugging workflow drafts.",
-                WORKFLOW_AI_CODING_SKILL_FILES));
+        return ResponseEntity.ok(skillResponse(request, WORKFLOW_AI_CODING));
     }
 
     @GetMapping(value = "/skills/reachai-onboarding/latest.zip", produces = "application/zip")
-    public ResponseEntity<byte[]> downloadLatestSkill() throws IOException {
-        return zipResponse(SKILL_NAME, SKILL_VERSION, SKILL_ROOT, SKILL_FILES);
+    public ResponseEntity<byte[]> downloadLatestSkill() {
+        return zipResponse(ONBOARDING);
     }
 
     @GetMapping(value = "/skills/workflow-ai-coding/latest.zip", produces = "application/zip")
-    public ResponseEntity<byte[]> downloadLatestWorkflowAiCodingSkill() throws IOException {
-        return zipResponse(WORKFLOW_AI_CODING_SKILL_NAME, WORKFLOW_AI_CODING_SKILL_VERSION,
-                WORKFLOW_AI_CODING_SKILL_ROOT, WORKFLOW_AI_CODING_SKILL_FILES);
+    public ResponseEntity<byte[]> downloadLatestWorkflowAiCodingSkill() {
+        return zipResponse(WORKFLOW_AI_CODING);
     }
 
-    private static SkillPackageResponse skillResponse(HttpServletRequest request,
-                                                      String name,
-                                                      String version,
-                                                      String description,
-                                                      List<String> files) {
+    private SkillPackageResponse skillResponse(HttpServletRequest request, String name) {
+        VersionView version = catalogService.latestPublished(PUBLISHER, name);
+        SkillDetail skill = catalogService.detail(version.skillId());
+        List<SkillFileResponse> files = new ArrayList<>();
+        if (version.packageManifest() != null && version.packageManifest().path("files").isArray()) {
+            version.packageManifest().path("files").forEach(file -> {
+                String path = file.path("path").asText(null);
+                if (StringUtils.hasText(path)) {
+                    files.add(new SkillFileResponse(path));
+                }
+            });
+        }
         return new SkillPackageResponse(
-                name,
-                version,
-                description,
+                skill.skill().name(),
+                version.version(),
+                skill.skill().description(),
                 requestBaseUrl(request) + "/api/ai-assist/skills/" + name + "/latest.zip",
-                files.stream().map(SkillFileResponse::new).toList());
+                List.copyOf(files));
     }
 
-    private static ResponseEntity<byte[]> zipResponse(String name,
-                                                      String version,
-                                                      String root,
-                                                      List<String> files) throws IOException {
-        byte[] body = zipSkillFiles(name, root, files);
+    private ResponseEntity<byte[]> zipResponse(String name) {
+        VersionView version = catalogService.latestPublished(PUBLISHER, name);
+        byte[] body = catalogService.packageBytes(version);
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment()
-                        .filename(name + "-" + version + ".zip", StandardCharsets.UTF_8)
+                        .filename(name + "-" + version.version() + ".zip", StandardCharsets.UTF_8)
                         .build()
                         .toString())
+                .header("X-ReachAI-Skill-SHA256", version.sourceSha256())
                 .contentType(MediaType.parseMediaType("application/zip"))
                 .contentLength(body.length)
                 .body(body);
-    }
-
-    private static byte[] zipSkillFiles(String skillName, String skillRoot, List<String> skillFiles) throws IOException {
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        try (ZipOutputStream zip = new ZipOutputStream(out, StandardCharsets.UTF_8)) {
-            for (String path : skillFiles) {
-                ClassPathResource resource = new ClassPathResource(skillRoot + path);
-                if (!resource.exists()) {
-                    throw new IOException("Missing ReachAI skill resource: " + path);
-                }
-                zip.putNextEntry(new ZipEntry(skillName + "/" + path));
-                try (var input = resource.getInputStream()) {
-                    input.transferTo(zip);
-                }
-                zip.closeEntry();
-            }
-            if (SKILL_NAME.equals(skillName)) {
-                zip.putNextEntry(new ZipEntry(skillName + "/" + EMBED_CHAT_ARTIFACT_ZIP_PATH));
-                zip.write(ControlEmbedChatArtifactSupport.loadTarballBytes());
-                zip.closeEntry();
-                zip.putNextEntry(new ZipEntry(
-                        skillName + "/"
-                                + ControlEmbedChatArtifactSupport.SKILL_MANIFEST_RELATIVE_PATH));
-                zip.write(ControlEmbedChatArtifactSupport.loadManifestBytes());
-                zip.closeEntry();
-            }
-        }
-        return out.toByteArray();
     }
 
     static String requestBaseUrl(HttpServletRequest request) {
@@ -180,8 +111,7 @@ public class ControlAiAssistSkillController {
             String version,
             String description,
             String downloadUrl,
-            List<SkillFileResponse> files
-    ) {
+            List<SkillFileResponse> files) {
     }
 
     record SkillFileResponse(String path) {

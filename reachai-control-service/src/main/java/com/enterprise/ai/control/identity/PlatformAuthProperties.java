@@ -24,6 +24,8 @@ public class PlatformAuthProperties {
 
     private Duration sessionTtl = Duration.ofHours(24);
 
+    private SessionCookie sessionCookie = new SessionCookie();
+
     private Local local = new Local();
 
     @Data
@@ -39,6 +41,17 @@ public class PlatformAuthProperties {
         private String password = DEVELOPMENT_ADMIN_PASSWORD;
     }
 
+    @Data
+    public static class SessionCookie {
+        private SecureMode secure = SecureMode.AUTO;
+    }
+
+    public enum SecureMode {
+        AUTO,
+        ALWAYS,
+        NEVER
+    }
+
     public boolean localPasswordLoginEnabled() {
         return "LOCAL".equalsIgnoreCase(provider) && local != null && local.isEnabled();
     }
@@ -47,4 +60,5 @@ public class PlatformAuthProperties {
         return DEVELOPMENT_ADMIN_USERNAME.equals(username)
                 && DEVELOPMENT_ADMIN_PASSWORD.equals(password);
     }
+
 }

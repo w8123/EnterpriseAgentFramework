@@ -1,5 +1,11 @@
 package com.enterprise.ai.reach.sdk.client;
 
+/**
+ * Immutable SDK client configuration built once and used read-only.
+ * Required fields and all non-blank text are normalized (trimmed, with the
+ * endpoint's trailing slashes removed) at build time, so getters return
+ * already-normalized values.
+ */
 public class ReachAiClientConfig {
 
     private final String endpoint;
@@ -77,6 +83,10 @@ public class ReachAiClientConfig {
         }
     }
 
+    /**
+     * Removes trailing slashes so callers can append a fixed API path without
+     * producing a repeated separator. It does not validate URL reachability.
+     */
     private static String normalizeEndpoint(String endpoint) {
         String text = requireText(endpoint, "endpoint");
         while (text.endsWith("/")) {

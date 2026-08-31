@@ -3,6 +3,8 @@ package com.enterprise.ai.runtime.debug;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionCancellation;
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionEventSink;
+import com.enterprise.ai.runtime.execution.event.RuntimeExecutionEvent;
+import com.enterprise.ai.runtime.execution.event.RuntimeExecutionEventType;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDebugService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
@@ -19,6 +21,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.time.Instant;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -448,6 +451,28 @@ class RuntimeExecutableDebugSessionServiceTest {
         assertEquals(List.of("node.started", "node.completed"), eventNames);
         assertFalse(eventNames.contains("message.delta"));
         assertFalse(eventNames.contains("node.output.delta"));
+    }
+
+    @Test
+    void liveSinkAddsTypedRuntimeEventWithoutChangingLegacyCallbacks() {
+        List<String> eventNames = new ArrayList<>();
+        List<Object> payloads = new ArrayList<>();
+        var sink = service.liveExecutionSink((eventName, data) -> {
+            eventNames.add(eventName);
+            payloads.add(data);
+        });
+        RuntimeExecutionEvent event = new RuntimeExecutionEvent(
+                1, "event-1", 3L, RuntimeExecutionEventType.NODE_COMPLETED,
+                "run-1", "trace-1", "workflow-1", 7L,
+                "answer", "ANSWER", "Answer", "COMPLETED",
+                Instant.now(), 12L, 1, "RUNTIME_GRAPH_EXECUTED",
+                Map.of("attempt", 1));
+
+        sink.onExecutionEvent(event);
+        sink.onNodeCompleted("answer", "ANSWER", "Answer", Map.of("nodeId", "answer"));
+
+        assertEquals(List.of("runtime.execution.v1", "node.completed"), eventNames);
+        assertEquals(event, payloads.get(0));
     }
 
     @Test

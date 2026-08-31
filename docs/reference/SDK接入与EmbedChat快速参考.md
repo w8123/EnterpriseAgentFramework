@@ -8,8 +8,9 @@ README 随 npm tarball 分发，AI Coding 接入则随 `reachai-onboarding` Skil
 
 Java 侧的精确注解成员、`ReachAiEmbedTokenClient`、
 `ReachAiEmbedTokenRequest` 与 `ReachAiEmbedPrincipal` 构造签名在 Skill 的
-`references/java-sdk-api-reference.md` 中。仓库内两个 Maven 模块也分别提供
-`reachai-capability-sdk/README.md` 和 `reachai-spring-boot2-starter/README.md`。
+`references/java-sdk-api-reference.md` 中。仓库内入口为
+[Capability SDK README](../../reachai-capability-sdk/README.md) 和
+[Spring Boot Starter README](../../reachai-spring-boot2-starter/README.md)。
 
 最小调用需要 `mount`、已 provision 的 `agentId` 与 `tokenProvider`。后者
 会收到 `pageKey`、`pageInstanceId`、`route`、`origin`，必须原样转发给业务

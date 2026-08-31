@@ -16,6 +16,8 @@ public class InternalServiceAuthVerifier {
     private static final Set<String> ALLOWED_SOURCES = Set.of(
             "AGENT",
             "EMBED_SESSION",
+            InternalServiceAuthHeaders.IDENTITY_SOURCE_A2A_REMOTE_AGENT,
+            InternalServiceAuthHeaders.IDENTITY_SOURCE_MCP_REMOTE_CLIENT,
             InternalServiceAuthHeaders.IDENTITY_SOURCE_PLATFORM_SESSION);
 
     private final InternalServiceAuthProperties properties;

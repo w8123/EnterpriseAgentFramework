@@ -71,7 +71,7 @@ export function getDefaultScanSettings(): ScanSettings {
   }
 }
 
-/** 项目级 HTTP 鉴权；与 Tool 管理无关，测试扫描接口及带 projectId 的全局 Tool 调用时附加 */
+/** 项目级 HTTP 鉴权；与能力目录管理无关，测试扫描接口及带 projectId 的运行时调用时附加 */
 export type ScanProjectAuthType = 'none' | 'api_key'
 export type ScanProjectAuthApiKeyIn = 'header' | 'query'
 
@@ -436,25 +436,25 @@ export interface SensitiveScanTask {
 }
 
 export interface ProjectToolInfo extends ToolInfo {
-  /** 扫描表 scan_project_tool.id，编辑/测试/语义生成/添加为 Tool 均依赖此字段 */
+  /** 扫描表 capability_scan_project_tool.id，编辑、测试、语义生成和能力纳管均依赖此字段 */
   scanToolId: number
   projectId?: number | null
   /** 扫描模块 scan_module.id，与语义文档模块一致 */
   moduleId?: number | null
   /** 模块展示名（优先 displayName） */
   moduleDisplayName?: string | null
-  /** 已「添加为 Tool」时对应全局 tool_definition.id，未添加为 null/undefined */
+  /** 已纳入能力目录时对应 capability_tool_definition.id，未纳管为 null/undefined */
   globalToolDefinitionId?: number | null
-  /** 全局 Tool 的 name（与项目内名可能不同） */
+  /** 运行时执行定义的 name（与项目内名可能不同） */
   globalToolName?: string | null
-  /** 扫描行与全局 Tool 在可同步字段上是否不一致（需「更新到Tool」） */
+  /** 扫描行与运行时执行定义在可同步字段上是否不一致（需“更新能力定义”） */
   globalToolOutOfSync?: boolean
   /** SDK/扫描源中是否已不存在该接口（墓碑行） */
   removedFromSource?: boolean
-  /** 与全局 Tool 关联健康状态，与后端 ApiToolLinkStatus 枚举一致 */
+  /** 能力纳管健康状态，与后端兼容枚举一致 */
   toolLinkStatus?: string
   toolLinkMessage?: string | null
-  /** 与全局 Tool 不一致的字段名列表 */
+  /** 与运行时执行定义不一致的字段名列表 */
   toolSyncDiffFields?: string[]
   /** 最近一次能力快照中存在待评审的 SDK diff（与 qualifiedName 匹配） */
   sdkCapabilityReviewPending?: boolean

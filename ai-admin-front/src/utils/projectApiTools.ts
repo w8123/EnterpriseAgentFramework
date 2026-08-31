@@ -35,7 +35,7 @@ export function isProjectApiToolSelectable(tool: ProjectToolInfo): boolean {
 
 export function projectApiToolStatusLabel(tool: ProjectToolInfo): string {
   if (tool.removedFromSource || tool.toolLinkStatus === 'API_REMOVED_STALE') return '源接口已移除'
-  if (!tool.globalToolDefinitionId || tool.toolLinkStatus === 'NOT_LINKED') return '需先添加为 Tool'
+  if (!tool.globalToolDefinitionId || tool.toolLinkStatus === 'NOT_LINKED') return '需先纳入能力目录'
   if (tool.toolLinkStatus === 'GLOBAL_MISSING') return 'Tool 缺失'
   if (!tool.enabled) return '未启用'
   if (tool.toolLinkStatus === 'PENDING_UPDATE') return '可选，待更新'

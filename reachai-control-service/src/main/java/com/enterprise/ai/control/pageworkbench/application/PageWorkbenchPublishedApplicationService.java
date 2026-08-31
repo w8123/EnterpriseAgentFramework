@@ -1,6 +1,5 @@
 package com.enterprise.ai.control.pageworkbench.application;
 
-import com.enterprise.ai.control.client.runtime.RuntimeProxyClient;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.PublishedWorkflowView;
 import feign.FeignException;
 import lombok.RequiredArgsConstructor;
@@ -16,7 +15,7 @@ import static org.springframework.http.HttpStatus.BAD_GATEWAY;
 @RequiredArgsConstructor
 public class PageWorkbenchPublishedApplicationService {
 
-    private final RuntimeProxyClient runtimeClient;
+    private final PageWorkbenchRuntimePort runtimeClient;
 
     public List<PublishedWorkflowView> list(String projectCode, String pageKey) {
         if (!StringUtils.hasText(projectCode)) {

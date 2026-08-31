@@ -8,7 +8,10 @@ import {
 import { StreamFallbackForbiddenError } from '../core/streamFallbackPolicy'
 
 vi.mock('@/utils/platformAuth', () => ({
-  getPlatformToken: () => 'platform-token',
+  platformCsrfHeaders: (headers?: HeadersInit) => new Headers({
+    ...Object.fromEntries(new Headers(headers).entries()),
+    'X-ReachAI-CSRF': 'pls-test',
+  }),
 }))
 
 const createWorkflowDebugSession = vi.fn()

@@ -9,13 +9,29 @@
     </el-form-item>
     <template v-if="showLlmSettings">
       <el-form-item label="模型实例">
-        <el-select v-model="config.modelInstanceId" filterable placeholder="选择用于分类的模型" style="width: 100%">
+        <el-select
+          v-model="config.modelInstanceId"
+          filterable
+          placeholder="选择用于分类的模型"
+          style="width: 100%"
+          :loading="modelOptionsLoading"
+          @visible-change="handleModelSelectVisible"
+        >
           <el-option
             v-for="item in modelOptions"
             :key="item.id"
             :label="`${item.name} / ${item.modelName}`"
             :value="item.id"
           />
+          <template #empty>
+            <ModelSelectEmptyState
+              model-type="LLM"
+              :option-count="modelOptions.length"
+              :loading="modelOptionsLoading"
+              :load-error="modelOptionsLoadError"
+              @retry="emit('reloadModelOptions')"
+            />
+          </template>
         </el-select>
       </el-form-item>
       <el-form-item label="置信度阈值">
@@ -56,11 +72,18 @@
 import { computed, watch } from 'vue'
 import type { CanvasNodeData, IntentClassifierNodeConfig } from '@/types/studio'
 import type { ModelInstance } from '@/types/model'
+import ModelSelectEmptyState from '@/components/model/ModelSelectEmptyState.vue'
 import { classifierOutputPorts } from '@/utils/studio'
 
 const props = defineProps<{
   data: CanvasNodeData
   modelOptions: ModelInstance[]
+  modelOptionsLoading: boolean
+  modelOptionsLoadError: boolean
+}>()
+
+const emit = defineEmits<{
+  reloadModelOptions: []
 }>()
 
 const strategyOptions = [
@@ -88,6 +111,10 @@ const config = computed<IntentClassifierNodeConfig>(() => {
 
 const showKeywordSettings = computed(() => config.value.strategy !== 'LLM')
 const showLlmSettings = computed(() => config.value.strategy === 'LLM' || config.value.strategy === 'HYBRID')
+
+function handleModelSelectVisible(visible: boolean) {
+  if (visible) emit('reloadModelOptions')
+}
 
 function addClass() {
   config.value.classes.push({

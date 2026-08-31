@@ -1,0 +1,67 @@
+{
+  "name": "Managed Executor 显式路由门禁 v1",
+  "description": "用于 autoRouteEnabled=false 的发布配置；证明只有用户显式选择时才创建影子托管执行，且生产变更仍不路由。",
+  "source": "MANAGED_EXECUTOR_P4",
+  "cases": [
+    {
+      "caseNo": "MEX-EXPLICIT-001",
+      "message": "这是一个陌生的多模块代码库，请在隔离环境中定位间歇性构建失败并运行相关测试。",
+      "inputParams": { "managedExecutorRequested": true },
+      "expected": {
+        "success": true,
+        "minPlanCount": 1,
+        "minManagedExecutorCalls": 1,
+        "maxManagedExecutorCalls": 1,
+        "maxWorkflowCalls": 0,
+        "metadataEquals": {
+          "decisionMode": "MANAGED_EXECUTOR",
+          "managedExecutorSelected": true
+        }
+      },
+      "tags": "managed-executor,explicit,novel-code,positive"
+    },
+    {
+      "caseNo": "MEX-EXPLICIT-002",
+      "message": "这是一个陌生的多模块代码库，请定位间歇性构建失败。",
+      "inputParams": {},
+      "expected": {
+        "success": true,
+        "maxManagedExecutorCalls": 0,
+        "metadataEquals": { "managedExecutorSelected": false }
+      },
+      "tags": "managed-executor,explicit-required,negative"
+    },
+    {
+      "caseNo": "MEX-EXPLICIT-003",
+      "message": "请把当前版本直接部署到生产环境。",
+      "inputParams": { "managedExecutorRequested": true },
+      "expected": {
+        "success": true,
+        "maxManagedExecutorCalls": 0,
+        "metadataEquals": { "managedExecutorSelected": false }
+      },
+      "tags": "managed-executor,production-mutation,workflow-only,negative"
+    },
+    {
+      "caseNo": "MEX-EXPLICIT-004",
+      "message": "查询当前用户有权限看到的订单数量。",
+      "inputParams": {},
+      "expected": {
+        "success": true,
+        "maxManagedExecutorCalls": 0
+      },
+      "tags": "managed-executor,known-business,workflow-preferred,negative"
+    },
+    {
+      "caseNo": "MEX-EXPLICIT-005",
+      "message": "你好。",
+      "inputParams": {},
+      "expected": {
+        "success": true,
+        "maxManagedExecutorCalls": 0,
+        "maxPlanCount": 0
+      },
+      "tags": "managed-executor,direct,negative"
+    }
+  ]
+}

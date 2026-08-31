@@ -13,6 +13,7 @@
    - `KNOWN-PITFALLS.md`：历史问题、错误签名和诊断顺序。
    - `VERIFICATION.md`：常用验证命令。
    - `AI-TOOLS.md`：Playwright 浏览器调试和 DBHub MySQL 只读查询约定。
+   - `SECURITY-BACKLOG.md`：Workflow 安全收口后的明确 deferred 项；不是通用产品待办。
 
 ## 当前后端拓扑
 

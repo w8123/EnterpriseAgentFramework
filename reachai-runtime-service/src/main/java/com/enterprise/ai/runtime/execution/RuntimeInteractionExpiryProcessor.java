@@ -2,7 +2,6 @@ package com.enterprise.ai.runtime.execution;
 
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.enterprise.ai.runtime.supervisor.SupervisorExecutionTraceService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -23,7 +22,7 @@ public class RuntimeInteractionExpiryProcessor {
 
     private final RuntimeInteractionSessionMapper sessionMapper;
     private final RuntimeWorkflowInteractionSessionService sessionService;
-    private final SupervisorExecutionTraceService traceService;
+    private final RuntimeInteractionExpiryTracePort tracePort;
 
     public List<RuntimeInteractionSessionEntity> findExpiredCandidates(LocalDateTime now, int batchSize) {
         LocalDateTime cutoff = now == null ? LocalDateTime.now() : now;
@@ -66,7 +65,7 @@ public class RuntimeInteractionExpiryProcessor {
                 "reason", "ttl",
                 "traceId", session.getTraceId() == null ? "" : session.getTraceId()),
                 "runtime-expiry-reconciler");
-        traceService.expireWaitingInteraction(session.getTraceId(), session.getId(), expiredAt);
+        tracePort.expireWaitingInteraction(session.getTraceId(), session.getId(), expiredAt);
         session.setStatus(EXPIRED);
         session.setRevision(revision + 1);
         session.setResultJson(sessionService.writeJson(result));

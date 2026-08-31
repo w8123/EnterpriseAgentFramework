@@ -186,8 +186,8 @@ function formatSensitiveTypes(tool: ProjectToolInfo): string {
 /** 导出当前列表中的全部扫描接口（扁平行，与详情页 tools 数据源一致） */
 export function exportScanProjectToolsExcel(tools: ProjectToolInfo[], filenameBase: string): void {
   const rows = tools.map((t) => ({
-    工具名称: (t.title || t.name).trim(),
-    工具标识: t.name,
+    接口名称: (t.title || t.name).trim(),
+    接口标识: t.name,
     接口地址: buildApiAddress(t),
     接口用途: (t.description || '').trim() || '-',
     访问方式: (t.httpMethod || '-').toUpperCase(),

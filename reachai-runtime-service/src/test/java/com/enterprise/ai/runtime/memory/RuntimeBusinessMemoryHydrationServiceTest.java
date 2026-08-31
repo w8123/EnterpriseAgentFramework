@@ -1,5 +1,6 @@
 package com.enterprise.ai.runtime.memory;
 
+import com.enterprise.ai.runtime.execution.RuntimeBusinessMemoryHydrationPort;
 import com.enterprise.ai.runtime.client.capability.RuntimeCapabilityCatalogClient;
 import com.enterprise.ai.runtime.contract.memory.BusinessMemoryResolution;
 import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
@@ -35,7 +36,7 @@ class RuntimeBusinessMemoryHydrationServiceTest {
         when(client.executeTool(eq("mall:order.resolve"), any())).thenReturn(resolverResponse("v12", "PAID"));
         RuntimeBusinessMemoryHydrationService service = service(client);
 
-        RuntimeBusinessMemoryHydrationService.HydrationBatch batch = service.hydrate(
+        RuntimeBusinessMemoryHydrationPort.HydrationBatch batch = service.hydrate(
                 Map.of("results", List.of(indexHit(true, "tenant-a", "mall", "v12"))),
                 WorkflowExecutionIdentity.fromAgent("tenant-a", 9L, "mall", "user-1"),
                 Map.of("agentId", "agent-1", "sessionId", "session-1", "supervisorTraceId", "trace-1"));
@@ -71,7 +72,7 @@ class RuntimeBusinessMemoryHydrationServiceTest {
     void acceptsCurrentResolverVersionButMarksStaleIndexVersion() throws Exception {
         RuntimeCapabilityCatalogClient client = mock(RuntimeCapabilityCatalogClient.class);
         when(client.executeTool(eq("mall:order.resolve"), any())).thenReturn(resolverResponse("v13", "SHIPPED"));
-        RuntimeBusinessMemoryHydrationService.HydrationBatch batch = service(client).hydrate(
+        RuntimeBusinessMemoryHydrationPort.HydrationBatch batch = service(client).hydrate(
                 indexHit(true, "tenant-a", "mall", "v12"),
                 WorkflowExecutionIdentity.fromAgent("tenant-a", 9L, "mall", "user-1"), Map.of());
 
@@ -91,7 +92,7 @@ class RuntimeBusinessMemoryHydrationServiceTest {
                 indexHit(false, "tenant-a", "mall", "v1"),
                 indexHit(true, "tenant-b", "mall", "v1"));
 
-        RuntimeBusinessMemoryHydrationService.HydrationBatch batch = service.hydrate(
+        RuntimeBusinessMemoryHydrationPort.HydrationBatch batch = service.hydrate(
                 Map.of("results", hits),
                 WorkflowExecutionIdentity.fromAgent("tenant-a", 9L, "mall", "user-1"), Map.of());
 
@@ -115,7 +116,7 @@ class RuntimeBusinessMemoryHydrationServiceTest {
         payload.put("resourceId", "O-2");
         when(client.executeTool(eq("mall:order.resolve"), any())).thenReturn(mismatched);
 
-        RuntimeBusinessMemoryHydrationService.HydrationBatch batch = service(client).hydrate(
+        RuntimeBusinessMemoryHydrationPort.HydrationBatch batch = service(client).hydrate(
                 indexHit(true, "tenant-a", "mall", "v12"),
                 WorkflowExecutionIdentity.fromAgent("tenant-a", 9L, "mall", "user-1"), Map.of());
 
@@ -137,7 +138,7 @@ class RuntimeBusinessMemoryHydrationServiceTest {
         RuntimeBusinessMemoryHydrationService service = new RuntimeBusinessMemoryHydrationService(
                 client, objectMapper, meterRegistry, 8, 4_096);
 
-        RuntimeBusinessMemoryHydrationService.HydrationBatch batch = service.hydrate(
+        RuntimeBusinessMemoryHydrationPort.HydrationBatch batch = service.hydrate(
                 indexHit(true, "tenant-a", "mall", "v12"),
                 WorkflowExecutionIdentity.fromAgent("tenant-a", 9L, "mall", "user-1"), Map.of());
 

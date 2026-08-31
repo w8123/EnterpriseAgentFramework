@@ -48,6 +48,17 @@ function isProbablyVariableReference(source: string) {
   return Number.isNaN(Number(value))
 }
 
+function normalizedEdgeRoute(edge: CanvasEdge) {
+  const condition = (edge.condition || edge.label || '').trim().toLowerCase()
+  if (condition.startsWith('route:')) return condition.slice('route:'.length).trim()
+  return ['evidence', 'no_evidence'].includes(condition) ? condition : ''
+}
+
+function isUnconditionalEdge(edge: CanvasEdge) {
+  const condition = (edge.condition || edge.label || '').trim().toLowerCase()
+  return !condition || ['always', 'success'].includes(condition)
+}
+
 function isKnownVariableReference(
   source: string,
   graphVariables: WorkflowStudioGraphVariable[],
@@ -209,6 +220,31 @@ export function useWorkflowStudioGraphAnalysis(deps: UseWorkflowStudioGraphAnaly
       }
       if (node.data.kind === 'knowledge' && !(node.data.knowledgeConfig?.knowledgeBaseCodes || []).length) {
         items.push({ level: 'warning', nodeId: node.id, message: `${node.data.label || node.id} 未配置知识库` })
+      }
+      if (node.data.kind === 'knowledge') {
+        const policy = node.data.knowledgeConfig?.evidencePolicy || 'OPTIONAL'
+        if (!['REQUIRED', 'OPTIONAL'].includes(policy)) {
+          items.push({ level: 'error', nodeId: node.id, message: `${node.data.label || node.id} 的证据策略无效` })
+        }
+        if (policy === 'REQUIRED') {
+          const knowledgeEdges = deps.edges.value.filter((edge) => edge.source === node.id)
+          const routes = new Set(knowledgeEdges.map(normalizedEdgeRoute).filter(Boolean))
+          if (!routes.has('evidence')) {
+            items.push({ level: 'error', nodeId: node.id, message: `${node.data.label || node.id} 缺少“有证据”分支` })
+          }
+          if (!routes.has('no_evidence')) {
+            items.push({ level: 'error', nodeId: node.id, message: `${node.data.label || node.id} 缺少“无证据”分支` })
+          }
+          if (knowledgeEdges.some(isUnconditionalEdge)) {
+            items.push({ level: 'error', nodeId: node.id, message: `${node.data.label || node.id} 必须证据模式下不能使用 always/success 回退连线` })
+          }
+          for (const edge of knowledgeEdges.filter((item) => normalizedEdgeRoute(item) === 'no_evidence')) {
+            const target = deps.nodes.value.find((item) => item.id === edge.target)
+            if (target?.data.kind !== 'answer') {
+              items.push({ level: 'error', nodeId: node.id, edgeId: edge.id, message: `${node.data.label || node.id} 的“无证据”分支必须直接连接固定回复节点` })
+            }
+          }
+        }
       }
       if (node.data.kind === 'http' && !node.data.httpConfig?.url) {
         items.push({ level: 'error', nodeId: node.id, message: `${node.data.label || node.id} 未配置 URL` })

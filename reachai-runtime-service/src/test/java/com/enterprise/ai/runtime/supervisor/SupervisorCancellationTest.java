@@ -1,5 +1,7 @@
 package com.enterprise.ai.runtime.supervisor;
 
+import com.enterprise.ai.runtime.agentscope.AgentScopeAnswerPhase;
+import com.enterprise.ai.runtime.execution.SupervisorRuntimeAdapter;
 import com.enterprise.ai.runtime.agent.RuntimeAgentConfigVersionEntity;
 import com.enterprise.ai.runtime.agent.RuntimeAgentView;
 import com.enterprise.ai.runtime.chat.RuntimeChatMemoryStore;
@@ -62,10 +64,10 @@ class SupervisorCancellationTest {
 
     @Test
     void enterPublicFinalReturnsFalseWhenAlreadyCancelled() {
-        SupervisorAnswerPhase phase = new SupervisorAnswerPhase();
+        AgentScopeAnswerPhase phase = new AgentScopeAnswerPhase();
         phase.markCancelled();
         assertFalse(phase.enterPublicFinal());
-        assertEquals(SupervisorAnswerPhase.Phase.CANCELLED, phase.get());
+        assertEquals(AgentScopeAnswerPhase.Phase.CANCELLED, phase.get());
     }
 
     @Test

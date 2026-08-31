@@ -1,6 +1,7 @@
 ##
 ## 本地开发基础设施 — 一键拉起 MySQL / Redis / Milvus
-## 使用方法: docker compose -f deploy/docker-compose.infra.yml up -d
+## 使用方法: 先填写 deploy/.env，再执行
+## docker compose --env-file deploy/.env -f deploy/docker-compose.infra.yml up -d
 ##
 services:
 
@@ -10,7 +11,7 @@ services:
     ports:
       - "3306:3306"
     environment:
-      MYSQL_ROOT_PASSWORD: root
+      MYSQL_ROOT_PASSWORD: "${REACHAI_MYSQL_ROOT_PASSWORD:?Set REACHAI_MYSQL_ROOT_PASSWORD in deploy/.env}"
       MYSQL_DATABASE: reach_ai
       MYSQL_CHARACTER_SET_SERVER: utf8mb4
       MYSQL_COLLATION_SERVER: utf8mb4_unicode_ci
@@ -44,8 +45,8 @@ services:
     image: minio/minio:RELEASE.2024-04-18T19-09-19Z
     container_name: eaf-minio
     environment:
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin
+      MINIO_ACCESS_KEY: "${REACHAI_MINIO_ACCESS_KEY:?Set REACHAI_MINIO_ACCESS_KEY in deploy/.env}"
+      MINIO_SECRET_KEY: "${REACHAI_MINIO_SECRET_KEY:?Set REACHAI_MINIO_SECRET_KEY in deploy/.env}"
     ports:
       - "9000:9000"
       - "9001:9001"
@@ -70,11 +71,13 @@ services:
     environment:
       ETCD_ENDPOINTS: etcd:2379
       MINIO_ADDRESS: minio:9000
+      MINIO_ACCESS_KEY_ID: "${REACHAI_MINIO_ACCESS_KEY:?Set REACHAI_MINIO_ACCESS_KEY in deploy/.env}"
+      MINIO_SECRET_ACCESS_KEY: "${REACHAI_MINIO_SECRET_KEY:?Set REACHAI_MINIO_SECRET_KEY in deploy/.env}"
     volumes:
       - milvus-data:/var/lib/milvus
 
   # Opt-in because the image is large. Start with:
-  # docker compose -f deploy/docker-compose.infra.yml --profile docling up -d
+  # docker compose --env-file deploy/.env -f deploy/docker-compose.infra.yml --profile docling up -d
   docling:
     profiles: ["docling"]
     build:
@@ -86,7 +89,7 @@ services:
       - "5001:5001"
     environment:
       DOCLING_SERVE_ENABLE_UI: "false"
-      DOCLING_SERVE_API_KEY: ${REACHAI_DOCLING_API_KEY:-local-dev-change-me}
+      DOCLING_SERVE_API_KEY: "${REACHAI_DOCLING_API_KEY:?Set REACHAI_DOCLING_API_KEY in deploy/.env}"
       DOCLING_SERVE_MAX_FILE_SIZE: "52428800"
       DOCLING_SERVE_MAX_NUM_PAGES: "1000"
       DOCLING_SERVE_ENG_KIND: local

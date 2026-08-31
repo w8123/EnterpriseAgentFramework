@@ -38,6 +38,7 @@ import ProjectWorkbenchLoadErrorState from '@/views/registry/components/ProjectW
 import { useBusinessPageWorkbench } from '@/views/registry/composables/useBusinessPageWorkbench'
 import type { PageAiCodingTaskCommand } from '@/views/registry/composables/useBusinessPageWorkbench'
 import type {
+  AiCodingExecutionMode,
   AiCodingExecutorProvider,
   AiCodingHandoffPackage,
   AiCodingTask,
@@ -315,10 +316,12 @@ watch(activeTab, async (tab) => {
 
 const scanTaskForm = reactive<{
   provider: AiCodingExecutorProvider
+  executionMode: AiCodingExecutionMode
   title: string
   objective: string
 }>({
   provider: 'CODEX',
+  executionMode: 'EXTERNAL_CLIENT',
   title: '',
   objective: '',
 })
@@ -328,6 +331,7 @@ const taskForm = reactive<{
   pageId: number | null
   taskType: PageAiCodingTaskCommand['taskKind']
   provider: AiCodingExecutorProvider
+  executionMode: AiCodingExecutionMode
   title: string
   objective: string
   workflow: PublishedPageWorkflow | null
@@ -336,6 +340,7 @@ const taskForm = reactive<{
   pageId: null,
   taskType: 'CODE_IMPLEMENTATION',
   provider: 'CODEX',
+  executionMode: 'EXTERNAL_CLIENT',
   title: '',
   objective: '',
   workflow: null,
@@ -362,6 +367,20 @@ watch(
     ) {
       taskForm.workflow = null
     }
+  },
+)
+
+watch(
+  () => taskForm.executionMode,
+  (mode) => {
+    if (mode === 'MANAGED_SANDBOX') taskForm.provider = 'CODEX'
+  },
+)
+
+watch(
+  () => scanTaskForm.executionMode,
+  (mode) => {
+    if (mode === 'MANAGED_SANDBOX') scanTaskForm.provider = 'CODEX'
   },
 )
 
@@ -481,8 +500,12 @@ async function createJourneyActivity(command: PageAiCodingTaskCommand) {
   journeyBusy.value = true
   try {
     const result = await createTask(command)
-    setTaskHandoff(result.handoff)
-    showTaskHandoff(result.handoff)
+    if (result.handoff) {
+      showTaskHandoff(result.handoff)
+    } else {
+      ElMessage.success('隔离执行已启动，可在任务详情查看进度与证据')
+      await openTaskDetail(result.task)
+    }
   } catch (error) {
     ElMessage.error((error as Error).message || '创建页面接入活动失败')
   } finally {
@@ -726,8 +749,12 @@ async function handleImplementationRetarget(
       objective: pageImplementationObjective(goalSelection),
       goalSelection,
     })
-    setTaskHandoff(result.handoff)
-    showTaskHandoff(result.handoff)
+    if (result.handoff) {
+      showTaskHandoff(result.handoff)
+    } else {
+      ElMessage.success('隔离执行已启动，可在任务详情查看进度与证据')
+      await openTaskDetail(result.task)
+    }
     try {
       await syncImplementationGoalStatuses(page, goalSelection)
     } catch (error) {
@@ -745,6 +772,7 @@ async function handleImplementationRetarget(
 function resetScanTaskForm() {
   Object.assign(scanTaskForm, {
     provider: 'CODEX',
+    executionMode: 'EXTERNAL_CLIENT',
     title: pageMap.value.scanned ? '增量更新页面地图' : '扫描项目并建立页面地图',
     objective: pageMap.value.scanned
       ? '基于当前分支增量同步业务模块、路由、页面组件和直接关联 API。'
@@ -766,6 +794,7 @@ function openTaskComposer(options?: {
     pageId: page?.id || null,
     taskType: options?.taskType || 'CODE_IMPLEMENTATION',
     provider: 'CODEX',
+    executionMode: 'EXTERNAL_CLIENT',
     title: options?.title || '',
     objective: options?.objective || '',
     workflow: options?.workflow || null,
@@ -954,11 +983,18 @@ async function submitPageMapScan() {
     const result = await createTask({
       taskKind: 'PAGE_MAP_SCAN',
       executorProvider: scanTaskForm.provider,
+      executionMode: scanTaskForm.executionMode,
       title: scanTaskForm.title.trim() || '扫描项目并建立页面地图',
       objective: scanTaskForm.objective.trim(),
     })
-    setTaskHandoff(result.handoff)
-    sourceDialogStage.value = 'HANDOFF'
+    if (result.handoff) {
+      setTaskHandoff(result.handoff)
+      sourceDialogStage.value = 'HANDOFF'
+    } else {
+      sourceDialogVisible.value = false
+      ElMessage.success('页面扫描已进入隔离执行')
+      await openTaskDetail(result.task)
+    }
   } catch (error) {
     ElMessage.error((error as Error).message || '创建页面地图扫描任务失败')
   } finally {
@@ -984,6 +1020,7 @@ async function submitTask() {
       page: pages.value.find((page) => page.id === taskForm.pageId) || null,
       taskKind: effectiveType,
       executorProvider: taskForm.provider,
+      executionMode: taskForm.executionMode,
       title: taskForm.title.trim() || 'AI 编程任务',
       objective: taskForm.objective.trim(),
       workflow:
@@ -991,8 +1028,14 @@ async function submitTask() {
           ? taskForm.workflow
           : null,
     })
-    setTaskHandoff(result.handoff)
-    taskDialogStage.value = 'HANDOFF'
+    if (result.handoff) {
+      setTaskHandoff(result.handoff)
+      taskDialogStage.value = 'HANDOFF'
+    } else {
+      taskDialogVisible.value = false
+      ElMessage.success('隔离执行已启动')
+      await openTaskDetail(result.task)
+    }
   } catch (error) {
     ElMessage.error((error as Error).message || '创建 AI 编程任务失败')
   } finally {
@@ -1402,12 +1445,26 @@ watch(projectCode, loadAll, { immediate: true })
 
           <section class="page-source-pane page-source-pane--form">
             <el-form class="page-source-form" label-position="top">
+              <el-form-item label="执行方式" required>
+                <el-radio-group v-model="scanTaskForm.executionMode">
+                  <el-radio-button label="EXTERNAL_CLIENT">
+                    外部工具交接
+                  </el-radio-button>
+                  <el-radio-button label="MANAGED_SANDBOX">
+                    ReachAI 隔离执行
+                  </el-radio-button>
+                </el-radio-group>
+              </el-form-item>
               <div class="form-grid form-grid--two">
                 <el-form-item label="AI 编程工具" required>
                   <AiCodingProviderSelector
+                    v-if="scanTaskForm.executionMode === 'EXTERNAL_CLIENT'"
                     v-model="scanTaskForm.provider"
                     aria-label="选择页面扫描使用的 AI 编程工具"
                   />
+                  <el-tag v-else type="primary" effect="plain" round>
+                    Codex Harness · 只读沙箱
+                  </el-tag>
                 </el-form-item>
                 <el-form-item label="任务标题">
                   <el-input
@@ -1429,9 +1486,15 @@ watch(projectCode, loadAll, { immediate: true })
               <div class="task-contract-note">
                 <el-icon><Connection /></el-icon>
                 <span>
-                  创建后复制一次性交接包到
-                {{ aiCodingProviderLabel(scanTaskForm.provider) }}。
-                  会话激活后，进度、问题和结果会回到当前任务。
+                  <template v-if="scanTaskForm.executionMode === 'MANAGED_SANDBOX'">
+                    创建后由 Runtime 在一次性只读工作区启动 Codex；网络默认关闭，
+                    进度、审批和独立校验后的证据会回到当前任务。
+                  </template>
+                  <template v-else>
+                    创建后复制一次性交接包到
+                    {{ aiCodingProviderLabel(scanTaskForm.provider) }}。
+                    会话激活后，进度、问题和结果会回到当前任务。
+                  </template>
                 </span>
               </div>
             </el-form>
@@ -1445,7 +1508,9 @@ watch(projectCode, loadAll, { immediate: true })
                   :loading="scanSubmitting"
                   @click="submitPageMapScan"
                 >
-                  创建并生成交接包
+                  {{ scanTaskForm.executionMode === 'MANAGED_SANDBOX'
+                    ? '创建并启动隔离执行'
+                    : '创建并生成交接包' }}
                 </el-button>
               </div>
             </footer>
@@ -1484,6 +1549,16 @@ watch(projectCode, loadAll, { immediate: true })
         :handoff="handoffPackage"
       />
       <el-form v-else label-position="top">
+        <el-form-item label="执行方式" required>
+          <el-radio-group v-model="taskForm.executionMode">
+            <el-radio-button label="EXTERNAL_CLIENT">
+              外部工具交接
+            </el-radio-button>
+            <el-radio-button label="MANAGED_SANDBOX">
+              ReachAI 隔离执行
+            </el-radio-button>
+          </el-radio-group>
+        </el-form-item>
         <el-form-item v-if="taskForm.taskType !== 'PAGE_MAP_SCAN'" label="任务方式">
           <div class="task-mode-options">
             <button
@@ -1514,9 +1589,13 @@ watch(projectCode, loadAll, { immediate: true })
         <div class="form-grid form-grid--two">
           <el-form-item label="AI 编程工具" required>
             <AiCodingProviderSelector
+              v-if="taskForm.executionMode === 'EXTERNAL_CLIENT'"
               v-model="taskForm.provider"
               aria-label="选择任务使用的 AI 编程工具"
             />
+            <el-tag v-else type="primary" effect="plain" round>
+              Codex Harness · {{ taskForm.mode === 'ANALYZE' ? '只读沙箱' : '工作区补丁沙箱' }}
+            </el-tag>
           </el-form-item>
           <el-form-item
             v-if="taskForm.taskType !== 'PAGE_MAP_SCAN'"
@@ -1572,9 +1651,15 @@ watch(projectCode, loadAll, { immediate: true })
         <div class="task-contract-note">
           <el-icon><Connection /></el-icon>
           <span>
-            创建后复制一次性交接包到
-            {{ aiCodingProviderLabel(taskForm.provider) }}。
-            会话激活后，进度、问题、结果和验收材料会通过当前任务接口回到 ReachAI。
+            <template v-if="taskForm.executionMode === 'MANAGED_SANDBOX'">
+              创建后由 Runtime 启动一次性 Codex 沙箱；默认无网络、无宿主机挂载，
+              命令审批、补丁、测试报告与证据清单会回到当前任务。
+            </template>
+            <template v-else>
+              创建后复制一次性交接包到
+              {{ aiCodingProviderLabel(taskForm.provider) }}。
+              会话激活后，进度、问题、结果和验收材料会通过当前任务接口回到 ReachAI。
+            </template>
           </span>
         </div>
       </el-form>
@@ -1582,7 +1667,9 @@ watch(projectCode, loadAll, { immediate: true })
         <template v-if="taskDialogStage === 'FORM'">
           <el-button @click="taskDialogVisible = false">取消</el-button>
           <el-button type="primary" :loading="taskSubmitting" @click="submitTask">
-            创建并生成交接包
+            {{ taskForm.executionMode === 'MANAGED_SANDBOX'
+              ? '创建并启动隔离执行'
+              : '创建并生成交接包' }}
           </el-button>
         </template>
         <template v-else>

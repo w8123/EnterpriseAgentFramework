@@ -10,8 +10,24 @@
 
     <section class="llm-card model-card">
       <el-form-item label="模型实例">
-        <el-select v-model="config.modelInstanceId" filterable placeholder="选择模型实例" style="width: 100%">
+        <el-select
+          v-model="config.modelInstanceId"
+          filterable
+          placeholder="选择模型实例"
+          style="width: 100%"
+          :loading="modelOptionsLoading"
+          @visible-change="handleModelSelectVisible"
+        >
           <el-option v-for="item in modelOptions" :key="item.id" :label="`${item.name} / ${item.modelName}`" :value="item.id" />
+          <template #empty>
+            <ModelSelectEmptyState
+              model-type="LLM"
+              :option-count="modelOptions.length"
+              :loading="modelOptionsLoading"
+              :load-error="modelOptionsLoadError"
+              @retry="emit('reloadModelOptions')"
+            />
+          </template>
         </el-select>
       </el-form-item>
     </section>
@@ -211,12 +227,19 @@ import { computed, ref } from 'vue'
 import { Bottom, Delete, Plus, Top } from '@element-plus/icons-vue'
 import type { CanvasNodeData, LlmNodeConfig, LlmPromptMessage, StudioVariableOption } from '@/types/studio'
 import type { ModelInstance } from '@/types/model'
+import ModelSelectEmptyState from '@/components/model/ModelSelectEmptyState.vue'
 import { addField, formatMap, parseMap } from './panelUtils'
 
 const props = defineProps<{
   data: CanvasNodeData
   modelOptions: ModelInstance[]
+  modelOptionsLoading: boolean
+  modelOptionsLoadError: boolean
   variableOptions: Array<string | StudioVariableOption>
+}>()
+
+const emit = defineEmits<{
+  reloadModelOptions: []
 }>()
 
 const promptModeOptions = [
@@ -255,6 +278,10 @@ const config = computed<LlmNodeConfig>(() => {
 })
 
 const activeMessages = computed(() => config.value.messages || [])
+
+function handleModelSelectVisible(visible: boolean) {
+  if (visible) emit('reloadModelOptions')
+}
 
 const paramsAsText = computed(() => {
   const out: Record<string, string> = {}

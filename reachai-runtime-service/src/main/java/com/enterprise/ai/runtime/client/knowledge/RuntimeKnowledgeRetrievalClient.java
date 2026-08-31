@@ -56,6 +56,17 @@ public interface RuntimeKnowledgeRetrievalClient {
         private String query;
         private List<KnowledgeHit> hits;
         private Integer hitCount;
+        /** HIT / NO_EVIDENCE; absent on older Knowledge deployments. */
+        private String outcome;
+        private Boolean empty;
+        /** Non-sensitive counters/timings only; never query or evidence content. */
+        private Map<String, Object> diagnostics;
+
+        public KnowledgeRetrievalData(String query, List<KnowledgeHit> hits, Integer hitCount) {
+            this.query = query;
+            this.hits = hits;
+            this.hitCount = hitCount;
+        }
     }
 
     @Data

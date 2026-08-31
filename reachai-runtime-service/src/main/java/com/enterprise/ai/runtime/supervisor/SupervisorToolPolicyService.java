@@ -3,9 +3,11 @@ package com.enterprise.ai.runtime.supervisor;
 import com.enterprise.ai.runtime.agent.RuntimeAgentConfigVersionEntity;
 import com.enterprise.ai.runtime.agent.RuntimeAgentView;
 import com.enterprise.ai.runtime.agent.RuntimeAgentWorkflowToolEntity;
+import com.enterprise.ai.runtime.eval.RuntimeEvalExecutionContext;
 import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
 import com.enterprise.ai.runtime.supervisor.SupervisorApprovalInteractionService.ApprovalRequest;
-import com.enterprise.ai.runtime.supervisor.SupervisorRuntimeAdapter.PolicyApprovalGrant;
+import com.enterprise.ai.runtime.execution.SupervisorRuntimeAdapter.PolicyApprovalGrant;
+import com.enterprise.ai.runtime.execution.SupervisorRuntimeAdapter.RemoteAgentBinding;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -60,6 +62,19 @@ public class SupervisorToolPolicyService {
                                    Map<String, Object> args,
                                    PolicyApprovalGrant approvalGrant,
                                    WorkflowExecutionIdentity trustedIdentity) {
+        return evaluate(trace, agent, config, tool, input, args, approvalGrant,
+                trustedIdentity, RuntimeEvalExecutionContext.none());
+    }
+
+    public PolicyDecision evaluate(SupervisorExecutionTraceService.TraceHandle trace,
+                                   RuntimeAgentView agent,
+                                   RuntimeAgentConfigVersionEntity config,
+                                   RuntimeAgentWorkflowToolEntity tool,
+                                   Map<String, Object> input,
+                                   Map<String, Object> args,
+                                   PolicyApprovalGrant approvalGrant,
+                                   WorkflowExecutionIdentity trustedIdentity,
+                                   RuntimeEvalExecutionContext evalContext) {
         String riskLevel = normalizeRisk(tool);
         String permissionKey = text(tool.getPermissionKey());
         String profile = firstText(config.getPolicyProfile(), "STANDARD").toUpperCase(Locale.ROOT);
@@ -71,6 +86,18 @@ public class SupervisorToolPolicyService {
         if (structural != null) {
             trace(structural, trace, agent, input, tool, metadata);
             return structural;
+        }
+
+        RuntimeEvalExecutionContext evaluation = evalContext == null
+                ? RuntimeEvalExecutionContext.none() : evalContext;
+        if (evaluation.isEvaluation()
+                && !"READ".equals(riskLevel)
+                && !"READ_ONLY".equals(riskLevel)) {
+            metadata.put("evalMode", evaluation.mode().name());
+            PolicyDecision denied = evalSideEffectDenied(
+                    "Eval execution permits only READ Workflow tools; blocked " + riskLevel);
+            trace(denied, trace, agent, input, tool, metadata);
+            return denied;
         }
 
         if ("PAGE_ACTION".equals(riskLevel) && !explicitPageIntent(input)) {
@@ -105,6 +132,138 @@ public class SupervisorToolPolicyService {
                 : "Configured Workflow tool passed project, tenant, role, permission, and risk policy checks";
         PolicyDecision allowed = new PolicyDecision(true, false, "ALLOW", reason, null, null);
         trace(allowed, trace, agent, input, tool, metadata);
+        return allowed;
+    }
+
+    /** Applies the same Agent-level Guard contract without pretending an A2A binding is a Workflow. */
+    public PolicyDecision evaluateA2a(
+            SupervisorExecutionTraceService.TraceHandle trace,
+            RuntimeAgentView agent,
+            RuntimeAgentConfigVersionEntity config,
+            RemoteAgentBinding binding,
+            Map<String, Object> input,
+            Map<String, Object> args,
+            PolicyApprovalGrant approvalGrant,
+            WorkflowExecutionIdentity trustedIdentity) {
+        return evaluateA2a(trace, agent, config, binding, input, args, approvalGrant,
+                trustedIdentity, RuntimeEvalExecutionContext.none());
+    }
+
+    public PolicyDecision evaluateA2a(
+            SupervisorExecutionTraceService.TraceHandle trace,
+            RuntimeAgentView agent,
+            RuntimeAgentConfigVersionEntity config,
+            RemoteAgentBinding binding,
+            Map<String, Object> input,
+            Map<String, Object> args,
+            PolicyApprovalGrant approvalGrant,
+            WorkflowExecutionIdentity trustedIdentity,
+            RuntimeEvalExecutionContext evalContext) {
+        String toolName = binding == null ? null : text(binding.getToolName());
+        String permissionKey = binding == null ? null : text(binding.getPermissionKey());
+        String riskLevel = binding == null ? null : text(binding.getRiskLevel());
+        riskLevel = StringUtils.hasText(riskLevel) ? riskLevel.toUpperCase(Locale.ROOT) : "READ";
+        String profile = firstText(config.getPolicyProfile(), "STANDARD").toUpperCase(Locale.ROOT);
+        ParsedPolicy parsedPolicy = policy(config.getConfigJson());
+        Map<String, Object> policy = parsedPolicy.values();
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("toolKind", "A2A_REMOTE_AGENT");
+        metadata.put("policyProfile", profile);
+        metadata.put("permissionKey", permissionKey);
+        metadata.put("riskLevel", riskLevel);
+        metadata.put("projectCode", contextText(input, "projectCode"));
+        metadata.put("tenantId", contextText(input, "tenantId"));
+        metadata.put("roles", stringList(input == null ? null : input.get("roles")));
+        metadata.put("remoteAgentKey", binding == null ? null : binding.getRemoteAgentKeySnapshot());
+        metadata.put("protocolSkillId", text(args == null ? null : args.get("protocolSkillId")));
+        Object outboundText = args == null ? null : args.get("text");
+        metadata.put("textLength", outboundText == null ? 0 : String.valueOf(outboundText).length());
+
+        RuntimeEvalExecutionContext evaluation = evalContext == null
+                ? RuntimeEvalExecutionContext.none() : evalContext;
+        if (evaluation.isEvaluation()) {
+            metadata.put("evalMode", evaluation.mode().name());
+            PolicyDecision denied = evalSideEffectDenied(
+                    "Eval execution blocks A2A delegation until a dedicated sandbox adapter is configured");
+            traceService.guard(trace, agent, input, toolName,
+                    denied.decision(), denied.reason(), metadata);
+            return denied;
+        }
+
+        String deniedReason = null;
+        if (binding == null || !parsedPolicy.valid()) {
+            deniedReason = "Supervisor A2A policy configuration is invalid";
+        } else if (!"ALLOW_LIST".equalsIgnoreCase(config.getToolCatalogMode())) {
+            deniedReason = "Supervisor toolCatalogMode must be ALLOW_LIST";
+        } else if (!Boolean.TRUE.equals(binding.getEnabled())) {
+            deniedReason = "A2A remote Agent tool is disabled in the active Agent configuration";
+        } else if (!Set.of("READ", "WRITE", "IRREVERSIBLE").contains(riskLevel)) {
+            deniedReason = "A2A remote Agent risk level is invalid";
+        } else {
+            String requestProject = contextText(input, "projectCode");
+            if (StringUtils.hasText(agent.projectCode()) && StringUtils.hasText(requestProject)
+                    && !agent.projectCode().equalsIgnoreCase(requestProject)) {
+                deniedReason = "A2A remote Agent project does not match the Agent project";
+            } else if (!StringUtils.hasText(permissionKey) && !"DEV_ALLOW_ALL".equals(profile)) {
+                deniedReason = "A2A remote Agent permissionKey is required by the active policy profile";
+            } else {
+                List<String> roles = stringList(input == null ? null : input.get("roles"));
+                List<String> agentRoles = jsonStringList(agent.allowedRolesJson());
+                if (!agentRoles.isEmpty() && disjoint(roles, agentRoles)) {
+                    deniedReason = "Caller roles do not satisfy the Agent allowed role set";
+                } else if (!"DEV_ALLOW_ALL".equals(profile)) {
+                    String tenantId = contextText(input, "tenantId");
+                    if (!StringUtils.hasText(tenantId)) {
+                        deniedReason = "tenantId is required by the active policy profile";
+                    } else {
+                        List<String> allowedTenantIds = stringList(policy.get("allowedTenantIds"));
+                        if (!allowedTenantIds.isEmpty()
+                                && !containsIgnoreCase(allowedTenantIds, tenantId)) {
+                            deniedReason = "tenantId is outside the Agent policy allowlist";
+                        } else {
+                            List<String> requiredRoles = stringList(
+                                    mapValue(policy.get("permissionRoles")).get(permissionKey));
+                            if (!requiredRoles.isEmpty() && disjoint(roles, requiredRoles)) {
+                                deniedReason = "Caller roles do not satisfy permission " + permissionKey;
+                            }
+                        }
+                    }
+                } else {
+                    metadata.put("developmentBypass", "tenant and permission-role checks only");
+                }
+            }
+        }
+        if (deniedReason != null) {
+            PolicyDecision denied = deny(deniedReason);
+            traceService.guard(trace, agent, input, toolName, denied.decision(), denied.reason(), metadata);
+            return denied;
+        }
+        if ("IRREVERSIBLE".equals(riskLevel)
+                && !"CONFIRM".equalsIgnoreCase(text(policy.get("irreversibleMode")))) {
+            PolicyDecision denied = deny("IRREVERSIBLE A2A delegation is denied by default");
+            traceService.guard(trace, agent, input, toolName, denied.decision(), denied.reason(), metadata);
+            return denied;
+        }
+        boolean confirmationRequired = "WRITE".equals(riskLevel) || "IRREVERSIBLE".equals(riskLevel);
+        if (confirmationRequired && !approved(permissionKey, toolName, args, approvalGrant)) {
+            String reason = "执行该 " + riskLevel + " 跨 Agent 委派前需要用户确认：" + toolName;
+            ApprovalRequest approval = approvalService.create(
+                    trace, agent, config, "A2A_REMOTE_AGENT", toolName, permissionKey, riskLevel,
+                    input, args, reason, trustedIdentity);
+            PolicyDecision required = new PolicyDecision(
+                    false, true, "REQUIRE_CONFIRMATION", reason,
+                    approval.interactionId(), approval.uiRequest());
+            metadata.put("interactionId", approval.interactionId());
+            traceService.guard(trace, agent, input, toolName,
+                    required.decision(), required.reason(), metadata);
+            return required;
+        }
+        String reason = approved(permissionKey, toolName, args, approvalGrant)
+                ? "One-time user approval matched the A2A permission key"
+                : "Configured A2A remote Agent passed project, tenant, role, permission, and risk checks";
+        PolicyDecision allowed = new PolicyDecision(true, false, "ALLOW", reason, null, null);
+        traceService.guard(trace, agent, input, toolName,
+                allowed.decision(), allowed.reason(), metadata);
         return allowed;
     }
 
@@ -309,6 +468,10 @@ public class SupervisorToolPolicyService {
 
     private PolicyDecision deny(String reason) {
         return new PolicyDecision(false, false, "DENY", reason, null, null);
+    }
+
+    private PolicyDecision evalSideEffectDenied(String reason) {
+        return new PolicyDecision(false, false, "EVAL_SIDE_EFFECT_BLOCKED", reason, null, null);
     }
 
     private String text(Object value) {

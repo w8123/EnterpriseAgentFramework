@@ -14,8 +14,8 @@ JDK8 侧不运行完整 Agent Runtime，不依赖 LangGraph4j，不承担平台�
 | 模块 | JDK 目标 | 职责 |
 | --- | --- | --- |
 | `reachai-capability-sdk` | JDK8 兼容 | 注解、能力描述、注册协议和业务系统侧契约。 |
-| `reachai-spring-boot2-starter` | JDK8 / Spring Boot 2 | 扫描 `@ReachCapability`、同步项目和能力、发送实例心跳。 |
-| `ai-runtime-contract` | 平台内部契约 | Tool / Skill 运行时兼容契约，后续可继续收敛。 |
+| `reachai-spring-boot2-starter` | JDK8 / Spring Boot 2 | 扫描 `@ReachCapability`、注册项目、发送实例心跳，并在显式触发时同步能力。 |
+| `ai-runtime-contract` | 平台内部契约 | 中台内部业务记忆引用契约。 |
 | `reachai-control-service` | JDK17 | Platform Control public API/BFF 和 SDK 注册兼容入口。 |
 | `reachai-runtime-service` | JDK17 | Runtime Host，执行 Agent、Workflow、GraphSpec、Trace、RunOps 和调试。 |
 | `reachai-capability-service` | JDK17 | Capability Catalog，管理能力快照、diff、评审、扫描目录和能力资产。 |
@@ -26,7 +26,7 @@ JDK8 侧不运行完整 Agent Runtime，不依赖 LangGraph4j，不承担平台�
 
 1. 业务系统引入 `reachai-spring-boot2-starter`。
 2. 业务 Bean 使用 `@ReachCapability` 和 `@ReachParam` 声明能力。
-3. Starter 启动时扫描本地 Bean，构造项目、实例、能力和参数描述。
+3. Starter 启动时扫描本地 Bean，注册项目并发送实例心跳；能力描述保留在本地等待显式同步。
 4. SDK 注册请求进入 `reachai-control-service` 的公开兼容入口。
 5. Control 将能力注册语义委托给 `reachai-capability-service`。
 6. Capability Catalog 形成快照和 diff，并进入评审、apply/ignore 和资产目录。
@@ -67,6 +67,6 @@ mvn -pl reachai-control-service,reachai-runtime-service,reachai-capability-servi
 
 ## 后续工作
 
-- 继续清理历史 Skill 命名，只在兼容字段和历史表名中保留。
+- 继续清理已退役的业务 Skill 资产命名；标准 Agent Skill 包和外部协议 `skills` 字段继续保留。
 - 继续收敛 `ai-runtime-contract` 中的兼容契约。
 - 为业务系统接入样例补齐五服务拓扑下的启动和联调说明。

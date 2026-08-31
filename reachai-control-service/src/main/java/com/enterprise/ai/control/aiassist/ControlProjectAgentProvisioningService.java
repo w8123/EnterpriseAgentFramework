@@ -12,7 +12,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 
 /**
  * Control-owned, idempotent project copilot provisioning.
@@ -34,13 +33,6 @@ public class ControlProjectAgentProvisioningService {
                     + "不能因为用户没有说打开或操作页面就拒绝。"
                     + "名称、说明和回复默认使用简体中文；Token、MCP、AI、Agent、"
                     + "Supervisor、Workflow、Tool、API、SDK 等熟知专业术语和技术标识可保留英文。";
-    private static final Set<String> LEGACY_PAGE_COPILOT_DESCRIPTIONS = Set.of(
-            "Project page copilot Agent for embedded chat and Workflow routing.",
-            "Project page copilot Agent for embedded chat, page understanding, and Workflow routing.");
-    private static final Set<String> LEGACY_PAGE_COPILOT_SYSTEM_PROMPTS = Set.of(
-            "You are the project's page copilot Supervisor. Understand the request, plan, and select one or more permitted Workflows as tools. Use page-action Workflows only when the user explicitly asks to open, navigate, query, or operate a page.",
-            "You are the project's page copilot. Understand the user's intent and select the permitted Workflows as tools.");
-
     private final CapabilityProjectOnboardingClient capabilityClient;
     private final RuntimeProxyClient runtimeClient;
     private final ControlModelCatalogClient modelCatalogClient;
@@ -123,12 +115,7 @@ public class ControlProjectAgentProvisioningService {
                 .findFirst()
                 .orElse(null);
         if (existing != null) {
-            return new RuntimeObject(
-                    false,
-                    localizeLegacyAgentDefaults(
-                            existing,
-                            projectName,
-                            projectCode));
+            return new RuntimeObject(false, existing);
         }
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("projectId", projectId);
@@ -163,17 +150,7 @@ public class ControlProjectAgentProvisioningService {
                 .findFirst()
                 .orElse(null);
         if (active != null) {
-            boolean hasDraft = versions.stream()
-                    .anyMatch(item -> "DRAFT".equalsIgnoreCase(
-                            stringValue(item.get("status"))));
-            String activeSystemPrompt =
-                    stringValue(active.get("systemPrompt"));
-            if (hasDraft
-                    || !StringUtils.hasText(activeSystemPrompt)
-                    || !LEGACY_PAGE_COPILOT_SYSTEM_PROMPTS.contains(
-                            activeSystemPrompt)) {
-                return new RuntimeObject(false, active);
-            }
+            return new RuntimeObject(false, active);
         }
 
         Map<String, Object> draftRequest = new LinkedHashMap<>();
@@ -205,45 +182,6 @@ public class ControlProjectAgentProvisioningService {
                     "Agent Supervisor config was not activated");
         }
         return new RuntimeObject(true, published);
-    }
-
-    private Map<String, Object> localizeLegacyAgentDefaults(
-            Map<String, Object> existing,
-            String projectName,
-            String projectCode) {
-        Map<String, Object> update = new LinkedHashMap<>();
-        String currentName = stringValue(existing.get("name"));
-        String legacyNameByProject = firstText(
-                projectName,
-                projectCode,
-                "Project") + " Page Copilot";
-        String legacyNameByCode = firstText(
-                projectCode,
-                "Project") + " Page Copilot";
-        if (Objects.equals(currentName, legacyNameByProject)
-                || Objects.equals(currentName, legacyNameByCode)) {
-            update.put(
-                    "name",
-                    pageCopilotDisplayName(projectName, projectCode));
-        }
-        String currentDescription =
-                stringValue(existing.get("description"));
-        if (StringUtils.hasText(currentDescription)
-                && LEGACY_PAGE_COPILOT_DESCRIPTIONS.contains(
-                        currentDescription)) {
-            update.put(
-                    "description",
-                    DEFAULT_PAGE_COPILOT_DESCRIPTION);
-        }
-        String agentId = stringValue(existing.get("id"));
-        if (update.isEmpty() || !StringUtils.hasText(agentId)) {
-            return existing;
-        }
-        Map<String, Object> localized = new LinkedHashMap<>(existing);
-        localized.putAll(update);
-        localized.putAll(responseMap(
-                runtimeClient.updateAgent(agentId.trim(), update)));
-        return localized;
     }
 
     private static String pageCopilotDisplayName(

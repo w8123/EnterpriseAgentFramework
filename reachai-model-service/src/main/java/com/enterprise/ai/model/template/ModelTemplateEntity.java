@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 @Data
@@ -33,6 +34,36 @@ public class ModelTemplateEntity {
     private String paramsSchemaJson;
 
     private String capabilitiesJson;
+
+    private String sourceKey;
+
+    private String lifecycleStatus;
+
+    private String recommendationStatus;
+
+    private String recommendationTier;
+
+    private String recommendationReason;
+
+    private String officialPositioning;
+
+    private LocalDate releasedAt;
+
+    private LocalDate deprecatedAt;
+
+    private LocalDate retireAt;
+
+    private String replacementModelName;
+
+    private LocalDateTime lastSeenAt;
+
+    private LocalDateTime lastVerifiedAt;
+
+    private String sourceUrl;
+
+    private String sourceRevision;
+
+    private Boolean syncManaged;
 
     private String iconKey;
 

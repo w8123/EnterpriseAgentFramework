@@ -30,13 +30,18 @@ class PlatformConsoleRoutePolicyTest {
     void coversConsoleWorkflowProjectAndCapabilityOperations() {
         assertProtected("/api/workflows/wf_1/working-copy");
         assertProtected("/api/agents/agent_1/config-versions");
+        assertProtected("/api/skills/11/versions/21/reviews");
+        assertProtected("/api/skill-market/probes");
         assertProtected("/api/scan-projects/7/tools/reconcile");
+        assertProtected("/api/api-market/entries/open-meteo");
         assertProtected("/api/tools/orders.create/test");
         assertProtected("/api/registry/projects/mall/page-workbench/pages");
         assertProtected("/api/ai-assist/projects/7/onboarding-manifest");
         assertProtected("/api/runtime/debug-sessions/debug_1");
         assertProtected("/api/runtime/agents/sessions/session_1");
-        assertProtected("/api/admin/a2a/endpoints");
+        assertProtected("/api/runtime/evals/v2/experiments");
+        assertProtected("/api/automations/aut_0123456789abcdef0123456789abcdef/occurrences");
+        assertProtected("/api/a2a-hub/overview");
         assertProtected("/api/knowledge/biz-index/orders/search");
     }
 
@@ -52,7 +57,9 @@ class PlatformConsoleRoutePolicyTest {
         assertNotProtected("/api/runtime/agents/execute");
         assertNotProtected("/api/v1/agents/demo/chat");
         assertNotProtected("/api/ai-assist/artifacts/embed-chat/1.0.0.tgz");
+        assertNotProtected("/api/ai-assist/skills/reachai-onboarding/latest.zip");
         assertNotProtected("/api/knowledge-ingress/projects/orders/biz-index/orders_idx/batch");
+        assertNotProtected("/.well-known/agent-card.json");
     }
 
     @Test

@@ -7,7 +7,6 @@ import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskContract
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskDescriptor;
 import com.enterprise.ai.control.aicoding.provider.AiCodingContractResourceLoader;
 import com.enterprise.ai.control.aicoding.provider.AiCodingTaskKindProvider;
-import com.enterprise.ai.control.client.capability.CapabilityProjectOnboardingClient;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.PageMapPayload;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.PageReport;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -31,13 +30,13 @@ public class PageMapScanTaskProvider implements AiCodingTaskKindProvider {
     public static final String CONTRACT_KEY = "reachai.page-map-report";
     public static final String CONTRACT_VERSION = "v1";
 
-    private final CapabilityProjectOnboardingClient capabilityClient;
+    private final PageWorkbenchProjectPort capabilityClient;
     private final PageCatalogApplicationService pageCatalog;
     private final ObjectMapper objectMapper;
     private final TaskContract contract;
 
     public PageMapScanTaskProvider(
-            CapabilityProjectOnboardingClient capabilityClient,
+            PageWorkbenchProjectPort capabilityClient,
             PageCatalogApplicationService pageCatalog,
             ObjectMapper objectMapper,
             AiCodingContractResourceLoader resourceLoader) {

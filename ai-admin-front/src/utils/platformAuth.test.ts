@@ -1,16 +1,19 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
   acknowledgeExplorationNotice,
-  clearPlatformToken,
+  clearPlatformSessionMetadata,
   discardLegacyPlatformPersistentSession,
   getPlatformSessionExpiresAt,
   getPlatformSessionId,
-  getPlatformToken,
   hasAcknowledgedExplorationNotice,
-  hasLocallyExpiredPlatformSession,
+  isPlatformLogoutEvent,
+  platformCsrfHeaders,
+  publishPlatformLogoutEvent,
+  setPlatformSessionExpiresAt,
   setPlatformSessionId,
-  setPlatformToken,
   setPlatformUser,
+  PLATFORM_CSRF_HEADER,
+  PLATFORM_SESSION_EVENT_KEY,
 } from './platformAuth'
 
 describe('platform auth browser storage', () => {
@@ -19,23 +22,32 @@ describe('platform auth browser storage', () => {
     sessionStorage.clear()
   })
 
-  it('stores the platform token and expiry in window-scoped session storage', () => {
-    setPlatformToken('pat_1', '2030-01-01T00:00:00.000Z')
+  it('stores only non-secret session metadata in window-scoped storage', () => {
+    setPlatformSessionExpiresAt('2030-01-01T00:00:00.000Z')
     setPlatformSessionId('pls_1')
+    setPlatformUser({ userId: 7, username: 'admin' })
 
-    expect(getPlatformToken()).toBe('pat_1')
     expect(getPlatformSessionExpiresAt()).toBe('2030-01-01T00:00:00.000Z')
     expect(getPlatformSessionId()).toBe('pls_1')
+    expect(sessionStorage.getItem('reachai.platform.accessToken')).toBeNull()
     expect(localStorage.getItem('reachai.platform.accessToken')).toBeNull()
-    expect(hasLocallyExpiredPlatformSession(Date.parse('2029-01-01T00:00:00.000Z'))).toBe(false)
-    expect(hasLocallyExpiredPlatformSession(Date.parse('2031-01-01T00:00:00.000Z'))).toBe(true)
   })
 
-  it('scopes exploration acknowledgement to the server session rather than the user', () => {
+  it('derives the synchronizer CSRF header from the current server session id', () => {
+    setPlatformSessionId('pls_1')
+
+    const headers = platformCsrfHeaders({ Accept: 'application/json' })
+
+    expect(headers.get(PLATFORM_CSRF_HEADER)).toBe('pls_1')
+    expect(headers.get('Accept')).toBe('application/json')
+  })
+
+  it('shares exploration acknowledgement by server session rather than by user or tab', () => {
     acknowledgeExplorationNotice('pls_7a')
 
     expect(hasAcknowledgedExplorationNotice('pls_7a')).toBe(true)
     expect(hasAcknowledgedExplorationNotice('pls_7b')).toBe(false)
+    expect(localStorage.getItem('reachai.platform.explorationNotice.ack.v4.pls_7a')).toBe('true')
   })
 
   it('clears only the current sessions exploration acknowledgement on logout', () => {
@@ -44,25 +56,37 @@ describe('platform auth browser storage', () => {
     acknowledgeExplorationNotice('pls_7a')
     acknowledgeExplorationNotice('pls_7b')
 
-    clearPlatformToken()
+    clearPlatformSessionMetadata()
 
     expect(hasAcknowledgedExplorationNotice('pls_7a')).toBe(false)
     expect(hasAcknowledgedExplorationNotice('pls_7b')).toBe(true)
   })
 
-  it('deletes legacy persistent tokens instead of migrating them to this window', () => {
+  it('deletes legacy persistent and per-tab tokens instead of migrating them', () => {
     localStorage.setItem('reachai.platform.accessToken', 'pat_legacy')
     localStorage.setItem('reachai.platform.user', JSON.stringify({ userId: 7, username: 'admin' }))
     localStorage.setItem('reachai.platform.expiresAt', '2030-01-01T00:00:00.000Z')
-    sessionStorage.setItem('reachai.platform.explorationNotice.ack.v2.7', 'true')
+    sessionStorage.setItem('reachai.platform.accessToken', 'pat_tab')
+    sessionStorage.setItem('reachai.platform.explorationNotice.ack.v3.pls_7', 'true')
 
     discardLegacyPlatformPersistentSession()
 
     expect(localStorage.getItem('reachai.platform.accessToken')).toBeNull()
     expect(localStorage.getItem('reachai.platform.user')).toBeNull()
     expect(localStorage.getItem('reachai.platform.expiresAt')).toBeNull()
-    expect(sessionStorage.getItem('reachai.platform.explorationNotice.ack.v2.7')).toBeNull()
-    expect(getPlatformToken()).toBe('')
+    expect(sessionStorage.getItem('reachai.platform.accessToken')).toBeNull()
+    expect(sessionStorage.getItem('reachai.platform.explorationNotice.ack.v3.pls_7')).toBeNull()
+  })
+
+  it('publishes a non-secret logout event for other tabs', () => {
+    publishPlatformLogoutEvent()
+
+    const value = localStorage.getItem(PLATFORM_SESSION_EVENT_KEY)
+    expect(value).not.toContain('accessToken')
+    expect(isPlatformLogoutEvent(new StorageEvent('storage', {
+      key: PLATFORM_SESSION_EVENT_KEY,
+      newValue: value,
+    }))).toBe(true)
   })
 
   it('falls back only to memory when session storage is unavailable', () => {
@@ -75,14 +99,13 @@ describe('platform auth browser storage', () => {
     })
 
     try {
-      setPlatformToken('pat_memory_only', '2030-01-01T00:00:00.000Z')
+      setPlatformSessionExpiresAt('2030-01-01T00:00:00.000Z')
       setPlatformSessionId('pls_memory_only')
 
-      expect(getPlatformToken()).toBe('pat_memory_only')
+      expect(getPlatformSessionExpiresAt()).toBe('2030-01-01T00:00:00.000Z')
       expect(getPlatformSessionId()).toBe('pls_memory_only')
-      expect(localStorage.getItem('reachai.platform.accessToken')).toBeNull()
-      clearPlatformToken()
-      expect(getPlatformToken()).toBe('')
+      clearPlatformSessionMetadata()
+      expect(getPlatformSessionId()).toBe('')
     } finally {
       if (originalSessionStorage) {
         Object.defineProperty(globalThis, 'sessionStorage', originalSessionStorage)

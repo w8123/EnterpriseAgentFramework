@@ -1,11 +1,14 @@
 package com.enterprise.ai.runtime.execution;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.enterprise.ai.runtime.execution.checkpoint.WorkflowCheckpointCodec;
 import com.enterprise.ai.runtime.execution.interaction.WorkflowInteractionCodes;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
@@ -17,7 +20,6 @@ import java.util.Map;
  * Creates and loads GraphSpec-native Workflow interaction sessions for production Agent/Embed.
  */
 @Service
-@RequiredArgsConstructor
 public class RuntimeWorkflowInteractionSessionService {
 
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {
@@ -26,7 +28,28 @@ public class RuntimeWorkflowInteractionSessionService {
     private final RuntimeInteractionSessionMapper sessionMapper;
     private final RuntimeInteractionEventMapper eventMapper;
     private final ObjectMapper objectMapper;
+    private final WorkflowCheckpointCodec checkpointCodec;
 
+    public RuntimeWorkflowInteractionSessionService(RuntimeInteractionSessionMapper sessionMapper,
+                                                     RuntimeInteractionEventMapper eventMapper,
+                                                     ObjectMapper objectMapper) {
+        this(sessionMapper, eventMapper, objectMapper,
+                WorkflowCheckpointCodec.DEFAULT_MAX_CHECKPOINT_BYTES);
+    }
+
+    @Autowired
+    public RuntimeWorkflowInteractionSessionService(
+            RuntimeInteractionSessionMapper sessionMapper,
+            RuntimeInteractionEventMapper eventMapper,
+            ObjectMapper objectMapper,
+            @Value("${reachai.runtime.workflow-checkpoint.max-bytes:262144}") int maxCheckpointBytes) {
+        this.sessionMapper = sessionMapper;
+        this.eventMapper = eventMapper;
+        this.objectMapper = objectMapper;
+        this.checkpointCodec = new WorkflowCheckpointCodec(objectMapper, maxCheckpointBytes);
+    }
+
+    @Transactional
     public RuntimeInteractionSessionEntity createWaitingSession(CreateRequest request) {
         String interactionId = firstText(request.interactionId(),
                 WorkflowInteractionCodes.ID_PREFIX + java.util.UUID.randomUUID().toString().replace("-", ""));
@@ -46,8 +69,9 @@ public class RuntimeWorkflowInteractionSessionService {
         entity.setInteractionType(firstText(request.interactionType(), "COLLECT_INPUT"));
         entity.setStatus("WAITING_USER");
         entity.setRevision(0);
-        entity.setResumeCheckpointJson(writeJson(
-                request.resumeCheckpoint() == null ? Map.of() : request.resumeCheckpoint()));
+        WorkflowCheckpointCodec.EncodedCheckpoint checkpoint = encodeCheckpoint(
+                request.resumeCheckpoint(), request.graphSpecSnapshotJson(), request.nodeId());
+        applyCheckpoint(entity, checkpoint);
         entity.setUiRequestJson(writeJson(request.uiRequest()));
         entity.setContinuationJson(writeJson(request.continuation()));
         entity.setAppId(request.appId());
@@ -66,6 +90,68 @@ public class RuntimeWorkflowInteractionSessionService {
                 "interactionId", interactionId,
                 "component", uiComponent(request.uiRequest())), request.userId());
         return entity;
+    }
+
+    /**
+     * Atomically consumes the current wait and persists the next durable wait. No UI event is
+     * returned to the caller until both rows and their audit events commit.
+     */
+    @Transactional
+    public RuntimeInteractionSessionEntity completeAndCreateNext(
+            RuntimeInteractionSessionEntity current,
+            Map<String, Object> submittedPayload,
+            Map<String, Object> result,
+            String idempotencyKey,
+            String operatorId,
+            CreateRequest nextRequest) {
+        RuntimeInteractionSessionEntity update = new RuntimeInteractionSessionEntity();
+        update.setId(current.getId());
+        update.setStatus("COMPLETED");
+        update.setRevision((current.getRevision() == null ? 0 : current.getRevision()) + 1);
+        update.setSubmittedPayloadJson(writeJson(submittedPayload));
+        update.setResultJson(writeJson(result));
+        if (StringUtils.hasText(idempotencyKey)) {
+            update.setIdempotencyKey(idempotencyKey);
+        }
+        update.setUpdateTime(LocalDateTime.now());
+        sessionMapper.updateById(update);
+        writeEvent(current.getId(), "RESUMED", Map.of("next", "WAITING_USER"), operatorId);
+        writeEvent(current.getId(), "COMPLETED", Map.of(
+                "nextInteractionId", nextRequest.interactionId()), operatorId);
+        RuntimeInteractionSessionEntity next = createWaitingSession(nextRequest);
+        current.setStatus("COMPLETED");
+        return next;
+    }
+
+    public WorkflowCheckpointCodec.EncodedCheckpoint encodeCheckpoint(Map<String, Object> state,
+                                                                       String graphSpecJson,
+                                                                       String suspendedNodeId) {
+        return checkpointCodec.encode(state, graphSpecJson, suspendedNodeId);
+    }
+
+    public WorkflowCheckpointCodec.DecodedCheckpoint decodeCheckpoint(
+            RuntimeInteractionSessionEntity session,
+            String graphSpecJson) {
+        if (session == null) {
+            throw new IllegalArgumentException("interaction session is required");
+        }
+        return checkpointCodec.decode(
+                session.getResumeCheckpointJson(),
+                session.getCheckpointSchemaVersion(),
+                session.getExecutionEngineVersion(),
+                session.getCheckpointDigest(),
+                session.getCheckpointSizeBytes(),
+                graphSpecJson,
+                session.getNodeId());
+    }
+
+    public void applyCheckpoint(RuntimeInteractionSessionEntity entity,
+                                WorkflowCheckpointCodec.EncodedCheckpoint checkpoint) {
+        entity.setResumeCheckpointJson(checkpoint.json());
+        entity.setCheckpointSchemaVersion(checkpoint.schemaVersion());
+        entity.setExecutionEngineVersion(checkpoint.engineVersion());
+        entity.setCheckpointDigest(checkpoint.digest());
+        entity.setCheckpointSizeBytes(checkpoint.sizeBytes());
     }
 
     public RuntimeInteractionSessionEntity requireById(String interactionId) {

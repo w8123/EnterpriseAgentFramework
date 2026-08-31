@@ -54,6 +54,21 @@ public class PlatformAuthorizationService {
         }
     }
 
+    /**
+     * Admits a caller that owns the permission in at least one usable scope.
+     * Domain code must still perform its resource-scope check before reading or
+     * mutating a concrete resource.
+     */
+    public void requirePermission(PlatformAuthenticatedSession session, String permission) {
+        if (session == null
+                || session.permissions() == null
+                || (!session.permissions().contains(permission)
+                && !session.permissions().contains(PlatformPermissions.ALL))) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "platform permission is required: " + permission);
+        }
+    }
+
     public void requireResourcePermission(PlatformAuthenticatedSession session,
                                           String permission,
                                           String resourceScope,
@@ -62,7 +77,7 @@ public class PlatformAuthorizationService {
         if (session == null || !session.hasResourcePermission(
                 permission, resourceScope, workspaceId, projectCode)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                    "platform permission is required for the Knowledge resource: " + permission);
+                    "platform permission is required for the scoped resource: " + permission);
         }
     }
 

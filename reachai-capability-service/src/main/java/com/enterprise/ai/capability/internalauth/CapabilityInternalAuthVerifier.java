@@ -85,7 +85,8 @@ public class CapabilityInternalAuthVerifier {
         boolean untrusted = InternalServiceAuthHeaders.IDENTITY_SOURCE_RUNTIME_UNTRUSTED.equals(normalizedSource);
         if (!properties.secretConfigured()
                 || !"POST".equalsIgnoreCase(method)
-                || !CapabilityInternalAuthFilter.isToolExecutionPath(path)
+                || (!CapabilityInternalAuthFilter.isToolExecutionPath(path)
+                && !CapabilityInternalAuthFilter.CAPABILITY_INVOCATION_PATH.equals(path))
                 || !InternalServiceAuthHeaders.CALLER_RUNTIME.equals(normalized(caller))
                 || (!trusted && !untrusted)
                 || (trusted && !StringUtils.hasText(normalizedUser))

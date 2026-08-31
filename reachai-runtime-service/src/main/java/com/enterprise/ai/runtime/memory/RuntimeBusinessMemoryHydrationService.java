@@ -3,6 +3,8 @@ package com.enterprise.ai.runtime.memory;
 import com.enterprise.ai.runtime.client.capability.RuntimeCapabilityCatalogClient;
 import com.enterprise.ai.runtime.contract.memory.BusinessMemoryReference;
 import com.enterprise.ai.runtime.contract.memory.BusinessMemoryResolution;
+import com.enterprise.ai.runtime.execution.RuntimeBusinessMemoryHydrationPort;
+import com.enterprise.ai.runtime.execution.RuntimeBusinessMemoryHydrationPort.HydrationBatch;
 import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -24,7 +26,7 @@ import java.util.Map;
  * reaches a Workflow/LLM; failed hydration never falls back to copied index text.
  */
 @Service
-public class RuntimeBusinessMemoryHydrationService {
+public class RuntimeBusinessMemoryHydrationService implements RuntimeBusinessMemoryHydrationPort {
 
     private static final String PREFIX = "reachai.business_memory.hydration";
     private static final int MAX_SCAN_DEPTH = 12;
@@ -344,14 +346,6 @@ public class RuntimeBusinessMemoryHydrationService {
         if (value == null) return null;
         String normalized = String.valueOf(value).trim();
         return StringUtils.hasText(normalized) ? normalized : null;
-    }
-
-    public record HydrationBatch(Object output,
-                                 boolean detected,
-                                 int referenceCount,
-                                 int resolvedCount,
-                                 int blockedCount,
-                                 int versionChangedCount) {
     }
 
     private static final class State {

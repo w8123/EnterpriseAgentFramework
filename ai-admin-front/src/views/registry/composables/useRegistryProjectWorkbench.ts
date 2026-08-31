@@ -4,7 +4,6 @@ import {
   Grid,
   Operation,
   Star,
-  Tools,
   User,
 } from '@element-plus/icons-vue'
 import type { ScanProject } from '@/types/scanProject'
@@ -51,7 +50,7 @@ export function useRegistryProjectWorkbench(deps: UseRegistryProjectWorkbenchDep
       items: [
         {
           title: '后端接口管理',
-          desc: '管理扫描接口、模块列表和接口图谱，处理 Tool 关联与语义文档。',
+          desc: '管理扫描接口、模块列表和接口图谱，处理能力目录纳管与语义文档。',
           icon: Grid,
           tone: 'blue',
           disabled: !deps.project.value?.id,
@@ -64,14 +63,6 @@ export function useRegistryProjectWorkbench(deps: UseRegistryProjectWorkbenchDep
           tone: 'orange',
           disabled: !deps.project.value,
           action: deps.goPageActionGovernance,
-        },
-        {
-          title: '工具管理',
-          desc: '查看项目下可被 Agent Runtime 调用的 Tool 清单。',
-          icon: Tools,
-          tone: 'blue',
-          disabled: !deps.project.value?.id,
-          action: () => deps.goCapability('/tool'),
         },
       ],
     },

@@ -17,6 +17,9 @@ public final class WorkflowExecutionIdentity {
     public enum Source {
         AGENT,
         EMBED_SESSION,
+        A2A_REMOTE_AGENT,
+        AUTOMATION,
+        MCP_REMOTE_CLIENT,
         DEBUG_UNTRUSTED,
         COMPOSITION_UNTRUSTED
     }
@@ -78,8 +81,61 @@ public final class WorkflowExecutionIdentity {
                 Source.EMBED_SESSION, tenantId, projectId, projectCode, userId, true, true);
     }
 
+    /**
+     * A remote A2A Principal may execute the published Agent/project contract,
+     * but it is never promoted to a ReachAI business user for personal-memory
+     * or user-ACL resolution.
+     */
+    public static WorkflowExecutionIdentity fromA2aRemoteAgent(
+            String tenantId,
+            Long projectId,
+            String projectCode,
+            String principalKey) {
+        if (!StringUtils.hasText(principalKey)) {
+            throw new IllegalArgumentException("A2A remote Agent identity requires principalKey");
+        }
+        return new WorkflowExecutionIdentity(
+                Source.A2A_REMOTE_AGENT, tenantId, projectId, projectCode,
+                principalKey, true, false);
+    }
+
+    /**
+     * Runtime-owned non-human identity for a version-pinned Automation.
+     * It may resolve project-scoped credentials but is never promoted to a business user.
+     */
+    public static WorkflowExecutionIdentity fromAutomation(
+            String tenantId,
+            Long projectId,
+            String projectCode,
+            String principalId) {
+        if (!StringUtils.hasText(principalId)) {
+            throw new IllegalArgumentException("Automation identity requires principalId");
+        }
+        return new WorkflowExecutionIdentity(
+                Source.AUTOMATION, tenantId, projectId, projectCode,
+                principalId, true, false);
+    }
+
     public static WorkflowExecutionIdentity untrustedDebug() {
         return new WorkflowExecutionIdentity(Source.DEBUG_UNTRUSTED, null, null, null, null, false, false);
+    }
+
+    /**
+     * A remote MCP Client may execute published platform contracts, but it is
+     * never promoted to a ReachAI business user for personal-memory or
+     * user-ACL resolution.
+     */
+    public static WorkflowExecutionIdentity fromMcpRemoteClient(
+            String tenantId,
+            Long projectId,
+            String projectCode,
+            String principalKey) {
+        if (!StringUtils.hasText(principalKey)) {
+            throw new IllegalArgumentException("MCP remote client identity requires principalKey");
+        }
+        return new WorkflowExecutionIdentity(
+                Source.MCP_REMOTE_CLIENT, tenantId, projectId, projectCode,
+                principalKey, true, false);
     }
 
     public static WorkflowExecutionIdentity untrustedComposition() {
@@ -112,6 +168,15 @@ public final class WorkflowExecutionIdentity {
             case AGENT -> StringUtils.hasText(userId)
                     ? fromAgent(tenantId, projectId, projectCode, userId)
                     : fromAgent(tenantId, projectId, projectCode, null);
+            case A2A_REMOTE_AGENT -> StringUtils.hasText(userId)
+                    ? fromA2aRemoteAgent(tenantId, projectId, projectCode, userId)
+                    : untrustedDebug();
+            case AUTOMATION -> StringUtils.hasText(userId)
+                    ? fromAutomation(tenantId, projectId, projectCode, userId)
+                    : untrustedDebug();
+            case MCP_REMOTE_CLIENT -> StringUtils.hasText(userId)
+                    ? fromMcpRemoteClient(tenantId, projectId, projectCode, userId)
+                    : untrustedDebug();
             case COMPOSITION_UNTRUSTED -> untrustedComposition();
             case DEBUG_UNTRUSTED -> untrustedDebug();
         };

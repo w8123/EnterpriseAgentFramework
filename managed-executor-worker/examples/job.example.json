@@ -1,0 +1,20 @@
+{
+  "schema": "reachai.managed-executor.job.v1",
+  "executionId": "mex_example_001",
+  "workspaceRoot": "/workspace",
+  "objectiveFile": "/run/reachai/input/objective.txt",
+  "outputDirectory": "/run/reachai/output",
+  "sandboxProfile": "WORKSPACE_PATCH",
+  "maxWallTimeMs": 1800000,
+  "approvalTimeoutMs": 600000,
+  "acceptanceCommands": [
+    {
+      "name": "unit-tests",
+      "argv": [
+        "npm",
+        "test"
+      ],
+      "timeoutMs": 600000
+    }
+  ]
+}

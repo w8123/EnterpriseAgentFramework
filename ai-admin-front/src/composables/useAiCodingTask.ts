@@ -7,6 +7,7 @@ import {
   getAiCodingTask,
   issueAiCodingHandoff,
   listAiCodingTasks,
+  startManagedAiCodingExecution,
   verifyAiCodingAcceptanceReadiness,
 } from '@/api/aiCodingTasks'
 import type {
@@ -79,6 +80,31 @@ export function useAiCodingTask() {
     return {
       task: created,
       handoff,
+    }
+  }
+
+  async function createManagedTask(
+    data: AiCodingTaskCreateRequest,
+  ) {
+    const currentStateGeneration = stateGeneration
+    const created = (await createAiCodingTask({
+      ...data,
+      executionMode: 'MANAGED_SANDBOX',
+    })).data
+    if (currentStateGeneration === stateGeneration) {
+      upsertTask(created)
+      latestHandoff.value = null
+    }
+    const managed = (
+      await startManagedAiCodingExecution(created.taskId)
+    ).data
+    if (currentStateGeneration === stateGeneration) {
+      upsertTask(managed.task)
+      selectedTaskDetail.value = null
+    }
+    return {
+      task: managed.task,
+      managedExecution: managed,
     }
   }
 
@@ -200,6 +226,7 @@ export function useAiCodingTask() {
     loading,
     loadTasks,
     createTask,
+    createManagedTask,
     reissueHandoff,
     refreshTask,
     answerQuestion,

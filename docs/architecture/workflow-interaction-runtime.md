@@ -93,7 +93,8 @@ Studio Debug:
                     -> Supervisor 透传 uiRequest，不包装为 Tool failure
   submit(interactionId) -> RuntimeInteractionResumeService
                         -> CAS WAITING_USER->RESUMING
-                        -> executeFromNode(snapshot, nodeId, resume)
+                        -> 校验 WorkflowCheckpointV1 / Legacy 路由
+                        -> executeFromCheckpoint(snapshot, nodeId, resume, engineVersion)
                         -> 同 root run/trace 继续
 ```
 
@@ -121,13 +122,18 @@ Control 只做公开入口、鉴权与代理；不得读写 Runtime 表。
 
 - `source_type`、`workflow_id`、`workflow_version_id`
 - `graph_spec_snapshot_json`
-- `current_node_id`、`resume_checkpoint_json`、`ui_request_json`
+- `node_id`、`resume_checkpoint_json`、`ui_request_json`
+- `checkpoint_schema_version`、`execution_engine_version`、`checkpoint_digest`、`checkpoint_size_bytes`
 - `run_id` / `trace_id`
 - 所有权：`app_id` / `tenant_id` / `session_id` / `user_id`
 - `status` / `revision` / `idempotency_key` / `expires_at`
 - Supervisor continuation（如需要）写入 `continuation_json`
 
 恢复只使用暂停时 snapshot，不重新读最新草稿/发布版。
+
+新生产暂停点必须写 `WorkflowCheckpointV1 / RUNTIME_KERNEL_V2` envelope，并校验 GraphSpec SHA-256、暂停节点、payload SHA-256、默认 256 KiB 配置上限与不可配置的 1 MiB 硬上限。`__workflowExecutionIdentity` 和 Eval typed context 不得序列化；可信身份由通过 ownership 校验的 Runtime 会话行重建。历史 Map 只走 schema `0 / LEGACY` 兼容路由，未知版本或任一摘要不匹配均写 `CHECKPOINT_REJECTED` 并失败关闭。
+
+会话行、断点、`CREATED / REQUESTED` 事件在同一事务提交后才能向用户返回 `uiRequest`。连续交互时，旧等待完成和下一等待创建也必须原子提交。
 
 ## 9. PRESENT_OUTPUT vs 提交型交互
 

@@ -2,9 +2,10 @@ package com.enterprise.ai.runtime.workflow;
 
 import com.enterprise.ai.agent.graph.AgentGraphNodeType;
 import com.enterprise.ai.agent.graph.GraphSpec;
+import com.enterprise.ai.agent.graph.GraphSpecUserInputContract;
+import com.enterprise.ai.agent.graph.GraphSpecUserInputContract.InputField;
 import org.springframework.util.StringUtils;
 
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -60,7 +61,7 @@ public final class RuntimeWorkflowInputContract {
 
         GraphSpec graph = new GraphSpec();
         graph.setSchemaVersion(2);
-        graph.setInputSchema(inputSchema(List.of(defaultQuestionField())));
+        graph.setInputSchema(GraphSpecUserInputContract.inputSchema(List.of(defaultQuestionField())));
         graph.setNodes(List.of(input));
         graph.setEdges(List.of());
         graph.setEntryNodeId(input.getId());
@@ -97,14 +98,13 @@ public final class RuntimeWorkflowInputContract {
                     "PAGE_ASSISTANT graphSpec.entryNodeId must point to its USER_INPUT node");
         }
 
-        Map<String, Object> config = userInputConfig(input);
-        String alias = outputAlias(input);
+        String alias = GraphSpecUserInputContract.outputAlias(input);
         if (!PAGE_ASSISTANT_OUTPUT_ALIAS.equals(alias)) {
             report.error("PAGE_ASSISTANT_INPUT_ALIAS_INVALID", input.getId(),
                     "PAGE_ASSISTANT USER_INPUT outputAlias must be params");
         }
 
-        List<InputField> fields = inputFields(input);
+        List<InputField> fields = GraphSpecUserInputContract.inputFields(input);
         if (fields.isEmpty()) {
             report.error("PAGE_ASSISTANT_INPUT_FIELDS_REQUIRED", input.getId(),
                     "PAGE_ASSISTANT USER_INPUT requires at least one input field");
@@ -124,7 +124,7 @@ public final class RuntimeWorkflowInputContract {
                 report.error("PAGE_ASSISTANT_INPUT_FIELD_DUPLICATE", input.getId(),
                         "Duplicate PAGE_ASSISTANT input field: " + field.name());
             }
-            if (!SUPPORTED_FIELD_TYPES.contains(normalizeType(field.type()))) {
+            if (!SUPPORTED_FIELD_TYPES.contains(GraphSpecUserInputContract.normalizeType(field.type()))) {
                 report.error("PAGE_ASSISTANT_INPUT_FIELD_TYPE_INVALID", input.getId(),
                         "Unsupported PAGE_ASSISTANT input field type: " + field.type());
             }
@@ -135,68 +135,6 @@ public final class RuntimeWorkflowInputContract {
         }
 
         validateInputSchema(graph.getInputSchema(), fields, input.getId(), report);
-    }
-
-    /** Returns a flat user-input configuration regardless of the legacy nested shape. */
-    public static Map<String, Object> userInputConfig(GraphSpec.Node node) {
-        Map<String, Object> config = mutableMap(node == null ? null : node.getConfig());
-        Map<String, Object> nested = mutableMap(config.get("userInputConfig"));
-        // The specialized nested object is the intentional configuration when both forms exist.
-        config.putAll(nested);
-        return config;
-    }
-
-    public static String outputAlias(GraphSpec.Node node) {
-        Object alias = userInputConfig(node).get("outputAlias");
-        return alias == null ? "" : String.valueOf(alias).trim();
-    }
-
-    public static List<InputField> inputFields(GraphSpec.Node node) {
-        Object rawFields = userInputConfig(node).get("fields");
-        if (!(rawFields instanceof List<?> list)) {
-            return List.of();
-        }
-        List<InputField> fields = new ArrayList<>();
-        for (Object item : list) {
-            Map<String, Object> field = mutableMap(item);
-            if (field.isEmpty()) {
-                fields.add(new InputField("", "", false, "", null));
-                continue;
-            }
-            String name = firstText(field.get("name"), field.get("key"));
-            String type = firstText(field.get("type"), "string");
-            String source = firstText(field.get("source"), "");
-            fields.add(new InputField(name, type, Boolean.TRUE.equals(field.get("required")), source,
-                    field.get("defaultValue")));
-        }
-        return List.copyOf(fields);
-    }
-
-    public static Map<String, Object> inputSchema(List<InputField> fields) {
-        Map<String, Object> properties = new LinkedHashMap<>();
-        List<String> required = new ArrayList<>();
-        for (InputField field : fields == null ? List.<InputField>of() : fields) {
-            if (field == null || !StringUtils.hasText(field.name())) {
-                continue;
-            }
-            Map<String, Object> property = new LinkedHashMap<>();
-            property.put("type", jsonSchemaType(field.type()));
-            if (field.defaultValue() != null && StringUtils.hasText(String.valueOf(field.defaultValue()))) {
-                property.put("default", field.defaultValue());
-            }
-            properties.put(field.name(), property);
-            if (field.required()) {
-                required.add(field.name());
-            }
-        }
-        Map<String, Object> schema = new LinkedHashMap<>();
-        schema.put("type", "object");
-        schema.put("properties", properties);
-        if (!required.isEmpty()) {
-            schema.put("required", required);
-        }
-        schema.put("additionalProperties", false);
-        return Map.copyOf(schema);
     }
 
     private static void validateInputSchema(Map<String, Object> schema,
@@ -224,7 +162,8 @@ public final class RuntimeWorkflowInputContract {
                         "graphSpec.inputSchema.properties is missing field: " + field.name());
                 continue;
             }
-            if (!jsonSchemaType(field.type()).equalsIgnoreCase(text(property.get("type")))) {
+            if (!GraphSpecUserInputContract.jsonSchemaType(field.type())
+                    .equalsIgnoreCase(text(property.get("type")))) {
                 report.error("PAGE_ASSISTANT_INPUT_SCHEMA_FIELD_TYPE_MISMATCH", nodeId,
                         "graphSpec.inputSchema field type does not match USER_INPUT field: " + field.name());
             }
@@ -237,20 +176,6 @@ public final class RuntimeWorkflowInputContract {
 
     private static InputField defaultQuestionField() {
         return new InputField(DEFAULT_FIELD_NAME, "string", true, DEFAULT_FIELD_SOURCE, null);
-    }
-
-    private static String jsonSchemaType(String type) {
-        String normalized = normalizeType(type);
-        return switch (normalized) {
-            case "text" -> "string";
-            case "bool" -> "boolean";
-            case "file" -> "string";
-            default -> normalized;
-        };
-    }
-
-    private static String normalizeType(String type) {
-        return StringUtils.hasText(type) ? type.trim().toLowerCase(Locale.ROOT) : "string";
     }
 
     private static Map<String, Object> mutableMap(Object value) {
@@ -275,19 +200,8 @@ public final class RuntimeWorkflowInputContract {
         return values;
     }
 
-    private static String firstText(Object first, Object fallback) {
-        String firstValue = text(first);
-        return StringUtils.hasText(firstValue) ? firstValue.trim() : text(fallback);
-    }
-
     private static String text(Object value) {
         return value == null ? "" : String.valueOf(value).trim();
     }
 
-    public record InputField(String name,
-                             String type,
-                             boolean required,
-                             String source,
-                             Object defaultValue) {
-    }
 }

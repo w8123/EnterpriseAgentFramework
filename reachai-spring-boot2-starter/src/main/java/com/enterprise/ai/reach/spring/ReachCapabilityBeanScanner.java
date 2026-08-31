@@ -9,6 +9,12 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Scans Spring beans for capabilities. When bean scanning is enabled, explicit
+ * {@code @ReachCapability} declarations are retained while MVC endpoint
+ * inference for {@code @RestController} beans is controlled by the registry
+ * scan mode and package filters and resolved against the AOP target class.
+ */
 public class ReachCapabilityBeanScanner {
 
     private final ApplicationContext applicationContext;

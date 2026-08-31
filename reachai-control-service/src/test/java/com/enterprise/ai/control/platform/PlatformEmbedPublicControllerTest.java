@@ -16,6 +16,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
@@ -25,6 +26,12 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class PlatformEmbedPublicControllerTest {
+
+    @Test
+    void rejectsMissingEmbedTokenSigningKey() {
+        assertThrows(IllegalStateException.class,
+                () -> new PlatformEmbedTokenService(new ObjectMapper(), new PlatformEmbedTokenProperties()));
+    }
 
     @Test
     void createsEmbedChatSessionOnPublicEmbedRouteWithoutRetiredProxy() {
@@ -40,7 +47,7 @@ class PlatformEmbedPublicControllerTest {
                 mock(PlatformEmbedChatEventService.class),
                 mock(CapabilityProxyClient.class),
                 mock(RuntimeProxyClient.class),
-                mock(com.enterprise.ai.control.client.runtime.RuntimeTrustedAgentExecutionGateway.class),
+                mock(com.enterprise.ai.control.runtime.RuntimeTrustedAgentExecutionGateway.class),
                 mock(PlatformEmbedStreamRelay.class),
                 mock(PlatformPageActionEventMapper.class));
         String token = tokenService.issue(PlatformEmbedTokenIssueCommand.builder()
@@ -100,7 +107,7 @@ class PlatformEmbedPublicControllerTest {
                 mock(PlatformEmbedChatEventService.class),
                 capabilityProxyClient,
                 runtimeProxyClient,
-                mock(com.enterprise.ai.control.client.runtime.RuntimeTrustedAgentExecutionGateway.class),
+                mock(com.enterprise.ai.control.runtime.RuntimeTrustedAgentExecutionGateway.class),
                 mock(PlatformEmbedStreamRelay.class),
                 mock(PlatformPageActionEventMapper.class));
         when(capabilityProxyClient.verifyEmbedTokenExchange(
@@ -174,7 +181,7 @@ class PlatformEmbedPublicControllerTest {
                 mock(PlatformEmbedChatEventService.class),
                 capabilityProxyClient,
                 mock(RuntimeProxyClient.class),
-                mock(com.enterprise.ai.control.client.runtime.RuntimeTrustedAgentExecutionGateway.class),
+                mock(com.enterprise.ai.control.runtime.RuntimeTrustedAgentExecutionGateway.class),
                 mock(PlatformEmbedStreamRelay.class),
                 mock(PlatformPageActionEventMapper.class));
         when(capabilityProxyClient.verifyEmbedTokenExchange(
@@ -222,8 +229,8 @@ class PlatformEmbedPublicControllerTest {
         PlatformEmbedChatEventMapper chatEventMapper = mock(PlatformEmbedChatEventMapper.class);
         PlatformEmbedChatEventService chatEventService = new PlatformEmbedChatEventService(chatEventMapper, objectMapper);
         RuntimeProxyClient runtimeProxyClient = mock(RuntimeProxyClient.class);
-        com.enterprise.ai.control.client.runtime.RuntimeTrustedAgentExecutionGateway trustedExecutionClient =
-                mock(com.enterprise.ai.control.client.runtime.RuntimeTrustedAgentExecutionGateway.class);
+        com.enterprise.ai.control.runtime.RuntimeTrustedAgentExecutionGateway trustedExecutionClient =
+                mock(com.enterprise.ai.control.runtime.RuntimeTrustedAgentExecutionGateway.class);
         PlatformEmbedPublicController controller = new PlatformEmbedPublicController(
                 tokenService,
                 sessionService,
@@ -309,8 +316,8 @@ class PlatformEmbedPublicControllerTest {
         PlatformEmbedTokenService tokenService = new PlatformEmbedTokenService(objectMapper, tokenProperties);
         PlatformEmbedSessionService sessionService = mock(PlatformEmbedSessionService.class);
         RuntimeProxyClient runtimeProxyClient = mock(RuntimeProxyClient.class);
-        com.enterprise.ai.control.client.runtime.RuntimeTrustedAgentExecutionGateway trustedExecutionClient =
-                mock(com.enterprise.ai.control.client.runtime.RuntimeTrustedAgentExecutionGateway.class);
+        com.enterprise.ai.control.runtime.RuntimeTrustedAgentExecutionGateway trustedExecutionClient =
+                mock(com.enterprise.ai.control.runtime.RuntimeTrustedAgentExecutionGateway.class);
         PlatformEmbedPublicController controller = new PlatformEmbedPublicController(
                 tokenService,
                 sessionService,
@@ -379,7 +386,7 @@ class PlatformEmbedPublicControllerTest {
                 chatEventService,
                 mock(CapabilityProxyClient.class),
                 mock(RuntimeProxyClient.class),
-                mock(com.enterprise.ai.control.client.runtime.RuntimeTrustedAgentExecutionGateway.class),
+                mock(com.enterprise.ai.control.runtime.RuntimeTrustedAgentExecutionGateway.class),
                 embedStreamRelay,
                 mock(PlatformPageActionEventMapper.class));
         String token = tokenService.issue(PlatformEmbedTokenIssueCommand.builder()
@@ -448,7 +455,7 @@ class PlatformEmbedPublicControllerTest {
                 mock(PlatformEmbedChatEventService.class),
                 mock(CapabilityProxyClient.class),
                 mock(RuntimeProxyClient.class),
-                mock(com.enterprise.ai.control.client.runtime.RuntimeTrustedAgentExecutionGateway.class),
+                mock(com.enterprise.ai.control.runtime.RuntimeTrustedAgentExecutionGateway.class),
                 embedStreamRelay,
                 mock(PlatformPageActionEventMapper.class));
         String token = embedToken(tokenService);
@@ -485,7 +492,7 @@ class PlatformEmbedPublicControllerTest {
                 mock(PlatformEmbedChatEventService.class),
                 mock(CapabilityProxyClient.class),
                 mock(RuntimeProxyClient.class),
-                mock(com.enterprise.ai.control.client.runtime.RuntimeTrustedAgentExecutionGateway.class),
+                mock(com.enterprise.ai.control.runtime.RuntimeTrustedAgentExecutionGateway.class),
                 mock(PlatformEmbedStreamRelay.class),
                 pageActionEventMapper);
         String token = embedToken(tokenService);
@@ -530,7 +537,7 @@ class PlatformEmbedPublicControllerTest {
                 mock(PlatformEmbedChatEventService.class),
                 mock(CapabilityProxyClient.class),
                 mock(RuntimeProxyClient.class),
-                mock(com.enterprise.ai.control.client.runtime.RuntimeTrustedAgentExecutionGateway.class),
+                mock(com.enterprise.ai.control.runtime.RuntimeTrustedAgentExecutionGateway.class),
                 mock(PlatformEmbedStreamRelay.class),
                 pageActionEventMapper);
         String token = embedToken(tokenService);
@@ -576,7 +583,7 @@ class PlatformEmbedPublicControllerTest {
         PlatformEmbedPublicController controller = new PlatformEmbedPublicController(
                 tokenService, sessionService, mock(PlatformEmbedChatEventService.class),
                 mock(CapabilityProxyClient.class), mock(RuntimeProxyClient.class),
-                mock(com.enterprise.ai.control.client.runtime.RuntimeTrustedAgentExecutionGateway.class),
+                mock(com.enterprise.ai.control.runtime.RuntimeTrustedAgentExecutionGateway.class),
                 mock(PlatformEmbedStreamRelay.class), pageActionEventMapper);
         String token = embedToken(tokenService);
         when(sessionService.requireActiveSession(eq("embed-1"), any())).thenReturn(activeSession());
@@ -611,7 +618,7 @@ class PlatformEmbedPublicControllerTest {
         PlatformEmbedPublicController controller = new PlatformEmbedPublicController(
                 tokenService, sessionService, mock(PlatformEmbedChatEventService.class),
                 mock(CapabilityProxyClient.class), mock(RuntimeProxyClient.class),
-                mock(com.enterprise.ai.control.client.runtime.RuntimeTrustedAgentExecutionGateway.class),
+                mock(com.enterprise.ai.control.runtime.RuntimeTrustedAgentExecutionGateway.class),
                 mock(PlatformEmbedStreamRelay.class), pageActionEventMapper);
         String token = embedToken(tokenService);
         when(sessionService.requireActiveSession(eq("embed-1"), any())).thenReturn(activeSession());
@@ -648,7 +655,7 @@ class PlatformEmbedPublicControllerTest {
                 mock(PlatformEmbedChatEventService.class),
                 mock(CapabilityProxyClient.class),
                 mock(RuntimeProxyClient.class),
-                mock(com.enterprise.ai.control.client.runtime.RuntimeTrustedAgentExecutionGateway.class),
+                mock(com.enterprise.ai.control.runtime.RuntimeTrustedAgentExecutionGateway.class),
                 mock(PlatformEmbedStreamRelay.class),
                 pageActionEventMapper);
         String token = tokenService.issue(PlatformEmbedTokenIssueCommand.builder()
@@ -714,7 +721,7 @@ class PlatformEmbedPublicControllerTest {
         PlatformEmbedPublicController controller = new PlatformEmbedPublicController(
                 tokenService, sessionService, mock(PlatformEmbedChatEventService.class),
                 mock(CapabilityProxyClient.class), mock(RuntimeProxyClient.class),
-                mock(com.enterprise.ai.control.client.runtime.RuntimeTrustedAgentExecutionGateway.class),
+                mock(com.enterprise.ai.control.runtime.RuntimeTrustedAgentExecutionGateway.class),
                 mock(PlatformEmbedStreamRelay.class), pageActionEventMapper);
         String targetRoute = "/team-build/cycle-management/audit/dept-1/cycle-2";
         String token = tokenService.issue(PlatformEmbedTokenIssueCommand.builder()
@@ -762,7 +769,7 @@ class PlatformEmbedPublicControllerTest {
                 mock(PlatformEmbedChatEventService.class),
                 mock(CapabilityProxyClient.class),
                 mock(RuntimeProxyClient.class),
-                mock(com.enterprise.ai.control.client.runtime.RuntimeTrustedAgentExecutionGateway.class),
+                mock(com.enterprise.ai.control.runtime.RuntimeTrustedAgentExecutionGateway.class),
                 mock(PlatformEmbedStreamRelay.class),
                 pageActionEventMapper);
         String token = embedToken(tokenService);

@@ -2,7 +2,7 @@ import type { ScanProjectBlockers } from '@/types/scanProject'
 
 export function formatScanProjectBlockersMessage(b: ScanProjectBlockers): string {
   const lines: string[] = [
-    '本扫描项目已「添加为 Tool」并仍被以下 Agent 的 tools 白名单引用。请先在「Agent 管理」中移除对应工具名，再执行删除或重新扫描。',
+    '本扫描项目已有接口纳入能力目录，并仍被以下 Agent 的已发布配置引用。请先移除对应调用引用，再执行删除或重新扫描。',
     '',
   ]
   if (b.toolNames?.length) {

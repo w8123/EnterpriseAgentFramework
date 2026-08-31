@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   listAiCodingTasks: vi.fn(),
   getAiCodingTask: vi.fn(),
   issueAiCodingHandoff: vi.fn(),
+  startManagedAiCodingExecution: vi.fn(),
 }))
 
 vi.mock('@/api/aiCodingTasks', () => ({
@@ -18,6 +19,7 @@ vi.mock('@/api/aiCodingTasks', () => ({
   getAiCodingTask: mocks.getAiCodingTask,
   issueAiCodingHandoff: mocks.issueAiCodingHandoff,
   listAiCodingTasks: mocks.listAiCodingTasks,
+  startManagedAiCodingExecution: mocks.startManagedAiCodingExecution,
   verifyAiCodingAcceptanceReadiness: vi.fn(),
 }))
 
@@ -308,6 +310,50 @@ describe('useAiCodingTask', () => {
     await expect(kernel.reissueHandoff('current-task')).rejects.toThrow(
       'handoff endpoint down',
     )
+    expect(kernel.latestHandoff.value).toBeNull()
+  })
+
+  it('starts managed mode explicitly without issuing an external handoff', async () => {
+    const created = {
+      ...task('managed-task'),
+      executionMode: 'MANAGED_SANDBOX',
+      sandboxProfile: 'WORKSPACE_PATCH',
+    }
+    const started = {
+      ...created,
+      managedExecutionId: 'mex_1',
+      managedExecutionStatus: 'QUEUED',
+    }
+    mocks.createAiCodingTask.mockResolvedValueOnce({ data: created })
+    mocks.startManagedAiCodingExecution.mockResolvedValueOnce({
+      data: {
+        schema: 'reachai.ai-coding.managed-execution.v1',
+        task: started,
+        execution: {
+          executionId: 'mex_1',
+          status: 'QUEUED',
+        },
+        artifacts: [],
+      },
+    })
+    const kernel = useAiCodingTask()
+
+    const result = await kernel.createManagedTask({
+      projectId: 1,
+      projectCode: 'DEMO',
+      taskKind: 'CODE_IMPLEMENTATION',
+      executorProvider: 'CODEX',
+      executionMode: 'MANAGED_SANDBOX',
+      sandboxProfile: 'WORKSPACE_PATCH',
+      title: 'Managed task',
+      objective: 'Implement it',
+      targets: [],
+    })
+
+    expect(result.managedExecution.execution.executionId).toBe('mex_1')
+    expect(mocks.startManagedAiCodingExecution).toHaveBeenCalledWith('managed-task')
+    expect(mocks.issueAiCodingHandoff).not.toHaveBeenCalled()
+    expect(kernel.tasks.value[0].managedExecutionId).toBe('mex_1')
     expect(kernel.latestHandoff.value).toBeNull()
   })
 })

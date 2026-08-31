@@ -24,6 +24,7 @@ public class CapabilityInternalAuthFilter extends OncePerRequestFilter {
             "/internal/capability/registry/project-requests/verify";
     static final String TOOL_EXECUTION_PREFIX = "/internal/capability/tools/";
     static final String TOOL_EXECUTION_SUFFIX = "/execute";
+    static final String CAPABILITY_INVOCATION_PATH = "/internal/capability/invocations";
 
     private final CapabilityInternalAuthVerifier verifier;
     private final CapabilityInternalAuthProperties properties;
@@ -39,6 +40,7 @@ public class CapabilityInternalAuthFilter extends OncePerRequestFilter {
         String path = normalizePath(request);
         return !ENROLLMENT_PATH.equals(path)
                 && !PROJECT_REQUEST_VERIFICATION_PATH.equals(path)
+                && !CAPABILITY_INVOCATION_PATH.equals(path)
                 && !isToolExecutionPath(path);
     }
 

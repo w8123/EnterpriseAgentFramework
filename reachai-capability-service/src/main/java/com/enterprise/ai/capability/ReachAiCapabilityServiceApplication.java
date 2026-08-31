@@ -16,7 +16,8 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @MapperScan(value = {
         "com.enterprise.ai.agent.registry",
         "com.enterprise.ai.agent.capability",
-        "com.enterprise.ai.capability.catalog.retrieval"
+        "com.enterprise.ai.capability.catalog.retrieval",
+        "com.enterprise.ai.capability.externalapi"
 }, annotationClass = Mapper.class)
 @EnableFeignClients
 @EnableAsync

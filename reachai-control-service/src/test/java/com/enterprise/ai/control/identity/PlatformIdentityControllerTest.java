@@ -1,5 +1,9 @@
 package com.enterprise.ai.control.identity;
 
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
+import org.apache.ibatis.session.Configuration;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.http.HttpStatus;
@@ -10,7 +14,6 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -22,10 +25,18 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class PlatformIdentityControllerTest {
+
+    @BeforeAll
+    static void initializeMyBatisMetadata() {
+        TableInfoHelper.initTableInfo(
+                new MapperBuilderAssistant(new Configuration(), "platform-login-session"),
+                PlatformLoginSessionEntity.class);
+    }
 
     @Test
     void localLoginReturnsOpaqueSessionViewAndStoresOnlyTokenDigest() {
@@ -38,6 +49,7 @@ class PlatformIdentityControllerTest {
                 .thenAnswer(invocation -> authenticatedSession(user, invocation.getArgument(1)));
 
         ResponseEntity<PlatformIdentityController.PlatformLoginResult> response = fixture.controller.login(
+                new MockHttpServletRequest(),
                 new PlatformIdentityController.PlatformLoginRequest("admin", "secret"));
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
@@ -45,10 +57,20 @@ class PlatformIdentityControllerTest {
         assertTrue(response.getBody().sessionId().startsWith("pls_"));
         assertEquals("admin", response.getBody().principal().username());
         assertEquals(List.of("platform:admin"), response.getBody().principal().permissions());
+        assertEquals(
+                List.of(new PlatformPermissionGrant("platform:admin", "GLOBAL", "*")),
+                response.getBody().principal().permissionGrants());
+        String setCookie = response.getHeaders().getFirst("Set-Cookie");
+        assertNotNull(setCookie);
+        assertTrue(setCookie.startsWith(PlatformSessionCookieService.SESSION_COOKIE_NAME + "="));
+        assertTrue(setCookie.contains("HttpOnly"));
+        assertTrue(setCookie.contains("SameSite=Strict"));
+        assertTrue(setCookie.contains("Path=/api"));
+        assertEquals("no-store", response.getHeaders().getCacheControl());
         ArgumentCaptor<PlatformLoginSessionEntity> sessionCaptor = ArgumentCaptor.forClass(PlatformLoginSessionEntity.class);
         verify(fixture.sessionMapper).insert(sessionCaptor.capture());
-        assertNotEquals(response.getBody().accessToken(), sessionCaptor.getValue().getAccessTokenId());
         assertEquals(64, sessionCaptor.getValue().getAccessTokenId().length());
+        assertNotEquals(response.getBody().sessionId(), sessionCaptor.getValue().getAccessTokenId());
         assertEquals(response.getBody().sessionId(), sessionCaptor.getValue().getSessionId());
     }
 
@@ -58,6 +80,7 @@ class PlatformIdentityControllerTest {
         when(fixture.userMapper.selectOne(any())).thenReturn(null);
 
         ResponseEntity<PlatformIdentityController.PlatformLoginResult> response = fixture.controller.login(
+                new MockHttpServletRequest(),
                 new PlatformIdentityController.PlatformLoginRequest("unexpected-user", "not-a-password"));
 
         assertEquals(HttpStatus.UNAUTHORIZED, response.getStatusCode());
@@ -70,6 +93,7 @@ class PlatformIdentityControllerTest {
         Fixture fixture = fixture(false);
 
         ResponseEntity<PlatformIdentityController.PlatformLoginResult> response = fixture.controller.login(
+                new MockHttpServletRequest(),
                 new PlatformIdentityController.PlatformLoginRequest("admin", "password"));
 
         assertEquals(HttpStatus.SERVICE_UNAVAILABLE, response.getStatusCode());
@@ -90,6 +114,7 @@ class PlatformIdentityControllerTest {
                 .thenAnswer(invocation -> authenticatedSession(user, invocation.getArgument(1)));
 
         ResponseEntity<PlatformIdentityController.PlatformLoginResult> response = fixture.controller.login(
+                new MockHttpServletRequest(),
                 new PlatformIdentityController.PlatformLoginRequest("legacy", "secret"));
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
@@ -102,15 +127,34 @@ class PlatformIdentityControllerTest {
         Fixture fixture = fixture(true);
         PlatformUserEntity user = user(7L, "admin");
         PlatformLoginSessionEntity loginSession = loginSession("pls_7a", user.getId());
-        when(fixture.bearerAuthService.resolveBearerSession("Bearer token-1"))
-                .thenReturn(Optional.of(authenticatedSession(user, loginSession)));
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setAttribute(
+                PlatformConsoleAuthInterceptor.SESSION_REQUEST_ATTRIBUTE,
+                authenticatedSession(user, loginSession));
 
-        ResponseEntity<PlatformIdentityController.PlatformSessionView> response = fixture.controller.me("Bearer token-1");
+        ResponseEntity<PlatformIdentityController.PlatformSessionView> response = fixture.controller.me(request);
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals("pls_7a", response.getBody().sessionId());
         assertEquals("admin", response.getBody().principal().username());
-        verify(fixture.bearerAuthService).resolveBearerSession("Bearer token-1");
+        assertEquals("no-store", response.getHeaders().getCacheControl());
+    }
+
+    @Test
+    void logoutRevokesTheAuthenticatedServerSessionAndExpiresTheCookie() {
+        Fixture fixture = fixture(true);
+        MockHttpServletRequest request = authenticatedRequest();
+
+        ResponseEntity<Void> response = fixture.controller.logout(request);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        verify(fixture.sessionMapper).update(any(), any());
+        String setCookie = response.getHeaders().getFirst("Set-Cookie");
+        assertNotNull(setCookie);
+        assertTrue(setCookie.startsWith(PlatformSessionCookieService.SESSION_COOKIE_NAME + "="));
+        assertTrue(setCookie.contains("Max-Age=0"));
+        assertTrue(setCookie.contains("HttpOnly"));
+        assertEquals("no-store", response.getHeaders().getCacheControl());
     }
 
     @Test
@@ -191,6 +235,35 @@ class PlatformIdentityControllerTest {
     }
 
     @Test
+    void roleUpdateAcceptsTheSameRoleForMultipleProjectScopes() {
+        Fixture fixture = fixture(true);
+        PlatformUserEntity user = user(7L, "designer");
+        PlatformUserEntity otherAdmin = user(8L, "other-admin");
+        PlatformRoleEntity designerRole = role(2L, "AGENT_DESIGNER");
+        PlatformRoleEntity adminRole = role(3L, "PLATFORM_ADMIN");
+        when(fixture.userMapper.selectById(7L)).thenReturn(user);
+        when(fixture.roleMapper.selectBatchIds(any())).thenReturn(List.of(designerRole));
+        when(fixture.roleMapper.selectOne(any())).thenReturn(adminRole);
+        when(fixture.userRoleMapper.selectGlobalRoleGrantsForUpdate(3L))
+                .thenReturn(List.of(userRole(8L, 3L, "GLOBAL", "*")));
+        when(fixture.userMapper.selectBatchIds(any())).thenReturn(List.of(otherAdmin));
+        when(fixture.userRoleMapper.selectList(any())).thenReturn(List.of());
+
+        ResponseEntity<List<PlatformIdentityController.PlatformUserRoleGrantView>> response =
+                fixture.controller.saveUserRoleGrants(
+                        authenticatedRequest(),
+                        7L,
+                        List.of(
+                                new PlatformIdentityController.PlatformUserRoleGrantCommand(
+                                        2L, "PROJECT", "PROJECT_A"),
+                                new PlatformIdentityController.PlatformUserRoleGrantCommand(
+                                        2L, "PROJECT", "PROJECT_B")));
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        verify(fixture.userRoleMapper, times(2)).insert(any());
+    }
+
+    @Test
     void roleUpdateCannotRemoveTheFinalActiveGlobalAdministrator() {
         Fixture fixture = fixture(true);
         PlatformUserEntity user = user(7L, "admin");
@@ -267,10 +340,11 @@ class PlatformIdentityControllerTest {
                 authProviderMapper,
                 properties,
                 consoleAuthAvailability,
-                bearerAuthService,
                 authorizationService,
+                new PlatformRequestAuthorization(authorizationService),
                 authAuditService,
                 new PlatformSessionTokenCodec(),
+                new PlatformSessionCookieService(properties),
                 passwordEncoder);
         return new Fixture(
                 controller,

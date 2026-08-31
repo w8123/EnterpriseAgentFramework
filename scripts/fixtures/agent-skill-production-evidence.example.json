@@ -1,0 +1,115 @@
+{
+  "schema": "reachai-agent-skill-production-evidence-v2",
+  "environment": {
+    "name": "replace-with-environment",
+    "classification": "development",
+    "changeId": null,
+    "sourceRevision": "replace-with-source-revision",
+    "artifactRef": "replace-with-immutable-artifact-reference"
+  },
+  "migration": {
+    "script": "sql/upgrade-20260830-platform-consolidated.sql",
+    "status": "PENDING",
+    "checksumSha256": "replace-with-repository-checksum",
+    "executedAt": null,
+    "readbackObservedAt": null,
+    "evidenceRef": "replace-with-schema-readback-reference",
+    "tables": [
+      { "name": "control_internal_auth_nonce", "owner": "reachai-control-service", "exists": false, "columnContractVerified": false },
+      { "name": "control_agent_skill", "owner": "reachai-control-service", "exists": false, "columnContractVerified": false },
+      { "name": "control_agent_skill_version", "owner": "reachai-control-service", "exists": false, "columnContractVerified": false },
+      { "name": "control_agent_skill_review", "owner": "reachai-control-service", "exists": false, "columnContractVerified": false },
+      { "name": "runtime_agent_skill_binding", "owner": "reachai-runtime-service", "exists": false, "columnContractVerified": false }
+    ],
+    "permissions": [
+      { "permission": "skill:read", "exists": false },
+      { "permission": "skill:import", "exists": false },
+      { "permission": "skill:review", "exists": false },
+      { "permission": "skill:publish", "exists": false },
+      { "permission": "skill:bind", "exists": false },
+      { "permission": "skill:script:approve", "exists": false }
+    ],
+    "roleGrantsReadbackPassed": false
+  },
+  "gates": {
+    "configuration": {
+      "status": "PENDING",
+      "observedAt": null,
+      "evidenceRef": "replace-with-configuration-evidence-reference",
+      "servicesHealthy": false,
+      "artifactsFresh": false,
+      "serviceSecretConfigured": false,
+      "signedResolvePassed": false,
+      "replayRejected": false,
+      "noncePersistenceVerified": false,
+      "controlArtifactStorePersistent": false,
+      "runtimeCacheWritable": false,
+      "runtimeCacheNonTemporary": false,
+      "quarantineWritable": false,
+      "scriptExecutionEnabled": false
+    },
+    "externalPackage": {
+      "status": "PENDING",
+      "observedAt": null,
+      "evidenceRef": "replace-with-external-package-evidence-reference",
+      "packageIdentity": "replace-with-publisher/name@version",
+      "sourceSha256": "replace-with-sha256",
+      "contentTreeSha256": "replace-with-sha256",
+      "bundleSourceSha256": "replace-with-original-bundle-sha256",
+      "bundleSkillRoot": "replace-with-selected-skill-root",
+      "productionInspectorUsed": false,
+      "unknownFilesPreserved": false,
+      "scriptRiskFlagged": false,
+      "codexMetadataVisible": false,
+      "toolDependenciesVisible": false,
+      "bundleDiscoveryPassed": false,
+      "bundleSelectionIsolated": false,
+      "bundleAuditTraceable": false,
+      "scriptsExecuted": false
+    },
+    "browserWorkflow": {
+      "status": "PENDING",
+      "observedAt": null,
+      "evidenceRef": "replace-with-browser-trace-reference",
+      "mode": "NOT_RUN",
+      "independentPrincipalCount": 0,
+      "authorImportPassed": false,
+      "reviewerApprovePassed": false,
+      "reviewerPublishPassed": false,
+      "designerBindPassed": false,
+      "agentPublishPassed": false,
+      "unauthorizedDenied": false,
+      "privateIsolationPassed": false,
+      "projectIsolationPassed": false,
+      "apiMocksUsed": false
+    },
+    "runtimeE2e": {
+      "status": "PENDING",
+      "observedAt": null,
+      "evidenceRef": "replace-with-runops-evidence-reference",
+      "host": "AGENTSCOPE",
+      "hostE2e": "NOT_RUN",
+      "traceIds": [],
+      "realModelInvoked": false,
+      "modelSelectedLoaded": false,
+      "alwaysInjected": false,
+      "explicitOrdinaryConversationSkipped": false,
+      "exactVersionTraceVisible": false,
+      "runOpsVisible": false,
+      "controlStatusRevalidated": false,
+      "requiredFailureBlocked": false,
+      "optionalFailureSkipped": false,
+      "skillContentAbsentFromTraceMetadata": false
+    },
+    "tamperAndRevocation": {
+      "status": "PENDING",
+      "observedAt": null,
+      "evidenceRef": "replace-with-tamper-drill-reference",
+      "cacheTamperQuarantined": false,
+      "redownloadDigestVerified": false,
+      "digestMismatchRejected": false,
+      "revokedCacheRejected": false,
+      "uncheckedCacheFallbackObserved": false
+    }
+  }
+}

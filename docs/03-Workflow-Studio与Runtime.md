@@ -15,7 +15,7 @@ ReachAI 将 Agent、Workflow 和 Runtime 分成三个清晰层次：
 
 ## Agent Supervisor
 
-当前 Supervisor 运行时位于 `reachai-runtime-service`，实现为 `AgentScopeSupervisorRuntimeAdapter`，依赖 AgentScope Java `2.0.0` 正式版的 `ReActAgent`。`RuntimeAgentExecutionService` 解析 Agent、当前 ACTIVE 配置版本和该版本的 Workflow 工具目录。
+当前 Supervisor 运行时位于 `reachai-runtime-service`，实现为 `AgentScopeSupervisorRuntimeAdapter`，依赖 AgentScope Java `2.0.0` 正式版的 `ReActAgent`。`RuntimeAgentExecutionService` 解析 Agent、当前 ACTIVE 配置版本和该版本的可调用 Workflow 列表；运行时仍按 Workflow-as-Tool 协议投影给模型。
 
 Supervisor 的职责边界：
 
@@ -49,7 +49,7 @@ Supervisor 的职责边界：
 - `POST /api/agents/{agentId}/config-versions/{configVersionId}/copy-to-draft`：把不可变历史快照复制为新草稿。
 - `GET /api/workflows/search`：为 Agent 工具选择器提供服务端分页搜索；关键词覆盖 Workflow 名称、keySlug、描述、项目编码和类型。
 
-`POST/PUT /api/agents` 只维护 Agent 身份、接入形态、项目范围、角色和启用状态；提示词、模型、Supervisor 限制与工具目录不得通过身份 API 写入。执行请求统一使用 `agentId`，不保留 `agentDefinitionId` 别名。
+`POST/PUT /api/agents` 只维护 Agent 稳定身份、项目范围、角色和启用状态；提示词、模型、Supervisor 限制与可调用 Workflow 不得通过身份 API 写入。执行请求统一使用 `agentId`，不保留 `agentDefinitionId` 别名。
 
 管理端 `AgentEdit.vue` 维护 Supervisor 配置和 Workflow 工具，并通过配置版本 API 发布新版本。Agent 主表保持稳定，提示词、模型、限制和工具集合通过配置版本演进，避免把每次配置调整写回身份主表。
 
@@ -61,7 +61,7 @@ Workflow Studio 是唯一的画布编辑器：
 
 - `runtime_workflow.graph_spec_json` 保存运行语义。
 - `runtime_workflow.canvas_json` 只保存画布布局。
-- `WorkflowReleaseValidationService` 校验节点、边、入口、变量映射、Capability 引用和可达性。
+- `RuntimeWorkflowReleaseValidationService` 校验节点、边、入口、变量映射、Capability 引用和可达性。
 - 发布后的 `runtime_workflow_version.graph_spec_snapshot_json` 是 Supervisor 调用时的执行事实源。
 - AI 生成 Proposal 使用 `POST /api/workflows/studio/proposals/generate`。
 - AI 编辑 Proposal 使用 `POST /api/workflows/studio/proposals/edit`：AgentScope Authoring Adapter 通过受约束工具修改内存候选，确定性内核负责 mutation / validation；仅 `status=SUCCEEDED` 可应用到 Working Copy。旧 `generate-draft`、`edit-draft` 路由不再提供。
@@ -78,7 +78,7 @@ Workflow Studio 是唯一的画布编辑器：
 
 外部 AI Coding 本阶段不作为验收范围；共享 mutation 内核仍会拒绝不可编排节点。新增节点或 Runtime 行为必须把可执行语义写入 Workflow `GraphSpec`，不能只扩展前端画布。Workflow 仍可独立调试、发布、回滚和回放；被 Agent 使用时，它是 Supervisor 的受控工具，而不是静态入口路由。
 
-当前受控开放节点约 **15** 个（`studioEnabled/publishable/aiAuthoring=true` 且 Runtime 有真实 Handler）：
+当前受控开放节点以 `RuntimeWorkflowNodeCapabilityRegistry` 为唯一事实源（`studioEnabled/publishable/aiAuthoring=true` 且 Runtime 有真实 Handler）：
 
 | 成熟度 | 节点 |
 | --- | --- |
@@ -105,7 +105,7 @@ AI Draft 的 `nodeTypes` 与 system prompt 均以 `RuntimeWorkflowNodeCapability
 可信身份与内部调用：
 
 - Control→Runtime 可信执行必须使用 HMAC-SHA256 + `BODY_SHA256`（`REACHAI_INTERNAL_SERVICE_SECRET`，K8s `reachai-internal-service-secret`）保护 sync/SSE；nonce 仅清理过期，满容 fail-closed。
-- Workflow 凭据使用 AES-GCM；`agent.workflow-credential-secret` 在 `prod` / `production` profile 下不得使用开发默认值。部署时必须设置 `WORKFLOW_CREDENTIAL_SECRET`，预发可通过 `REACHAI_REQUIRE_WORKFLOW_CREDENTIAL_SECRET=true` 提前强制校验。
+- Workflow 凭据使用 AES-GCM；源码不提供加密密钥默认值，所有环境都必须通过 `AGENT_WORKFLOW_CREDENTIAL_SECRET` 注入，缺失时 Runtime fail-fast。
 - Agent：Bearer 合法 → `AGENT` + 平台 userId；无/无效 Bearer → `userTrusted=false`；RunOps 审计 userId 同理。
 - Embed：仅已验签 claims userId → `EMBED_SESSION`；body attacker userId 永远无效。
 - 公开 Runtime stream / body 中的 `source`/`userId`/`trustedIdentity` 全部不可信。
@@ -175,8 +175,13 @@ Supervisor 使用调用方 `sessionId` 保持多轮会话；未提供时生成�
 
 RunOps 和 Trace 应以这些记录解释“为什么选择这个 Workflow、调用了哪些 Workflow、为何重规划”。
 
+## Agent Skill 与 EvalOps
+
+- 标准 Agent Skill 包由 Control 的 Skill Center 管理和评审；Agent 配置版本只保存精确 `skillVersionId`、摘要和作用域快照。Runtime 执行前向 Control 复核状态、校验制品与内容寻址缓存，再适配到 AgentScope。Skill 不授予 Tool 权限、不自动创建 Capability，也不执行包内脚本。当前源码/构建证据与部署缺口见 [Agent Skill Center 契约](./architecture/agent-skill-center.md) 和 [生产验收手册](./operations/agent-skill-production-runbook.md)。
+- Agent Eval 继续提供 Agent 级数据集/用例/运行结果。当前 Runtime 还包含 `/api/runtime/evals/v2/**` 的 EvalOps 数据集版本、评估器套件、实验、任务和得分模型；它属于 Runtime owner。共享工作树中的 EvalOps 仍在演进，必须以目标测试、升级 SQL、运行进程和管理端业务流分别验收，不能只凭 Controller 或表存在宣称上线。
+
 ## 兼容面
 
 - `/api/runtime/agents/execute`、`/api/runtime/agents/execute/detailed` 及既有兼容 alias 进入 Supervisor 主路径。
 - Agent 历史画布入口不再恢复；GraphSpec、画布和 Workflow 版本始终归属 Workflow。
-- `LangGraph4jRuntimeAdapter` / `RuntimeGraphSpecExecutor` 负责单个 Workflow 执行；AgentScope 负责上层理解、规划、选择和有限重规划。
+- `RuntimeGraphSpecExecutor` 稳定门面与 `RuntimeGraphSpecExecutionEngine` 负责单个 Workflow 执行；AgentScope 负责上层理解、规划、选择和有限重规划。

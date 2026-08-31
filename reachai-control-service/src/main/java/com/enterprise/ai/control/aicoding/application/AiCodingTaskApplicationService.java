@@ -37,8 +37,10 @@ import com.enterprise.ai.control.aicoding.domain.AiCodingTaskValues.AccessMode;
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskValues.ActorType;
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskValues.ArtifactNextAction;
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskValues.ArtifactProcessingStatus;
+import com.enterprise.ai.control.aicoding.domain.AiCodingTaskValues.ExecutionMode;
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskValues.ExecutionStatus;
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskValues.ExecutorProvider;
+import com.enterprise.ai.control.aicoding.domain.AiCodingTaskValues.ManagedSandboxProfile;
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskValues.QuestionStatus;
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskValues.TargetRole;
 import com.enterprise.ai.control.aicoding.persistence.AiCodingTaskArtifactEntity;
@@ -117,6 +119,12 @@ public class AiCodingTaskApplicationService {
                 ExecutorProvider.class,
                 command.executorProvider(),
                 "executorProvider").name();
+        ExecutionMode executionMode = StringUtils.hasText(command.executionMode())
+                ? AiCodingTaskValues.requiredEnum(
+                        ExecutionMode.class,
+                        command.executionMode(),
+                        "executionMode")
+                : ExecutionMode.EXTERNAL_CLIENT;
         String title = requireText(
                 command.title(),
                 "title",
@@ -139,6 +147,11 @@ public class AiCodingTaskApplicationService {
                 AccessMode.class,
                 contract.accessMode(),
                 "contract.accessMode");
+        String sandboxProfile = normalizeSandboxProfile(
+                executionMode,
+                executorProvider,
+                accessMode,
+                command.sandboxProfile());
         List<TaskTargetView> targets = normalizeTargets(command.targets(), contract, accessMode);
         requireProjectTargetMatches(projectCode, targets, contract);
         verifyProject(command.projectId(), projectCode);
@@ -171,6 +184,8 @@ public class AiCodingTaskApplicationService {
         task.setTaskKind(taskKind);
         task.setProtocolVersion(AiCodingTaskValues.PROTOCOL_VERSION);
         task.setExecutorProvider(executorProvider);
+        task.setExecutionMode(executionMode.name());
+        task.setSandboxProfile(sandboxProfile);
         task.setTitle(title);
         task.setObjective(objective);
         task.setAccessMode(accessMode.name());
@@ -184,7 +199,9 @@ public class AiCodingTaskApplicationService {
                 "contract.resultContractVersion",
                 AiCodingTaskValues.CONTRACT_VERSION_MAX_CHARACTERS));
         task.setContextSnapshotJson(writeJson(contextSnapshot));
-        task.setLastMessage("任务已创建，等待签发交接包");
+        task.setLastMessage(executionMode == ExecutionMode.MANAGED_SANDBOX
+                ? "任务已创建，等待启动隔离执行"
+                : "任务已创建，等待签发交接包");
         task.setLockVersion(0L);
         task.setCreatedBy(createdBy);
         task.setCreatedAt(now);
@@ -1097,6 +1114,38 @@ public class AiCodingTaskApplicationService {
         return toDescriptor(requireTask(taskId));
     }
 
+    private String normalizeSandboxProfile(
+            ExecutionMode executionMode,
+            String executorProvider,
+            AccessMode accessMode,
+            String requestedProfile) {
+        if (executionMode == ExecutionMode.EXTERNAL_CLIENT) {
+            if (StringUtils.hasText(requestedProfile)) {
+                throw new IllegalArgumentException(
+                        "sandboxProfile is only valid for MANAGED_SANDBOX tasks");
+            }
+            return null;
+        }
+        if (!ExecutorProvider.CODEX.name().equals(executorProvider)) {
+            throw new IllegalArgumentException(
+                    "MANAGED_SANDBOX currently requires executorProvider CODEX");
+        }
+        ManagedSandboxProfile expected = accessMode == AccessMode.READ_ONLY
+                ? ManagedSandboxProfile.ANALYZE_READONLY
+                : ManagedSandboxProfile.WORKSPACE_PATCH;
+        ManagedSandboxProfile profile = StringUtils.hasText(requestedProfile)
+                ? AiCodingTaskValues.requiredEnum(
+                        ManagedSandboxProfile.class,
+                        requestedProfile,
+                        "sandboxProfile")
+                : expected;
+        if (profile != expected) {
+            throw new IllegalArgumentException(
+                    "sandboxProfile does not match the task access mode");
+        }
+        return profile.name();
+    }
+
     private List<TaskTargetView> normalizeTargets(
             List<TaskTargetCommand> commands,
             TaskContract contract,
@@ -1436,6 +1485,13 @@ public class AiCodingTaskApplicationService {
                 task.getTaskKind(),
                 task.getProtocolVersion(),
                 task.getExecutorProvider(),
+                task.getExecutionMode() == null
+                        ? ExecutionMode.EXTERNAL_CLIENT.name()
+                        : task.getExecutionMode(),
+                task.getManagedExecutionId(),
+                task.getSandboxProfile(),
+                task.getManagedExecutionStatus(),
+                task.getManagedPendingInteractionId(),
                 task.getTitle(),
                 task.getObjective(),
                 task.getAccessMode(),
@@ -1449,9 +1505,28 @@ public class AiCodingTaskApplicationService {
                 task.getCompletedAt(),
                 task.getCreatedAt(),
                 task.getUpdatedAt(),
-                connection,
+                effectiveConnection(task, connection),
                 taskTargets,
                 taskOpenQuestions);
+    }
+
+    private ConnectionView effectiveConnection(
+            AiCodingTaskEntity task,
+            ConnectionView externalConnection) {
+        if (ExecutionMode.MANAGED_SANDBOX.name().equals(task.getExecutionMode())) {
+            return new ConnectionView(
+                    "NOT_APPLICABLE",
+                    null,
+                    task.getExecutorProvider(),
+                    task.getManagedExecutionId(),
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null);
+        }
+        return externalConnection;
     }
 
     private TaskEventView toEventView(AiCodingTaskEventEntity event) {

@@ -8,7 +8,7 @@ import type {
   WorkflowDebugSessionCreateRequest,
   WorkflowDebugSessionView,
 } from '@/types/workflow'
-import { getPlatformToken } from '@/utils/platformAuth'
+import { platformCsrfHeaders } from '@/utils/platformAuth'
 import {
   adaptWorkflowDebugStreamEvent,
   expandWorkflowDebugAdapted,
@@ -119,17 +119,16 @@ export function createWorkflowWorkingCopyTransport(
     body: Record<string, unknown>,
     signal?: AbortSignal,
   ): AsyncIterable<ConversationEventEnvelope> {
-    const token = getPlatformToken()
-    const headers: Record<string, string> = {
+    const headers = platformCsrfHeaders({
       'Content-Type': 'application/json',
       Accept: 'text/event-stream',
-    }
-    if (token) headers.Authorization = `Bearer ${token}`
+    })
 
     const response = await fetchImpl(path, {
       method: 'POST',
       headers,
       body: JSON.stringify(body),
+      credentials: 'same-origin',
       signal,
     })
     if (!response.ok || !response.body) {

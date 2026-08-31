@@ -41,6 +41,14 @@ public class RuntimeInteractionSessionEntity {
 
     private String resumeCheckpointJson;
 
+    private Integer checkpointSchemaVersion;
+
+    private String executionEngineVersion;
+
+    private String checkpointDigest;
+
+    private Integer checkpointSizeBytes;
+
     private String uiRequestJson;
 
     private String submittedPayloadJson;

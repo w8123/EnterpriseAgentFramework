@@ -49,13 +49,13 @@ export function useScanProjectToolOperations(deps: UseScanProjectToolOperationsD
         `已同步 ${data.inSync}`,
         `待更新 ${data.pendingUpdate}`,
         `源已移除 ${data.apiRemovedStale}`,
-        `关联断开 ${data.globalMissing}`,
+        `目录定义缺失 ${data.globalMissing}`,
         `SDK 待评审行 ${data.sdkReviewPendingRows}`,
       ].join('，')
       ElMessage.success(`检查完成：${message}`)
       await deps.refreshAll()
     } catch {
-      ElMessage.error('检查 Tool 关联失败')
+      ElMessage.error('检查能力纳管状态失败')
     } finally {
       reconcileLoading.value = false
     }
@@ -65,7 +65,7 @@ export function useScanProjectToolOperations(deps: UseScanProjectToolOperationsD
     rebuildEmbeddingLoading.value = true
     try {
       const { data } = await startToolRetrievalRebuild()
-      ElMessage.success(`已提交向量索引重建任务 (${data.taskId.slice(0, 8)})，可在「Tool 检索测试」页查看进度`)
+      ElMessage.success(`已提交向量索引重建任务 (${data.taskId.slice(0, 8)})，可在「调用候选检索」页查看进度`)
     } catch (error) {
       ElMessage.error((error as Error).message || '重建向量索引失败')
     } finally {
@@ -136,7 +136,7 @@ export function useScanProjectToolOperations(deps: UseScanProjectToolOperationsD
     promoteLoading[tool.scanToolId] = true
     try {
       const { data } = await promoteScanProjectToolToGlobal(deps.projectId.value, tool.scanToolId)
-      ElMessage.success(`已添加到 Tool 管理，全局名称：${data.globalToolName}`)
+      ElMessage.success(`已纳入能力目录，执行标识：${data.globalToolName}`)
       await deps.refreshAll()
       await deps.reloadAiTab()
     } catch (error) {
@@ -150,7 +150,7 @@ export function useScanProjectToolOperations(deps: UseScanProjectToolOperationsD
     pushToGlobalLoading[tool.scanToolId] = true
     try {
       await pushScanProjectToolToGlobalTool(deps.projectId.value, tool.scanToolId)
-      ElMessage.success('已更新到 Tool 管理中的对应工具')
+      ElMessage.success('已更新能力目录中的执行定义')
       await deps.refreshAll()
     } catch (error) {
       ElMessage.error((error as Error).message || '更新失败')
@@ -162,9 +162,9 @@ export function useScanProjectToolOperations(deps: UseScanProjectToolOperationsD
   async function handleUnpromoteFromGlobal(tool: ProjectToolInfo) {
     try {
       await ElMessageBox.confirm(
-        '将删除 Tool 管理中的该工具，并解除与本扫描接口的关联。若需对外暴露，可再次点「添加为 Tool」。',
-        '从Tool中下架',
-        { type: 'warning', confirmButtonText: '确定下架', cancelButtonText: '取消' },
+        '将删除能力目录中的执行定义，并解除与本扫描接口的关联。若需重新用于编排，可再次点「纳入能力目录」。',
+        '移出能力目录',
+        { type: 'warning', confirmButtonText: '确定移出', cancelButtonText: '取消' },
       )
     } catch {
       return
@@ -172,7 +172,7 @@ export function useScanProjectToolOperations(deps: UseScanProjectToolOperationsD
     unpromoteLoading[tool.scanToolId] = true
     try {
       await unpromoteScanProjectToolFromGlobal(deps.projectId.value, tool.scanToolId)
-      ElMessage.success('已从 Tool 中下架')
+      ElMessage.success('已移出能力目录')
       await deps.refreshAll()
       await deps.reloadAiTab()
     } catch (error) {
@@ -191,7 +191,7 @@ export function useScanProjectToolOperations(deps: UseScanProjectToolOperationsD
         ElMessage.info('本模块下没有可添加的接口')
         return
       }
-      ElMessage.success(`已添加 ${data.promotedCount} 个接口到 Tool 管理`)
+      ElMessage.success(`已将 ${data.promotedCount} 个接口纳入能力目录`)
       await deps.refreshAll()
       await deps.reloadAiTab()
     } catch (error) {

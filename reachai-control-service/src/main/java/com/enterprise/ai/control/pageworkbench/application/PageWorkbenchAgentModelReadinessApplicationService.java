@@ -1,7 +1,6 @@
 package com.enterprise.ai.control.pageworkbench.application;
 
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.ReadinessItem;
-import com.enterprise.ai.control.client.model.ControlModelCatalogClient;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.RequiredArgsConstructor;
@@ -26,7 +25,7 @@ public class PageWorkbenchAgentModelReadinessApplicationService {
     private static final String LABEL = "Agent 模型可用性";
     private static final long MAX_TEST_AGE_HOURS = 24L;
 
-    private final ControlModelCatalogClient modelCatalogClient;
+    private final PageWorkbenchModelPort modelCatalogClient;
     private final ObjectMapper objectMapper;
 
     public ReadinessItem evaluate(String modelInstanceId) {

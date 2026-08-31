@@ -9,14 +9,16 @@
         :collapsed="isWorkflowHeaderCollapsed"
       >
         <template #tags>
-          <el-tag effect="light">{{ projectScoped ? '项目视图' : '全量视图' }}</el-tag>
+          <el-tag effect="light">{{ workflowScopeLabel }}</el-tag>
           <el-tag type="success" effect="light">当前 {{ workflows.length }} 个 Workflow</el-tag>
           <el-tag type="info" effect="light">GraphSpec 可编排</el-tag>
         </template>
         <template #actions>
           <el-button v-if="projectScoped" @click="backToProject">返回项目</el-button>
-          <el-button v-if="projectScoped" @click="openGlobalWorkflows">全部 Workflow</el-button>
-          <el-button type="primary" :icon="Plus" @click="openCreateDialog">
+          <el-button v-if="projectScoped && canReadAllWorkflows" @click="openGlobalWorkflows">
+            全部 Workflow
+          </el-button>
+          <el-button v-if="canCreateWorkflowInCurrentScope" type="primary" :icon="Plus" @click="openCreateDialog">
             新建 Workflow
           </el-button>
         </template>
@@ -42,10 +44,12 @@
       </template>
     </CollapsibleHeaderRegion>
 
-    <el-card class="workflow-card workbench-list-surface" :class="{ 'has-context-filter': projectScoped }" shadow="never">
-      <div v-if="projectScoped" class="context-filter">
-        当前仅展示项目 {{ filters.projectCode }} 下的 Workflow。
-        <el-button link type="primary" @click="openGlobalWorkflows">查看全部 Workflow</el-button>
+    <el-card class="workflow-card workbench-list-surface" :class="{ 'has-context-filter': projectScoped || !canReadAllWorkflows }" shadow="never">
+      <div v-if="projectScoped || !canReadAllWorkflows" class="context-filter">
+        当前仅展示授权项目 {{ filters.projectCode }} 下的 Workflow。
+        <el-button v-if="canReadAllWorkflows" link type="primary" @click="openGlobalWorkflows">
+          查看全部 Workflow
+        </el-button>
       </div>
 
       <div class="toolbar">
@@ -98,7 +102,7 @@
         >
           <el-table-column label="Workflow 名称" min-width="260">
             <template #default="{ row }">
-              <button type="button" class="workflow-name-cell workflow-name-cell-btn" @click="openStudio(row.id)">
+              <button type="button" class="workflow-name-cell workflow-name-cell-btn" @click="openWorkflow(row)">
                 <div class="workflow-avatar" :class="workflowAvatarClass(effectiveWorkflowKind(row))">
                   {{ workflowInitial(row.name) }}
                 </div>
@@ -149,7 +153,14 @@
           </el-table-column>
           <el-table-column label="操作" width="204" fixed="right">
             <template #default="{ row }">
-              <el-button size="small" type="primary" @click="openStudio(row.id)">编排</el-button>
+              <el-button
+                v-if="canWriteWorkflow(row)"
+                size="small"
+                type="primary"
+                @click="openStudio(row.id)"
+              >
+                编排
+              </el-button>
               <el-button size="small" @click="openVersions(row.id)">版本</el-button>
               <el-button
                 v-if="canDeleteWorkflow(row)"
@@ -176,7 +187,14 @@
                     <p>可以调整项目、类型或状态筛选，也可以新建一个可执行图资产。</p>
                   </div>
                   <div class="empty-actions">
-                    <el-button type="primary" :icon="Plus" @click="openCreateDialog">新建 Workflow</el-button>
+                    <el-button
+                      v-if="canCreateWorkflowInCurrentScope"
+                      type="primary"
+                      :icon="Plus"
+                      @click="openCreateDialog"
+                    >
+                      新建 Workflow
+                    </el-button>
                     <el-button @click="showAllWorkflows">查看全部</el-button>
                   </div>
                 </div>
@@ -294,10 +312,43 @@ import {
   formatWorkflowDefinitionAuthorityLabel,
   formatWorkflowStatusLabel,
 } from '@/utils/workflowLabels'
+import {
+  hasPlatformGlobalPermissionGrant,
+  hasPlatformResourcePermission,
+  platformProjectPermissionScopes,
+  PLATFORM_PERMISSION_WORKFLOW_READ,
+  PLATFORM_PERMISSION_WORKFLOW_WRITE,
+} from '@/auth/platformAccess'
+import { platformSessionUser } from '@/auth/platformSession'
 
 const route = useRoute()
 const router = useRouter()
 const { theme } = useTheme()
+
+function canUseWorkflowPermission(permission: string, projectCode?: string | null) {
+  return hasPlatformResourcePermission(
+    platformSessionUser.value?.permissionGrants,
+    permission,
+    'PROJECT',
+    null,
+    projectCode,
+  )
+}
+
+const canReadAllWorkflows = computed(() => hasPlatformGlobalPermissionGrant(
+  platformSessionUser.value?.permissionGrants,
+  PLATFORM_PERMISSION_WORKFLOW_READ,
+))
+const readableWorkflowProjects = computed(() => platformProjectPermissionScopes(
+  platformSessionUser.value?.permissionGrants,
+  PLATFORM_PERMISSION_WORKFLOW_READ,
+))
+const writableWorkflowProjects = computed(() => platformProjectPermissionScopes(
+  platformSessionUser.value?.permissionGrants,
+  PLATFORM_PERMISSION_WORKFLOW_WRITE,
+))
+const initialWorkflowProjectCode = String(route.query.projectCode || '').trim()
+  || (canReadAllWorkflows.value ? '' : readableWorkflowProjects.value[0] || '')
 
 const loading = ref(false)
 const creating = ref(false)
@@ -310,12 +361,12 @@ const currentPage = ref(1)
 const pageSize = ref(10)
 const workflowTableMaxHeight = ref(480)
 const filters = reactive({
-  projectCode: String(route.query.projectCode || ''),
+  projectCode: initialWorkflowProjectCode,
   workflowKind: '',
   status: '',
 })
 const appliedFilters = reactive({
-  projectCode: String(route.query.projectCode || ''),
+  projectCode: initialWorkflowProjectCode,
   workflowKind: '',
   status: '',
 })
@@ -327,6 +378,18 @@ const createForm = reactive({
   executionEngine: 'GRAPH_SPEC',
   description: '',
 })
+
+const canCreateWorkflowInCurrentScope = computed(() => {
+  const projectCode = filters.projectCode.trim()
+  return hasPlatformGlobalPermissionGrant(
+    platformSessionUser.value?.permissionGrants,
+    PLATFORM_PERMISSION_WORKFLOW_WRITE,
+  ) || (Boolean(projectCode) && writableWorkflowProjects.value.includes(projectCode))
+})
+
+function canWriteWorkflow(row: WorkflowWorkingCopy) {
+  return canUseWorkflowPermission(PLATFORM_PERMISSION_WORKFLOW_WRITE, row.projectCode)
+}
 
 let tableHeightRaf = 0
 
@@ -345,9 +408,14 @@ const {
 
 const routeProjectCode = computed(() => String(route.query.projectCode || '').trim())
 const projectScoped = computed(() => !!routeProjectCode.value)
-const pageTitle = computed(() => (projectScoped.value ? '项目 Workflow' : 'Workflow 编排'))
+const workflowScopeLabel = computed(() => (
+  projectScoped.value ? '项目上下文' : (canReadAllWorkflows.value ? '全量视图' : '授权项目视图')
+))
+const pageTitle = computed(() => (
+  projectScoped.value || !canReadAllWorkflows.value ? '项目 Workflow' : 'Workflow 编排'
+))
 const pageDescription = computed(() =>
-  projectScoped.value
+  projectScoped.value || !canReadAllWorkflows.value
     ? '当前项目下的可执行 Workflow 资产。'
     : '面向通用流程、页面助手和 SDK 同步图的可执行 Workflow 资产。',
 )
@@ -442,8 +510,11 @@ onUnmounted(() => {
 watch(
   () => route.query.projectCode,
   (value) => {
-    filters.projectCode = String(value || '')
-    appliedFilters.projectCode = String(value || '')
+    const requestedProjectCode = String(value || '').trim()
+    const effectiveProjectCode = requestedProjectCode
+      || (canReadAllWorkflows.value ? '' : readableWorkflowProjects.value[0] || '')
+    filters.projectCode = effectiveProjectCode
+    appliedFilters.projectCode = effectiveProjectCode
     appliedKeyword.value = keyword.value
     currentPage.value = 1
     void loadWorkflows()
@@ -502,6 +573,11 @@ function updateWorkflowTableMaxHeight() {
 }
 
 async function loadWorkflows() {
+  const projectCode = appliedFilters.projectCode.trim()
+  if (!canUseWorkflowPermission(PLATFORM_PERMISSION_WORKFLOW_READ, projectCode || null)) {
+    workflows.value = []
+    return
+  }
   loading.value = true
   try {
     const { data } = await listWorkflows({
@@ -539,7 +615,17 @@ function showAllWorkflows() {
 }
 
 function openStudio(id: string) {
+  const workflow = workflows.value.find((item) => item.id === id)
+  if (workflow && !canWriteWorkflow(workflow)) return
   router.push(`/workflows/${id}/studio`)
+}
+
+function openWorkflow(row: WorkflowWorkingCopy) {
+  if (canWriteWorkflow(row)) {
+    openStudio(row.id)
+    return
+  }
+  openVersions(row.id)
 }
 
 function openVersions(id: string) {
@@ -547,7 +633,7 @@ function openVersions(id: string) {
 }
 
 function canDeleteWorkflow(row: WorkflowWorkingCopy) {
-  return row.deletable === true
+  return row.deletable === true && canWriteWorkflow(row)
 }
 
 async function confirmDeleteWorkflow(row: WorkflowWorkingCopy) {
@@ -578,11 +664,13 @@ function backToProject() {
 }
 
 function openGlobalWorkflows() {
+  if (!canReadAllWorkflows.value) return
   filters.projectCode = ''
   router.push({ name: 'WorkflowList' })
 }
 
 function openCreateDialog() {
+  if (!canCreateWorkflowInCurrentScope.value) return
   createForm.name = ''
   createForm.keySlug = ''
   createForm.projectCode = routeProjectCode.value || filters.projectCode || ''
@@ -621,6 +709,14 @@ function validateCreateForm() {
 
 async function submitCreateWorkflow() {
   if (!validateCreateForm()) return
+  const requestedProjectCode = createForm.projectCode.trim()
+  if (!canUseWorkflowPermission(
+    PLATFORM_PERMISSION_WORKFLOW_WRITE,
+    requestedProjectCode || null,
+  )) {
+    ElMessage.warning('当前账号没有该项目的 Workflow 写权限')
+    return
+  }
   creating.value = true
   try {
     const projectCode = createForm.projectCode.trim()

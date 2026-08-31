@@ -1,28 +1,64 @@
 package com.enterprise.ai.control.identity;
 
+import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class BusinessUserDirectoryControllerTest {
+
+    @Test
+    void rejectsDirectoryReadsBeforeQueryingIdentityData() {
+        BusinessUserMapper userMapper = mock(BusinessUserMapper.class);
+        ExternalUserBindingMapper bindingMapper = mock(ExternalUserBindingMapper.class);
+        ExternalUserRoleBindingMapper roleBindingMapper = mock(ExternalUserRoleBindingMapper.class);
+        PlatformRequestAuthorization requestAuthorization = mock(PlatformRequestAuthorization.class);
+        PlatformAuthAuditService authAuditService = mock(PlatformAuthAuditService.class);
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        BusinessUserDirectoryController controller = new BusinessUserDirectoryController(
+                userMapper,
+                bindingMapper,
+                roleBindingMapper,
+                requestAuthorization,
+                authAuditService);
+        when(requestAuthorization.requireGlobalPermission(
+                request, PlatformPermissions.BUSINESS_USER_READ))
+                .thenThrow(new ResponseStatusException(HttpStatus.FORBIDDEN));
+
+        ResponseStatusException error = assertThrows(
+                ResponseStatusException.class,
+                () -> controller.listBusinessUsers(request, 1, 20, "default", null, null));
+
+        assertEquals(HttpStatus.FORBIDDEN, error.getStatusCode());
+        verifyNoInteractions(userMapper, bindingMapper, roleBindingMapper, authAuditService);
+    }
 
     @Test
     void listsBusinessUsersWithIdentityAndRoleSummary() {
         BusinessUserMapper userMapper = mock(BusinessUserMapper.class);
         ExternalUserBindingMapper bindingMapper = mock(ExternalUserBindingMapper.class);
         ExternalUserRoleBindingMapper roleBindingMapper = mock(ExternalUserRoleBindingMapper.class);
+        PlatformRequestAuthorization requestAuthorization = mock(PlatformRequestAuthorization.class);
+        PlatformAuthAuditService authAuditService = mock(PlatformAuthAuditService.class);
+        HttpServletRequest request = mock(HttpServletRequest.class);
         BusinessUserDirectoryController controller = new BusinessUserDirectoryController(
                 userMapper,
                 bindingMapper,
-                roleBindingMapper);
+                roleBindingMapper,
+                requestAuthorization,
+                authAuditService);
         BusinessUserEntity user = businessUser(7L, "global-jsh", "jsh");
         ExternalUserBindingEntity binding = binding(11L, 7L, "bzjs12", "jsh");
         ExternalUserRoleBindingEntity role = roleBinding(21L, 7L, "APPROVER", "审批人");
@@ -32,7 +68,7 @@ class BusinessUserDirectoryControllerTest {
         when(roleBindingMapper.selectList(any())).thenReturn(List.of(role));
 
         ResponseEntity<BusinessUserDirectoryController.PageResult<BusinessUserDirectoryController.BusinessUserView>> response =
-                controller.listBusinessUsers(1, 20, "default", "jsh", "ACTIVE");
+                controller.listBusinessUsers(request, 1, 20, "default", "jsh", "ACTIVE");
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals(1L, response.getBody().total());
@@ -40,6 +76,8 @@ class BusinessUserDirectoryControllerTest {
         assertEquals(1, response.getBody().records().get(0).bindingCount());
         assertEquals(List.of("bzjs12:jsh"), response.getBody().records().get(0).externalIdentities());
         assertEquals(List.of("APPROVER"), response.getBody().records().get(0).roleCodes());
+        verify(requestAuthorization).requireGlobalPermission(
+                request, PlatformPermissions.BUSINESS_USER_READ);
     }
 
     @Test
@@ -47,10 +85,18 @@ class BusinessUserDirectoryControllerTest {
         BusinessUserMapper userMapper = mock(BusinessUserMapper.class);
         ExternalUserBindingMapper bindingMapper = mock(ExternalUserBindingMapper.class);
         ExternalUserRoleBindingMapper roleBindingMapper = mock(ExternalUserRoleBindingMapper.class);
+        PlatformRequestAuthorization requestAuthorization = mock(PlatformRequestAuthorization.class);
+        PlatformAuthAuditService authAuditService = mock(PlatformAuthAuditService.class);
+        PlatformAuthenticatedSession actor = mock(PlatformAuthenticatedSession.class);
+        HttpServletRequest request = mock(HttpServletRequest.class);
         BusinessUserDirectoryController controller = new BusinessUserDirectoryController(
                 userMapper,
                 bindingMapper,
-                roleBindingMapper);
+                roleBindingMapper,
+                requestAuthorization,
+                authAuditService);
+        when(requestAuthorization.requireGlobalPermission(
+                request, PlatformPermissions.BUSINESS_USER_MANAGE)).thenReturn(actor);
         BusinessUserEntity user = businessUser(7L, "global-jsh", "jsh");
         when(userMapper.selectById(7L)).thenReturn(user);
         ExternalUserBindingEntity binding = binding(11L, 7L, "bzjs12", "jsh");
@@ -60,16 +106,16 @@ class BusinessUserDirectoryControllerTest {
         when(roleBindingMapper.selectList(any())).thenReturn(List.of(role));
 
         ResponseEntity<BusinessUserDirectoryController.BusinessUserView> updated =
-                controller.updateBusinessUser(7L, new BusinessUserDirectoryController.BusinessUserUpdateCommand(
+                controller.updateBusinessUser(request, 7L, new BusinessUserDirectoryController.BusinessUserUpdateCommand(
                         "global-jsh",
                         "Jason",
                         "jsh@example.com",
                         "13800000000",
                         "ACTIVE"));
         ResponseEntity<List<BusinessUserDirectoryController.ExternalIdentityView>> identities =
-                controller.listBusinessUserIdentities(7L);
+                controller.listBusinessUserIdentities(request, 7L);
         ResponseEntity<BusinessUserDirectoryController.ExternalIdentityView> saved =
-                controller.saveBusinessUserIdentity(7L, new BusinessUserDirectoryController.ExternalIdentityCommand(
+                controller.saveBusinessUserIdentity(request, 7L, new BusinessUserDirectoryController.ExternalIdentityCommand(
                         11L,
                         "bzjs12",
                         "jsh",
@@ -87,6 +133,22 @@ class BusinessUserDirectoryControllerTest {
         verify(bindingMapper).updateById(any());
         verify(roleBindingMapper).delete(any());
         verify(roleBindingMapper).insert(any());
+        verify(requestAuthorization).requireGlobalPermission(
+                request, PlatformPermissions.BUSINESS_USER_READ);
+        verify(requestAuthorization, org.mockito.Mockito.times(2)).requireGlobalPermission(
+                request, PlatformPermissions.BUSINESS_USER_MANAGE);
+        verify(authAuditService).record(
+                eq(actor),
+                eq("BUSINESS_USER_PROFILE_UPDATED"),
+                eq("BUSINESS_USER"),
+                eq("7"),
+                any());
+        verify(authAuditService).record(
+                eq(actor),
+                eq("BUSINESS_USER_IDENTITY_SAVED"),
+                eq("EXTERNAL_USER_BINDING"),
+                eq("11"),
+                any());
     }
 
     private BusinessUserEntity businessUser(Long id, String globalUserId, String displayName) {

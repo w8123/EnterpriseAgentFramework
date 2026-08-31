@@ -24,6 +24,11 @@ public class PlatformBearerAuthService {
     /** Resolves the authenticated server session, including database-backed grants. */
     public Optional<PlatformAuthenticatedSession> resolveBearerSession(String authorization) {
         String token = bearerToken(authorization);
+        return resolveSessionToken(token);
+    }
+
+    /** Resolves a raw token supplied by a trusted server-side transport such as an HttpOnly cookie. */
+    public Optional<PlatformAuthenticatedSession> resolveSessionToken(String token) {
         if (!StringUtils.hasText(token)) {
             return Optional.empty();
         }

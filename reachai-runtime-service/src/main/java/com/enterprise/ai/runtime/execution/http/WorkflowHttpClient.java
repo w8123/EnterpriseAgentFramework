@@ -5,26 +5,27 @@ import com.enterprise.ai.runtime.credential.RuntimeWorkflowCredentialService;
 import com.enterprise.ai.runtime.credential.WorkflowCredentialTypes;
 import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.hc.client5.http.DnsResolver;
+import org.apache.hc.client5.http.classic.methods.HttpUriRequestBase;
+import org.apache.hc.client5.http.config.ConnectionConfig;
+import org.apache.hc.client5.http.config.RequestConfig;
+import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
+import org.apache.hc.client5.http.impl.classic.HttpClients;
+import org.apache.hc.client5.http.impl.io.PoolingHttpClientConnectionManagerBuilder;
+import org.apache.hc.core5.http.Header;
+import org.apache.hc.core5.http.HttpEntity;
+import org.apache.hc.core5.http.io.entity.ByteArrayEntity;
+import org.apache.hc.core5.util.Timeout;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
-import javax.net.ssl.HttpsURLConnection;
-import javax.net.ssl.SSLSocket;
-import javax.net.ssl.SSLSocketFactory;
-import javax.net.ssl.SNIHostName;
-import javax.net.ssl.SSLParameters;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
-import java.net.HttpURLConnection;
 import java.net.InetAddress;
-import java.net.InetSocketAddress;
-import java.net.Proxy;
-import java.net.Socket;
 import java.net.URI;
-import java.net.URL;
 import java.net.URLEncoder;
+import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -104,95 +105,74 @@ public class WorkflowHttpClient {
             String currentUrl = url;
             ResolvedTarget currentTarget = target;
             Map<String, String> currentHeaders = new LinkedHashMap<>(headers);
+            byte[] bodyBytes = encodeBody(request.bodyType(), request.body());
             while (true) {
-                HttpURLConnection connection = null;
-                try {
-                    connection = openPinnedConnection(currentTarget, timeoutMs);
-                    connection.setInstanceFollowRedirects(false);
-                    connection.setRequestMethod(method);
-                    connection.setConnectTimeout(timeoutMs);
-                    connection.setReadTimeout(timeoutMs);
-                    currentHeaders.forEach(connection::setRequestProperty);
-                    byte[] bodyBytes = encodeBody(request.bodyType(), request.body());
-                    if (bodyBytes != null && bodyBytes.length > 0
-                            && !"GET".equals(method) && !"HEAD".equals(method)) {
-                        connection.setDoOutput(true);
-                        try (OutputStream output = connection.getOutputStream()) {
-                            output.write(bodyBytes);
-                        }
-                    }
-                    int status = connection.getResponseCode();
-                    if (isRedirect(status) && redirects < egressPolicy.maxRedirects()) {
-                        String location = connection.getHeaderField("Location");
-                        if (!StringUtils.hasText(location)) {
-                            throw new WorkflowHttpExecutionException(
-                                    "RUNTIME_HTTP_REDIRECT_INVALID",
-                                    "HTTP redirect missing Location header");
-                        }
-                        URI nextUri = URI.create(currentUrl).resolve(location.trim());
-                        String nextUrl = nextUri.toString();
-                        boolean sameOrigin = sameOrigin(currentTarget.uri(), nextUri);
-                        boolean credentialed = credential.credentialed();
-                        if (credentialed && !sameOrigin) {
-                            throw new WorkflowHttpExecutionException(
-                                    "RUNTIME_HTTP_REDIRECT_CREDENTIAL_DENIED",
-                                    "Credentialed HTTP redirect to different origin is denied");
-                        }
-                        if (isHttpsToHttpDowngrade(currentTarget.uri(), nextUri)) {
-                            throw new WorkflowHttpExecutionException(
-                                    "RUNTIME_HTTP_REDIRECT_DOWNGRADE_DENIED",
-                                    "HTTPS to HTTP redirect is denied");
-                        }
-                        ResolvedTarget nextTarget = resolveAndValidate(nextUrl, true);
-                        currentUrl = nextUrl;
-                        currentTarget = nextTarget;
-                        if (credentialed) {
-                            // same-origin only: keep credentials; still revalidate egress above
-                            currentHeaders = new LinkedHashMap<>(headers);
-                        } else {
-                            currentHeaders = stripCredentialHeaders(headers, credential.sensitiveHeaderNames());
-                        }
-                        redirects++;
-                        connection.disconnect();
-                        continue;
-                    }
-                    if (isRedirect(status)) {
+                PinnedHttpResponse response = executePinnedRequest(
+                        currentTarget, method, currentHeaders, bodyBytes, timeoutMs);
+                int status = response.status();
+                if (isRedirect(status) && redirects < egressPolicy.maxRedirects()) {
+                    String location = response.location();
+                    if (!StringUtils.hasText(location)) {
                         throw new WorkflowHttpExecutionException(
-                                WorkflowHttpEgressPolicy.ERROR_REDIRECT,
-                                "HTTP redirect limit exceeded");
+                                "RUNTIME_HTTP_REDIRECT_INVALID",
+                                "HTTP redirect missing Location header");
                     }
-                    byte[] responseBytes = readBounded(status >= 400
-                            ? connection.getErrorStream()
-                            : connection.getInputStream());
-                    String contentType = connection.getContentType();
-                    String bodyText = responseBytes == null
-                            ? ""
-                            : new String(responseBytes, StandardCharsets.UTF_8);
-                    Object parsedBody = tryParseJson(contentType, bodyText);
-                    Map<String, List<String>> responseHeaders = redactHeaders(
-                            connection.getHeaderFields(), credential.sensitiveHeaderNames());
-                    boolean success = status >= 200 && status < 300;
-                    String code = success
-                            ? "RUNTIME_HTTP_EXECUTED"
-                            : ("RUNTIME_HTTP_STATUS_" + status);
-                    return new HttpExecutionResult(
-                            success,
-                            code,
-                            status,
-                            responseHeaders,
-                            bodyText,
-                            parsedBody,
-                            contentType,
-                            System.currentTimeMillis() - started,
-                            responseBytes == null ? 0 : responseBytes.length,
-                            redirects,
-                            safeUrlSummary(currentUrl),
-                            isRetryableStatus(status));
-                } finally {
-                    if (connection != null) {
-                        connection.disconnect();
+                    URI nextUri = URI.create(currentUrl).resolve(location.trim());
+                    String nextUrl = nextUri.toString();
+                    boolean sameOrigin = sameOrigin(currentTarget.uri(), nextUri);
+                    boolean credentialed = credential.credentialed();
+                    if (credentialed && !sameOrigin) {
+                        throw new WorkflowHttpExecutionException(
+                                "RUNTIME_HTTP_REDIRECT_CREDENTIAL_DENIED",
+                                "Credentialed HTTP redirect to different origin is denied");
                     }
+                    if (isHttpsToHttpDowngrade(currentTarget.uri(), nextUri)) {
+                        throw new WorkflowHttpExecutionException(
+                                "RUNTIME_HTTP_REDIRECT_DOWNGRADE_DENIED",
+                                "HTTPS to HTTP redirect is denied");
+                    }
+                    ResolvedTarget nextTarget = resolveAndValidate(nextUrl, true);
+                    currentUrl = nextUrl;
+                    currentTarget = nextTarget;
+                    if (credentialed) {
+                        // same-origin only: keep credentials; still revalidate egress above
+                        currentHeaders = new LinkedHashMap<>(headers);
+                    } else {
+                        currentHeaders = stripCredentialHeaders(headers, credential.sensitiveHeaderNames());
+                    }
+                    redirects++;
+                    continue;
                 }
+                if (isRedirect(status)) {
+                    throw new WorkflowHttpExecutionException(
+                            WorkflowHttpEgressPolicy.ERROR_REDIRECT,
+                            "HTTP redirect limit exceeded");
+                }
+                byte[] responseBytes = response.body();
+                String contentType = response.contentType();
+                String bodyText = responseBytes == null
+                        ? ""
+                        : new String(responseBytes, StandardCharsets.UTF_8);
+                Object parsedBody = tryParseJson(contentType, bodyText);
+                Map<String, List<String>> responseHeaders = redactHeaders(
+                        response.headers(), credential.sensitiveHeaderNames());
+                boolean success = status >= 200 && status < 300;
+                String code = success
+                        ? "RUNTIME_HTTP_EXECUTED"
+                        : ("RUNTIME_HTTP_STATUS_" + status);
+                return new HttpExecutionResult(
+                        success,
+                        code,
+                        status,
+                        responseHeaders,
+                        bodyText,
+                        parsedBody,
+                        contentType,
+                        System.currentTimeMillis() - started,
+                        responseBytes == null ? 0 : responseBytes.length,
+                        redirects,
+                        safeUrlSummary(currentUrl),
+                        isRetryableStatus(status));
             }
         } catch (WorkflowHttpEgressPolicy.WorkflowHttpEgressException ex) {
             return failure(ex.code(), ex.getMessage(), started, request == null ? null : request.url(), false);
@@ -303,30 +283,55 @@ public class WorkflowHttpClient {
         return new ResolvedTarget(resolved.uri(), resolved.primaryAddress());
     }
 
-    private HttpURLConnection openPinnedConnection(ResolvedTarget target, int timeoutMs) throws Exception {
+    private PinnedHttpResponse executePinnedRequest(ResolvedTarget target,
+                                                    String method,
+                                                    Map<String, String> headers,
+                                                    byte[] bodyBytes,
+                                                    int timeoutMs) throws Exception {
         URI uri = target.uri();
-        String scheme = uri.getScheme() == null ? "http" : uri.getScheme().toLowerCase(Locale.ROOT);
-        int port = uri.getPort() > 0 ? uri.getPort() : ("https".equals(scheme) ? 443 : 80);
-        String file = buildFile(uri);
-        URL url = new URL(scheme, target.address().getHostAddress(), port, file);
-        HttpURLConnection connection = (HttpURLConnection) url.openConnection(Proxy.NO_PROXY);
-        String hostHeader = uri.getHost() + (uri.getPort() > 0 ? ":" + uri.getPort() : "");
-        connection.setRequestProperty("Host", hostHeader);
-        if (connection instanceof HttpsURLConnection https) {
-            SSLSocketFactory base = https.getSSLSocketFactory();
-            https.setSSLSocketFactory(new SniPinningSslSocketFactory(base, uri.getHost(), target.address(), port));
-            https.setHostnameVerifier((hostname, session) ->
-                    HttpsURLConnection.getDefaultHostnameVerifier().verify(uri.getHost(), session));
+        Timeout timeout = Timeout.ofMilliseconds(timeoutMs);
+        ConnectionConfig connectionConfig = ConnectionConfig.custom()
+                .setConnectTimeout(timeout)
+                .setSocketTimeout(timeout)
+                .build();
+        RequestConfig requestConfig = RequestConfig.custom()
+                .setConnectionRequestTimeout(timeout)
+                .setResponseTimeout(timeout)
+                .build();
+        PinnedDnsResolver resolver = new PinnedDnsResolver(uri.getHost(), target.address());
+        var connectionManager = PoolingHttpClientConnectionManagerBuilder.create()
+                .setDnsResolver(resolver)
+                .setDefaultConnectionConfig(connectionConfig)
+                .build();
+        try (CloseableHttpClient client = HttpClients.custom()
+                .setConnectionManager(connectionManager)
+                .disableAutomaticRetries()
+                .disableContentCompression()
+                .disableCookieManagement()
+                .disableRedirectHandling()
+                .build()) {
+            HttpUriRequestBase outbound = new HttpUriRequestBase(method, uri);
+            outbound.setConfig(requestConfig);
+            headers.forEach(outbound::setHeader);
+            if (bodyBytes != null && bodyBytes.length > 0
+                    && !"GET".equals(method) && !"HEAD".equals(method)) {
+                outbound.setEntity(new ByteArrayEntity(bodyBytes, null));
+            }
+            return client.execute(outbound, response -> {
+                int status = response.getCode();
+                Header locationHeader = response.getFirstHeader("Location");
+                String location = locationHeader == null ? null : locationHeader.getValue();
+                Map<String, List<String>> responseHeaders = new LinkedHashMap<>();
+                for (Header header : response.getHeaders()) {
+                    responseHeaders.computeIfAbsent(header.getName(), ignored -> new ArrayList<>())
+                            .add(header.getValue());
+                }
+                HttpEntity entity = response.getEntity();
+                String contentType = entity == null ? null : entity.getContentType();
+                byte[] responseBody = entity == null ? new byte[0] : readBounded(entity.getContent());
+                return new PinnedHttpResponse(status, responseHeaders, responseBody, contentType, location);
+            });
         }
-        connection.setConnectTimeout(timeoutMs);
-        connection.setReadTimeout(timeoutMs);
-        return connection;
-    }
-
-    private static String buildFile(URI uri) {
-        String path = uri.getRawPath() == null || uri.getRawPath().isBlank() ? "/" : uri.getRawPath();
-        String query = uri.getRawQuery();
-        return query == null ? path : path + "?" + query;
     }
 
     private String appendQuery(String url, Map<String, String> queryParams) {
@@ -381,7 +386,7 @@ public class WorkflowHttpClient {
         return body.getBytes(StandardCharsets.UTF_8);
     }
 
-    private byte[] readBounded(InputStream inputStream) throws Exception {
+    private byte[] readBounded(InputStream inputStream) throws IOException {
         if (inputStream == null) {
             return new byte[0];
         }
@@ -691,79 +696,35 @@ public class WorkflowHttpClient {
     private record ResolvedTarget(URI uri, InetAddress address) {
     }
 
-    /**
-     * Connects to a previously validated IP while preserving SNI / hostname verification for the original host.
-     */
-    private static final class SniPinningSslSocketFactory extends SSLSocketFactory {
-        private final SSLSocketFactory delegate;
+    private record PinnedHttpResponse(int status,
+                                      Map<String, List<String>> headers,
+                                      byte[] body,
+                                      String contentType,
+                                      String location) {
+    }
+
+    /** Resolves the request host only to the address already approved by the egress policy. */
+    static final class PinnedDnsResolver implements DnsResolver {
         private final String hostname;
         private final InetAddress address;
-        private final int port;
 
-        private SniPinningSslSocketFactory(SSLSocketFactory delegate, String hostname, InetAddress address, int port) {
-            this.delegate = delegate;
+        PinnedDnsResolver(String hostname, InetAddress address) {
             this.hostname = hostname;
             this.address = address;
-            this.port = port;
         }
 
         @Override
-        public Socket createSocket(Socket s, String host, int port, boolean autoClose) throws IOException {
-            Socket socket = delegate.createSocket(s, hostname, port, autoClose);
-            applySni(socket);
-            return socket;
-        }
-
-        @Override
-        public Socket createSocket(String host, int port) throws IOException {
-            Socket socket = delegate.createSocket();
-            socket.connect(new InetSocketAddress(address, this.port > 0 ? this.port : port), 30_000);
-            applySni(socket);
-            return socket;
-        }
-
-        @Override
-        public Socket createSocket(String host, int port, InetAddress localHost, int localPort) throws IOException {
-            Socket socket = delegate.createSocket();
-            socket.bind(new InetSocketAddress(localHost, localPort));
-            socket.connect(new InetSocketAddress(address, this.port > 0 ? this.port : port), 30_000);
-            applySni(socket);
-            return socket;
-        }
-
-        @Override
-        public Socket createSocket(InetAddress host, int port) throws IOException {
-            Socket socket = delegate.createSocket();
-            socket.connect(new InetSocketAddress(address, this.port > 0 ? this.port : port), 30_000);
-            applySni(socket);
-            return socket;
-        }
-
-        @Override
-        public Socket createSocket(InetAddress address, int port, InetAddress localAddress, int localPort) throws IOException {
-            Socket socket = delegate.createSocket();
-            socket.bind(new InetSocketAddress(localAddress, localPort));
-            socket.connect(new InetSocketAddress(this.address, this.port > 0 ? this.port : port), 30_000);
-            applySni(socket);
-            return socket;
-        }
-
-        @Override
-        public String[] getDefaultCipherSuites() {
-            return delegate.getDefaultCipherSuites();
-        }
-
-        @Override
-        public String[] getSupportedCipherSuites() {
-            return delegate.getSupportedCipherSuites();
-        }
-
-        private void applySni(Socket socket) {
-            if (socket instanceof SSLSocket sslSocket) {
-                SSLParameters parameters = sslSocket.getSSLParameters();
-                parameters.setServerNames(List.of(new SNIHostName(hostname)));
-                sslSocket.setSSLParameters(parameters);
+        public InetAddress[] resolve(String host) throws UnknownHostException {
+            if (!StringUtils.hasText(host) || !hostname.equalsIgnoreCase(host.trim())) {
+                throw new UnknownHostException("Host is outside the policy-approved DNS pin");
             }
+            return new InetAddress[]{address};
+        }
+
+        @Override
+        public String resolveCanonicalHostname(String host) throws UnknownHostException {
+            resolve(host);
+            return hostname;
         }
     }
 }

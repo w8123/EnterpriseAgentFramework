@@ -17,6 +17,8 @@ public class RuntimeCapabilityInternalAuthSigner {
 
     public static final String TOOL_EXECUTE_PATH_TEMPLATE =
             "/internal/capability/tools/{qualifiedName}/execute";
+    public static final String CAPABILITY_INVOCATION_PATH =
+            "/internal/capability/invocations";
 
     private static final Pattern QUALIFIED_NAME = Pattern.compile("[A-Za-z0-9._:-]{1,200}");
     private static final int MAX_IDENTITY_LENGTH = 256;
@@ -33,11 +35,27 @@ public class RuntimeCapabilityInternalAuthSigner {
                                                String identityTenantId,
                                                String identityUserId,
                                                byte[] exactBody) {
+        return sign(toolExecutePath(qualifiedName), identitySource,
+                identityTenantId, identityUserId, exactBody);
+    }
+
+    public Map<String, String> signInvocation(String identitySource,
+                                              String identityTenantId,
+                                              String identityUserId,
+                                              byte[] exactBody) {
+        return sign(CAPABILITY_INVOCATION_PATH, identitySource,
+                identityTenantId, identityUserId, exactBody);
+    }
+
+    private Map<String, String> sign(String path,
+                                     String identitySource,
+                                     String identityTenantId,
+                                     String identityUserId,
+                                     byte[] exactBody) {
         if (!StringUtils.hasText(serviceSecret)) {
             throw new IllegalStateException(
                     "REACHAI_INTERNAL_SERVICE_SECRET / reachai.internal.service-secret is required for Capability Tool calls");
         }
-        String path = toolExecutePath(qualifiedName);
         String source = safeHeader(identitySource, "identitySource", false);
         if (!InternalServiceAuthHeaders.IDENTITY_SOURCE_RUNTIME_TRUSTED.equals(source)
                 && !InternalServiceAuthHeaders.IDENTITY_SOURCE_RUNTIME_UNTRUSTED.equals(source)) {

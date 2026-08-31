@@ -161,6 +161,11 @@ class KnowledgeRetrievalCoreBehaviorTest {
 
         assertEquals(1, response.getItems().size());
         assertEquals("same content", response.getItems().get(0).getContent());
+        assertEquals(1, response.getDiagnostics().get("vectorAcceptedCandidateCount"));
+        assertEquals(1, response.getDiagnostics().get("keywordAcceptedCandidateCount"));
+        assertEquals(2, response.getDiagnostics().get("preMergeCandidateCount"));
+        assertEquals(1, response.getDiagnostics().get("mergedCandidateCount"));
+        assertEquals(1, response.getDiagnostics().get("returnedCandidateCount"));
     }
 
     @Test

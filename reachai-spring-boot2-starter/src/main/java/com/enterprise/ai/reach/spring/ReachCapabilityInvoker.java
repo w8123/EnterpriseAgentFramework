@@ -15,6 +15,12 @@ import java.lang.reflect.Parameter;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+/**
+ * Lazily indexes explicit {@code @ReachCapability} methods from the supplied
+ * beans or application context, converts invocation arguments to each
+ * parameter's declared type by name, and supports a flat Tool input for a
+ * single DTO that exposes {@code @ReachParam} fields.
+ */
 public class ReachCapabilityInvoker {
 
     private final Map<String, Handler> handlers = new LinkedHashMap<String, Handler>();

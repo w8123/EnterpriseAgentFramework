@@ -5,6 +5,7 @@ import type { ModelInstance } from '@/types/model'
 import type { ProjectToolInfo, ScanProject, SensitiveScanTask } from '@/types/scanProject'
 import type { ScanModule, SemanticDoc, SemanticTask } from '@/types/semanticDoc'
 import { getModelInstances } from '@/api/model'
+import { normalizeActiveModelInstances } from '@/utils/modelSelection'
 import {
   getSensitiveDataScanStatus,
   startSensitiveDataScan,
@@ -55,6 +56,8 @@ export function useScanProjectSemanticDocs(deps: UseScanProjectSemanticDocsDeps)
   let pollTimer: ReturnType<typeof setInterval> | null = null
 
   const semanticModelInstances = ref<ModelInstance[]>([])
+  const semanticModelInstancesLoading = ref(false)
+  const semanticModelInstancesLoadError = ref(false)
   const semanticModelInstanceId = ref('')
   const aiGenerationMode = ref<AiGenerationMode>('missing')
 
@@ -174,9 +177,11 @@ export function useScanProjectSemanticDocs(deps: UseScanProjectSemanticDocsDeps)
   }
 
   async function loadSemanticModelInstances() {
+    semanticModelInstancesLoading.value = true
+    semanticModelInstancesLoadError.value = false
     try {
       const { data } = await getModelInstances({ modelType: 'LLM' })
-      const list = (data?.data ?? []) as ModelInstance[]
+      const list = normalizeActiveModelInstances(data, 'LLM')
       semanticModelInstances.value = list
       if (list.length === 0) {
         semanticModelInstanceId.value = ''
@@ -187,6 +192,9 @@ export function useScanProjectSemanticDocs(deps: UseScanProjectSemanticDocsDeps)
       }
     } catch {
       semanticModelInstances.value = []
+      semanticModelInstancesLoadError.value = true
+    } finally {
+      semanticModelInstancesLoading.value = false
     }
   }
 
@@ -490,6 +498,8 @@ export function useScanProjectSemanticDocs(deps: UseScanProjectSemanticDocsDeps)
     sensitiveTaskPolling,
     task,
     semanticModelInstances,
+    semanticModelInstancesLoading,
+    semanticModelInstancesLoadError,
     semanticModelInstanceId,
     aiGenerationMode,
     docEditVisible,

@@ -87,10 +87,9 @@ reachai:
       # Internal-only Docling Serve dependency. Browser traffic must never use this URL.
       enabled: ${REACHAI_DOCLING_ENABLED:true}
       base-url: ${REACHAI_DOCLING_BASE_URL:http://localhost:5001}
-      # Matches the opt-in local Compose profile. Production deployments must
-      # override this value from a Secret; the production configuration guard
-      # rejects weak/default internal credentials.
-      api-key: ${REACHAI_DOCLING_API_KEY:local-dev-change-me}
+      # Matches the opt-in local Compose profile. No credential default is
+      # committed; set it in deploy/.env locally and inject a Secret in production.
+      api-key: ${REACHAI_DOCLING_API_KEY:}
       expected-version: ${REACHAI_DOCLING_EXPECTED_VERSION:v1.30.0}
       connect-timeout-ms: ${REACHAI_DOCLING_CONNECT_TIMEOUT_MS:5000}
       request-timeout-ms: ${REACHAI_DOCLING_REQUEST_TIMEOUT_MS:900000}

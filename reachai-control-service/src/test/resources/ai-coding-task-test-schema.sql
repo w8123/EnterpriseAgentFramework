@@ -1,4 +1,5 @@
 DROP TABLE IF EXISTS control_ai_coding_task_artifact;
+DROP TABLE IF EXISTS control_managed_execution_inbox;
 DROP TABLE IF EXISTS control_ai_coding_task_question;
 DROP TABLE IF EXISTS control_ai_coding_task_event;
 DROP TABLE IF EXISTS control_ai_coding_task_handoff;
@@ -119,6 +120,11 @@ CREATE TABLE control_ai_coding_task (
     task_kind VARCHAR(64) NOT NULL,
     protocol_version VARCHAR(16) NOT NULL,
     executor_provider VARCHAR(24) NOT NULL,
+    execution_mode VARCHAR(32) NOT NULL DEFAULT 'EXTERNAL_CLIENT',
+    managed_execution_id VARCHAR(64),
+    sandbox_profile VARCHAR(32),
+    managed_execution_status VARCHAR(32),
+    managed_pending_interaction_id VARCHAR(64),
     title VARCHAR(256) NOT NULL,
     objective CLOB NOT NULL,
     access_mode VARCHAR(24) NOT NULL,
@@ -134,7 +140,28 @@ CREATE TABLE control_ai_coding_task (
     completed_at TIMESTAMP,
     created_at TIMESTAMP,
     updated_at TIMESTAMP,
-    PRIMARY KEY (task_id)
+    PRIMARY KEY (task_id),
+    UNIQUE (managed_execution_id)
+);
+
+CREATE TABLE control_managed_execution_inbox (
+    event_id VARCHAR(64) NOT NULL,
+    execution_id VARCHAR(64) NOT NULL,
+    event_type VARCHAR(64) NOT NULL,
+    tenant_id VARCHAR(96) NOT NULL,
+    project_code VARCHAR(128) NOT NULL,
+    source_type VARCHAR(32) NOT NULL,
+    source_ref VARCHAR(128),
+    runtime_status VARCHAR(32) NOT NULL,
+    payload_sha256 CHAR(64) NOT NULL,
+    payload_json CLOB NOT NULL,
+    projection_status VARCHAR(24) NOT NULL DEFAULT 'RECEIVED',
+    projection_error VARCHAR(1000),
+    projection_attempt_count INT NOT NULL DEFAULT 0,
+    projection_available_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    received_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    applied_at TIMESTAMP,
+    PRIMARY KEY (event_id)
 );
 
 CREATE TABLE control_ai_coding_project_policy (

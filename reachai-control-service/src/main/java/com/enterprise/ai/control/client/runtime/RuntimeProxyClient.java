@@ -295,6 +295,55 @@ public interface RuntimeProxyClient {
     @RequestMapping(method = RequestMethod.GET, path = "/api/runtime/evals/runs/{runId}/results")
     ResponseEntity<Object> listEvalRunResults(@PathVariable("runId") Long runId);
 
+    @RequestMapping(method = RequestMethod.GET, path = "/api/runtime/evals/v2/datasets")
+    ResponseEntity<Object> listEvalOpsDatasets(@RequestParam("tenantId") String tenantId,
+                                               @RequestParam(value = "targetId", required = false) String targetId);
+
+    @RequestMapping(method = RequestMethod.POST, path = "/api/runtime/evals/v2/datasets")
+    ResponseEntity<Object> createEvalOpsDataset(@RequestBody Map<String, Object> body);
+
+    @RequestMapping(method = RequestMethod.GET, path = "/api/runtime/evals/v2/datasets/{datasetId}")
+    ResponseEntity<Object> getEvalOpsDataset(@PathVariable("datasetId") Long datasetId);
+
+    @RequestMapping(method = RequestMethod.POST, path = "/api/runtime/evals/v2/datasets/{datasetId}/versions")
+    ResponseEntity<Object> createEvalOpsDatasetVersion(@PathVariable("datasetId") Long datasetId,
+                                                       @RequestBody Map<String, Object> body);
+
+    @RequestMapping(method = RequestMethod.POST,
+            path = "/api/runtime/evals/v2/datasets/{datasetId}/versions/from-trace")
+    ResponseEntity<Object> createEvalOpsDatasetVersionFromTrace(
+            @PathVariable("datasetId") Long datasetId,
+            @RequestBody Map<String, Object> body);
+
+    @RequestMapping(method = RequestMethod.GET, path = "/api/runtime/evals/v2/dataset-versions/{versionId}")
+    ResponseEntity<Object> getEvalOpsDatasetVersion(@PathVariable("versionId") Long versionId);
+
+    @RequestMapping(method = RequestMethod.GET, path = "/api/runtime/evals/v2/evaluator-suites")
+    ResponseEntity<Object> listEvalOpsEvaluatorSuites(@RequestParam("tenantId") String tenantId);
+
+    @RequestMapping(method = RequestMethod.POST, path = "/api/runtime/evals/v2/evaluator-suites")
+    ResponseEntity<Object> createEvalOpsEvaluatorSuite(@RequestBody Map<String, Object> body);
+
+    @RequestMapping(method = RequestMethod.GET, path = "/api/runtime/evals/v2/experiments")
+    ResponseEntity<Object> listEvalOpsExperiments(@RequestParam("tenantId") String tenantId,
+                                                  @RequestParam(value = "targetId", required = false) String targetId);
+
+    @RequestMapping(method = RequestMethod.POST, path = "/api/runtime/evals/v2/experiments")
+    ResponseEntity<Object> createEvalOpsExperiment(@RequestBody Map<String, Object> body);
+
+    @RequestMapping(method = RequestMethod.GET, path = "/api/runtime/evals/v2/experiments/{experimentId}")
+    ResponseEntity<Object> getEvalOpsExperiment(@PathVariable("experimentId") Long experimentId);
+
+    @RequestMapping(method = RequestMethod.GET, path = "/api/runtime/evals/v2/experiments/{experimentId}/items")
+    ResponseEntity<Object> listEvalOpsExperimentItems(
+            @PathVariable("experimentId") Long experimentId,
+            @RequestParam(value = "variantId", required = false) Long variantId,
+            @RequestParam("page") int page,
+            @RequestParam("pageSize") int pageSize);
+
+    @RequestMapping(method = RequestMethod.POST, path = "/api/runtime/evals/v2/experiments/{experimentId}/cancel")
+    ResponseEntity<Object> cancelEvalOpsExperiment(@PathVariable("experimentId") Long experimentId);
+
     @RequestMapping(method = RequestMethod.GET, path = "/api/agents")
     ResponseEntity<Object> listAgents(@RequestParam(value = "projectId", required = false) Long projectId,
                                       @RequestParam(value = "projectCode", required = false) String projectCode);

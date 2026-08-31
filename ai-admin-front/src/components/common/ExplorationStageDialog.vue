@@ -49,10 +49,10 @@ async function exitPlatform() {
   leaving.value = true
   try {
     await logoutPlatform()
-  } catch {
-    // logoutPlatform always clears the local session in its finally block.
-  } finally {
     await router.replace('/login')
+  } catch {
+    // Keep the live cookie session available so the user can retry.
+  } finally {
     leaving.value = false
   }
 }

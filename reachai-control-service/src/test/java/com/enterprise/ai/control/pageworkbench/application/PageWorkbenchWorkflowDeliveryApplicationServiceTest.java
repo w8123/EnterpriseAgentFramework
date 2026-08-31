@@ -5,7 +5,6 @@ import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.ArtifactView
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskDetailView;
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskTargetView;
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskView;
-import com.enterprise.ai.control.client.runtime.RuntimeProxyClient;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.WorkflowDeliveryView;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchWorkflowDeliveryApplicationService.DeliveryCommand;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -29,7 +28,7 @@ class PageWorkbenchWorkflowDeliveryApplicationServiceTest {
     void acceptedTaskDeliversItsLatestAppliedWorkflowDraft() {
         AiCodingTaskApplicationService taskService =
                 mock(AiCodingTaskApplicationService.class);
-        RuntimeProxyClient runtimeClient = mock(RuntimeProxyClient.class);
+        PageWorkbenchRuntimePort runtimeClient = mock(PageWorkbenchRuntimePort.class);
         when(taskService.detail("ait-orders-1"))
                 .thenReturn(taskDetail());
         WorkflowDeliveryView delivery = new WorkflowDeliveryView(

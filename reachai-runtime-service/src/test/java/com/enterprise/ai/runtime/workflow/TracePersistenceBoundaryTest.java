@@ -24,6 +24,7 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -76,7 +77,7 @@ class TracePersistenceBoundaryTest {
         com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutor executor =
                 mock(com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutor.class);
         when(executor.execute(org.mockito.ArgumentMatchers.anyString(),
-                org.mockito.ArgumentMatchers.<Map<String, Object>>any(), any(), any())).thenReturn(
+                org.mockito.ArgumentMatchers.<Map<String, Object>>any(), any(), any(), any(), any())).thenReturn(
                 new RuntimeGraphSpecExecutionResult(
                 false, "RUNTIME_GRAPH_FAILED", answer, "http", "HTTP_REQUEST",
                 List.of(Map.of("nodeId", "http", "nodeType", "HTTP_REQUEST", "status", "FAILED",
@@ -112,6 +113,69 @@ class TracePersistenceBoundaryTest {
         assertTrue(persisted.contains("HTTP_REQUEST"));
         assertTrue(persisted.contains("graphSpecDigest"));
         assertTrue(persisted.contains("\"nodeCount\":1"));
+    }
+
+    @Test
+    void debugPersistenceUsesCanonicalProjectedNodeTrace() {
+        RuntimeTraceSpanMapper spanMapper = mock(RuntimeTraceSpanMapper.class);
+        AtomicReference<RuntimeTraceSpanEntity> root = new AtomicReference<>();
+        when(spanMapper.insert(any())).thenAnswer(call -> {
+            RuntimeTraceSpanEntity entity = call.getArgument(0);
+            if (entity.getParentSpanId() == null) {
+                entity.setId(1L);
+                root.set(entity);
+            }
+            return 1;
+        });
+        when(spanMapper.selectById(1L)).thenAnswer(call -> root.get());
+
+        com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutor executor =
+                mock(com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutor.class);
+        Map<String, Object> projected = Map.ofEntries(
+                Map.entry("nodeId", "tool"),
+                Map.entry("nodeType", "TOOL"),
+                Map.entry("nodeName", "Echo"),
+                Map.entry("status", "SUCCESS"),
+                Map.entry("startedAt", 1_700_000_000_000L),
+                Map.entry("endedAt", 1_700_000_000_012L),
+                Map.entry("latencyMs", 12L),
+                Map.entry("attempt", 2),
+                Map.entry("maxAttempts", 3),
+                Map.entry("qualifiedName", "system.echo"),
+                Map.entry("failureCategory", "NONE"),
+                Map.entry("retryableFailure", false));
+        when(executor.execute(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.<Map<String, Object>>any(), any(), any(), any(), any())).thenReturn(
+                new RuntimeGraphSpecExecutionResult(
+                        true, "RUNTIME_GRAPH_EXECUTED", "ok", "tool", "TOOL",
+                        List.of(Map.of("detail", "legacy-node")),
+                        Map.of("workflowNodeTraces", List.of(projected))));
+
+        ObjectMapper json = new ObjectMapper();
+        RuntimeWorkflowDebugService service = new RuntimeWorkflowDebugService(
+                mock(RuntimeWorkflowDefinitionService.class), executor,
+                mock(RuntimeRunLifecycleService.class), spanMapper, json,
+                new RuntimeWorkflowDocumentCanonicalizer(json));
+        String graph = "{\"schemaVersion\":2,\"entryNodeId\":\"tool\",\"exitNodeIds\":[\"tool\"],"
+                + "\"nodes\":[{\"id\":\"tool\",\"type\":\"TOOL\",\"ref\":{\"qualifiedName\":\"system.echo\"}}],\"edges\":[]}";
+
+        service.debugRun(new RuntimeWorkflowDebugService.DebugRunRequest(
+                null, "wf", "Workflow", "GENERAL", "demo", "GRAPH_SPEC", null,
+                graph, null, "hello", Map.of(), Map.of()));
+
+        ArgumentCaptor<RuntimeTraceSpanEntity> inserted = ArgumentCaptor.forClass(RuntimeTraceSpanEntity.class);
+        verify(spanMapper, org.mockito.Mockito.atLeast(2)).insert(inserted.capture());
+        RuntimeTraceSpanEntity child = inserted.getAllValues().stream()
+                .filter(entity -> entity.getParentSpanId() != null)
+                .findFirst()
+                .orElseThrow();
+        assertEquals("tool", child.getNodeId());
+        assertEquals("system.echo", child.getToolName());
+        assertEquals(12, child.getLatencyMs());
+        assertTrue(child.getMetadataJson().contains("\"attempt\":2"));
+        assertTrue(child.getMetadataJson().contains("\"maxAttempts\":3"));
+        assertTrue(child.getMetadataJson().contains("\"failureCategory\":\"NONE\""));
+        assertFalse(child.getMetadataJson().contains("legacy-node"));
     }
 
     @Test

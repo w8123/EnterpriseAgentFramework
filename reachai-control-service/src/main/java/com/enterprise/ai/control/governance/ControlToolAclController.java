@@ -16,11 +16,9 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDateTime;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Objects;
 
 @RestController
 @RequestMapping("/api/tool-acl")
@@ -28,6 +26,7 @@ import java.util.Objects;
 public class ControlToolAclController {
 
     private final ControlToolAclMapper mapper;
+    private final ControlToolAclDecisionService decisionService;
 
     @GetMapping
     public ResponseEntity<Page<ControlToolAclEntity>> page(@RequestParam(defaultValue = "1") int current,
@@ -45,13 +44,7 @@ public class ControlToolAclController {
 
     @GetMapping("/roles")
     public ResponseEntity<List<String>> roles() {
-        List<String> roles = mapper.selectList(new LambdaQueryWrapper<ControlToolAclEntity>()
-                        .orderByAsc(ControlToolAclEntity::getRoleCode))
-                .stream()
-                .map(ControlToolAclEntity::getRoleCode)
-                .filter(StringUtils::hasText)
-                .distinct()
-                .toList();
+        List<String> roles = decisionService.knownRoleCodes().stream().sorted().toList();
         return ResponseEntity.ok(roles);
     }
 
@@ -141,20 +134,11 @@ public class ControlToolAclController {
                 .map(String::trim)
                 .toList();
         List<ToolAclTargetRef> targets = request == null || request.targets() == null ? List.of() : request.targets();
-        Map<String, String> result = new LinkedHashMap<>();
-        if (roles.isEmpty()) {
-            for (ToolAclTargetRef target : targets) {
-                result.put(targetName(target), "SKIPPED");
-            }
-            return ResponseEntity.ok(result);
-        }
-        List<ControlToolAclEntity> rules = mapper.selectList(new LambdaQueryWrapper<ControlToolAclEntity>()
-                .in(ControlToolAclEntity::getRoleCode, roles)
-                .eq(ControlToolAclEntity::getEnabled, true));
-        for (ToolAclTargetRef target : targets) {
-            result.put(targetName(target), decide(roles, target, rules));
-        }
-        return ResponseEntity.ok(result);
+        List<ControlToolAclDecisionService.Target> decisionTargets = targets.stream()
+                .map(target -> new ControlToolAclDecisionService.Target(
+                        target == null ? null : target.kind(), target == null ? null : target.name()))
+                .toList();
+        return ResponseEntity.ok(decisionService.decideAll(roles, null, null, decisionTargets));
     }
 
     private void applyPayload(ControlToolAclEntity entity, ControlToolAclEntity request) {
@@ -169,35 +153,6 @@ public class ControlToolAclController {
         entity.setPermission(permission(request.getPermission()));
         entity.setNote(trimToNull(request.getNote()));
         entity.setEnabled(request.getEnabled() == null || request.getEnabled());
-    }
-
-    private String decide(List<String> roles, ToolAclTargetRef target, List<ControlToolAclEntity> rules) {
-        String targetKind = kind(target == null ? null : target.kind());
-        String targetName = targetName(target);
-        boolean allowed = false;
-        for (ControlToolAclEntity rule : rules) {
-            if (!roles.contains(rule.getRoleCode()) || !matches(rule, targetKind, targetName)) {
-                continue;
-            }
-            if ("DENY".equalsIgnoreCase(rule.getPermission())) {
-                return "DENY_EXPLICIT";
-            }
-            if ("ALLOW".equalsIgnoreCase(rule.getPermission())) {
-                allowed = true;
-            }
-        }
-        return allowed ? "ALLOW" : "DENY_NO_MATCH";
-    }
-
-    private boolean matches(ControlToolAclEntity rule, String targetKind, String targetName) {
-        String ruleKind = upper(rule.getTargetKind());
-        boolean kindMatches = Objects.equals(ruleKind, targetKind) || Objects.equals(ruleKind, "ALL");
-        boolean nameMatches = Objects.equals(rule.getTargetName(), "*") || Objects.equals(rule.getTargetName(), targetName);
-        return kindMatches && nameMatches;
-    }
-
-    private String targetName(ToolAclTargetRef target) {
-        return requireText(target == null ? null : target.name(), "target.name");
     }
 
     private int safePage(int requested) {

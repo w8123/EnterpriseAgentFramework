@@ -1,0 +1,20 @@
+{
+  "generator": "AHOLO Lux3D",
+  "generatorVersion": "G1-Turbo",
+  "taskId": 3088939,
+  "inputCount": 3,
+  "primaryView": "front",
+  "referenceOrder": [
+    "front",
+    "left-side",
+    "back"
+  ],
+  "faceCount": 300000,
+  "enablePbr": true,
+  "outputFormat": "glb",
+  "glbVersion": 2,
+  "file": "reachai-ip-mascot.glb",
+  "bytes": 19106016,
+  "sha256": "c7c0aa3824466e0ee85c8a7a2c4627e13012a0be2684e0a0a10f743a65405ad2",
+  "generatedAt": "2026-08-27T13:02:44.500923+00:00"
+}

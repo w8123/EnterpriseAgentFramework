@@ -79,6 +79,30 @@ class WorkflowTraceSanitizerPersistenceTest {
     }
 
     @Test
+    void preservesSafeCapabilityIdentityAndFailureTaxonomyOnly() {
+        String rawArguments = uuid();
+        Map<String, Object> sanitized = WorkflowTraceSanitizer.sanitizeNodeTrace(Map.ofEntries(
+                Map.entry("nodeId", "tool"),
+                Map.entry("nodeType", "TOOL"),
+                Map.entry("nodeName", "Query order"),
+                Map.entry("qualifiedName", "orders:query"),
+                Map.entry("status", "FAILED"),
+                Map.entry("failureCode", "CAPABILITY_CONNECTIVITY_FAILED"),
+                Map.entry("failureCategory", "CONNECTIVITY"),
+                Map.entry("retryableFailure", true),
+                Map.entry("attempt", 2),
+                Map.entry("maxAttempts", 3),
+                Map.entry("rawArguments", rawArguments)));
+
+        assertEquals("orders:query", sanitized.get("qualifiedName"));
+        assertEquals("CONNECTIVITY", sanitized.get("failureCategory"));
+        assertEquals(true, sanitized.get("retryableFailure"));
+        assertEquals(2, sanitized.get("attempt"));
+        assertFalse(sanitized.containsKey("rawArguments"));
+        assertFalse(String.valueOf(sanitized).contains(rawArguments));
+    }
+
+    @Test
     void persistenceNeverReceivesRawCallerContentInAnyStringField() {
         RuntimeTraceSpanMapper spanMapper = mock(RuntimeTraceSpanMapper.class);
         RuntimeToolCallLogMapper toolLogMapper = mock(RuntimeToolCallLogMapper.class);
@@ -138,12 +162,18 @@ class WorkflowTraceSanitizerPersistenceTest {
                         "nodeId", "knowledge1",
                         "nodeType", "KNOWLEDGE_RETRIEVAL",
                         "status", "SUCCESS",
-                        "traceSummary", Map.of(
-                                "queryLength", knowledgeQuery.length(),
-                                "hitCount", 3,
-                                "topK", 5,
-                                "query", knowledgeQuery,
-                                "hits", List.of(Map.of("content", hitContent))))));
+                        "traceSummary", Map.ofEntries(
+                                Map.entry("queryLength", knowledgeQuery.length()),
+                                Map.entry("hitCount", 3),
+                                Map.entry("topK", 5),
+                                Map.entry("evidencePolicy", "REQUIRED"),
+                                Map.entry("outcome", "HIT"),
+                                Map.entry("empty", false),
+                                Map.entry("route", "evidence"),
+                                Map.entry("returnedHitCount", 3),
+                                Map.entry("totalCostMs", 18L),
+                                Map.entry("query", knowledgeQuery),
+                                Map.entry("hits", List.of(Map.of("content", hitContent)))))));
         service.workflow(handle, agent, config, input, "wf_tool", "wf-1", 2L, "v1",
                 Map.of(
                         "q", q,
@@ -185,6 +215,11 @@ class WorkflowTraceSanitizerPersistenceTest {
         }
         assertTrue(persisted.contains("\"statusCode\":500"));
         assertTrue(persisted.contains("\"hitCount\":3"));
+        assertTrue(persisted.contains("\"evidencePolicy\":\"REQUIRED\""));
+        assertTrue(persisted.contains("\"outcome\":\"HIT\""));
+        assertTrue(persisted.contains("\"route\":\"evidence\""));
+        assertTrue(persisted.contains("\"returnedHitCount\":3"));
+        assertTrue(persisted.contains("\"totalCostMs\":18"));
         assertTrue(persisted.contains("\"stepCount\":1"));
         assertTrue(persisted.contains("\"messageLength\":" + message.length()));
         assertTrue(persisted.contains("[rejected:AGENT_POLICY_DENIED]"));

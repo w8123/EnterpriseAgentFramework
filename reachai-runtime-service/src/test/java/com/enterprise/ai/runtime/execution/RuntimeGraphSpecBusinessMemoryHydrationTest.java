@@ -1,5 +1,9 @@
 package com.enterprise.ai.runtime.execution;
 
+import com.enterprise.ai.common.capability.CapabilityInvocationFailureCategory;
+import com.enterprise.ai.common.capability.CapabilityInvocationRequest;
+import com.enterprise.ai.common.capability.CapabilityInvocationResponse;
+import com.enterprise.ai.common.capability.CapabilityInvocationStatus;
 import com.enterprise.ai.runtime.client.capability.RuntimeCapabilityCatalogClient;
 import com.enterprise.ai.runtime.client.control.RuntimeControlCatalogClient;
 import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient;
@@ -30,8 +34,8 @@ class RuntimeGraphSpecBusinessMemoryHydrationTest {
     void hydratesBusinessIndexToolOutputBeforeWorkflowCanObserveIt() {
         ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
         RuntimeCapabilityCatalogClient capabilityClient = mock(RuntimeCapabilityCatalogClient.class);
-        when(capabilityClient.executeTool(eq("knowledge:business.search"), any()))
-                .thenReturn(Map.of("success", true, "data", searchResponse()));
+        when(capabilityClient.invokeTool(eq("knowledge:business.search"), any()))
+                .thenReturn(success("knowledge:business.search", searchResponse()));
         when(capabilityClient.executeTool(eq("mall:order.resolve"), any()))
                 .thenReturn(Map.of(
                         "success", true,
@@ -78,8 +82,8 @@ class RuntimeGraphSpecBusinessMemoryHydrationTest {
     void downstreamAnswerObservesOnlyHydratedCurrentData() {
         ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
         RuntimeCapabilityCatalogClient capabilityClient = mock(RuntimeCapabilityCatalogClient.class);
-        when(capabilityClient.executeTool(eq("knowledge:business.search"), any()))
-                .thenReturn(Map.of("success", true, "data", searchResponse()));
+        when(capabilityClient.invokeTool(eq("knowledge:business.search"), any()))
+                .thenReturn(success("knowledge:business.search", searchResponse()));
         when(capabilityClient.executeTool(eq("mall:order.resolve"), any()))
                 .thenReturn(Map.of(
                         "success", true,
@@ -154,5 +158,25 @@ class RuntimeGraphSpecBusinessMemoryHydrationTest {
         value.put("data", Map.of("status", "CURRENT_PAID"));
         value.put("resolvedAt", OffsetDateTime.now(ZoneOffset.UTC).toString());
         return value;
+    }
+
+    private CapabilityInvocationResponse success(String qualifiedName, Object data) {
+        return new CapabilityInvocationResponse(
+                CapabilityInvocationRequest.CONTRACT_VERSION,
+                "test-invocation",
+                qualifiedName,
+                null,
+                null,
+                CapabilityInvocationStatus.SUCCEEDED,
+                true,
+                data,
+                "OK",
+                null,
+                CapabilityInvocationFailureCategory.NONE,
+                false,
+                1L,
+                1,
+                null,
+                Map.of());
     }
 }

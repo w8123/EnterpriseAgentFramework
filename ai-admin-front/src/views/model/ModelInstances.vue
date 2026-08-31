@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ChatDotRound,
@@ -10,6 +10,7 @@ import {
   Plus,
   Refresh,
   Search,
+  Setting,
 } from '@element-plus/icons-vue'
 import CollapsibleHeaderRegion from '@/components/common/CollapsibleHeaderRegion.vue'
 import FilterBar from '@/components/common/FilterBar.vue'
@@ -24,7 +25,9 @@ import {
   updateModelInstance,
 } from '@/api/model'
 import type { ModelInstance, ModelType } from '@/types/model'
+import { isSupportedModelType } from '@/utils/modelSelection'
 import ModelInstanceCard from './components/ModelInstanceCard.vue'
+import ModelCatalogSettingsDialog from './components/ModelCatalogSettingsDialog.vue'
 import ModelOnboardingDialog from './components/ModelOnboardingDialog.vue'
 import {
   buildStatusUpdateRequest,
@@ -39,12 +42,15 @@ import {
   readModelApiPayload,
 } from './modelCenterUi'
 
+const route = useRoute()
 const router = useRouter()
 const instances = ref<ModelInstance[]>([])
 const loading = ref(false)
 const testingId = ref('')
 const togglingId = ref('')
 const onboardingVisible = ref(false)
+const catalogSettingsVisible = ref(false)
+const onboardingModelType = ref<ModelType | ''>('')
 
 const filterDraft = reactive({
   keyword: '',
@@ -153,6 +159,26 @@ function selectModelType(type: ModelType | '') {
   filters.modelType = type
 }
 
+function openOnboarding(modelType: ModelType | '' = '') {
+  onboardingModelType.value = modelType
+  onboardingVisible.value = true
+}
+
+function consumeModelCreationRoute() {
+  if (route.query.create !== '1') return
+  const rawModelType = Array.isArray(route.query.modelType)
+    ? route.query.modelType[0]
+    : route.query.modelType
+  const modelType = isSupportedModelType(rawModelType) ? rawModelType : ''
+  if (modelType) filters.modelType = modelType
+  openOnboarding(modelType)
+
+  const query = { ...route.query }
+  delete query.create
+  delete query.modelType
+  void router.replace({ query })
+}
+
 function openDetail(instance: ModelInstance) {
   router.push({ name: 'ModelInstanceDetail', params: { id: instance.id } })
 }
@@ -202,6 +228,12 @@ async function handleToggle(instance: ModelInstance) {
   }
 }
 
+watch(
+  () => [route.query.create, route.query.modelType],
+  consumeModelCreationRoute,
+  { immediate: true },
+)
+
 onMounted(loadInstances)
 </script>
 
@@ -218,7 +250,8 @@ onMounted(loadInstances)
       >
         <template #actions>
           <el-button :icon="Refresh" :loading="loading" @click="loadInstances">刷新</el-button>
-          <el-button type="primary" :icon="Plus" @click="onboardingVisible = true">接入模型</el-button>
+          <el-button :icon="Setting" @click="catalogSettingsVisible = true">目录设置</el-button>
+          <el-button type="primary" :icon="Plus" @click="openOnboarding()">接入模型</el-button>
         </template>
       </PageHeader>
       <template #summary>
@@ -307,7 +340,7 @@ onMounted(loadInstances)
 
         <div v-else-if="showEmptySystem" class="model-center__empty">
           <el-empty description="尚未接入模型">
-            <el-button type="primary" :icon="Plus" @click="onboardingVisible = true">接入第一个模型</el-button>
+            <el-button type="primary" :icon="Plus" @click="openOnboarding()">接入第一个模型</el-button>
           </el-empty>
         </div>
 
@@ -332,7 +365,12 @@ onMounted(loadInstances)
       </div>
     </section>
 
-    <ModelOnboardingDialog v-model="onboardingVisible" @created="loadInstances" />
+    <ModelOnboardingDialog
+      v-model="onboardingVisible"
+      :initial-model-type="onboardingModelType"
+      @created="loadInstances"
+    />
+    <ModelCatalogSettingsDialog v-model="catalogSettingsVisible" />
   </WorkbenchPage>
 </template>
 

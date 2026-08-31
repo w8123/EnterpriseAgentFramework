@@ -90,8 +90,10 @@
       <el-table-column prop="lastSeenAt" label="最近出现" min-width="170" />
       <el-table-column label="操作" width="170" fixed="right">
         <template #default="{ row }">
-          <el-button link type="primary" @click="openUserDialog(row)">校正资料</el-button>
-          <el-button link @click="openIdentityDrawer(row)">身份映射</el-button>
+          <el-button v-if="canManageBusinessUsers" link type="primary" @click="openUserDialog(row)">校正资料</el-button>
+          <el-button link @click="openIdentityDrawer(row)">
+            {{ canManageBusinessUsers ? '身份映射' : '查看映射' }}
+          </el-button>
         </template>
       </el-table-column>
       </el-table>
@@ -169,14 +171,14 @@
               </div>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="70">
+          <el-table-column v-if="canManageBusinessUsers" label="操作" width="70">
             <template #default="{ row }">
               <el-button link type="primary" @click="editIdentity(row)">编辑</el-button>
             </template>
           </el-table-column>
         </el-table>
 
-        <div class="identity-form">
+        <div v-if="canManageBusinessUsers" class="identity-form">
           <h3>{{ identityForm.id ? '编辑映射' : '新增映射' }}</h3>
           <el-form :model="identityForm" label-width="100px">
             <el-form-item label="应用 ID" required>
@@ -218,9 +220,14 @@
 <script setup lang="ts">
 import AppDialog from '@/components/common/AppDialog.vue'
 import AppDrawer from '@/components/common/AppDrawer.vue'
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Refresh, Search } from '@element-plus/icons-vue'
+import {
+  hasPlatformPermission,
+  PLATFORM_PERMISSION_BUSINESS_USER_MANAGE,
+} from '@/auth/platformAccess'
+import { platformSessionUser } from '@/auth/platformSession'
 import FilterBar from '@/components/common/FilterBar.vue'
 import DataTableShell from '@/components/common/DataTableShell.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
@@ -248,6 +255,10 @@ const selectedUser = ref<BusinessUserView | null>(null)
 const editingUser = ref<(BusinessUserView & { email?: string; mobile?: string }) | null>(null)
 const userDialogOpen = ref(false)
 const identityDrawerOpen = ref(false)
+const canManageBusinessUsers = computed(() => hasPlatformPermission(
+  platformSessionUser.value?.permissions,
+  PLATFORM_PERMISSION_BUSINESS_USER_MANAGE,
+))
 
 const filters = reactive({
   keyword: '',
@@ -289,12 +300,13 @@ function search() {
 }
 
 function openUserDialog(row: BusinessUserView) {
+  if (!canManageBusinessUsers.value) return
   editingUser.value = { ...row }
   userDialogOpen.value = true
 }
 
 async function saveUser() {
-  if (!editingUser.value) return
+  if (!canManageBusinessUsers.value || !editingUser.value) return
   saving.value = true
   try {
     await updateBusinessUser(editingUser.value.id, {
@@ -331,6 +343,7 @@ async function reloadIdentities() {
 }
 
 function editIdentity(row: ExternalIdentityView) {
+  if (!canManageBusinessUsers.value) return
   identityForm.id = row.id
   identityForm.appId = row.appId
   identityForm.externalUserId = row.externalUserId
@@ -353,7 +366,7 @@ function resetIdentityForm() {
 }
 
 async function saveIdentity() {
-  if (!selectedUser.value) return
+  if (!canManageBusinessUsers.value || !selectedUser.value) return
   if (!identityForm.appId || !identityForm.externalUserId) {
     ElMessage.warning('请填写应用 ID 和外部用户 ID')
     return

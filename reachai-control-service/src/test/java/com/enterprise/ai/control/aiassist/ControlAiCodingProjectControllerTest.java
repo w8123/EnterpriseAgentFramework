@@ -174,7 +174,7 @@ class ControlAiCodingProjectControllerTest {
                 .thenReturn(ResponseEntity.ok(Map.of(
                         "id", "agent-1",
                         "keySlug", "orders-page-copilot",
-                        "name", "Orders Page Copilot",
+                        "name", "Orders 页面副驾驶 Agent",
                         "projectCode", "orders",
                         "enabled", true
                 )));
@@ -236,81 +236,6 @@ class ControlAiCodingProjectControllerTest {
                 ControlProjectAgentProvisioningService.DEFAULT_PAGE_COPILOT_SYSTEM_PROMPT,
                 configBodyCaptor.getValue().get("systemPrompt"));
         verify(runtimeClient, never()).createWorkflow(org.mockito.ArgumentMatchers.anyMap());
-    }
-
-    @Test
-    void upgradesOnlyLegacyManagedPageCopilotContentToChinese() {
-        CapabilityProjectOnboardingClient client = mock(CapabilityProjectOnboardingClient.class);
-        RuntimeProxyClient runtimeClient = mock(RuntimeProxyClient.class);
-        ControlModelCatalogClient modelClient = mock(ControlModelCatalogClient.class);
-        ControlProjectAgentProvisioningService provisioningService =
-                new ControlProjectAgentProvisioningService(client, runtimeClient, modelClient);
-        when(client.getOnboardingProjectById(7L)).thenReturn(Map.of(
-                "id", 7L,
-                "name", "班组建设16",
-                "projectCode", "bzjs16"));
-        when(runtimeClient.listAgents(7L, "bzjs16")).thenReturn(ResponseEntity.ok(List.of(Map.of(
-                "id", "agent-1",
-                "keySlug", "bzjs16-page-copilot",
-                "name", "班组建设16 Page Copilot",
-                "description", "Project page copilot Agent for embedded chat and Workflow routing."))));
-        when(runtimeClient.updateAgent(
-                org.mockito.ArgumentMatchers.eq("agent-1"),
-                org.mockito.ArgumentMatchers.anyMap())).thenReturn(ResponseEntity.ok(Map.of(
-                        "id", "agent-1",
-                        "keySlug", "bzjs16-page-copilot",
-                        "name", "班组建设16 页面副驾驶 Agent",
-                        "description", ControlProjectAgentProvisioningService.DEFAULT_PAGE_COPILOT_DESCRIPTION)));
-        when(modelClient.list(null, "LLM", null)).thenReturn(ResponseEntity.ok(Map.of(
-                "data", List.of(Map.of(
-                        "id", "model-1",
-                        "modelType", "LLM",
-                        "status", "ACTIVE")))));
-        when(runtimeClient.listAgentConfigVersions("agent-1")).thenReturn(ResponseEntity.ok(List.of(Map.of(
-                "id", 20L,
-                "agentId", "agent-1",
-                "versionNo", 2,
-                "status", "ACTIVE",
-                "modelInstanceId", "model-1",
-                "systemPrompt", "You are the project's page copilot Supervisor. Understand the request, plan, and select one or more permitted Workflows as tools. Use page-action Workflows only when the user explicitly asks to open, navigate, query, or operate a page.",
-                "tools", List.of()))));
-        when(runtimeClient.saveAgentConfigDraft(
-                org.mockito.ArgumentMatchers.eq("agent-1"),
-                org.mockito.ArgumentMatchers.anyMap())).thenReturn(ResponseEntity.ok(Map.of(
-                        "id", 21L,
-                        "status", "DRAFT")));
-        when(runtimeClient.publishAgentConfigVersion(
-                org.mockito.ArgumentMatchers.eq("agent-1"),
-                org.mockito.ArgumentMatchers.eq(21L),
-                org.mockito.ArgumentMatchers.anyMap())).thenReturn(ResponseEntity.ok(Map.of(
-                        "id", 21L,
-                        "versionNo", 3,
-                        "status", "ACTIVE",
-                        "systemPrompt", ControlProjectAgentProvisioningService.DEFAULT_PAGE_COPILOT_SYSTEM_PROMPT,
-                        "tools", List.of())));
-
-        Map<String, Object> result = provisioningService.provision(
-                7L,
-                Map.of("requestedBy", "Codex"));
-
-        assertEquals(false, result.get("createdAgent"));
-        assertEquals(true, result.get("createdSupervisorConfig"));
-        ArgumentCaptor<Map<String, Object>> agentUpdateCaptor = ArgumentCaptor.forClass(Map.class);
-        verify(runtimeClient).updateAgent(
-                org.mockito.ArgumentMatchers.eq("agent-1"),
-                agentUpdateCaptor.capture());
-        assertEquals("班组建设16 页面副驾驶 Agent", agentUpdateCaptor.getValue().get("name"));
-        assertEquals(
-                ControlProjectAgentProvisioningService.DEFAULT_PAGE_COPILOT_DESCRIPTION,
-                agentUpdateCaptor.getValue().get("description"));
-        ArgumentCaptor<Map<String, Object>> configBodyCaptor = ArgumentCaptor.forClass(Map.class);
-        verify(runtimeClient).saveAgentConfigDraft(
-                org.mockito.ArgumentMatchers.eq("agent-1"),
-                configBodyCaptor.capture());
-        assertEquals(
-                ControlProjectAgentProvisioningService.DEFAULT_PAGE_COPILOT_SYSTEM_PROMPT,
-                configBodyCaptor.getValue().get("systemPrompt"));
-        verify(runtimeClient, never()).createAgent(org.mockito.ArgumentMatchers.anyMap());
     }
 
     @Test

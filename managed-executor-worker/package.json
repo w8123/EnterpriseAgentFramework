@@ -1,0 +1,27 @@
+{
+  "name": "@reachai/managed-executor-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "reachai-managed-executor-worker": "dist/src/remote-cli.js",
+    "reachai-managed-runtime-broker": "dist/src/runtime-credential-broker-cli.js",
+    "reachai-managed-executor-local": "dist/src/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test dist/src",
+    "schema:generate": "node scripts/generate-app-server-schema.mjs"
+  },
+  "managedExecutor": {
+    "codexVersion": "0.144.3"
+  },
+  "devDependencies": {
+    "@types/node": "20.12.12",
+    "typescript": "5.6.3"
+  }
+}

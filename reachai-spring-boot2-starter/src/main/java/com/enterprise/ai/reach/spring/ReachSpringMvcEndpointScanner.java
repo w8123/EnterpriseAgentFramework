@@ -24,6 +24,12 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
+/**
+ * Derives capability descriptors from the declared methods of a
+ * {@code @RestController}. Methods already carrying an explicit
+ * {@code @ReachCapability} are skipped, and each class/method path mapping is
+ * expanded into one descriptor per combination of class and method path.
+ */
 final class ReachSpringMvcEndpointScanner {
 
     private ReachSpringMvcEndpointScanner() {

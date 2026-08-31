@@ -133,7 +133,7 @@ function onToolExpandChange(row: ProjectToolInfo, expandedRows: ProjectToolInfo[
                 :loading="batchModulePromoteLoading[g.key] ?? false"
                 @click.stop="emit('promoteModuleToGlobal', g)"
               >
-                添加为 Tool
+                纳入能力目录
               </el-button>
             </div>
           </template>
@@ -173,7 +173,7 @@ function onToolExpandChange(row: ProjectToolInfo, expandedRows: ProjectToolInfo[
                     </el-table-column>
                   </el-table>
                   <div class="tool-meta">
-                    <div><b>工具标识：</b><code>{{ row.name }}</code></div>
+                    <div><b>接口标识：</b><code>{{ row.name }}</code></div>
                     <div><b>HTTP：</b>{{ row.httpMethod || '-' }} {{ row.contextPath || '' }}{{ row.endpointPath || '' }}</div>
                     <div><b>Base URL：</b>{{ row.baseUrl || '-' }}</div>
                     <div><b>来源定位：</b>{{ row.sourceLocation || '-' }}</div>
@@ -206,7 +206,7 @@ function onToolExpandChange(row: ProjectToolInfo, expandedRows: ProjectToolInfo[
                 </div>
               </template>
             </el-table-column>
-            <el-table-column prop="title" label="工具名称" min-width="200">
+            <el-table-column prop="title" label="接口名称" min-width="200">
               <template #default="{ row }">
                 <div>{{ row.title || row.name }}</div>
                 <code>{{ row.name }}</code>
@@ -272,7 +272,7 @@ function onToolExpandChange(row: ProjectToolInfo, expandedRows: ProjectToolInfo[
                 />
               </template>
             </el-table-column>
-            <el-table-column label="Tool 关联" min-width="150">
+            <el-table-column label="能力目录状态" min-width="150">
               <template #default="{ row }">
                 <div class="tool-link-cell">
                   <el-tag :type="toolLinkTagType(row)" size="small">{{ toolLinkLabel(row) }}</el-tag>
@@ -298,7 +298,7 @@ function onToolExpandChange(row: ProjectToolInfo, expandedRows: ProjectToolInfo[
                   <el-button link type="primary" size="small" :disabled="row.removedFromSource" @click="emit('openEdit', row)">编辑</el-button>
                   <el-tooltip
                     effect="dark"
-                    content="从源码或 OpenAPI 重新解析并更新本行（保留工具标识与开关；已挂全局 Tool 时请再点「更新到Tool」同步）"
+                    content="从源码或 OpenAPI 重新解析并更新本行（保留接口标识与开关；已纳入能力目录时请再点「更新能力定义」同步）"
                     placement="top"
                   >
                     <el-button
@@ -321,7 +321,7 @@ function onToolExpandChange(row: ProjectToolInfo, expandedRows: ProjectToolInfo[
                     :loading="promoteLoading[row.scanToolId]"
                     @click="emit('promoteToGlobal', row)"
                   >
-                    添加为 Tool
+                    纳入能力目录
                   </el-button>
                   <el-button
                     v-if="row.globalToolDefinitionId && row.globalToolOutOfSync"
@@ -331,7 +331,7 @@ function onToolExpandChange(row: ProjectToolInfo, expandedRows: ProjectToolInfo[
                     :loading="pushToGlobalLoading[row.scanToolId]"
                     @click="emit('pushToGlobal', row)"
                   >
-                    更新到Tool
+                    更新能力定义
                   </el-button>
                   <el-button
                     v-if="row.globalToolDefinitionId"
@@ -341,7 +341,7 @@ function onToolExpandChange(row: ProjectToolInfo, expandedRows: ProjectToolInfo[
                     :loading="unpromoteLoading[row.scanToolId]"
                     @click="emit('unpromoteFromGlobal', row)"
                   >
-                    从Tool中下架
+                    移出能力目录
                   </el-button>
                   <span class="merged-ops-sep" aria-hidden="true" />
                   <el-button link size="small" type="primary" @click="emit('regenerateTool', row)">重新生成 AI</el-button>

@@ -1,6 +1,5 @@
 package com.enterprise.ai.control.pageworkbench.application;
 
-import com.enterprise.ai.control.client.capability.CapabilityProjectOnboardingClient;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.ActionInput;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.ManualPageCommand;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.PageReport;
@@ -33,8 +32,8 @@ class PageCatalogApplicationServiceTest {
         ProjectPageMapper pageMapper = mock(ProjectPageMapper.class);
         PageResourceMapper resourceMapper = mock(PageResourceMapper.class);
         PageActionMapper actionMapper = mock(PageActionMapper.class);
-        CapabilityProjectOnboardingClient capabilityClient =
-                mock(CapabilityProjectOnboardingClient.class);
+        PageWorkbenchProjectPort capabilityClient =
+                mock(PageWorkbenchProjectPort.class);
         when(capabilityClient.getProjectById(7L))
                 .thenReturn(Map.of("id", 7L, "projectCode", "orders"));
         PageCatalogApplicationService service = new PageCatalogApplicationService(
@@ -72,8 +71,8 @@ class PageCatalogApplicationServiceTest {
         ProjectPageMapper pageMapper = mock(ProjectPageMapper.class);
         PageResourceMapper resourceMapper = mock(PageResourceMapper.class);
         PageActionMapper actionMapper = mock(PageActionMapper.class);
-        CapabilityProjectOnboardingClient capabilityClient =
-                mock(CapabilityProjectOnboardingClient.class);
+        PageWorkbenchProjectPort capabilityClient =
+                mock(PageWorkbenchProjectPort.class);
         when(capabilityClient.getProjectById(7L))
                 .thenReturn(Map.of("id", 7L, "projectCode", "inventory"));
         PageCatalogApplicationService service = new PageCatalogApplicationService(
@@ -106,8 +105,8 @@ class PageCatalogApplicationServiceTest {
         ProjectPageMapper pageMapper = mock(ProjectPageMapper.class);
         PageResourceMapper resourceMapper = mock(PageResourceMapper.class);
         PageActionMapper actionMapper = mock(PageActionMapper.class);
-        CapabilityProjectOnboardingClient capabilityClient =
-                mock(CapabilityProjectOnboardingClient.class);
+        PageWorkbenchProjectPort capabilityClient =
+                mock(PageWorkbenchProjectPort.class);
         PageCatalogApplicationService service = new PageCatalogApplicationService(
                 pageMapper,
                 resourceMapper,

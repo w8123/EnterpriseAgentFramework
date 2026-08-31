@@ -1,111 +1,97 @@
-# ReachAI Admin Frontend
+# ReachAI 管理端
 
-`ai-admin-front` is the Vue 3 + TypeScript + Element Plus + Vite workspace console for ReachAI. It is a workbench-style admin UI for platform operation, registry management, workflow/runtime governance, knowledge retrieval, model gateway configuration, and public capability onboarding.
+`ai-admin-front` 是 Vue 3 + TypeScript + Element Plus + Vite 的 ReachAI 工作台型管理端。它负责平台配置、项目接入、Agent/Workflow 设计、运行治理、知识/模型管理和开放协议操作，不拥有后端业务事实。
 
-## Backend Topology
+## 后端入口
 
-The frontend is aligned with the current five-service backend topology:
-
-| Frontend path | Owning backend | Default local target |
+| 浏览器路径 | 本地目标 | 边界 |
 | --- | --- | --- |
-| `/api/**` | `reachai-control-service` as Platform Control public API/BFF | `http://localhost:18603` |
-| `/ai/**` | `reachai-knowledge-service` as Knowledge / Retrieval | `http://localhost:18602` with backend context path `/ai` |
-| `/model/**` | `reachai-model-service` as Model Gateway | `http://localhost:18601` |
-| Runtime health and capability health | Aggregated by `reachai-control-service` | `GET /api/internal-services/health` |
+| `/api/**` | `reachai-control-service:18603` | 平台公共 API/BFF；Runtime/Capability 管理面也经 Control |
+| `/ai/**` | `reachai-knowledge-service:18602` | Knowledge context path `/ai` |
+| `/model/templates*`、`/model/instances*`、`/model/chat*` | `reachai-model-service:18601` | Model Gateway；Vite 同时避免与 SPA `/model/instances` 路由冲突 |
 
-`reachai-runtime-service` and `reachai-capability-service` are backend deployment units, but the admin frontend should use the Control public API for their public surfaces. Frontend does not call reachai-runtime-service:18604 or reachai-capability-service:18605 directly.
+前端不得直连 `reachai-runtime-service:18604` 或 `reachai-capability-service:18605`。需要新增管理能力时，先确认 owning service 和 public route，再在 Control 保持平台会话/RBAC 边界。
 
-The current backend deployment units are:
+## 本地开发
 
-- `reachai-control-service`: Platform Control public API/BFF, `/api/**`, `/embed/**`, SDK registry compatibility entry.
-- `reachai-runtime-service`: Runtime Host for Agent, Workflow, GraphSpec execution, Trace, RunOps, debug, and runtime internal APIs.
-- `reachai-capability-service`: Capability Catalog for SDK registration, snapshots, diff/review/apply, scan project catalog, and capability assets.
-- `reachai-knowledge-service`: Knowledge / Retrieval for knowledge bases, files, chunks, RAG, vector retrieval, business index, and scanner implementation.
-- `reachai-model-service`: Model Gateway for model templates/instances, Chat, Embedding, and Rerank. The former OpenAI-compatible HTTP proxy endpoint has been removed.
+推荐先按顺序启动 Model、Knowledge、Capability、Runtime、Control，再启动前端：
 
-## Local Development
-
-Start the backend services you need first. For the full console, the recommended local order is:
-
-1. `reachai-model-service` on `18601`
-2. `reachai-knowledge-service` on `18602` with context path `/ai`
-3. `reachai-capability-service` on `18605`
-4. `reachai-runtime-service` on `18604`
-5. `reachai-control-service` on `18603`
-
-Then start the frontend:
-
-```bash
-cd ai-admin-front
-npm install
+```powershell
+Set-Location ai-admin-front
+npm ci
 npm run dev
 ```
 
-Vite dev server runs on http://localhost:5200.
+Vite 默认端口为 `5200`。生产构建：
 
-For production builds:
-
-```bash
+```powershell
 npm run build
 ```
 
-The generated files are written to `dist/`.
+构建输出位于 `dist/`。本地开源模式默认登录账号 `admin / admin123`；仅用于开发体验，生产必须在 Control 侧关闭 LOCAL/bootstrap。
 
-## API Clients
+## API Client
 
-The frontend keeps separate API clients in `src/api/request.ts`:
+`src/api/request.ts` 维护三个明确 client：
 
-| Client | Base URL | Purpose |
+| Client | Base URL | 用途 |
 | --- | --- | --- |
-| `textRequest` | `/ai` | Knowledge bases, file import, retrieval test, RAG, scanner-backed knowledge utilities, and business index APIs. |
-| `controlRequest` | site root | Platform Control public API/BFF paths such as `/api/agents`, `/api/workflows`, `/api/tools`, `/api/scan-projects`, and `/api/internal-services/health`. |
-| `modelRequest` | `/model` | Model Gateway paths such as `/model/templates`, `/model/instances`, `/model/chat`, and `/model/chat/stream/events`. |
+| 默认 `textRequest` | `/ai` | Knowledge、文件、检索、RAG 等直接 Knowledge API |
+| `controlRequest` | 当前站点根 | `/api/**` Control 公共 API/BFF |
+| `modelRequest` | `/model` | 模型模板、实例和调试接口 |
 
-The Vite proxy in `vite.config.ts` maps those paths to the local backend ports listed above. If a route is not implemented, it should be implemented in the owning service or removed from the UI path; the frontend should not depend on a hidden legacy backend fallback.
+平台会话只由 Control client 的会话协议处理。Embed Token、MCP Key、A2A Principal、项目签名和 AI Coding Task Token 是不同凭证域，不能复用平台 Bearer。
 
-## Main Product Areas
+## 产品区域
 
-| Area | Typical routes | Backend surface |
+| 区域 | 典型路由 | 后端 owner |
 | --- | --- | --- |
-| Overview | `/dashboard` | Aggregated health and quick metrics from Control, Knowledge, and Model. |
-| Registry center | `/registry/**`, `/scan-project/**` | Control public APIs backed by Capability Catalog ownership. |
-| Workflow and Runtime | `/workflows/**`, `/agents/**`, runtime debug and RunOps pages | Control public APIs backed by Runtime Host ownership. |
-| Knowledge retrieval | `/knowledge/**`, `/retrieval`, `/biz-index/**` | Knowledge / Retrieval service through `/ai/**`. |
-| Model management | `/model`, `/model/playground` | Model Gateway through `/model/**`. |
-| Governance and open protocol | MCP, A2A, Tool ACL, embed operations | Control public APIs. |
+| Agent / Workflow | `/agent/**`、`/workflows/**` | Runtime，经 Control |
+| Agent Skill | `/skills` | Control Skill Center；部署态验收仍按专题证据矩阵 |
+| RunOps / Agent Eval | `/runops/**`、`/agent/:id/evals` | Runtime，经 Control |
+| 项目与页面工作台 | `/registry/**`、`/scan-project/**` | Control 编排，Capability/Runtime 协作 |
+| Knowledge / Business Index | `/knowledge/**`、`/retrieval`、`/biz-index/**` | Knowledge；受保护入口经 Control |
+| Model Center | `/model/instances/**`、`/model/playground` | Model |
+| API 市场 | `/api-market` | Capability，经 Control |
+| MCP / A2A Hub | `/mcp/**`、`/a2a-hub/**` | Control，执行协作 Runtime |
+| 身份、ACL、Context | `/settings/**`、`/context/**` | Control |
 
-## Production Reverse Proxy
+路由存在不等于目标环境功能已上线。A2A Hub、Agent Skill、API Market、EvalOps 等快速演进能力必须对照专题状态、SQL、运行制品和真实业务流。
 
-A production gateway or Nginx layer should route by path:
+## 目录约定
 
-```nginx
-location /ai/ {
-    proxy_pass http://localhost:18602;
-    proxy_read_timeout 300s;
-}
+- `src/api/`：按后端公共契约拆分的 API client；
+- `src/types/`：前端 DTO/视图模型，不应复制后端 owner 规则；
+- `src/views/`：页面 Shell 与产品工作区；复杂页面优先拆 composable 和子组件；
+- `src/conversation/`：Agent、Workflow、Embed 共享的对话内核与展示组件；
+- `src/sdk/`：Embed Chat / Page Bridge SDK；
+- `src/components/common/`：共享工作台组件与菜单模型；
+- `src/styles/`：主题和设计 Token，页面避免硬编码主题色。
 
-location /api/ {
-    proxy_pass http://localhost:18603;
-    proxy_read_timeout 300s;
-}
+## 常用验证
 
-location /model/ {
-    proxy_pass http://localhost:18601;
-    proxy_read_timeout 300s;
-    proxy_buffering off;
-}
+```powershell
+npm run build
+npm run test:workflow
+npm run test:conversation
+npm run test:model
+npm run test:knowledge
+npm run test:api-market
+npm run test:skill
 ```
 
-Long-running import, scanner, chat stream, and model stream paths should keep a longer read timeout.
+只运行与本次变更相关的测试；涉及共享路由、API client、对话内核或主题时扩大回归范围。浏览器验收至少核对首屏、加载/空/错状态、关键操作、Network 请求目标、控制台错误和暗/亮主题。
 
-## Verification
+仓库级边界检查：
 
-From the repository root, useful checks are:
-
-```bash
-node scripts/check-backend-boundary-naming.mjs
+```powershell
+node scripts/check-frontend-public-api-routes.mjs
 node scripts/check-physical-service-route-contracts.mjs
-node scripts/check-physical-service-smoke.mjs
 ```
 
-Run the smoke script only after all five backend services are already running locally.
+## 进一步阅读
+
+- [ReachAI 文档中心](../docs/README.md)
+- [五服务边界与本地启动](../docs/architecture/service-boundaries.md)
+- [前端相关计划与验收](../docs/plans/README.md)
+- [嵌入式对话与页面动作](../docs/reference/嵌入式对话与页面动作.md)

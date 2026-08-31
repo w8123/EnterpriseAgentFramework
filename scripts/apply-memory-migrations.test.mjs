@@ -26,7 +26,7 @@ function passingEnvironment() {
   }
 }
 
-test('repository migration plan uses the fixed Agent Memory order and SHA-256 checksums', async () => {
+test('repository migration plan uses the single current release upgrade and SHA-256 checksum', async () => {
   const plan = await repositoryMigrationPlan(ROOT)
   assert.deepEqual(plan.map(item => item.script), REQUIRED_MIGRATIONS)
   assert.ok(plan.every(item => /^[a-f0-9]{64}$/.test(item.checksumSha256)))

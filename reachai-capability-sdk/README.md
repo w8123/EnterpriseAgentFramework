@@ -122,3 +122,25 @@ serialization, then transmit those same bytes; reserializing an object after
 signing is expected to fail verification. The Spring Starter's
 `ReachAiBusinessIndexClient` implements this contract for structured Business
 Index upsert, batch upsert, and delete.
+
+## Module boundary
+
+This SDK is a declaration and signing contract only. It does not scan Spring
+beans, register projects, expose callback endpoints, schedule heartbeats, or
+exchange Embed Tokens. Those runtime integration responsibilities belong to
+`reachai-spring-boot2-starter`. Business services still own authentication,
+authorization, tenant isolation, row visibility, and the actual capability
+implementation.
+
+## Build and verification
+
+Run from the repository root:
+
+```powershell
+mvn -pl reachai-capability-sdk -am test
+mvn -pl reachai-capability-sdk,reachai-spring-boot2-starter -am -DskipTests package
+.\scripts\verify-java-sdk-artifacts-cleanroom.ps1
+```
+
+Continue with the [Spring Boot Starter README](../reachai-spring-boot2-starter/README.md)
+and [project registration and capability assets](../docs/02-%E9%A1%B9%E7%9B%AE%E6%B3%A8%E5%86%8C%E4%B8%8E%E8%83%BD%E5%8A%9B%E8%B5%84%E4%BA%A7.md).

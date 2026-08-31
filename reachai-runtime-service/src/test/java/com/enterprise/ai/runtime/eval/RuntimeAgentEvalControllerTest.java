@@ -103,6 +103,7 @@ class RuntimeAgentEvalControllerTest {
     private RuntimeAgentEvalRunView runView(Long id) {
         RuntimeAgentEvalRunDetail run = new RuntimeAgentEvalRunDetail(id, 1L, "agent-1",
                 "Orders Agent", "smoke run", 1, "COMPLETED",
+                41L, 99L, "DRAFT", "abcdef0123456789",
                 "{\"caseCount\":1}", "{\"summary\":\"Runtime execution is not attached yet\"}",
                 null, null);
         RuntimeAgentEvalCaseResultView result = new RuntimeAgentEvalCaseResultView(31L, id, 1L,

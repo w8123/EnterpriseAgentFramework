@@ -2,9 +2,6 @@ package com.enterprise.ai.control.pageworkbench.application;
 
 import com.enterprise.ai.control.aicoding.provider.AiCodingContractResourceLoader;
 import com.enterprise.ai.control.aicoding.provider.AiCodingTaskKindProvider;
-import com.enterprise.ai.control.client.capability.CapabilityProjectOnboardingClient;
-import com.enterprise.ai.control.client.model.ControlModelCatalogClient;
-import com.enterprise.ai.control.client.runtime.RuntimeProxyClient;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -16,9 +13,9 @@ public class PageWorkbenchTaskProviderConfiguration {
     public AiCodingTaskKindProvider pageReadonlyAnalysisTaskProvider(
             PageCatalogApplicationService pageCatalog,
             PageAnalysisApplicationService pageAnalysis,
-            CapabilityProjectOnboardingClient capabilityClient,
-            ControlModelCatalogClient modelCatalogClient,
-            RuntimeProxyClient runtimeClient,
+            PageWorkbenchProjectPort capabilityClient,
+            PageWorkbenchModelPort modelCatalogClient,
+            PageWorkbenchRuntimePort runtimeClient,
             PageWorkbenchBrowserReadinessApplicationService browserReadiness,
             PageWorkbenchAgentModelReadinessApplicationService modelReadiness,
             PageWorkbenchWorkflowTraceReadinessApplicationService
@@ -48,9 +45,9 @@ public class PageWorkbenchTaskProviderConfiguration {
     public AiCodingTaskKindProvider workflowEngineeringTaskProvider(
             PageCatalogApplicationService pageCatalog,
             PageAnalysisApplicationService pageAnalysis,
-            CapabilityProjectOnboardingClient capabilityClient,
-            ControlModelCatalogClient modelCatalogClient,
-            RuntimeProxyClient runtimeClient,
+            PageWorkbenchProjectPort capabilityClient,
+            PageWorkbenchModelPort modelCatalogClient,
+            PageWorkbenchRuntimePort runtimeClient,
             PageWorkbenchBrowserReadinessApplicationService browserReadiness,
             PageWorkbenchAgentModelReadinessApplicationService modelReadiness,
             PageWorkbenchWorkflowTraceReadinessApplicationService
@@ -80,9 +77,9 @@ public class PageWorkbenchTaskProviderConfiguration {
     public AiCodingTaskKindProvider codeImplementationTaskProvider(
             PageCatalogApplicationService pageCatalog,
             PageAnalysisApplicationService pageAnalysis,
-            CapabilityProjectOnboardingClient capabilityClient,
-            ControlModelCatalogClient modelCatalogClient,
-            RuntimeProxyClient runtimeClient,
+            PageWorkbenchProjectPort capabilityClient,
+            PageWorkbenchModelPort modelCatalogClient,
+            PageWorkbenchRuntimePort runtimeClient,
             PageWorkbenchBrowserReadinessApplicationService browserReadiness,
             PageWorkbenchAgentModelReadinessApplicationService modelReadiness,
             PageWorkbenchWorkflowTraceReadinessApplicationService
@@ -112,9 +109,9 @@ public class PageWorkbenchTaskProviderConfiguration {
     public AiCodingTaskKindProvider browserAcceptanceTaskProvider(
             PageCatalogApplicationService pageCatalog,
             PageAnalysisApplicationService pageAnalysis,
-            CapabilityProjectOnboardingClient capabilityClient,
-            ControlModelCatalogClient modelCatalogClient,
-            RuntimeProxyClient runtimeClient,
+            PageWorkbenchProjectPort capabilityClient,
+            PageWorkbenchModelPort modelCatalogClient,
+            PageWorkbenchRuntimePort runtimeClient,
             PageWorkbenchBrowserReadinessApplicationService browserReadiness,
             PageWorkbenchAgentModelReadinessApplicationService modelReadiness,
             PageWorkbenchWorkflowTraceReadinessApplicationService
@@ -144,9 +141,9 @@ public class PageWorkbenchTaskProviderConfiguration {
     public AiCodingTaskKindProvider preReleaseCheckTaskProvider(
             PageCatalogApplicationService pageCatalog,
             PageAnalysisApplicationService pageAnalysis,
-            CapabilityProjectOnboardingClient capabilityClient,
-            ControlModelCatalogClient modelCatalogClient,
-            RuntimeProxyClient runtimeClient,
+            PageWorkbenchProjectPort capabilityClient,
+            PageWorkbenchModelPort modelCatalogClient,
+            PageWorkbenchRuntimePort runtimeClient,
             PageWorkbenchBrowserReadinessApplicationService browserReadiness,
             PageWorkbenchAgentModelReadinessApplicationService modelReadiness,
             PageWorkbenchWorkflowTraceReadinessApplicationService
@@ -179,9 +176,9 @@ public class PageWorkbenchTaskProviderConfiguration {
             String resourcePrefix,
             PageCatalogApplicationService pageCatalog,
             PageAnalysisApplicationService pageAnalysis,
-            CapabilityProjectOnboardingClient capabilityClient,
-            ControlModelCatalogClient modelCatalogClient,
-            RuntimeProxyClient runtimeClient,
+            PageWorkbenchProjectPort capabilityClient,
+            PageWorkbenchModelPort modelCatalogClient,
+            PageWorkbenchRuntimePort runtimeClient,
             PageWorkbenchBrowserReadinessApplicationService browserReadiness,
             PageWorkbenchAgentModelReadinessApplicationService modelReadiness,
             PageWorkbenchWorkflowTraceReadinessApplicationService

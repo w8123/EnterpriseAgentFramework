@@ -11,7 +11,11 @@ export default defineConfig({
   },
   test: {
     environment: 'happy-dom',
-    include: ['src/views/model/**/*.test.ts'],
+    include: [
+      'src/views/model/**/*.test.ts',
+      'src/components/model/**/*.test.ts',
+      'src/utils/modelSelection.test.ts',
+    ],
     css: false,
   },
 })

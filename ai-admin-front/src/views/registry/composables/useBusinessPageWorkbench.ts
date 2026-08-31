@@ -15,8 +15,10 @@ import { useAiCodingTask } from '@/composables/useAiCodingTask'
 import { getScanProjects } from '@/api/scanProject'
 import type {
   AiCodingAccessMode,
+  AiCodingExecutionMode,
   AiCodingExecutorProvider,
   AiCodingHandoffPackage,
+  AiCodingManagedExecutionDetail,
   AiCodingTask,
   AiCodingTaskDetail,
   AiCodingTaskTarget,
@@ -51,12 +53,19 @@ export interface PageAiCodingTaskCommand {
     | 'BROWSER_ACCEPTANCE'
     | 'PRE_RELEASE_CHECK'
   executorProvider: AiCodingExecutorProvider
+  executionMode?: AiCodingExecutionMode
   title: string
   objective: string
   goalSelection?: PageImplementationGoalSelection
   page?: ProjectPage | null
   workflow?: PublishedPageWorkflow | null
   createdBy?: string
+}
+
+export interface PageAiCodingTaskResult {
+  task: AiCodingTask
+  handoff: AiCodingHandoffPackage | null
+  managedExecution: AiCodingManagedExecutionDetail | null
 }
 
 function emptyAccessCenter(projectCode = ''): PageAccessCenterOverview {
@@ -345,7 +354,7 @@ export function useBusinessPageWorkbench() {
 
   async function createTask(
     data: PageAiCodingTaskCommand,
-  ): Promise<{ task: AiCodingTask; handoff: AiCodingHandoffPackage }> {
+  ): Promise<PageAiCodingTaskResult> {
     if (tasksLoadError.value) {
       throw new Error('AI 编程任务状态尚未加载，重新加载成功前不能创建任务')
     }
@@ -409,18 +418,35 @@ export function useBusinessPageWorkbench() {
         },
       })
     }
-    const result = await taskKernel.createTask({
+    const request = {
       projectId: project.value.id,
       projectCode: projectCode.value,
       taskKind: data.taskKind,
       executorProvider: data.executorProvider,
+      executionMode: data.executionMode || 'EXTERNAL_CLIENT',
+      sandboxProfile: data.executionMode === 'MANAGED_SANDBOX'
+        ? (accessMode === 'READ_ONLY' ? 'ANALYZE_READONLY' : 'WORKSPACE_PATCH')
+        : undefined,
       title: data.title,
       objective: data.objective,
       createdBy: data.createdBy,
       targets,
-    }, data.createdBy)
+    } as const
+    const result = data.executionMode === 'MANAGED_SANDBOX'
+      ? await taskKernel.createManagedTask(request)
+      : await taskKernel.createTask(request, data.createdBy)
     await Promise.all([refreshTasks(), refreshAccessCenter()])
-    return result
+    return 'managedExecution' in result
+      ? {
+          task: result.task,
+          handoff: null,
+          managedExecution: result.managedExecution,
+        }
+      : {
+          task: result.task,
+          handoff: result.handoff,
+          managedExecution: null,
+        }
   }
 
   async function loadHandoffPrompt(taskId: string) {

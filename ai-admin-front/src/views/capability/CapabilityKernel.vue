@@ -3,9 +3,9 @@
     <PageHeader
       variant="standard"
       domain="governance"
-      eyebrow="Capability Kernel"
-      title="能力内核"
-      description="统一管理能力模块、组合资产、工具与交互定义。"
+      eyebrow="Capability Catalog"
+      title="能力目录"
+      description="统一管理能力模块、执行动作、组合资产与交互定义。"
     >
       <template #actions>
         <el-button type="primary" :icon="Plus" @click="openModuleDialog()">新建模块</el-button>
@@ -70,12 +70,12 @@
           </div>
 
           <el-tabs v-model="activeTab" class="asset-tabs">
-            <el-tab-pane label="工具" name="tools">
+            <el-tab-pane label="执行动作" name="tools">
               <div class="tab-toolbar">
-                <el-button type="primary" :icon="Plus" @click="openToolDialog()">新建工具</el-button>
+                <el-button type="primary" :icon="Plus" @click="openToolDialog()">新建动作</el-button>
               </div>
               <el-table :data="tools" v-loading="assetLoading" row-key="qualifiedName" stripe empty-text="暂无数据">
-                <el-table-column prop="name" label="工具" min-width="160" show-overflow-tooltip>
+                <el-table-column prop="name" label="动作" min-width="160" show-overflow-tooltip>
                   <template #default="{ row }">
                     {{ formatCapabilityDisplayName(row.name, row.toolCode) }}
                   </template>
@@ -195,12 +195,12 @@
       </template>
     </AppDialog>
 
-    <AppDialog v-model="toolDialogVisible" title="工具管理" width="720px">
+    <AppDialog v-model="toolDialogVisible" title="能力执行动作" width="720px">
       <el-form label-width="130px">
-        <el-form-item label="工具编码" required>
+        <el-form-item label="动作编码" required>
           <el-input v-model="toolForm.toolCode" :disabled="Boolean(toolEditingCode)" />
         </el-form-item>
-        <el-form-item label="工具名称" required>
+        <el-form-item label="动作名称" required>
           <el-input v-model="toolForm.name" />
         </el-form-item>
         <el-form-item label="执行器类型">
@@ -387,7 +387,7 @@ const toolForm = reactive<ToolAsset>(emptyTool())
 const compositionForm = reactive<CompositionDefinition>(emptyComposition())
 const interactionForm = reactive<InteractionDefinition>(emptyInteraction())
 
-const runTitle = computed(() => `${runKind.value === 'tool' ? '工具' : '组合'}测试`)
+const runTitle = computed(() => `${runKind.value === 'tool' ? '执行动作' : '组合'}测试`)
 
 watch(
   () => route.path,
@@ -497,7 +497,7 @@ async function saveSelectedModule() {
 async function submitTool() {
   if (!selectedModule.value) return
   if (!toolForm.toolCode || !toolForm.name) {
-    ElMessage.warning('请填写工具编码和名称')
+    ElMessage.warning('请填写动作编码和名称')
     return
   }
   saving.value = true
@@ -505,7 +505,7 @@ async function submitTool() {
     await saveModuleTool(selectedModule.value.code, { ...toolForm })
     toolDialogVisible.value = false
     await loadAssets(selectedModule.value.code)
-    ElMessage.success('工具已保存')
+    ElMessage.success('执行动作已保存')
   } finally {
     saving.value = false
   }

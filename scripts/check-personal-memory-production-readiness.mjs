@@ -6,15 +6,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 export const REQUIRED_MIGRATIONS = [
-  'sql/upgrade-20260813-runtime-session-memory.sql',
-  'sql/upgrade-20260814-runtime-conversation-turn-id.sql',
-  'sql/upgrade-20260813-personal-memory-candidates.sql',
-  'sql/upgrade-20260815-personal-memory-outbox-redaction.sql',
-  'sql/upgrade-20260815-personal-memory-semantic-projection.sql',
-  'sql/upgrade-20260814-business-memory-reference.sql',
-  'sql/upgrade-20260815-runtime-session-retention.sql',
-  'sql/upgrade-20260815-knowledge-enterprise-ingress.sql',
-  'sql/upgrade-20260815-cross-domain-memory-erasure.sql',
+  'sql/upgrade-20260830-platform-consolidated.sql',
 ]
 
 export const REQUIRED_ERASURE_DOMAINS = [

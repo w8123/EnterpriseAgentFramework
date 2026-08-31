@@ -2,7 +2,7 @@ package com.enterprise.ai.runtime.workflow.authoring;
 
 import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient;
 import com.enterprise.ai.runtime.client.model.RuntimeModelStreamHttpClient;
-import com.enterprise.ai.runtime.supervisor.ReachAiAgentScopeChatModel;
+import com.enterprise.ai.runtime.agentscope.ReachAiAgentScopeChatModel;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowReleaseValidationResult;
 import com.enterprise.ai.runtime.workflow.proposal.RuntimeWorkflowProposalValidationService;
 import com.enterprise.ai.runtime.workflow.mutation.RuntimeWorkflowGraphMutationService;

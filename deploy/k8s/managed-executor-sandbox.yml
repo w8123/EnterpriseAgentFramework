@@ -1,0 +1,138 @@
+# ReachAI Managed Executor control-plane prerequisites.
+#
+# This manifest intentionally does not create a RuntimeClass, DNS allowlist proxy,
+# Model Relay, Git proxy, dependency proxy, Git credentials, or Codex config. Those
+# are environment-owned trust anchors and must pass the production runbook first.
+# The Runtime Service sample currently runs in the default namespace; change the
+# ServiceAccount subject below if the deployment uses another namespace.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: reachai-managed-executor
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/audit-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: reachai-managed-worker
+  namespace: reachai-managed-executor
+automountServiceAccountToken: false
+---
+# Runtime must explicitly select this ServiceAccount only when the Kubernetes
+# sandbox backend is enabled. It has no permissions outside the resources below.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: reachai-runtime-managed-provisioner
+  namespace: default
+automountServiceAccountToken: true
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: reachai-managed-sandbox-provisioner
+  namespace: reachai-managed-executor
+rules:
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create", "get", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["create", "get", "delete"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create", "get", "delete"]
+  - apiGroups: [""]
+    resources: ["configmaps", "serviceaccounts"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: reachai-managed-sandbox-provisioner
+  namespace: reachai-managed-executor
+subjects:
+  - kind: ServiceAccount
+    name: reachai-runtime-managed-provisioner
+    namespace: default
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: reachai-managed-sandbox-provisioner
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: reachai-managed-runtimeclass-reader
+rules:
+  - apiGroups: ["node.k8s.io"]
+    resources: ["runtimeclasses"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: reachai-managed-runtimeclass-reader
+subjects:
+  - kind: ServiceAccount
+    name: reachai-runtime-managed-provisioner
+    namespace: default
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: reachai-managed-runtimeclass-reader
+---
+# This static policy closes the interval before Runtime creates the execution-
+# specific allow policy. NetworkPolicy implementations combine policies additively.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: reachai-managed-executor
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress: []
+  egress: []
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: managed-executor-capacity-ceiling
+  namespace: reachai-managed-executor
+spec:
+  hard:
+    count/jobs.batch: "20"
+    count/secrets: "50"
+    count/networkpolicies.networking.k8s.io: "50"
+    requests.cpu: "50"
+    requests.memory: 100Gi
+    requests.ephemeral-storage: 220Gi
+    limits.cpu: "100"
+    limits.memory: 220Gi
+    limits.ephemeral-storage: 440Gi
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: managed-executor-container-ceilings
+  namespace: reachai-managed-executor
+spec:
+  limits:
+    - type: Container
+      max:
+        cpu: "4"
+        memory: 8Gi
+        ephemeral-storage: 20Gi
+      min:
+        cpu: 10m
+        memory: 32Mi
+        ephemeral-storage: 16Mi

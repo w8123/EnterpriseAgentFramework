@@ -9,9 +9,6 @@ import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskRequired
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskTargetView;
 import com.enterprise.ai.control.aicoding.domain.AiCodingDeliveryEvidence.ReportedCheck;
 import com.enterprise.ai.control.aicoding.provider.AiCodingTaskKindProvider;
-import com.enterprise.ai.control.client.capability.CapabilityProjectOnboardingClient;
-import com.enterprise.ai.control.client.model.ControlModelCatalogClient;
-import com.enterprise.ai.control.client.runtime.RuntimeProxyClient;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.AcceptancePayload;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.ImplementationPayload;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.PageAnalysisPayload;
@@ -51,9 +48,9 @@ final class PageWorkbenchTaskProvider implements AiCodingTaskKindProvider {
     private final TaskContract contract;
     private final PageCatalogApplicationService pageCatalog;
     private final PageAnalysisApplicationService pageAnalysis;
-    private final CapabilityProjectOnboardingClient capabilityClient;
-    private final ControlModelCatalogClient modelCatalogClient;
-    private final RuntimeProxyClient runtimeClient;
+    private final PageWorkbenchProjectPort capabilityClient;
+    private final PageWorkbenchModelPort modelCatalogClient;
+    private final PageWorkbenchRuntimePort runtimeClient;
     private final PageWorkbenchBrowserReadinessApplicationService browserReadiness;
     private final PageWorkbenchAgentModelReadinessApplicationService modelReadiness;
     private final PageWorkbenchWorkflowTraceReadinessApplicationService
@@ -69,9 +66,9 @@ final class PageWorkbenchTaskProvider implements AiCodingTaskKindProvider {
             JsonNode example,
             PageCatalogApplicationService pageCatalog,
             PageAnalysisApplicationService pageAnalysis,
-            CapabilityProjectOnboardingClient capabilityClient,
-            ControlModelCatalogClient modelCatalogClient,
-            RuntimeProxyClient runtimeClient,
+            PageWorkbenchProjectPort capabilityClient,
+            PageWorkbenchModelPort modelCatalogClient,
+            PageWorkbenchRuntimePort runtimeClient,
             PageWorkbenchBrowserReadinessApplicationService browserReadiness,
             PageWorkbenchAgentModelReadinessApplicationService modelReadiness,
             PageWorkbenchWorkflowTraceReadinessApplicationService

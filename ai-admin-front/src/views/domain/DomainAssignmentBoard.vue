@@ -5,7 +5,7 @@
       domain="governance"
       eyebrow="Domain Assignment"
       title="领域归属画布"
-      description="在领域树、已挂接资产与候选目标之间完成 Tool、能力、Agent 和项目的归属治理。"
+      description="在领域树、已挂接资产与候选目标之间完成调用目标、能力、Agent 和项目的归属治理。"
     >
       <template #tags>
         <el-tag size="small" type="info">{{ domains.length }} 个领域</el-tag>
@@ -21,7 +21,7 @@
       type="info"
       show-icon
       :closable="false"
-      title="左：领域树。中：当前领域已挂的 Tool / 能力 / Agent / Project。右：候选目标，勾选后批量挂接。"
+      title="左：领域树。中：当前领域已挂的调用目标、能力、Agent 与项目。右：候选目标，勾选后批量挂接。"
       description="挂接 source = AUTO_FROM_PROJECT 的条目由扫描器自动生成；删除后下次扫描会被重新写入，建议直接调整 scan_project.default_domain_code。"
     />
 

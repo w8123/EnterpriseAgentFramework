@@ -1,9 +1,11 @@
 package com.enterprise.ai.control.identity;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -16,6 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequiredArgsConstructor
@@ -24,14 +27,18 @@ public class BusinessUserDirectoryController {
     private final BusinessUserMapper businessUserMapper;
     private final ExternalUserBindingMapper externalUserBindingMapper;
     private final ExternalUserRoleBindingMapper externalUserRoleBindingMapper;
+    private final PlatformRequestAuthorization requestAuthorization;
+    private final PlatformAuthAuditService authAuditService;
 
     @GetMapping("/api/platform/business-users")
     public ResponseEntity<PageResult<BusinessUserView>> listBusinessUsers(
+            HttpServletRequest httpRequest,
             @RequestParam(defaultValue = "1") int current,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(defaultValue = "default") String tenantId,
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) String status) {
+        requestAuthorization.requireGlobalPermission(httpRequest, PlatformPermissions.BUSINESS_USER_READ);
         int page = Math.max(current, 1);
         int pageSize = Math.min(Math.max(size, 1), 200);
         LambdaQueryWrapper<BusinessUserEntity> base = new LambdaQueryWrapper<BusinessUserEntity>()
@@ -57,8 +64,12 @@ public class BusinessUserDirectoryController {
     }
 
     @PutMapping("/api/platform/business-users/{id}")
-    public ResponseEntity<BusinessUserView> updateBusinessUser(@PathVariable Long id,
+    @Transactional
+    public ResponseEntity<BusinessUserView> updateBusinessUser(HttpServletRequest httpRequest,
+                                                               @PathVariable Long id,
                                                                @RequestBody BusinessUserUpdateCommand request) {
+        PlatformAuthenticatedSession actor = requestAuthorization.requireGlobalPermission(
+                httpRequest, PlatformPermissions.BUSINESS_USER_MANAGE);
         BusinessUserEntity entity = businessUserMapper.selectById(id);
         if (entity == null) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
@@ -80,11 +91,20 @@ public class BusinessUserDirectoryController {
         }
         entity.setUpdatedAt(LocalDateTime.now());
         businessUserMapper.updateById(entity);
+        authAuditService.record(
+                actor,
+                "BUSINESS_USER_PROFILE_UPDATED",
+                "BUSINESS_USER",
+                String.valueOf(id),
+                Map.of("status", StringUtils.hasText(entity.getStatus()) ? entity.getStatus() : ""));
         return ResponseEntity.ok(toBusinessUserView(entity));
     }
 
     @GetMapping("/api/platform/business-users/{id}/identities")
-    public ResponseEntity<List<ExternalIdentityView>> listBusinessUserIdentities(@PathVariable Long id) {
+    public ResponseEntity<List<ExternalIdentityView>> listBusinessUserIdentities(
+            HttpServletRequest httpRequest,
+            @PathVariable Long id) {
+        requestAuthorization.requireGlobalPermission(httpRequest, PlatformPermissions.BUSINESS_USER_READ);
         return ResponseEntity.ok(externalUserBindingMapper.selectList(new LambdaQueryWrapper<ExternalUserBindingEntity>()
                         .eq(ExternalUserBindingEntity::getBusinessUserId, id)
                         .orderByDesc(ExternalUserBindingEntity::getId))
@@ -94,8 +114,12 @@ public class BusinessUserDirectoryController {
     }
 
     @PostMapping("/api/platform/business-users/{id}/identities")
-    public ResponseEntity<ExternalIdentityView> saveBusinessUserIdentity(@PathVariable Long id,
+    @Transactional
+    public ResponseEntity<ExternalIdentityView> saveBusinessUserIdentity(HttpServletRequest httpRequest,
+                                                                         @PathVariable Long id,
                                                                          @RequestBody ExternalIdentityCommand request) {
+        PlatformAuthenticatedSession actor = requestAuthorization.requireGlobalPermission(
+                httpRequest, PlatformPermissions.BUSINESS_USER_MANAGE);
         BusinessUserEntity businessUser = businessUserMapper.selectById(id);
         if (businessUser == null) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
@@ -119,6 +143,19 @@ public class BusinessUserDirectoryController {
             externalUserBindingMapper.updateById(entity);
         }
         replaceRoleBindings(id, entity, request.roles());
+        long roleCount = request.roles() == null
+                ? 0
+                : request.roles().stream().filter(StringUtils::hasText).count();
+        authAuditService.record(
+                actor,
+                "BUSINESS_USER_IDENTITY_SAVED",
+                "EXTERNAL_USER_BINDING",
+                String.valueOf(entity.getId()),
+                Map.of(
+                        "businessUserId", id,
+                        "appId", entity.getAppId(),
+                        "roleCount", roleCount,
+                        "status", entity.getStatus()));
         return ResponseEntity.ok(toExternalIdentityView(entity));
     }
 

@@ -29,6 +29,16 @@ ReachAI 将 AI 助手嵌入 OA、eHR、采购、CRM 等现有业务页面。员�
 
 ReachAI 会结合当前登录身份、页面状态与业务上下文理解需求，仅调用已授予当前用户的业务能力。页面筛选、跳转与表单操作由已注册的页面动作执行；真实数据查询与写入仍由后端 Capability 或业务 API 完成。涉及写入、提交和审批等关键操作时，必须经用户确认后执行。
 
+### 从一个界面掌握智能体运营状态
+
+智能体运营中心按项目汇总 Agent、运行样本、可识别用户、Token、技术完成率、风险待办和业务系统贡献，让管理者先看到真实使用效果，再进入具体项目、版本或运行记录排查。
+
+<p align="center">
+  <a href="./docs/images/readme-v2/01-operations-dashboard.png">
+    <img src="./docs/images/readme-v2/01-operations-dashboard.png" alt="ReachAI 智能体运营中心" width="1200" />
+  </a>
+</p>
+
 ## 从现有系统到上线使用
 
 <p align="center">
@@ -48,9 +58,18 @@ ReachAI 覆盖业务系统接入、系统盘点、改造实施、能力发布、
 
 业务系统继续沿用原有页面、身份、权限、接口和业务规则；ReachAI 在平台侧统一提供智能体调度、工作流执行、模型接入、操作确认和运行追踪。完成基础接入后，后续新增 AI 场景可以持续复用同一套智能运行底座。
 
-<p align="center">
-  <img src="docs/系统截图/页面接入中心.png" alt="ReachAI 页面接入中心与改造清单" width="1100" />
-</p>
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <a href="./docs/images/readme-v2/02-project-management.png"><img src="./docs/images/readme-v2/02-project-management.png" alt="ReachAI 项目管理" width="100%" /></a><br />
+      <strong>项目管理</strong><br /><sub>统一查看 SDK、API 和扫描接入状态</sub>
+    </td>
+    <td width="50%" align="center">
+      <a href="./docs/images/readme-v2/03-project-overview.png"><img src="./docs/images/readme-v2/03-project-overview.png" alt="ReachAI 项目详情" width="100%" /></a><br />
+      <strong>项目详情</strong><br /><sub>从接入上报到 Agent、Workflow 编排与发布</sub>
+    </td>
+  </tr>
+</table>
 
 ### 三类角色，形成持续改造闭环
 
@@ -71,7 +90,7 @@ ReachAI 覆盖业务系统接入、系统盘点、改造实施、能力发布、
 
 **一句话：Dify 侧重创建 AI 应用，OpenClaw 侧重个人智能体的跨应用执行，ReachAI 侧重已有业务系统的快速、安全智能化改造与生产级治理。**
 
-## 技术优势：ReachAI 解决的六个关键问题
+## 技术优势：ReachAI 解决的七个关键问题
 
 ### 1. 对存量系统做有证据的智能化盘点
 
@@ -95,9 +114,18 @@ ReachAI 将任务范围、仓库上下文、修改约束、结构化输出和验
 - Embed 对话、页面动作和真实业务结果是否通过验收；
 - 本次验收对应的会话、Trace、Workflow 与发布版本是否一致。
 
-<p align="center">
-  <img src="docs/系统截图/AI Coding接入工作台-V2.png" alt="ReachAI AI Coding 接入工作台" width="1100" />
-</p>
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <a href="./docs/images/readme-v2/04-page-access-center.png"><img src="./docs/images/readme-v2/04-page-access-center.png" alt="ReachAI 页面接入中心" width="100%" /></a><br />
+      <strong>页面接入中心</strong><br /><sub>按真实状态推进页面扫描、实施与验收</sub>
+    </td>
+    <td width="50%" align="center">
+      <a href="./docs/images/readme-v2/06-ai-coding-acceptance.png"><img src="./docs/images/readme-v2/06-ai-coding-acceptance.png" alt="ReachAI AI Coding 实施与验收" width="100%" /></a><br />
+      <strong>AI Coding 实施与验收</strong><br /><sub>保留任务进度、交付材料和人工验收结论</sub>
+    </td>
+  </tr>
+</table>
 
 ### 3. 将 Java 接口和业务方法沉淀为可治理的 Capability
 
@@ -159,9 +187,18 @@ Agent → 已发布配置版本 → AgentScope Supervisor
 </details>
 
 
-<p align="center">
-  <img src="docs/系统截图/Workflow可视化编排-V2.png" alt="ReachAI Workflow Studio 与 GraphSpec 编排" width="1100" />
-</p>
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <a href="./docs/images/readme-v2/07-agent-overview.png"><img src="./docs/images/readme-v2/07-agent-overview.png" alt="ReachAI Agent 配置与可调用 Workflow" width="100%" /></a><br />
+      <strong>Agent 配置</strong><br /><sub>固定配置版本、使用范围和可调用 Workflow</sub>
+    </td>
+    <td width="50%" align="center">
+      <a href="./docs/images/readme-v2/08-workflow-studio.png"><img src="./docs/images/readme-v2/08-workflow-studio.png" alt="ReachAI Workflow Studio 与 GraphSpec 编排" width="100%" /></a><br />
+      <strong>Workflow Studio</strong><br /><sub>AI 辅助编排、校验、调试和发布 GraphSpec</sub>
+    </td>
+  </tr>
+</table>
 
 ### 5. 通过显式协议接入业务页面，不依赖截图识别和鼠标模拟
 
@@ -170,6 +207,13 @@ ReachAI Embed 将对话入口嵌入原业务系统，Page Bridge 则将当前页
 因此，页面自动化依赖已登记的动作契约、页面上下文和后端能力，而非通过 Computer Use 推断坐标并模拟鼠标键盘。
 
 代码与说明：[eafPageBridge.ts](ai-admin-front/src/sdk/eafPageBridge.ts) · [嵌入式对话与页面动作](docs/reference/嵌入式对话与页面动作.md)
+
+<p align="center">
+  <a href="./docs/images/readme-v2/05-page-actions.png">
+    <img src="./docs/images/readme-v2/05-page-actions.png" alt="ReachAI 页面可调用操作与真实页面调试" width="1100" />
+  </a><br />
+  <strong>页面可调用操作</strong> · 显式登记读取、筛选与写入动作，并在真实页面中调试
+</p>
 
 ### 6. 在调用真实业务能力前后建立治理证据链
 
@@ -183,10 +227,26 @@ ReachAI 在模型与企业系统之间执行明确的运行策略：
 - 后端业务系统保留最终鉴权与业务校验；
 - 理解、规划、Workflow、节点、工具调用、Guard 决策、耗时和异常进入 Trace / RunOps，可回放并关联发布版本。
 
+### 7. 让上线后的智能体持续运行、测评和改进
 
-<p align="center">
-  <img src="docs/系统截图/07RunOps 运行中心.png" alt="ReachAI RunOps 运行中心" width="1100" />
-</p>
+ReachAI 不把“发布成功”当作结束。运营概览负责汇总价值和风险，自动化中心负责按时间运行指定 Agent 或 Workflow，EvalOps 使用版本化数据集、目标快照和评测器比较发布候选，RunOps 则保留每次理解、规划、调用、重规划和异常的完整证据。
+
+- 自动化任务固定执行目标、发布版本、身份和输入快照，并关联运行记录；执行引擎可按环境显式启用。
+- EvalOps 支持数据集版本、基线与候选实验、逐项评分、发布门禁和 Trace 回查。
+- RunOps 聚合失败类型、发布版本表现、耗时、Token 与治理决策，支持从统计下钻到单次运行。
+
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <a href="./docs/images/readme-v2/14-automation-center.png"><img src="./docs/images/readme-v2/14-automation-center.png" alt="ReachAI 自动化中心" width="100%" /></a><br />
+      <strong>自动化中心</strong><br /><sub>按计划运行 Agent 或 Workflow；截图环境的执行引擎尚未启用</sub>
+    </td>
+    <td width="50%" align="center">
+      <a href="./docs/images/readme-v2/15-runops-center.png"><img src="./docs/images/readme-v2/15-runops-center.png" alt="ReachAI RunOps 运行中心" width="100%" /></a><br />
+      <strong>RunOps 运行中心</strong><br /><sub>查看失败聚类、版本表现与根运行记录</sub>
+    </td>
+  </tr>
+</table>
 
 ## ReachAI 平台能力全景
 
@@ -196,15 +256,58 @@ ReachAI 在模型与企业系统之间执行明确的运行策略：
 | Capability Catalog | 管理 SDK 注册、历史扫描、能力快照、diff、评审、授权和语义文档 |
 | Workflow Studio | AI 生成或可视化编排 GraphSpec，完成校验、调试、版本发布和回放 |
 | Agent Runtime | 管理 Agent 身份与配置版本，由 Supervisor 调度白名单中的 Workflow-as-Tool |
+| Agent Skill | 管理标准 Skill 包、版本、评审、发布、撤销和 Agent 绑定，不与 Capability 业务资产混用 |
 | Page Embed / Bridge | 在原业务页面建立对话、页面上下文和显式动作通道 |
-| Model / Knowledge | 统一管理 Chat、Embedding、Rerank、知识库、文件、RAG 和业务索引 |
-| Governance / Open | 提供身份、ACL、Guard、Trace、RunOps、Gateway、MCP 和 A2A 边界 |
+| Automation / EvalOps | 调度 Agent 或 Workflow，并通过版本化数据集、对比实验、发布门禁和 Trace 形成质量闭环 |
+| RunOps / Governance | 汇总运行、失败、版本表现与治理决策，提供身份、ACL、Guard、审计、回放和诊断 |
+| Integration / Open | 通过 API 市场、MCP Hub 和 A2A 互联中心发现、发布并治理外部能力与远程 Agent |
+| Model / Knowledge | 统一管理 Chat、Embedding、Rerank、模型目录、知识库、文件、RAG 和业务索引 |
 
 **开放协议连接外部工具与智能体。** ReachAI 通过 Gateway、MCP 和 A2A，将经过登记和授权的 Tool、Capability 与 Agent 提供给 IDE、自动化工具、其他业务系统和远程智能体调用。外部调用仍遵守能力可见范围、客户端白名单、身份权限和审计规则，不会绕开平台治理。
 
 因此，ReachAI 不只是 Workflow 编辑器，更是企业 AI 能力的开放控制面与运行治理层。
 
 三个核心对象具有明确边界：**Capability 是企业业务资产，Tool 是模型调用协议，Workflow 是 GraphSpec 编排。** ReachAI 对三者进行独立建模与治理，不将其合并为单一“插件”抽象。
+
+### AI 资产与开放生态
+
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <a href="./docs/images/readme-v2/09-skill-management.png"><img src="./docs/images/readme-v2/09-skill-management.png" alt="ReachAI Skill 管理" width="100%" /></a><br />
+      <strong>Skill 管理</strong><br /><sub>标准包、版本、评审与治理状态</sub>
+    </td>
+    <td width="50%" align="center">
+      <a href="./docs/images/readme-v2/10-api-market.png"><img src="./docs/images/readme-v2/10-api-market.png" alt="ReachAI API 市场" width="100%" /></a><br />
+      <strong>API 市场</strong><br /><sub>发现、评估、验证并接入公开 API</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <a href="./docs/images/readme-v2/11-mcp-hub.png"><img src="./docs/images/readme-v2/11-mcp-hub.png" alt="ReachAI MCP 互联中心" width="100%" /></a><br />
+      <strong>MCP Hub</strong><br /><sub>将 Capability 或已发布 Workflow 安全发布为 MCP Tool</sub>
+    </td>
+    <td width="50%" align="center">
+      <a href="./docs/images/readme-v2/12-a2a-hub.png"><img src="./docs/images/readme-v2/12-a2a-hub.png" alt="ReachAI A2A 互联中心" width="100%" /></a><br />
+      <strong>A2A 互联中心</strong><br /><sub>统一管理本地发布、远程 Agent、任务、信任和诊断</sub>
+    </td>
+  </tr>
+</table>
+
+### 知识与模型资源
+
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <a href="./docs/images/readme-v2/13-knowledge-base.png"><img src="./docs/images/readme-v2/13-knowledge-base.png" alt="ReachAI 知识库管理" width="100%" /></a><br />
+      <strong>知识库</strong><br /><sub>统一管理知识源、文件、向量模型和检索状态</sub>
+    </td>
+    <td width="50%" align="center">
+      <a href="./docs/images/readme-v2/16-model-center.png"><img src="./docs/images/readme-v2/16-model-center.png" alt="ReachAI 模型中心" width="100%" /></a><br />
+      <strong>模型中心</strong><br /><sub>管理大语言模型、向量模型、测试状态与目录同步</sub>
+    </td>
+  </tr>
+</table>
 
 ## 技术架构
 
@@ -290,9 +393,12 @@ flowchart LR
 
 ### 1. 启动基础设施并初始化数据库
 
+先复制凭据模板并填写本机随机值；`deploy/.env` 已被 Git 忽略，不得提交。PowerShell 可将 `cp` 换成 `Copy-Item`。
+
 ```bash
-docker compose -f deploy/docker-compose.infra.yml up -d
-mysql --default-character-set=utf8mb4 -h localhost -u root -proot -e "source sql/initV2.sql"
+cp deploy/.env.example deploy/.env
+docker compose --env-file deploy/.env -f deploy/docker-compose.infra.yml up -d
+mysql --default-character-set=utf8mb4 -h localhost -u root -p -e "source sql/initV2.sql"
 ```
 
 ### 2. 构建后端
@@ -303,7 +409,7 @@ mvn clean install -DskipTests
 
 ### 3. 启动五个服务
 
-仓库提供 `.run/00-reachai-five-services.run.xml`，可在 IntelliJ IDEA 中一键启动。也可以按以下顺序分别执行 `mvn spring-boot:run`：
+仓库提供 `.run/00-reachai-five-services.run.xml`，可在 IntelliJ IDEA 中一键启动。除本地开发账号外，`MODEL_CREDENTIAL_SECRET`、`AGENT_WORKFLOW_CREDENTIAL_SECRET`、`EAF_EMBED_TOKEN_SECRET` 和 `REACHAI_AI_CODING_TASK_SECRET_PEPPER` 等签名、摘要或加密材料仍需通过本机环境注入，不得提交。也可以按以下顺序分别执行 `mvn spring-boot:run`：
 
 ```text
 reachai-model-service      18601
@@ -321,9 +427,9 @@ npm ci
 npm run dev
 ```
 
-本地开源模式默认提供 `admin / admin123` 方便首次体验。该账号只用于本地开发；生产环境必须设置 `REACHAI_LOCAL_AUTH_ENABLED=false` 和 `REACHAI_BOOTSTRAP_ADMIN_ENABLED=false`，并接入正式身份体系。
+本地开源模式默认提供 `admin / admin123` 并在登录页预填，方便首次体验。该账号只用于本地开发；生产环境必须设置 `REACHAI_LOCAL_AUTH_ENABLED=false` 和 `REACHAI_BOOTSTRAP_ADMIN_ENABLED=false`，并接入正式身份体系。
 
-更完整的启动、环境变量和服务检查说明见 [物理服务与启动说明](docs/architecture/physical-services-and-startup.md)。
+更完整的启动、环境变量和服务检查说明见 [五服务边界与本地启动](docs/architecture/service-boundaries.md)。
 
 ## 给 AI 编程工具的入口
 
@@ -354,124 +460,3 @@ Codex、Trae、Cursor、Claude Code 等工具进入仓库后，请按以下顺�
 <p align="center">
   <img src="docs/系统截图/ReachAI学习交流群.png" alt="ReachAI 学习交流群" width="240" />
 </p>
-
-## OpenAI Build Week 2026 Submission
-
-**Project:** ReachAI: Codex-to-Production for Enterprise Agents<br>
-**Track:** Developer Tools — agentic workflows and enterprise integration tooling<br>
-**License:** [MIT](LICENSE)<br>
-**Demo video:** [Watch the ReachAI OpenAI Build Week demo on YouTube](https://youtu.be/xZEB9oQWKug)
-
-### What ReachAI does
-
-ReachAI helps teams bring governed AI agents into existing Java enterprise systems. Instead of rebuilding an OA, ERP, CRM, MES, or internal operations system as a separate AI application, developers connect its real APIs, domain methods, user identity, permissions, and page actions to ReachAI.
-
-The resulting agent can understand a request, select one or more published Workflows, call a real business API or an explicitly registered page action, render structured results, require confirmation for writes, and record the complete execution in Trace and RunOps.
-
-### Existing project versus Build Week work
-
-ReachAI existed before OpenAI Build Week. The pre-existing project supplied the foundational Java services, administration UI, and early Capability, Agent, and Workflow concepts. This submission is specifically about the meaningful extensions built and proven during the July 13–21 submission period with Codex and GPT-5.6:
-
-- A Codex-oriented SDK onboarding workbench that exposes a project Manifest, an installable Skill, scoped engineering APIs, step-by-step evidence reporting, and layered `CODE_READY / RUNTIME_READY / E2E_READY` checks.
-- End-to-end onboarding of an existing Spring Boot business system through `reachai-spring-boot2-starter`, gateway routing, an Embed Token Broker, and the Chat Embed SDK.
-- A project Page Copilot Agent whose AgentScope Supervisor selects published Workflow-as-Tool targets according to user intent.
-- Two governed execution paths: direct business API capabilities and explicit page actions bound to the current page instance.
-- Generic `LIST_CARD` rendering, result counts, first-five display, and “expand remaining” behavior without business-specific card code.
-- Strong confirmation for write operations, followed by a second authorization and business-rule check in the business backend.
-- Version-pinned Agent and Workflow releases plus RunOps evidence for planning, workflow selection, node execution, tool calls, latency, and traceability.
-
-The submission does not claim that the entire repository was created during Build Week. The dated evidence below identifies the work completed inside the submission window.
-
-### How we used Codex and GPT-5.6
-
-GPT-5.6 was used in Codex as the build-time reasoning model for the core Build Week work. Codex operated directly against the real ReachAI and business-system repositories rather than generating a disconnected prototype.
-
-| Phase | How Codex and GPT-5.6 contributed |
-| --- | --- |
-| Repository understanding | Inspected the multi-module Maven topology, Vue application, runtime contracts, gateway security, SDK registration, page bridge, and existing business-system code before proposing changes. |
-| SDK onboarding | Implemented and validated Starter configuration, registry callbacks, gateway routes, Embed Token Broker behavior, frontend Chat Embed integration, and sessionized onboarding evidence. |
-| Agent and Workflow engineering | Created and refined deterministic `GraphSpec` workflows, attached published versions as Supervisor tools, validated release contracts, and kept page actions separate from direct API capabilities. |
-| Failure diagnosis | Traced identity, permission, token, streaming, page-action callback, workflow-selection, and interaction-resume failures across browser, gateway, control, runtime, and business-service boundaries. |
-| Live validation | Ran targeted tests and builds, exercised the real browser flow, checked stable demo data, and verified planning, tool calls, and latency in RunOps. |
-| Submission preparation | Helped structure the Devpost story, produce the under-three-minute bilingual demo, redact credentials, and document reproducible judge flows. |
-
-Codex accelerated repository navigation, cross-service reasoning, implementation, testing, and evidence collection. The human author retained the product decisions, accepted or rejected proposed changes, chose the demo scope, and verified the final behavior. ReachAI's runtime model remains configurable; the Build Week claim here concerns the real use of GPT-5.6 within Codex to build and validate this submission.
-
-### Key human product and engineering decisions
-
-- **Extend existing systems instead of replacing them.** ReachAI connects to the real Java application, business identity, permissions, and pages.
-- **Keep execution deterministic.** AI can help author and select a Workflow, but the published `GraphSpec` is the executable contract.
-- **Make page operation explicit.** The Supervisor prefers a page-action Workflow only when the user asks to operate the page; otherwise it can select a business API Workflow.
-- **Never bypass business authorization.** A zero-result API response caused by the current user's data visibility is treated as correct behavior, not something for the agent to work around.
-- **Require confirmation for writes.** The runtime presents a confirm/cancel interaction before invoking a write, and the business backend validates authorization and business state again.
-- **Use reusable presentation contracts.** Team results use the platform-level `LIST_CARD` protocol rather than a one-off team-management component.
-- **Publish and observe everything.** Agent configurations and Workflow versions are pinned, while RunOps and Trace retain evidence for audit, replay, and diagnosis.
-
-### Submission architecture
-
-```mermaid
-flowchart LR
-    codex["Codex + GPT-5.6"] --> onboarding["AI Coding onboarding"]
-    onboarding --> business["Existing Java business system"]
-    business --> starter["ReachAI Starter + Capability SDK"]
-    starter --> control["Control + Capability Catalog"]
-    embed["Embedded Page Copilot"] --> supervisor["AgentScope Supervisor"]
-    supervisor --> workflow["Published Workflow-as-Tool"]
-    workflow --> api["Business API capability"]
-    workflow --> action["Registered page action"]
-    api --> runops["Trace + RunOps"]
-    action --> runops
-```
-
-### Judge quick start
-
-**Validated platform:** Windows 11. The backend is Java 17 and the frontend is Vue 3; Docker-based infrastructure and the JVM services are also intended for Linux and macOS development environments.
-
-**Prerequisites:** Java 17+, Maven, Node.js 20 LTS, npm, Docker, Docker Compose, and a MySQL client.
-
-```bash
-# 1. Start MySQL, Redis, and Milvus
-docker compose -f deploy/docker-compose.infra.yml up -d
-
-# 2. Initialize the ReachAI database
-mysql -h localhost -u root -proot < sql/initV2.sql
-
-# 3. Build the backend
-mvn clean install -DskipTests
-
-# 4. Start the five services with the shared IDEA configuration
-#    "00 ReachAI Five Services"
-
-# 5. Start the administration frontend
-cd ai-admin-front
-npm install
-npm run dev
-```
-
-Open [http://localhost:5200](http://localhost:5200). Detailed service-by-service commands and environment variables are available in [快速开始](#快速开始).
-
-The demonstration uses a dedicated local team-management test project connected to ReachAI. Its records are synthetic fixtures used to make expected results stable. Business login credentials, App Secrets, Embed Tokens, and AI Coding Keys are intentionally not committed to this repository. If an interactive hosted judge environment is supplied, its temporary credentials belong only in the private Devpost testing instructions.
-
-### Demo prompts and expected behavior
-
-These are the stable flows used in the recorded demonstration:
-
-| Execution path | Prompt | Expected behavior |
-| --- | --- | --- |
-| Direct business API | `不要操作页面，直接调用业务接口查询建设一工班` | Returns zero visible records for the current identity, demonstrating that ReachAI preserves business data permissions. |
-| Page action | `请操作当前页面，查询成员为刘阳的班组` | The Supervisor selects the page-query Workflow; the page and generic list card both show two matching records. |
-| Combined page filters | `请操作当前页面，查询负责人为靳圣辉、成员包含刘阳的班组` | Structured manager and member filters produce two stable results. |
-| Expand generic results | `帮我在页面上查询负责人为靳圣辉的班组` | Nine results are found; the card shows five first and allows the remaining four to be expanded. |
-| Governed write | Use only a dedicated disposable enabled record with no unfinished period. | ReachAI resolves one record, presents confirm/cancel, and invokes the write only after confirmation; the backend checks permission and business state again. |
-
-### Dated Build Week evidence
-
-| Date | Commit | Evidence |
-| --- | --- | --- |
-| 2026-07-14 | `ec611994` | Reshaped Agent Supervisor, Workflow Studio, and the RunOps runtime path. |
-| 2026-07-17 | `93c0375e` | Upgraded the model center and unified conversation/streaming execution. |
-| 2026-07-18 | `995dc2f6` | Enabled AI Coding onboarding by default. |
-| 2026-07-20 | `f1b00ca0` | Hardened Workflow Runtime, interaction recovery, and internal-service security boundaries. |
-| 2026-07-21 | `1e8184b6` | Fixed interactive request invocation used by the governed conversation flow. |
-
-The required `/feedback` Codex Session ID for the primary build thread is submitted through the private Devpost form rather than committed to the public repository.

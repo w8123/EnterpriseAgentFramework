@@ -3,6 +3,7 @@ package com.enterprise.ai.runtime;
 import com.enterprise.ai.runtime.api.RuntimePublicController;
 import com.enterprise.ai.runtime.client.model.RuntimeModelStreamHttpClient;
 import com.enterprise.ai.runtime.debug.RuntimeExecutableDebugSessionService;
+import com.enterprise.ai.runtime.managed.ManagedExecutionControlEventClient;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.AutowiredAnnotationBeanPostProcessor;
@@ -37,6 +38,11 @@ class RuntimeSpringConstructorSelectionTest {
     @Test
     void selectsModelStreamHttpClientProductionConstructor() {
         assertSelectedConstructor(RuntimeModelStreamHttpClient.class, 2);
+    }
+
+    @Test
+    void selectsManagedExecutionControlEventClientProductionConstructor() {
+        assertSelectedConstructor(ManagedExecutionControlEventClient.class, 3);
     }
 
     @Test

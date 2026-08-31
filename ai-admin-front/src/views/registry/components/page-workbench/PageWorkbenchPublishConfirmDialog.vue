@@ -97,7 +97,7 @@ watch(() => props.modelValue, (visible) => {
           type="warning"
           :closable="false"
           show-icon
-          title="发布成功后，所选旧 Workflow 将从当前智能体工具目录解除；同页其他能力保持不变。"
+          title="发布成功后，所选旧 Workflow 将从当前 Agent 的可调用 Workflow 列表解除；同页其他能力保持不变。"
         />
       </section>
 

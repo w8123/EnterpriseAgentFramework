@@ -38,7 +38,7 @@ Agent 负责稳定身份和入口；版本化 Supervisor 配置通过 Workflow-a
 
 ```bash
 curl -s -H "X-ReachAI-AiCoding-Key: $AI_CODING_KEY" \
-  "http://localhost:8080/api/workflows/wf-1/ai-coding/context"
+  "http://localhost:18603/api/workflows/wf-1/ai-coding/context"
 ```
 
 返回包含：
@@ -46,7 +46,7 @@ curl -s -H "X-ReachAI-AiCoding-Key: $AI_CODING_KEY" \
 - `workflow`：id、name、keySlug、projectId、projectCode、workflowKind、executionEngine、definitionAuthority、creationChannel、status、defaultModelInstanceId
 - `graphSpec`：当前运行语义
 - `canvas`：当前画布布局（只读参考）
-- `validation`：`WorkflowReleaseValidationService` 结果
+- `validation`：`RuntimeWorkflowReleaseValidationService` 结果
 - `nodeTypes`：`RuntimeWorkflowNodeCapabilityRegistry` 当前开放目录
 - `runtimeHints`：运行时能力与限制说明
 - `pageAssistantContext`：附带一等 `resourceBindings`、TARGET `pageKey` 和 GraphSpec 中的 `actionKeys`
@@ -80,7 +80,7 @@ curl -s -H "X-ReachAI-AiCoding-Key: $AI_CODING_KEY" \
 
 ```bash
 curl -s -X POST -H "X-ReachAI-AiCoding-Key: $AI_CODING_KEY" -H "Content-Type: application/json" \
-  "http://localhost:8080/api/workflows/wf-1/ai-coding/validate" \
+  "http://localhost:18603/api/workflows/wf-1/ai-coding/validate" \
   -d '{}'
 ```
 
@@ -88,7 +88,7 @@ curl -s -X POST -H "X-ReachAI-AiCoding-Key: $AI_CODING_KEY" -H "Content-Type: ap
 
 ```bash
 curl -s -X POST -H "X-ReachAI-AiCoding-Key: $AI_CODING_KEY" -H "Content-Type: application/json" \
-  "http://localhost:8080/api/workflows/wf-1/ai-coding/validate" \
+  "http://localhost:18603/api/workflows/wf-1/ai-coding/validate" \
   -d '{
     "mode": "PROPOSED",
     "graphSpec": {
@@ -196,7 +196,7 @@ Patch 操作对象是 **GraphSpec**，使用结构化 JSON operations，不允�
 
 ```bash
 curl -s -X POST -H "X-ReachAI-AiCoding-Key: $AI_CODING_KEY" -H "Content-Type: application/json" \
-  "http://localhost:8080/api/workflows/wf-1/ai-coding/patch" \
+  "http://localhost:18603/api/workflows/wf-1/ai-coding/patch" \
   -d @patch-dry-run.json
 ```
 
@@ -204,7 +204,7 @@ curl -s -X POST -H "X-ReachAI-AiCoding-Key: $AI_CODING_KEY" -H "Content-Type: ap
 
 ```bash
 curl -s -X POST -H "X-ReachAI-AiCoding-Key: $AI_CODING_KEY" -H "Content-Type: application/json" \
-  "http://localhost:8080/api/workflows/wf-1/ai-coding/patch" \
+  "http://localhost:18603/api/workflows/wf-1/ai-coding/patch" \
   -d '{
     "dryRun": false,
     "operations": [
@@ -222,7 +222,7 @@ curl -s -X POST -H "X-ReachAI-AiCoding-Key: $AI_CODING_KEY" -H "Content-Type: ap
 
 ```bash
 curl -s -X POST -H "X-ReachAI-AiCoding-Key: $AI_CODING_KEY" -H "Content-Type: application/json" \
-  "http://localhost:8080/api/workflows/wf-1/ai-coding/run" \
+  "http://localhost:18603/api/workflows/wf-1/ai-coding/run" \
   -d '{
     "message": "hello",
     "input": {"foo": "bar"},
@@ -236,7 +236,7 @@ dryRun（不执行 runtime）：
 
 ```bash
 curl -s -X POST -H "X-ReachAI-AiCoding-Key: $AI_CODING_KEY" -H "Content-Type: application/json" \
-  "http://localhost:8080/api/workflows/wf-1/ai-coding/run" \
+  "http://localhost:18603/api/workflows/wf-1/ai-coding/run" \
   -d '{"dryRun": true, "message": "hello"}'
 ```
 
@@ -265,14 +265,14 @@ SDK 快速接入只创建或复用项目 Agent，并发布 ACTIVE AgentScope Sup
 
 ```bash
 curl -s -H "X-ReachAI-AiCoding-Key: $AI_CODING_KEY" \
-  "http://localhost:8080/api/workflows/wf-1/ai-coding/versions"
+  "http://localhost:18603/api/workflows/wf-1/ai-coding/versions"
 ```
 
 当返回的 `releaseValidation.valid=true` 后，重新读取一次 `GET .../context`，取最新的 `workflow.updatedAt` 作为 `baseRevision`，再执行首次发布：
 
 ```bash
 curl -s -X POST -H "X-ReachAI-AiCoding-Key: $AI_CODING_KEY" -H "Content-Type: application/json" \
-  "http://localhost:8080/api/workflows/wf-1/ai-coding/publish" \
+  "http://localhost:18603/api/workflows/wf-1/ai-coding/publish" \
   -d '{
     "version": "v1.0.0",
     "note": "initial AI Coding publish",
@@ -311,7 +311,7 @@ curl -s -X POST -H "X-ReachAI-AiCoding-Key: $AI_CODING_KEY" -H "Content-Type: ap
 
 ```bash
 curl -s -H "X-ReachAI-AiCoding-Key: $AI_CODING_KEY" \
-  "http://localhost:8080/api/workflows/wf-page/ai-coding/page-assistant/catalog"
+  "http://localhost:18603/api/workflows/wf-page/ai-coding/page-assistant/catalog"
 ```
 
 返回字段：
@@ -328,7 +328,7 @@ curl -s -H "X-ReachAI-AiCoding-Key: $AI_CODING_KEY" \
 
 ```bash
 curl -s -X POST -H "X-ReachAI-AiCoding-Key: $AI_CODING_KEY" -H "Content-Type: application/json" \
-  "http://localhost:8080/api/workflows/wf-page/ai-coding/page-assistant/validate" \
+  "http://localhost:18603/api/workflows/wf-page/ai-coding/page-assistant/validate" \
   -d '{}'
 ```
 
@@ -336,7 +336,7 @@ curl -s -X POST -H "X-ReachAI-AiCoding-Key: $AI_CODING_KEY" -H "Content-Type: ap
 
 ```bash
 curl -s -X POST -H "X-ReachAI-AiCoding-Key: $AI_CODING_KEY" -H "Content-Type: application/json" \
-  "http://localhost:8080/api/workflows/wf-page/ai-coding/page-assistant/validate" \
+  "http://localhost:18603/api/workflows/wf-page/ai-coding/page-assistant/validate" \
   -d '{
     "graphSpec": {
       "schemaVersion": 2,

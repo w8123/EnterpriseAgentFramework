@@ -21,6 +21,12 @@ public final class InternalServiceAuthHeaders {
     /** Control-attested platform administrator identity for governance-only internal APIs. */
     public static final String IDENTITY_SOURCE_PLATFORM_SESSION = "PLATFORM_SESSION";
 
+    /** Control-attested external A2A Principal entering the Runtime execution boundary. */
+    public static final String IDENTITY_SOURCE_A2A_REMOTE_AGENT = "A2A_REMOTE_AGENT";
+
+    /** Control-attested external MCP Client entering the Runtime execution boundary. */
+    public static final String IDENTITY_SOURCE_MCP_REMOTE_CLIENT = "MCP_REMOTE_CLIENT";
+
     /** Control asks Capability (the credential owner) to verify a project-signed public request. */
     public static final String IDENTITY_SOURCE_PROJECT_CREDENTIAL_VERIFICATION =
             "PROJECT_CREDENTIAL_VERIFICATION";

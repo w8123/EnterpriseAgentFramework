@@ -5,7 +5,6 @@ import com.enterprise.ai.runtime.agent.RuntimeAgentExecutionContext;
 import com.enterprise.ai.runtime.agent.RuntimeAgentExecutionContextResolver;
 import com.enterprise.ai.runtime.agent.RuntimeAgentExecutionView;
 import com.enterprise.ai.runtime.agent.RuntimeAgentView;
-import com.enterprise.ai.runtime.chat.RuntimeChatMemoryStore;
 import com.enterprise.ai.runtime.client.knowledge.RuntimeKnowledgeRetrievalClient;
 import com.enterprise.ai.runtime.client.knowledge.RuntimeKnowledgeRetrievalClient.KnowledgeRetrievalData;
 import com.enterprise.ai.runtime.client.knowledge.RuntimeKnowledgeRetrievalClient.KnowledgeRetrievalRequest;
@@ -20,11 +19,12 @@ import com.enterprise.ai.runtime.execution.RuntimeAgentExecutionService;
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionResult;
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutor;
 import com.enterprise.ai.runtime.execution.RuntimeInteractionResumeService;
+import com.enterprise.ai.runtime.execution.RuntimeSessionClearPort;
 import com.enterprise.ai.runtime.execution.http.WorkflowHttpClient;
 import com.enterprise.ai.runtime.execution.http.WorkflowHttpEgressPolicy;
 import com.enterprise.ai.runtime.runops.RuntimeRunLifecycleService;
 import com.enterprise.ai.runtime.supervisor.SupervisorApprovalInteractionService;
-import com.enterprise.ai.runtime.supervisor.SupervisorRuntimeAdapter;
+import com.enterprise.ai.runtime.execution.SupervisorRuntimeAdapter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -177,7 +177,7 @@ class WorkflowTrustedIdentityEntryTest {
                 supervisor,
                 mock(SupervisorApprovalInteractionService.class),
                 mock(RuntimeInteractionResumeService.class),
-                mock(RuntimeChatMemoryStore.class),
+                mock(RuntimeSessionClearPort.class),
                 mock(RuntimeRunLifecycleService.class));
     }
 

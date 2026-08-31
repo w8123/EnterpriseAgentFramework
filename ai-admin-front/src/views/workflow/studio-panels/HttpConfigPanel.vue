@@ -1,6 +1,15 @@
 <template>
   <div class="node-specific-panel">
     <el-divider>接口请求</el-divider>
+    <el-alert
+      v-if="marketRef"
+      :title="`来自 API 市场 · ${marketRef.entryKey || '外部 API'}`"
+      :description="marketReferenceDescription"
+      type="info"
+      :closable="false"
+      show-icon
+      class="market-reference-alert"
+    />
     <el-form-item label="请求方法">
       <el-select v-model="config.method" style="width: 100%">
         <el-option v-for="method in methods" :key="method" :label="method" :value="method" />
@@ -26,10 +35,11 @@
     </el-form-item>
     <el-form-item label="凭据引用">
       <CredentialSelect
-        v-model="config.credentialRef"
+        :model-value="config.credentialRef"
         :credentials="credentialOptions"
         :project-id="projectId"
         :project-code="projectCode"
+        @update:model-value="applyCredentialRef"
         @created="$emit('credentialCreated', $event)"
       />
     </el-form-item>
@@ -54,6 +64,19 @@ defineEmits<{
 }>()
 const methods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
 
+const marketRef = computed(() => {
+  const value = props.data.marketRef
+  return value && typeof value === 'object' ? value : null
+})
+
+const marketReferenceDescription = computed(() => {
+  const value = marketRef.value
+  if (!value) return ''
+  const identity = [value.versionKey, value.operationKey].filter(Boolean).join(' · ')
+  const credential = value.credentialRequired ? '需要 Runtime 凭据' : '无需凭据'
+  return [identity, credential, '目录引用会随 Workflow 版本保存'].filter(Boolean).join('；')
+})
+
 const config = computed<HttpNodeConfig>(() => {
   props.data.httpConfig ||= {
     method: 'GET',
@@ -67,4 +90,17 @@ const config = computed<HttpNodeConfig>(() => {
   }
   return props.data.httpConfig
 })
+
+function applyCredentialRef(value?: string) {
+  config.value.credentialRef = value || ''
+  if (!marketRef.value?.credentialRequired) return
+  props.data.needsConfiguration = !value
+  props.data.placeholderReason = value ? undefined : '请在 Workflow Studio 中选择项目凭据'
+}
 </script>
+
+<style scoped>
+.market-reference-alert {
+  margin-bottom: 16px;
+}
+</style>

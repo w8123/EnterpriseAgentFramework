@@ -20,6 +20,7 @@ export type ConversationEventType =
   | 'debug.workflow.node.waiting'
   | 'debug.workflow.node.failed'
   | 'debug.workflow.node.delta'
+  | 'debug.workflow.runtime.event'
   | 'debug.trace.available'
 
 export interface ConversationEventEnvelope<T = unknown> {

@@ -18,11 +18,14 @@ import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 
 @Service
 public class CapabilityToolExecutionService {
+
+    private static final String SIGNED_EVAL_POLICY_FIELD = "evaluationPolicy";
 
     private final ToolDefinitionMapper toolDefinitionMapper;
     private final CapabilityHttpToolInvoker invoker;
@@ -47,6 +50,7 @@ public class CapabilityToolExecutionService {
         if (!Boolean.TRUE.equals(tool.getEnabled())) {
             throw new IllegalStateException("Tool definition is disabled: " + qualifiedName);
         }
+        validateEvaluationPolicy(tool, request);
         validateExecutionConstraints(tool, request);
         Map<String, Object> input = mapValue(request == null ? null : request.get("input"));
         input = input == null ? Map.of() : input;
@@ -121,6 +125,26 @@ public class CapabilityToolExecutionService {
      * catalog lookup into a fail-closed project/exact-tool boundary. Constraints
      * can only reduce what an invocation may do; they never grant access.
      */
+    private void validateEvaluationPolicy(ToolDefinitionEntity tool,
+                                          Map<String, Object> request) {
+        Map<String, Object> evaluation = mapValue(
+                request == null ? null : request.get(SIGNED_EVAL_POLICY_FIELD));
+        if (evaluation == null || evaluation.isEmpty()) {
+            return;
+        }
+        String mode = text(evaluation.get("mode"));
+        if (!StringUtils.hasText(mode) || "NONE".equalsIgnoreCase(mode)) {
+            return;
+        }
+        String sideEffect = text(tool == null ? null : tool.getSideEffect());
+        String normalized = StringUtils.hasText(sideEffect)
+                ? sideEffect.toUpperCase(Locale.ROOT) : "";
+        if (!"READ".equals(normalized) && !"READ_ONLY".equals(normalized)) {
+            throw new IllegalStateException(
+                    "EVAL_SIDE_EFFECT_BLOCKED: Capability must explicitly declare sideEffect=READ_ONLY");
+        }
+    }
+
     private void validateExecutionConstraints(ToolDefinitionEntity tool,
                                               Map<String, Object> request) {
         Map<String, Object> constraints = mapValue(request == null ? null : request.get("constraints"));
@@ -264,6 +288,13 @@ public class CapabilityToolExecutionService {
         metadata.put("toolTitle", titleOrName(tool.getTitle(), tool.getName()));
         metadata.put("requestBodyType", nullToEmpty(tool.getRequestBodyType()));
         metadata.put("responseType", nullToEmpty(tool.getResponseType()));
+        copyInvocationControl(metadata, request, "invocationId");
+        copyInvocationControl(metadata, request, "deadlineEpochMs");
+        copyInvocationControl(metadata, request, "idempotencyKey");
+        Map<String, Object> traceContext = mapValue(request == null ? null : request.get("traceContext"));
+        if (traceContext != null && !traceContext.isEmpty()) {
+            metadata.put("traceContext", new LinkedHashMap<>(traceContext));
+        }
         if (registrySecurityService == null || !StringUtils.hasText(tool.getProjectCode())) {
             return metadata;
         }
@@ -299,6 +330,15 @@ public class CapabilityToolExecutionService {
                 System.currentTimeMillis(), 60);
         metadata.put("headers", Map.of(ReachAiInvocationToken.HEADER_NAME, token));
         return metadata;
+    }
+
+    private void copyInvocationControl(Map<String, Object> metadata,
+                                       Map<String, Object> request,
+                                       String key) {
+        Object value = request == null ? null : request.get(key);
+        if (value != null) {
+            metadata.put(key, value);
+        }
     }
 
     private String invocationCapabilityName(ToolDefinitionEntity tool) {

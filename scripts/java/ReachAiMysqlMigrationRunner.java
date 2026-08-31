@@ -22,9 +22,11 @@ import java.util.Map;
 import java.util.Properties;
 
 /**
- * Connector/J-backed executor used only by scripts/apply-memory-migrations.mjs.
+ * Connector/J-backed guarded executor used by scripts/apply-memory-migrations.mjs and
+ * the explicitly reviewed current root-level schema migration.
  *
- * The outer Node runner validates explicit execution intent before this process is started.
+ * The outer Node runner validates explicit execution intent for its normal workflow; direct
+ * callers must establish the same authorization and exact target scope before starting it.
  * This helper deliberately never prints the JDBC URL, host, database, username, password,
  * SQL text, row content, or raw SQLException messages.
  */
@@ -376,6 +378,62 @@ public final class ReachAiMysqlMigrationRunner {
         try {
             List<CheckResult> checks = new ArrayList<>();
             switch (script) {
+                case "upgrade-20260830-platform-consolidated.sql":
+                    for (String section : Arrays.asList(
+                            "upgrade-20260823-a2a-hub.sql",
+                            "upgrade-20260823-agent-skill-catalog.sql",
+                            "upgrade-20260823-api-market.sql",
+                            "upgrade-20260824-agent-skill-market.sql",
+                            "upgrade-20260824-eval-target-snapshot.sql",
+                            "upgrade-20260824-evalops-experiments.sql",
+                            "upgrade-20260824-runtime-checkpoint-v1.sql",
+                            "upgrade-20260828-mcp-hub.sql")) {
+                        checks.addAll(verifyMigration(connection, section));
+                    }
+                    checks.add(requireTables(connection, "consolidated.managed_executor.tables", 5,
+                            "runtime_managed_execution", "runtime_managed_execution_event",
+                            "runtime_managed_artifact", "runtime_managed_execution_outbox",
+                            "control_managed_execution_inbox"));
+                    checks.add(requireColumns(connection, "consolidated.managed_executor.columns", 6,
+                            "runtime_managed_execution", "worker_token_digest", "lease_owner",
+                            "lease_expires_at", "objective_sha256", "last_event_sequence",
+                            "provision_available_at"));
+                    checks.add(requireIndex(connection, "consolidated.managed_executor.lease_index",
+                            "runtime_managed_execution", "idx_runtime_managed_execution_lease",
+                            "status,lease_expires_at,id", false));
+                    checks.add(requireTables(connection, "consolidated.automation.tables", 8,
+                            "runtime_automation", "runtime_automation_version",
+                            "runtime_automation_occurrence", "runtime_automation_attempt",
+                            "runtime_automation_event", "runtime_automation_engine_command",
+                            "runtime_automation_execution_slot", "runtime_scheduler_task"));
+                    checks.add(requireAtLeast(connection, "consolidated.automation.permissions", 3,
+                            "SELECT COUNT(*) FROM control_platform_permission "
+                                    + "WHERE permission_code IN "
+                                    + "('automation:read','automation:write','automation:operate')"));
+                    checks.add(requireTables(connection, "consolidated.model_catalog.tables", 5,
+                            "model_catalog_source", "model_catalog_setting",
+                            "model_catalog_sync_run", "model_catalog_snapshot",
+                            "model_catalog_change"));
+                    checks.add(requireColumns(connection, "consolidated.model_catalog.columns", 5,
+                            "model_template", "lifecycle_status", "source_url",
+                            "source_checked_at", "recommendation_level", "recommendation_reason"));
+                    checks.add(requireAtLeast(connection, "consolidated.model_catalog.setting", 1,
+                            "SELECT COUNT(*) FROM model_catalog_setting WHERE id = 1"));
+                    checks.add(requireAtLeast(connection, "consolidated.authorization.p1", 4,
+                            "SELECT COUNT(*) FROM control_platform_permission WHERE permission_code IN "
+                                    + "('workspace:build:access','workspace:operate:access',"
+                                    + "'identity:business-user:read','identity:business-user:manage')"));
+                    checks.add(requireAtLeast(connection, "consolidated.authorization.p2", 12,
+                            "SELECT COUNT(*) FROM control_platform_permission WHERE "
+                                    + "permission_code LIKE 'agent:%' OR permission_code LIKE 'workflow:%' "
+                                    + "OR permission_code LIKE 'runops:%'"));
+                    checks.add(requireColumns(connection, "consolidated.authorization.p3", 1,
+                            "control_platform_role", "role_kind"));
+                    checks.add(requireZero(connection, "consolidated.authorization.system_role_kind",
+                            "SELECT COUNT(*) FROM control_platform_role WHERE role_code IN "
+                                    + "('PLATFORM_ADMIN','AGENT_DESIGNER','PROJECT_OWNER','OPERATOR','AUDITOR') "
+                                    + "AND role_kind <> 'SYSTEM'"));
+                    break;
                 case "upgrade-20260813-runtime-session-memory.sql":
                     checks.add(requireTables(connection, "runtime_session.tables", 2,
                             "runtime_conversation_session", "runtime_conversation_event"));
@@ -557,6 +615,364 @@ public final class ReachAiMysqlMigrationRunner {
                     checks.add(requirePermissionBinding(connection, "memory_erasure.permission",
                             "context:memory:erasure:manage"));
                     break;
+                case "upgrade-20260823-agent-skill-catalog.sql":
+                    checks.add(requireTables(connection, "agent_skill.tables", 5,
+                            "control_internal_auth_nonce",
+                            "control_agent_skill",
+                            "control_agent_skill_version",
+                            "control_agent_skill_review",
+                            "runtime_agent_skill_binding"));
+                    checks.add(requireTableProperties(connection, "agent_skill.table_properties", 5,
+                            "control_internal_auth_nonce",
+                            "control_agent_skill",
+                            "control_agent_skill_version",
+                            "control_agent_skill_review",
+                            "runtime_agent_skill_binding"));
+                    checks.add(requireColumns(connection, "agent_skill.binding_columns", 8,
+                            "runtime_agent_skill_binding", "agent_id", "agent_config_version_id",
+                            "skill_id", "skill_version_id", "publisher", "standard_name",
+                            "source_sha256", "content_tree_sha256"));
+                    checks.add(requireIndex(connection, "agent_skill.binding_identity",
+                            "runtime_agent_skill_binding", "uk_runtime_agent_config_skill",
+                            "agent_config_version_id,publisher,standard_name", true));
+                    checks.add(requireIndex(connection, "agent_skill.version_identity",
+                            "control_agent_skill_version", "uk_control_agent_skill_version",
+                            "skill_id,version", true));
+                    checks.add(requireAtLeast(connection, "agent_skill.permissions", 6,
+                            "SELECT COUNT(*) FROM control_platform_permission "
+                                    + "WHERE permission_code LIKE 'skill:%'"));
+                    break;
+                case "upgrade-20260823-api-market.sql":
+                    checks.add(requireTables(connection, "api_market.tables", 9,
+                            "capability_external_api_source",
+                            "capability_external_api_provider",
+                            "capability_external_api_entry",
+                            "capability_external_api_version",
+                            "capability_external_api_operation",
+                            "capability_external_api_verification",
+                            "capability_external_api_sync_run",
+                            "capability_project_external_api",
+                            "capability_project_external_api_operation"));
+                    checks.add(requireTableProperties(connection, "api_market.table_properties", 9,
+                            "capability_external_api_source",
+                            "capability_external_api_provider",
+                            "capability_external_api_entry",
+                            "capability_external_api_version",
+                            "capability_external_api_operation",
+                            "capability_external_api_verification",
+                            "capability_external_api_sync_run",
+                            "capability_project_external_api",
+                            "capability_project_external_api_operation"));
+                    checks.add(requireIndex(connection, "api_market.entry_identity",
+                            "capability_external_api_entry", "uk_external_api_entry_key",
+                            "entry_key", true));
+                    checks.add(requireIndex(connection, "api_market.integration_identity",
+                            "capability_project_external_api", "uk_project_external_api",
+                            "project_id,entry_id,environment", true));
+                    checks.add(requireAtLeast(connection, "api_market.seed_entries", 6,
+                            "SELECT COUNT(*) FROM capability_external_api_entry WHERE entry_key IN "
+                                    + "('open-meteo','rest-countries','github-rest',"
+                                    + "'open-library-search','nager-date','nasa-apod')"));
+                    checks.add(requireAtLeast(connection, "api_market.seed_operations", 6,
+                            "SELECT COUNT(*) FROM capability_external_api_operation o "
+                                    + "JOIN capability_external_api_version v ON v.id = o.version_id "
+                                    + "JOIN capability_external_api_entry e ON e.id = v.entry_id "
+                                    + "WHERE e.entry_key IN ('open-meteo','rest-countries','github-rest',"
+                                    + "'open-library-search','nager-date','nasa-apod')"));
+                    checks.add(requireAtLeast(connection, "api_market.verification_evidence", 4,
+                            "SELECT COUNT(*) FROM capability_external_api_verification vf "
+                                    + "JOIN capability_external_api_entry e ON e.id = vf.entry_id "
+                                    + "WHERE e.entry_key IN ('open-meteo','rest-countries',"
+                                    + "'github-rest','nager-date') AND vf.verification_type = 'CONNECTIVITY'"));
+                    checks.add(requireZero(connection, "api_market.credential_columns",
+                            "SELECT COUNT(*) FROM information_schema.COLUMNS "
+                                    + "WHERE TABLE_SCHEMA = DATABASE() "
+                                    + "AND TABLE_NAME LIKE 'capability%external_api%' "
+                                    + "AND COLUMN_NAME REGEXP 'secret|token|api_key|password'"));
+                    checks.add(requireZero(connection, "api_market.seed_mojibake",
+                            "SELECT COUNT(*) FROM capability_external_api_entry "
+                                    + "WHERE entry_key IN ('open-meteo','rest-countries','github-rest',"
+                                    + "'open-library-search','nager-date','nasa-apod') "
+                                    + "AND INSTR(CONCAT(title, summary), '???') > 0"));
+                    break;
+                case "upgrade-20260823-a2a-hub.sql":
+                    checks.add(requireTables(connection, "a2a_hub.tables", 19,
+                            "control_a2a_trust_profile",
+                            "control_a2a_credential",
+                            "control_a2a_principal",
+                            "control_a2a_publication",
+                            "control_a2a_publication_revision",
+                            "control_a2a_remote_agent",
+                            "control_a2a_remote_agent_revision",
+                            "control_a2a_context",
+                            "control_a2a_task",
+                            "control_a2a_outbound_execution",
+                            "control_a2a_message",
+                            "control_a2a_artifact",
+                            "control_a2a_task_event",
+                            "control_a2a_push_notification_config",
+                            "control_a2a_transport_event",
+                            "control_a2a_rate_limit_window",
+                            "control_a2a_conformance_run",
+                            "control_a2a_outbox",
+                            "runtime_agent_remote_agent_binding"));
+                    checks.add(requireTableProperties(connection, "a2a_hub.table_properties", 19,
+                            "control_a2a_trust_profile",
+                            "control_a2a_credential",
+                            "control_a2a_principal",
+                            "control_a2a_publication",
+                            "control_a2a_publication_revision",
+                            "control_a2a_remote_agent",
+                            "control_a2a_remote_agent_revision",
+                            "control_a2a_context",
+                            "control_a2a_task",
+                            "control_a2a_outbound_execution",
+                            "control_a2a_message",
+                            "control_a2a_artifact",
+                            "control_a2a_task_event",
+                            "control_a2a_push_notification_config",
+                            "control_a2a_transport_event",
+                            "control_a2a_rate_limit_window",
+                            "control_a2a_conformance_run",
+                            "control_a2a_outbox",
+                            "runtime_agent_remote_agent_binding"));
+                    checks.add(requireColumns(connection, "a2a_hub.task_columns", 10,
+                            "control_a2a_task", "task_id", "direction", "principal_id",
+                            "tenant_scope", "remote_agent_id", "remote_revision_id",
+                            "remote_task_id", "origin_message_id", "cancel_phase", "deadline_at"));
+                    checks.add(requireColumns(connection, "a2a_hub.outbound_columns", 10,
+                            "control_a2a_outbound_execution", "task_ref_id", "runtime_binding_id",
+                            "agent_config_version_id", "principal_trust_profile_id",
+                            "remote_trust_profile_id", "remote_interface_key", "credential_id",
+                            "poll_status", "next_poll_at", "lease_until"));
+                    checks.add(requireColumns(connection, "a2a_hub.remote_revision_columns", 4,
+                            "control_a2a_remote_agent_revision", "default_input_modes_json",
+                            "default_output_modes_json", "signature_status", "signing_key_id"));
+                    checks.add(requireColumns(connection, "a2a_hub.remote_agent_columns", 1,
+                            "control_a2a_remote_agent", "preferred_security_scheme_key"));
+                    checks.add(requireColumns(connection, "a2a_hub.encrypted_message_columns", 5,
+                            "control_a2a_message", "payload_ciphertext", "payload_object_ref",
+                            "encryption_key_id", "encryption_nonce", "idempotency_sha256"));
+                    checks.add(requireColumns(connection, "a2a_hub.credential_columns", 6,
+                            "control_a2a_credential", "material_hash", "material_salt",
+                            "material_ciphertext", "encryption_key_id", "encryption_nonce",
+                            "external_ref"));
+                    checks.add(requireColumns(connection, "a2a_hub.runtime_binding_columns", 7,
+                            "runtime_agent_remote_agent_binding", "agent_config_version_id",
+                            "principal_id", "remote_agent_id", "remote_agent_revision_id",
+                            "allowed_skill_ids_json", "permission_key", "timeout_ms"));
+                    checks.add(requireIndex(connection, "a2a_hub.task_idempotency_index",
+                            "control_a2a_task", "uk_a2a_task_message_idempotency",
+                            "direction,principal_id,tenant_scope,origin_message_id", true));
+                    checks.add(requireIndex(connection, "a2a_hub.outbound_poll_index",
+                            "control_a2a_outbound_execution", "idx_a2a_outbound_poll_claim",
+                            "poll_status,next_poll_at,lease_until", false));
+                    checks.add(requireIndex(connection, "a2a_hub.task_event_sequence_index",
+                            "control_a2a_task_event", "uk_a2a_task_event_sequence",
+                            "task_ref_id,sequence_no", true));
+                    checks.add(requireIndex(connection, "a2a_hub.runtime_binding_tool_index",
+                            "runtime_agent_remote_agent_binding", "uk_runtime_agent_remote_tool",
+                            "agent_config_version_id,tool_name", true));
+                    checks.add(requireAtLeast(connection, "a2a_hub.permissions", 8,
+                            "SELECT COUNT(*) FROM control_platform_permission "
+                                    + "WHERE permission_code LIKE 'a2a-hub:%'"));
+                    checks.add(requireZero(connection, "a2a_hub.legacy_tables",
+                            "SELECT COUNT(*) FROM information_schema.TABLES "
+                                    + "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN "
+                                    + "('control_a2a_endpoint','control_a2a_call_log')"));
+                    checks.add(requireZero(connection, "a2a_hub.legacy_task_shape",
+                            "SELECT COUNT(*) FROM information_schema.COLUMNS "
+                                    + "WHERE TABLE_SCHEMA = DATABASE() "
+                                    + "AND TABLE_NAME = 'control_a2a_task' "
+                                    + "AND COLUMN_NAME = 'endpoint_id'"));
+                    break;
+                case "upgrade-20260824-runtime-checkpoint-v1.sql":
+                    checks.add(requireColumns(connection, "runtime_checkpoint_v1.columns", 4,
+                            "runtime_interaction_session",
+                            "checkpoint_schema_version", "execution_engine_version",
+                            "checkpoint_digest", "checkpoint_size_bytes"));
+                    checks.add(requireColumnDefinition(connection, "runtime_checkpoint_v1.schema_definition",
+                            "runtime_interaction_session", "checkpoint_schema_version",
+                            "smallint", null, false));
+                    checks.add(requireColumnDefinition(connection, "runtime_checkpoint_v1.engine_definition",
+                            "runtime_interaction_session", "execution_engine_version",
+                            "varchar", 32L, false));
+                    checks.add(requireColumnDefinition(connection, "runtime_checkpoint_v1.digest_definition",
+                            "runtime_interaction_session", "checkpoint_digest",
+                            "char", 64L, true));
+                    checks.add(requireColumnDefinition(connection, "runtime_checkpoint_v1.size_definition",
+                            "runtime_interaction_session", "checkpoint_size_bytes",
+                            "int", null, true));
+                    checks.add(requireZero(connection, "runtime_checkpoint_v1.invalid_v1_metadata",
+                            "SELECT COUNT(*) FROM runtime_interaction_session "
+                                    + "WHERE checkpoint_schema_version = 1 AND ("
+                                    + "execution_engine_version <> 'RUNTIME_KERNEL_V2' "
+                                    + "OR checkpoint_digest IS NULL OR CHAR_LENGTH(checkpoint_digest) <> 64 "
+                                    + "OR checkpoint_size_bytes IS NULL OR checkpoint_size_bytes < 2 "
+                                    + "OR checkpoint_size_bytes > 1048576)"));
+                    checks.add(requireZero(connection, "runtime_checkpoint_v1.invalid_legacy_metadata",
+                            "SELECT COUNT(*) FROM runtime_interaction_session "
+                                    + "WHERE checkpoint_schema_version = 0 "
+                                    + "AND execution_engine_version <> 'LEGACY'"));
+                    break;
+                case "upgrade-20260824-eval-target-snapshot.sql":
+                    checks.add(requireTables(connection, "eval_target_snapshot.tables", 1,
+                            "runtime_eval_target_snapshot"));
+                    checks.add(requireTableProperties(connection, "eval_target_snapshot.table_properties", 1,
+                            "runtime_eval_target_snapshot"));
+                    checks.add(requireColumns(connection, "eval_target_snapshot.run_columns", 4,
+                            "runtime_agent_eval_run",
+                            "target_snapshot_id", "target_config_version_id",
+                            "target_config_status", "target_fingerprint"));
+                    checks.add(requireColumnDefinition(connection, "eval_target_snapshot.fingerprint_definition",
+                            "runtime_eval_target_snapshot", "fingerprint_sha256",
+                            "char", 64L, false));
+                    checks.add(requireIndex(connection, "eval_target_snapshot.fingerprint_index",
+                            "runtime_eval_target_snapshot", "uk_runtime_eval_target_fingerprint",
+                            "tenant_id,target_type,target_id,fingerprint_sha256", true));
+                    checks.add(requireIndex(connection, "eval_target_snapshot.run_index",
+                            "runtime_agent_eval_run", "idx_eval_run_target_snapshot",
+                            "target_snapshot_id,create_time", false));
+                    break;
+                case "upgrade-20260824-evalops-experiments.sql":
+                    checks.add(requireTables(connection, "evalops.tables", 9,
+                            "runtime_eval_dataset",
+                            "runtime_eval_dataset_version",
+                            "runtime_eval_dataset_item",
+                            "runtime_eval_evaluator_suite_version",
+                            "runtime_eval_experiment",
+                            "runtime_eval_experiment_variant",
+                            "runtime_eval_experiment_item",
+                            "runtime_eval_score",
+                            "runtime_eval_task"));
+                    checks.add(requireTableProperties(connection, "evalops.table_properties", 9,
+                            "runtime_eval_dataset",
+                            "runtime_eval_dataset_version",
+                            "runtime_eval_dataset_item",
+                            "runtime_eval_evaluator_suite_version",
+                            "runtime_eval_experiment",
+                            "runtime_eval_experiment_variant",
+                            "runtime_eval_experiment_item",
+                            "runtime_eval_score",
+                            "runtime_eval_task"));
+                    checks.add(requireColumns(connection, "evalops.task_lease_columns", 8,
+                            "runtime_eval_task",
+                            "status", "attempt_count", "max_attempts", "available_at",
+                            "lease_owner", "lease_token", "leased_until", "last_error_code"));
+                    checks.add(requireIndex(connection, "evalops.dataset_identity",
+                            "runtime_eval_dataset", "uk_runtime_eval_dataset_name",
+                            "tenant_id,target_type,target_id,name", true));
+                    checks.add(requireIndex(connection, "evalops.dataset_version_identity",
+                            "runtime_eval_dataset_version", "uk_runtime_eval_dataset_version",
+                            "dataset_id,version_no", true));
+                    checks.add(requireIndex(connection, "evalops.dataset_item_identity",
+                            "runtime_eval_dataset_item", "uk_runtime_eval_dataset_item",
+                            "dataset_version_id,item_key", true));
+                    checks.add(requireIndex(connection, "evalops.evaluator_fingerprint_identity",
+                            "runtime_eval_evaluator_suite_version",
+                            "uk_runtime_eval_evaluator_suite_fingerprint",
+                            "tenant_id,fingerprint_sha256", true));
+                    checks.add(requireIndex(connection, "evalops.experiment_idempotency",
+                            "runtime_eval_experiment", "uk_runtime_eval_experiment_idempotency",
+                            "tenant_id,idempotency_key", true));
+                    checks.add(requireIndex(connection, "evalops.experiment_item_identity",
+                            "runtime_eval_experiment_item", "uk_runtime_eval_experiment_item",
+                            "experiment_id,variant_id,dataset_item_id,repeat_no", true));
+                    checks.add(requireIndex(connection, "evalops.score_identity",
+                            "runtime_eval_score", "uk_runtime_eval_score_item_evaluator",
+                            "experiment_item_id,evaluator_key", true));
+                    checks.add(requireIndex(connection, "evalops.task_identity",
+                            "runtime_eval_task", "uk_runtime_eval_task_item",
+                            "task_type,experiment_item_id", true));
+                    checks.add(requireIndex(connection, "evalops.task_lease_index",
+                            "runtime_eval_task", "idx_runtime_eval_task_lease",
+                            "status,available_at,leased_until,priority,id", false));
+                    break;
+                case "upgrade-20260828-mcp-hub.sql":
+                    checks.add(requireTables(connection, "mcp_hub.tables", 5,
+                            "control_mcp_publication", "control_mcp_publication_item",
+                            "control_mcp_publication_revision", "control_mcp_client",
+                            "control_mcp_call_log"));
+                    checks.add(requireTableProperties(connection, "mcp_hub.table_properties", 5,
+                            "control_mcp_publication", "control_mcp_publication_item",
+                            "control_mcp_publication_revision", "control_mcp_client",
+                            "control_mcp_call_log"));
+                    checks.add(requireColumns(connection, "mcp_hub.client_columns", 6,
+                            "control_mcp_client", "publication_id", "project_code",
+                            "environment", "tenant_id", "tool_scope_json", "state"));
+                    checks.add(requireColumnDefinition(connection, "mcp_hub.client_project_scope",
+                            "control_mcp_client", "project_code", "varchar", 96L, false));
+                    checks.add(requireColumnDefinition(connection, "mcp_hub.client_environment_scope",
+                            "control_mcp_client", "environment", "varchar", 32L, false));
+                    checks.add(requireColumnDefinition(connection, "mcp_hub.client_tenant_scope",
+                            "control_mcp_client", "tenant_id", "varchar", 96L, false));
+                    checks.add(requireColumns(connection, "mcp_hub.call_log_columns", 10,
+                            "control_mcp_call_log", "direction", "publication_id",
+                            "remote_server_id", "error_category", "request_body",
+                            "response_body", "run_id", "project_code", "environment",
+                            "tenant_id"));
+                    checks.add(requireColumnDefinition(connection, "mcp_hub.request_body_capacity",
+                            "control_mcp_call_log", "request_body", "mediumtext", 16777215L, true));
+                    checks.add(requireColumnDefinition(connection, "mcp_hub.response_body_capacity",
+                            "control_mcp_call_log", "response_body", "mediumtext", 16777215L, true));
+                    checks.add(requireIndex(connection, "mcp_hub.client_publication_index",
+                            "control_mcp_client", "idx_publication", "publication_id", false));
+                    checks.add(requireIndex(connection, "mcp_hub.call_direction_index",
+                            "control_mcp_call_log", "idx_direction_created",
+                            "direction,created_at", false));
+                    checks.add(requireIndex(connection, "mcp_hub.call_publication_index",
+                            "control_mcp_call_log", "idx_publication_created",
+                            "publication_id,created_at", false));
+                    checks.add(requireIndex(connection, "mcp_hub.call_project_trace_index",
+                            "control_mcp_call_log", "idx_mcp_log_project_trace",
+                            "project_code,trace_id", false));
+                    checks.add(requireAtLeast(connection, "mcp_hub.permissions", 6,
+                            "SELECT COUNT(*) FROM control_platform_permission "
+                                    + "WHERE permission_code LIKE 'mcp-hub:%'"));
+                    checks.add(requireZero(connection, "mcp_hub.legacy_table",
+                            "SELECT COUNT(*) FROM information_schema.TABLES "
+                                    + "WHERE TABLE_SCHEMA = DATABASE() "
+                                    + "AND TABLE_NAME = 'control_mcp_visibility'"));
+                    checks.add(requireZero(connection, "mcp_hub.legacy_client_column",
+                            "SELECT COUNT(*) FROM information_schema.COLUMNS "
+                                    + "WHERE TABLE_SCHEMA = DATABASE() "
+                                    + "AND TABLE_NAME = 'control_mcp_client' "
+                                    + "AND COLUMN_NAME = 'tool_whitelist_json'"));
+                    checks.add(requireZero(connection, "mcp_hub.permission_mojibake",
+                            "SELECT COUNT(*) FROM control_platform_permission "
+                                    + "WHERE permission_code LIKE 'mcp-hub:%' "
+                                    + "AND permission_name LIKE '%?%'"));
+                    break;
+                case "upgrade-20260824-agent-skill-market.sql":
+                    checks.add(requireTables(connection, "agent_skill_market.tables", 2,
+                            "control_agent_skill_market_source",
+                            "control_agent_skill_market_import"));
+                    checks.add(requireTableProperties(connection, "agent_skill_market.table_properties", 2,
+                            "control_agent_skill_market_source",
+                            "control_agent_skill_market_import"));
+                    checks.add(requireColumns(connection, "agent_skill_market.import_provenance", 8,
+                            "control_agent_skill_market_import",
+                            "provider_key", "marketplace_skill_id", "repository",
+                            "source_commit_sha", "source_root", "bundle_source_sha256",
+                            "selected_source_sha256", "skill_version_id"));
+                    checks.add(requireIndex(connection, "agent_skill_market.source_identity",
+                            "control_agent_skill_market_source",
+                            "uk_control_agent_skill_market_source", "source_key", true));
+                    checks.add(requireIndex(connection, "agent_skill_market.origin_identity",
+                            "control_agent_skill_market_import",
+                            "uk_control_agent_skill_market_origin", "origin_fingerprint", true));
+                    checks.add(requireIndex(connection, "agent_skill_market.repository_lookup",
+                            "control_agent_skill_market_import",
+                            "idx_control_agent_skill_market_import_repo",
+                            "repository,source_commit_sha", false));
+                    checks.add(requireAtLeast(connection, "agent_skill_market.seed_sources", 6,
+                            "SELECT COUNT(*) FROM control_agent_skill_market_source "
+                                    + "WHERE source_key IN ('SKILLS_SH','GITHUB','ANTHROPIC_SKILLS',"
+                                    + "'VERCEL_AGENT_SKILLS','JETBRAINS_SKILLS','OPENAI_PLUGINS')"));
+                    checks.add(requireZero(connection, "agent_skill_market.seed_utf8",
+                            "SELECT COUNT(*) FROM control_agent_skill_market_source "
+                                    + "WHERE display_name LIKE '%?%' OR description LIKE '%?%'"));
+                    break;
                 default:
                     throw new RunnerFailure("UNAPPROVED_MIGRATION_SCRIPT", "VERIFY",
                             script, null, null, null);
@@ -664,6 +1080,13 @@ public final class ReachAiMysqlMigrationRunner {
             throws SQLException {
         long actual = scalarLong(connection, sql);
         return new CheckResult(code, actual == 0, 0, actual);
+    }
+
+    private static CheckResult requireAtLeast(Connection connection, String code,
+                                              long expectedMinimum, String sql)
+            throws SQLException {
+        long actual = scalarLong(connection, sql);
+        return new CheckResult(code, actual >= expectedMinimum, expectedMinimum, actual);
     }
 
     private static long scalarLong(Connection connection, String sql) throws SQLException {

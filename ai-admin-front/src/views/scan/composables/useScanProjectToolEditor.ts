@@ -134,7 +134,7 @@ export function useScanProjectToolEditor(deps: UseScanProjectToolEditorDeps) {
 
   async function handleSave() {
     if (editingScanToolId.value == null || !form.title.trim() || !form.name.trim() || !form.description.trim()) {
-      ElMessage.warning('请填写工具名称、工具标识和描述')
+      ElMessage.warning('请填写接口名称、接口标识和描述')
       return
     }
     saving.value = true

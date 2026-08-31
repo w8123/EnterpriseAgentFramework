@@ -8,9 +8,6 @@ import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskDescript
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskTargetView;
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskValues.ArtifactNextAction;
 import com.enterprise.ai.control.aicoding.provider.AiCodingContractResourceLoader;
-import com.enterprise.ai.control.client.capability.CapabilityProjectOnboardingClient;
-import com.enterprise.ai.control.client.model.ControlModelCatalogClient;
-import com.enterprise.ai.control.client.runtime.RuntimeProxyClient;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.ActionView;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.PageView;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.PublishedWorkflowView;
@@ -45,9 +42,9 @@ class PageWorkbenchTaskProviderTest {
     private AiCodingContractResourceLoader resources;
     private PageCatalogApplicationService pageCatalog;
     private PageAnalysisApplicationService pageAnalysis;
-    private CapabilityProjectOnboardingClient capabilityClient;
-    private ControlModelCatalogClient modelCatalogClient;
-    private RuntimeProxyClient runtimeClient;
+    private PageWorkbenchProjectPort capabilityClient;
+    private PageWorkbenchModelPort modelCatalogClient;
+    private PageWorkbenchRuntimePort runtimeClient;
     private PageWorkbenchBrowserReadinessApplicationService browserReadiness;
     private PageWorkbenchAgentModelReadinessApplicationService modelReadiness;
     private PageWorkbenchWorkflowTraceReadinessApplicationService
@@ -60,9 +57,9 @@ class PageWorkbenchTaskProviderTest {
         resources = new AiCodingContractResourceLoader(objectMapper);
         pageCatalog = mock(PageCatalogApplicationService.class);
         pageAnalysis = mock(PageAnalysisApplicationService.class);
-        capabilityClient = mock(CapabilityProjectOnboardingClient.class);
-        modelCatalogClient = mock(ControlModelCatalogClient.class);
-        runtimeClient = mock(RuntimeProxyClient.class);
+        capabilityClient = mock(PageWorkbenchProjectPort.class);
+        modelCatalogClient = mock(PageWorkbenchModelPort.class);
+        runtimeClient = mock(PageWorkbenchRuntimePort.class);
         browserReadiness = mock(
                 PageWorkbenchBrowserReadinessApplicationService.class);
         modelReadiness = mock(

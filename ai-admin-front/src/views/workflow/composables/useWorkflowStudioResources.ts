@@ -10,6 +10,7 @@ import type { ModelInstance } from '@/types/model'
 import type { ToolInfo } from '@/types/tool'
 import type { WorkflowCredential } from '@/types/workflowCredential'
 import type { WorkflowGraphNodeTypeDescriptor, WorkflowWorkingCopyState } from '@/types/workflow'
+import { normalizeActiveModelInstances } from '@/utils/modelSelection'
 
 export interface UseWorkflowStudioResourcesDeps {
   studio: Ref<WorkflowWorkingCopyState | null>
@@ -17,25 +18,12 @@ export interface UseWorkflowStudioResourcesDeps {
   selectedToolName: Ref<string>
 }
 
-function normalizeModelInstanceList(payload: unknown): ModelInstance[] {
-  if (Array.isArray(payload)) {
-    return payload as ModelInstance[]
-  }
-  if (payload !== null && typeof payload === 'object' && 'data' in payload) {
-    const wrapped = (payload as { data?: unknown }).data
-    return Array.isArray(wrapped) ? (wrapped as ModelInstance[]) : []
-  }
-  return []
-}
-
-function isActiveModelInstance(item: ModelInstance) {
-  return String(item.status ?? '').toUpperCase() === 'ACTIVE'
-}
-
 export function useWorkflowStudioResources(deps: UseWorkflowStudioResourcesDeps) {
   const nodeTypesLoading = ref(false)
   const nodeTypes = ref<WorkflowGraphNodeTypeDescriptor[]>([])
   const modelOptions = ref<ModelInstance[]>([])
+  const modelOptionsLoading = ref(false)
+  const modelOptionsLoadError = ref(false)
   const knowledgeOptions = ref<KnowledgeBase[]>([])
   const toolOptions = ref<ToolInfo[]>([])
   const credentialOptions = ref<WorkflowCredential[]>([])
@@ -90,14 +78,19 @@ export function useWorkflowStudioResources(deps: UseWorkflowStudioResourcesDeps)
   }
 
   async function loadModelOptions() {
+    modelOptionsLoading.value = true
+    modelOptionsLoadError.value = false
     try {
       const { data } = await getModelInstances({ modelType: 'LLM' })
-      modelOptions.value = normalizeModelInstanceList(data).filter((item) => isActiveModelInstance(item))
+      modelOptions.value = normalizeActiveModelInstances(data, 'LLM')
       if (!deps.aiModelInstanceId.value && deps.studio.value?.defaultModelInstanceId) {
         deps.aiModelInstanceId.value = deps.studio.value.defaultModelInstanceId
       }
     } catch {
       modelOptions.value = []
+      modelOptionsLoadError.value = true
+    } finally {
+      modelOptionsLoading.value = false
     }
   }
 
@@ -154,6 +147,8 @@ export function useWorkflowStudioResources(deps: UseWorkflowStudioResourcesDeps)
   return {
     nodeTypes,
     modelOptions,
+    modelOptionsLoading,
+    modelOptionsLoadError,
     knowledgeOptions,
     credentialOptions,
     paramSourceHints,

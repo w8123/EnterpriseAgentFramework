@@ -5,7 +5,7 @@
       domain="governance"
       eyebrow="Domain Governance"
       title="领域定义"
-      description="定义业务领域与分类关键词，为 Tool 和能力召回提供治理标签。"
+      description="定义业务领域与分类关键词，为能力与运行时调用召回提供治理标签。"
     >
       <template #actions>
         <el-tooltip content="刷新领域定义" placement="top">
@@ -19,7 +19,7 @@
       type="info"
       show-icon
       :closable="false"
-      title="领域 = Tool / 粗粒度能力的业务标签集合，分类器在召回前做软过滤"
+      title="领域是能力与调用目标的业务标签集合，分类器在召回前做软过滤"
       description="关键词以 JSON 数组形式存储；命中后由 KeywordDomainClassifier 按命中长度加权排序。后端开关：ai.domain.enabled / ai.domain.soft-fallback。"
     />
 

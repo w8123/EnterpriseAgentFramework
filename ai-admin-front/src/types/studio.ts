@@ -141,6 +141,8 @@ export interface KnowledgeNodeConfig {
   similarityThreshold?: number
   searchMode: string
   rerankEnabled: boolean
+  /** REQUIRED routes empty retrieval to no_evidence; OPTIONAL keeps legacy linear fallback. */
+  evidencePolicy: 'REQUIRED' | 'OPTIONAL'
 }
 
 export interface HttpNodeConfig {
@@ -361,6 +363,8 @@ export interface CanvasNodeData {
   outputAlias?: string
   needsConfiguration?: boolean
   placeholderReason?: string
+  /** API 市场目录引用；只含稳定身份与摘要，不含凭据。 */
+  marketRef?: Record<string, unknown>
   userInputConfig?: UserInputNodeConfig
   interactionConfig?: InteractionNodeConfig
   pageActionConfig?: PageActionNodeConfig

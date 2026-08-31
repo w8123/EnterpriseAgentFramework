@@ -1,7 +1,6 @@
 package com.enterprise.ai.control.pageworkbench.application;
 
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.ReadinessItem;
-import com.enterprise.ai.control.client.runtime.RuntimeProxyClient;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.WorkflowReleaseReadinessView;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -18,12 +17,12 @@ import static org.mockito.Mockito.when;
 
 class PageWorkbenchReleaseReadinessApplicationServiceTest {
 
-    private RuntimeProxyClient runtimeClient;
+    private PageWorkbenchRuntimePort runtimeClient;
     private PageWorkbenchReleaseReadinessApplicationService service;
 
     @BeforeEach
     void setUp() {
-        runtimeClient = mock(RuntimeProxyClient.class);
+        runtimeClient = mock(PageWorkbenchRuntimePort.class);
         service = new PageWorkbenchReleaseReadinessApplicationService(
                 runtimeClient,
                 new ObjectMapper().findAndRegisterModules());

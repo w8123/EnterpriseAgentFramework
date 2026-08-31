@@ -1,5 +1,6 @@
 import type { AgentVisibility } from './workflow'
 import type { CanvasSnapshot } from './studio'
+import type { AgentSkillBindingConfig } from './skill'
 
 export type { Agent, AgentVisibility } from './workflow'
 
@@ -34,6 +35,25 @@ export interface AgentWorkflowToolConfig {
   priority?: number
 }
 
+/** Immutable A2A Hub remote-Agent binding snapshot attached to one Agent config version. */
+export interface AgentA2aRemoteBindingConfig {
+  id?: number
+  principalId: number
+  remoteAgentId: number
+  remoteAgentRevisionId: number
+  remoteAgentKey?: string
+  toolName: string
+  description?: string | null
+  allowedSkillIds: string[]
+  inputModes?: string[]
+  outputModes?: string[]
+  riskLevel: 'READ' | 'WRITE' | 'IRREVERSIBLE' | string
+  permissionKey: string
+  timeoutMs?: number | null
+  enabled?: boolean
+  priority?: number
+}
+
 export interface AgentConfigVersion {
   id: number
   agentId: string
@@ -57,6 +77,8 @@ export interface AgentConfigVersion {
   createdAt?: string | null
   updatedAt?: string | null
   tools: AgentWorkflowToolConfig[]
+  skills?: AgentSkillBindingConfig[]
+  remoteAgents?: AgentA2aRemoteBindingConfig[]
 }
 
 export type AgentConfigDraft = Omit<AgentConfigVersion,

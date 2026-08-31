@@ -26,13 +26,51 @@ These rows remain in the ownership matrix because the current baseline still rec
 
 | Table | Owner service | Additional direct access | Notes |
 | --- | --- | --- | --- |
-| `control_a2a_call_log` | `reachai-control-service` | - | External A2A call audit |
-| `control_a2a_endpoint` | `reachai-control-service` | - | External A2A endpoint catalog |
-| `control_a2a_task` | `reachai-control-service` | - | A2A task state |
+| `control_a2a_publication` | `reachai-control-service` | - | A2A Hub local Agent publication aggregate and current immutable revision |
+| `control_a2a_publication_revision` | `reachai-control-service` | - | Immutable A2A 1.0 Agent Card publication snapshot and conformance evidence |
+| `control_a2a_remote_agent` | `reachai-control-service` | - | Stable remote Agent catalog identity, trust and health state |
+| `control_a2a_remote_agent_revision` | `reachai-control-service` | - | Immutable remote Agent Card revision and verification evidence |
+| `control_a2a_trust_profile` | `reachai-control-service` | - | A2A authentication, authorization, data and quota policy |
+| `control_a2a_principal` | `reachai-control-service` | - | Authenticated A2A principal and owner scope |
+| `control_a2a_credential` | `reachai-control-service` | - | Hashed, encrypted or externally referenced A2A credential material |
+| `control_a2a_context` | `reachai-control-service` | - | Principal-scoped A2A conversational context |
+| `control_a2a_task` | `reachai-control-service` | - | A2A Task current projection, owner scope and Runtime/Trace linkage |
+| `control_a2a_outbound_execution` | `reachai-control-service` | - | Immutable outbound Task acceptance snapshot, polling schedule and distributed lease |
+| `control_a2a_message` | `reachai-control-service` | - | Encrypted A2A Message resource and safe summary |
+| `control_a2a_artifact` | `reachai-control-service` | - | Encrypted or externalized A2A Task Artifact |
+| `control_a2a_task_event` | `reachai-control-service` | - | Immutable ordered A2A Task event ledger |
+| `control_a2a_push_notification_config` | `reachai-control-service` | - | Task webhook configuration and credential reference |
+| `control_a2a_transport_event` | `reachai-control-service` | - | A2A protocol audit without raw request or response bodies |
+| `control_a2a_rate_limit_window` | `reachai-control-service` | - | Multi-instance Principal/publication request-rate windows |
+| `control_a2a_conformance_run` | `reachai-control-service` | - | A2A TCK and publication preflight evidence |
+| `control_a2a_outbox` | `reachai-control-service` | - | Durable A2A dispatch and notification outbox without content bodies |
 | `runtime_agent_eval_case` | `reachai-runtime-service` | - | Runtime evaluation case |
 | `runtime_agent_eval_case_result` | `reachai-runtime-service` | - | Runtime evaluation result |
 | `runtime_agent_eval_dataset` | `reachai-runtime-service` | - | Runtime evaluation dataset |
 | `runtime_agent_eval_run` | `reachai-runtime-service` | - | Runtime evaluation run |
+| `runtime_automation` | `reachai-runtime-service` | - | Automation aggregate and current immutable-version projection |
+| `runtime_automation_version` | `reachai-runtime-service` | - | Exact Agent/Workflow target, schedule, policy, principal and input snapshot |
+| `runtime_automation_occurrence` | `reachai-runtime-service` | - | Idempotent nominal trigger occurrence and recoverable execution lease |
+| `runtime_automation_attempt` | `reachai-runtime-service` | - | Per-lease Automation execution attempt and bounded result evidence |
+| `runtime_automation_event` | `reachai-runtime-service` | - | Metadata-only Automation lifecycle and operator audit ledger |
+| `runtime_automation_engine_command` | `reachai-runtime-service` | - | Durable Automation-definition to cluster-clock synchronization command |
+| `runtime_automation_execution_slot` | `reachai-runtime-service` | - | Cross-replica Automation concurrency-policy lease slot |
+| `runtime_scheduler_task` | `reachai-runtime-service` | - | Embedded db-scheduler cluster clock; no Agent/Workflow business result |
+| `runtime_eval_target_snapshot` | `reachai-runtime-service` | - | Server-derived immutable Eval target snapshot and canonical fingerprint |
+| `runtime_eval_dataset` | `reachai-runtime-service` | - | EvalOps versioned dataset catalog |
+| `runtime_eval_dataset_version` | `reachai-runtime-service` | - | Immutable published Eval dataset version |
+| `runtime_eval_dataset_item` | `reachai-runtime-service` | - | Version-pinned Eval input and expected-result item |
+| `runtime_eval_evaluator_suite_version` | `reachai-runtime-service` | - | Immutable deterministic evaluator-suite version |
+| `runtime_eval_experiment` | `reachai-runtime-service` | - | Baseline/candidate Eval experiment aggregate |
+| `runtime_eval_experiment_variant` | `reachai-runtime-service` | - | Experiment target variant and server snapshot fingerprint |
+| `runtime_eval_experiment_item` | `reachai-runtime-service` | - | Per-variant, per-item, per-repeat execution result |
+| `runtime_eval_score` | `reachai-runtime-service` | - | First-class evaluator score and evidence |
+| `runtime_eval_task` | `reachai-runtime-service` | - | Recoverable MySQL 5.7-compatible Eval worker lease |
+| `runtime_managed_execution` | `reachai-runtime-service` | - | Managed Executor aggregate, policy snapshot, execution-scoped worker token digest and lease |
+| `runtime_managed_execution_event` | `reachai-runtime-service` | - | Strictly ordered sanitized Worker event ledger without reasoning or raw output deltas |
+| `runtime_managed_artifact` | `reachai-runtime-service` | - | Object-store Artifact digest, validation, scan and retention metadata |
+| `runtime_managed_execution_outbox` | `reachai-runtime-service` | - | Durable metadata-only Managed Executor status and Artifact notification outbox |
+| `control_managed_execution_inbox` | `reachai-control-service` | - | Idempotent Runtime event receipt and Control-side Managed Execution projection state |
 | `runtime_run` | `reachai-runtime-service` | - | RunOps root execution fact used by lists, KPIs, diagnostics, and replay |
 | `runtime_internal_auth_nonce` | `reachai-runtime-service` | - | Control→Runtime HMAC nonce anti-replay store (multi-instance safe) |
 | `runtime_conversation_session` | `reachai-runtime-service` | - | Trusted tenant/user/Agent session ownership, turn/lifecycle leases, Legal Hold, and retention state machine |
@@ -45,9 +83,25 @@ These rows remain in the ownership matrix because the current baseline still rec
 | `runtime_agent` | `reachai-runtime-service` | - | Runtime agent catalog |
 | `runtime_agent_config_version` | `reachai-runtime-service` | - | Versioned Agent Supervisor configuration |
 | `runtime_agent_workflow_tool` | `reachai-runtime-service` | - | Workflow-as-Tool allow-list per Agent configuration version |
+| `runtime_agent_skill_binding` | `reachai-runtime-service` | - | Exact published Agent Skill package plus visibility/project snapshot bound to an Agent configuration version |
+| `runtime_agent_remote_agent_binding` | `reachai-runtime-service` | - | Exact remote Agent revision delegated by a published Agent configuration; Runtime validates through Control internal API |
 | `model_template` | `reachai-model-service` | - | Model Center V2 catalog templates (no secrets) |
 | `model_instance` | `reachai-model-service` | - | Model Center V2 executable instances (stable modelInstanceId) |
+| `model_catalog_source` | `reachai-model-service` | - | Official provider source metadata and safe fetch policy; no credentials |
+| `model_catalog_setting` | `reachai-model-service` | - | Singleton automatic-sync setting; defaults to manual-only mode |
+| `model_catalog_sync_run` | `reachai-model-service` | - | One recoverable leased synchronization slot per source and business day |
+| `model_catalog_snapshot` | `reachai-model-service` | - | Immutable normalized public source snapshot and bounded analyzer output |
+| `model_catalog_change` | `reachai-model-service` | - | Validated candidate diff, evidence and guarded publication result |
 | `capability_project_instance` | `reachai-capability-service` | - | SDK access-instance heartbeat |
+| `capability_external_api_source` | `reachai-capability-service` | - | API 市场来源、信任级别与同步策略；不保存调用凭据 |
+| `capability_external_api_provider` | `reachai-capability-service` | - | 外部 API 提供方身份目录 |
+| `capability_external_api_entry` | `reachai-capability-service` | - | 可发现的外部 API 聚合目录条目 |
+| `capability_external_api_version` | `reachai-capability-service` | - | 外部 API 不可变版本与契约来源快照 |
+| `capability_external_api_operation` | `reachai-capability-service` | - | 版本内可选择的 HTTP Operation 及 schema |
+| `capability_external_api_verification` | `reachai-capability-service` | - | 无响应正文、无秘密的质量验证证据摘要 |
+| `capability_external_api_sync_run` | `reachai-capability-service` | - | 来源同步批次与人工发布统计 |
+| `capability_project_external_api` | `reachai-capability-service` | - | 项目接入意图和目录版本钉住；凭据仍归 Runtime |
+| `capability_project_external_api_operation` | `reachai-capability-service` | - | 项目接入选中的 Operation 集合 |
 | `runtime_workflow` | `reachai-runtime-service` | - | Workflow runtime definition |
 | `runtime_workflow_version` | `reachai-runtime-service` | - | Workflow release snapshot |
 | `runtime_workflow_resource_binding` | `reachai-runtime-service` | - | Workflow to PAGE and other stable resource bindings |
@@ -109,9 +163,17 @@ These rows remain in the ownership matrix because the current baseline still rec
 | `knowledge_question` | `reachai-knowledge-service` | - | Knowledge question curation |
 | `knowledge_tag` | `reachai-knowledge-service` | - | Knowledge tag |
 | `control_market_item` | `reachai-control-service` | - | Control marketplace item |
-| `control_mcp_call_log` | `reachai-control-service` | - | MCP external call log |
-| `control_mcp_client` | `reachai-control-service` | - | MCP client credential |
-| `control_mcp_visibility` | `reachai-control-service` | - | MCP tool visibility |
+| `control_agent_skill` | `reachai-control-service` | - | Scope-keyed standard Agent Skill installation identity plus enforced PRIVATE owner / PROJECT scope / SHARED / PUBLIC visibility |
+| `control_agent_skill_version` | `reachai-control-service` | - | Immutable package version, artifact digest, validation and compatibility snapshot |
+| `control_agent_skill_review` | `reachai-control-service` | - | Human review decision for a standard Agent Skill package version |
+| `control_agent_skill_market_source` | `reachai-control-service` | - | External Agent Skill search/transport/curated source catalog and explicit trust classification; contains no credentials |
+| `control_agent_skill_market_import` | `reachai-control-service` | - | Immutable marketplace provider, public GitHub commit/path and digest provenance for a governed Skill import |
+| `control_internal_auth_nonce` | `reachai-control-service` | - | Runtime→Control HMAC nonce anti-replay store shared by Control replicas |
+| `control_mcp_call_log` | `reachai-control-service` | - | MCP Hub bidirectional call audit (OUTBOUND external caller / INBOUND remote server) |
+| `control_mcp_client` | `reachai-control-service` | - | MCP Hub client credential scoped to a single publication; terminal credential states are non-reversible |
+| `control_mcp_publication` | `reachai-control-service` | - | MCP Hub outbound publication aggregate with state machine and current revision pointer |
+| `control_mcp_publication_item` | `reachai-control-service` | - | MCP Hub draft publication item referencing a Capability or a published Workflow |
+| `control_mcp_publication_revision` | `reachai-control-service` | - | MCP Hub immutable tool-projection snapshot; the only source of truth for tools/list and tools/call |
 | `control_platform_auth_provider` | `reachai-control-service` | - | Platform auth provider |
 | `control_platform_auth_audit_event` | `reachai-control-service` | - | Non-secret audit for platform auth and high-risk runtime-user identity mapping changes |
 | `control_platform_login_session` | `reachai-control-service` | - | Platform login session |
@@ -129,8 +191,8 @@ These rows remain in the ownership matrix because the current baseline still rec
 | `capability_scan_project_tool` | `reachai-capability-service` | - | Capability scan project tool |
 | `capability_semantic_doc` | `reachai-capability-service` | - | Capability semantic document |
 | `control_tool_acl` | `reachai-control-service` | - | Control tool ACL |
-| `capability_tool_asset` | `reachai-capability-service` | - | Capability tool asset |
+| `capability_tool_asset` | `reachai-capability-service` | - | Capability execution action; legacy technical table name |
 | `runtime_tool_call_log` | `reachai-runtime-service` | - | Runtime Tool call audit |
-| `capability_tool_definition` | `reachai-capability-service` | - | Capability tool definition |
+| `capability_tool_definition` | `reachai-capability-service` | - | Runtime Tool projection for governed Capability/API execution; not a product asset |
 | `capability_tool_retrieval_setting` | `reachai-capability-service` | - | Capability tool retrieval setting |
 | `knowledge_user_file_permission` | `reachai-knowledge-service` | - | Knowledge file permission |

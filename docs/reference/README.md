@@ -11,4 +11,5 @@
 | [Workflow-AI-Coding.md](./Workflow-AI-Coding.md) | Workflow AI Coding API、Patch 协议和 Page Assistant 扩展 |
 | [Context-Governance-Kernel.md](./Context-Governance-Kernel.md) | 上下文治理内核定位、API 边界和验证命令 |
 | [Personal Agent Memory](../architecture/personal-agent-memory.md) | 个人长期记忆、单次会话记忆、候选同意、检索投影和生产配置 |
-| [前端Glass-Workbench设计系统与UI重构.md](./前端Glass-Workbench设计系统与UI重构.md) | 管理端 Glass Workbench 设计语言、Design Token 三层模型、公共组件规范与本轮 UI 重构实施计划 |
+
+仍在推进的 UI、认证和统一对话重构计划已统一移至 [计划与验收](../plans/)，避免与当前参考契约混放。

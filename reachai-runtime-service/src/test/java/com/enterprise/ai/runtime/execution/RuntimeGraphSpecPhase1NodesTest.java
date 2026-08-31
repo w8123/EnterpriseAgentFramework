@@ -167,6 +167,114 @@ class RuntimeGraphSpecPhase1NodesTest {
     }
 
     @Test
+    void requiredKnowledgeRoutesNoEvidenceToFixedAnswer() {
+        when(knowledgeClient.retrieve(any(KnowledgeRetrievalRequest.class))).thenReturn(new KnowledgeRetrievalResult(
+                0,
+                "ok",
+                new KnowledgeRetrievalData(
+                        "refund policy",
+                        List.of(),
+                        0,
+                        "NO_EVIDENCE",
+                        true,
+                        Map.of(
+                                "returnedHitCount", 0,
+                                "totalCostMs", 12L,
+                                "unexpectedSensitiveField", "must-not-propagate"))));
+
+        RuntimeGraphSpecExecutionResult result = executor.execute("""
+                {
+                  "entryNodeId":"kr",
+                  "exitNodeIds":["evidence_answer","no_evidence_answer"],
+                  "nodes":[
+                    {"id":"kr","type":"KNOWLEDGE_RETRIEVAL","config":{
+                      "knowledgeBaseCodes":["kb_demo"],
+                      "query":"{{ input }}",
+                      "evidencePolicy":"REQUIRED",
+                      "outputAlias":"hits"
+                    }},
+                    {"id":"evidence_answer","type":"ANSWER","config":{"template":"found"}},
+                    {"id":"no_evidence_answer","type":"ANSWER","config":{"template":"未检索到可用证据，无法据此回答。"}}
+                  ],
+                  "edges":[
+                    {"from":"kr","to":"evidence_answer","condition":"route:evidence"},
+                    {"from":"kr","to":"no_evidence_answer","condition":"route:no_evidence"}
+                  ]
+                }
+                """, Map.of("message", "refund policy"),
+                WorkflowExecutionIdentity.fromAgent(1L, "demo", "u1"));
+
+        assertTrue(result.success(), result.code() + " / " + result.answer());
+        assertEquals("未检索到可用证据，无法据此回答。", result.answer());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> structured = (Map<String, Object>) result.resumeCheckpoint().get("var.hits");
+        assertEquals("NO_EVIDENCE", structured.get("outcome"));
+        assertEquals(true, structured.get("empty"));
+        assertFalse(((Map<?, ?>) structured.get("diagnostics")).containsKey("unexpectedSensitiveField"));
+    }
+
+    @Test
+    void requiredKnowledgeCannotFallThroughAlwaysEdgeWhenRouteIsMissing() {
+        when(knowledgeClient.retrieve(any(KnowledgeRetrievalRequest.class))).thenReturn(new KnowledgeRetrievalResult(
+                0,
+                "ok",
+                new KnowledgeRetrievalData("refund policy", List.of(), 0, "NO_EVIDENCE", true, Map.of())));
+
+        RuntimeGraphSpecExecutionResult result = executor.execute("""
+                {
+                  "entryNodeId":"kr",
+                  "exitNodeIds":["unsafe_answer"],
+                  "nodes":[
+                    {"id":"kr","type":"KNOWLEDGE_RETRIEVAL","config":{
+                      "knowledgeBaseCodes":["kb_demo"],
+                      "query":"input",
+                      "evidencePolicy":"REQUIRED"
+                    }},
+                    {"id":"unsafe_answer","type":"ANSWER","config":{"template":"unsafe fallback"}}
+                  ],
+                  "edges":[{"from":"kr","to":"unsafe_answer","condition":"always"}]
+                }
+                """, Map.of("message", "refund policy"),
+                WorkflowExecutionIdentity.fromAgent(1L, "demo", "u1"));
+
+        assertFalse(result.success());
+        assertEquals("RUNTIME_GRAPH_ROUTE_UNRESOLVED", result.code());
+        assertFalse(result.answer().contains("unsafe fallback"));
+    }
+
+    @Test
+    void requiredKnowledgeNoEvidenceRouteCannotExecuteLlmEvenWithoutPublishValidation() {
+        when(knowledgeClient.retrieve(any(KnowledgeRetrievalRequest.class))).thenReturn(new KnowledgeRetrievalResult(
+                0,
+                "ok",
+                new KnowledgeRetrievalData("refund policy", List.of(), 0, "NO_EVIDENCE", true, Map.of())));
+
+        RuntimeGraphSpecExecutionResult result = executor.execute("""
+                {
+                  "entryNodeId":"kr",
+                  "exitNodeIds":["evidence_answer","unsafe_llm"],
+                  "nodes":[
+                    {"id":"kr","type":"KNOWLEDGE_RETRIEVAL","config":{
+                      "knowledgeBaseCodes":["kb_demo"],
+                      "query":"input",
+                      "evidencePolicy":"REQUIRED"
+                    }},
+                    {"id":"evidence_answer","type":"ANSWER","config":{"template":"found"}},
+                    {"id":"unsafe_llm","type":"LLM","config":{"modelInstanceId":"model-1","prompt":"guess"}}
+                  ],
+                  "edges":[
+                    {"from":"kr","to":"evidence_answer","condition":"route:evidence"},
+                    {"from":"kr","to":"unsafe_llm","condition":"route:no_evidence"}
+                  ]
+                }
+                """, Map.of("message", "refund policy"),
+                WorkflowExecutionIdentity.fromAgent(1L, "demo", "u1"));
+
+        assertFalse(result.success());
+        assertEquals("RUNTIME_KNOWLEDGE_NO_EVIDENCE_TARGET_UNSAFE", result.code());
+    }
+
+    @Test
     void scenarioC_httpGetWithCredentialAndIfElse() {
         when(credentialService.resolve(eq("cred_demo"), any(WorkflowExecutionIdentity.class)))
                 .thenReturn(Optional.of(new RuntimeWorkflowCredentialRuntime(

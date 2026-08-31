@@ -1,6 +1,7 @@
 package com.enterprise.ai.control.aicoding.api;
 
 import feign.FeignException;
+import com.enterprise.ai.control.managed.ControlManagedExecutionRuntimeClient.GatewayException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -65,6 +66,13 @@ public class AiCodingTaskExceptionHandler {
                 HttpStatus.SERVICE_UNAVAILABLE,
                 "AI_CODING_DEPENDENCY_UNAVAILABLE",
                 "ReachAI 内部依赖暂时不可用，请稍后重试。");
+    }
+
+    @ExceptionHandler(GatewayException.class)
+    public ResponseEntity<Map<String, Object>> managedRuntime(GatewayException ex) {
+        HttpStatus status = HttpStatus.resolve(ex.status());
+        if (status == null) status = HttpStatus.SERVICE_UNAVAILABLE;
+        return error(status, ex.code(), ex.getMessage());
     }
 
     @ExceptionHandler(Exception.class)

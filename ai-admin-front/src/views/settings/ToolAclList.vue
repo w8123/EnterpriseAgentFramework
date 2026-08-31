@@ -4,8 +4,8 @@
       variant="standard"
       domain="governance"
       eyebrow="Runtime Governance"
-      title="Tool ACL（角色 × 能力 黑白名单）"
-      description="以角色为入口管理 Tool 的允许、拒绝规则，并在发布前完成权限诊断。"
+      title="调用权限（角色 × 能力）"
+      description="以角色为入口管理 AI 调用目标的允许、拒绝规则，并在发布前完成权限诊断。"
     >
       <template #actions>
         <el-tooltip content="批量授权" placement="top">
@@ -145,7 +145,7 @@
           </el-radio-group>
         </el-form-item>
         <el-form-item label="能力" required>
-          <el-input v-model="editing.targetName" placeholder="tool / 能力名，或 * 表示通配" />
+          <el-input v-model="editing.targetName" placeholder="调用目标名，或 * 表示通配" />
         </el-form-item>
         <el-form-item label="决策" required>
           <el-radio-group v-model="editing.permission">

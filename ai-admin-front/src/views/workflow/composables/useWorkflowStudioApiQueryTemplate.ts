@@ -389,7 +389,7 @@ export function useWorkflowStudioApiQueryTemplate(deps: UseWorkflowStudioApiQuer
     if (!deps.studio.value) return
     if (!ensureApiQueryTemplateCapability()) return
     if (!apiQueryTemplateSelectable(tool)) {
-      ElMessage.warning('该接口还不能生成查询流程，请先完成 Tool 关联并开启 Workflow 可见。')
+      ElMessage.warning('该接口还不能生成查询流程，请先纳入能力目录并启用。')
       return
     }
     for (const kind of API_QUERY_TEMPLATE_REQUIRED_KINDS) {

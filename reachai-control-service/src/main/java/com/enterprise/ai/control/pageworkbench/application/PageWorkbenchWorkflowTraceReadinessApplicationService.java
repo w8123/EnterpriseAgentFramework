@@ -1,11 +1,9 @@
 package com.enterprise.ai.control.pageworkbench.application;
 
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.ReadinessItem;
-import com.enterprise.ai.control.client.runtime.RuntimeProxyClient;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.PublishedWorkflowView;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.WorkflowExecutionReadinessView;
-import com.enterprise.ai.control.platform.PlatformEmbedE2eEvidenceService;
-import com.enterprise.ai.control.platform.PlatformEmbedE2eEvidenceService.EmbedTraceCandidate;
+import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchObservationPort.TraceCandidate;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import feign.FeignException;
@@ -42,8 +40,8 @@ public class PageWorkbenchWorkflowTraceReadinessApplicationService {
             "card",
             "detail");
 
-    private final PlatformEmbedE2eEvidenceService embedEvidence;
-    private final RuntimeProxyClient runtimeClient;
+    private final PageWorkbenchObservationPort observations;
+    private final PageWorkbenchRuntimePort runtimeClient;
     private final ObjectMapper objectMapper;
 
     public WorkflowAcceptanceTarget requirePublishedTarget(
@@ -125,10 +123,10 @@ public class PageWorkbenchWorkflowTraceReadinessApplicationService {
                             reportedTraceId));
         }
 
-        List<EmbedTraceCandidate> candidates;
+        List<TraceCandidate> candidates;
         try {
             candidates = distinctCandidates(
-                    embedEvidence.successfulTraceCandidates(
+                    observations.successfulTraceCandidates(
                             projectCode,
                             pageKey,
                             observedAfter));
@@ -172,7 +170,7 @@ public class PageWorkbenchWorkflowTraceReadinessApplicationService {
 
         ObservedTrace latestObserved = null;
         List<ObservedTrace> eligible = new ArrayList<>();
-        for (EmbedTraceCandidate candidate : candidates) {
+        for (TraceCandidate candidate : candidates) {
             if (!StringUtils.hasText(candidate.pageInstanceId())) {
                 continue;
             }
@@ -304,7 +302,7 @@ public class PageWorkbenchWorkflowTraceReadinessApplicationService {
 
     private ObjectNode runtimeEvidence(
             WorkflowExecutionReadinessView observed,
-            EmbedTraceCandidate candidate) {
+            TraceCandidate candidate) {
         ObjectNode evidence = objectMapper.createObjectNode();
         evidence.put("source", "reachai-runtime-service");
         putText(evidence, "status", observed.status());
@@ -358,7 +356,7 @@ public class PageWorkbenchWorkflowTraceReadinessApplicationService {
 
     private boolean structuredPresentationDelivered(
             WorkflowExecutionReadinessView observed,
-            EmbedTraceCandidate candidate) {
+            TraceCandidate candidate) {
         if (observed == null
                 || !observed.structuredPresentationRequired()) {
             return true;
@@ -397,10 +395,10 @@ public class PageWorkbenchWorkflowTraceReadinessApplicationService {
         return StringUtils.hasText(value) ? value.trim() : null;
     }
 
-    private static List<EmbedTraceCandidate> distinctCandidates(
-            List<EmbedTraceCandidate> candidates) {
-        Map<String, EmbedTraceCandidate> byTraceId = new LinkedHashMap<>();
-        for (EmbedTraceCandidate candidate : defaultList(candidates)) {
+    private static List<TraceCandidate> distinctCandidates(
+            List<TraceCandidate> candidates) {
+        Map<String, TraceCandidate> byTraceId = new LinkedHashMap<>();
+        for (TraceCandidate candidate : defaultList(candidates)) {
             if (candidate != null && StringUtils.hasText(candidate.traceId())) {
                 byTraceId.putIfAbsent(candidate.traceId(), candidate);
             }
@@ -439,7 +437,7 @@ public class PageWorkbenchWorkflowTraceReadinessApplicationService {
     }
 
     private record ObservedTrace(
-            EmbedTraceCandidate candidate,
+            TraceCandidate candidate,
             WorkflowExecutionReadinessView observed) {
     }
 }

@@ -1,6 +1,5 @@
 package com.enterprise.ai.control.pageworkbench.application;
 
-import com.enterprise.ai.control.client.model.ControlModelCatalogClient;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
@@ -16,7 +15,7 @@ class PageWorkbenchAgentModelReadinessApplicationServiceTest {
 
     @Test
     void failsWhenBoundModelMostRecentlyFailed() {
-        ControlModelCatalogClient client = mock(ControlModelCatalogClient.class);
+        PageWorkbenchModelPort client = mock(PageWorkbenchModelPort.class);
         when(client.getInternal("model-orders")).thenReturn(ResponseEntity.ok(Map.of(
                 "code", 200,
                 "data", Map.of(
@@ -38,7 +37,7 @@ class PageWorkbenchAgentModelReadinessApplicationServiceTest {
 
     @Test
     void passesOnlyForRecentlySuccessfulActiveModel() {
-        ControlModelCatalogClient client = mock(ControlModelCatalogClient.class);
+        PageWorkbenchModelPort client = mock(PageWorkbenchModelPort.class);
         when(client.getInternal("model-orders")).thenReturn(ResponseEntity.ok(Map.of(
                 "code", 200,
                 "data", Map.of(
@@ -57,7 +56,7 @@ class PageWorkbenchAgentModelReadinessApplicationServiceTest {
 
     @Test
     void staleSuccessRequiresRetest() {
-        ControlModelCatalogClient client = mock(ControlModelCatalogClient.class);
+        PageWorkbenchModelPort client = mock(PageWorkbenchModelPort.class);
         when(client.getInternal("model-orders")).thenReturn(ResponseEntity.ok(Map.of(
                 "code", 200,
                 "data", Map.of(

@@ -2,6 +2,9 @@ import { modelRequest } from './request'
 import type {
   ModelChatRequest,
   ModelChatResponse,
+  ModelCatalogStatus,
+  ModelCatalogSettingsRequest,
+  ModelCatalogManualSyncResponse,
   ModelInstance,
   ModelInstanceCreateRequest,
   ModelInstanceDraftTestRequest,
@@ -20,6 +23,18 @@ export function modelChat(data: ModelChatRequest) {
 
 export function getModelTemplates(params?: ModelTemplateListParams) {
   return modelRequest.get<ApiResult<ModelTemplate[]>>('/templates', { params })
+}
+
+export function getModelCatalogStatus() {
+  return modelRequest.get<ApiResult<ModelCatalogStatus>>('/catalog/status')
+}
+
+export function updateModelCatalogSettings(data: ModelCatalogSettingsRequest) {
+  return modelRequest.put<ApiResult<ModelCatalogStatus>>('/catalog/settings', data)
+}
+
+export function triggerModelCatalogSync() {
+  return modelRequest.post<ApiResult<ModelCatalogManualSyncResponse>>('/catalog/sync')
 }
 
 export function getModelTemplate(id: string) {

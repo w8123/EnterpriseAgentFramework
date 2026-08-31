@@ -4,7 +4,6 @@ import com.enterprise.ai.control.aicoding.application.AiCodingTaskApplicationSer
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.ArtifactView;
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskDetailView;
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskTargetView;
-import com.enterprise.ai.control.client.runtime.RuntimeProxyClient;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.WorkflowDeliveryView;
 import com.fasterxml.jackson.databind.JsonNode;
 import lombok.RequiredArgsConstructor;
@@ -24,7 +23,7 @@ import java.util.Map;
 public class PageWorkbenchWorkflowDeliveryApplicationService {
 
     private final AiCodingTaskApplicationService taskService;
-    private final RuntimeProxyClient runtimeClient;
+    private final PageWorkbenchRuntimePort runtimeClient;
 
     public WorkflowDeliveryView deliver(
             String projectCode,

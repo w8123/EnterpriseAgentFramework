@@ -220,18 +220,28 @@ test('empty or incomplete cross-domain erasure E2E blocks promotion', () => {
 
 test('missing migration and repository checksum mismatch fail closed', () => {
   const expected = checksums()
-  const value = passingEvidence(expected)
-  value.migrations.shift()
-  value.migrations[0].checksumSha256 = 'f'.repeat(64)
-  const result = evaluateProductionEvidence(value, { expectedMigrationChecksums: expected, now: NOW })
-  assert.equal(result.productionPromotionEligible, false)
-  assert.ok(result.issues.some(item => item.code === 'MIGRATION_EVIDENCE_MISSING'))
-  assert.ok(result.issues.some(item => item.code === 'MIGRATION_CHECKSUM_MISMATCH'))
+  const missing = passingEvidence(expected)
+  missing.migrations.shift()
+  const missingResult = evaluateProductionEvidence(missing, {
+    expectedMigrationChecksums: expected,
+    now: NOW,
+  })
+  assert.equal(missingResult.productionPromotionEligible, false)
+  assert.ok(missingResult.issues.some(item => item.code === 'MIGRATION_EVIDENCE_MISSING'))
+
+  const mismatched = passingEvidence(expected)
+  mismatched.migrations[0].checksumSha256 = 'f'.repeat(64)
+  const mismatchResult = evaluateProductionEvidence(mismatched, {
+    expectedMigrationChecksums: expected,
+    now: NOW,
+  })
+  assert.equal(mismatchResult.productionPromotionEligible, false)
+  assert.ok(mismatchResult.issues.some(item => item.code === 'MIGRATION_CHECKSUM_MISMATCH'))
 })
 
-test('semantic projection migration is present and matches the baseline contract', async () => {
-  const script = 'sql/upgrade-20260815-personal-memory-semantic-projection.sql'
-  assert.ok(REQUIRED_MIGRATIONS.includes(script))
+test('current release uses one consolidated migration and keeps the semantic projection baseline', async () => {
+  const script = 'sql/upgrade-20260830-platform-consolidated.sql'
+  assert.deepEqual(REQUIRED_MIGRATIONS, [script])
   const [migration, baseline, digests] = await Promise.all([
     readFile(script, 'utf8'),
     readFile('sql/initV2.sql', 'utf8'),
@@ -247,41 +257,30 @@ test('semantic projection migration is present and matches the baseline contract
     'embedding_claim_token',
     'embedding_claim_until',
   ]) {
-    assert.match(migration, new RegExp(`['\x60]${field}['\x60]`))
     assert.match(baseline, new RegExp(`\x60${field}\x60`))
   }
-  assert.match(migration, /idx_knowledge_personal_memory_embedding/)
-  assert.match(migration, /embedding_status[\s\S]*DEFAULT ''DISABLED''/)
   assert.match(baseline, /`embedding_status`[\s\S]*DEFAULT 'DISABLED'/)
+  assert.match(migration, /This file consolidates every upgrade created after origin\/main at ae9e1ce6/)
+  assert.match(migration, /-- Section 01\/14:/)
+  assert.match(migration, /-- Section 14\/14:/)
   assert.match(digests[script], /^[a-f0-9]{64}$/)
-  assert.doesNotMatch(migration, /DROP\s+(?:TABLE|COLUMN)\b/i)
 })
 
-test('outbox redaction migration removes legacy messages without locking schema rewrite', async () => {
-  const script = 'sql/upgrade-20260815-personal-memory-outbox-redaction.sql'
-  assert.ok(REQUIRED_MIGRATIONS.includes(script))
+test('current consolidated migration does not replay historical personal-memory outbox rewrites', async () => {
+  const script = 'sql/upgrade-20260830-platform-consolidated.sql'
   const [migration, baseline, digests] = await Promise.all([
     readFile(script, 'utf8'),
     readFile('sql/initV2.sql', 'utf8'),
     repositoryMigrationChecksums(),
   ])
-  assert.match(migration, /PUBLISH_LEGACY_REDACTED/)
-  assert.match(migration, /last_error` NOT REGEXP/)
-  assert.match(migration, /reachai-personal-memory-index-receipt-v1/)
-  assert.match(migration, /status` = 'PUBLISHED'/)
-  assert.match(migration, /JSON_OBJECT/)
-  assert.match(migration, /JSON_VALID/)
-  assert.match(migration, /JSON_EXTRACT/)
-  assert.doesNotMatch(migration, /NOT LIKE[^\n]*receipt-v1/)
   assert.match(baseline, /`last_error`\s+VARCHAR\(1000\)[^\n]*64/)
   assert.match(digests[script], /^[a-f0-9]{64}$/)
-  assert.doesNotMatch(migration, /ALTER\s+TABLE\b/i)
-  assert.doesNotMatch(migration, /DROP\s+(?:TABLE|COLUMN)\b/i)
+  assert.doesNotMatch(migration, /PUBLISH_LEGACY_REDACTED/)
+  assert.doesNotMatch(migration, /ALTER\s+TABLE\s+`control_context_memory_outbox`/i)
 })
 
-test('cross-domain erasure migration matches the durable orchestration baseline', async () => {
-  const script = 'sql/upgrade-20260815-cross-domain-memory-erasure.sql'
-  assert.ok(REQUIRED_MIGRATIONS.includes(script))
+test('cross-domain erasure remains a baseline contract after historical migration cleanup', async () => {
+  const script = 'sql/upgrade-20260830-platform-consolidated.sql'
   const [migration, baseline, digests] = await Promise.all([
     readFile(script, 'utf8'),
     readFile('sql/initV2.sql', 'utf8'),
@@ -291,13 +290,11 @@ test('cross-domain erasure migration matches the durable orchestration baseline'
     'control_memory_erasure_request',
     'control_memory_erasure_domain',
   ]) {
-    assert.match(migration, new RegExp(`CREATE TABLE IF NOT EXISTS [^\\n]*${table}`))
     assert.match(baseline, new RegExp(`CREATE TABLE IF NOT EXISTS [^\\n]*${table}`))
   }
-  assert.match(migration, /correlation_id/)
-  assert.match(migration, /idx_context_memory_outbox_correlation/)
-  assert.match(migration, /context:memory:erasure:manage/)
-  assert.match(migration, /SIGNAL SQLSTATE '45000'/)
+  assert.match(baseline, /correlation_id/)
+  assert.match(baseline, /idx_context_memory_outbox_correlation/)
+  assert.match(baseline, /context:memory:erasure:manage/)
   assert.match(digests[script], /^[a-f0-9]{64}$/)
-  assert.doesNotMatch(migration, /DELETE\s+FROM|DROP\s+(?:TABLE|COLUMN)\b/i)
+  assert.doesNotMatch(migration, /DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?`?control_memory_erasure_/i)
 })

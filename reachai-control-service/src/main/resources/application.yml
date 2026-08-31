@@ -5,6 +5,11 @@ spring:
   application:
     name: reachai-control-service
 
+  servlet:
+    multipart:
+      max-file-size: ${REACHAI_SKILL_MAX_UPLOAD_SIZE:20MB}
+      max-request-size: ${REACHAI_SKILL_MAX_REQUEST_SIZE:21MB}
+
   mvc:
     async:
       request-timeout: ${REACHAI_CONTROL_ASYNC_REQUEST_TIMEOUT:10m}
@@ -59,12 +64,100 @@ services:
     url: ${KNOWLEDGE_SERVICE_URL:http://localhost:18602}
 
 reachai:
+  control:
+    managed-executor:
+      projection-enabled: ${REACHAI_MANAGED_EXECUTION_PROJECTION_ENABLED:true}
+      projection-delay-ms: ${REACHAI_MANAGED_EXECUTION_PROJECTION_DELAY_MS:5000}
+  mcp-hub:
+    # Public MCP transport starts with Control by default. Set the environment
+    # variable to false when the target schema or internal HMAC is not ready.
+    enabled: ${REACHAI_MCP_HUB_ENABLED:true}
+    legacy-protocol-version: ${REACHAI_MCP_HUB_LEGACY_PROTOCOL_VERSION:2025-11-25}
+    modern-protocol-version: ${REACHAI_MCP_HUB_MODERN_PROTOCOL_VERSION:2026-07-28}
+    allowed-origins: ${REACHAI_MCP_HUB_ALLOWED_ORIGINS:}
+    max-request-bytes: ${REACHAI_MCP_HUB_MAX_REQUEST_BYTES:524288}
+    max-execution-response-bytes: ${REACHAI_MCP_HUB_MAX_EXECUTION_RESPONSE_BYTES:8388608}
+    execution-timeout: ${REACHAI_MCP_HUB_EXECUTION_TIMEOUT:120s}
+    connect-timeout: ${REACHAI_MCP_HUB_CONNECT_TIMEOUT:15s}
+    # Payload capture remains independently opt-in and is recursively redacted.
+    capture-audit-payload: ${REACHAI_MCP_HUB_CAPTURE_AUDIT_PAYLOAD:false}
+    max-audit-payload-chars: ${REACHAI_MCP_HUB_MAX_AUDIT_PAYLOAD_CHARS:32768}
+    audit-payload-retention-days: ${REACHAI_MCP_HUB_AUDIT_PAYLOAD_RETENTION_DAYS:7}
+  a2a-hub:
+    # Public protocol routes remain fail-closed until the new schema, Trust
+    # Profile, immutable Publication Revision, and protocol gate are ready.
+    enabled: ${REACHAI_A2A_HUB_ENABLED:false}
+    protocol-version: "1.0"
+    agent-card-cache-max-age: ${REACHAI_A2A_AGENT_CARD_CACHE_MAX_AGE:5m}
+    # No source-controlled fallback is provided. Message/Artifact persistence
+    # fails closed until a 32-byte Base64 AES key is injected at runtime.
+    content-key-id: ${REACHAI_A2A_CONTENT_KEY_ID:}
+    content-key-base64: ${REACHAI_A2A_CONTENT_KEY_BASE64:}
+    # Outbound authentication material uses a separate runtime/KMS key domain.
+    credential-key-id: ${REACHAI_A2A_CREDENTIAL_KEY_ID:}
+    credential-key-base64: ${REACHAI_A2A_CREDENTIAL_KEY_BASE64:}
+    audit-ip-hash-key: ${REACHAI_A2A_AUDIT_IP_HASH_KEY:}
+    max-history-messages: ${REACHAI_A2A_MAX_HISTORY_MESSAGES:50}
+    max-page-size: ${REACHAI_A2A_MAX_PAGE_SIZE:100}
+    outbox-delay: ${REACHAI_A2A_OUTBOX_DELAY:1s}
+    outbox-lease: ${REACHAI_A2A_OUTBOX_LEASE:4m}
+    outbox-heartbeat: ${REACHAI_A2A_OUTBOX_HEARTBEAT:30s}
+    outbox-batch-size: ${REACHAI_A2A_OUTBOX_BATCH_SIZE:10}
+    outbox-max-attempts: ${REACHAI_A2A_OUTBOX_MAX_ATTEMPTS:5}
+    outbox-workers: ${REACHAI_A2A_OUTBOX_WORKERS:4}
+    deadline-scan-delay: ${REACHAI_A2A_DEADLINE_SCAN_DELAY:5s}
+    outbound:
+      connect-timeout: ${REACHAI_A2A_OUTBOUND_CONNECT_TIMEOUT:5s}
+      response-timeout: ${REACHAI_A2A_OUTBOUND_RESPONSE_TIMEOUT:10s}
+      poll-scan-delay: ${REACHAI_A2A_OUTBOUND_POLL_SCAN_DELAY:1s}
+      initial-poll-delay: ${REACHAI_A2A_OUTBOUND_INITIAL_POLL_DELAY:2s}
+      max-poll-delay: ${REACHAI_A2A_OUTBOUND_MAX_POLL_DELAY:15s}
+      poll-lease: ${REACHAI_A2A_OUTBOUND_POLL_LEASE:30s}
+      poll-batch-size: ${REACHAI_A2A_OUTBOUND_POLL_BATCH_SIZE:20}
+      poll-workers: ${REACHAI_A2A_OUTBOUND_POLL_WORKERS:4}
+      max-agent-card-bytes: ${REACHAI_A2A_MAX_REMOTE_CARD_BYTES:1048576}
+      # Public discovery uses 443 only by default. Additional HTTPS ports must
+      # be explicitly reviewed and injected as a comma-separated runtime list.
+      allowed-ports: ${REACHAI_A2A_OUTBOUND_ALLOWED_PORTS:443}
+      # Enabling private networks materially changes the SSRF boundary and is
+      # intentionally runtime-only. Production defaults to public HTTPS only.
+      private-network-allowed: ${REACHAI_A2A_OUTBOUND_PRIVATE_NETWORK_ALLOWED:false}
+  skill:
+    artifact-root: ${REACHAI_SKILL_ARTIFACT_ROOT:${java.io.tmpdir}/reachai-control/skill-artifacts}
+    max-package-bytes: ${REACHAI_SKILL_MAX_PACKAGE_BYTES:20971520}
+    max-expanded-bytes: ${REACHAI_SKILL_MAX_EXPANDED_BYTES:104857600}
+    max-single-file-bytes: ${REACHAI_SKILL_MAX_SINGLE_FILE_BYTES:20971520}
+    max-files: ${REACHAI_SKILL_MAX_FILES:1024}
+    # Repository/plugin bundles are discovery inputs only. The selected Skill
+    # is deterministically rewritten and must still satisfy the stricter limits above.
+    max-bundle-bytes: ${REACHAI_SKILL_MAX_BUNDLE_BYTES:67108864}
+    max-bundle-expanded-bytes: ${REACHAI_SKILL_MAX_BUNDLE_EXPANDED_BYTES:268435456}
+    max-bundle-single-file-bytes: ${REACHAI_SKILL_MAX_BUNDLE_SINGLE_FILE_BYTES:67108864}
+    max-bundle-files: ${REACHAI_SKILL_MAX_BUNDLE_FILES:8192}
+    builtin-bootstrap-enabled: ${REACHAI_SKILL_BUILTIN_BOOTSTRAP_ENABLED:true}
+  skill-market:
+    enabled: ${REACHAI_SKILL_MARKET_ENABLED:true}
+    connect-timeout: ${REACHAI_SKILL_MARKET_CONNECT_TIMEOUT:5s}
+    read-timeout: ${REACHAI_SKILL_MARKET_READ_TIMEOUT:30s}
+    max-json-bytes: ${REACHAI_SKILL_MARKET_MAX_JSON_BYTES:2097152}
+    # Keep false unless a trusted transparent proxy maps allowlisted public hosts into
+    # the RFC 2544 198.18.0.0/15 fake-IP pool. This never permits other private ranges.
+    allow-synthetic-proxy-dns: ${REACHAI_SKILL_MARKET_ALLOW_SYNTHETIC_PROXY_DNS:false}
+    skills-sh:
+      base-url: ${REACHAI_SKILLS_SH_BASE_URL:https://skills.sh}
+      oidc-token: ${REACHAI_SKILLS_SH_OIDC_TOKEN:}
+      legacy-search-enabled: ${REACHAI_SKILLS_SH_LEGACY_SEARCH_ENABLED:true}
+    github:
+      api-base-url: ${REACHAI_SKILL_MARKET_GITHUB_API_BASE_URL:https://api.github.com}
+      token: ${REACHAI_SKILL_MARKET_GITHUB_TOKEN:}
   auth:
-    # Open-source/local quick start: LOCAL login and the well-known development
-    # administrator are enabled by default. Production must disable both flags
-    # or replace the bootstrap credentials before exposing this service.
+    # LOCAL quick start uses the well-known development administrator below.
+    # Production deployments must disable LOCAL/bootstrap or replace it.
     provider: ${REACHAI_AUTH_PROVIDER:LOCAL}
     session-ttl: ${REACHAI_PLATFORM_SESSION_TTL:24h}
+    session-cookie:
+      # AUTO is convenient for localhost; production deployments must use ALWAYS.
+      secure: ${REACHAI_PLATFORM_SESSION_COOKIE_SECURE:AUTO}
     local:
       enabled: ${REACHAI_LOCAL_AUTH_ENABLED:true}
       bootstrap-admin:
@@ -74,8 +167,15 @@ reachai:
   internal:
     # Shared with Runtime. Required for trusted Agent/Embed execute (sync + SSE). Fail-closed when blank.
     service-secret: ${REACHAI_INTERNAL_SERVICE_SECRET:}
+    # Verification-only overlap keys used during rolling rotation.
+    accepted-service-secrets: ${REACHAI_INTERNAL_SERVICE_ACCEPTED_SECRETS:}
     # Production: DIRECT_TLS requires https URLs; MTLS_MESH explicitly attests sidecar/mesh protection.
     transport-mode: ${REACHAI_INTERNAL_TRANSPORT_MODE:DEVELOPMENT_PLAINTEXT}
+    auth:
+      skew-seconds: ${REACHAI_INTERNAL_AUTH_SKEW_SECONDS:300}
+      nonce-ttl-seconds: ${REACHAI_INTERNAL_AUTH_NONCE_TTL_SECONDS:600}
+      nonce-max-entries: ${REACHAI_INTERNAL_AUTH_NONCE_MAX_ENTRIES:100000}
+      max-body-bytes: ${REACHAI_INTERNAL_AUTH_MAX_BODY_BYTES:1048576}
   knowledge:
     console-ingress:
       # Browser traffic terminates at Control. Control signs the exact body sent
@@ -109,7 +209,7 @@ reachai:
       lifecycle-batch-size: ${REACHAI_PERSONAL_MEMORY_LIFECYCLE_BATCH_SIZE:100}
       lifecycle-delay-ms: ${REACHAI_PERSONAL_MEMORY_LIFECYCLE_DELAY_MS:60000}
       lifecycle-initial-delay-ms: ${REACHAI_PERSONAL_MEMORY_LIFECYCLE_INITIAL_DELAY_MS:60000}
-      # Fail closed until upgrade-20260815-cross-domain-memory-erasure.sql is installed.
+      # Fail closed until the current initV2 baseline (or its historical migration chain) is installed.
       erasure-worker-enabled: ${REACHAI_MEMORY_ERASURE_WORKER_ENABLED:false}
       erasure-worker-batch-size: ${REACHAI_MEMORY_ERASURE_WORKER_BATCH_SIZE:10}
       erasure-worker-delay-ms: ${REACHAI_MEMORY_ERASURE_WORKER_DELAY_MS:5000}

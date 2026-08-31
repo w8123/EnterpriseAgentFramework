@@ -60,6 +60,8 @@
 - Supervisor 统一策略链固定为工具白名单/启停 -> project -> tenant -> Agent roles -> permissionKey roles -> risk；READ 自动、PAGE_ACTION 要求原始问题显式页面意图、WRITE 一次性精确确认、IRREVERSIBLE 默认拒绝。
 - Agent Eval 必须调用 `RuntimeAgentExecutionService` 执行当前已发布配置，并断言工具、PLAN/REPLAN、策略、UI 请求、Trace 与回答；不允许再生成“runtime 未接入”的占位结果。
 - Runtime 执行主线在 `reachai-runtime-service`，Supervisor 通过 `SupervisorRuntimeAdapter` 解耦，上层规划和底层 Workflow runtime 不混为一个概念。
+- GraphSpec Runtime 使用稳定 `RuntimeGraphSpecExecutor` 门面、不可变 Handler 注册表和类型化 Port；`RuntimeExecutionEvent` 是节点 Trace 的结构事实源，`RuntimeExecutionTraceProjector` 统一投影 Studio/Supervisor/RunOps 所需的 `workflowNodeTraces`。
+- 新 Workflow 交互断点固定为 `WorkflowCheckpointV1 / RUNTIME_KERNEL_V2`，校验 GraphSpec/节点/payload 摘要和大小；可信身份不序列化，恢复时从 Runtime-owned 会话归属重建。历史 Map 仅由 `LEGACY` 路由读取。
 
 新增 Workflow Studio 节点、AI 编辑能力或 Runtime 行为时，必须把可执行语义写入 Workflow `GraphSpec`。
 
@@ -82,7 +84,32 @@
 
 `Skill` 仅用于标准 Agent Skill 包或外部协议字段。ReachAI 禁止重新引入自创的 Skill 业务资产模型；Capability 是业务资产，Tool 是调用协议，Workflow 是 GraphSpec 编排。已退役的 `capability_draft`、`runtime_skill_interaction`、`kind=SKILL` 目录和 GraphSpec `CAPABILITY` 节点不得作为现行资产模型。
 
+通用 Tool 不再作为独立产品资产：管理端移除 Tool 目录和人工 CRUD，旧 `/tool` 重定向到能力目录；扫描 API 使用“纳入能力目录”语义，Agent 产品面使用“可调用 Workflow”。`capability_tool_definition`、`/api/tools/**`、Tool ACL、Tool Call、MCP Tool 和 Workflow-as-Tool 继续保留为运行时投影、协议或兼容技术身份。未来独立的“代码工具 / Code Tools”只对应注解方法（Methods as Tools），在模型正式落地前不复用当前通用目录。
+
 `reachai-knowledge-service` 是 Knowledge / Retrieval 部署单元，不再称为“技能服务”。
+
+### 标准 Agent Skill 包
+
+- Control 的 Skill Center 管理开放标准 `SKILL.md` 包；它是 Agent 的岗位工作手册，不是 Capability 业务资产、Tool 授权或 Workflow 编排。
+- 包版本不可变，Agent 发布配置固定精确 `skillVersionId + sourceSha256 + manifest`，不自动跟随最新版。
+- `PRIVATE` 按平台用户隔离，`PROJECT` 按项目权限隔离且只能绑定同项目 Agent；`SHARED/PUBLIC` 仍受 Skill RBAC。
+- Runtime 每次需要载入时向 Control 复核状态，再校验内容寻址缓存、ZIP 摘要、manifest 和逐文件摘要；`REVOKED` 缓存不得继续使用。
+- 当前 Host 是 AgentScope，脚本始终禁止执行。未来 Codex harness / OpenCode 复用同一包目录和精确绑定，不能另建一套 Skill 业务资产模型。
+
+详见 `docs/architecture/agent-skill-center.md`。
+
+## MCP 互联中心
+
+MCP Hub 按 clean-slate 重塑，不是旧 visibility 白名单模型的增量升级；`control_mcp_visibility`、`ControlMcpAdminController`、`/api/mcp/clients` 全局平铺语义、`toolWhitelistJson` 列语义和四个旧 MCP 页面已退役，不得复活。
+
+- 发布是修订驱动：publish 产生不可变 `control_mcp_publication_revision` 快照；`tools/list` 与 `tools/call` 只服务当前修订的冻结工具投影，回滚只切指针不改内容。
+- WORKFLOW 条目固定 ACTIVE 发布版本（版本 id pin 进投影），执行时 Runtime 校验版本归属，拒绝漂移；CAPABILITY 条目经 Capability internal API 解析 `parameters_json` → MCP JSON-Schema。
+- Client 凭证挂接单一 Publication：API Key 明文只在创建响应出现一次，库内只存 SHA-256；`ROTATED`/`REVOKED` 是不可逆终态。
+- Tool ACL 从严：MCP `tools/call` 必须先经 Tool ACL 决策，DENY 返回 POLICY 错误码；IRREVERSIBLE 工具默认对 Client 不可见，需 scope 显式 opt-in，且发布时要求显式确认。
+- 执行边界：Control 不直读 Runtime/Capability 表；CAPABILITY 与 WORKFLOW 执行统一经 Runtime `POST /internal/runtime/mcp/tool-executions`（HMAC + 专用 `MCP_REMOTE_CLIENT` 身份源），Workflow 契约解析经 Runtime 公开 API。
+- 调用审计统一入 `control_mcp_call_log`，`direction`（OUTBOUND/INBOUND）与 `error_category` 分层；出向错误不得伪装成成功。
+
+详见 `docs/architecture/mcp-hub-product-design.md` 与 `docs/plans/mcp-hub-implementation-plan.md`。
 
 ## 模型中心 V2（第一阶段）
 

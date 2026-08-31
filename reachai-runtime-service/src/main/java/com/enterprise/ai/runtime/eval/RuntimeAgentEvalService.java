@@ -33,6 +33,7 @@ public class RuntimeAgentEvalService {
     private final RuntimeAgentEvalCaseResultMapper resultMapper;
     private final ObjectMapper objectMapper;
     private final RuntimeAgentExecutionService executionService;
+    private final RuntimeEvalTargetSnapshotService targetSnapshotService;
 
     public List<RuntimeAgentEvalDatasetView> listDatasets(String agentId) {
         return datasetMapper.selectList(Wrappers.<RuntimeAgentEvalDatasetEntity>lambdaQuery()
@@ -89,6 +90,11 @@ public class RuntimeAgentEvalService {
         if (!StringUtils.hasText(agentId)) {
             throw new IllegalArgumentException("Agent eval agentId is required");
         }
+        RuntimeEvalTargetSnapshotService.CapturedTarget target = targetSnapshotService.captureAgent(
+                agentId,
+                optionalLong(request == null ? null : request.get("configVersionId")),
+                text(request, "tenantId"),
+                text(request, "createdBy"));
         RuntimeAgentEvalRunEntity run = new RuntimeAgentEvalRunEntity();
         run.setDatasetId(datasetId);
         run.setAgentId(agentId);
@@ -96,6 +102,10 @@ public class RuntimeAgentEvalService {
         run.setRunName(defaultText(request, "runName", dataset.getName()));
         run.setRepeatCount(repeatCount);
         run.setStatus("RUNNING");
+        run.setTargetSnapshotId(target.snapshot().getId());
+        run.setTargetConfigVersionId(target.snapshot().getAgentConfigVersionId());
+        run.setTargetConfigStatus(target.snapshot().getSourceStatus());
+        run.setTargetFingerprint(target.snapshot().getFingerprintSha256());
         run.setGraphSpecJson(toJson(request.get("graphSpec")));
         run.setCanvasSnapshotJson(toJson(request.get("canvasSnapshot")));
         LocalDateTime now = LocalDateTime.now();
@@ -108,7 +118,8 @@ public class RuntimeAgentEvalService {
                 : firstValue(request, "runtimeContext", "graphRuntimeContext"));
         for (int round = 1; round <= repeatCount; round++) {
             for (RuntimeAgentEvalCaseEntity evalCase : cases) {
-                RuntimeAgentEvalCaseResultEntity result = executeCase(run, evalCase, round, runtimeContext);
+                RuntimeAgentEvalCaseResultEntity result = executeCase(
+                        run, evalCase, round, runtimeContext, target);
                 resultMapper.insert(result);
                 executed.add(result);
             }
@@ -174,7 +185,8 @@ public class RuntimeAgentEvalService {
     private RuntimeAgentEvalCaseResultEntity executeCase(RuntimeAgentEvalRunEntity run,
                                                          RuntimeAgentEvalCaseEntity evalCase,
                                                          int round,
-                                                         Map<String, Object> runtimeContext) {
+                                                         Map<String, Object> runtimeContext,
+                                                         RuntimeEvalTargetSnapshotService.CapturedTarget target) {
         RuntimeAgentEvalCaseResultEntity result = new RuntimeAgentEvalCaseResultEntity();
         result.setRunId(run.getId());
         result.setDatasetId(run.getDatasetId());
@@ -194,8 +206,12 @@ public class RuntimeAgentEvalService {
             input.put("entryType", "EVAL");
             input.put("evalRunId", run.getId());
             input.put("evalCaseId", evalCase.getId());
-            input.put("evalMode", true);
-            Map<String, Object> response = executionService.execute(input, true);
+            RuntimeEvalExecutionContext evaluation = RuntimeEvalExecutionContext.readOnly(
+                    "legacy-run:" + run.getId(),
+                    evalCase.getCaseNo() + ":round:" + round,
+                    target.snapshot().getFingerprintSha256());
+            Map<String, Object> response = executionService.executeEvaluation(
+                    target.executionContext(), input, true, evaluation);
             boolean runtimeSuccess = Boolean.TRUE.equals(response.get("success"));
             String answer = text(response, "answer");
             Map<String, Object> metadata = mapValue(response.get("metadata"));
@@ -257,6 +273,8 @@ public class RuntimeAgentEvalService {
         Map<String, Object> metadata = mapValue(response.get("metadata"));
         numericMinimum(checks, expected, metadata, "minWorkflowCalls", "workflowCallCount");
         numericMaximum(checks, expected, metadata, "maxWorkflowCalls", "workflowCallCount");
+        numericMinimum(checks, expected, metadata, "minManagedExecutorCalls", "managedExecutorCallCount");
+        numericMaximum(checks, expected, metadata, "maxManagedExecutorCalls", "managedExecutorCallCount");
         numericMinimum(checks, expected, metadata, "minPlanCount", "planCount");
         numericMaximum(checks, expected, metadata, "maxPlanCount", "planCount");
         numericMinimum(checks, expected, metadata, "minReplanCount", "replanCount");
@@ -379,6 +397,8 @@ public class RuntimeAgentEvalService {
     private RuntimeAgentEvalRunDetail runView(RuntimeAgentEvalRunEntity entity) {
         return new RuntimeAgentEvalRunDetail(entity.getId(), entity.getDatasetId(), entity.getAgentId(),
                 entity.getAgentName(), entity.getRunName(), entity.getRepeatCount(), entity.getStatus(),
+                entity.getTargetSnapshotId(), entity.getTargetConfigVersionId(),
+                entity.getTargetConfigStatus(), entity.getTargetFingerprint(),
                 entity.getSummaryJson(), entity.getSuggestionJson(), entity.getStartedAt(), entity.getFinishedAt());
     }
 
@@ -415,6 +435,16 @@ public class RuntimeAgentEvalService {
             return Long.parseLong(text);
         }
         throw new IllegalArgumentException("Agent eval " + field + " is required");
+    }
+
+    private Long optionalLong(Object value) {
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        if (value instanceof String text && StringUtils.hasText(text)) {
+            return Long.parseLong(text);
+        }
+        return null;
     }
 
     private String defaultText(Map<String, Object> request, String field, String fallback) {

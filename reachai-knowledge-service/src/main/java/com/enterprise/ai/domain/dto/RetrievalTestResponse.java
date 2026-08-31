@@ -6,6 +6,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * 检索测试响应 DTO
@@ -23,6 +24,11 @@ public class RetrievalTestResponse {
     private Boolean directReturn;
     private String directReturnContent;
     private List<RetrievalItem> items;
+    /**
+     * Non-sensitive retrieval counters and stage timings. Query text, hit content,
+     * file names and user identity must never be added to this map.
+     */
+    private Map<String, Object> diagnostics;
 
     @Data
     @Builder

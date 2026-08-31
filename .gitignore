@@ -18,6 +18,12 @@ tmp/
 .codex-logs/
 logs/
 
+# ---- Python cache ----
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
 # ---- JVM crash logs ----
 hs_err_pid*
 replay_pid*

@@ -16,7 +16,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class PlatformRegistryEnrollmentController {
 
-    private final PlatformAuthorizationService authorizationService;
+    private final PlatformRequestAuthorization requestAuthorization;
     private final CapabilityRegistryEnrollmentGateway enrollmentGateway;
     private final PlatformAuthAuditService auditService;
 
@@ -39,12 +39,7 @@ public class PlatformRegistryEnrollmentController {
     }
 
     private PlatformAuthenticatedSession requirePlatformAdmin(HttpServletRequest request) {
-        Object candidate = request.getAttribute(PlatformConsoleAuthInterceptor.SESSION_REQUEST_ATTRIBUTE);
-        if (!(candidate instanceof PlatformAuthenticatedSession session)) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "live ReachAI platform login is required");
-        }
-        authorizationService.requireGlobalPermission(session, "platform:admin");
-        return session;
+        return requestAuthorization.requireGlobalPermission(request, PlatformPermissions.PLATFORM_ADMIN);
     }
 
     public record RegistryEnrollmentCommand(String projectCode) {

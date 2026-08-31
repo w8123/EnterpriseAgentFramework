@@ -41,7 +41,13 @@ public class InternalServiceAuthFilter extends OncePerRequestFilter {
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String path = normalizePath(request);
         return !PROTECTED_PATHS.contains(path)
+                && !path.equals("/internal/runtime/a2a/executions")
+                && !(path.startsWith("/internal/runtime/a2a/executions/")
+                && path.endsWith(":cancel"))
+                && !path.startsWith("/internal/runtime/managed-executions")
+                && !path.startsWith("/internal/runtime/automations")
                 && !path.startsWith("/internal/runtime/session-retention/")
+                && !path.startsWith("/internal/runtime/mcp/tool-executions")
                 && !("DELETE".equalsIgnoreCase(request.getMethod())
                 && path.startsWith("/internal/runtime/agents/sessions/"));
     }

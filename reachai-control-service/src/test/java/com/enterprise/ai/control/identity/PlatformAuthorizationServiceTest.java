@@ -8,6 +8,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -16,6 +17,31 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 class PlatformAuthorizationServiceTest {
+
+    @Test
+    void businessUserReadPermissionDoesNotGrantManagement() {
+        PlatformAuthorizationService service = new PlatformAuthorizationService(
+                mock(PlatformUserRoleMapper.class),
+                mock(PlatformRoleMapper.class),
+                mock(PlatformRolePermissionMapper.class),
+                mock(PlatformPermissionMapper.class));
+        PlatformAuthenticatedSession authenticated = new PlatformAuthenticatedSession(
+                user(7L),
+                "pls_7",
+                LocalDateTime.now().plusHours(1),
+                List.of("BUSINESS_USER_READER"),
+                List.of(PlatformPermissions.BUSINESS_USER_READ),
+                List.of(new PlatformPermissionGrant(
+                        PlatformPermissions.BUSINESS_USER_READ, "GLOBAL", "*")));
+
+        assertTrue(authenticated.hasGlobalPermission(PlatformPermissions.BUSINESS_USER_READ));
+        ResponseStatusException error = assertThrows(
+                ResponseStatusException.class,
+                () -> service.requireGlobalPermission(
+                        authenticated, PlatformPermissions.BUSINESS_USER_MANAGE));
+
+        assertEquals(HttpStatus.FORBIDDEN, error.getStatusCode());
+    }
 
     @Test
     void resolvesDatabasePermissionsOnlyForActiveRolesAndGlobalScope() {
@@ -71,6 +97,7 @@ class PlatformAuthorizationServiceTest {
         when(permissionMapper.selectBatchIds(any())).thenReturn(List.of(permission));
 
         PlatformAuthenticatedSession authenticated = service.authenticatedSession(user(7L), session("pls_7", 7L));
+        assertDoesNotThrow(() -> service.requirePermission(authenticated, "platform:admin"));
         ResponseStatusException error = assertThrows(
                 ResponseStatusException.class,
                 () -> service.requireGlobalPermission(authenticated, "platform:admin"));

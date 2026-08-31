@@ -2,7 +2,7 @@ import { controlRequest } from './request'
 import type { AgentResult, PendingHumanApproval } from '@/types/agent'
 import type { ChatRequest } from '@/types/chat'
 import { parseSseStream } from '@/conversation/core/parseSseStream'
-import { getPlatformToken } from '@/utils/platformAuth'
+import { platformCsrfHeaders } from '@/utils/platformAuth'
 
 export {
   listAgents,
@@ -35,17 +35,16 @@ export async function executeAgentStream(
   handlers: AgentExecutionStreamHandlers = {},
   signal?: AbortSignal,
 ): Promise<AgentResult> {
-  const token = getPlatformToken()
-  const headers: Record<string, string> = {
+  const headers = platformCsrfHeaders({
     'Content-Type': 'application/json',
     Accept: 'text/event-stream',
-  }
-  if (token) headers.Authorization = `Bearer ${token}`
+  })
 
   const response = await fetch('/api/runtime/agents/execute/stream', {
     method: 'POST',
     headers,
     body: JSON.stringify(data),
+    credentials: 'same-origin',
     signal,
   })
   if (!response.ok || !response.body) {

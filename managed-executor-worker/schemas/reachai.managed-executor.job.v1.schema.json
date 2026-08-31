@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://reachai.example/schemas/reachai.managed-executor.job.v1.schema.json",
+  "title": "ReachAI Managed Executor Worker Job v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "executionId",
+    "workspaceRoot",
+    "objectiveFile",
+    "outputDirectory",
+    "sandboxProfile"
+  ],
+  "properties": {
+    "schema": {
+      "const": "reachai.managed-executor.job.v1"
+    },
+    "executionId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+      "maxLength": 128
+    },
+    "workspaceRoot": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "objectiveFile": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "outputDirectory": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "sandboxProfile": {
+      "enum": [
+        "ANALYZE_READONLY",
+        "WORKSPACE_PATCH"
+      ]
+    },
+    "model": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "codexBinary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    },
+    "maxWallTimeMs": {
+      "type": "integer",
+      "minimum": 1000,
+      "maximum": 14400000
+    },
+    "approvalTimeoutMs": {
+      "type": "integer",
+      "minimum": 1000,
+      "maximum": 1800000
+    },
+    "acceptanceCommands": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "argv"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "argv": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 64,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000
+            }
+          },
+          "timeoutMs": {
+            "type": "integer",
+            "minimum": 1000,
+            "maximum": 3600000
+          }
+        }
+      }
+    }
+  }
+}

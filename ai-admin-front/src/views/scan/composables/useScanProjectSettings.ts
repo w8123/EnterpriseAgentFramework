@@ -182,7 +182,7 @@ export function useScanProjectSettings(deps: UseScanProjectSettingsDeps) {
       }
       ElMessage.success(
         deps.project.value?.projectKind === 'REGISTERED' || deps.project.value?.projectKind === 'HYBRID'
-          ? '扫描设置已保存。SDK 下次同步能力时将按新规则解析；已关联全局 Tool 的接口请在目录中使用「更新到Tool」。'
+          ? '扫描设置已保存。SDK 下次同步能力时将按新规则解析；已纳入能力目录的接口请在目录中使用「更新能力定义」。'
           : '扫描设置已保存',
       )
       scanSettingsDrawerVisible.value = false

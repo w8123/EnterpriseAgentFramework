@@ -2,7 +2,8 @@ param(
   [string] $BaseUrl = "http://localhost:18603",
   [string] $ProjectCode = "qmssmp-teams-construction-service",
   [string] $AppKey = "qmssmp-teams-construction-service",
-  [string] $AppSecret = "change-me",
+  [Parameter(Mandatory = $true)]
+  [string] $AppSecret,
   [string] $AgentId = "team-archive-assistant",
   [string] $AdminUser = "admin",
   [string] $AdminPassword = "admin123",

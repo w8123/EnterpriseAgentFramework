@@ -146,6 +146,20 @@ describe('adaptWorkflowDebugStreamEvent', () => {
     expect(event && !Array.isArray(event) && event.type).toBe('debug.workflow.node.started')
   })
 
+  it('keeps typed Runtime V1 events in the debug-only channel', () => {
+    const adapted = adaptWorkflowDebugStreamEvent('runtime.execution.v1', {
+      schemaVersion: 1,
+      sequence: 7,
+      eventType: 'NODE_COMPLETED',
+      nodeId: 'answer',
+      safeAttributes: { attempt: 1 },
+    }, { sessionId: 's1', traceId: 't1' })
+
+    expect(adapted && !Array.isArray(adapted) && adapted.type)
+      .toBe('debug.workflow.runtime.event')
+    expect(adapted && !Array.isArray(adapted) && adapted.sequence).toBe(7)
+  })
+
   it('maps turn.waiting with ui.requested', () => {
     const types = [...expandWorkflowDebugAdapted(adaptWorkflowDebugStreamEvent('turn.waiting', {
       sessionId: 's1',

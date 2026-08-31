@@ -351,14 +351,37 @@
           <template #node-knowledge="nodeProps">
             <div class="studio-node knowledge-node" :class="[nodeRunClass(nodeProps.id), { collapsed: nodeProps.data.collapsed }]">
               <Handle type="target" :position="Position.Left" />
-              <Handle type="source" :position="Position.Right" />
+              <Handle
+                v-if="nodeProps.data.knowledgeConfig?.evidencePolicy !== 'REQUIRED'"
+                type="source"
+                :position="Position.Right"
+              />
               <div class="node-icon"><el-icon><Coin /></el-icon></div>
               <div class="node-head">
                 <span class="node-kind">知识</span>
-                <span class="node-state">检索</span>
+                <span class="node-state">{{ nodeProps.data.knowledgeConfig?.evidencePolicy === 'REQUIRED' ? '必须证据' : '可回退' }}</span>
               </div>
               <div class="node-label">{{ nodeProps.data.knowledgeConfig?.knowledgeBaseCodes?.join(', ') || '未选择知识库' }}</div>
               <div class="node-desc">查询：{{ nodeProps.data.knowledgeConfig?.query || '输入' }} / 返回数 {{ nodeProps.data.knowledgeConfig?.topK || 5 }}</div>
+              <div v-if="nodeProps.data.knowledgeConfig?.evidencePolicy === 'REQUIRED'" class="classifier-routes">
+                <div
+                  v-for="route in knowledgeEvidenceRouteRows()"
+                  :key="route.id"
+                  class="classifier-route-row"
+                  :class="{ 'is-default': route.isDefault }"
+                >
+                  <div class="classifier-route-copy">
+                    <strong>{{ route.label }}</strong>
+                    <span>{{ route.meta }}</span>
+                  </div>
+                  <Handle
+                    type="source"
+                    :id="route.handleId"
+                    :position="Position.Right"
+                    class="classifier-route-handle"
+                  />
+                </div>
+              </div>
               <div class="node-port-row">{{ portSummary(nodeProps.data.inputs, '入') }} · {{ portSummary(nodeProps.data.outputs, '出') }}</div>
               <div v-if="nodeProps.data.outputAlias" class="node-alias">输出别名：{{ nodeProps.data.outputAlias }}</div>
               <button v-if="nodeDebugState(nodeProps.id)" class="node-runtime" type="button" @click.stop="openNodeTrace(nodeProps.id)">
@@ -741,6 +764,8 @@
                       clearable
                       placeholder="选择用于创建和修改的模型"
                       :disabled="aiEditLoading"
+                      :loading="modelOptionsLoading"
+                      @visible-change="handleModelOptionsVisible"
                     >
                       <el-option
                         v-for="item in authoringModelOptions"
@@ -748,6 +773,15 @@
                         :label="modelOptionLabel(item)"
                         :value="item.id"
                       />
+                      <template #empty>
+                        <ModelSelectEmptyState
+                          model-type="LLM"
+                          :option-count="authoringModelOptions.length"
+                          :loading="modelOptionsLoading"
+                          :load-error="modelOptionsLoadError"
+                          @retry="loadModelOptions"
+                        />
+                      </template>
                     </el-select>
                     <div class="ai-edit-model-hint">{{ selectedAiEditModelLabel || '未选择模型时会使用 Workflow 默认模型' }}</div>
                   </div>
@@ -1116,13 +1150,30 @@
                 <el-input v-model="workflowMeta.description" type="textarea" :rows="4" @change="markCanvasDirty" />
               </el-form-item>
               <el-form-item label="默认模型">
-                <el-select v-model="workflowMeta.defaultModelInstanceId" filterable clearable placeholder="选择默认 LLM 模型" style="width: 100%">
+                <el-select
+                  v-model="workflowMeta.defaultModelInstanceId"
+                  filterable
+                  clearable
+                  placeholder="选择默认 LLM 模型"
+                  style="width: 100%"
+                  :loading="modelOptionsLoading"
+                  @visible-change="handleModelOptionsVisible"
+                >
                   <el-option
                     v-for="item in authoringModelOptions"
                     :key="item.id"
                     :label="modelOptionLabel(item)"
                     :value="item.id"
                   />
+                  <template #empty>
+                    <ModelSelectEmptyState
+                      model-type="LLM"
+                      :option-count="authoringModelOptions.length"
+                      :loading="modelOptionsLoading"
+                      :load-error="modelOptionsLoadError"
+                      @retry="loadModelOptions"
+                    />
+                  </template>
                 </el-select>
               </el-form-item>
             </el-form>
@@ -1306,6 +1357,8 @@
           :node-id="selectedNode.id"
           :canvas-nodes="nodes"
           :model-options="modelOptions"
+          :model-options-loading="modelOptionsLoading"
+          :model-options-load-error="modelOptionsLoadError"
           :knowledge-options="knowledgeOptions"
           :tool-options="availableTools"
           :variable-options="variableOptions"
@@ -1317,6 +1370,7 @@
           @credential-created="handleCredentialCreated"
           @create-call-node="handleCreateInteractionCallNode"
           @validation-change="handlePanelValidationChange"
+          @reload-model-options="loadModelOptions"
         />
 
         <el-form v-else-if="propertyDetailSection === 'debug'" label-width="100px" size="small">
@@ -1397,635 +1451,110 @@
       </div>
     </el-dialog>
 
-    <el-drawer
-      v-model="debugOpen"
-      class="studio-debug-drawer"
-      modal-class="studio-debug-drawer-overlay"
-      size="min(960px, 58vw)"
-      direction="rtl"
-      :modal="false"
-      :modal-penetrable="true"
-      :lock-scroll="false"
-    >
-      <template #header>
-        <div class="debug-drawer-head">
-          <strong>工作流调试台（当前工作副本）</strong>
-          <el-popover
-            placement="bottom-end"
-            trigger="click"
-            width="560"
-            popper-class="debug-advanced-popover"
-          >
-            <template #reference>
-              <el-button class="debug-advanced-trigger" plain :icon="Operation">
-                高级调试
-              </el-button>
-            </template>
-            <el-collapse class="debug-advanced-collapse debug-advanced-popover-collapse">
-              <el-collapse-item name="variables">
-                <template #title>
-                  <span class="debug-collapse-title">高级调试：变量与状态快照</span>
-                </template>
-                <div class="result-section">
-                  <strong>变量映射合同：</strong>
-                  <pre>{{ JSON.stringify(variablePreview, null, 2) }}</pre>
-                </div>
-                <div v-if="debugRunResult" class="result-section">
-                  <strong>最终状态快照：</strong>
-                  <pre>{{ stringifyDebugPayload(debugRunResult.stateSnapshot) }}</pre>
-                </div>
-              </el-collapse-item>
+    <WorkflowStudioDebugDrawer
+      v-model:open="debugOpen"
+      v-model:replay-trace-input="replayTraceInput"
+      v-model:selected-recent-trace-id="selectedRecentTraceId"
+      v-model:debug-message="debugMessage"
+      :variable-preview="variablePreview"
+      :run-result="debugRunResult"
+      :result="debugResult"
+      :session="debugSession"
+      :conversation-snapshot="debugConversationSnapshot"
+      :initial-chat-field="workflowInitialChatField"
+      :initial-ui-request="workflowInitialUiRequest"
+      :debug-input-params="debugInputParams"
+      :steps="debugSessionSteps"
+      :selected-step-index="selectedDebugStepIndex"
+      :current-trace-id="currentTraceId"
+      :trace-nodes="traceNodes"
+      :recent-runs="studioRecentRuns"
+      :recent-runs-placeholder="studioRecentRunsPlaceholder"
+      :replay-summary="workflowReplaySummary"
+      :node-trace-list="nodeTraceList"
+      :ops-items="debugOpsItems"
+      :debug-loading="debugLoading"
+      :trace-replay-loading="traceReplayLoading"
+      :recent-runs-loading="recentRunsLoading"
+      :conversation-busy="isDebugConversationBusy"
+      :recent-run-label="recentRunLabel"
+      :is-step-running="isDebugStepRunning"
+      :waiting-output="debugWaitingOutput"
+      @run-published="handleRunPublishedDebug"
+      @load-trace-replay="handleLoadTraceReplay()"
+      @clear-trace-replay="clearTraceReplay"
+      @recent-trace-change="handleRecentTraceChange"
+      @load-recent-runs="loadRecentStudioRuns"
+      @open-runops="router.push('/runops/' + $event)"
+      @open-node-trace="openNodeTrace"
+      @cancel-session="handleCancelDebugSession"
+      @interaction-submit="handleDebugInteractionSubmit"
+      @interaction-cancel="handleDebugInteractionCancel"
+      @run-working-copy="handleRunWorkingCopyDebug"
+      @clear-session-view="clearDebugSessionView"
+      @select-step="selectDebugStep"
+    />
 
-              <el-collapse-item name="trace">
-                <template #title>
-                  <span class="debug-collapse-title">高级调试：Trace 回放与生产运行</span>
-                </template>
-                <div class="trace-replay-panel">
-                  <div class="trace-replay-row debug-production-row">
-                    <div>
-                      <strong>发布版本验证</strong>
-                      <span>使用已发布 ACTIVE 版本图规范运行，用于和当前工作副本调试结果对照。</span>
-                    </div>
-                    <el-button :loading="debugLoading" @click="handleRunPublishedDebug">
-                      发布版本验证
-                    </el-button>
-                  </div>
-                  <div class="trace-replay-row">
-                    <el-input
-                      v-model="replayTraceInput"
-                      clearable
-                      placeholder="输入 traceId 回放到画布"
-                      @keyup.enter="handleLoadTraceReplay()"
-                    />
-                    <el-button type="primary" plain :loading="traceReplayLoading" @click="handleLoadTraceReplay()">
-                      回放
-                    </el-button>
-                    <el-button :disabled="!currentTraceId" @click="clearTraceReplay">
-                      清除
-                    </el-button>
-                  </div>
-                  <div class="trace-replay-row">
-                    <el-select
-                      v-model="selectedRecentTraceId"
-                      filterable
-                      clearable
-                      :placeholder="studioRecentRunsPlaceholder"
-                      style="width: 100%"
-                      @change="handleRecentTraceChange"
-                    >
-                      <el-option
-                        v-for="run in studioRecentRuns"
-                        :key="run.traceId"
-                        :label="recentRunLabel(run)"
-                        :value="run.traceId"
-                      />
-                    </el-select>
-                    <el-button :loading="recentRunsLoading" @click="loadRecentStudioRuns">
-                      刷新
-                    </el-button>
-                  </div>
-                </div>
-                <div v-if="currentTraceId" class="result-section trace-detail-section">
-                  <div class="debug-section-head">
-                    <div>
-                      <strong>链路详情</strong>
-                      <span>{{ currentTraceId }}</span>
-                    </div>
-                    <el-button
-                      type="primary"
-                      size="small"
-                      @click="router.push('/runops/' + currentTraceId)"
-                    >查看运行详情</el-button>
-                  </div>
-                  <div v-if="workflowReplaySummary.length" class="runtime-insights workflow-replay-summary">
-                    <div v-for="item in workflowReplaySummary" :key="item.label" class="runtime-insight">
-                      <span>{{ item.label }}</span>
-                      <strong>{{ item.value }}</strong>
-                    </div>
-                  </div>
-                  <div v-if="nodeTraceList.length" class="node-run-summary">
-                    <button
-                      v-for="item in nodeTraceList"
-                      :key="item.nodeId"
-                      class="node-run-item"
-                      :class="item.status"
-                      type="button"
-                      @click="openNodeTrace(item.nodeId)"
-                    >
-                      <span>{{ item.nodeId }}</span>
-                      <em>{{ formatElapsed(item.elapsedMs) }}</em>
-                    </button>
-                  </div>
-                  <TraceTimeline :nodes="traceNodes" />
-                </div>
-                <el-empty v-else description="需要排查生产调用时，再输入 traceId 回放" />
-              </el-collapse-item>
-            </el-collapse>
-          </el-popover>
-        </div>
-      </template>
-      <div class="debug-body" :class="debugSessionVisualClass(debugSession?.status)">
-        <div class="debug-session-grid">
-          <section class="debug-chat-panel" :class="debugSessionVisualClass(debugSession?.status)">
-            <ConversationView
-              class="debug-chat-conversation"
-              chrome="inline"
-              density="comfortable"
-              surface="admin"
-              atmosphere
-              :snapshot="debugConversationSnapshot"
-              :resolve-status-hint="resolveWorkflowStatusHint"
-              :resolve-thinking-presentation="resolveWorkflowThinkingPresentation"
-              hide-composer
-              @stop="handleCancelDebugSession"
-              @interaction-submit="handleDebugInteractionSubmit"
-              @interaction-cancel="handleDebugInteractionCancel"
-            >
-              <template #empty>
-                <el-empty description="输入问题后开始一次可恢复调试会话" />
-              </template>
-              <template #composer>
-                <section class="debug-chat-composer">
-                  <template v-if="workflowInitialChatField">
-                    <el-input
-                      v-model="debugInputParams[workflowInitialChatField.name]"
-                      type="textarea"
-                      :rows="3"
-                      resize="none"
-                      :placeholder="workflowInitialChatField.description || '输入测试消息...'"
-                      :disabled="isDebugConversationBusy"
-                    />
-                    <div class="debug-actions">
-                      <el-tooltip content="运行当前工作副本" placement="top">
-                        <el-button
-                          type="primary"
-                          circle
-                          :icon="SendIcon"
-                          :loading="isDebugConversationBusy"
-                          aria-label="运行当前工作副本"
-                          @click="handleRunWorkingCopyDebug"
-                        />
-                      </el-tooltip>
-                    </div>
-                  </template>
-                  <UnifiedInteractionRenderer
-                    v-else-if="workflowInitialUiRequest"
-                    :request="workflowInitialUiRequest"
-                    @submit="(action, values) => handleDebugInteractionSubmit(WORKFLOW_INITIAL_INPUT_ID, action, values)"
-                    @cancel="handleDebugInteractionCancel(WORKFLOW_INITIAL_INPUT_ID)"
-                  />
-                  <template v-else-if="debugConversationSnapshot.turnStatus !== 'waiting'">
-                    <el-input
-                      v-model="debugMessage"
-                      type="textarea"
-                      :rows="3"
-                      resize="none"
-                      placeholder="输入测试消息..."
-                      :disabled="isDebugConversationBusy"
-                    />
-                    <div class="debug-actions">
-                      <el-tooltip content="运行当前工作副本" placement="top">
-                        <el-button
-                          type="primary"
-                          circle
-                          :icon="SendIcon"
-                          :loading="isDebugConversationBusy"
-                          aria-label="运行当前工作副本"
-                          @click="handleRunWorkingCopyDebug"
-                        />
-                      </el-tooltip>
-                    </div>
-                  </template>
-                </section>
-              </template>
-            </ConversationView>
-          </section>
+    <WorkflowStudioEvalDrawer
+      v-model:open="evalOpen"
+      v-model:repeat-count="evalRepeatCount"
+      :cases="evalCases"
+      :results="evalResults"
+      :enabled-case-count="enabledEvalCases.length"
+      :summary="evalSummary"
+      :run-name="evalRunName"
+      :validating="validating"
+      :running="evalRunning"
+      :format-rate="formatEvalRate"
+      @add-case="addEvalCase"
+      @reset-cases="resetEvalCases"
+      @remove-case="removeEvalCase"
+      @validate-runtime="validateRuntime"
+      @run="runWorkflowEval"
+    />
 
-          <section class="debug-steps-panel">
-            <div class="debug-section-head">
-              <div>
-                <strong>节点轨迹</strong>
-                <span>{{ debugSessionSteps.length }} 个节点事件</span>
-              </div>
-              <el-button size="small" text :disabled="!debugSession" @click="clearDebugSessionView">
-                清空视图
-              </el-button>
-            </div>
-            <div class="workflow-debug-steps">
-              <article
-                v-for="(step, index) in debugSessionSteps"
-                :key="step.nodeId + ':' + index"
-                class="workflow-debug-step-card"
-                :class="[debugStepStatusClass(step.status), { selected: selectedDebugStepIndex === index }]"
-              >
-                <button
-                  class="workflow-debug-step"
-                  :class="debugStepStatusClass(step.status)"
-                  type="button"
-                  @click="selectDebugStep(index)"
-                >
-                  <span class="step-marker">
-                    <span
-                      class="step-running-icon"
-                      :class="{ active: isDebugStepRunning(step) }"
-                      aria-label="运行中"
-                    ></span>
-                    <span class="step-index">{{ index + 1 }}</span>
-                  </span>
-                  <span class="step-main">
-                    <strong>{{ step.nodeName || step.nodeId }}</strong>
-                    <em>{{ step.nodeType || step.eventType || '-' }}</em>
-                  </span>
-                  <span class="step-route">
-                    <template v-if="step.route">路由 {{ step.route }}</template>
-                    <template v-else>{{ step.eventType || '节点' }}</template>
-                    <small v-if="step.nextNodeId">→ {{ step.nextNodeId }}</small>
-                  </span>
-                  <span class="step-time">{{ formatElapsed(step.elapsedMs) }}</span>
-                </button>
-                <div v-if="selectedDebugStepIndex === index" class="debug-step-inline">
-                  <el-tabs>
-                    <el-tab-pane label="输入">
-                      <pre>{{ stringifyDebugPayload(step.input) }}</pre>
-                    </el-tab-pane>
-                    <el-tab-pane label="输出">
-                      <div v-if="step.uiRequest || debugWaitingOutput(step)" class="debug-waiting-card">
-                        <strong>{{ step.status === 'WAITING' ? '等待用户补充' : '输出卡片' }}</strong>
-                        <span>{{ step.uiRequest?.message || debugWaitingOutput(step)?.message || step.uiRequest?.title || '已生成交互 UI' }}</span>
-                      </div>
-                      <pre>{{ stringifyDebugPayload(step.output ?? step.statePatch) }}</pre>
-                    </el-tab-pane>
-                    <el-tab-pane label="状态变化">
-                      <pre>{{ stringifyDebugPayload(step.statePatch) }}</pre>
-                    </el-tab-pane>
-                    <el-tab-pane v-if="step.errorMessage" label="错误">
-                      <pre>{{ step.errorCode }} {{ step.errorMessage }}</pre>
-                    </el-tab-pane>
-                  </el-tabs>
-                </div>
-              </article>
-            </div>
-          </section>
-        </div>
+    <WorkflowStudioSourceDrawer
+      v-model:open="jsonDrawerVisible"
+      v-model:active-tab="activeTab"
+      v-model:graph-spec-source="graphSpecSourceBuffer"
+      v-model:canvas-source="canvasSourceBuffer"
+      :read-only="studioReadOnly"
+      :applying="jsonApplying"
+      :changed="sourceBufferChanged"
+      @reset="resetSourceBuffer"
+      @apply="applySourceBuffer"
+    />
 
-        <div v-if="debugResult" class="debug-result">
-          <div class="result-section">
-            <strong>发布版本回答：</strong>
-            <div>{{ debugResult.answer }}</div>
-          </div>
-          <div class="result-section" v-if="debugOpsItems.length">
-            <strong>生产运行信息：</strong>
-            <div class="runtime-insights">
-              <div v-for="item in debugOpsItems" :key="item.label" class="runtime-insight">
-                <span>{{ item.label }}</span>
-                <strong>{{ item.value }}</strong>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </el-drawer>
+    <WorkflowStudioApiQueryTemplateDialog
+      v-model:open="apiQueryTemplateOpen"
+      v-model:action-key="apiQueryTemplateActionKey"
+      :loading="apiQueryTemplateLoading"
+      :tools="apiQueryTemplateTools"
+      :total="apiQueryTemplateTotal"
+      :filters="apiQueryTemplateFilters"
+      :available="apiQueryTemplateAvailable"
+      :project-code="studio?.projectCode"
+      :row-class-name="apiQueryTemplateRowClassName"
+      :selectable="apiQueryTemplateSelectable"
+      :status-label="apiQueryTemplateStatusLabel"
+      @reload="reloadApiQueryTemplateTools"
+      @page-change="loadApiQueryTemplateTools"
+      @generate="generateApiQueryTemplate"
+    />
 
-    <el-drawer
-      v-model="evalOpen"
-      title="Workflow 评测"
-      size="760px"
-      class="workflow-eval-drawer"
-      destroy-on-close
-    >
-      <div class="eval-body">
-        <section class="eval-panel">
-          <div class="eval-section-head">
-            <div>
-              <strong>发布前用例</strong>
-              <span>使用当前 Workflow GraphSpec 草稿在沙箱模式下重复运行。</span>
-            </div>
-            <div class="eval-import-actions">
-              <el-button size="small" @click="addEvalCase">新增用例</el-button>
-              <el-button size="small" @click="resetEvalCases">重置示例</el-button>
-            </div>
-          </div>
-          <el-table :data="evalCases" size="small" max-height="300">
-            <el-table-column label="启用" width="64">
-              <template #default="{ row }">
-                <el-switch v-model="row.enabled" />
-              </template>
-            </el-table-column>
-            <el-table-column label="用例" min-width="120">
-              <template #default="{ row }">
-                <el-input v-model="row.caseNo" size="small" />
-              </template>
-            </el-table-column>
-            <el-table-column label="消息" min-width="190">
-              <template #default="{ row }">
-                <el-input v-model="row.message" type="textarea" :rows="2" size="small" />
-              </template>
-            </el-table-column>
-            <el-table-column label="输入 JSON" min-width="190">
-              <template #default="{ row }">
-                <el-input v-model="row.inputParamsJson" type="textarea" :rows="2" size="small" spellcheck="false" />
-              </template>
-            </el-table-column>
-            <el-table-column label="期望包含" min-width="150">
-              <template #default="{ row }">
-                <el-input v-model="row.expectedText" size="small" placeholder="可留空" />
-              </template>
-            </el-table-column>
-            <el-table-column label="" width="54" fixed="right">
-              <template #default="{ row }">
-                <el-button size="small" text type="danger" @click="removeEvalCase(row.id)">删除</el-button>
-              </template>
-            </el-table-column>
-          </el-table>
-        </section>
-
-        <section class="eval-panel">
-          <div class="eval-section-head">
-            <div>
-              <strong>运行设置</strong>
-              <span>默认附加 evalMode 和 sandboxSideEffects，避免真实不可逆副作用。</span>
-            </div>
-          </div>
-          <div class="eval-toolbar">
-            <el-input-number v-model="evalRepeatCount" :min="1" :max="20" controls-position="right" />
-            <el-button :loading="validating" @click="validateRuntime">校验 GraphSpec</el-button>
-            <el-button type="primary" :loading="evalRunning" :disabled="!enabledEvalCases.length" @click="runWorkflowEval">
-              开始评测
-            </el-button>
-          </div>
-        </section>
-
-        <section v-if="evalResults.length" class="eval-summary-grid">
-          <div class="eval-metric">
-            <span>断言通过</span>
-            <strong>{{ formatEvalRate(evalSummary.assertionRate) }}</strong>
-          </div>
-          <div class="eval-metric">
-            <span>运行成功</span>
-            <strong>{{ formatEvalRate(evalSummary.runtimeSuccessRate) }}</strong>
-          </div>
-          <div class="eval-metric">
-            <span>P95 响应</span>
-            <strong>{{ evalSummary.p95LatencyMs }} ms</strong>
-          </div>
-          <div class="eval-metric">
-            <span>偏差数</span>
-            <strong>{{ evalSummary.biasCount }}</strong>
-          </div>
-        </section>
-
-        <section v-if="evalResults.length" class="eval-panel">
-          <div class="eval-section-head">
-            <div>
-              <strong>评测结果</strong>
-              <span>{{ evalResults.length }} 次执行 · {{ evalRunName }}</span>
-            </div>
-          </div>
-          <el-table :data="evalResults" size="small" max-height="320">
-            <el-table-column prop="roundNo" label="轮次" width="72" />
-            <el-table-column prop="caseNo" label="用例" min-width="120" />
-            <el-table-column label="状态" width="92">
-              <template #default="{ row }">
-                <el-tag :type="row.assertionPassed ? 'success' : row.runtimeSuccess ? 'warning' : 'danger'" size="small">
-                  {{ row.assertionPassed ? '通过' : row.runtimeSuccess ? '偏差' : '失败' }}
-                </el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column prop="elapsedMs" label="耗时" width="92" />
-            <el-table-column prop="answer" label="输出" min-width="220" show-overflow-tooltip />
-            <el-table-column prop="errorMessage" label="错误" min-width="160" show-overflow-tooltip />
-          </el-table>
-        </section>
-      </div>
-    </el-drawer>
-
-    <el-drawer
-      v-model="jsonDrawerVisible"
-      title="Workflow 源码"
-      size="50%"
-      destroy-on-close
-      @closed="resetSourceBuffer"
-    >
-      <el-alert
-        type="info"
-        :closable="false"
-        class="json-source-alert"
-        title="GraphSpec 是运行语义；Canvas 只保存布局。修改不会立即影响画布，点击“校验并应用”后才会进入当前工作副本。"
-      />
-      <el-tabs v-model="activeTab">
-        <el-tab-pane label="GraphSpec" name="graph">
-          <el-input
-            v-model="graphSpecSourceBuffer"
-            type="textarea"
-            :autosize="{ minRows: 24 }"
-            :disabled="studioReadOnly || jsonApplying"
-            spellcheck="false"
-            class="json-editor"
-          />
-        </el-tab-pane>
-        <el-tab-pane label="Canvas" name="canvas">
-          <el-input
-            v-model="canvasSourceBuffer"
-            type="textarea"
-            :autosize="{ minRows: 24 }"
-            :disabled="studioReadOnly || jsonApplying"
-            spellcheck="false"
-            class="json-editor"
-          />
-        </el-tab-pane>
-      </el-tabs>
-      <template #footer>
-        <div class="json-source-footer">
-          <span>{{ sourceBufferChanged ? '源码有尚未应用的修改' : '源码与当前画布一致' }}</span>
-          <div>
-            <el-button @click="resetSourceBuffer">重置</el-button>
-            <el-button
-              type="primary"
-              :loading="jsonApplying"
-              :disabled="studioReadOnly || !sourceBufferChanged"
-              @click="applySourceBuffer"
-            >
-              校验并应用
-            </el-button>
-          </div>
-        </div>
-      </template>
-    </el-drawer>
-
-    <el-dialog v-model="apiQueryTemplateOpen" title="从项目接口生成查询流程" width="900px" class="api-query-template-dialog">
-      <div class="api-query-template-body">
-        <el-alert
-          type="info"
-          :closable="false"
-          title="选择一个已关联 Tool 的项目接口，系统会生成交互收集、页面查询动作、Tool 调用和结果展示节点。"
-        />
-        <div class="api-query-template-toolbar">
-          <el-input
-            v-model="apiQueryTemplateFilters.keyword"
-            :prefix-icon="Search"
-            clearable
-            placeholder="搜索接口名称、路径、描述"
-            @keyup.enter="reloadApiQueryTemplateTools"
-          />
-          <el-select v-model="apiQueryTemplateFilters.toolLinkStatus" clearable placeholder="Tool 状态">
-            <el-option label="已关联 Tool" value="LINKED" />
-            <el-option label="未关联 Tool" value="NOT_LINKED" />
-            <el-option label="全局 Tool 缺失" value="GLOBAL_MISSING" />
-          </el-select>
-          <el-input v-model="apiQueryTemplateActionKey" placeholder="page.search.applyFilters" />
-          <el-button type="primary" @click="reloadApiQueryTemplateTools">查询</el-button>
-        </div>
-        <el-table
-          v-loading="apiQueryTemplateLoading"
-          :data="apiQueryTemplateTools"
-          row-key="scanToolId"
-          :row-class-name="apiQueryTemplateRowClassName"
-          height="420"
-          stripe
-          empty-text="暂无项目接口"
-        >
-          <el-table-column label="接口" min-width="280" show-overflow-tooltip>
-            <template #default="{ row }">
-              <div class="api-template-cell">
-                <strong>{{ row.name }}</strong>
-                <span>{{ row.httpMethod || '-' }} {{ row.endpointPath || row.sourceLocation || '-' }}</span>
-              </div>
-            </template>
-          </el-table-column>
-          <el-table-column label="项目 / 模块" min-width="190" show-overflow-tooltip>
-            <template #default="{ row }">
-              <div class="api-template-cell">
-                <strong>{{ row.projectCode || studio?.projectCode || '-' }}</strong>
-                <span>{{ row.moduleDisplayName || '-' }}</span>
-              </div>
-            </template>
-          </el-table-column>
-          <el-table-column label="参数" width="80" align="center">
-            <template #default="{ row }">{{ row.parameterCount || row.parameters?.length || 0 }}</template>
-          </el-table-column>
-          <el-table-column label="状态" width="150">
-            <template #default="{ row }">
-              <el-tag size="small" :type="apiQueryTemplateSelectable(row) ? 'success' : 'info'" effect="plain">
-                {{ apiQueryTemplateStatusLabel(row) }}
-              </el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column label="操作" width="140" fixed="right">
-            <template #default="{ row }">
-              <el-button
-                size="small"
-                type="primary"
-                text
-                :disabled="!apiQueryTemplateAvailable || !apiQueryTemplateSelectable(row)"
-                @click="generateApiQueryTemplate(row)"
-              >
-                生成流程
-              </el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-        <div class="api-query-template-footer">
-          <span>页面动作 actionKey 由业务前端 SDK 启动时用项目 key/secret 自动上报，例如班组档案页可注册为 teamArchive.search。</span>
-          <el-pagination
-            v-model:current-page="apiQueryTemplateFilters.page"
-            v-model:page-size="apiQueryTemplateFilters.pageSize"
-            layout="total, prev, pager, next"
-            :total="apiQueryTemplateTotal"
-            @current-change="loadApiQueryTemplateTools"
-          />
-        </div>
-      </div>
-    </el-dialog>
-
-    <el-dialog
-      v-model="publishDialogOpen"
-      title="发布 Workflow 版本"
-      width="640px"
-      :close-on-click-modal="!publishing"
-      :close-on-press-escape="!publishing"
-      :show-close="!publishing"
+    <WorkflowStudioPublishDialog
+      v-model:open="publishDialogOpen"
+      :publishing="publishing"
+      :release-checking="releaseChecking"
+      :release-validation-ready="releaseValidationReady"
+      :release-errors="releaseErrors"
+      :release-warnings="releaseWarnings"
+      :publish-warnings="publishWarnings"
+      :form="publishForm"
       :before-close="handlePublishDialogBeforeClose"
-    >
-      <el-alert
-        v-if="releaseChecking"
-        type="info"
-        :closable="false"
-        show-icon
-        class="publish-warning"
-        title="正在校验当前画布草稿，而不是上一次保存的版本…"
-      />
-      <div v-else-if="releaseErrors.length || releaseWarnings.length" class="release-check-panel">
-        <div class="release-check-head">
-          <div>
-            <strong>Workflow 发布门禁</strong>
-            <span>{{ releaseErrors.length }} 个阻断项 / {{ releaseWarnings.length }} 个提醒项</span>
-          </div>
-          <el-tag :type="releaseErrors.length ? 'danger' : 'success'" size="small">
-            {{ releaseErrors.length ? '未通过' : '已通过' }}
-          </el-tag>
-        </div>
-        <el-collapse model-value="errors" class="release-check-collapse">
-          <el-collapse-item v-if="releaseErrors.length" title="阻断项" name="errors">
-            <div v-for="item in releaseErrors" :key="releaseValidationKey(item)" class="check-item error">
-              <el-tag size="small" type="danger">{{ item.code }}</el-tag>
-              <span v-if="item.nodeId" class="check-node">{{ item.nodeId }}</span>
-              <span>{{ item.message }}</span>
-            </div>
-          </el-collapse-item>
-          <el-collapse-item v-if="releaseWarnings.length" title="提醒项" name="warnings">
-            <div v-for="item in releaseWarnings" :key="releaseValidationKey(item)" class="check-item warn">
-              <el-tag size="small" type="warning">{{ item.code }}</el-tag>
-              <span v-if="item.nodeId" class="check-node">{{ item.nodeId }}</span>
-              <span>{{ item.message }}</span>
-            </div>
-          </el-collapse-item>
-        </el-collapse>
-      </div>
-      <el-alert
-        v-else-if="releaseValidationReady"
-        type="success"
-        :closable="false"
-        show-icon
-        class="publish-warning"
-        title="当前画布草稿已通过发布门禁"
-      />
-      <el-alert
-        v-if="publishWarnings.length"
-        type="warning"
-        :closable="false"
-        class="publish-warning"
-        title="发布前检查"
-      >
-        <ul>
-          <li v-for="item in publishWarnings" :key="item">{{ item }}</li>
-        </ul>
-      </el-alert>
-      <el-form :model="publishForm" label-width="120px">
-        <el-form-item label="版本号" required>
-          <el-input v-model="publishForm.version" placeholder="v1.0.0" />
-        </el-form-item>
-        <el-form-item label="灰度比例">
-          <el-slider v-model="publishForm.rolloutPercent" :min="0" :max="100" show-input />
-        </el-form-item>
-        <el-form-item label="发布说明">
-          <el-input v-model="publishForm.note" type="textarea" :rows="3" />
-        </el-form-item>
-        <el-form-item label="发布者">
-          <el-input v-model="publishForm.publishedBy" placeholder="运营账号" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button :disabled="publishing" @click="publishDialogOpen = false">取消</el-button>
-        <el-button
-          type="primary"
-          :loading="publishing"
-          :disabled="releaseChecking || !releaseValidationReady || !!releaseErrors.length"
-          @click="handlePublishWorkflow"
-        >
-          确认发布
-        </el-button>
-      </template>
-    </el-dialog>
+      :release-validation-key="releaseValidationKey"
+      @publish="handlePublishWorkflow"
+    />
   </div>
 </template>
 <script setup lang="ts">
@@ -2090,7 +1619,6 @@ import type {
   WorkflowReleaseValidationItem,
   WorkflowRuntimeValidationResult,
   WorkflowWorkingCopyState,
-  WorkflowDebugMessage,
   WorkflowDebugSessionView,
   WorkflowDebugStepResult,
 } from '@/types/workflow'
@@ -2102,13 +1630,6 @@ import type {
   StudioVariableOption,
 } from '@/types/studio'
 import type { ModelInstance } from '@/types/model'
-import TraceTimeline from '@/components/TraceTimeline.vue'
-import {
-  ConversationView,
-  UnifiedInteractionRenderer,
-  WORKFLOW_INITIAL_INPUT_ID,
-  type ConversationMessage,
-} from '@/conversation'
 import type { UiRequestPayload } from '@/types/interaction'
 import {
   createWorkflowCanvasNode,
@@ -2119,12 +1640,18 @@ import { resolveStudioNodeCreation } from '@/utils/studioNodeRegistry'
 import { runMatchesCurrentWorkflow } from '@/utils/workflowRunOps'
 import LlmModelIcon from '@/components/icons/LlmModelIcon.vue'
 import SendIcon from '@/components/icons/SendIcon.vue'
+import ModelSelectEmptyState from '@/components/model/ModelSelectEmptyState.vue'
 import type { StudioFieldSchema } from '@/types/studio'
 import {
   WORKFLOW_LAYOUT_DEFAULT_HANDLE_KEY,
   type WorkflowNodeMeasurement,
 } from '@/utils/workflowAutoLayout'
 import NodeConfigPanel from '@/views/workflow/studio-panels/NodeConfigPanel.vue'
+import WorkflowStudioApiQueryTemplateDialog from '@/views/workflow/studio-overlays/WorkflowStudioApiQueryTemplateDialog.vue'
+import WorkflowStudioDebugDrawer from '@/views/workflow/studio-overlays/WorkflowStudioDebugDrawer.vue'
+import WorkflowStudioEvalDrawer from '@/views/workflow/studio-overlays/WorkflowStudioEvalDrawer.vue'
+import WorkflowStudioPublishDialog from '@/views/workflow/studio-overlays/WorkflowStudioPublishDialog.vue'
+import WorkflowStudioSourceDrawer from '@/views/workflow/studio-overlays/WorkflowStudioSourceDrawer.vue'
 import { useWorkflowStudioNodeMetadata } from '@/views/workflow/composables/useWorkflowStudioNodeMetadata'
 import { useWorkflowStudioPalette } from '@/views/workflow/composables/useWorkflowStudioPalette'
 import { useWorkflowStudioDebugSession } from '@/views/workflow/composables/useWorkflowStudioDebugSession'
@@ -2289,6 +1816,8 @@ const selectedToolName = computed(() => {
 const {
   nodeTypes,
   modelOptions,
+  modelOptionsLoading,
+  modelOptionsLoadError,
   knowledgeOptions,
   credentialOptions,
   paramSourceHints,
@@ -2588,6 +2117,12 @@ const selectedEdgeSourceNode = computed(() =>
 const selectedEdgeRouteOptions = computed(() => sourceRouteOptions(selectedEdgeSourceNode.value))
 
 function sourceRouteOptions(source?: CanvasNode | null) {
+  if (source?.data.kind === 'knowledge' && source.data.knowledgeConfig?.evidencePolicy === 'REQUIRED') {
+    return [
+      { value: 'route:evidence', label: '有证据' },
+      { value: 'route:no_evidence', label: '无证据' },
+    ]
+  }
   if (source?.data.kind === 'condition') {
     const groups = source.data.conditionConfig?.groups || []
     return groups
@@ -2616,15 +2151,21 @@ function sourceRouteOptions(source?: CanvasNode | null) {
   return []
 }
 
-const selectedEdgeConditionOptions = computed(() => [
-  { value: 'always', label: '默认 / always' },
-  { value: 'success', label: '成功' },
-  { value: 'error', label: '失败' },
-  { value: 'else', label: '否则 / else' },
-  { value: 'empty', label: '为空' },
-  { value: 'not_empty', label: '非空' },
-  ...selectedEdgeRouteOptions.value,
-])
+const selectedEdgeConditionOptions = computed(() => {
+  if (selectedEdgeSourceNode.value?.data.kind === 'knowledge'
+    && selectedEdgeSourceNode.value.data.knowledgeConfig?.evidencePolicy === 'REQUIRED') {
+    return selectedEdgeRouteOptions.value
+  }
+  return [
+    { value: 'always', label: '默认 / always' },
+    { value: 'success', label: '成功' },
+    { value: 'error', label: '失败' },
+    { value: 'else', label: '否则 / else' },
+    { value: 'empty', label: '为空' },
+    { value: 'not_empty', label: '非空' },
+    ...selectedEdgeRouteOptions.value,
+  ]
+})
 
 const canCopySelectedNode = computed(() =>
   !!selectedNode.value && !['start', 'end'].includes(selectedNode.value.data.kind),
@@ -3133,55 +2674,6 @@ const {
   },
   parseOptionalObject,
 })
-
-function resolveWorkflowStatusHint(message: ConversationMessage) {
-  if (message.role !== 'assistant') return undefined
-  if (message.status !== 'pending' && message.status !== 'streaming') return undefined
-  const steps = debugSessionSteps.value
-  if (steps.length) {
-    const current = steps[steps.length - 1]
-    const nodeLabel = current.nodeName || current.nodeType || current.nodeId
-    if (nodeLabel) return `当前节点：${nodeLabel}`
-  }
-  return 'Workflow 运行中'
-}
-
-function workflowThinkingStepState(status?: string): 'complete' | 'active' | 'pending' | 'error' {
-  const normalized = (status || '').trim().toUpperCase()
-  if (normalized === 'RUNNING' || normalized === 'EXECUTING' || normalized === 'WAITING') return 'active'
-  if (normalized === 'ERROR' || normalized === 'FAILED' || normalized === 'FAILURE' || normalized === 'FAIL') {
-    return 'error'
-  }
-  if (['SUCCESS', 'OK', 'COMPLETED'].includes(normalized)) return 'complete'
-  return 'pending'
-}
-
-/** 仅展示安全节点结构信息；input/output/statePatch 留在右侧轨迹面板 */
-function resolveWorkflowThinkingPresentation(message: ConversationMessage) {
-  if (message.role !== 'assistant') return undefined
-  if (message.status !== 'pending' && message.status !== 'streaming') return undefined
-  const steps = debugSessionSteps.value
-  if (!steps.length) return undefined
-  return {
-    label: `节点执行 ${steps.length} 步`,
-    count: steps.length,
-    steps: steps.map((step, index) => {
-      const title = step.nodeName || step.nodeType || step.nodeId || `节点 ${index + 1}`
-      const parts = [
-        step.nodeType ? `类型 ${step.nodeType}` : '',
-        step.status ? `状态 ${step.status}` : '',
-        step.route ? `路由 ${step.route}` : '',
-        step.nextNodeId ? `下一节点 ${step.nextNodeId}` : '',
-      ].filter(Boolean)
-      return {
-        id: `wf-step-${step.index ?? index}-${step.nodeId || 'node'}`,
-        title,
-        detail: parts.length ? parts.join(' · ') : undefined,
-        state: workflowThinkingStepState(step.status),
-      }
-    }),
-  }
-}
 
 const {
   evalOpen,
@@ -4034,6 +3526,13 @@ function approvalRouteRows() {
   ]
 }
 
+function knowledgeEvidenceRouteRows() {
+  return [
+    { id: 'evidence', handleId: 'evidence', label: '有证据', meta: '检索命中，可基于证据回答', isDefault: false },
+    { id: 'no_evidence', handleId: 'no_evidence', label: '无证据', meta: '固定回复，不进入 LLM 生成', isDefault: true },
+  ]
+}
+
 function loopNodeSummary(loopConfig?: {
   collection?: string
   outputAlias?: string
@@ -4120,34 +3619,6 @@ function handleHeaderCommand(command: string | number | object) {
   }
 }
 
-function debugStepStatusClass(status?: string) {
-  return `is-${debugStepStatus(status)}`
-}
-
-function debugSessionVisualClass(status?: string) {
-  const normalized = (status || '').trim().toUpperCase()
-  if (normalized === 'RUNNING') return 'is-running'
-  if (!normalized) return 'is-idle'
-  return debugStepStatusClass(status)
-}
-
-function debugMessageRole(role?: string) {
-  const normalized = (role || '').toLowerCase()
-  if (normalized === 'user') return '用户'
-  if (normalized === 'assistant') return '调试台'
-  if (normalized === 'runtime') return '运行时'
-  return '系统'
-}
-
-function isInteractiveDebugUiRequest(request?: UiRequestPayload | null) {
-  const component = String(request?.component || request?.type || '').trim().toLowerCase()
-  return ['form', 'text_question', 'confirm', 'select', 'choice', 'multi_select'].includes(component)
-}
-
-function shouldRenderDebugMessageUi(message: WorkflowDebugMessage) {
-  return !!message.uiRequest && !isInteractiveDebugUiRequest(message.uiRequest)
-}
-
 function objectPayload(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -4165,10 +3636,6 @@ function debugWaitingOutput(step: WorkflowDebugStepResult) {
 function uiRequestFromOutput(output: Record<string, unknown> | null) {
   const request = objectPayload(output?.uiRequest)
   return request.component || request.fields ? request as unknown as UiRequestPayload : null
-}
-
-function debugFieldLabel(field: StudioFieldSchema) {
-  return `${field.name}${field.required ? ' *' : ''}`
 }
 
 function edgeKey(source?: string, target?: string) {
@@ -4245,6 +3712,10 @@ function parseOptionalObject(value: string, label: string) {
 
 function modelOptionLabel(item: ModelInstance) {
   return `${item.name || item.id} / ${item.provider || '-'} / ${item.modelName || '-'}`
+}
+
+function handleModelOptionsVisible(visible: boolean) {
+  if (visible) void loadModelOptions()
 }
 
 function formatDebugResult(value: unknown) {
@@ -4363,31 +3834,6 @@ function formatDebugResult(value: unknown) {
   color: var(--el-text-color-secondary);
   font-size: 11px;
   font-style: normal;
-}
-
-.json-editor :deep(textarea) {
-  min-height: 620px !important;
-  font-family: Consolas, Monaco, 'Courier New', monospace;
-  font-size: 12px;
-  line-height: 1.55;
-}
-
-.json-source-alert {
-  margin-bottom: 12px;
-}
-
-.json-source-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  color: var(--el-text-color-secondary);
-  font-size: 12px;
-}
-
-.json-source-footer > div {
-  display: flex;
-  gap: 8px;
 }
 
 .canvas-toolbar {
@@ -4533,126 +3979,6 @@ function formatDebugResult(value: unknown) {
   line-height: 1.45;
 }
 
-.publish-warning {
-  margin-bottom: 14px;
-}
-
-.publish-warning ul {
-  margin: 0;
-  padding-left: 18px;
-}
-
-.release-check-panel {
-  display: grid;
-  gap: 10px;
-  margin-bottom: 14px;
-  padding: 12px;
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 6px;
-  background: var(--el-fill-color-lighter);
-}
-
-.release-check-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.release-check-head strong,
-.release-check-head span {
-  display: block;
-}
-
-.release-check-head span {
-  margin-top: 4px;
-  color: var(--el-text-color-secondary);
-  font-size: 12px;
-}
-
-.release-check-collapse {
-  --el-collapse-header-bg-color: transparent;
-  --el-collapse-content-bg-color: transparent;
-}
-
-.check-item {
-  display: grid;
-  grid-template-columns: auto auto 1fr;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 0;
-  font-size: 12px;
-}
-
-.check-node {
-  padding: 2px 6px;
-  border-radius: 4px;
-  background: var(--el-fill-color);
-  color: var(--el-text-color-secondary);
-  font-family: Consolas, Monaco, 'Courier New', monospace;
-}
-
-.debug-form {
-  display: grid;
-  gap: 10px;
-}
-
-.debug-actions {
-  margin-top: 10px;
-  display: flex;
-  gap: 8px;
-  justify-content: flex-end;
-}
-
-.debug-drawer-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.debug-form :deep(textarea) {
-  font-family: Consolas, Monaco, 'Courier New', monospace;
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.debug-result {
-  display: grid;
-  gap: 6px;
-  min-width: 0;
-}
-
-.debug-result-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.debug-result-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.debug-result strong {
-  font-size: 12px;
-}
-
-.debug-result pre {
-  overflow: auto;
-  max-height: 260px;
-  margin: 0;
-  padding: 10px;
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 6px;
-  background: var(--el-fill-color-light);
-  color: var(--el-text-color-primary);
-  font-family: Consolas, Monaco, 'Courier New', monospace;
-  font-size: 12px;
-  line-height: 1.5;
-}
-
 .ai-edit-preview {
   display: grid;
   gap: 10px;
@@ -4727,72 +4053,6 @@ function formatDebugResult(value: unknown) {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 10px;
-}
-
-.eval-body {
-  display: grid;
-  gap: 14px;
-}
-
-.eval-panel {
-  display: grid;
-  gap: 12px;
-  padding: 14px;
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 8px;
-  background: var(--el-bg-color);
-}
-
-.eval-section-head,
-.eval-toolbar,
-.eval-import-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.eval-section-head {
-  justify-content: space-between;
-}
-
-.eval-section-head strong,
-.eval-section-head span {
-  display: block;
-}
-
-.eval-section-head span {
-  margin-top: 4px;
-  color: var(--el-text-color-secondary);
-  font-size: 12px;
-}
-
-.eval-toolbar {
-  flex-wrap: wrap;
-}
-
-.eval-summary-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.eval-metric {
-  display: grid;
-  gap: 6px;
-  padding: 12px;
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 8px;
-  background: var(--el-fill-color-light);
-}
-
-.eval-metric span {
-  color: var(--el-text-color-secondary);
-  font-size: 12px;
-}
-
-.eval-metric strong {
-  color: var(--el-text-color-primary);
-  font-size: 18px;
 }
 
 @media (max-width: 1080px) {
@@ -5870,33 +5130,6 @@ function formatDebugResult(value: unknown) {
   margin-top: 4px;
 }
 
-.api-query-template-toolbar {
-  display: grid;
-  grid-template-columns: minmax(180px, 1fr) 160px 180px auto;
-  gap: 10px;
-  margin: 12px 0;
-}
-
-.api-template-cell {
-  display: grid;
-  gap: 2px;
-}
-
-.api-template-cell span {
-  color: var(--el-text-color-secondary);
-  font-size: 12px;
-}
-
-.api-query-template-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: 12px;
-  color: var(--el-text-color-secondary);
-  font-size: 12px;
-}
-
 .inspector-pill {
   display: inline-flex;
   align-items: center;
@@ -6503,29 +5736,8 @@ function formatDebugResult(value: unknown) {
   white-space: nowrap;
 }
 
-.debug-compact {
-  display: grid;
-  gap: 10px;
-}
-
-.debug-mini-actions {
-  display: flex;
-  gap: 8px;
-}
-
-.debug-mini-actions .el-button {
-  flex: 1;
-  margin: 0;
-}
-
 .ai-preview-section {
   margin-top: 18px;
-}
-
-.studio-page .debug-result pre,
-.studio-page .debug-step-payloads pre {
-  max-height: 180px;
-  font-size: 11px;
 }
 
 .studio-page .studio-node {
@@ -6852,6 +6064,19 @@ function formatDebugResult(value: unknown) {
   background: rgba(248, 250, 252, 0.94);
 }
 
+.studio-page .knowledge-node .classifier-route-row {
+  border-color: rgba(13, 148, 136, 0.24);
+  background: rgba(240, 253, 250, 0.9);
+}
+
+.studio-page .knowledge-node .classifier-route-row.is-default {
+  background: rgba(248, 250, 252, 0.94);
+}
+
+.studio-page .knowledge-node .classifier-route-copy strong {
+  color: #0f766e;
+}
+
 .studio-page .classifier-route-copy {
   display: grid;
   min-width: 0;
@@ -7073,762 +6298,6 @@ function formatDebugResult(value: unknown) {
   padding: 18px 22px 22px;
 }
 
-:global(.studio-debug-drawer-overlay) {
-  pointer-events: none;
-}
-
-:global(.studio-debug-drawer-overlay .studio-debug-drawer) {
-  pointer-events: auto;
-  min-width: min(760px, 100vw);
-  border-left: 1px solid rgba(191, 219, 254, 0.72);
-  background:
-    radial-gradient(circle at 18% 8%, rgba(129, 140, 248, 0.14), transparent 32%),
-    radial-gradient(circle at 76% 18%, rgba(34, 211, 238, 0.13), transparent 28%),
-    linear-gradient(135deg, rgba(248, 250, 252, 0.78), rgba(239, 246, 255, 0.62));
-  box-shadow: -26px 0 72px rgba(15, 23, 42, 0.16);
-  backdrop-filter: blur(20px) saturate(1.18);
-}
-
-:global(.studio-debug-drawer-overlay .studio-debug-drawer.rtl.open),
-:global(.studio-debug-drawer.rtl.open) {
-  transform: translateX(0) !important;
-}
-
-:global(.studio-debug-drawer-overlay .studio-debug-drawer .el-drawer__header) {
-  display: flex;
-  align-items: center;
-  margin-bottom: 0;
-  padding: 22px 28px 18px;
-  border-bottom: 1px solid rgba(226, 232, 240, 0.72);
-  background: rgba(255, 255, 255, 0.42);
-  backdrop-filter: blur(16px) saturate(1.18);
-}
-
-:global(.studio-debug-drawer-overlay .studio-debug-drawer .el-drawer__close-btn) {
-  color: #334155;
-}
-
-:global(.studio-debug-drawer-overlay .studio-debug-drawer .el-drawer__title) {
-  color: #0f172a;
-  font-weight: 800;
-  letter-spacing: 0;
-}
-
-:global(.studio-debug-drawer-overlay .studio-debug-drawer .el-drawer__body) {
-  padding: 18px 0 0;
-  overflow: hidden;
-  background: transparent;
-}
-
-.debug-body {
-  display: flex;
-  flex-direction: column;
-  height: calc(100vh - 82px);
-  min-height: 0;
-  padding: 0 20px 22px;
-  position: relative;
-  overflow: hidden;
-  color: #0f172a;
-}
-
-.debug-session-grid {
-  display: grid;
-  grid-template-columns: minmax(360px, 1fr) minmax(300px, 0.92fr);
-  align-items: stretch;
-  gap: 14px;
-  flex: 1;
-  min-height: 0;
-}
-
-.debug-chat-panel,
-.debug-steps-panel {
-  min-width: 0;
-  min-height: 0;
-  height: 100%;
-  padding: 14px;
-  border: 1px solid rgba(203, 213, 225, 0.64);
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.74);
-  box-shadow: 0 22px 56px rgba(15, 23, 42, 0.1);
-  backdrop-filter: blur(18px) saturate(1.16);
-}
-
-.debug-steps-panel {
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  box-shadow: 0 18px 46px rgba(15, 23, 42, 0.07);
-}
-
-.debug-chat-panel {
-  display: flex;
-  min-height: 0;
-  flex-direction: column;
-  position: relative;
-  isolation: isolate;
-  overflow: hidden;
-  border-color: transparent;
-  background:
-    linear-gradient(rgba(255, 255, 255, 0.72), rgba(248, 250, 252, 0.58)) padding-box,
-    linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(148, 163, 184, 0.34)) border-box;
-
-  .debug-chat-conversation {
-    flex: 1;
-    min-height: 0;
-    border: none;
-    background: transparent;
-    border-radius: inherit;
-  }
-
-  &::before,
-  &::after {
-    content: '';
-    position: absolute;
-    pointer-events: none;
-  }
-
-  &::before {
-    inset: -2px;
-    z-index: 0;
-    border-radius: inherit;
-    background: conic-gradient(from 140deg, #7c3aed, #06b6d4, #22c55e, #f472b6, #7c3aed);
-    opacity: 0;
-    filter: blur(1px);
-  }
-
-  &::after {
-    inset: 1px;
-    z-index: 1;
-    border-radius: 15px;
-    background:
-      radial-gradient(circle at 14% 0%, rgba(129, 140, 248, 0.12), transparent 34%),
-      radial-gradient(circle at 92% 12%, rgba(34, 211, 238, 0.11), transparent 28%),
-      rgba(255, 255, 255, 0.84);
-    backdrop-filter: blur(18px) saturate(1.16);
-  }
-
-  > * {
-    position: relative;
-    z-index: 2;
-  }
-
-  &.is-running::before {
-    opacity: 0.78;
-    animation: debugAuraSpin 5.8s linear infinite, debugPulseGlow 2.6s ease-in-out infinite;
-  }
-
-  &.is-waiting::before {
-    background: conic-gradient(from 120deg, #f59e0b, #a855f7, #38bdf8, #fb7185, #f59e0b);
-    opacity: 0.72;
-    animation: debugAuraSpin 7.2s linear infinite;
-  }
-
-  &.is-success {
-    background:
-      linear-gradient(rgba(255, 255, 255, 0.76), rgba(248, 250, 252, 0.62)) padding-box,
-      linear-gradient(135deg, rgba(34, 197, 94, 0.56), rgba(14, 165, 233, 0.24)) border-box;
-  }
-
-  &.is-error {
-    background:
-      linear-gradient(rgba(255, 255, 255, 0.76), rgba(254, 242, 242, 0.6)) padding-box,
-      linear-gradient(135deg, rgba(239, 68, 68, 0.62), rgba(244, 114, 182, 0.28)) border-box;
-  }
-}
-
-.debug-chat-messages {
-  display: grid;
-  align-content: start;
-  gap: 12px;
-  flex: 1;
-  min-height: 0;
-  max-height: none;
-  padding: 2px 2px 6px;
-  overflow: auto;
-
-  :deep(.el-empty__description p) {
-    color: #475569;
-    font-weight: 600;
-  }
-}
-
-.debug-message {
-  display: grid;
-  gap: 6px;
-  justify-items: start;
-
-  &.is-user {
-    justify-items: end;
-
-    .debug-message-content {
-      background: linear-gradient(135deg, rgba(238, 242, 255, 0.92), rgba(236, 253, 245, 0.62));
-      border-color: rgba(129, 140, 248, 0.34);
-      box-shadow: 0 12px 26px rgba(79, 70, 229, 0.1);
-    }
-  }
-
-  &.is-system {
-    .debug-message-content {
-      background: rgba(248, 250, 252, 0.78);
-    }
-  }
-
-  &.is-runtime,
-  &.is-assistant {
-    .debug-message-content {
-      background: rgba(255, 255, 255, 0.72);
-    }
-  }
-}
-
-.debug-message-role {
-  padding: 0 4px;
-  color: #475569;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.debug-message-content {
-  width: min(100%, 440px);
-  padding: 12px 14px;
-  border: 1px solid rgba(203, 213, 225, 0.66);
-  border-radius: 14px;
-  color: #1e293b;
-  background: rgba(255, 255, 255, 0.82);
-  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.08);
-  backdrop-filter: blur(12px) saturate(1.12);
-
-  p {
-    margin: 0 0 8px;
-    line-height: 1.6;
-    word-break: break-word;
-  }
-
-  p:last-child {
-    margin-bottom: 0;
-  }
-}
-
-.debug-chat-composer {
-  /* 玻璃材质由 ConversationView :deep(.debug-chat-composer) 提供；此处只保留业务布局 */
-  margin-top: 0;
-  padding: var(--reachai-chat-composer-padding, 12px 16px 14px);
-  border: 0;
-  border-radius: 0;
-
-  :deep(.el-textarea__inner),
-  :deep(.el-input__wrapper) {
-    border-radius: 0;
-    color: var(--reachai-chat-text, #1e293b);
-    background: transparent;
-    box-shadow: none;
-  }
-
-  :deep(.el-textarea__inner) {
-    min-height: 64px !important;
-    padding: 10px 4px;
-    line-height: 1.6;
-  }
-
-  :deep(.el-textarea__inner::placeholder) {
-    color: var(--reachai-chat-text-muted, #64748b);
-    opacity: 1;
-  }
-
-  .debug-actions .el-button--primary {
-    width: 42px;
-    height: 42px;
-    border: 0;
-    background: linear-gradient(
-      135deg,
-      var(--reachai-chat-primary-soft, #818cf8),
-      var(--reachai-chat-primary, #6366f1)
-    );
-    box-shadow: 0 12px 26px rgb(var(--reachai-chat-primary-rgb, 99 102 241) / 0.28);
-  }
-}
-
-.debug-drawer-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  width: 100%;
-  padding-right: 34px;
-
-  strong {
-    color: #0f172a;
-    font-size: 16px;
-    font-weight: 850;
-  }
-}
-
-.debug-section-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 10px;
-
-  strong,
-  span {
-    display: block;
-  }
-
-  strong {
-    color: #0f172a;
-    font-weight: 800;
-  }
-
-  span {
-    margin-top: 3px;
-    color: #64748b;
-    font-size: 12px;
-  }
-}
-
-.debug-field-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.debug-input-card,
-.debug-answer-card {
-  padding: 14px;
-  border: 1px solid rgba(203, 213, 225, 0.72);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.68);
-  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.06);
-  backdrop-filter: blur(14px) saturate(1.12);
-}
-
-.debug-result {
-  min-height: 180px;
-}
-
-.debug-advanced-collapse {
-  margin-top: 14px;
-  border: 1px solid rgba(203, 213, 225, 0.58);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.46);
-  overflow: hidden;
-  backdrop-filter: blur(12px);
-}
-
-.debug-advanced-popover-collapse {
-  max-height: calc(100vh - 150px);
-  margin-top: 0;
-  border: 0;
-  background: transparent;
-  overflow: auto;
-  backdrop-filter: none;
-}
-
-.debug-collapse-title {
-  color: var(--el-text-color-secondary);
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.debug-answer-card {
-  display: grid;
-  align-items: flex-start;
-  gap: 10px;
-  border-left: 4px solid #22c55e;
-
-  &.is-error {
-    border-left-color: #ef4444;
-  }
-
-  &.is-waiting {
-    border-left-color: #f59e0b;
-  }
-
-  span {
-    color: var(--el-text-color-secondary);
-    font-size: 12px;
-  }
-
-  strong {
-    display: block;
-    margin-top: 6px;
-    color: var(--el-text-color-primary);
-    line-height: 1.6;
-    word-break: break-word;
-  }
-}
-
-.workflow-debug-steps {
-  display: grid;
-  align-content: start;
-  grid-auto-rows: max-content;
-  flex: 1;
-  gap: 8px;
-  min-height: 0;
-  padding-right: 2px;
-  overflow: auto;
-}
-
-.workflow-debug-step-card {
-  overflow: hidden;
-  border: 1px solid rgba(203, 213, 225, 0.62);
-  border-left: 3px solid #22c55e;
-  border-radius: 14px;
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.88), rgba(248, 250, 252, 0.66)),
-    rgba(255, 255, 255, 0.76);
-  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.055);
-  backdrop-filter: blur(12px) saturate(1.12);
-  transition: border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
-
-  &:hover {
-    transform: translateY(-1px);
-    border-color: rgba(129, 140, 248, 0.34);
-    box-shadow: 0 14px 32px rgba(15, 23, 42, 0.08);
-  }
-
-  &.selected {
-    border-color: rgba(99, 102, 241, 0.36);
-    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.14), 0 16px 36px rgba(99, 102, 241, 0.1);
-  }
-
-  &.is-error {
-    border-left-color: #ef4444;
-  }
-
-  &.is-waiting {
-    border-left-color: #f59e0b;
-  }
-}
-
-.workflow-debug-step {
-  display: grid;
-  grid-template-columns: 42px minmax(0, 1fr) auto;
-  gap: 7px 8px;
-  align-items: start;
-  width: 100%;
-  padding: 10px 12px;
-  border: 0;
-  background: transparent;
-  color: var(--el-text-color-primary);
-  cursor: pointer;
-  text-align: left;
-}
-
-.workflow-debug-step .step-route {
-  grid-column: 2 / -1;
-}
-
-.workflow-debug-step .step-time {
-  grid-column: 3;
-  grid-row: 1;
-}
-
-.step-marker {
-  display: inline-flex;
-  position: relative;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-}
-
-.step-running-icon {
-  position: absolute;
-  left: -4px;
-  width: 14px;
-  height: 14px;
-  border: 2px solid rgba(99, 102, 241, 0.22);
-  border-top-color: #6366f1;
-  border-radius: 999px;
-  opacity: 0;
-
-  &.active {
-    opacity: 1;
-    animation: debugStepSpin 0.86s linear infinite;
-  }
-}
-
-.step-index {
-  display: grid;
-  width: 26px;
-  height: 26px;
-  place-items: center;
-  border-radius: 50%;
-  background: rgba(241, 245, 249, 0.92);
-  color: #64748b;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.workflow-debug-step-card.is-success .step-index {
-  background: rgba(220, 252, 231, 0.92);
-  color: #15803d;
-}
-
-.workflow-debug-step-card.is-running {
-  border-left-color: #6366f1;
-}
-
-.workflow-debug-step-card.is-running .step-index {
-  background: rgba(224, 231, 255, 0.95);
-  color: #4338ca;
-}
-
-.workflow-debug-step-card.is-waiting .step-index {
-  background: rgba(254, 243, 199, 0.95);
-  color: #b45309;
-}
-
-.workflow-debug-step-card.is-error .step-index {
-  background: rgba(254, 226, 226, 0.95);
-  color: #b91c1c;
-}
-
-.step-main,
-.step-route {
-  min-width: 0;
-
-  strong,
-  em,
-  small {
-    display: block;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  em,
-  small {
-    color: var(--el-text-color-secondary);
-    font-size: 12px;
-    font-style: normal;
-  }
-
-  strong {
-    color: #0f172a;
-    font-size: 13px;
-    line-height: 1.22;
-  }
-}
-
-.step-time {
-  color: var(--el-text-color-secondary);
-  font-size: 12px;
-  line-height: 1.2;
-  text-align: right;
-}
-
-.debug-step-inline {
-  padding: 0 12px 12px 54px;
-  border-top: 1px solid rgba(226, 232, 240, 0.74);
-}
-
-.debug-step-inline pre,
-.debug-console-layout :deep(.el-collapse-item__content) pre {
-  margin: 0;
-  padding: 10px;
-  border-radius: 6px;
-  background: #f4f4f5;
-  color: var(--el-text-color-primary);
-  font-size: 12px;
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-
-.debug-waiting-card {
-  display: grid;
-  gap: 4px;
-  margin-bottom: 8px;
-  padding: 10px;
-  border: 1px solid rgba(245, 158, 11, 0.35);
-  border-radius: 6px;
-  background: rgba(245, 158, 11, 0.08);
-
-  strong {
-    color: #92400e;
-    font-size: 13px;
-  }
-
-  span {
-    color: var(--el-text-color-primary);
-    font-size: 13px;
-  }
-}
-
-.trace-replay-panel {
-  display: grid;
-  gap: 10px;
-  margin-top: 12px;
-  padding: 12px;
-  border: 1px solid var(--el-border-color-light);
-  border-radius: 8px;
-  background: var(--el-fill-color-lighter);
-}
-
-.debug-advanced-collapse .trace-replay-panel {
-  margin-top: 0;
-  margin-bottom: 12px;
-}
-
-.trace-replay-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  gap: 8px;
-  align-items: center;
-}
-
-.debug-production-row {
-  padding: 10px;
-  border: 1px solid var(--el-border-color-light);
-  border-radius: 8px;
-  background: #fff;
-
-  strong,
-  span {
-    display: block;
-  }
-
-  span {
-    margin-top: 4px;
-    color: var(--el-text-color-secondary);
-    font-size: 12px;
-    line-height: 1.5;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .debug-chat-panel.is-running::before,
-  .debug-chat-panel.is-waiting::before {
-    animation: none;
-  }
-}
-
-.trace-toolbar {
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
-  margin-bottom: 12px;
-
-  .el-select {
-    flex: 1;
-  }
-}
-
-.node-run-summary {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-
-.node-run-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  max-width: 220px;
-  padding: 6px 9px;
-  border: 1px solid #bbf7d0;
-  border-radius: 999px;
-  background: #f0fdf4;
-  color: #166534;
-  cursor: pointer;
-  font-size: 12px;
-
-  span,
-  em {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  span {
-    font-weight: 700;
-  }
-
-  em {
-    color: #64748b;
-    font-style: normal;
-  }
-
-  &.error {
-    border-color: #fecaca;
-    background: #fef2f2;
-    color: #991b1b;
-  }
-
-  &.waiting {
-    border-color: #fde68a;
-    background: #fffbeb;
-    color: #92400e;
-  }
-}
-
-.workflow-replay-summary {
-  margin-bottom: 12px;
-}
-
-.trace-detail-section {
-  margin-top: 12px;
-}
-
-.result-section {
-  margin-bottom: 12px;
-
-  pre {
-    background: #f4f4f5;
-    padding: 8px;
-    border-radius: 4px;
-    font-size: 12px;
-    white-space: pre-wrap;
-    word-break: break-all;
-  }
-}
-
-.runtime-insights {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  margin-top: 8px;
-}
-
-.runtime-insight {
-  padding: 10px;
-  border: 1px solid var(--el-border-color-light);
-  border-radius: 8px;
-  background: var(--el-fill-color-lighter);
-
-  span {
-    display: block;
-    color: var(--el-text-color-secondary);
-    font-size: 12px;
-    margin-bottom: 4px;
-  }
-
-  strong {
-    color: var(--el-text-color-primary);
-    word-break: break-word;
-  }
-}
-
-.debug-advanced-trigger {
-  border-color: rgba(129, 140, 248, 0.22);
-  color: #4338ca;
-  background: rgba(255, 255, 255, 0.58);
-  box-shadow: 0 10px 24px rgba(79, 70, 229, 0.08);
-  backdrop-filter: blur(12px) saturate(1.12);
-}
-
-:global(.debug-advanced-popover) {
-  max-width: min(560px, calc(100vw - 40px));
-  border: 1px solid rgba(203, 213, 225, 0.64) !important;
-  border-radius: 16px !important;
-  background:
-    radial-gradient(circle at 10% 0%, rgba(129, 140, 248, 0.12), transparent 34%),
-    linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(248, 250, 252, 0.8)) !important;
-  box-shadow: 0 24px 62px rgba(15, 23, 42, 0.16) !important;
-  backdrop-filter: blur(18px) saturate(1.16);
-}
-
 :global(.vue-flow__edge.edge-route-hit .vue-flow__edge-path) {
   stroke: #16a34a;
   stroke-width: 3;
@@ -7842,12 +6311,6 @@ function formatDebugResult(value: unknown) {
 :global(.vue-flow__edge.edge-route-hit .vue-flow__edge-text) {
   fill: #166534;
   font-weight: 700;
-}
-
-@keyframes debugStepSpin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 @keyframes debugAuraSpin {

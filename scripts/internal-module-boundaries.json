@@ -1,0 +1,112 @@
+{
+  "schema": "reachai.internal-module-boundaries.v1",
+  "services": [
+    {
+      "name": "control",
+      "root": "reachai-control-service/src/main/java",
+      "packagePrefix": "com.enterprise.ai.control",
+      "packageAliases": [],
+      "ignoredImportPrefixes": [],
+      "modules": [
+        "(root)",
+        "a2a",
+        "aicoding",
+        "agentskill",
+        "aiassist",
+        "automation",
+        "client",
+        "compat",
+        "config",
+        "context",
+        "governance",
+        "identity",
+        "internal",
+        "internalauth",
+        "knowledge",
+        "managed",
+        "market",
+        "pageworkbench",
+        "platform",
+        "runops",
+        "runtime",
+        "skillmarket"
+      ],
+      "allowedReciprocalPairs": [],
+      "forbiddenEdges": [
+        "client->aiassist",
+        "client->context",
+        "client->runtime",
+        "managed->aicoding",
+        "pageworkbench->client",
+        "pageworkbench->platform"
+      ],
+      "allowedCrossModulePersistenceImports": [
+        "reachai-control-service/src/main/java/com/enterprise/ai/control/runops/TraceWorkflowCandidateApplicationService.java|com.enterprise.ai.control.aicoding.persistence.AiCodingTaskEntity",
+        "reachai-control-service/src/main/java/com/enterprise/ai/control/runops/TraceWorkflowCandidateApplicationService.java|com.enterprise.ai.control.aicoding.persistence.AiCodingTaskMapper",
+        "reachai-control-service/src/main/java/com/enterprise/ai/control/runops/TraceWorkflowCandidateApplicationService.java|com.enterprise.ai.control.aicoding.persistence.AiCodingTaskTargetEntity",
+        "reachai-control-service/src/main/java/com/enterprise/ai/control/runops/TraceWorkflowCandidateApplicationService.java|com.enterprise.ai.control.aicoding.persistence.AiCodingTaskTargetMapper"
+      ]
+    },
+    {
+      "name": "runtime",
+      "root": "reachai-runtime-service/src/main/java",
+      "packagePrefix": "com.enterprise.ai.runtime",
+      "packageAliases": [
+        {
+          "prefix": "com.enterprise.ai.agent.graph",
+          "module": "graph"
+        }
+      ],
+      "ignoredImportPrefixes": [
+        "com.enterprise.ai.runtime.contract"
+      ],
+      "modules": [
+        "(root)",
+        "a2a",
+        "agent",
+        "agentscope",
+        "api",
+        "automation",
+        "chat",
+        "client",
+        "compat",
+        "credential",
+        "debug",
+        "eval",
+        "execution",
+        "graph",
+        "interaction",
+        "internal",
+        "internalauth",
+        "managed",
+        "memory",
+        "registry",
+        "route",
+        "runops",
+        "supervisor",
+        "trace",
+        "workflow"
+      ],
+      "allowedReciprocalPairs": [
+        "a2a|agent",
+        "agent|workflow",
+        "client|execution",
+        "credential|execution",
+        "eval|execution",
+        "eval|workflow",
+        "memory|supervisor",
+        "runops|trace",
+        "runops|workflow"
+      ],
+      "forbiddenEdges": [
+        "a2a->supervisor",
+        "execution->memory",
+        "execution->runops",
+        "execution->supervisor",
+        "execution->workflow",
+        "workflow->supervisor"
+      ],
+      "allowedCrossModulePersistenceImports": []
+    }
+  ]
+}

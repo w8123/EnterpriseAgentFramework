@@ -2,7 +2,10 @@ package com.enterprise.ai.runtime.execution;
 
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.enterprise.ai.runtime.client.capability.RuntimeCapabilityCatalogClient;
+import com.enterprise.ai.runtime.execution.checkpoint.WorkflowCheckpointCodec;
+import com.enterprise.ai.runtime.execution.checkpoint.WorkflowCheckpointException;
 import com.enterprise.ai.runtime.execution.interaction.WorkflowInteractionCodes;
+import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -139,8 +142,18 @@ public class RuntimeInteractionResumeService {
                     "Interaction GraphSpec snapshot is missing: " + session.getId(), session.getId());
         }
 
-        Map<String, Object> resumeCheckpoint = new LinkedHashMap<>(
-                sessionService.readMap(session.getResumeCheckpointJson()));
+        WorkflowCheckpointCodec.DecodedCheckpoint decodedCheckpoint;
+        Map<String, Object> resumeCheckpoint;
+        try {
+            decodedCheckpoint = sessionService.decodeCheckpoint(session, graphSpecJson);
+            resumeCheckpoint = new LinkedHashMap<>(decodedCheckpoint.state());
+        } catch (WorkflowCheckpointException checkpointFailure) {
+            markStatus(session, FAILED, submittedPayload, Map.of(
+                    "code", checkpointFailure.code()), idempotencyKey);
+            sessionService.writeEvent(session.getId(), "CHECKPOINT_REJECTED", Map.of(
+                    "code", checkpointFailure.code()), operatorId);
+            return failure(checkpointFailure.code(), checkpointFailure.getMessage(), session.getId());
+        }
         resumeCheckpoint.putAll(safeMap(request == null ? null : request.get("context")));
         resumeCheckpoint.put("runId", firstText(session.getRunId(), text(resumeCheckpoint.get("runId"))));
         resumeCheckpoint.put("traceId", firstText(session.getTraceId(), text(resumeCheckpoint.get("traceId"))));
@@ -159,8 +172,17 @@ public class RuntimeInteractionResumeService {
         // Never leave global submittedPayload for the next INTERACTION.
         resumeCheckpoint.remove("submittedPayload");
 
-        RuntimeGraphSpecExecutionResult result =
-                graphSpecExecutor.executeFromNode(graphSpecJson, resumeCheckpoint, session.getNodeId());
+        WorkflowExecutionIdentity executionIdentity = requiresOwnership(session)
+                ? WorkflowExecutionIdentity.fromAgent(
+                        session.getTenantId(), null, session.getAppId(), session.getUserId())
+                : WorkflowExecutionIdentity.untrustedComposition();
+        RuntimeGraphSpecExecutionResult result = graphSpecExecutor.executeFromCheckpoint(
+                graphSpecJson,
+                resumeCheckpoint,
+                session.getNodeId(),
+                decodedCheckpoint.schemaVersion(),
+                decodedCheckpoint.engineVersion(),
+                executionIdentity);
         Map<String, Object> nextResumeCheckpoint = result.resumeCheckpoint() == null || result.resumeCheckpoint().isEmpty()
                 ? resumeCheckpoint
                 : new LinkedHashMap<>(result.resumeCheckpoint());
@@ -174,7 +196,7 @@ public class RuntimeInteractionResumeService {
                     && session.getNodeId().equals(result.nodeId());
             if (sameInteraction) {
                 // 校验失败：回滚 WAITING_USER，不消费幂等键，不新建 session
-                rollbackToWaiting(session, nextResumeCheckpoint, uiRequest, operatorId);
+                rollbackToWaiting(session, nextResumeCheckpoint, uiRequest, operatorId, graphSpecJson);
                 Map<String, Object> body = successBody(result, session, WAITING_USER, uiRequest);
                 body.put("success", false);
                 body.put("validationFailed", true);
@@ -183,14 +205,12 @@ public class RuntimeInteractionResumeService {
 
             String nextInteractionId = firstText(result.interactionId(),
                     WorkflowInteractionCodes.ID_PREFIX + java.util.UUID.randomUUID().toString().replace("-", ""));
-            markStatus(session, COMPLETED, submittedPayload, Map.of(
-                    "nextInteractionId", nextInteractionId,
-                    "code", result.code()), idempotencyKey);
-            sessionService.writeEvent(session.getId(), "RESUMED", Map.of("next", "WAITING_USER"), operatorId);
-            sessionService.writeEvent(session.getId(), COMPLETED, Map.of("nextInteractionId", nextInteractionId),
-                    operatorId);
-
-            RuntimeInteractionSessionEntity next = sessionService.createWaitingSession(
+            RuntimeInteractionSessionEntity next = sessionService.completeAndCreateNext(
+                    session,
+                    submittedPayload,
+                    Map.of("nextInteractionId", nextInteractionId, "code", result.code()),
+                    idempotencyKey,
+                    operatorId,
                     new RuntimeWorkflowInteractionSessionService.CreateRequest(
                             nextInteractionId,
                             session.getSourceType(),
@@ -299,14 +319,21 @@ public class RuntimeInteractionResumeService {
     private void rollbackToWaiting(RuntimeInteractionSessionEntity session,
                                    Map<String, Object> resumeCheckpoint,
                                    Object uiRequest,
-                                   String operatorId) {
+                                   String operatorId,
+                                   String graphSpecJson) {
+        WorkflowCheckpointCodec.EncodedCheckpoint encoded = sessionService.encodeCheckpoint(
+                resumeCheckpoint, graphSpecJson, session.getNodeId());
         UpdateWrapper<RuntimeInteractionSessionEntity> update = new UpdateWrapper<>();
         update.eq("id", session.getId())
                 .eq("status", RESUMING)
                 .set("status", WAITING_USER)
                 .set("revision", (session.getRevision() == null ? 0 : session.getRevision()) + 1)
                 .set("idempotency_key", null)
-                .set("resume_checkpoint_json", sessionService.writeJson(resumeCheckpoint))
+                .set("resume_checkpoint_json", encoded.json())
+                .set("checkpoint_schema_version", encoded.schemaVersion())
+                .set("execution_engine_version", encoded.engineVersion())
+                .set("checkpoint_digest", encoded.digest())
+                .set("checkpoint_size_bytes", encoded.sizeBytes())
                 .set("ui_request_json", sessionService.writeJson(uiRequest))
                 .set("update_time", LocalDateTime.now());
         sessionMapper.update(null, update);

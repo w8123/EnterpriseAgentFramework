@@ -1,5 +1,7 @@
 # 班组系统接入 ReachAI SDK 实施步骤
 
+> 文档状态：当前 ReachAI 源码契约已校准；QMSSMP 目标环境编译、部署与业务 E2E 待重新验证（2026-08-24）。本文是项目接入样例，不是对当前部署状态的证明。
+
 本文只记录班组业务系统接入 ReachAI 的标准实施步骤，用于下一次接入、复盘当前接入完整性，以及识别还需要产品化补齐的部分。本文不记录本次接入过程中的临时问题、踩坑和回退过程。
 
 ## 1. 接入目标
@@ -11,16 +13,16 @@
 3. 班组后端把可被 Agent 调用的业务接口注册为能力。
 4. 班组前端页面可以嵌入 ReachAI 对话框。
 5. 用户在班组档案页面输入自然语言后，Agent 可以触发页面动作，自动填充查询条件并执行查询。
-6. embed token 由 `qmssmp-gateway` 统一签发、缓存和代理，不放在单个业务微服务里。
+6. embed token 由 ReachAI Control 签发；`qmssmp-gateway` 统一代理换取并按业务身份隔离缓存，不把项目密钥放在浏览器或单个页面实现里。
 
 ## 2. 涉及系统和职责
 
-| 系统 | 路径 | 职责 |
+| 系统 | 仓库或模块 | 职责 |
 | --- | --- | --- |
-| ReachAI 中台 | `D:\work\EnterpriseAgentFramework` | 提供注册中心、能力资产、Agent Runtime、嵌入式对话、embed token exchange、Page Action 协议 |
-| 班组后端服务 | `D:\work\qmssmp\qmssmp-teams-construction-service` | 引入 ReachAI SDK，注册项目、实例、能力，提供班组档案查询接口 |
-| 业务网关 | `D:\work\qmssmp\qmssmp-gateway` | 统一处理业务登录态、微服务路由、ReachAI embed token broker/cache |
-| 班组前端 | `D:\work\qmssmp\qmssmp-ui` | 嵌入对话框，申请 embed token，调用 ReachAI Chat API，执行页面动作 |
+| ReachAI 中台 | `EnterpriseAgentFramework` | 提供注册入口、能力资产、Agent Runtime、嵌入式对话、embed token exchange、Page Action 协议 |
+| 班组后端服务 | `qmssmp-teams-construction-service` | 引入 ReachAI SDK，注册项目与实例、声明能力，提供班组档案查询接口 |
+| 业务网关 | `qmssmp-gateway` | 统一处理业务登录态、微服务路由、ReachAI embed token broker/cache |
+| 班组前端 | `qmssmp-ui` | 嵌入对话框，申请 embed token，调用 ReachAI Chat API，执行页面动作 |
 
 ## 3. 前置条件
 
@@ -34,13 +36,15 @@ http://localhost:18603
 ```
 
 3. 确认 ReachAI 数据库已经执行最新 `sql/initV2.sql` 或对应升级脚本。
-4. 在 ReachAI 中台中准备班组项目凭证：
+4. 由具有 `platform:admin` 权限的平台用户为班组项目签发一次性 Enrollment Token：
 
 ```text
 projectCode: qmssmp-teams-construction-service
-appKey: qmssmp-teams-construction-service
-appSecret: 按环境配置，不应在生产写死为 change-me
+POST /api/platform/registry-enrollments
+token: 只显示一次，72 小时内由 Starter 首次注册时消费
 ```
+
+首次注册成功后，Starter 会把平台生成的长期 `appKey/appSecret` 原子写入受限 credential store，并从内存清除 Enrollment Token。Enrollment Token 和长期密钥都不得写入本文、Git、构建日志或浏览器配置。
 
 5. 在 Workflow Studio 中准备班组档案助手：
 
@@ -78,10 +82,10 @@ mvn -pl reachai-spring-boot2-starter -am install -DskipTests
 
 在声明 Controller、DTO 或业务能力的模块中加入 `reachai-capability-sdk`。
 
-班组系统当前放在：
+班组系统当前在 `qmssmp-teams-construction-service` 仓库的：
 
 ```text
-D:\work\qmssmp\qmssmp-teams-construction-service\depart-construction-api\pom.xml
+depart-construction-api/pom.xml
 ```
 
 配置示例：
@@ -98,10 +102,10 @@ D:\work\qmssmp\qmssmp-teams-construction-service\depart-construction-api\pom.xml
 
 在启动模块加入 `reachai-spring-boot2-starter`。
 
-班组系统当前放在：
+班组系统当前在 `qmssmp-teams-construction-service` 仓库的：
 
 ```text
-D:\work\qmssmp\qmssmp-teams-construction-service\depart-construction-web\pom.xml
+depart-construction-web/pom.xml
 ```
 
 配置示例：
@@ -118,10 +122,10 @@ D:\work\qmssmp\qmssmp-teams-construction-service\depart-construction-web\pom.xml
 
 在班组服务启动配置中增加 `reachai` 配置。
 
-班组系统当前配置文件：
+班组系统当前配置文件（相对 `qmssmp-teams-construction-service` 仓库）：
 
 ```text
-D:\work\qmssmp\qmssmp-teams-construction-service\depart-construction-web\src\main\resources\application.yml
+depart-construction-web/src/main/resources/application.yml
 ```
 
 配置示例：
@@ -133,8 +137,8 @@ reachai:
   registry:
     enabled: ${REACHAI_REGISTRY_ENABLED:true}
     url: ${REACHAI_REGISTRY_URL:http://localhost:18603}
-    app-key: ${REACHAI_REGISTRY_APP_KEY:qmssmp-teams-construction-service}
-    app-secret: ${REACHAI_REGISTRY_APP_SECRET:change-me}
+    enrollment-token: ${REACHAI_REGISTRY_ENROLLMENT_TOKEN:}
+    credential-store-path: ${REACHAI_REGISTRY_CREDENTIAL_STORE_PATH:}
     heartbeat-interval-ms: ${REACHAI_REGISTRY_HEARTBEAT_INTERVAL_MS:180000}
   project:
     code: qmssmp-teams-construction-service
@@ -152,17 +156,17 @@ reachai:
     allowed-agent-ids:
       - team-archive-assistant
     token-ttl-seconds: ${REACHAI_EMBED_TOKEN_TTL_SECONDS:1800}
-  agent-graph:
-    sync-on-startup: true
 ```
+
+首次注册时临时注入 `REACHAI_REGISTRY_ENROLLMENT_TOKEN`；成功后应从部署配置中删除它。未指定 `credential-store-path` 时，Starter 使用进程用户目录下的默认受限文件。生产环境应改接受管密钥路径，并把该文件排除在应用包、Git、日志和普通备份之外。已有项目也可显式注入完整的 `app-key/app-secret` 兼容旧部署，但两者必须成对提供且不得设置弱默认值。
 
 关键含义：
 
 | 配置 | 含义 |
 | --- | --- |
 | `reachai.registry.url` | ReachAI 中台地址 |
-| `reachai.registry.app-key` | 业务系统访问 ReachAI 的应用 key |
-| `reachai.registry.app-secret` | 业务系统访问 ReachAI 的应用密钥 |
+| `reachai.registry.enrollment-token` | 首次注册使用的一次性凭据；成功消费后不落盘且应从部署配置删除 |
+| `reachai.registry.credential-store-path` | 长期项目凭据的受限存储位置；为空时使用 Starter 默认路径 |
 | `reachai.project.code` | 中台识别业务系统的稳定项目编码 |
 | `reachai.project.base-url` | ReachAI 服务端调用业务能力和手动 SDK 同步回调时使用的基础地址；必须从 ReachAI 所在网络可达 |
 | `reachai.business-memory.tenant-id` | 单租户 QMSSMP 部署的权威 ReachAI tenant 绑定；启用业务记忆 resolver 前必须显式配置，签名 tenant 不一致或为空时在业务查询前失败。多租户业务系统不能复用该单值配置，必须从权威业务行读取 tenant。 |
@@ -173,10 +177,10 @@ reachai:
 
 在希望暴露给 Agent 的 Controller 或 Service 方法上增加 `@ReachCapability`。
 
-班组档案查询当前能力声明位置：
+班组档案查询当前能力声明位置（相对 `qmssmp-teams-construction-service` 仓库）：
 
 ```text
-D:\work\qmssmp\qmssmp-teams-construction-service\depart-construction-api\src\main\java\com\qtsk\qmssmp\controller\TeamInfoController.java
+depart-construction-api/src/main/java/com/qtsk/qmssmp/controller/TeamInfoController.java
 ```
 
 示例：
@@ -240,10 +244,10 @@ qmssmp-ui -> qmssmp-gateway -> ReachAI /api/embed/token/exchange
 
 ### 5.2 增加网关配置
 
-网关配置文件：
+网关配置文件（相对 `qmssmp-gateway` 仓库）：
 
 ```text
-D:\work\qmssmp\qmssmp-gateway\qmssmp-gateway\src\main\resources\application.yml
+qmssmp-gateway/src/main/resources/application.yml
 ```
 
 配置示例：
@@ -259,11 +263,11 @@ reachai:
   projects:
     - code: qmssmp-teams-construction-service
       name: 班组建设服务
-      app-key: ${REACHAI_TEAMS_APP_KEY:qmssmp-teams-construction-service}
-      app-secret: ${REACHAI_TEAMS_APP_SECRET:change-me}
+      app-key: ${REACHAI_TEAMS_APP_KEY}
+      app-secret: ${REACHAI_TEAMS_APP_SECRET}
 ```
 
-生产环境必须通过环境变量或配置中心注入 `app-secret`。
+网关必须通过密钥中心、受限挂载或运行时环境变量注入 Starter 首次注册后生成的同一对项目凭据；不得设置示例默认值。`app-secret` 不进入 Git、前端包、日志或普通配置导出。多实例部署时应由统一密钥源分发，不要依赖某一实例的本地 credential store。
 
 ### 5.3 提供 embed token 接口
 
@@ -317,10 +321,10 @@ ReachAI token exchange 成功响应是统一 `ApiResult`，不是顶层 token：
 
 ### 6.1 增加 ReachAI 前端配置
 
-前端配置文件：
+前端配置文件（相对 `qmssmp-ui` 仓库）：
 
 ```text
-D:\work\qmssmp\qmssmp-ui\src\environments\environment-config.ts
+src/environments/environment-config.ts
 ```
 
 配置示例：
@@ -353,10 +357,10 @@ SDK 接入项目的前端配置不再包含 `pageRegistry.appSecret`。项目级
 
 ### 6.2 嵌入对话框组件
 
-班组档案页面当前组件位置：
+班组档案页面当前组件位置（相对 `qmssmp-ui` 仓库）：
 
 ```text
-D:\work\qmssmp\qmssmp-ui\src\app\pages\team-build\depart-management\partial\reach-ai-chat
+src/app/pages/team-build/depart-management/partial/reach-ai-chat
 ```
 
 当前班组前端如果仍维护自定义 Angular 嵌入协议，应尽快改为官方 `@reachai/embed-chat` 薄封装（`createEafPageBridge` / `createEafChat`），并在 `ngOnDestroy` 中调用 `chat.destroy()`。页面 handler 与验收流程可保持不变。
@@ -448,10 +452,10 @@ const chat = await createEafChat({
 
 ### 6.3 在页面中挂载组件
 
-班组档案列表页面：
+班组档案列表页面（相对 `qmssmp-ui` 仓库）：
 
 ```text
-D:\work\qmssmp\qmssmp-ui\src\app\pages\team-build\depart-management\partial\list\list.component.html
+src/app/pages/team-build/depart-management/partial/list/list.component.html
 ```
 
 挂载方式：
@@ -623,31 +627,27 @@ http://localhost:9200/team-build/depart-management
 
 ### 9.1 编译验证
 
-ReachAI SDK：
+在 ReachAI 仓库根目录验证 SDK：
 
 ```powershell
-cd D:\work\EnterpriseAgentFramework
 mvn -pl reachai-spring-boot2-starter -am test
 ```
 
-班组后端：
+在 `qmssmp-teams-construction-service` 仓库根目录验证班组后端：
 
 ```powershell
-cd D:\work\qmssmp\qmssmp-teams-construction-service
 mvn -pl depart-construction-web -am -DskipTests compile
 ```
 
-网关：
+在 `qmssmp-gateway` 仓库根目录验证网关：
 
 ```powershell
-cd D:\work\qmssmp\qmssmp-gateway
 mvn -pl qmssmp-gateway -am -DskipTests compile
 ```
 
-班组前端：
+在 `qmssmp-ui` 仓库根目录验证班组前端：
 
 ```powershell
-cd D:\work\qmssmp\qmssmp-ui
 npm run build
 ```
 
@@ -733,7 +733,7 @@ GET http://localhost:8080/api/v1/reachai/embed-token
 1. 班组前端必须能使用有效业务账号登录，进入 `/team-build/depart-management`。
 2. `environment-config.ts` 中 `reachAi.apiBase` 必须指向当前版本 ReachAI 后端；如果本地旧服务占用 `18603`，应改用临时端口或重启当前代码到 `18603` 后再验收。
 3. `qmssmp-gateway` 的 `reachai.registry.url` 必须指向同一个 ReachAI 后端，避免页面动作目录上报到 A 服务、embed token 换到 B 服务。
-4. 页面动作调试时，业务页面、ReachAI 管理端和网关应处在同一套项目凭证 `projectCode/appKey/appSecret` 下。
+4. 页面动作调试时，业务后端与网关必须使用同一套 `projectCode/appKey/appSecret`；ReachAI 管理端应操作对应项目，浏览器只持有 `projectCode` 和短期 embed token。
 
 ## 10. 当前接入还需要补齐的内容
 
@@ -770,13 +770,13 @@ GET http://localhost:8080/api/v1/reachai/embed-token
 
 ## 11. 下一次接入其他业务系统的最小步骤
 
-1. 在 ReachAI 中台创建项目，拿到 `projectCode/appKey/appSecret`。
+1. 平台管理员为稳定 `projectCode` 签发一次性 Enrollment Token；Starter 首次注册消费它并把生成的项目凭据写入受限 credential store。
 2. 在业务后端启动模块引入 `reachai-spring-boot2-starter`。
 3. 在能力声明模块引入 `reachai-capability-sdk`。
 4. 在业务后端配置 `reachai.registry`、`reachai.project`、`reachai.capability`、`reachai.embed`。
 5. 将 `reachai.project.base-url` 配成 ReachAI 服务端可达地址；如经过网关，路由 `/reachai/registry/**` 并对 `POST /reachai/registry/capabilities/sync` 绕过业务登录/JWT 与 CSRF，同时保留 Starter 签名校验。
 6. 给目标业务接口增加 `@ReachCapability` 和必要的参数语义。
-7. 在业务网关增加该项目的 `reachai.projects` 配置。
+7. 通过密钥中心或受限运行时注入，把 Starter 获得的同一对项目凭据提供给业务网关，再增加该项目的 `reachai.projects` 配置；不要复制到文档、Git 或浏览器。
 8. 在“项目接入工作台”调用 `agentProvisioning.provisionAgentUrl`，创建或复用项目页面副驾驶 Agent，并确认返回 `supervisorConfig.status=ACTIVE`；该步骤不创建占位 Workflow。
 9. 在业务前端配置 `reachAi.projectCode`、返回的 `agent.keySlug`、`reachAi.tokenPath`、`reachAi.apiBase`，不配置项目级 `appSecret`。
 10. 在目标页面挂载嵌入式对话组件。

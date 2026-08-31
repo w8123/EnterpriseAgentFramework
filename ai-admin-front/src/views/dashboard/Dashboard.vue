@@ -1,928 +1,560 @@
 <template>
-  <WorkbenchPage class="dashboard">
-    <PageHeader
-      variant="overview"
-      domain="platform"
-      eyebrow="Workspace Overview"
-      title="概览"
-      description="集中查看平台资产、服务健康度、运行动态与待处理事项。"
-    >
-      <template #actions>
-        <el-tooltip content="刷新概览" placement="top">
-          <el-button
-            circle
-            :icon="Refresh"
-            :loading="loading"
-            aria-label="刷新概览"
+  <WorkbenchPage class="dashboard-page" density="compact">
+    <div ref="dashboardRoot" class="ops-dashboard" :class="{ 'is-fullscreen': isFullscreen }">
+      <header class="ops-topbar">
+        <div class="ops-heading">
+          <h1>智能体运营中心</h1>
+          <p>平台级 AI 运营态势与业务价值总览</p>
+        </div>
+
+        <div class="ops-topbar__controls">
+          <button type="button" class="ops-filter-button" title="当前数据范围为全部可见项目">
+            <span>全部可见项目</span><i aria-hidden="true">⌄</i>
+          </button>
+          <span class="ops-date-chip"><i aria-hidden="true" />{{ currentDateLabel }}</span>
+          <div class="ops-range" aria-label="统计时间范围">
+            <button
+              type="button"
+              :class="{ 'is-active': rangeDays === 1 }"
+              @click="selectRange(1)"
+            >近 24 小时</button>
+            <button
+              type="button"
+              :class="{ 'is-active': rangeDays === 7 }"
+              @click="selectRange(7)"
+            >近 7 天</button>
+          </div>
+          <span class="ops-refresh-status" :class="{ 'is-paused': !pageVisible }">
+            <i aria-hidden="true" />
+            {{ pageVisible ? '自动刷新 · 每 30 秒' : '页面不可见 · 已暂停' }}
+          </span>
+          <button
+            type="button"
+            class="ops-icon-btn"
+            :class="{ 'is-loading': refreshing }"
+            :disabled="refreshing"
+            aria-label="刷新运营数据"
+            title="刷新运营数据"
             @click="refresh"
-          />
-        </el-tooltip>
-      </template>
-    </PageHeader>
+          >↻</button>
+          <span class="ops-last-updated">{{ lastUpdatedLabel }}</span>
+          <button
+            v-if="!editor.editing.value && !layoutNarrow"
+            type="button"
+            class="ops-action-btn"
+            data-testid="edit-layout"
+            @click="editor.beginEdit()"
+          ><span aria-hidden="true">✎</span> 编辑布局</button>
+          <span
+            v-else-if="!editor.editing.value"
+            class="ops-editing-badge"
+            data-testid="narrow-edit-disabled"
+          >内容区小于 1000px，布局编辑不可用</span>
+          <span v-else class="ops-editing-badge"><i aria-hidden="true" />布局编辑中</span>
+          <button
+            type="button"
+            class="ops-action-btn is-primary"
+            data-testid="toggle-fullscreen"
+            @click="toggleFullscreen"
+          ><span aria-hidden="true">⇱</span> {{ isFullscreen ? '退出大屏' : '进入大屏' }}</button>
+        </div>
+      </header>
 
-    <!-- 统计卡片 -->
-    <div class="stat-grid">
-      <div
-        v-for="(card, i) in statCards"
-        :key="card.label"
-        class="stat-card glass-card fade-in-up"
-        :style="{ animationDelay: `${i * 0.08}s` }"
-      >
-        <div class="stat-icon" :style="{ background: card.gradient }">
-          <el-icon :size="24"><component :is="card.icon" /></el-icon>
+      <div class="ops-content">
+        <div v-if="dataWarning" class="ops-data-warning" role="status">
+          <i aria-hidden="true" />
+          <span>{{ dataWarning }}</span>
         </div>
-        <div class="stat-info">
-          <div class="stat-value">{{ card.value }}</div>
-          <div class="stat-label">{{ card.label }}</div>
-        </div>
-        <div class="stat-trend" :class="card.trendDir">
-          <span v-if="card.trend" class="trend-arrow">{{ card.trendDir === 'up' ? 'up' : card.trendDir === 'down' ? 'down' : 'flat' }}</span>
-          <span v-if="card.trend" class="trend-value">{{ card.trend }}</span>
-        </div>
-        <div class="stat-sparkline">
-          <svg viewBox="0 0 80 30" preserveAspectRatio="none" class="sparkline-svg">
-            <defs>
-              <linearGradient :id="`grad-${i}`" x1="0%" y1="0%" x2="0%" y2="100%">
-                <stop offset="0%" :stop-color="card.color" stop-opacity="0.3" />
-                <stop offset="100%" :stop-color="card.color" stop-opacity="0" />
-              </linearGradient>
-            </defs>
-            <path :d="card.areaPath" :fill="`url(#grad-${i})`" />
-            <path :d="card.linePath" fill="none" :stroke="card.color" stroke-width="1.5" stroke-linecap="round" />
-          </svg>
-        </div>
-      </div>
-    </div>
 
-    <div class="dashboard-grid">
-      <!-- 服务拓扑 -->
-      <div class="topology-section glass-card fade-in-up stagger-5">
-        <h3 class="section-title">
-          <el-icon><Connection /></el-icon>
-          服务拓扑
-        </h3>
-        <div class="topology">
-          <div class="topo-row">
-            <div class="topo-node" :class="serviceHealth['reachai-control-service']">
-              <div class="topo-node-icon agent-bg">
-                <el-icon :size="20"><Cpu /></el-icon>
-              </div>
-              <span class="topo-node-name">Platform Control</span>
-              <span class="topo-node-status">
-                <span class="status-dot" :class="serviceHealth['reachai-control-service'] || 'offline'" />
-                {{ serviceHealth['reachai-control-service'] === 'online' ? '正常' : '异常' }}
-              </span>
-            </div>
-          </div>
-          <div class="topo-connector">
-            <div class="connector-line" :class="{ active: serviceHealth['reachai-control-service'] === 'online' }" />
-            <div class="connector-dot" />
-          </div>
-          <div class="topo-row topo-row-split">
-            <div class="topo-node" :class="serviceHealth['reachai-runtime-service']">
-              <div class="topo-node-icon runtime-bg">
-                <el-icon :size="20"><Cpu /></el-icon>
-              </div>
-              <span class="topo-node-name">Runtime Host</span>
-              <span class="topo-node-status">
-                <span class="status-dot" :class="serviceHealth['reachai-runtime-service'] || 'offline'" />
-                {{ serviceHealth['reachai-runtime-service'] === 'online' ? '正常' : '异常' }}
-              </span>
-            </div>
-            <div class="topo-node" :class="serviceHealth['reachai-capability-service']">
-              <div class="topo-node-icon capability-bg">
-                <el-icon :size="20"><SetUp /></el-icon>
-              </div>
-              <span class="topo-node-name">Capability Catalog</span>
-              <span class="topo-node-status">
-                <span class="status-dot" :class="serviceHealth['reachai-capability-service'] || 'offline'" />
-                {{ serviceHealth['reachai-capability-service'] === 'online' ? '正常' : '异常' }}
-              </span>
-            </div>
-          </div>
-          <div class="topo-connector">
-            <div
-              class="connector-line"
-              :class="{
-                active:
-                  serviceHealth['reachai-runtime-service'] === 'online' ||
-                  serviceHealth['reachai-capability-service'] === 'online',
-              }"
-            />
-            <div class="connector-dot" />
-          </div>
-          <div class="topo-row topo-row-split">
-            <div class="topo-node" :class="serviceHealth['reachai-knowledge-service']">
-              <div class="topo-node-icon knowledge-bg">
-                <el-icon :size="20"><SetUp /></el-icon>
-              </div>
-              <span class="topo-node-name">Knowledge / Retrieval</span>
-              <span class="topo-node-status">
-                <span class="status-dot" :class="serviceHealth['reachai-knowledge-service'] || 'offline'" />
-                {{ serviceHealth['reachai-knowledge-service'] === 'online' ? '正常' : '异常' }}
-              </span>
-            </div>
-            <div class="topo-node" :class="serviceHealth['reachai-model-service']">
-              <div class="topo-node-icon model-bg">
-                <el-icon :size="20"><Coin /></el-icon>
-              </div>
-              <span class="topo-node-name">Model Gateway</span>
-              <span class="topo-node-status">
-                <span class="status-dot" :class="serviceHealth['reachai-model-service'] || 'offline'" />
-                {{ serviceHealth['reachai-model-service'] === 'online' ? '正常' : '异常' }}
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 活动时间线 -->
-      <div class="timeline-section glass-card fade-in-up stagger-6">
-        <h3 class="section-title">
-          <el-icon><Clock /></el-icon>
-          最近活动
-        </h3>
-        <div class="activity-timeline">
-          <div
-            v-for="(event, i) in activityEvents"
-            :key="i"
-            class="timeline-item"
-            :style="{ animationDelay: `${(i + 6) * 0.06}s` }"
-          >
-            <div class="timeline-dot" :class="event.type" />
-            <div class="timeline-content">
-              <div class="timeline-text">{{ event.text }}</div>
-              <div class="timeline-time">{{ event.time }}</div>
-            </div>
-          </div>
-          <div v-if="activityEvents.length === 0" class="timeline-empty">
-            <el-empty description="No recent activity" :image-size="48" />
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- 最近 Agent / 知识库 -->
-    <div class="preview-grid">
-      <div class="preview-section glass-card fade-in-up stagger-7">
-        <div class="section-header">
-          <h3 class="section-title">
-            <el-icon><Cpu /></el-icon>
-            最近 Agent
-          </h3>
-          <el-button text type="primary" size="small" @click="$router.push('/agent')">查看全部</el-button>
-        </div>
-        <div class="preview-cards">
-          <div
-            v-for="agent in recentAgents"
-            :key="agent.id"
-            class="preview-card"
-            @click="$router.push(`/agent/${agent.id}/edit`)"
-          >
-            <div class="preview-card-icon agent-bg">
-              <el-icon :size="16"><Cpu /></el-icon>
-            </div>
-            <div class="preview-card-info">
-              <div class="preview-card-name">{{ agent.name }}</div>
-              <div class="preview-card-meta">{{ agent.keySlug || agent.id || '-' }}</div>
-            </div>
-            <el-tag
-              :type="agent.enabled ? 'success' : 'info'"
-              size="small"
-              effect="dark"
-            >{{ agent.enabled !== false ? '启用' : '停用' }}</el-tag>
-          </div>
-          <div v-if="recentAgents.length === 0" class="preview-empty">
-            暂无 Agent
-          </div>
-        </div>
-      </div>
-
-      <div class="preview-section glass-card fade-in-up stagger-8">
-        <div class="section-header">
-          <h3 class="section-title">
-            <el-icon><Collection /></el-icon>
-            最近知识库
-          </h3>
-          <el-button text type="primary" size="small" @click="$router.push('/knowledge')">查看全部</el-button>
-        </div>
-        <div class="preview-cards">
-          <div
-            v-for="kb in recentKnowledge"
-            :key="kb.code"
-            class="preview-card"
-            @click="$router.push(`/knowledge/${kb.code}`)"
-          >
-            <div class="preview-card-icon kb-bg">
-              <el-icon :size="16"><Collection /></el-icon>
-            </div>
-            <div class="preview-card-info">
-              <div class="preview-card-name">{{ kb.name }}</div>
-              <div class="preview-card-meta">{{ kb.code }}</div>
-            </div>
-            <span class="preview-card-count">{{ kb.fileCount ?? 0 }} 鏂囦欢</span>
-          </div>
-          <div v-if="recentKnowledge.length === 0" class="preview-empty">
-            暂无知识库
-          </div>
-        </div>
+        <DashboardLayoutContainer
+          :context="widgetContext"
+          :layout="editor.layoutForRender.value"
+          :editing="editor.editing.value"
+          :can-undo="editor.canUndo.value"
+          :can-redo="editor.canRedo.value"
+          :save-error="editor.saveError.value"
+          :layout-source-label="repository.sourceLabel"
+          :saved-revision="editor.savedRevision.value"
+          @narrow-change="layoutNarrow = $event"
+          @begin-edit="editor.beginEdit()"
+          @cancel-edit="editor.cancelEdit()"
+          @save-edit="editor.saveEdit()"
+          @undo="editor.undo()"
+          @redo="editor.redo()"
+          @tidy="editor.tidyLayout()"
+          @reset-default="editor.resetToDefault()"
+          @add-widget="editor.addWidgetInstance"
+          @remove-widget="editor.removeWidgetInstance"
+          @move-widget="editor.moveWidgetInstanceBy"
+          @resize-widget="editor.resizeWidgetInstanceBy"
+          @commit-rect="editor.commitWidgetRect"
+          @update-config="editor.updateWidgetConfig"
+          @open-agent="openAgent"
+          @open-project="openProject"
+          @open-projects="go('/registry/projects')"
+          @open-agents="go('/agent')"
+          @open-runops="go('/runops')"
+          @open-attention="(target) => go(target)"
+          @open-run-trace="(traceId) => go(`/runops/${encodeURIComponent(traceId)}`)"
+          @retry-runs="loadRuns"
+          @retry-all="refresh"
+        />
       </div>
     </div>
   </WorkbenchPage>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
-import {
-  Refresh, Cpu, Collection, SetUp, Coin, Connection, Clock,
-} from '@element-plus/icons-vue'
-import type { Agent } from '@/types/agent'
-import type { KnowledgeBase } from '@/types/knowledge'
-import { listAgents } from '@/api/workflow'
-import { getKnowledgeList } from '@/api/knowledge'
-import { getModelInstances } from '@/api/model'
-import { getTools } from '@/api/tool'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useRouter, type RouteLocationRaw } from 'vue-router'
 import { controlRequest } from '@/api/request'
+import { getRecentRunOps } from '@/api/runops'
+import { getScanProjects } from '@/api/scanProject'
+import { getAgentStatistics, listAgents, listWorkflows } from '@/api/workflow'
 import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
-import PageHeader from '@/components/common/PageHeader.vue'
-
-const loading = ref(false)
-
-const stats = reactive({
-  agentCount: 0,
-  knowledgeBaseCount: 0,
-  toolCount: 0,
-  modelInstanceCount: 0,
-})
-
-const recentAgents = ref<Agent[]>([])
-const recentKnowledge = ref<KnowledgeBase[]>([])
-
-const serviceHealth = reactive<Record<string, string>>({})
-
-interface ActivityEvent {
-  text: string
-  time: string
-  type: 'success' | 'warning' | 'info' | 'error'
-}
-
-const activityEvents = ref<ActivityEvent[]>([])
-
-function generateSparkline(data: number[], w = 80, h = 30): { linePath: string; areaPath: string } {
-  if (data.length < 2) return { linePath: '', areaPath: '' }
-  const max = Math.max(...data) || 1
-  const min = Math.min(...data)
-  const range = max - min || 1
-  const step = w / (data.length - 1)
-  const points = data.map((v, i) => ({
-    x: i * step,
-    y: h - ((v - min) / range) * (h - 4) - 2,
-  }))
-  let line = `M ${points[0].x} ${points[0].y}`
-  for (let i = 1; i < points.length; i++) {
-    const cp1x = points[i - 1].x + step * 0.4
-    const cp1y = points[i - 1].y
-    const cp2x = points[i].x - step * 0.4
-    const cp2y = points[i].y
-    line += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${points[i].x} ${points[i].y}`
-  }
-  const area = `${line} L ${w} ${h} L 0 ${h} Z`
-  return { linePath: line, areaPath: area }
-}
-
-const statCards = computed(() => [
-  {
-    label: 'Agent 数量',
-    value: stats.agentCount,
-    icon: Cpu,
-    gradient: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
-    color: '#6366f1',
-    trend: '15%',
-    trendDir: 'up',
-    ...generateSparkline([3, 5, 4, 7, 6, 8, 10, 9, 11, stats.agentCount || 12]),
-  },
-  {
-    label: 'Knowledge bases',
-    value: stats.knowledgeBaseCount,
-    icon: Collection,
-    gradient: 'linear-gradient(135deg, #22d3ee, #06b6d4)',
-    color: '#22d3ee',
-    trend: '5%',
-    trendDir: 'up',
-    ...generateSparkline([2, 3, 3, 4, 5, 5, 6, 6, 7, stats.knowledgeBaseCount || 8]),
-  },
-  {
-    label: 'Tool 数量',
-    value: stats.toolCount,
-    icon: SetUp,
-    gradient: 'linear-gradient(135deg, #f59e0b, #d97706)',
-    color: '#f59e0b',
-    trend: '',
-    trendDir: 'stable',
-    ...generateSparkline([20, 22, 25, 24, 28, 30, 29, 31, 33, stats.toolCount || 34]),
-  },
-  {
-    label: '模型实例',
-    value: stats.modelInstanceCount,
-    icon: Coin,
-    gradient: 'linear-gradient(135deg, #64748b, #475569)',
-    color: '#64748b',
-    trend: '',
-    trendDir: 'stable',
-    ...generateSparkline([2, 2, 3, 3, 3, 3, 3, 3, 3, stats.modelInstanceCount || 3]),
-  },
-])
-
-async function fetchStats() {
-  loading.value = true
-  const results = await Promise.allSettled([
-    listAgents(),
-    getKnowledgeList(),
-    getTools({ current: 1, size: 1 }),
-    getModelInstances(),
-  ])
-
-  if (results[0].status === 'fulfilled') {
-    const data = results[0].value.data
-    const agents = Array.isArray(data) ? data : []
-    stats.agentCount = agents.length
-    recentAgents.value = agents.slice(0, 5)
-  }
-
-  if (results[1].status === 'fulfilled') {
-    const resp = results[1].value.data
-    const kbs = (resp as any)?.data ?? (Array.isArray(resp) ? resp : [])
-    stats.knowledgeBaseCount = kbs.length
-    recentKnowledge.value = kbs.slice(0, 5)
-  }
-
-  if (results[2].status === 'fulfilled') {
-    const d = results[2].value.data as { total?: number } | undefined
-    stats.toolCount = typeof d?.total === 'number' ? d.total : 0
-  }
-
-  if (results[3].status === 'fulfilled') {
-    const resp = results[3].value.data
-    const instances = (resp as any)?.data ?? (Array.isArray(resp) ? resp : [])
-    stats.modelInstanceCount = instances.length
-  }
-
-  loading.value = false
-}
-
-async function checkHealth() {
-  await checkControlAndInternalServices()
-}
-
-async function checkControlAndInternalServices() {
-  const markAllOffline = () => {
-    serviceHealth['reachai-control-service'] = 'offline'
-    serviceHealth['reachai-runtime-service'] = 'offline'
-    serviceHealth['reachai-capability-service'] = 'offline'
-    serviceHealth['reachai-model-service'] = 'offline'
-    serviceHealth['reachai-knowledge-service'] = 'offline'
-  }
-
-  try {
-    const response = await controlRequest.get<InternalServicesHealthResponse>(
-      '/api/internal-services/health',
-      { timeout: 5000 },
-    )
-    serviceHealth['reachai-control-service'] = 'online'
-    const body = response.data
-    serviceHealth['reachai-runtime-service'] = isUp(body.services?.runtime) ? 'online' : 'offline'
-    serviceHealth['reachai-capability-service'] = isUp(body.services?.capability) ? 'online' : 'offline'
-    serviceHealth['reachai-model-service'] = isUp(body.services?.model) ? 'online' : 'offline'
-    serviceHealth['reachai-knowledge-service'] = isUp(body.services?.knowledge) ? 'online' : 'offline'
-  } catch {
-    markAllOffline()
-  }
-}
+import type {
+  DashboardAgentRankingItem,
+  DashboardAttentionSignal,
+  DashboardDomainState,
+  DashboardDomainStatus,
+  DashboardMetricCardModel,
+  DashboardProjectSummaryItem,
+  DashboardRangeDays,
+  DashboardServiceHealthSignal,
+  DashboardWidgetContext,
+} from '@/types/operationsDashboard'
+import type { ScanProject } from '@/types/scanProject'
+import type { RunSummary } from '@/types/runops'
+import type { Agent, AgentStatistics, WorkflowWorkingCopy } from '@/types/workflow'
+import {
+  DASHBOARD_SAMPLE_LIMIT,
+  buildAgentRanking,
+  buildProjectSummaries,
+  buildTokenDistribution,
+  buildTrendBuckets,
+  formatCompactNumber,
+  summarizeIdentities,
+  summarizeRunOutcomes,
+  summarizeTokens,
+} from './dashboardModel'
+import { dashboardLayoutLocalRepository } from './dashboardLayoutLocalRepository'
+import { defaultConsoleLayout } from './widgetRegistry'
+import { useDashboardLayoutEditor } from './useDashboardLayoutEditor'
+import DashboardLayoutContainer from './components/DashboardLayoutContainer.vue'
 
 interface InternalServicesHealthResponse {
-  status?: string
-  services?: {
-    runtime?: { status?: string }
-    capability?: { status?: string }
-    model?: { status?: string }
-    knowledge?: { status?: string }
+  services?: Record<string, { status?: string } | undefined>
+}
+
+const router = useRouter()
+const repository = dashboardLayoutLocalRepository
+
+const projects = ref<DashboardDomainState<ScanProject[]>>({ status: 'loading', data: [] })
+const agents = ref<DashboardDomainState<Agent[]>>({ status: 'loading', data: [] })
+const workflows = ref<DashboardDomainState<WorkflowWorkingCopy[]>>({ status: 'loading', data: [] })
+const agentStats = ref<DashboardDomainState<AgentStatistics | null>>({ status: 'loading', data: null })
+const runs = ref<DashboardDomainState<RunSummary[]>>({ status: 'loading', data: [] })
+const health = ref<DashboardDomainState<DashboardServiceHealthSignal[]>>({ status: 'loading', data: [] })
+
+const rangeDays = ref<DashboardRangeDays>(1)
+const refreshing = ref(false)
+const pageVisible = ref(typeof document === 'undefined' ? true : !document.hidden)
+const lastUpdatedAt = ref<Date | null>(null)
+const dashboardRoot = ref<HTMLElement | null>(null)
+const isFullscreen = ref(false)
+const layoutNarrow = ref(false)
+let runRequestVersion = 0
+let autoRefreshTimer: number | undefined
+
+const editor = useDashboardLayoutEditor({ repository, fallback: defaultConsoleLayout })
+editor.initialize()
+
+function requireArray<T>(value: unknown, label: string): T[] {
+  if (!Array.isArray(value)) throw new Error(`${label}响应不是数组`)
+  return value as T[]
+}
+
+function requireAgentStatistics(value: unknown): AgentStatistics {
+  if (!value || typeof value !== 'object') throw new Error('Agent 统计响应无效')
+  const candidate = value as Partial<AgentStatistics>
+  const values = [
+    candidate.totalAgents,
+    candidate.enabledAgents,
+    candidate.workflowToolAgents,
+    candidate.activeWorkflowTools,
+  ]
+  if (values.some((item) => typeof item !== 'number' || !Number.isFinite(item) || item < 0)) {
+    throw new Error('Agent 统计响应字段无效')
+  }
+  return candidate as AgentStatistics
+}
+
+function requireHealthServices(body: InternalServicesHealthResponse | null | undefined): DashboardServiceHealthSignal[] {
+  const source = body?.services
+  if (!source || typeof source !== 'object') throw new Error('服务健康响应无效')
+  const definitions = [
+    ['runtime', 'Runtime'],
+    ['capability', 'Capability'],
+    ['knowledge', 'Knowledge'],
+    ['model', 'Model'],
+  ] as const
+  return definitions.map(([key, name]) => {
+    const status = source[key]?.status
+    if (typeof status !== 'string') throw new Error(`${name} 健康状态缺失`)
+    return { key, name, status: status.toUpperCase() === 'UP' ? 'online' : 'offline' } as DashboardServiceHealthSignal
+  })
+}
+
+async function loadProjects() {
+  try {
+    const { data } = await getScanProjects()
+    projects.value = { status: 'ready', data: requireArray<ScanProject>(data, '业务系统') }
+  } catch {
+    projects.value = { status: 'error', data: [] }
   }
 }
 
-function isUp(service?: { status?: string }) {
-  return service?.status === 'UP'
-}
-
-function buildActivityEvents() {
-  const events: ActivityEvent[] = []
-  const now = new Date()
-  const recent = recentAgents.value
-  if (recent.length > 0) {
-    events.push({
-      text: `Agent "${recent[0].name}" updated`,
-      time: formatTime(now, 0),
-      type: 'info',
-    })
+async function loadAgents() {
+  try {
+    const { data } = await listAgents()
+    agents.value = { status: 'ready', data: requireArray<Agent>(data, 'Agent') }
+  } catch {
+    agents.value = { status: 'error', data: [] }
   }
-  if (recentKnowledge.value.length > 0) {
-    events.push({
-      text: `Knowledge base "${recentKnowledge.value[0].name}" available`,
-      time: formatTime(now, 5),
-      type: 'success',
-    })
+}
+
+async function loadWorkflows() {
+  try {
+    const { data } = await listWorkflows()
+    workflows.value = { status: 'ready', data: requireArray<WorkflowWorkingCopy>(data, 'Workflow') }
+  } catch {
+    workflows.value = { status: 'error', data: [] }
   }
-  const allOnline = Object.values(serviceHealth).every(s => s === 'online')
-  events.push({
-    text: allOnline ? 'All services online' : 'Some services are offline',
-    time: formatTime(now, 10),
-    type: allOnline ? 'success' : 'warning',
-  })
-  events.push({
-    text: '系统启动完成',
-    time: formatTime(now, 30),
-    type: 'info',
-  })
-  activityEvents.value = events
 }
 
-function formatTime(base: Date, minutesAgo: number): string {
-  const d = new Date(base.getTime() - minutesAgo * 60000)
-  return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+async function loadAgentStats() {
+  try {
+    const { data } = await getAgentStatistics()
+    agentStats.value = { status: 'ready', data: requireAgentStatistics(data) }
+  } catch {
+    agentStats.value = { status: 'error', data: null }
+  }
 }
 
-function refresh() {
-  fetchStats().then(() => {
-    checkHealth().then(buildActivityEvents)
-  })
+async function loadRuns() {
+  const version = ++runRequestVersion
+  const days = rangeDays.value
+  try {
+    const { data } = await getRecentRunOps({ days, limit: DASHBOARD_SAMPLE_LIMIT })
+    if (version !== runRequestVersion) return
+    runs.value = { status: 'ready', data: requireArray<RunSummary>(data, '运行记录') }
+  } catch {
+    if (version !== runRequestVersion) return
+    runs.value = { status: 'error', data: [] }
+  }
 }
 
-onMounted(refresh)
+async function loadHealth() {
+  try {
+    const { data } = await controlRequest.get<InternalServicesHealthResponse>('/api/internal-services/health')
+    health.value = { status: 'ready', data: requireHealthServices(data) }
+  } catch {
+    health.value = { status: 'error', data: [] }
+  }
+}
+
+async function refresh() {
+  if (refreshing.value) return
+  refreshing.value = true
+  await Promise.allSettled([
+    loadProjects(),
+    loadAgents(),
+    loadWorkflows(),
+    loadAgentStats(),
+    loadRuns(),
+    loadHealth(),
+  ])
+  lastUpdatedAt.value = new Date()
+  refreshing.value = false
+}
+
+async function selectRange(days: DashboardRangeDays) {
+  if (rangeDays.value === days) return
+  rangeDays.value = days
+  runs.value = { status: 'loading', data: [] }
+  await loadRuns()
+  lastUpdatedAt.value = new Date()
+}
+
+function handleVisibilityChange() {
+  pageVisible.value = !document.hidden
+  if (pageVisible.value) void refresh()
+}
+
+function handleFullscreenChange() {
+  isFullscreen.value = document.fullscreenElement === dashboardRoot.value
+}
+
+async function toggleFullscreen() {
+  try {
+    if (document.fullscreenElement) {
+      await document.exitFullscreen()
+    } else if (dashboardRoot.value?.requestFullscreen) {
+      await dashboardRoot.value.requestFullscreen()
+    }
+  } catch {
+    // 浏览器策略拒绝时保持当前页面状态，不伪装为已经进入大屏。
+  }
+}
+
+onMounted(() => {
+  void refresh()
+  autoRefreshTimer = window.setInterval(() => {
+    if (!document.hidden) void refresh()
+  }, 30_000)
+  document.addEventListener('visibilitychange', handleVisibilityChange)
+  document.addEventListener('fullscreenchange', handleFullscreenChange)
+})
+
+onBeforeUnmount(() => {
+  if (autoRefreshTimer != null) window.clearInterval(autoRefreshTimer)
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
+  document.removeEventListener('fullscreenchange', handleFullscreenChange)
+})
+
+const rangeLabel = computed(() => (rangeDays.value === 1 ? '近 24 小时' : '近 7 天'))
+const runOutcome = computed(() => summarizeRunOutcomes(runs.value.data))
+const identitySummary = computed(() => summarizeIdentities(runs.value.data))
+const tokenSummary = computed(() => summarizeTokens(runs.value.data))
+const trendBuckets = computed(() => buildTrendBuckets(runs.value.data, rangeDays.value))
+const agentRanking = computed(() =>
+  buildAgentRanking(runs.value.data, agents.value.data, projects.value.data, 10),
+)
+const allProjectSummaries = computed(() =>
+  buildProjectSummaries(projects.value.data, agents.value.data, runs.value.data, Number.MAX_SAFE_INTEGER)
+    .map((project) => ({
+      ...project,
+      runSeries: buildTrendBuckets(project.sampleRuns, rangeDays.value).map((bucket) => bucket.runs),
+    })),
+)
+const projectSummaries = computed(() => allProjectSummaries.value.slice(0, 6))
+const rankedProjects = computed(() => allProjectSummaries.value.filter((project) => project.runs > 0).slice(0, 5))
+const maxProjectRuns = computed(() => Math.max(1, ...rankedProjects.value.map((project) => project.runs)))
+const tokenDistribution = computed(() => buildTokenDistribution(allProjectSummaries.value, runs.value.data))
+
+function combineStatus(...states: DashboardDomainStatus[]): DashboardDomainStatus {
+  if (states.includes('error')) return 'error'
+  if (states.includes('loading')) return 'loading'
+  return 'ready'
+}
+
+const projectStatus = computed(() =>
+  combineStatus(projects.value.status, agents.value.status, runs.value.status),
+)
+
+const activeConfigCount = computed(() =>
+  agents.value.data.filter((agent) => agent.activeConfigVersionId != null).length,
+)
+
+function percentage(part: number, total: number) {
+  return total > 0 ? Math.round((part / total) * 1000) / 10 : null
+}
+
+const metricCards = computed<DashboardMetricCardModel[]>(() => {
+  const stats = agentStats.value.data
+  const outcomes = runOutcome.value
+  const identities = identitySummary.value
+  const tokens = tokenSummary.value
+  return [
+    {
+      key: 'agent-inventory',
+      label: 'Agent 总数',
+      value: stats ? formatCompactNumber(stats.totalAgents) : '—',
+      detail: stats
+        ? `${stats.enabledAgents} 个已启用${agents.value.status === 'ready' ? ` · ${activeConfigCount.value} 个有发布配置` : ''}`
+        : '等待 Agent 统计',
+      status: agentStats.value.status,
+      tone: 'blue',
+      icon: 'agent',
+      progress: stats && agents.value.status === 'ready'
+        ? percentage(activeConfigCount.value, stats.totalAgents)
+        : null,
+    },
+    {
+      key: 'enabled-agents',
+      label: '已启用 Agent',
+      value: stats ? formatCompactNumber(stats.enabledAgents) : '—',
+      detail: '这是配置状态，不冒充“正在工作”',
+      note: '活跃执行租约尚未接入',
+      status: agentStats.value.status,
+      tone: 'green',
+      icon: 'enabled',
+      progress: stats ? percentage(stats.enabledAgents, stats.totalAgents) : null,
+    },
+    {
+      key: 'business-runs',
+      label: '运行样本',
+      value: formatCompactNumber(runs.value.data.length),
+      detail: `${rangeLabel.value} · 最近 ${DASHBOARD_SAMPLE_LIMIT} 条上限`,
+      status: runs.value.status,
+      tone: 'cyan',
+      icon: 'runs',
+      series: trendBuckets.value.map((bucket) => bucket.runs),
+    },
+    {
+      key: 'active-runtime-users',
+      label: '可识别用户',
+      value: identities.identifiedRuns ? formatCompactNumber(identities.distinctUsers) : '—',
+      detail: identities.coverage == null
+        ? '当前无运行样本'
+        : `userId 样本覆盖 ${identities.coverage.toFixed(1)}%`,
+      status: runs.value.status,
+      tone: 'violet',
+      icon: 'users',
+      series: trendBuckets.value.map((bucket) => bucket.users),
+    },
+    {
+      key: 'recorded-tokens',
+      label: '已记录 Token',
+      value: tokens.recordedRuns ? formatCompactNumber(tokens.total) : '—',
+      detail: tokens.coverage == null
+        ? '当前无运行样本'
+        : `非零记录 ${tokens.recordedRuns}/${tokens.totalRuns} 条`,
+      status: runs.value.status,
+      tone: 'orange',
+      icon: 'tokens',
+      series: trendBuckets.value.map((bucket) => bucket.tokens),
+    },
+    {
+      key: 'technical-completion-rate',
+      label: '技术完成率',
+      value: outcomes.technicalCompletionRate == null ? '—' : `${outcomes.technicalCompletionRate.toFixed(1)}%`,
+      detail: `${outcomes.completed}/${outcomes.terminal} 个终态样本完成`,
+      status: runs.value.status,
+      tone: 'green',
+      icon: 'success',
+      progress: outcomes.technicalCompletionRate,
+    },
+  ]
+})
+
+const attentionItems = computed<DashboardAttentionSignal[]>(() => {
+  const outcome = runOutcome.value
+  const guardDenied = runs.value.data.reduce((sum, run) => sum + (run.guardDenyCount ?? 0), 0)
+  return [
+    {
+      key: 'failed',
+      label: '失败运行',
+      value: outcome.failed,
+      detail: '当前样本中的 FAILED',
+      tone: outcome.failed ? 'risk' : 'ok',
+      to: { path: '/runops', query: { status: 'FAILED', days: String(rangeDays.value) } },
+    },
+    {
+      key: 'timed-out',
+      label: '超时运行',
+      value: outcome.timedOut,
+      detail: '当前样本中的 TIMED_OUT',
+      tone: outcome.timedOut ? 'risk' : 'ok',
+      to: { path: '/runops', query: { status: 'TIMED_OUT', days: String(rangeDays.value) } },
+    },
+    {
+      key: 'suspended',
+      label: '等待交互 / 审批',
+      value: outcome.suspended,
+      detail: '当前样本中的 SUSPENDED',
+      tone: outcome.suspended ? 'warning' : 'ok',
+      to: { path: '/runops', query: { status: 'SUSPENDED', days: String(rangeDays.value) } },
+    },
+    {
+      key: 'guard',
+      label: 'Guard 拒绝',
+      value: guardDenied,
+      detail: '根运行累计 guardDenyCount',
+      tone: guardDenied ? 'warning' : 'ok',
+      to: { path: '/runops', query: { days: String(rangeDays.value) } },
+    },
+  ]
+})
+const attentionHasSignals = computed(() => attentionItems.value.some((item) => item.value > 0))
+
+const widgetContext = computed<DashboardWidgetContext>(() => ({
+  metrics: Object.fromEntries(metricCards.value.map((metric) => [`kpi.${metric.key}`, metric])),
+  runsStatus: runs.value.status,
+  runsData: runs.value.data,
+  agentRanking: agentRanking.value,
+  projectStatus: projectStatus.value,
+  rankedProjects: rankedProjects.value,
+  projectSummaries: projectSummaries.value,
+  maxProjectRuns: maxProjectRuns.value,
+  tokenDistributionStatus:
+    runs.value.status === 'ready' && projects.value.status === 'error' ? 'error' : runs.value.status,
+  tokenDistribution: tokenDistribution.value,
+  attentionItems: attentionItems.value,
+  attentionHasSignals: attentionHasSignals.value,
+  trendBuckets: trendBuckets.value,
+  rangeLabel: rangeLabel.value,
+  health: health.value,
+}))
+
+const failedDomains = computed(() => {
+  const domains = [
+    [projects.value.status, '业务系统'],
+    [agents.value.status, 'Agent 列表'],
+    [agentStats.value.status, 'Agent 统计'],
+    [workflows.value.status, 'Workflow'],
+    [runs.value.status, '运行数据'],
+    [health.value.status, '服务健康'],
+  ] as const
+  return domains.filter(([status]) => status === 'error').map(([, label]) => label)
+})
+
+const dataWarning = computed(() => {
+  const warnings: string[] = []
+  if (failedDomains.value.length) warnings.push(`部分数据暂不可用：${failedDomains.value.join('、')}`)
+  if (runs.value.status === 'ready' && runs.value.data.length >= DASHBOARD_SAMPLE_LIMIT) {
+    warnings.push(`运行记录达到 ${DASHBOARD_SAMPLE_LIMIT} 条接口上限，当前页面仅代表最近样本`)
+  }
+  if (workflows.value.status === 'ready' && workflows.value.data.length === 0) {
+    warnings.push('尚未创建 Workflow')
+  }
+  return warnings.join('；')
+})
+
+const currentDateLabel = computed(() => {
+  const date = lastUpdatedAt.value ?? new Date()
+  return `今天 · ${String(date.getMonth() + 1).padStart(2, '0')}月${String(date.getDate()).padStart(2, '0')}日`
+})
+
+const lastUpdatedLabel = computed(() => {
+  if (!lastUpdatedAt.value) return '等待首次刷新'
+  return `更新于 ${new Intl.DateTimeFormat('zh-CN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(lastUpdatedAt.value)}`
+})
+
+function go(target: RouteLocationRaw) {
+  void router.push(target)
+}
+
+function openAgent(agent: DashboardAgentRankingItem) {
+  if (agent.agentId) {
+    go(`/agent/${encodeURIComponent(agent.agentId)}/edit`)
+    return
+  }
+  go({ path: '/runops', query: { agentId: agent.key, days: String(rangeDays.value) } })
+}
+
+function openProject(project: DashboardProjectSummaryItem) {
+  if (project.projectId) {
+    go(`/registry/projects/${project.projectId}`)
+    return
+  }
+  go({ path: '/runops', query: { projectCode: project.projectCode, days: String(rangeDays.value) } })
+}
 </script>
 
-<style scoped lang="scss">
-.dashboard {
-  position: relative;
-}
-
-.stat-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
-}
-
-.stat-card {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 24px;
-  position: relative;
-  overflow: hidden;
-  animation-fill-mode: both;
-}
-
-.stat-icon {
-  width: 52px;
-  height: 52px;
-  border-radius: 14px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff;
-  flex-shrink: 0;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-}
-
-.stat-info {
-  flex: 1;
-  min-width: 0;
-}
-
-.stat-value {
-  font-size: 32px;
-  font-weight: 700;
-  color: var(--text-primary);
-  line-height: 1;
-  letter-spacing: -0.02em;
-}
-
-.stat-label {
-  font-size: 13px;
-  color: #64748b;
-  margin-top: 6px;
-}
-
-.stat-trend {
-  position: absolute;
-  top: 16px;
-  right: 16px;
-  font-size: 12px;
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-
-  &.up {
-    color: #22d3ee;
-  }
-
-  &.down {
-    color: #f43f5e;
-  }
-
-  &.stable {
-    color: #64748b;
-  }
-}
-
-.stat-sparkline {
-  position: absolute;
-  bottom: 0;
-  right: 0;
-  width: 100px;
-  height: 40px;
-  opacity: 0.6;
-}
-
-.sparkline-svg {
-  width: 100%;
-  height: 100%;
-}
-
-.dashboard-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-}
-
-.section-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin-bottom: 20px;
-
-  .el-icon {
-    color: #6366f1;
-  }
-}
-
-.section-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
-}
-
-.topology-section {
-  padding: 24px;
-  animation-fill-mode: both;
-}
-
-.topology {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  padding: 16px 0;
-}
-
-.topo-row {
-  display: flex;
-  gap: 32px;
-  justify-content: center;
-}
-
-.topo-row-split {
-  width: 100%;
-  justify-content: space-around;
-}
-
-.topo-node {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  padding: 16px 24px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  transition: all 0.3s ease;
-  min-width: 140px;
-
-  &.online {
-    border-color: rgba(34, 211, 238, 0.2);
-  }
-
-  &.offline {
-    border-color: rgba(244, 63, 94, 0.2);
-  }
-}
-
-.topo-node-icon {
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff;
-
-  &.agent-bg {
-    background: linear-gradient(135deg, #6366f1, #8b5cf6);
-  }
-
-  &.knowledge-bg {
-    background: linear-gradient(135deg, #22d3ee, #06b6d4);
-  }
-
-  &.runtime-bg {
-    background: linear-gradient(135deg, #14b8a6, #0f766e);
-  }
-
-  &.capability-bg {
-    background: linear-gradient(135deg, #f97316, #dc2626);
-  }
-
-  &.model-bg {
-    background: linear-gradient(135deg, #f59e0b, #d97706);
-  }
-}
-
-.topo-node-name {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.topo-node-status {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  color: var(--text-secondary);
-}
-
-.topo-connector {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  height: 32px;
-  position: relative;
-}
-
-.connector-line {
-  width: 2px;
-  height: 100%;
-  background: rgba(255, 255, 255, 0.06);
-  position: relative;
-  overflow: hidden;
-
-  &.active {
-    background: rgba(99, 102, 241, 0.2);
-
-    &::after {
-      content: '';
-      position: absolute;
-      top: -100%;
-      left: 0;
-      width: 100%;
-      height: 50%;
-      background: linear-gradient(180deg, transparent, #6366f1, transparent);
-      animation: flowDown 2s ease-in-out infinite;
-    }
-  }
-}
-
-.connector-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #6366f1;
-  margin-top: -3px;
-  box-shadow: 0 0 8px rgba(99, 102, 241, 0.4);
-}
-
-@keyframes flowDown {
-  0% { top: -50%; }
-  100% { top: 150%; }
-}
-
-.timeline-section {
-  padding: 24px;
-  animation-fill-mode: both;
-}
-
-.activity-timeline {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-}
-
-.timeline-item {
-  display: flex;
-  gap: 14px;
-  padding: 12px 0;
-  position: relative;
-  animation: fadeInUp 0.3s ease both;
-
-  &:not(:last-child)::after {
-    content: '';
-    position: absolute;
-    left: 5px;
-    top: 30px;
-    bottom: -6px;
-    width: 1px;
-    background: rgba(255, 255, 255, 0.05);
-  }
-}
-
-.timeline-dot {
-  width: 11px;
-  height: 11px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  margin-top: 3px;
-  position: relative;
-  z-index: 1;
-
-  &.success {
-    background: #22d3ee;
-    box-shadow: 0 0 8px rgba(34, 211, 238, 0.4);
-  }
-
-  &.warning {
-    background: #f59e0b;
-    box-shadow: 0 0 8px rgba(245, 158, 11, 0.4);
-  }
-
-  &.error {
-    background: #f43f5e;
-    box-shadow: 0 0 8px rgba(244, 63, 94, 0.4);
-  }
-
-  &.info {
-    background: #6366f1;
-    box-shadow: 0 0 8px rgba(99, 102, 241, 0.4);
-  }
-}
-
-.timeline-content {
-  flex: 1;
-  min-width: 0;
-}
-
-.timeline-text {
-  font-size: 13px;
-  color: var(--text-secondary);
-  line-height: 1.4;
-}
-
-.timeline-time {
-  font-size: 11px;
-  color: #475569;
-  margin-top: 4px;
-}
-
-.timeline-empty {
-  padding: 20px 0;
-}
-
-.preview-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-}
-
-.preview-section {
-  padding: 24px;
-  animation-fill-mode: both;
-}
-
-.preview-cards {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.preview-card {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 14px;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(255, 255, 255, 0.03);
-  cursor: pointer;
-  transition: all 0.2s ease;
-
-  &:hover {
-    background: rgba(99, 102, 241, 0.06);
-    border-color: rgba(99, 102, 241, 0.12);
-  }
-}
-
-.preview-card-icon {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff;
-  flex-shrink: 0;
-
-  &.agent-bg {
-    background: linear-gradient(135deg, #6366f1, #8b5cf6);
-  }
-
-  &.kb-bg {
-    background: linear-gradient(135deg, #22d3ee, #06b6d4);
-  }
-}
-
-.preview-card-info {
-  flex: 1;
-  min-width: 0;
-}
-
-.preview-card-name {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.preview-card-meta {
-  font-size: 11px;
-  color: #64748b;
-  margin-top: 2px;
-}
-
-.preview-card-count {
-  font-size: 12px;
-  color: var(--text-secondary);
-  white-space: nowrap;
-}
-
-.preview-empty {
-  font-size: 13px;
-  color: #475569;
-  text-align: center;
-  padding: 24px 0;
-}
-
-@media (max-width: 1200px) {
-  .stat-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-
-  .dashboard-grid,
-  .preview-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-// 日间模式覆盖
-:global([data-theme="light"]) {
-  .topo-node {
-    background: #ffffff;
-    border: 1px solid #ebeef5;
-  }
-
-  .connector-line {
-    background: #e4e7ed;
-  }
-
-  .timeline-item:not(:last-child)::after {
-    background: #ebeef5;
-  }
-
-  .preview-card {
-    background: #f9fafb;
-    border: 1px solid #ebeef5;
-
-    &:hover {
-      background: rgba(99, 102, 241, 0.04);
-      border-color: rgba(99, 102, 241, 0.15);
-    }
-  }
-
-  .stat-label,
-  .stat-trend.stable {
-    color: #94a3b8;
-  }
-
-  .timeline-time,
-  .preview-empty {
-    color: #94a3b8;
-  }
-
-  .preview-card-meta {
-    color: #94a3b8;
-  }
-}
-</style>
+<style lang="scss" src="./dashboardOperations.scss"></style>

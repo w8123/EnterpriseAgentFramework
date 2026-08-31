@@ -118,6 +118,8 @@
       v-model:semantic-model-instance-id="semanticModelInstanceId"
       v-model:ai-generation-mode="aiGenerationMode"
       :semantic-model-instances="semanticModelInstances"
+      :semantic-model-instances-loading="semanticModelInstancesLoading"
+      :semantic-model-instances-load-error="semanticModelInstancesLoadError"
       :batch-starting="batchStarting"
       :task-running="taskRunning"
       :task-percent="taskPercent"
@@ -125,6 +127,7 @@
       :task-failed-title="taskFailedTitle"
       @start-batch-generate="startBatchGenerate"
       @save-ai-generation-settings="saveAiGenerationSettings"
+      @refresh-model-instances="loadSemanticModelInstances"
     />
 
     <ScanProjectOpsDrawer
@@ -333,6 +336,8 @@ const {
   sensitiveTaskPolling,
   task,
   semanticModelInstances,
+  semanticModelInstancesLoading,
+  semanticModelInstancesLoadError,
   semanticModelInstanceId,
   aiGenerationMode,
   docEditVisible,

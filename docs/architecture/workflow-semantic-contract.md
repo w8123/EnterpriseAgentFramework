@@ -52,6 +52,17 @@ GraphSpec 顶层只允许：
 
 节点类型必须使用上述规范值。目录中的 `canvasKind` 只用于 Studio 内存投影，不是 GraphSpec 输入别名。
 
+### 3.1 Knowledge 证据策略
+
+`KNOWLEDGE_RETRIEVAL.config.evidencePolicy` 只允许：
+
+- `REQUIRED`：事实回答必须有检索证据。节点通过 `route:evidence` 与 `route:no_evidence` 两条显式边分流；两条边缺一不可，也不得同时保留 `always` / `success` 回退边。`no_evidence` 是成功的业务结果，不是系统异常；该边必须直接连接固定 `ANSWER`，明确告知未找到证据，不得继续调用 LLM 凭空补全。
+- `OPTIONAL`：业务明确允许使用通用模型知识回退时使用，保留普通线性边行为。
+
+Studio 新建节点和 AI Proposal 默认使用 `REQUIRED`。历史 GraphSpec 缺少该字段时，Runtime 暂按 `OPTIONAL` 保持既有执行语义，发布校验会给出迁移警告；Studio 重新保存后必须显式写入所选策略。
+
+节点结构化输出固定包含 `query / hits / hitCount / outcome / empty`，其中 `outcome=HIT|NO_EVIDENCE`。`diagnostics` 只允许候选数、过滤数、截断数、内容预算和阶段耗时等脱敏数值或布尔值，不得包含查询、命中文本、文件名或用户身份。Workflow 节点只负责返回检索结果，Knowledge 管理侧的 `directReturn*` 配置不得进入 GraphSpec。
+
 ## 4. Canvas 布局文档
 
 `canvas_json` 固定为 `schemaVersion=1 / layoutVersion=1` 的布局文档：
@@ -71,7 +82,7 @@ GraphSpec 顶层只允许：
 | `WorkflowProposal` | AI 生成或编辑后、尚未保存的内存候选 |
 | `WorkflowVersion` | 已发布且不可变的执行快照 |
 | `WorkflowRun` | 一次执行实例 |
-| `WorkflowResumeCheckpoint` | Runtime 内部恢复同一次暂停执行所需的断点 |
+| `WorkflowResumeCheckpoint` | Runtime 内部恢复同一次暂停执行所需的版本化断点；当前为 `WorkflowCheckpointV1` |
 | `WorkflowStateSnapshot` | 调试或观察界面展示的状态快照，不承诺可恢复 |
 
 公共 API 只提供：
@@ -94,12 +105,14 @@ GraphSpec 顶层只允许：
 
 `runtime_interaction_session.status=WAITING_USER` 是 Interaction 会话自身状态，不是 Runtime Run 状态。Trace Span 也有独立的观测状态。
 
+新暂停点使用 `checkpointSchemaVersion=1 / executionEngineVersion=RUNTIME_KERNEL_V2`，并绑定暂停时 GraphSpec SHA-256、节点、payload SHA-256、默认 256 KiB 配置上限和 1 MiB 硬上限。可信身份和 Eval typed context 不进入断点；恢复身份从已验证的会话归属重建。历史 Map 只走 `LEGACY` 兼容路由，未知 schema/engine、摘要篡改或 GraphSpec 漂移均失败关闭。详细契约见 [runtime-execution-kernel-v2.md](./runtime-execution-kernel-v2.md)。
+
 在实现确定性版本路由前，Workflow 发布只允许 `rolloutPercent=100`，任意时刻最多一个 ACTIVE 版本。
 
 ## 7. 数据库切换
 
 `sql/initV2.sql` 是唯一新库基线。项目不提供旧 Workflow 数据转换脚本；旧 Workflow 行、旧版本快照、旧调试会话和旧 GraphSpec 不保证可执行。
 
-已有开发或测试环境无需重跑新库基线，先备份目标库，再执行 `sql/upgrade-20260722-workflow-semantics.sql`。该脚本删除旧 Workflow、版本、Agent 绑定及不再兼容的运行态历史，按当前契约重建相关表；执行后重新创建、发布并绑定 Workflow。
+历史 `upgrade-20260722-workflow-semantics.sql` 已并入 GitHub 基线并从当前树清理。早于 `ae9e1ce6` 的开发/测试库必须先备份，再从对应 Git tag 获取这份破坏性迁移或按当前 `initV2.sql` 重建；当前合并升级不重复承载旧 Workflow 数据转换。
 
 不得通过在 Runtime 中增加旧字段读取、别名路由或隐式转换来延长旧数据生命周期。

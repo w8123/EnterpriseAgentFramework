@@ -26,9 +26,13 @@
     "test:sdk": "vitest run --config vitest.sdk.config.ts",
     "test:ai-coding": "vitest run --config vitest.ai-coding.config.ts",
     "test:workflow": "vitest run --config vitest.workflow.config.ts",
+    "test:api-market": "vitest run --config vitest.api-market.config.ts",
+    "test:skill": "vitest run --config vitest.skill.config.ts",
     "test:model": "vitest run --config vitest.model.config.ts",
     "test:auth": "vitest run --config vitest.auth.config.ts",
     "test:knowledge": "vitest run --config vitest.knowledge.config.ts",
+    "test:dashboard": "vitest run --config vitest.dashboard.config.ts",
+    "test:mcp": "vitest run --config vitest.mcp.config.ts",
     "preview": "vite preview"
   },
   "dependencies": {

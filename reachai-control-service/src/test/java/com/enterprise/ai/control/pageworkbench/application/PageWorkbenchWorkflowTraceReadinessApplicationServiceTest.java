@@ -1,12 +1,10 @@
 package com.enterprise.ai.control.pageworkbench.application;
 
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.ReadinessItem;
-import com.enterprise.ai.control.client.runtime.RuntimeProxyClient;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.PublishedWorkflowView;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.WorkflowExecutionReadinessView;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchWorkflowTraceReadinessApplicationService.WorkflowAcceptanceTarget;
-import com.enterprise.ai.control.platform.PlatformEmbedE2eEvidenceService;
-import com.enterprise.ai.control.platform.PlatformEmbedE2eEvidenceService.EmbedTraceCandidate;
+import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchObservationPort.TraceCandidate;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -26,15 +24,15 @@ import static org.mockito.Mockito.when;
 
 class PageWorkbenchWorkflowTraceReadinessApplicationServiceTest {
 
-    private PlatformEmbedE2eEvidenceService embedEvidence;
-    private RuntimeProxyClient runtimeClient;
+    private PageWorkbenchObservationPort embedEvidence;
+    private PageWorkbenchRuntimePort runtimeClient;
     private PageWorkbenchWorkflowTraceReadinessApplicationService service;
     private LocalDateTime observedAfter;
 
     @BeforeEach
     void setUp() {
-        embedEvidence = mock(PlatformEmbedE2eEvidenceService.class);
-        runtimeClient = mock(RuntimeProxyClient.class);
+        embedEvidence = mock(PageWorkbenchObservationPort.class);
+        runtimeClient = mock(PageWorkbenchRuntimePort.class);
         service = new PageWorkbenchWorkflowTraceReadinessApplicationService(
                 embedEvidence,
                 runtimeClient,
@@ -62,7 +60,7 @@ class PageWorkbenchWorkflowTraceReadinessApplicationServiceTest {
     @Test
     void passesOnlyTheReportedTraceFromTheExactPageSession() {
         WorkflowAcceptanceTarget target = target();
-        EmbedTraceCandidate candidate = candidate("trace-orders");
+        TraceCandidate candidate = candidate("trace-orders");
         when(embedEvidence.successfulTraceCandidates(
                 "orders",
                 "orders.detail",
@@ -300,7 +298,7 @@ class PageWorkbenchWorkflowTraceReadinessApplicationServiceTest {
 
     @Test
     void structuredPresentationPassesWithSupportedEmbedCard() {
-        EmbedTraceCandidate candidate = new EmbedTraceCandidate(
+        TraceCandidate candidate = new TraceCandidate(
                 "orders",
                 "orders.detail",
                 "embed-session",
@@ -390,8 +388,8 @@ class PageWorkbenchWorkflowTraceReadinessApplicationServiceTest {
                 "model-orders");
     }
 
-    private EmbedTraceCandidate candidate(String traceId) {
-        return new EmbedTraceCandidate(
+    private TraceCandidate candidate(String traceId) {
+        return new TraceCandidate(
                 "orders",
                 "orders.detail",
                 "embed-session",

@@ -1,229 +1,157 @@
 <template>
-  <WorkbenchPage class="platform-user-page" layout="list">
+  <WorkbenchPage class="platform-identity-page" layout="list">
     <PageHeader
-      variant="standard"
+      variant="overview"
       domain="platform"
-      eyebrow="Platform Identity"
-      title="平台用户与角色"
-      description="维护管理端与 Workflow Studio 账号的角色授权，支持全局与项目两种作用域。"
+      eyebrow="Identity & Access Management"
+      title="账号与权限"
+      description="管理平台人员账号、角色、项目范围与安全审计；业务终端用户保持独立身份域。"
     >
+      <template #tags>
+        <el-tag type="success" effect="plain">RBAC</el-tag>
+        <el-tag effect="plain">全局 / 项目范围</el-tag>
+      </template>
       <template #actions>
-        <el-tooltip content="刷新平台用户" placement="top">
-          <el-button circle :icon="Refresh" :loading="loading" aria-label="刷新平台用户" @click="reload" />
+        <span v-if="lastRefreshedAt" class="refresh-time">更新于 {{ lastRefreshedAt }}</span>
+        <el-tooltip content="刷新账号、角色和审计数据" placement="top">
+          <el-button circle :icon="Refresh" :loading="loading" aria-label="刷新" @click="reload" />
         </el-tooltip>
       </template>
     </PageHeader>
 
-    <el-table :data="users" v-loading="loading" stripe class="platform-user-table workbench-list-surface">
-      <el-table-column prop="username" label="用户名" min-width="150" />
-      <el-table-column prop="displayName" label="显示名" min-width="160">
-        <template #default="{ row }">
-          {{ formatPlatformUserDisplayName(row.displayName, row.username) }}
-        </template>
-      </el-table-column>
-      <el-table-column prop="sourceProvider" label="来源" width="130">
-        <template #default="{ row }">
-          <el-tag size="small">{{ formatSourceProviderLabel(row.sourceProvider) }}</el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column prop="status" label="状态" width="110">
-        <template #default="{ row }">
-          <CommonStatusTag :status="row.status" />
-        </template>
-      </el-table-column>
-      <el-table-column prop="lastLoginAt" label="最近登录" width="180" />
-      <el-table-column label="角色授权" min-width="300">
-        <template #default="{ row }">
-          <div class="grant-list">
-            <el-tag
-              v-for="grant in displayGrantsForUser(row.id)"
-              :key="`${grant.roleId}-${grant.scopeType}-${grant.scopeSummary}`"
-              size="small"
-              effect="plain"
-            >
-              {{ formatPlatformRoleLabel(grant.roleCode, grant.roleName) }} ·
-              {{ formatScopeTypeLabel(grant.scopeType) }}:{{ grant.scopeSummary }}
-            </el-tag>
-            <span v-if="!displayGrantsForUser(row.id).length" class="empty-text">未分配</span>
-          </div>
-        </template>
-      </el-table-column>
-      <el-table-column label="操作" width="110" fixed="right">
-        <template #default="{ row }">
-          <el-button link type="primary" @click="openGrants(row)">分配角色</el-button>
-        </template>
-      </el-table-column>
-    </el-table>
-
-    <AppDialog v-model="dialogOpen" title="角色授权" width="820px">
-      <div v-if="currentUser" class="dialog-user">
-        <strong>{{ formatPlatformUserDisplayName(currentUser.displayName, currentUser.username) }}</strong>
-        <span>{{ currentUser.username }} · {{ formatSourceProviderLabel(currentUser.sourceProvider) }}</span>
-      </div>
-
-      <div class="grant-editor">
-        <div v-for="(grant, index) in editingGrants" :key="index" class="grant-row">
-          <el-select v-model="grant.roleId" placeholder="选择角色" filterable>
-            <el-option
-              v-for="role in roles"
-              :key="role.id"
-              :label="formatPlatformRoleOptionLabel(role.roleCode, role.roleName)"
-              :value="role.id"
-            />
-          </el-select>
-          <el-select
-            v-model="grant.scopeType"
-            class="scope-type"
-            @change="handleScopeTypeChange(grant)"
-          >
-            <el-option
-              v-for="item in SCOPE_TYPE_SELECT_OPTIONS"
-              :key="item.value"
-              :label="item.label"
-              :value="item.value"
-            />
-          </el-select>
-          <div class="scope-value">
-            <ProjectMultiSelect
-              v-if="grant.scopeType === 'PROJECT'"
-              v-model="grant.projectIds"
-            />
-            <el-input v-else model-value="全部项目" disabled />
-          </div>
-          <el-button :icon="Delete" circle @click="removeGrant(index)" />
+    <section class="metric-grid" aria-label="身份治理概览">
+      <article v-for="metric in metrics" :key="metric.label" class="metric-card">
+        <span class="metric-card__icon" :class="metric.tone">
+          <el-icon><component :is="metric.icon" /></el-icon>
+        </span>
+        <div>
+          <strong>{{ metric.value }}</strong>
+          <span>{{ metric.label }}</span>
         </div>
-      </div>
+        <small>{{ metric.caption }}</small>
+      </article>
+    </section>
 
-      <el-button :icon="Plus" @click="addGrant">新增授权</el-button>
+    <section class="boundary-note">
+      <div><strong>账号</strong><span>谁可以进入平台</span></div>
+      <el-icon><ArrowRight /></el-icon>
+      <div><strong>角色</strong><span>可以执行哪些操作</span></div>
+      <el-icon><ArrowRight /></el-icon>
+      <div><strong>作用域</strong><span>权限在哪些项目生效</span></div>
+      <el-icon><ArrowRight /></el-icon>
+      <div><strong>审计</strong><span>谁在何时改变了什么</span></div>
+    </section>
 
-      <template #footer>
-        <el-button @click="dialogOpen = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="saveGrants">保存</el-button>
-      </template>
-    </AppDialog>
+    <section class="identity-workbench">
+      <el-tabs v-model="activeTab" class="identity-tabs">
+        <el-tab-pane name="accounts">
+          <template #label>
+            <span class="tab-label"><el-icon><User /></el-icon>账号管理<em>{{ accounts.length }}</em></span>
+          </template>
+          <AccountDirectoryPanel
+            :accounts="accounts"
+            :roles="roles"
+            :loading="loading"
+            @changed="reload"
+          />
+        </el-tab-pane>
+
+        <el-tab-pane name="roles">
+          <template #label>
+            <span class="tab-label"><el-icon><Lock /></el-icon>角色与权限<em>{{ roles.length }}</em></span>
+          </template>
+          <RolePermissionPanel
+            :roles="roles"
+            :permissions="permissions"
+            :loading="loading"
+            @changed="reload"
+          />
+        </el-tab-pane>
+
+        <el-tab-pane name="audit">
+          <template #label>
+            <span class="tab-label"><el-icon><DocumentChecked /></el-icon>授权审计<em>{{ auditEvents.length }}</em></span>
+          </template>
+          <AuthorizationAuditPanel :events="auditEvents" :loading="loading" />
+        </el-tab-pane>
+      </el-tabs>
+    </section>
   </WorkbenchPage>
 </template>
 
 <script setup lang="ts">
-import AppDialog from '@/components/common/AppDialog.vue'
-import { onMounted, reactive, ref } from 'vue'
+import { computed, markRaw, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Delete, Plus, Refresh } from '@element-plus/icons-vue'
+import {
+  ArrowRight,
+  Connection,
+  DocumentChecked,
+  Key,
+  Lock,
+  Refresh,
+  User,
+  UserFilled,
+} from '@element-plus/icons-vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
-import CommonStatusTag from '@/components/CommonStatusTag.vue'
-import ProjectMultiSelect from '@/components/ProjectMultiSelect.vue'
 import {
-  SCOPE_TYPE_SELECT_OPTIONS,
-  formatPlatformRoleLabel,
-  formatPlatformRoleOptionLabel,
-  formatPlatformUserDisplayName,
-  formatScopeTypeLabel,
-  formatSourceProviderLabel,
-} from '@/utils/uiLabels'
-import {
-  editorRowsToCommands,
-  grantsToEditorRows,
-  groupGrantsForDisplay,
-  type PlatformGrantEditorRow,
-} from '@/utils/platformUserGrants'
-import {
-  listPlatformRoles,
-  listPlatformUserRoleGrants,
-  listPlatformUsers,
-  savePlatformUserRoleGrants,
+  listPlatformAccounts,
+  listPlatformAuthAuditEvents,
+  listPlatformManagedRoles,
+  listPlatformPermissions,
+  type PlatformAccountUserView,
+  type PlatformAuthAuditEventView,
+  type PlatformPermissionView,
+  type PlatformRoleManagementView,
 } from '@/api/platformAuth'
-import type { PlatformRoleView, PlatformUserRoleGrant, PlatformUserView } from '@/api/platformAuth'
 import { useProjectStore } from '@/store/project'
+import AccountDirectoryPanel from './platform-identity/AccountDirectoryPanel.vue'
+import AuthorizationAuditPanel from './platform-identity/AuthorizationAuditPanel.vue'
+import RolePermissionPanel from './platform-identity/RolePermissionPanel.vue'
 
 const projectStore = useProjectStore()
+const activeTab = ref('accounts')
 const loading = ref(false)
-const saving = ref(false)
-const dialogOpen = ref(false)
-const users = ref<PlatformUserView[]>([])
-const roles = ref<PlatformRoleView[]>([])
-const currentUser = ref<PlatformUserView | null>(null)
-const grantsByUser = reactive<Record<number, PlatformUserRoleGrant[]>>({})
-const editingGrants = ref<PlatformGrantEditorRow[]>([])
+const accounts = ref<PlatformAccountUserView[]>([])
+const roles = ref<PlatformRoleManagementView[]>([])
+const permissions = ref<PlatformPermissionView[]>([])
+const auditEvents = ref<PlatformAuthAuditEventView[]>([])
+const lastRefreshedAt = ref('')
 
-function displayGrantsForUser(userId: number) {
-  return groupGrantsForDisplay(grantsByUser[userId] || [], projectStore.projects)
-}
+const metrics = computed(() => {
+  const activeAccounts = accounts.value.filter((account) => account.status === 'ACTIVE').length
+  const customRoles = roles.value.filter((role) => role.roleKind === 'CUSTOM').length
+  const activeSessions = accounts.value.reduce((sum, account) => sum + account.activeSessionCount, 0)
+  const globalAdmins = accounts.value.filter((account) => account.grants.some((grant) => (
+    grant.roleCode === 'PLATFORM_ADMIN' && grant.scopeType === 'GLOBAL'
+  ))).length
+  return [
+    { label: '启用账号', value: activeAccounts, caption: `共 ${accounts.value.length} 个平台人员账号`, icon: markRaw(UserFilled), tone: 'blue' },
+    { label: '自定义角色', value: customRoles, caption: `另有 ${roles.value.length - customRoles} 个系统角色`, icon: markRaw(Lock), tone: 'violet' },
+    { label: '活跃会话', value: activeSessions, caption: '可按账号立即撤销', icon: markRaw(Connection), tone: 'green' },
+    { label: '全局管理员', value: globalAdmins, caption: '末位管理员受安全保护', icon: markRaw(Key), tone: 'amber' },
+  ]
+})
 
 async function reload() {
   loading.value = true
   try {
-    const [{ data: userData }, { data: roleData }] = await Promise.all([
-      listPlatformUsers(),
-      listPlatformRoles(),
+    const [accountResponse, roleResponse, permissionResponse, auditResponse] = await Promise.all([
+      listPlatformAccounts(),
+      listPlatformManagedRoles(),
+      listPlatformPermissions(),
+      listPlatformAuthAuditEvents({ limit: 200 }),
       projectStore.fetchProjects(),
     ])
-    users.value = userData ?? []
-    roles.value = (roleData ?? []).filter((role) => role.status === 'ACTIVE')
-    await Promise.all(users.value.map((user) => loadUserGrants(user.id)))
+    accounts.value = accountResponse.data ?? []
+    roles.value = roleResponse.data ?? []
+    permissions.value = permissionResponse.data ?? []
+    auditEvents.value = auditResponse.data ?? []
+    lastRefreshedAt.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
+  } catch {
+    ElMessage.error('账号与权限数据加载失败，请稍后重试')
   } finally {
     loading.value = false
-  }
-}
-
-async function loadUserGrants(userId: number) {
-  const { data } = await listPlatformUserRoleGrants(userId)
-  grantsByUser[userId] = data ?? []
-}
-
-async function openGrants(user: PlatformUserView) {
-  currentUser.value = user
-  await Promise.all([loadUserGrants(user.id), projectStore.fetchProjects()])
-  editingGrants.value = grantsToEditorRows(grantsByUser[user.id] || [], projectStore.projects)
-  if (!editingGrants.value.length) {
-    addGrant()
-  }
-  dialogOpen.value = true
-}
-
-function addGrant() {
-  editingGrants.value.push({
-    roleId: roles.value[0]?.id ?? 0,
-    scopeType: 'GLOBAL',
-    projectIds: [],
-  })
-}
-
-function handleScopeTypeChange(grant: PlatformGrantEditorRow) {
-  if (grant.scopeType === 'PROJECT') {
-    grant.projectIds = []
-    return
-  }
-  grant.projectIds = []
-}
-
-function removeGrant(index: number) {
-  editingGrants.value.splice(index, 1)
-}
-
-async function saveGrants() {
-  if (!currentUser.value) return
-  const invalidRole = editingGrants.value.some((grant) => !grant.roleId)
-  const invalidProject = editingGrants.value.some(
-    (grant) => grant.scopeType === 'PROJECT' && grant.projectIds.length === 0,
-  )
-  if (invalidRole) {
-    ElMessage.warning('请选择角色')
-    return
-  }
-  if (invalidProject) {
-    ElMessage.warning('项目作用域请至少选择一个项目')
-    return
-  }
-  saving.value = true
-  try {
-    const payload = editorRowsToCommands(editingGrants.value, projectStore.projects)
-    await savePlatformUserRoleGrants(currentUser.value.id, payload)
-    await loadUserGrants(currentUser.value.id)
-    ElMessage.success('角色授权已保存')
-    dialogOpen.value = false
-  } finally {
-    saving.value = false
   }
 }
 
@@ -231,102 +159,157 @@ onMounted(reload)
 </script>
 
 <style scoped lang="scss">
-.platform-user-page {
+.platform-identity-page {
   min-height: 100%;
-  background: transparent;
   color: var(--text-primary);
 }
 
-.platform-user-table {
-  overflow: hidden;
-  border: 1px solid rgb(var(--brand-selected-rgb) / 0.56);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.74);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.76),
-    0 18px 42px rgb(var(--brand-primary-rgb) / 0.1);
-  backdrop-filter: blur(18px);
-
-  :deep(th.el-table__cell) {
-    background: rgb(var(--brand-selected-rgb) / 0.44);
-    color: var(--brand-active);
-    font-weight: 700;
-  }
-
-  :deep(td.el-table__cell) {
-    color: var(--text-primary);
-  }
-
-  :deep(.el-table__row:hover > td.el-table__cell) {
-    background: rgb(var(--brand-selected-rgb) / 0.2);
-  }
-}
-
-.grant-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.empty-text,
-.dialog-user span {
+.refresh-time {
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: 12px;
+  white-space: nowrap;
 }
 
-.dialog-user {
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.metric-card {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 15px;
+  border: 1px solid var(--border-divider);
+  border-radius: var(--radius-lg);
+  background: var(--surface-glass-panel);
+
+  > div {
+    display: grid;
+    gap: 1px;
+  }
+
+  strong {
+    font-size: 23px;
+    line-height: 1;
+  }
+
+  span,
+  small {
+    color: var(--text-secondary);
+    font-size: 12px;
+  }
+
+  small {
+    grid-column: 1 / -1;
+  }
+}
+
+.metric-card__icon {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border-radius: 12px;
+  font-size: 18px;
+
+  &.blue { color: #2563eb; background: rgba(37, 99, 235, 0.1); }
+  &.violet { color: #7c3aed; background: rgba(124, 58, 237, 0.1); }
+  &.green { color: #059669; background: rgba(5, 150, 105, 0.1); }
+  &.amber { color: #d97706; background: rgba(217, 119, 6, 0.1); }
+}
+
+.boundary-note {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 14px;
+  justify-content: center;
+  gap: 18px;
+  padding: 12px 18px;
+  border: 1px solid rgb(var(--brand-primary-rgb) / 0.2);
+  border-radius: var(--radius-lg);
+  background: rgb(var(--brand-selected-rgb) / 0.26);
+
+  > div {
+    display: grid;
+    gap: 1px;
+    text-align: center;
+  }
+
+  span {
+    color: var(--text-secondary);
+    font-size: 11px;
+  }
+
+  > .el-icon {
+    color: var(--text-secondary);
+  }
 }
 
-.grant-editor {
-  display: grid;
-  gap: 10px;
-  margin-bottom: 12px;
-}
-
-.grant-row {
-  display: grid;
-  grid-template-columns: minmax(200px, 1fr) 120px minmax(240px, 1.4fr) 40px;
-  gap: 8px;
-  align-items: center;
-}
-
-.scope-value {
+.identity-workbench {
   min-width: 0;
+  padding: 0 18px 18px;
+  border: 1px solid var(--border-divider);
+  border-radius: var(--radius-xl);
+  background: var(--surface-glass-panel);
+  box-shadow: 0 18px 44px rgb(var(--brand-primary-rgb) / 0.08);
 }
 
-:global([data-theme="dark"]) {
-  .platform-user-page {
-    color: #e5e7eb;
-  }
+.identity-tabs :deep(.el-tabs__header) {
+  margin-bottom: 18px;
+}
 
-  .platform-user-table {
-    border-color: rgb(var(--brand-primary-rgb) / 0.28);
-    background: linear-gradient(145deg, rgba(15, 23, 42, 0.82), rgb(var(--brand-primary-rgb) / 0.18));
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.08),
-      0 18px 44px rgba(0, 0, 0, 0.24);
-  }
+.identity-tabs :deep(.el-tabs__item) {
+  height: 54px;
+  padding: 0 22px;
+}
 
-  .platform-user-table {
-    :deep(th.el-table__cell) {
-      background: rgb(var(--brand-primary-rgb) / 0.24);
-      color: var(--brand-selected-bg);
-    }
+.tab-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
 
-    :deep(td.el-table__cell) {
-      background: rgba(15, 23, 42, 0.56);
-      color: #e2e8f0;
-    }
+  em {
+    display: inline-grid;
+    min-width: 20px;
+    height: 20px;
+    place-items: center;
+    padding: 0 5px;
+    border-radius: 10px;
+    background: var(--surface-glass-control);
+    font-size: 11px;
+    font-style: normal;
   }
 }
 
-@media (max-width: 760px) {
-  .grant-row {
+@media (max-width: 1050px) {
+  .metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .metric-grid {
     grid-template-columns: 1fr;
+  }
+
+  .boundary-note {
+    align-items: stretch;
+    flex-direction: column;
+
+    > .el-icon {
+      align-self: center;
+      transform: rotate(90deg);
+    }
+  }
+
+  .identity-workbench {
+    padding-inline: 10px;
+  }
+
+  .identity-tabs :deep(.el-tabs__item) {
+    padding: 0 8px;
   }
 }
 </style>

@@ -1,10 +1,13 @@
 <script setup lang="ts">
+import ModelSelectEmptyState from '@/components/model/ModelSelectEmptyState.vue'
 import type { ModelInstance } from '@/types/model'
 
 type AiGenerationMode = 'missing' | 'force'
 
 defineProps<{
   semanticModelInstances: ModelInstance[]
+  semanticModelInstancesLoading: boolean
+  semanticModelInstancesLoadError: boolean
   batchStarting: boolean
   taskRunning: boolean
   taskPercent: number
@@ -19,7 +22,12 @@ const aiGenerationMode = defineModel<AiGenerationMode>('aiGenerationMode', { req
 const emit = defineEmits<{
   startBatchGenerate: [force: boolean]
   saveAiGenerationSettings: []
+  refreshModelInstances: []
 }>()
+
+function handleModelSelectVisible(opened: boolean) {
+  if (opened) emit('refreshModelInstances')
+}
 </script>
 
 <template>
@@ -38,6 +46,8 @@ const emit = defineEmits<{
           placeholder="LLM 模型实例"
           filterable
           class="semantic-model-select-wide"
+          :loading="semanticModelInstancesLoading"
+          @visible-change="handleModelSelectVisible"
         >
           <el-option
             v-for="item in semanticModelInstances"
@@ -45,6 +55,15 @@ const emit = defineEmits<{
             :label="`${item.name} (${item.provider}/${item.modelName})`"
             :value="item.id"
           />
+          <template #empty>
+            <ModelSelectEmptyState
+              model-type="LLM"
+              :option-count="semanticModelInstances.length"
+              :loading="semanticModelInstancesLoading"
+              :load-error="semanticModelInstancesLoadError"
+              @retry="emit('refreshModelInstances')"
+            />
+          </template>
         </el-select>
       </el-form-item>
       <el-form-item label="生成策略">

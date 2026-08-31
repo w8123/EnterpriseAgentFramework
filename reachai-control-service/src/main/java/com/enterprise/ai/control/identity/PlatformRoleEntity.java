@@ -20,6 +20,8 @@ public class PlatformRoleEntity {
 
     private String description;
 
+    private String roleKind;
+
     private String status;
 
     private LocalDateTime createdAt;

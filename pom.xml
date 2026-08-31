@@ -43,6 +43,7 @@
         <!-- Data layer -->
         <mybatis-plus.version>3.5.6</mybatis-plus.version>
         <milvus-sdk.version>2.4.1</milvus-sdk.version>
+        <db-scheduler.version>16.11.0</db-scheduler.version>
 
         <!-- Utilities -->
         <hutool.version>5.8.27</hutool.version>
@@ -131,6 +132,13 @@
                 <groupId>com.baomidou</groupId>
                 <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
                 <version>${mybatis-plus.version}</version>
+            </dependency>
+
+            <!-- Embedded, persistent and cluster-safe Automation clock engine -->
+            <dependency>
+                <groupId>com.github.kagkarlsson</groupId>
+                <artifactId>db-scheduler</artifactId>
+                <version>${db-scheduler.version}</version>
             </dependency>
 
             <!-- Milvus SDK -->

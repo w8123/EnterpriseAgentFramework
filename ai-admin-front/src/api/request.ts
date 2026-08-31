@@ -2,7 +2,7 @@ import axios from 'axios'
 import type { AxiosInstance, AxiosResponse, InternalAxiosRequestConfig } from 'axios'
 import { ElMessage } from 'element-plus'
 import type { ApiResult } from '@/types/import'
-import { getPlatformToken } from '@/utils/platformAuth'
+import { getPlatformSessionId, PLATFORM_CSRF_HEADER } from '@/utils/platformAuth'
 import { handlePlatformSessionFailure } from '@/auth/platformSession'
 
 declare module 'axios' {
@@ -23,7 +23,7 @@ export function shouldHandlePlatformSessionFailure(error: any): boolean {
   return authFailure === 'PLATFORM_SESSION_INVALID'
 }
 
-function createInstance(baseURL: string): AxiosInstance {
+function createInstance(baseURL: string, platformSession = false): AxiosInstance {
   const instance = axios.create({
     baseURL,
     timeout: 60000,
@@ -32,9 +32,11 @@ function createInstance(baseURL: string): AxiosInstance {
 
   instance.interceptors.request.use(
     (config: InternalAxiosRequestConfig) => {
-      const token = getPlatformToken()
-      if (token) {
-        config.headers.Authorization = `Bearer ${token}`
+      const method = (config.method || 'get').toUpperCase()
+      const unsafeMethod = !['GET', 'HEAD', 'OPTIONS', 'TRACE'].includes(method)
+      const sessionId = platformSession && unsafeMethod ? getPlatformSessionId() : ''
+      if (sessionId) {
+        config.headers.set(PLATFORM_CSRF_HEADER, sessionId)
       }
       return config
     },
@@ -83,7 +85,7 @@ function createInstance(baseURL: string): AxiosInstance {
 const textRequest = createInstance(import.meta.env.VITE_API_BASE_URL || '/ai')
 
 /** Platform Control public API/BFF (current reachai-control-service): /api prefix. */
-export const controlRequest = createInstance('')
+export const controlRequest = createInstance('', true)
 
 /** Model Gateway deployment unit (current reachai-model-service): /model prefix. */
 export const modelRequest = createInstance('/model')

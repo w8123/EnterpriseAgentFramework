@@ -1,5 +1,7 @@
 package com.enterprise.ai.runtime.supervisor;
 
+import com.enterprise.ai.runtime.agentscope.ModelStreamFailure;
+import com.enterprise.ai.runtime.agentscope.ReachAiAgentScopeChatModel;
 import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient;
 import com.enterprise.ai.runtime.client.model.RuntimeModelStreamHttpClient;
 import com.enterprise.ai.runtime.memory.RuntimeSessionMemoryKey;

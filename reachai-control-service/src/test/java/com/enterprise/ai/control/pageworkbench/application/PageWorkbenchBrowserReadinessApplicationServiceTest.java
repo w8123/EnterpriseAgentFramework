@@ -1,8 +1,7 @@
 package com.enterprise.ai.control.pageworkbench.application;
 
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.ReadinessItem;
-import com.enterprise.ai.control.platform.PlatformEmbedE2eEvidenceService;
-import com.enterprise.ai.control.platform.PlatformEmbedE2eEvidenceService.EmbedConversationEvidence;
+import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchObservationPort.ConversationEvidence;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.RecoverableDataAccessException;
@@ -19,15 +18,15 @@ class PageWorkbenchBrowserReadinessApplicationServiceTest {
 
     @Test
     void mapsExactPageConversationObservationToPass() {
-        PlatformEmbedE2eEvidenceService evidenceService =
-                mock(PlatformEmbedE2eEvidenceService.class);
+        PageWorkbenchObservationPort evidenceService =
+                mock(PageWorkbenchObservationPort.class);
         LocalDateTime observedAfter =
                 LocalDateTime.of(2026, 7, 26, 10, 0);
         when(evidenceService.latestSuccessfulConversation(
                 "orders",
                 "orders.detail",
                 observedAfter))
-                .thenReturn(EmbedConversationEvidence.passed(
+                .thenReturn(ConversationEvidence.passed(
                         "Observed exact page conversation.",
                         "sessionId=session-1; pageKey=orders.detail"));
         PageWorkbenchBrowserReadinessApplicationService service =
@@ -54,15 +53,15 @@ class PageWorkbenchBrowserReadinessApplicationServiceTest {
 
     @Test
     void keepsMissingObservationPending() {
-        PlatformEmbedE2eEvidenceService evidenceService =
-                mock(PlatformEmbedE2eEvidenceService.class);
+        PageWorkbenchObservationPort evidenceService =
+                mock(PageWorkbenchObservationPort.class);
         LocalDateTime observedAfter =
                 LocalDateTime.of(2026, 7, 26, 10, 0);
         when(evidenceService.latestSuccessfulConversation(
                 "orders",
                 "orders.detail",
                 observedAfter))
-                .thenReturn(EmbedConversationEvidence.pending(
+                .thenReturn(ConversationEvidence.pending(
                         "No exact page conversation observed."));
         PageWorkbenchBrowserReadinessApplicationService service =
                 new PageWorkbenchBrowserReadinessApplicationService(
@@ -81,8 +80,8 @@ class PageWorkbenchBrowserReadinessApplicationServiceTest {
 
     @Test
     void keepsTaskDetailReadableWhenConversationEvidenceDatabaseIsUnavailable() {
-        PlatformEmbedE2eEvidenceService evidenceService =
-                mock(PlatformEmbedE2eEvidenceService.class);
+        PageWorkbenchObservationPort evidenceService =
+                mock(PageWorkbenchObservationPort.class);
         LocalDateTime observedAfter =
                 LocalDateTime.of(2026, 7, 26, 10, 0);
         when(evidenceService.latestSuccessfulConversation(

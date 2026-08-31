@@ -21,6 +21,12 @@ export function adaptWorkflowDebugStreamEvent(
     || (record?.traceId ? String(record.traceId) : undefined)
 
   switch (eventName) {
+    case 'runtime.execution.v1':
+      return createEvent('debug.workflow.runtime.event', record || {}, {
+        sessionId,
+        traceId,
+        sequence: typeof record?.sequence === 'number' ? record.sequence : undefined,
+      })
     case 'node.started':
       return createEvent('debug.workflow.node.started', record || {}, { sessionId, traceId })
     case 'node.waiting':

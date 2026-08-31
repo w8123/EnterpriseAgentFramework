@@ -30,7 +30,7 @@ node scripts/check-legacy-skill-contract.mjs
 编译五个 JDK 17 后端服务前，确认 `JAVA_HOME` 指向 JDK 17。Windows 本机如果默认还是 JDK 8，直接跑 Maven 可能报 `无效目标发行版: 17`；可先切到 `C:\Program Files\Java\jdk-17` 或使用 IDE/Maven runner 的 JDK 17 配置。
 
 ```powershell
-& "C:\Users\jsh\AppData\Local\Temp\apache-maven-3.9.9\bin\mvn.cmd" -pl reachai-control-service,reachai-runtime-service,reachai-capability-service,reachai-knowledge-service,reachai-model-service -am -DskipTests compile
+mvn -pl reachai-control-service,reachai-runtime-service,reachai-capability-service,reachai-knowledge-service,reachai-model-service -am -DskipTests compile
 ```
 
 五服务都通过 IDEA 或命令行启动后，运行 live smoke：
@@ -60,11 +60,11 @@ live smoke 继续检查：
 ## 单模块后端验证
 
 ```powershell
-& "C:\Users\jsh\AppData\Local\Temp\apache-maven-3.9.9\bin\mvn.cmd" -pl reachai-control-service -am test
-& "C:\Users\jsh\AppData\Local\Temp\apache-maven-3.9.9\bin\mvn.cmd" -pl reachai-runtime-service -am test
-& "C:\Users\jsh\AppData\Local\Temp\apache-maven-3.9.9\bin\mvn.cmd" -pl reachai-capability-service -am test
-& "C:\Users\jsh\AppData\Local\Temp\apache-maven-3.9.9\bin\mvn.cmd" -pl reachai-knowledge-service -am test
-& "C:\Users\jsh\AppData\Local\Temp\apache-maven-3.9.9\bin\mvn.cmd" -pl reachai-model-service -am test
+mvn -pl reachai-control-service -am test
+mvn -pl reachai-runtime-service -am test
+mvn -pl reachai-capability-service -am test
+mvn -pl reachai-knowledge-service -am test
+mvn -pl reachai-model-service -am test
 ```
 
 AI Coding Task Kernel 的 Windows 协议测试会真实启动两个独立 PowerShell 进程，验证 Trae 激活、DPAPI 恢复、UTF-8 中文事件、Artifact 应用、验收硬门禁、服务端 Embed E2E 依据和本地缓存清理：
@@ -114,7 +114,7 @@ $env:Path="$env:JAVA_HOME\bin;$env:Path"
 - `WorkflowHttpClientTest` / `WorkflowExecutionIdentityTest` / `WorkflowTrustedIdentityEntryTest`
 - `WorkflowTraceSanitizerPersistenceTest` / Knowledge retrieval 行为测试
 - Deploy：`deploy/k8s/secrets.yml.example` + Control/Runtime Deployment 注入同一 Secret；actuator `INTERNAL_AUTH_NOT_CONFIGURED`
-- 前端 `useWorkflowStudioPanelValidation.test.ts` + persistence/release/AI tests
+- 前端 `useWorkflowStudioPanelValidation.test.ts`、`knowledgeEvidencePolicy.guard.test.ts`、`useWorkflowStudioCanvasActions.guard.test.ts` + persistence/release/AI tests
 
 第五轮全量门槛命令：
 
@@ -197,6 +197,7 @@ node scripts/check-service-table-ownership.mjs
 
 ```powershell
 git diff --check
+node scripts/check-documentation.mjs
 node scripts/check-backend-boundary-naming.mjs
 node scripts/check-frontend-public-api-routes.mjs
 node scripts/check-legacy-skill-contract.mjs
@@ -210,7 +211,7 @@ node scripts/check-internal-api-contracts.mjs
 rg -n "ai-agent-service|ai-skills-service|ai-model-service|LEGACY_AGENT_SERVICE_DISABLED|disabled route|技能服务" README.md docs AGENTS.md
 ```
 
-注意：`docs/architecture/public-route-contracts.md` 和 `legacy-retirement.md` 可能为了契约说明保留旧 alias 或 retired route；主线入口、当前规则和启动说明不得把旧服务描述为当前运行单元。
+注意：`docs/architecture/public-route-contracts.md` 和 `service-boundaries.md` 可能为了契约说明保留旧 alias 或 retired route；主线入口、当前规则和启动说明不得把旧服务描述为当前运行单元。
 
 ## 最终说明
 

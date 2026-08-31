@@ -1,25 +1,53 @@
 # 架构契约
 
-这里放会影响代码边界、路由归属、服务间调用和部署方式的事实源。根目录文档只讲产品主线；具体约束以本目录为准。
+本目录只保存会影响当前产品边界、代码归属、协议、安全或运行语义的长期契约。实施步骤和未完成验收位于 [plans/](../plans/)；目标环境操作位于 [operations/](../operations/)。
+
+## 服务与接口边界
 
 | 文档 | 用途 |
 | --- | --- |
-| [public-route-contracts.md](./public-route-contracts.md) | 前端和外部调用应使用的公共路由、冻结兼容 alias 和 retired route |
-| [physical-split-route-ownership.md](./physical-split-route-ownership.md) | public route owning service 归属和迁移状态 |
-| [internal-api-contracts.md](./internal-api-contracts.md) | 服务间 internal API 契约、owner/consumer 和前端禁用边界 |
-| [service-table-ownership.md](./service-table-ownership.md) | 同库阶段的服务表所有权 |
-| [docling-document-ingestion.md](./docling-document-ingestion.md) | Java Fast / Docling 固定路由、原件与解析工件、异步导入任务、Chunk 来源锚点和部署安全边界 |
-| [model-center-v2.md](./model-center-v2.md) | 模型中心 V2：template / instance 职责、稳定 modelInstanceId、归档与测试语义 |
-| [agent-supervisor-runtime.md](./agent-supervisor-runtime.md) | AgentScope Supervisor、Agent 配置版本、Workflow-as-Tool 与跨路由 Page Bridge 主路径 |
-| [runtime-context-engineering.md](./runtime-context-engineering.md) | Harness 选择性接入、会话压缩、大 Tool 结果加密卸载、一次性超限恢复和灰度边界 |
-| [personal-agent-memory.md](./personal-agent-memory.md) | 个人长期记忆、AgentScope 会话记忆、候选确认、Knowledge 搜索投影、业务引用实时回源、删除和生产治理契约 |
-| [../operations/personal-memory-production-runbook.md](../operations/personal-memory-production-runbook.md) | Agent Memory 目标环境迁移、shadow、双用户负载、跨域擦除、备份恢复和生产证据门禁 |
-| [workflow-authoring-kernel.md](./workflow-authoring-kernel.md) | Workflow Studio AI 与外部 AI Coding / CLI 共用的 GraphSpec 修改、校验、修复和保存边界 |
-| [ai-coding-task-protocol-v1.md](./ai-coding-task-protocol-v1.md) | Codex / Cursor / Trae / Claude Code 统一任务交接、DPAPI 会话恢复、UTF-8 回传、任务级 Token、状态和 Provider 边界 |
-| [workflow-semantic-contract.md](./workflow-semantic-contract.md) | Workflow 分类、执行引擎、GraphSpec/Canvas、节点调用和生命周期的规范语义及迁移规则 |
-| [business-page-workbench.md](./business-page-workbench.md) | 业务页面工作台的页面地图、分析结果、AI Coding 任务、资源绑定、发布查询与服务边界 |
-| [unified-conversation-surfaces-implementation-plan.md](./unified-conversation-surfaces-implementation-plan.md) | Agent 调试台、Workflow Studio 调试对话框和业务 Embed Chat 的共享对话内核、组件、事件流与实施计划 |
-| [platform-auth-remediation-implementation-plan.md](./platform-auth-remediation-implementation-plan.md) | 管理端登录顺序、窗口级会话、Control API 鉴权、RBAC、bootstrap 与 Token 治理的实施计划 |
-| [backend-boundaries-and-naming.md](./backend-boundaries-and-naming.md) | 五服务边界、同库策略、命名规则和公共入口 |
-| [physical-services-and-startup.md](./physical-services-and-startup.md) | 五服务启动、IDEA 配置、环境变量和验证入口 |
-| [legacy-retirement.md](./legacy-retirement.md) | 旧 agent 主入口退场、兼容面生命周期和启动清单 |
+| [service-boundaries.md](./service-boundaries.md) | 五服务职责、调用方向、公共入口、本地启动和验证分层 |
+| [public-route-contracts.md](./public-route-contracts.md) | 外部/前端路由的 canonical、compatibility 和 retired 生命周期 |
+| [physical-split-route-ownership.md](./physical-split-route-ownership.md) | 公共路由逐项 owner、委托方式和实现状态 |
+| [internal-api-contracts.md](./internal-api-contracts.md) | 服务间 internal API 的 owner、consumer、用途和前端禁用边界 |
+| [service-table-ownership.md](./service-table-ownership.md) | 同库阶段每张表的唯一 owning service |
+| [internal-module-boundaries.md](./internal-module-boundaries.md) | Control/Runtime 服务内模块、依赖方向、循环债务基线和可执行守卫 |
+| [platform-api-auth-matrix.md](./platform-api-auth-matrix.md) | Control API 的凭证域、会话与 RBAC 边界 |
+| [platform-authorization-foundation.md](./platform-authorization-foundation.md) | 平台身份域、角色模板、权限作用域与建设/运营治理工作区边界 |
+| [platform-console-auth-state-machine.md](./platform-console-auth-state-machine.md) | 管理端登录、会话恢复、不可用和退出状态机 |
+
+## Agent、Workflow 与 Runtime
+
+| 文档 | 用途 |
+| --- | --- |
+| [agent-supervisor-runtime.md](./agent-supervisor-runtime.md) | AgentScope Supervisor、配置版本、Workflow-as-Tool 与 Page Bridge |
+| [workflow-semantic-contract.md](./workflow-semantic-contract.md) | GraphSpec、Canvas、节点、生命周期和发布语义 |
+| [runtime-execution-kernel-v2.md](./runtime-execution-kernel-v2.md) | GraphSpec 编译、Handler/Port、Capability V1、类型化事件、Trace Projector 与 WorkflowCheckpointV1 |
+| [runtime-automation.md](./runtime-automation.md) | Automation 边界、持久集群时钟、版本钉住、租约执行、RBAC 与 RunOps 契约 |
+| [workflow-authoring-kernel.md](./workflow-authoring-kernel.md) | Studio AI 与外部 AI Coding 共用的 mutation/validation 边界 |
+| [workflow-interaction-runtime.md](./workflow-interaction-runtime.md) | GraphSpec 原生暂停、恢复、交互和运行状态 |
+| [runtime-context-engineering.md](./runtime-context-engineering.md) | 会话压缩、Tool 结果卸载、超限恢复和灰度边界 |
+| [runops-trace-workflow-candidate.md](./runops-trace-workflow-candidate.md) | 从成功 Trace 生成受约束 Workflow 候选的闭环 |
+| [agent-skill-market.md](./agent-skill-market.md) | 外部 Agent Skill 发现、GitHub 不可变引入、来源信任与供应链边界 |
+| [agent-skill-center.md](./agent-skill-center.md) | 标准 Agent Skill 包、评审、精确绑定、Runtime 载入和 Host 边界 |
+| [managed-executor.md](./managed-executor.md) | 服务端 Codex harness、Runtime 控制面、AgentScope 异步委托、沙箱与证据边界 |
+| [managed-executor-threat-model.md](./managed-executor-threat-model.md) | 不可信 Workspace/Codex 的跨租户、凭据、网络、逃逸、资源与审批威胁门禁 |
+
+## 项目接入与平台能力
+
+| 文档 | 用途 |
+| --- | --- |
+| [ai-coding-task-protocol-v1.md](./ai-coding-task-protocol-v1.md) | 外部 AI Coding 任务交接、状态、凭证、Artifact 和验收协议 |
+| [business-page-workbench.md](./business-page-workbench.md) | 页面地图、改造分析、任务交付、资源绑定和发布查询 |
+| [api-market.md](./api-market.md) | 外部 API 目录、版本、Operation、项目接入和来源治理 |
+| [model-center-v2.md](./model-center-v2.md) | 模型模板/实例、稳定 ID、测试、归档和凭据边界 |
+| [docling-document-ingestion.md](./docling-document-ingestion.md) | 文档解析路由、导入任务、原件工件和部署安全 |
+| [personal-agent-memory.md](./personal-agent-memory.md) | 会话、个人、业务记忆及检索投影、遗忘与生产治理 |
+
+## 开放协议
+
+| 文档 | 用途 |
+| --- | --- |
+| [a2a-hub-product-design.md](./a2a-hub-product-design.md) | A2A Hub 产品边界、角色、旅程、状态和企业验收门禁 |
+| [a2a-hub-architecture.md](./a2a-hub-architecture.md) | A2A 1.0、身份/信任、Task/Artifact、出站委派和数据边界 |
+| [mcp-hub-product-design.md](./mcp-hub-product-design.md) | MCP Hub 发布修订、Client、协议调用、权限和审计边界 |

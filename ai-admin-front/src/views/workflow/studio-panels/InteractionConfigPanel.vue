@@ -33,7 +33,7 @@
         </el-form-item>
         <el-form-item v-if="binding.sourceKind === 'API'" label="选择接口">
           <div class="api-binding-row">
-            <el-select v-model="binding.ref" filterable clearable :teleported="false" placeholder="选择项目接口 / API 型 Tool" @change="handleBindingRefChange">
+            <el-select v-model="binding.ref" filterable clearable :teleported="false" placeholder="选择项目接口 / API 执行定义" @change="handleBindingRefChange">
               <el-option
                 v-for="item in apiToolOptions"
                 :key="item.name"
@@ -79,10 +79,10 @@
           placeholder="搜索接口名称、路径、描述"
           @keyup.enter="reloadProjectApis"
         />
-        <el-select v-model="projectApiFilters.toolLinkStatus" clearable placeholder="Tool 关联状态">
-          <el-option label="已关联 Tool" value="LINKED" />
-          <el-option label="未关联 Tool" value="NOT_LINKED" />
-          <el-option label="全局 Tool 缺失" value="GLOBAL_MISSING" />
+        <el-select v-model="projectApiFilters.toolLinkStatus" clearable placeholder="能力纳管状态">
+          <el-option label="已纳管" value="LINKED" />
+          <el-option label="未纳管" value="NOT_LINKED" />
+          <el-option label="能力执行定义缺失" value="GLOBAL_MISSING" />
         </el-select>
         <el-button type="primary" @click="reloadProjectApis">查询</el-button>
         <el-button @click="resetProjectApiFilters">重置</el-button>
@@ -649,7 +649,7 @@ async function loadProjectApis() {
 
 async function selectProjectApi(row: ProjectToolInfo) {
   if (!isProjectApiToolSelectable(row)) {
-    ElMessage.warning('该接口还不能直接用于交互节点，请先完成 Tool 关联并开启 Agent 可见。')
+    ElMessage.warning('该接口还不能直接用于交互节点，请先纳入能力目录并启用。')
     return
   }
   selectedProjectApiTool.value = projectApiToTool(row)

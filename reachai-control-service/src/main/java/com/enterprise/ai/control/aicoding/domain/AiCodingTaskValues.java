@@ -45,6 +45,16 @@ public final class AiCodingTaskValues {
         CLAUDE_CODE
     }
 
+    public enum ExecutionMode {
+        EXTERNAL_CLIENT,
+        MANAGED_SANDBOX
+    }
+
+    public enum ManagedSandboxProfile {
+        ANALYZE_READONLY,
+        WORKSPACE_PATCH
+    }
+
     public enum ExecutionStatus {
         READY,
         RUNNING,
@@ -76,7 +86,8 @@ public final class AiCodingTaskValues {
         WAITING_CONNECT,
         ACTIVE,
         TIMED_OUT,
-        CLOSED
+        CLOSED,
+        NOT_APPLICABLE
     }
 
     public enum TargetRole {

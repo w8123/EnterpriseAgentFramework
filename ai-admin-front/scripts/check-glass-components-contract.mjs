@@ -10398,8 +10398,12 @@ function withToolEmptyContract(source) {
 }
 
 async function runToolHeadMutationProof(name, mutate, expectedFailure) {
+  // The editable /tool product page is retired. Keep historical fixture helpers isolated
+  // from current filesystem contracts until this legacy mutation block is removed wholesale.
+  const retiredConsumerPath = resolve(root, 'src/views/tool/ToolList.vue')
+  if (!existsSync(retiredConsumerPath)) return
   const label = `mutation:${name}`
-  const actualSource = readNormalizedUtf8(resolve(root, 'src/views/tool/ToolList.vue'))
+  const actualSource = readNormalizedUtf8(retiredConsumerPath)
   const mutationFailures = await validateToolListConsumer(
     mutate(withToolEmptyContract(actualSource)),
     label,
@@ -10418,8 +10422,11 @@ async function runToolHeadMutationProof(name, mutate, expectedFailure) {
 }
 
 async function runToolHeadSafeVariantProof(name, mutate) {
+  // The editable /tool product page is retired; there is no current consumer to compare to HEAD.
+  const retiredConsumerPath = resolve(root, 'src/views/tool/ToolList.vue')
+  if (!existsSync(retiredConsumerPath)) return
   const label = `safe-variant:${name}`
-  const actualSource = readNormalizedUtf8(resolve(root, 'src/views/tool/ToolList.vue'))
+  const actualSource = readNormalizedUtf8(retiredConsumerPath)
   const variantFailures = await validateToolListConsumer(
     mutate(withToolEmptyContract(actualSource)),
     label,
@@ -10877,7 +10884,8 @@ function runAgentMutationHarnessProof() {
 }
 
 function currentMcpOnboardingSource() {
-  return readNormalizedUtf8(resolve(root, 'src/views/mcp/McpOnboarding.vue'))
+  const retiredConsumerPath = resolve(root, 'src/views/mcp/McpOnboarding.vue')
+  return existsSync(retiredConsumerPath) ? readNormalizedUtf8(retiredConsumerPath) : null
 }
 
 async function runMcpOnboardingMutationProof(
@@ -10887,6 +10895,7 @@ async function runMcpOnboardingMutationProof(
   mutate,
   expectedFailure,
 ) {
+  if (baseline == null) return
   const label = `mutation:${name}`
   let mutated
   try {
@@ -10912,6 +10921,7 @@ async function runMcpOnboardingMutationProof(
 }
 
 async function runMcpOnboardingSafeVariantProof(name, baseline, validationOptions, mutate) {
+  if (baseline == null) return
   const label = `safe-variant:${name}`
   let mutated
   try {
@@ -11218,15 +11228,17 @@ async function runMutationProofs() {
   }
 
   const actualMcpOnboardingSource = currentMcpOnboardingSource()
-  const actualMcpOnboardingBaselineFailures = await validateMcpOnboardingConsumer(
-    actualMcpOnboardingSource,
-    'actual MCP onboarding consumer mutation baseline',
-  )
-  if (actualMcpOnboardingBaselineFailures.length > 0) {
-    failures.push(
-      `actual MCP onboarding consumer mutation baseline must pass with HEAD preservation: ${actualMcpOnboardingBaselineFailures.join(' | ')}`,
+  if (actualMcpOnboardingSource != null) {
+    const actualMcpOnboardingBaselineFailures = await validateMcpOnboardingConsumer(
+      actualMcpOnboardingSource,
+      'actual MCP onboarding consumer mutation baseline',
     )
-    baselineFailed = true
+    if (actualMcpOnboardingBaselineFailures.length > 0) {
+      failures.push(
+        `actual MCP onboarding consumer mutation baseline must pass with HEAD preservation: ${actualMcpOnboardingBaselineFailures.join(' | ')}`,
+      )
+      baselineFailed = true
+    }
   }
 
   runKnowledgeMutationHarnessProof()
@@ -15301,16 +15313,8 @@ for (const relativePath of componentFiles) {
 }
 
 const toolListConsumerPath = resolve(root, 'src/views/tool/ToolList.vue')
-if (!existsSync(toolListConsumerPath)) {
-  failures.push('src/views/tool/ToolList.vue is missing; /tool consumer contract unavailable')
-} else {
-  failures.push(
-    ...(await validateToolListConsumer(
-      readNormalizedUtf8(toolListConsumerPath),
-      'src/views/tool/ToolList.vue (/tool)',
-      { compareHead: true },
-    )),
-  )
+if (existsSync(toolListConsumerPath)) {
+  failures.push('src/views/tool/ToolList.vue must stay retired; generic Tool is not a product asset')
 }
 
 const knowledgeDetailConsumerPath = resolve(root, 'src/views/KnowledgeDetail.vue')
@@ -15339,15 +15343,8 @@ if (!existsSync(agentEditConsumerPath)) {
 }
 
 const mcpOnboardingConsumerPath = resolve(root, 'src/views/mcp/McpOnboarding.vue')
-if (!existsSync(mcpOnboardingConsumerPath)) {
-  failures.push('src/views/mcp/McpOnboarding.vue is missing; MCP onboarding consumer contract unavailable')
-} else {
-  failures.push(
-    ...(await validateMcpOnboardingConsumer(
-      readNormalizedUtf8(mcpOnboardingConsumerPath),
-      'src/views/mcp/McpOnboarding.vue (/mcp/onboarding)',
-    )),
-  )
+if (existsSync(mcpOnboardingConsumerPath)) {
+  failures.push('src/views/mcp/McpOnboarding.vue must stay retired; onboarding now belongs to MCP publication detail')
 }
 
 const toolRetrievalTestConsumerPath = resolve(root, 'src/views/tool/ToolRetrievalTest.vue')

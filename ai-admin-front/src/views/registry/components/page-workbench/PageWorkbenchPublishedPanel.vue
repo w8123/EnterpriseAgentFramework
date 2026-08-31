@@ -111,7 +111,7 @@ function formatDateTime(value?: string) {
             {{ formatDateTime(workflow.latestCallAt) }}
           </span>
           <span>
-            <strong>工具</strong>
+            <strong>调用名称</strong>
             {{ workflow.toolName }}
           </span>
         </div>

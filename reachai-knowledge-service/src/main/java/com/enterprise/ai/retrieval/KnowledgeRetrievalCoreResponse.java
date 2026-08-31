@@ -6,6 +6,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * Canonical production retrieval response shared by admin retrieval test and Runtime internal API.
@@ -23,6 +24,8 @@ public class KnowledgeRetrievalCoreResponse {
     private Boolean directReturn;
     private String directReturnContent;
     private List<RetrievalItem> items;
+    /** Non-sensitive retrieval counters/timings for Runtime trace projection. */
+    private Map<String, Object> diagnostics;
 
     @Data
     @Builder

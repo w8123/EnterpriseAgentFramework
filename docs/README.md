@@ -1,59 +1,78 @@
-# ReachAI 文档入口
+# ReachAI 文档中心
 
-本目录是 ReachAI 的内部知识库入口。根目录 `README.md` 面向快速了解和启动；本目录用于解释产品能力、实现边界、接口归属、SQL 基线和后续 AI 编程工具的上下文。
+这里是 ReachAI 的工程与产品知识库。根目录 [README](../README.md) 负责产品介绍和快速开始；本目录负责当前能力边界、服务契约、接入方法、运行手册和仍在推进的计划。
 
-## 当前后端拓扑
+## 先按目的阅读
 
-当前后端主路径是五个部署单元：
+| 你要做什么 | 从这里开始 | 继续阅读 |
+| --- | --- | --- |
+| 快速理解产品和系统边界 | [平台定位与架构总览](./01-平台定位与架构总览.md) | [五服务边界与本地启动](./architecture/service-boundaries.md) |
+| 接入一个 Java 业务系统 | [项目注册与能力资产](./02-项目注册与能力资产.md) | [SDK 接入与 Embed Chat 快速参考](./reference/SDK接入与EmbedChat快速参考.md)、[接入指南](./guides/) |
+| 开发 Agent 或 Workflow | [Workflow Studio 与 Runtime](./03-Workflow-Studio与Runtime.md) | [Workflow 语义契约](./architecture/workflow-semantic-contract.md)、[Agent Supervisor Runtime](./architecture/agent-supervisor-runtime.md) |
+| 排查运行、权限或开放协议 | [运行治理与开放协议](./04-运行治理与开放协议.md) | [Public Route Contracts](./architecture/public-route-contracts.md)、[Control API 认证边界矩阵](./architecture/platform-api-auth-matrix.md) |
+| 使用知识、模型和企业数据 | [知识、模型与企业资产](./05-知识模型与企业资产.md) | [Docling 文档导入](./architecture/docling-document-ingestion.md)、[模型中心 V2](./architecture/model-center-v2.md) |
+| 发布或做目标环境验收 | [生产运行手册](./operations/) | 对应专题的状态与验收矩阵 |
+| 继续尚未完成的重构 | [计划与验收](./plans/) | 先核对计划顶部状态，不把计划当成当前事实 |
+| 让 AI 编程工具接手 | [AI Memory](./ai-memory/) | 根目录 [AGENTS.md](../AGENTS.md) 优先级最高 |
 
-| 服务 | 默认端口 | 定位 |
-| --- | ---: | --- |
-| `reachai-control-service` | 18603 | Public API / BFF / Platform Control |
-| `reachai-runtime-service` | 18604 | Runtime Host |
-| `reachai-capability-service` | 18605 | Capability Catalog |
-| `reachai-knowledge-service` | 18602 | Knowledge / Retrieval |
-| `reachai-model-service` | 18601 | Model Gateway |
+## 当前部署拓扑
 
-第一阶段保持同一个 MySQL 库，不拆库。公共 `/api/**`、`/embed/**` 和 SDK 注册入口由 `reachai-control-service` 收口；前端不直接调用 Runtime 或 Capability 内部端口。旧 `ai-agent-service` module 已从仓库主路径删除，不再作为 Maven、IDEA、本地启动或部署单元存在。
+| 服务 | 默认端口 | 当前 owner 边界 | 模块说明 |
+| --- | ---: | --- | --- |
+| `reachai-model-service` | 18601 | 模型模板/实例、Chat、Embedding、Rerank | [README](../reachai-model-service/README.md) |
+| `reachai-knowledge-service` | 18602，`/ai` | 知识库、文档、检索、RAG、业务索引、记忆投影 | [README](../reachai-knowledge-service/README.md) |
+| `reachai-control-service` | 18603 | 公共 API/BFF、身份、Embed、项目工作台、治理与开放协议 | [README](../reachai-control-service/README.md) |
+| `reachai-runtime-service` | 18604 | Agent、Workflow、GraphSpec、执行、Trace/RunOps、EvalOps | [README](../reachai-runtime-service/README.md) |
+| `reachai-capability-service` | 18605 | SDK 注册、能力快照/评审、扫描目录、能力目录、运行时调用投影、API 市场 | [README](../reachai-capability-service/README.md) |
 
-## 推荐阅读顺序
+第一阶段五服务共用一个 MySQL 库，但表和代码仍按 owning service 隔离。管理端 `/api/**` 进入 Control，`/ai/**` 进入 Knowledge，`/model/**` 进入 Model；前端不直连 Runtime 或 Capability 内部端口。详细边界只在 [五服务边界与本地启动](./architecture/service-boundaries.md) 维护，不在各专题重复一套拓扑。
 
-| 文档 | 适合回答的问题 |
+## 文档分区
+
+| 目录 | 内容 | 是否代表当前事实 |
+| --- | --- | --- |
+| [architecture/](./architecture/) | 服务、路由、表、协议和运行语义契约 | 是；仍须以当前代码/SQL 校验 |
+| [reference/](./reference/) | 身份、Embed、SDK、Context 等长篇专题参考 | 是；用于解释细节 |
+| [guides/](./guides/) | 面向接入方的可执行步骤和样例 | 以文档注明的环境为准 |
+| [operations/](./operations/) | 迁移、发布、演练和生产准入 | 命令默认未执行；以证据矩阵为准 |
+| [plans/](./plans/) | 实施中或仍缺 E2E 的计划 | 否；计划不等于现状 |
+| [ai-memory/](./ai-memory/) | 给 AI 编程工具的浓缩事实、决策和排障顺序 | 辅助入口；代码优先 |
+| [系统截图/](./系统截图/) | README 和说明文档使用的产品截图 | 展示资产，不作为实现证据 |
+
+## 当前事实源地图
+
+| 事实 | 权威入口 |
 | --- | --- |
-| [01-平台定位与架构总览.md](./01-平台定位与架构总览.md) | 系统定位、核心能力、管理端页面、统一 SQL 基线 |
-| [02-项目注册与能力资产.md](./02-项目注册与能力资产.md) | 业务系统接入、SDK 注册、扫描接入、Tool/Capability 资产 |
-| [03-Workflow-Studio与Runtime.md](./03-Workflow-Studio与Runtime.md) | Agent Supervisor、Workflow Studio、Workflow-as-Tool、GraphSpec、Page Bridge、调试和发布 |
-| [04-运行治理与开放协议.md](./04-运行治理与开放协议.md) | Trace、RunOps、ACL、Guard、MCP、A2A、Gateway |
-| [05-知识模型与企业资产.md](./05-知识模型与企业资产.md) | 模型实例、知识库、业务索引、领域和市场资产 |
+| Maven 模块、Java/Spring 版本 | 根 `pom.xml` 与模块 `pom.xml` |
+| 端口、服务 URL、功能开关 | 各服务 `src/main/resources/application.yml` |
+| 前端路由和代理 | `ai-admin-front/src/router/index.ts`、`vite.config.ts` |
+| 新库 Schema | `sql/initV2.sql` |
+| 已有环境升级 | `sql/upgrade-*.sql` 与 [sql/README.md](../sql/README.md) |
+| 公共路由生命周期 | [public-route-contracts.md](./architecture/public-route-contracts.md) |
+| 服务间调用 | [internal-api-contracts.md](./architecture/internal-api-contracts.md) |
+| 表所有权 | [service-table-ownership.md](./architecture/service-table-ownership.md) |
+| Workflow 运行语义 | [workflow-semantic-contract.md](./architecture/workflow-semantic-contract.md) 与 Runtime 源码 |
+| 实现/部署/生产完成度 | 专题顶部状态、验收矩阵、真实进程/数据库/浏览器证据 |
 
-## 专题入口
+## 状态用语
 
-| 目录 | 用途 |
-| --- | --- |
-| [architecture/](./architecture/) | 后端物理拆分、public route、internal API、服务表所有权和旧结构退场事实源 |
-| [guides/](./guides/) | 面向业务系统接入方的操作型指南和样例 |
-| [reference/](./reference/) | 身份授权、嵌入式对话、AI Coding、Context Governance 等长篇专题参考 |
-| [ai-memory/](./ai-memory/) | 给 Codex、Cursor、Claude Code 等 AI 编程工具看的项目记忆入口 |
+- `CODE_VERIFIED` / `BUILD_VERIFIED`：只证明源码、测试或制品，不证明运行中的服务已加载。
+- `E2E_PENDING` / `LIVE_PENDING` / `NOT RUN`：缺真实服务、数据库、外部依赖或浏览器证据，不得改写为“已完成”。
+- `DEPLOYMENT_READY`：只对完成验收的具体环境成立，不自动代表生产。
+- `PRODUCTION_*`：必须同时有目标环境配置、数据迁移、进程、监控、安全与业务 E2E 证据。
 
-## 架构契约
+## 维护规则
 
-| 文档 | 适合回答的问题 |
-| --- | --- |
-| [architecture/public-route-contracts.md](./architecture/public-route-contracts.md) | 前端和外部调用应使用的公共路由、冻结兼容 alias 和 retired route |
-| [architecture/physical-split-route-ownership.md](./architecture/physical-split-route-ownership.md) | public route owning service 归属 |
-| [architecture/internal-api-contracts.md](./architecture/internal-api-contracts.md) | 服务间 internal API 契约、owner/consumer 和前端禁用边界 |
-| [architecture/service-table-ownership.md](./architecture/service-table-ownership.md) | 同库阶段的服务表所有权 |
-| [architecture/docling-document-ingestion.md](./architecture/docling-document-ingestion.md) | Java Fast / Docling 固定解析路由、导入任务、原件工件与部署安全边界 |
-| [architecture/agent-supervisor-runtime.md](./architecture/agent-supervisor-runtime.md) | AgentScope Supervisor、Agent 配置版本、Workflow-as-Tool 和 Page Bridge 跨路由协议 |
-| [architecture/backend-boundaries-and-naming.md](./architecture/backend-boundaries-and-naming.md) | 五服务边界、同库策略、命名规则和公共入口 |
-| [architecture/physical-services-and-startup.md](./architecture/physical-services-and-startup.md) | 五服务启动、IDEA 配置、环境变量和验证入口 |
-| [architecture/legacy-retirement.md](./architecture/legacy-retirement.md) | 旧 agent 主入口退场、兼容面生命周期和启动清单 |
+1. 当前代码、SQL、接口、配置和测试高于文档；发现冲突时在同一变更中修正文档。
+2. 高层 01–05 只讲稳定主线，易变字段、完整 API 和状态机下沉到专题契约或服务 README。
+3. 一次性步骤、执行提示词和未完成验收放在 `plans/`；目标环境命令与演练放在 `operations/`。
+4. 文档默认使用 `Capability / 能力`。`Skill` 只表示标准 Agent Skill 包、外部协议字段或明确的历史否定语境。
+5. 新增、删除或移动文档时同步更新所在目录的 `README.md`，并运行文档检查。
+6. 不在文档中保存真实 Token、密码、密钥、内部 URL、用户数据或个人机器专用路径。
 
-## 文档维护规则
+验证入口：
 
-- 当前代码、SQL、接口和启动配置永远优先于文档。
-- 新文档按产品能力和当前边界组织，不新增阶段型临时清单作为主知识库。
-- 一次性执行计划、审计提示词、阶段任务拆解和已完成的联调讨论不再保留在 `docs/`；需要长期保留的结论应沉淀到当前事实文档、`docs/architecture/` 或 `docs/ai-memory/`。
-- 默认使用 `Capability / 能力`；只有解释历史代码、SQL 名称或兼容路径时才使用 `Skill`。
-- 实现说明必须指向真实代码模块、前端页面、接口路径或 SQL 表。
-- 如果旧 `ai-agent-service`、旧三服务命名或旧代理策略再次出现在当前入口文档中，应视为边界回退并修正。
+```powershell
+node scripts/check-documentation.mjs
+git diff --check
+```

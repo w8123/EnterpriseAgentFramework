@@ -1,5 +1,6 @@
 package com.enterprise.ai.runtime.supervisor;
 
+import com.enterprise.ai.runtime.execution.SupervisorRuntimeAdapter;
 import com.enterprise.ai.runtime.agent.RuntimeAgentConfigVersionEntity;
 import com.enterprise.ai.runtime.agent.RuntimeAgentView;
 import com.enterprise.ai.runtime.agent.RuntimeAgentWorkflowToolEntity;
@@ -69,7 +70,7 @@ class SupervisorWorkflowCancellationTest {
 
         assertFalse(result.success());
         assertEquals("SUPERVISOR_CANCELLED", result.code());
-        verify(graphExecutor, never()).execute(any(), any(), any(), any(), any());
+        verify(graphExecutor, never()).execute(any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -79,7 +80,7 @@ class SupervisorWorkflowCancellationTest {
         RuntimeAgentExecutionCancellation cancellation = new RuntimeAgentExecutionCancellation();
         CountDownLatch inWorkflow = new CountDownLatch(1);
         AtomicInteger graphCalls = new AtomicInteger();
-        when(graphExecutor.execute(any(), any(), any(), any(), any())).thenAnswer(invocation -> {
+        when(graphExecutor.execute(any(), any(), any(), any(), any(), any())).thenAnswer(invocation -> {
             graphCalls.incrementAndGet();
             RuntimeGraphSpecExecutionCancellation workflowCancel = invocation.getArgument(3);
             inWorkflow.countDown();
@@ -124,7 +125,7 @@ class SupervisorWorkflowCancellationTest {
         CountDownLatch bothStarted = new CountDownLatch(2);
         List<RuntimeGraphSpecExecutionCancellation> captured =
                 Collections.synchronizedList(new ArrayList<>());
-        when(graphExecutor.execute(any(), any(), any(), any(), any())).thenAnswer(invocation -> {
+        when(graphExecutor.execute(any(), any(), any(), any(), any(), any())).thenAnswer(invocation -> {
             RuntimeGraphSpecExecutionCancellation workflowCancel = invocation.getArgument(3);
             captured.add(workflowCancel);
             bothStarted.countDown();
@@ -155,7 +156,7 @@ class SupervisorWorkflowCancellationTest {
     void cancelAfterSuccessfulWorkflowIsIdempotent() {
         RuntimeAgentWorkflowToolEntity tool = tool("wf-1", "query_team");
         stubWorkflow(tool);
-        when(graphExecutor.execute(any(), any(), any(), any(), any())).thenReturn(
+        when(graphExecutor.execute(any(), any(), any(), any(), any(), any())).thenReturn(
                 new RuntimeGraphSpecExecutionResult(true, "OK", "done", null, null, List.of(), Map.of()));
         RuntimeAgentExecutionCancellation cancellation = new RuntimeAgentExecutionCancellation();
         AgentScopeSupervisorRuntimeAdapter adapter = adapter(modelForPlanAndToolThenAnswer());

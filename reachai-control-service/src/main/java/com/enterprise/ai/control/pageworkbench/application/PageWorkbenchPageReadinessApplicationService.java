@@ -1,15 +1,12 @@
 package com.enterprise.ai.control.pageworkbench.application;
 
-import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.PageIntegrationReadinessItem;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.PageIntegrationReadinessView;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.PageView;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.PublishedWorkflowView;
-import com.enterprise.ai.control.platform.PlatformEmbedSessionEntity;
-import com.enterprise.ai.control.platform.PlatformEmbedSessionMapper;
-import com.enterprise.ai.control.platform.PlatformEmbedE2eEvidenceService;
-import com.enterprise.ai.control.platform.PlatformPageActionEventEntity;
-import com.enterprise.ai.control.platform.PlatformPageActionEventMapper;
+import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchObservationPort.ActionObservation;
+import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchObservationPort.ConversationEvidence;
+import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchObservationPort.SessionObservation;
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.ReadinessItem;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -42,9 +39,7 @@ public class PageWorkbenchPageReadinessApplicationService {
             "reachai.page-workbench.page-integration-readiness.v1";
 
     private final PageCatalogApplicationService pageCatalog;
-    private final PlatformEmbedSessionMapper sessionMapper;
-    private final PlatformPageActionEventMapper actionEventMapper;
-    private final PlatformEmbedE2eEvidenceService embedEvidence;
+    private final PageWorkbenchObservationPort observations;
     private final PageWorkbenchPublishedApplicationService publishedService;
     private final PageWorkbenchAgentModelReadinessApplicationService modelReadiness;
     private final PageWorkbenchWorkflowTraceReadinessApplicationService
@@ -106,13 +101,13 @@ public class PageWorkbenchPageReadinessApplicationService {
                                 "actionKeys",
                                 objectMapper.valueToTree(expectedActions))));
 
-        PlatformEmbedSessionEntity session = latestActiveSession(
+        SessionObservation session = observations.latestActiveSession(
                 targetProjectCode,
                 page.pageKey(),
                 now);
         boolean sessionReady = session != null
-                && StringUtils.hasText(session.getSdkVersion())
-                && StringUtils.hasText(session.getPageInstanceId());
+                && StringUtils.hasText(session.sdkVersion())
+                && StringUtils.hasText(session.pageInstanceId());
         items.add(item(
                 "PAGE_BRIDGE_SESSION_READY",
                 "Page Bridge 会话",
@@ -132,7 +127,7 @@ public class PageWorkbenchPageReadinessApplicationService {
 
         Set<String> observedActions = session == null
                 ? Set.of()
-                : readBridgeActions(session.getBridgeActionsJson());
+                : readBridgeActions(session.bridgeActionsJson());
         Set<String> missingActions = new LinkedHashSet<>(expectedActions);
         missingActions.removeAll(observedActions);
         String bindingStatus;
@@ -161,25 +156,27 @@ public class PageWorkbenchPageReadinessApplicationService {
                 bindingMessage,
                 bindingEvidence));
 
-        PlatformPageActionEventEntity latestEvent = session == null
+        ActionObservation latestEvent = session == null
                 ? null
-                : latestActionEvent(session.getSessionId(), page.pageKey());
+                : observations.latestPageActionEvent(
+                        session.sessionId(),
+                        page.pageKey());
         String runtimeStatus;
         String runtimeMessage;
         if (latestEvent == null) {
             runtimeStatus = "PENDING";
             runtimeMessage = "尚未观察到当前页面操作的真实执行结果。";
-        } else if ("SUCCESS".equalsIgnoreCase(latestEvent.getStatus())) {
+        } else if ("SUCCESS".equalsIgnoreCase(latestEvent.status())) {
             runtimeStatus = "PASS";
             runtimeMessage = "最近一次页面操作已由业务页面成功回传结果。";
-        } else if (isBusinessTerminalStatus(latestEvent.getStatus())) {
+        } else if (isBusinessTerminalStatus(latestEvent.status())) {
             runtimeStatus = "PASS";
             runtimeMessage = "最近一次页面操作已完成并返回业务终态："
-                    + latestEvent.getStatus() + "。这不是 ReachAI 或页面桥的技术故障。";
+                    + latestEvent.status() + "。这不是 ReachAI 或页面桥的技术故障。";
         } else {
             runtimeStatus = "WARN";
             runtimeMessage = "最近一次页面操作已回传，但状态为 "
-                    + latestEvent.getStatus() + "。";
+                    + latestEvent.status() + "。";
         }
         items.add(item(
                 "PAGE_ACTION_RUNTIME_READY",
@@ -254,68 +251,12 @@ public class PageWorkbenchPageReadinessApplicationService {
                 now);
     }
 
-    private PlatformEmbedSessionEntity latestActiveSession(
-            String projectCode,
-            String pageKey,
-            LocalDateTime now) {
-        PlatformEmbedSessionEntity session = sessionMapper.selectOne(
-                Wrappers.<PlatformEmbedSessionEntity>lambdaQuery()
-                        .eq(
-                                PlatformEmbedSessionEntity::getProjectCode,
-                                projectCode)
-                        .eq(PlatformEmbedSessionEntity::getPageKey, pageKey)
-                        .eq(PlatformEmbedSessionEntity::getStatus, "ACTIVE")
-                        .orderByDesc(
-                                PlatformEmbedSessionEntity::getUpdatedAt)
-                        .last("LIMIT 1"));
-        if (session == null
-                || (session.getExpiresAt() != null
-                && !session.getExpiresAt().isAfter(now))) {
-            return null;
-        }
-        return session;
-    }
-
-    private PlatformPageActionEventEntity latestActionEvent(
-            String sessionId,
-            String pageKey) {
-        if (!StringUtils.hasText(sessionId)) {
-            return null;
-        }
-        return actionEventMapper.selectOne(
-                Wrappers.<PlatformPageActionEventEntity>lambdaQuery()
-                        .eq(
-                                PlatformPageActionEventEntity::getSessionId,
-                                sessionId)
-                        .eq(
-                                PlatformPageActionEventEntity::getCommandType,
-                                "PAGE_ACTION")
-                        .eq(
-                                PlatformPageActionEventEntity::getTargetPageKey,
-                                pageKey)
-                        .in(
-                                PlatformPageActionEventEntity::getStatus,
-                                List.of(
-                                        "SUCCESS",
-                                        "NO_DATA",
-                                        "PRECONDITION_FAILED",
-                                        "USER_CANCELLED",
-                                        "FAILED",
-                                        "CANCELLED",
-                                        "ACTION_NOT_FOUND",
-                                        "FORBIDDEN",
-                                        "TIMEOUT"))
-                        .orderByDesc(
-                                PlatformPageActionEventEntity::getCompletedAt)
-                        .last("LIMIT 1"));
-    }
-
     private PageIntegrationReadinessItem browserConversationReadiness(
             String projectCode,
             String pageKey,
             boolean sessionReady,
             LocalDateTime observedAfter,
-            PlatformEmbedSessionEntity session) {
+            SessionObservation session) {
         if (!sessionReady) {
             return item(
                     PageWorkbenchBrowserReadinessApplicationService.KEY,
@@ -334,9 +275,9 @@ public class PageWorkbenchPageReadinessApplicationService {
         }
         ObjectNode evidence = sessionEvidence(session);
         evidence.put("observedAfter", observedAfter.toString());
-        PlatformEmbedE2eEvidenceService.EmbedConversationEvidence observed;
+        ConversationEvidence observed;
         try {
-            observed = embedEvidence.latestSuccessfulConversation(
+            observed = observations.latestSuccessfulConversation(
                     projectCode,
                     pageKey,
                     observedAfter);
@@ -501,7 +442,7 @@ public class PageWorkbenchPageReadinessApplicationService {
 
     private PageIntegrationReadinessItem writeActionReadiness(
             PageView page,
-            PlatformEmbedSessionEntity session,
+            SessionObservation session,
             boolean sessionReady) {
         Set<String> writeActions = page.actions().stream()
                 .filter(action -> "ACTIVE".equalsIgnoreCase(action.status()))
@@ -527,29 +468,15 @@ public class PageWorkbenchPageReadinessApplicationService {
                     "已声明写操作，但尚未建立可观测的真实页面会话。",
                     evidence().set("actionKeys", objectMapper.valueToTree(writeActions)));
         }
-        PlatformPageActionEventEntity event = actionEventMapper.selectOne(
-                Wrappers.<PlatformPageActionEventEntity>lambdaQuery()
-                        .eq(PlatformPageActionEventEntity::getSessionId, session.getSessionId())
-                        .eq(PlatformPageActionEventEntity::getCommandType, "PAGE_ACTION")
-                        .eq(PlatformPageActionEventEntity::getTargetPageKey, page.pageKey())
-                        .in(PlatformPageActionEventEntity::getActionKey, writeActions)
-                        .in(PlatformPageActionEventEntity::getStatus, List.of(
-                                "SUCCESS",
-                                "NO_DATA",
-                                "PRECONDITION_FAILED",
-                                "USER_CANCELLED",
-                                "FAILED",
-                                "CANCELLED",
-                                "ACTION_NOT_FOUND",
-                                "FORBIDDEN",
-                                "TIMEOUT"))
-                        .orderByDesc(PlatformPageActionEventEntity::getCompletedAt)
-                        .last("LIMIT 1"));
+        ActionObservation event = observations.latestWriteActionEvent(
+                session.sessionId(),
+                page.pageKey(),
+                writeActions);
         ObjectNode evidence = actionEventEvidence(event);
         evidence.set("expectedActionKeys", objectMapper.valueToTree(writeActions));
         if (event != null
-                && writeActions.contains(event.getActionKey())
-                && "SUCCESS".equalsIgnoreCase(event.getStatus())) {
+                && writeActions.contains(event.actionKey())
+                && "SUCCESS".equalsIgnoreCase(event.status())) {
             return item(
                     "WRITE_ACTION_E2E_READY",
                     "写操作真实执行",
@@ -557,13 +484,13 @@ public class PageWorkbenchPageReadinessApplicationService {
                     "ReachAI 已观察到当前页面的已声明写操作完成并返回业务页面结果。",
                     evidence);
         }
-        if (event != null && writeActions.contains(event.getActionKey())) {
-            if (isBusinessTerminalStatus(event.getStatus())) {
+        if (event != null && writeActions.contains(event.actionKey())) {
+            if (isBusinessTerminalStatus(event.status())) {
                 return item(
                         "WRITE_ACTION_E2E_READY",
                         "写操作真实执行",
                         "PENDING",
-                        "已观察到写操作的业务终态 " + event.getStatus()
+                    "已观察到写操作的业务终态 " + event.status()
                                 + "，但业务写入并未完成，不能作为写操作成功验收。",
                         evidence);
             }
@@ -571,7 +498,7 @@ public class PageWorkbenchPageReadinessApplicationService {
                     "WRITE_ACTION_E2E_READY",
                     "写操作真实执行",
                     "WARN",
-                    "已观察到写操作回传，但当前状态为 " + event.getStatus() + "。",
+                    "已观察到写操作回传，但当前状态为 " + event.status() + "。",
                     evidence);
         }
         return item(
@@ -593,13 +520,13 @@ public class PageWorkbenchPageReadinessApplicationService {
     }
 
     private static LocalDateTime observedAfter(
-            PlatformEmbedSessionEntity session) {
+            SessionObservation session) {
         if (session == null) {
             return null;
         }
-        return session.getCreatedAt() == null
-                ? session.getUpdatedAt()
-                : session.getCreatedAt();
+        return session.createdAt() == null
+                ? session.updatedAt()
+                : session.createdAt();
     }
 
     private Set<String> readBridgeActions(String json) {
@@ -640,34 +567,34 @@ public class PageWorkbenchPageReadinessApplicationService {
     }
 
     private ObjectNode sessionEvidence(
-            PlatformEmbedSessionEntity session) {
+            SessionObservation session) {
         ObjectNode node = evidence();
         if (session != null) {
-            node.put("sessionId", safe(session.getSessionId()));
-            node.put("pageInstanceId", safe(session.getPageInstanceId()));
-            node.put("sdkVersion", safe(session.getSdkVersion()));
-            node.put("route", safe(session.getRoute()));
+            node.put("sessionId", safe(session.sessionId()));
+            node.put("pageInstanceId", safe(session.pageInstanceId()));
+            node.put("sdkVersion", safe(session.sdkVersion()));
+            node.put("route", safe(session.route()));
             node.put(
                     "expiresAt",
-                    session.getExpiresAt() == null
+                    session.expiresAt() == null
                             ? ""
-                            : session.getExpiresAt().toString());
+                            : session.expiresAt().toString());
         }
         return node;
     }
 
     private ObjectNode actionEventEvidence(
-            PlatformPageActionEventEntity event) {
+            ActionObservation event) {
         ObjectNode node = evidence();
         if (event != null) {
-            node.put("requestId", safe(event.getRequestId()));
-            node.put("actionKey", safe(event.getActionKey()));
-            node.put("status", safe(event.getStatus()));
+            node.put("requestId", safe(event.requestId()));
+            node.put("actionKey", safe(event.actionKey()));
+            node.put("status", safe(event.status()));
             node.put(
                     "completedAt",
-                    event.getCompletedAt() == null
+                    event.completedAt() == null
                             ? ""
-                            : event.getCompletedAt().toString());
+                            : event.completedAt().toString());
         }
         return node;
     }

@@ -26,6 +26,15 @@ export default defineConfig({
         changeOrigin: true,
         timeout: 600_000,
         proxyTimeout: 600_000,
+        bypass(req) {
+          // SPA pages such as /api-market and /api-graph share the /api prefix.
+          // Browser document navigations must still resolve to Vue Router; XHR/fetch
+          // requests use JSON-oriented Accept headers and continue to Control.
+          const accept = String(req.headers.accept || '')
+          if (accept.includes('text/html')) {
+            return '/index.html'
+          }
+        },
         configure(proxy) {
           // SSE：禁止中间层缓冲，保证 message.delta 按帧到达浏览器
           proxy.on('proxyRes', (proxyRes, _req, res) => {

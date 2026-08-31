@@ -1,104 +1,98 @@
-# ReachAI Knowledge / Retrieval Service
+# ReachAI Knowledge Service
 
-`reachai-knowledge-service` 是当前 Knowledge / Retrieval 部署单元，目录名和 Maven artifactId 均已收口到 `reachai-knowledge-service`。产品、文档和部署说明默认使用 Knowledge / Retrieval 口径，不再把它描述为旧的技能服务。
+`reachai-knowledge-service` 是 ReachAI Knowledge / Retrieval 部署单元，默认端口 `18602`，Spring context path 为 `/ai`。它拥有知识库、文件与 Chunk、文档导入、检索、RAG、业务索引和个人记忆检索投影。
 
-## 定位
+## 职责边界
 
-本服务负责知识库、文件、Chunk、向量检索、RAG、业务索引和历史扫描器实现。扫描能力的长期产品归属是 Capability Catalog；当前由 `reachai-capability-service` 通过内部服务调用复用这里的 OpenAPI / Spring MVC Controller 扫描实现，支持扫描项目和能力资产沉淀。
+本服务拥有：
 
-当前五服务拓扑为：
+- `knowledge_base`、`knowledge_file_info`、`knowledge_chunk` 和文件权限；
+- 文件上传、去重、解析、清洗、Chunk、Embedding 与向量写入 pipeline；
+- Java Fast / Docling 文档导入任务、原件与解析工件；
+- keyword/vector/hybrid 检索、Rerank、检索测试与 RAG；
+- `knowledge_business_index*` 业务检索投影；
+- `knowledge_personal_memory_index` 等个人记忆搜索投影；
+- 历史 OpenAPI / Spring MVC Controller 扫描器的底层实现。
 
-- `reachai-control-service`: Platform Control public API/BFF，统一承接 `/api/**`、`/embed/**` 和 SDK 注册兼容入口。
-- `reachai-runtime-service`: Runtime Host，负责 Agent、Workflow、GraphSpec、Trace、RunOps、调试和运行时内部 API。
-- `reachai-capability-service`: Capability Catalog，负责 SDK 注册、能力快照、diff/review/apply、扫描目录和能力资产 API。
-- `reachai-knowledge-service`: Knowledge / Retrieval，本服务。
-- `reachai-model-service`: Model Gateway，负责模型实例、Chat、Embedding、Rerank 和 OpenAI 兼容代理。
+本服务不拥有：
 
-## Runtime Contract
+- 个人长期记忆 canonical 数据、平台身份或跨域擦除编排（Control）；
+- 扫描项目目录、Capability/Tool 资产或 API 市场（Capability）；
+- Agent/Workflow/GraphSpec 与运行证据（Runtime）；
+- 模型模板、实例或 Provider 凭据（Model）。
 
-- 默认端口：`18602`
-- Spring context path `/ai`
-- 健康检查：`GET /ai/actuator/health`
-- 前端开发代理：`/ai/** -> http://localhost:18602`
-- Model 调用：通过 `MODEL_SERVICE_URL` 指向 `reachai-model-service`
-- 公共 `/api/**` 入口仍归 `reachai-control-service`，本服务不承担 Platform Control BFF 角色
+扫描器实现位于 Knowledge，不表示扫描资产归 Knowledge。Capability 通过 internal service contract 复用解析能力并拥有目录/落库。
 
-## Key Packages
+## 入口边界
 
-| Package | Responsibility |
+| 入口 | 调用方 | 说明 |
+| --- | --- | --- |
+| `/ai/knowledge/**`、`/ai/file/**`、`/ai/retrieval/**`、`/ai/rag/**`、`/ai/embedding/**` | 管理端/开发工具 | 当前 Knowledge 公共能力；具体认证边界以 public route 文档为准 |
+| `/api/knowledge/biz-index/**` | 浏览器 → Control | 平台会话 + 资源 RBAC；Control 以 HMAC 调用本服务 internal console API |
+| `/api/knowledge/import-jobs/**` | 浏览器 → Control | 文档导入受保护控制台入口；Control 负责会话/RBAC，本服务负责 owner fence 与任务 |
+| `/api/knowledge-ingress/projects/{projectCode}/biz-index/**` | 业务系统 → Control | `REACHAI_PROJECT_REQUEST_V1` body-bound 项目签名，经 Capability 验证后进入本服务 |
+| `/internal/knowledge/retrieval/query` | Runtime | 返回结构化 hits/outcome/脱敏 diagnostics，不生成 LLM 答案 |
+| `/internal/knowledge/personal-memories/**` | Control | 个人记忆搜索投影事件与检索；canonical 数据仍由 Control 回读 |
+
+历史匿名 `/ai/biz-index/**` 已退役。把平台 Bearer 或业务 Bearer 直接发送给 Knowledge 不会自动获得授权。
+
+## 检索与事实边界
+
+- Runtime `KNOWLEDGE_RETRIEVAL` 只消费结构化证据，不调用 Knowledge 生成最终回答。
+- `outcome=NO_EVIDENCE` 是成功业务结果。`evidencePolicy=REQUIRED` 的 Workflow 必须走固定无证据回答，不能让 LLM 猜测。
+- Business Index 文本和 metadata 只用于发现；业务对象仍要在当前签名用户身份下调用 resolver 回源鉴权。
+- 个人记忆投影可删除、重建和 shadow；Control canonical item 才是长期记忆事实源。
+
+## 主要代码区域
+
+| Package | 责任 |
 | --- | --- |
-| `com.enterprise.ai.controller` | Knowledge, file, retrieval, RAG, embedding, scanner, and pipeline REST endpoints. |
-| `com.enterprise.ai.service` | Knowledge base, import, dedup, and application services. |
-| `com.enterprise.ai.repository` | MyBatis mapper/repository layer for the shared MySQL schema. |
-| `com.enterprise.ai.pipeline` | Import pipeline, parsing, chunking, cleaning, embedding, and vector persistence. |
-| `com.enterprise.ai.vector` | Vector search abstraction and Milvus implementation. |
-| `com.enterprise.ai.embedding` | Embedding client abstraction backed by Model Gateway. |
-| `com.enterprise.ai.rag` | RAG orchestration, prompt building, and LLM call integration. |
-| `com.enterprise.ai.bizindex` | Business index APIs, storage, and semantic search. |
-| `com.enterprise.ai.text.tooling.scanner` | OpenAPI and Spring MVC Controller scanner implementation. |
+| `controller` / `service` / `repository` | 知识库、文件、导入和应用服务 |
+| `pipeline` | 解析、清洗、Chunk、Embedding 与向量持久化 |
+| `retrieval` / `vector` / `embedding` | 检索核心、Milvus 和 Model Gateway client |
+| `rag` | RAG 编排与提示构建 |
+| `bizindex` | 业务索引定义、记录、附件和检索 |
+| `personalmemory` | 个人记忆检索投影 |
+| `text.tooling.scanner` | OpenAPI / Spring MVC 扫描实现 |
+| `internal` / `internalauth` | Runtime/Control internal contract 与可信调用校验 |
 
-## Main Endpoints
+## 下游依赖与配置
 
-Paths below are relative to the `/ai` context path:
+| 分组 | 主要变量 | 说明 |
+| --- | --- | --- |
+| MySQL/Redis | `AI_MYSQL_*`、`REDIS_*` | Knowledge-owned 元数据、任务和协调状态 |
+| 向量 | `MILVUS_HOST`、`MILVUS_PORT` | 向量索引；可用性需单独验证 |
+| Model | `MODEL_SERVICE_URL` | Chat/Embedding/Rerank 统一进入 Model Gateway；没有 OpenAI HTTP 代理回退 |
+| Docling | `REACHAI_DOCLING_*` | 可选重解析服务、版本、OCR、超时和并发限制 |
+| 工件 | `REACHAI_KNOWLEDGE_ARTIFACT_*` | 本地或 S3-compatible 原件/解析工件存储 |
+| 导入 worker | `REACHAI_KNOWLEDGE_DOCUMENT_*` | 文件上限、队列、租约、重试和 worker 开关 |
+| 个人记忆投影 | `REACHAI_PERSONAL_MEMORY_*` | Embedding、search mode、阈值、worker 与指标 |
+| 内部认证 | `REACHAI_INTERNAL_*` | HMAC、轮换与传输模式 |
 
-| Method and path | Purpose |
-| --- | --- |
-| `GET /knowledge/base/list` | List knowledge bases. |
-| `POST /knowledge/base` | Create or update a knowledge base. |
-| `GET /knowledge/kb/{kbCode}/files` | List files in a knowledge base. |
-| `POST /knowledge/import` | Import files into a knowledge base. |
-| `GET /file/{fileId}/chunks` | List chunks for a file. |
-| `DELETE /file/{fileId}` | Delete a file and its chunks. |
-| `POST /retrieval/test` | Run retrieval test queries. |
-| `POST /rag/query` | Execute RAG question answering. |
-| `POST /embedding/vectorize` | Generate embedding vectors. |
-| `POST /scanner/openapi` | Scan an OpenAPI document into tool manifests. |
-| `POST /scanner/controller` | Scan Spring MVC Controller source into tool manifests. |
-| `/internal/knowledge/console/biz-index/**` | Control-signed console management/search target; never browser-callable. |
-| `/internal/knowledge/project-ingress/projects/{projectCode}/biz-index/**` | Capability-verified project sync target; enforces index `projectCode` ownership. |
+生产启用 Docling、S3/MinIO、向量或异步 worker 前，必须验证目标存储、网络、密钥、容量、重试/死信和恢复。
 
-业务索引的浏览器主入口是 Control 的 `/api/knowledge/biz-index/**`，要求平台
-session，并按读写操作分别要求 `platform:read` / `platform:write`。业务系统自动
-同步使用 `/api/knowledge-ingress/projects/{projectCode}/biz-index/**` 和
-`REACHAI_PROJECT_REQUEST_V1` body-bound 项目签名。历史匿名
-`/ai/biz-index/**` 已退役；Bearer Token 直接发给 Knowledge 不构成授权。
+## 构建、启动与验证
 
-Specific request and response contracts should follow the current controller DTOs and frontend API usage.
-
-## Configuration
-
-Common environment variables:
-
-| Variable | Purpose |
-| --- | --- |
-| `AI_MYSQL_URL` | Shared MySQL JDBC URL. |
-| `AI_MYSQL_USERNAME` | Shared MySQL username. |
-| `AI_MYSQL_PASSWORD` | Shared MySQL password. |
-| `AI_REDIS_HOST`, `AI_REDIS_PORT`, `AI_REDIS_PASSWORD` | Redis connection. |
-| `AI_MILVUS_HOST`, `AI_MILVUS_PORT` | Milvus connection. |
-| `MODEL_SERVICE_URL` | Base URL for `reachai-model-service`. |
-
-第一阶段仍保持同一个 MySQL 库，不拆库。Schema 基线统一在 `sql/initV2.sql`，已有环境升级脚本统一放在 `sql/upgrade-*.sql`。
-
-## Local Build And Run
-
-From the repository root:
-
-```bash
+```powershell
 mvn -pl reachai-knowledge-service -am -DskipTests compile
-```
-
-To run only this service:
-
-```bash
-cd reachai-knowledge-service
+mvn -pl reachai-knowledge-service -am test
+Set-Location reachai-knowledge-service
 mvn spring-boot:run
 ```
 
-When validating the whole physical split locally, start all five services and then run from the repository root:
+健康检查：`GET http://localhost:18602/ai/actuator/health`。
 
-```bash
-node scripts/check-physical-service-smoke.mjs
+```powershell
+node scripts/check-internal-api-contracts.mjs
+node scripts/check-service-table-ownership.mjs
+node scripts/check-physical-service-route-contracts.mjs
 ```
 
-The smoke script expects Control, Runtime, Capability, Knowledge, and Model services to be running on their configured local ports.
+Knowledge 变更的真实验收至少区分：有证据命中、无证据分支、文件 ACL、Model/向量依赖、目标库 schema 和 Runtime/浏览器端到端链路。
+
+## 进一步阅读
+
+- [知识、模型与企业资产](../docs/05-知识模型与企业资产.md)
+- [Docling 文档导入契约](../docs/architecture/docling-document-ingestion.md)
+- [Personal Agent Memory](../docs/architecture/personal-agent-memory.md)
+- [Workflow 语义契约](../docs/architecture/workflow-semantic-contract.md)

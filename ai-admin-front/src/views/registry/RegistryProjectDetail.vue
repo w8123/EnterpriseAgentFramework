@@ -243,10 +243,6 @@
         </div>
       </el-card>
 
-      <CapabilityReviewPanel
-        v-if="isSdkBackedProject"
-        :project-code="projectCode"
-      />
     </template>
 
     <GlassDialog
@@ -724,7 +720,6 @@ import { useRegistryProjectDetailUiState } from '@/views/registry/composables/us
 import { useRegistryProjectWorkbench } from '@/views/registry/composables/useRegistryProjectWorkbench'
 import ProjectRouteMissingState from '@/views/registry/components/ProjectRouteMissingState.vue'
 import ProjectWorkbenchLoadErrorState from '@/views/registry/components/ProjectWorkbenchLoadErrorState.vue'
-import CapabilityReviewPanel from '@/views/registry/components/CapabilityReviewPanel.vue'
 
 const { theme } = useTheme()
 

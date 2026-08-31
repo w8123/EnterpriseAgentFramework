@@ -1,5 +1,7 @@
 # Context Governance Kernel
 
+> 状态：SOURCE_VERIFIED / SEMANTIC_PROJECTION_DB_E2E_PENDING（2026-08-24）
+
 ## 当前定位
 
 Context Governance Kernel 是 ReachAI 的企业 Agent 上下文治理底座。它负责上下文命名空间、上下文条目、证据、候选记忆、运行时用户映射、审计、检索、组包和生命周期治理。
@@ -27,10 +29,7 @@ Context Governance Kernel 是 ReachAI 的企业 Agent 上下文治理底座。�
 - 外部 AI Coding 能力：项目级 manifest、context candidate 提交、候选状态回查、审计深链模板。
 - Header-first 外部工具鉴权：`X-ReachAI-AiCoding-Key`，不再生成 query key URL。
 
-当前仍不包含：
-
-- Milvus / FULLTEXT、embedding / rerank / 图谱级个人记忆检索；当前 Knowledge 投影为有界 lexical 实现。
-- 旧实验性会话实现或历史数据的自动迁移；当前主路径以 Runtime AgentScope state + ledger 为准。
+当前 Knowledge 个人记忆投影支持 `LEXICAL`、`HYBRID`、`VECTOR` 三种模式，Embedding 统一经过 Model Gateway；`HYBRID` 在单条向量尚未就绪时保留词面降级。新增语义 schema 和真实 Provider/目标库 E2E 仍为待验收，不能仅凭源码把语义模式写成已部署。当前仍不包含图谱级个人记忆，也不自动迁移旧实验性会话数据；主路径以 Runtime AgentScope state + ledger 为准。
 
 ## API 边界
 
@@ -82,10 +81,8 @@ ai-admin-front/scripts/check-context-candidate-ui.mjs
 ## 验证命令
 
 ```powershell
-$env:JAVA_HOME='C:\Program Files\Java\jdk-17'
-$env:Path="$env:JAVA_HOME\bin;$env:Path"
-& "C:\Users\jsh\AppData\Local\Temp\apache-maven-3.9.9\bin\mvn.cmd" -pl reachai-control-service,reachai-runtime-service,reachai-capability-service,reachai-knowledge-service,reachai-model-service -am -DskipTests compile
-cd ai-admin-front
+mvn -pl reachai-control-service,reachai-runtime-service,reachai-capability-service,reachai-knowledge-service,reachai-model-service -am -DskipTests compile
+Set-Location ai-admin-front
 npm run build
 node scripts/check-context-candidate-ui.mjs
 ```
@@ -106,6 +103,6 @@ node scripts/check-physical-service-smoke.mjs
 
 ## 后续工作
 
-- 在不改变 Control canonical revalidation 的前提下，为 Knowledge 投影增加 embedding / hybrid / rerank。
+- 在不改变 Control canonical revalidation 的前提下，完成 Knowledge semantic projection 的目标库、真实 Provider、切模重建与降级 E2E。
 - 增加 outbox backlog、DEAD、recall 降级、candidate 年龄和 session lease 冲突的指标与告警面板。
-- 执行两份 20260813 升级脚本后，完成 MySQL、Redis、多副本、SSE 和浏览器 E2E；详见 [Personal Agent Memory](../architecture/personal-agent-memory.md)。
+- 按 [Personal Agent Memory](../architecture/personal-agent-memory.md) 的当前迁移与证据矩阵完成 MySQL、Redis、多副本、SSE、语义投影和浏览器 E2E；不要在本页复制易过期的脚本数量或执行状态。

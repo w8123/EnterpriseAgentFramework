@@ -114,7 +114,7 @@ Control 先召回最多 `topK` 条、`maxChars` 字符的 canonical 记忆，再
 ## Knowledge 搜索投影
 
 - Control 在 canonical 写事务中同步写 `control_context_memory_outbox`，数据库生成的 outbox ID 是全局单调 `sourceVersion`。
-- outbox 失败只持久化最长 64 字符的异常类型机器码，禁止保存异常 message、HTTP 响应或记忆正文；成功投递在同一次条件更新中把正文 payload 替换为只含 sourceVersion/eventType 的无身份 receipt。历史异常文本和 PUBLISHED 正文副本由 `upgrade-20260815-personal-memory-outbox-redaction.sql` 幂等擦除。PENDING/PUBLISHING 暂留投递所需 payload，DEAD 必须通过零死信门禁处置；主动遗忘仍会立即擦除该 memory 的全部历史 payload。Control 发布无身份标签的 `reachai.personal_memory.outbox.snapshot_fresh/backlog/dead/oldest_unpublished_seconds/last_success_epoch_seconds` 指标，SHADOW 和生产准入同时要求快照新鲜、死信为零且最老未发布事件不超过 300 秒。
+- outbox 失败只持久化最长 64 字符的异常类型机器码，禁止保存异常 message、HTTP 响应或记忆正文；成功投递在同一次条件更新中把正文 payload 替换为只含 sourceVersion/eventType 的无身份 receipt。历史异常文本和 PUBLISHED 正文副本曾由 20260815 outbox-redaction 历史迁移幂等擦除；该脚本已并入基线并从当前树清理。PENDING/PUBLISHING 暂留投递所需 payload，DEAD 必须通过零死信门禁处置；主动遗忘仍会立即擦除该 memory 的全部历史 payload。Control 发布无身份标签的 `reachai.personal_memory.outbox.snapshot_fresh/backlog/dead/oldest_unpublished_seconds/last_success_epoch_seconds` 指标，SHADOW 和生产准入同时要求快照新鲜、死信为零且最老未发布事件不超过 300 秒。
 - publisher 用 CAS 抢占、指数退避、过期锁恢复和 12 次后 `DEAD`，交付语义为 at-least-once。
 - Knowledge 用事件唯一键去重，用 `UPDATE ... WHERE source_version < incoming` 保证多副本乱序投递时最高版本获胜。
 - Knowledge 只保存 `HMAC(index identity secret, tenant + runtime user)` 的 owner hash，不保存原始 runtime user ID。
@@ -315,21 +315,13 @@ REACHAI_BUSINESS_MEMORY_TENANT_ID=<authoritative deployment tenant>
 
 ## 数据库和验收
 
-全新库使用 `sql/initV2.sql`。已有环境在部署前执行：
+全新库使用 `sql/initV2.sql`。已有环境先证明数据库至少达到 GitHub 基线 `ae9e1ce6`；更早数据库必须从对应 Git tag 获取历史迁移链或重建。由 `ae9e1ce6` 升级当前版本时只执行：
 
 ```text
-target-environment mysql client < sql/upgrade-20260813-runtime-session-memory.sql
-target-environment mysql client < sql/upgrade-20260814-runtime-conversation-turn-id.sql
-target-environment mysql client < sql/upgrade-20260813-personal-memory-candidates.sql
-target-environment mysql client < sql/upgrade-20260815-personal-memory-outbox-redaction.sql
-target-environment mysql client < sql/upgrade-20260815-personal-memory-semantic-projection.sql
-target-environment mysql client < sql/upgrade-20260814-business-memory-reference.sql
-target-environment mysql client < sql/upgrade-20260815-runtime-session-retention.sql
-target-environment mysql client < sql/upgrade-20260815-knowledge-enterprise-ingress.sql
-target-environment mysql client < sql/upgrade-20260815-cross-domain-memory-erasure.sql
+target-environment mysql client < sql/upgrade-20260830-platform-consolidated.sql
 ```
 
-上述命令只表达脚本顺序。仓库 `scripts/apply-memory-migrations.mjs` 复用服务现有的 `AI_MYSQL_*` 环境变量：默认只输出计划，`--preflight` 连接并只读检查基础 schema，`--execute --confirm=reach_ai` 才会执行；非本机开发库额外要求 `--allow-remote`。runner 不改写 JDBC 传输配置，也不要求本地开发者准备 DNS SAN、CA 或 JVM truststore。每份脚本完成结构回查后会再执行一遍验证幂等性，可选证据文件不包含连接地址、凭据或业务正文。升级脚本不会自动执行。
+该命令表达当前唯一整版升级入口，包含 A2A/MCP clean-slate 数据处置，不能只截取个人记忆相关片段。仓库 `scripts/apply-memory-migrations.mjs` 复用服务现有的 `AI_MYSQL_*` 环境变量：默认只输出计划，`--preflight` 连接并只读检查基础 schema，`--execute --confirm=reach_ai` 才会执行；非本机开发库额外要求 `--allow-remote`。runner 不改写 JDBC 传输配置。整份脚本完成结构回查后会再执行一遍验证幂等性，可选证据文件不包含连接地址、凭据或业务正文。升级脚本不会自动执行。
 
 本轮已验证：
 
@@ -360,4 +352,4 @@ target-environment mysql client < sql/upgrade-20260815-cross-domain-memory-erasu
 
 此外，遗忘操作已通过真实 MySQL 回读确认：canonical item 的 `title`、`summary`、`source_ref` 被显式置为 `NULL`，正文和 metadata 只保留无敏感内容的 tombstone；不能依赖 MyBatis-Plus 默认的非空字段更新策略。测试数据、投影、outbox、审计、会话账本和 Redis state 均在验收后定向清理并复查为零残留。
 
-生产发布前仍需在目标环境重新执行升级、密钥和 owner-hash 配置校验，并完成会话保留与九域编排 E2E、正式 embedding 配置下的真实语料 shadow、真实 TLS/mTLS、静态加密、密钥托管与轮换、备份到期擦除、脱敏审计、告警、容量压测、SSE 长连接回归和故障演练。Stage 2 已完成受控依赖 E2E，后续又以真实 Basic 和真实 DeepSeek 重跑成功；本机 TEI + BGE 真实 embedding canary 和合成 shadow benchmark 已通过，但不能替代生产语料准入。会话保留/Legal Hold/并发擦除、outbox 错误脱敏与持续指标、在线语义投影、跨域擦除编排、tenant 行级 ACL、生产传输模式及 Business Index 双凭证入口当前均为 source-verified；`upgrade-20260815-runtime-session-retention.sql`、`upgrade-20260815-personal-memory-outbox-redaction.sql`、`upgrade-20260815-cross-domain-memory-erasure.sql`、`upgrade-20260815-personal-memory-semantic-projection.sql`、`upgrade-20260815-knowledge-enterprise-ingress.sql` 和对应 live E2E 尚未在远程开发库执行，正式证书/mesh 也未验收。Mem0、ReMe、Graphiti 等开源项目只进入 Knowledge 检索投影的 shadow benchmark；除非在真实脱敏语料的质量、延迟、隔离、删除一致性和运维成本上胜出，否则不替换 ReachAI 自有的 canonical owner、授权、审计和遗忘语义。
+生产发布前仍需在目标环境确认数据库基线/当前合并升级、密钥和 owner-hash 配置，并完成会话保留与九域编排 E2E、正式 embedding 配置下的真实语料 shadow、真实 TLS/mTLS、静态加密、密钥托管与轮换、备份到期擦除、脱敏审计、告警、容量压测、SSE 长连接回归和故障演练。Stage 2 已完成受控依赖 E2E，后续又以真实 Basic 和真实 DeepSeek 重跑成功；本机 TEI + BGE 真实 embedding canary 和合成 shadow benchmark 已通过，但不能替代生产语料准入。会话保留/Legal Hold/并发擦除、outbox 错误脱敏与持续指标、在线语义投影、跨域擦除编排、tenant 行级 ACL、生产传输模式及 Business Index 双凭证入口当前均为 source-verified；其历史升级在目标远程环境的执行证据和对应 live E2E 仍为 `NOT RUN`，历史脚本需从对应 Git tag 获取，正式证书/mesh 也未验收。Mem0、ReMe、Graphiti 等开源项目只进入 Knowledge 检索投影的 shadow benchmark；除非在真实脱敏语料的质量、延迟、隔离、删除一致性和运维成本上胜出，否则不替换 ReachAI 自有的 canonical owner、授权、审计和遗忘语义。

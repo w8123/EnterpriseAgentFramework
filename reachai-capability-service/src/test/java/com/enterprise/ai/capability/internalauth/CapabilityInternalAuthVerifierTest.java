@@ -23,6 +23,7 @@ class CapabilityInternalAuthVerifierTest {
     private static final String SECRET = "capability-verifier-contract-secret-32bytes";
     private static final String QUALIFIED_NAME = "bzjs20:team.memory.resolve";
     private static final String TOOL_PATH = "/internal/capability/tools/" + QUALIFIED_NAME + "/execute";
+    private static final String INVOCATION_PATH = "/internal/capability/invocations";
 
     private CapabilityInternalAuthVerifier verifier;
 
@@ -50,6 +51,16 @@ class CapabilityInternalAuthVerifierTest {
         assertEquals("user-7", verified.identityUserId());
 
         assertTrue(verifyTool(signed, body).isEmpty(), "the same nonce must not be reusable");
+    }
+
+    @Test
+    void canonicalInvocationPathUsesTheSameExactBodyIdentityBinding() {
+        byte[] body = json("tenant-a", "user-7", false);
+        Signed signed = signTool(INVOCATION_PATH, body,
+                InternalServiceAuthHeaders.IDENTITY_SOURCE_RUNTIME_TRUSTED,
+                "tenant-a", "user-7", SECRET);
+
+        assertTrue(verifyTool(verifier, INVOCATION_PATH, signed, body).isPresent());
     }
 
     @Test
@@ -200,9 +211,14 @@ class CapabilityInternalAuthVerifierTest {
 
     private java.util.Optional<CapabilityVerifiedInternalServiceAuth> verifyTool(
             CapabilityInternalAuthVerifier target, Signed signed, byte[] body) {
+        return verifyTool(target, TOOL_PATH, signed, body);
+    }
+
+    private java.util.Optional<CapabilityVerifiedInternalServiceAuth> verifyTool(
+            CapabilityInternalAuthVerifier target, String path, Signed signed, byte[] body) {
         Map<String, String> headers = signed.headers();
         return target.verifyToolExecution(
-                "POST", TOOL_PATH,
+                "POST", path,
                 headers.get(InternalServiceAuthHeaders.CALLER),
                 headers.get(InternalServiceAuthHeaders.IDENTITY_SOURCE),
                 headers.get(InternalServiceAuthHeaders.IDENTITY_TENANT_ID),
@@ -220,11 +236,16 @@ class CapabilityInternalAuthVerifierTest {
 
     private Signed signTool(byte[] body, String source, String tenantId, String userId,
                             String signingSecret) {
+        return signTool(TOOL_PATH, body, source, tenantId, userId, signingSecret);
+    }
+
+    private Signed signTool(String path, byte[] body, String source, String tenantId, String userId,
+                            String signingSecret) {
         String timestamp = String.valueOf(System.currentTimeMillis());
         String nonce = UUID.randomUUID().toString();
         String digest = InternalServiceHmac.bodySha256Hex(body);
         String canonical = InternalServiceHmac.canonical(
-                "POST", TOOL_PATH, InternalServiceAuthHeaders.CALLER_RUNTIME,
+                "POST", path, InternalServiceAuthHeaders.CALLER_RUNTIME,
                 source, tenantId, userId, timestamp, nonce, digest);
         Map<String, String> headers = new LinkedHashMap<>();
         headers.put(InternalServiceAuthHeaders.CALLER, InternalServiceAuthHeaders.CALLER_RUNTIME);

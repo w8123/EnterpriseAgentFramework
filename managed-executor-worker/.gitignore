@@ -1,0 +1,7 @@
+dist/
+node_modules/
+coverage/
+artifacts/
+schemas/generated/
+worker-output/
+*.log

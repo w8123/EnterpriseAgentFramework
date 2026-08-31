@@ -1,11 +1,14 @@
 package com.enterprise.ai.runtime.agent;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.enterprise.ai.runtime.a2a.RuntimeA2aRemoteAgentBindingEntity;
+import com.enterprise.ai.runtime.a2a.RuntimeA2aRemoteAgentBindingMapper;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionEntity;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionMapper;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowVersionEntity;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowVersionMapper;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -15,6 +18,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -29,8 +33,15 @@ public class RuntimeAgentExecutionContextResolver {
     private final RuntimeAgentMapper agentMapper;
     private final RuntimeAgentConfigVersionMapper configMapper;
     private final RuntimeAgentWorkflowToolMapper toolMapper;
+    private final RuntimeAgentSkillBindingMapper skillBindingMapper;
     private final RuntimeWorkflowDefinitionMapper workflowMapper;
     private final RuntimeWorkflowVersionMapper workflowVersionMapper;
+    private RuntimeA2aRemoteAgentBindingMapper a2aBindingMapper;
+
+    @Autowired(required = false)
+    void setA2aBindingMapper(RuntimeA2aRemoteAgentBindingMapper mapper) {
+        this.a2aBindingMapper = mapper;
+    }
 
     public Optional<RuntimeAgentExecutionContext> resolve(String idOrKeySlug) {
         long totalStart = System.nanoTime();
@@ -48,7 +59,7 @@ public class RuntimeAgentExecutionContextResolver {
         long configMs = elapsedMs(configStart);
         if (configOpt.isEmpty()) {
             return Optional.of(new RuntimeAgentExecutionContext(
-                    agent, null, List.of(), List.of(),
+                    agent, null, List.of(), List.of(), List.of(), List.of(),
                     new RuntimeAgentExecutionContext.ResolveTimings(agentMs, configMs, 0L, 0L, elapsedMs(totalStart))));
         }
         RuntimeAgentConfigVersionEntity config = configOpt.get();
@@ -56,6 +67,15 @@ public class RuntimeAgentExecutionContextResolver {
         long toolStart = System.nanoTime();
         List<RuntimeAgentWorkflowToolEntity> tools = loadEnabledTools(agent.id(), config.getId());
         long toolMs = elapsedMs(toolStart);
+
+        long skillStart = System.nanoTime();
+        List<RuntimeAgentSkillBindingEntity> skills = loadEnabledSkills(agent.id(), config.getId());
+        long skillMs = elapsedMs(skillStart);
+
+        long a2aStart = System.nanoTime();
+        List<RuntimeA2aRemoteAgentBindingEntity> remoteAgents =
+                loadEnabledRemoteAgents(agent.id(), config.getId());
+        long a2aMs = elapsedMs(a2aStart);
 
         long targetStart = System.nanoTime();
         List<RuntimeResolvedWorkflowTarget> targets = resolveTargetsBatch(tools);
@@ -65,15 +85,32 @@ public class RuntimeAgentExecutionContextResolver {
                 agent,
                 config,
                 tools,
+                skills,
+                remoteAgents,
                 targets,
                 new RuntimeAgentExecutionContext.ResolveTimings(
-                        agentMs, configMs, toolMs, targetMs, elapsedMs(totalStart))));
+                        agentMs, configMs, toolMs, skillMs, a2aMs, targetMs, elapsedMs(totalStart))));
     }
 
     /**
      * Loads a specific published/archived config for replay/continuation without display queries.
      */
     public Optional<RuntimeAgentExecutionContext> resolvePublished(String idOrKeySlug, Long configVersionId) {
+        return resolveSpecificConfig(idOrKeySlug, configVersionId, false);
+    }
+
+    /**
+     * Resolves one exact Agent config for Eval snapshotting. Unlike replay, DRAFT is allowed, but
+     * the resolver still requires server-owned config/tool/workflow rows and pinned Workflow versions.
+     */
+    public Optional<RuntimeAgentExecutionContext> resolveForEvaluation(String idOrKeySlug,
+                                                                       Long configVersionId) {
+        return resolveSpecificConfig(idOrKeySlug, configVersionId, true);
+    }
+
+    private Optional<RuntimeAgentExecutionContext> resolveSpecificConfig(String idOrKeySlug,
+                                                                         Long configVersionId,
+                                                                         boolean allowDraft) {
         long totalStart = System.nanoTime();
         long agentStart = totalStart;
         Optional<RuntimeAgentEntity> agentOpt = findAgentOnce(idOrKeySlug);
@@ -86,17 +123,30 @@ public class RuntimeAgentExecutionContextResolver {
         long configStart = System.nanoTime();
         RuntimeAgentConfigVersionEntity config = configMapper.selectById(configVersionId);
         long configMs = elapsedMs(configStart);
+        boolean draft = config != null && "DRAFT".equalsIgnoreCase(config.getStatus());
+        boolean knownEvalStatus = config != null && Set.of("DRAFT", "ACTIVE", "ARCHIVED")
+                .contains(String.valueOf(config.getStatus()).toUpperCase(java.util.Locale.ROOT));
         if (config == null
                 || !agent.id().equals(config.getAgentId())
-                || "DRAFT".equalsIgnoreCase(config.getStatus())) {
+                || (!allowDraft && draft)
+                || (allowDraft && !knownEvalStatus)) {
             return Optional.of(new RuntimeAgentExecutionContext(
-                    agent, null, List.of(), List.of(),
+                    agent, null, List.of(), List.of(), List.of(), List.of(),
                     new RuntimeAgentExecutionContext.ResolveTimings(agentMs, configMs, 0L, 0L, elapsedMs(totalStart))));
         }
 
         long toolStart = System.nanoTime();
         List<RuntimeAgentWorkflowToolEntity> tools = loadEnabledTools(agent.id(), config.getId());
         long toolMs = elapsedMs(toolStart);
+
+        long skillStart = System.nanoTime();
+        List<RuntimeAgentSkillBindingEntity> skills = loadEnabledSkills(agent.id(), config.getId());
+        long skillMs = elapsedMs(skillStart);
+
+        long a2aStart = System.nanoTime();
+        List<RuntimeA2aRemoteAgentBindingEntity> remoteAgents =
+                loadEnabledRemoteAgents(agent.id(), config.getId());
+        long a2aMs = elapsedMs(a2aStart);
 
         long targetStart = System.nanoTime();
         List<RuntimeResolvedWorkflowTarget> targets = resolveTargetsBatch(tools);
@@ -106,9 +156,11 @@ public class RuntimeAgentExecutionContextResolver {
                 agent,
                 config,
                 tools,
+                skills,
+                remoteAgents,
                 targets,
                 new RuntimeAgentExecutionContext.ResolveTimings(
-                        agentMs, configMs, toolMs, targetMs, elapsedMs(totalStart))));
+                        agentMs, configMs, toolMs, skillMs, a2aMs, targetMs, elapsedMs(totalStart))));
     }
 
     /** Single SQL: {@code WHERE id = ? OR key_slug = ? LIMIT 1}. */
@@ -150,6 +202,32 @@ public class RuntimeAgentExecutionContextResolver {
                 .eq(RuntimeAgentWorkflowToolEntity::getEnabled, true)
                 .orderByAsc(RuntimeAgentWorkflowToolEntity::getPriority)
                 .orderByAsc(RuntimeAgentWorkflowToolEntity::getId));
+    }
+
+    private List<RuntimeAgentSkillBindingEntity> loadEnabledSkills(String agentId, Long configVersionId) {
+        if (!StringUtils.hasText(agentId) || configVersionId == null) {
+            return List.of();
+        }
+        return skillBindingMapper.selectList(Wrappers.<RuntimeAgentSkillBindingEntity>lambdaQuery()
+                .eq(RuntimeAgentSkillBindingEntity::getAgentId, agentId)
+                .eq(RuntimeAgentSkillBindingEntity::getAgentConfigVersionId, configVersionId)
+                .eq(RuntimeAgentSkillBindingEntity::getEnabled, true)
+                .orderByAsc(RuntimeAgentSkillBindingEntity::getPriority)
+                .orderByAsc(RuntimeAgentSkillBindingEntity::getId));
+    }
+
+    private List<RuntimeA2aRemoteAgentBindingEntity> loadEnabledRemoteAgents(
+            String agentId, Long configVersionId) {
+        if (a2aBindingMapper == null || !StringUtils.hasText(agentId) || configVersionId == null) {
+            return List.of();
+        }
+        return a2aBindingMapper.selectList(
+                Wrappers.<RuntimeA2aRemoteAgentBindingEntity>lambdaQuery()
+                        .eq(RuntimeA2aRemoteAgentBindingEntity::getAgentId, agentId)
+                        .eq(RuntimeA2aRemoteAgentBindingEntity::getAgentConfigVersionId, configVersionId)
+                        .eq(RuntimeA2aRemoteAgentBindingEntity::getEnabled, true)
+                        .orderByAsc(RuntimeA2aRemoteAgentBindingEntity::getPriority)
+                        .orderByAsc(RuntimeA2aRemoteAgentBindingEntity::getId));
     }
 
     List<RuntimeResolvedWorkflowTarget> resolveTargetsBatch(List<RuntimeAgentWorkflowToolEntity> tools) {

@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { ArrowLeft, ArrowRight, ChatDotRound, Connection, Cpu, Plus, Refresh, Search } from '@element-plus/icons-vue'
+import { ArrowRight, ChatDotRound, Connection, Cpu, Plus, Refresh, Search } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import { getModelTemplates } from '@/api/model'
-import type { ModelTemplate, ModelType } from '@/types/model'
+import { getModelCatalogStatus, getModelTemplates } from '@/api/model'
+import type { ModelCatalogStatus, ModelTemplate, ModelType } from '@/types/model'
 import {
   buildProviderGroups,
   filterProviderGroups,
@@ -39,6 +39,7 @@ type PickerStep = 'provider' | 'model'
 const loading = ref(false)
 const error = ref('')
 const templates = ref<ModelTemplate[]>([])
+const catalogStatus = ref<ModelCatalogStatus | null>(null)
 const pickerStep = ref<PickerStep>('provider')
 const selectedProvider = ref<string | null>(null)
 const providerKeyword = ref('')
@@ -86,6 +87,19 @@ const contextSummary = computed(() => {
   return `${group.displayName} · ${group.modelCount} 个模型`
 })
 
+const catalogFreshnessText = computed(() => {
+  const status = catalogStatus.value
+  if (!status) return ''
+  if (status.catalogVerifiedAt) {
+    return `${status.message} · 全量核验 ${formatCatalogTime(status.catalogVerifiedAt)}`
+  }
+  return status.message
+})
+
+const pendingCatalogReviewCount = computed(() =>
+  catalogStatus.value?.sources.reduce((sum, source) => sum + (source.reviewCount ?? 0), 0) ?? 0,
+)
+
 watch(
   () => [props.lockModelType, props.modelType] as const,
   () => {
@@ -109,6 +123,7 @@ function resetPickerState() {
 async function loadTemplates() {
   loading.value = true
   error.value = ''
+  const statusRequest = loadCatalogStatus()
   try {
     const { data } = await getModelTemplates({ enabled: true })
     templates.value = normalizeListPayload<ModelTemplate>(readModelApiPayload(data))
@@ -119,8 +134,36 @@ async function loadTemplates() {
     pickerStep.value = 'provider'
     selectedProvider.value = null
   } finally {
+    await statusRequest
     loading.value = false
   }
+}
+
+async function loadCatalogStatus() {
+  try {
+    const { data } = await getModelCatalogStatus()
+    catalogStatus.value = readModelApiPayload<ModelCatalogStatus>(data) ?? null
+  } catch {
+    // 目录状态是辅助证据；接口短暂失败不能阻断 last-known-good 模板选择。
+    catalogStatus.value = null
+  }
+}
+
+function formatCatalogTime(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date)
+}
+
+function lifecycleLabel(template: ModelTemplate) {
+  if (template.lifecycleStatus === 'DEPRECATED') return '即将下线'
+  if (template.lifecycleStatus === 'PREVIEW') return '预览'
+  return ''
 }
 
 function ensureSelectedProviderValid(message?: string) {
@@ -174,14 +217,17 @@ defineExpose({
 <template>
   <div class="model-catalog-picker">
     <div class="catalog-steps" aria-label="选择进度">
-      <span
+      <button
+        type="button"
         class="catalog-steps__item"
         :class="{ 'is-current': pickerStep === 'provider', 'is-done': pickerStep === 'model' }"
         :aria-current="pickerStep === 'provider' ? 'step' : undefined"
+        :disabled="pickerStep === 'provider'"
+        @click="backToProviders"
       >
         <em>1</em>
         选择厂商
-      </span>
+      </button>
       <span class="catalog-steps__divider" aria-hidden="true" />
       <span
         class="catalog-steps__item"
@@ -200,6 +246,20 @@ defineExpose({
       >
         <el-icon :class="{ 'is-loading': loading }"><Refresh /></el-icon>
       </button>
+    </div>
+
+    <div
+      v-if="catalogFreshnessText"
+      class="catalog-freshness"
+      :class="{ 'is-stale': catalogStatus?.stale }"
+      aria-live="polite"
+    >
+      <span class="catalog-freshness__dot" aria-hidden="true" />
+      <span>{{ catalogFreshnessText }}</span>
+      <span v-if="catalogStatus" class="catalog-freshness__count">
+        <em v-if="pendingCatalogReviewCount">{{ pendingCatalogReviewCount }} 待评审 · </em>
+        {{ catalogStatus.completedToday }}/{{ catalogStatus.sourceCount }} 来源
+      </span>
     </div>
 
     <div v-if="loading && !templates.length" class="catalog-skeleton">
@@ -278,10 +338,6 @@ defineExpose({
 
     <template v-else>
       <div class="model-context">
-        <button type="button" class="model-context__back" aria-label="返回选择厂商" @click="backToProviders">
-          <el-icon aria-hidden="true"><ArrowLeft /></el-icon>
-          返回选择厂商
-        </button>
         <div v-if="selectedGroup" class="model-context__brand">
           <ModelProviderIcon
             :provider="selectedGroup.provider"
@@ -354,9 +410,19 @@ defineExpose({
           <div class="model-card__body">
             <div class="model-card__title-row">
               <strong>{{ item.name }}</strong>
+              <span
+                v-if="lifecycleLabel(item)"
+                class="model-card__lifecycle"
+                :class="`is-${item.lifecycleStatus?.toLowerCase()}`"
+              >
+                {{ lifecycleLabel(item) }}
+              </span>
               <span v-if="!lockModelType" class="model-card__type">{{ modelTypeLabel(item.modelType) }}</span>
             </div>
             <code>{{ item.modelName }}</code>
+            <small v-if="item.lastVerifiedAt" class="model-card__verified">
+              官方核验 {{ formatCatalogTime(item.lastVerifiedAt) }}
+            </small>
             <p v-if="item.remark">{{ item.remark }}</p>
           </div>
           <el-icon class="provider-card__arrow"><ArrowRight /></el-icon>
@@ -384,13 +450,69 @@ defineExpose({
   min-width: 0;
 }
 
+.catalog-freshness {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--el-color-success) 25%, var(--border-glass));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--el-color-success) 7%, transparent);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.catalog-freshness.is-stale {
+  border-color: color-mix(in srgb, var(--el-color-warning) 30%, var(--border-glass));
+  background: color-mix(in srgb, var(--el-color-warning) 8%, transparent);
+}
+
+.catalog-freshness__dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--el-color-success);
+}
+
+.catalog-freshness.is-stale .catalog-freshness__dot {
+  background: var(--el-color-warning);
+}
+
+.catalog-freshness__count {
+  margin-left: auto;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.catalog-freshness__count em {
+  color: var(--el-color-warning);
+  font-style: normal;
+}
+
 .catalog-steps__item {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: var(--text-muted);
   font-size: 13px;
   font-weight: 600;
+  font-family: inherit;
+  text-align: left;
+}
+
+.catalog-steps__item:not(:disabled) {
+  cursor: pointer;
+}
+
+.catalog-steps__item:not(:disabled):focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--el-color-primary) 45%, transparent);
+  outline-offset: 3px;
+  border-radius: 999px;
 }
 
 .catalog-steps__item em {
@@ -524,7 +646,6 @@ defineExpose({
 .custom-card:focus-visible,
 .model-card:focus-visible,
 .catalog-reload:focus-visible,
-.model-context__back:focus-visible,
 .model-type-pill:focus-visible {
   outline: none;
   border-color: color-mix(in srgb, var(--el-color-primary) 45%, var(--border-glass));
@@ -599,20 +720,6 @@ defineExpose({
   gap: 10px;
 }
 
-.model-context__back {
-  display: inline-flex;
-  width: fit-content;
-  align-items: center;
-  gap: 4px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--el-color-primary);
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
 .model-context__brand {
   display: flex;
   align-items: center;
@@ -678,7 +785,27 @@ defineExpose({
   display: flex;
   gap: 8px;
   align-items: flex-start;
-  justify-content: space-between;
+}
+
+.model-card__title-row strong {
+  min-width: 0;
+  flex: 1;
+}
+
+.model-card__lifecycle {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--el-color-info) 10%, transparent);
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+
+.model-card__lifecycle.is-deprecated {
+  background: color-mix(in srgb, var(--el-color-warning) 14%, transparent);
+  color: var(--el-color-warning);
 }
 
 .model-card__type {
@@ -691,6 +818,12 @@ defineExpose({
   color: var(--text-secondary);
   font-size: 12px;
   word-break: break-all;
+}
+
+.model-card__verified {
+  display: block;
+  color: var(--text-muted);
+  font-size: 11px;
 }
 
 .model-card p {

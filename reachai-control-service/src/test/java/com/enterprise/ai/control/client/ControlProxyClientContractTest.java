@@ -446,7 +446,7 @@ class ControlProxyClientContractTest {
         Method updateAiCodingAccess = CapabilityProjectOnboardingClient.class.getMethod(
                 "updateAiCodingAccess",
                 Long.class,
-                com.enterprise.ai.control.aiassist.ControlAiAssistProjectController.AiCodingAccessUpdateRequest.class);
+                com.enterprise.ai.control.client.capability.CapabilityAiCodingAccessUpdateRequest.class);
         assertMapping(updateAiCodingAccess, RequestMethod.PUT,
                 "/internal/capability/projects/by-id/{projectId}/ai-coding-access");
     }

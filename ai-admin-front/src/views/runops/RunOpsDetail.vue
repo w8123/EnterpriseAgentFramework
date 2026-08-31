@@ -29,7 +29,7 @@
         </el-tooltip>
         <el-button :disabled="!summary" @click="copyIssueSummary">复制运行摘要</el-button>
         <el-button
-          v-if="summary?.runType === 'WORKFLOW' && summary.workflowId"
+          v-if="summary?.runType === 'WORKFLOW' && summary.workflowId && canWriteSourceWorkflow"
           @click="router.push(`/workflows/${summary.workflowId}/studio`)"
         >
           打开工作流编排
@@ -50,6 +50,7 @@
           </template>
         </el-dropdown>
         <el-button
+          v-if="canOperateRun && summary?.runType !== 'MCP'"
           type="primary"
           :icon="VideoPlay"
           :loading="replaying"
@@ -120,272 +121,6 @@
         :comparison="comparison"
       />
 
-      <el-card v-if="comparison && legacyDetailVisible" class="compare-card" shadow="never">
-        <template #header>
-          <div class="card-header">
-            <span>原运行与重放对比</span>
-            <el-tag size="small" effect="plain">
-              {{ comparison.baseline.traceId }} → {{ comparison.candidate.traceId }}
-            </el-tag>
-          </div>
-        </template>
-        <section class="compare-summary">
-          <div v-for="item in changedSummaryDiffs" :key="item.field" class="diff-chip">
-            <span>{{ diffFieldLabel(item.field) }}</span>
-            <strong>{{ displayDiffValue(item.field, item.baseline) }} → {{ displayDiffValue(item.field, item.candidate) }}</strong>
-          </div>
-          <el-empty v-if="!changedSummaryDiffs.length" description="摘要指标一致" />
-        </section>
-        <el-tabs>
-          <el-tab-pane label="链路差异">
-            <el-table :data="changedSpanDiffs" stripe>
-              <el-table-column type="expand">
-                <template #default="{ row }">
-                  <div class="diff-detail-grid">
-                    <div>
-                      <div class="panel-title">原运行</div>
-                      <pre>{{ pretty(row.baseline) }}</pre>
-                    </div>
-                    <div>
-                      <div class="panel-title">重放</div>
-                      <pre>{{ pretty(row.candidate) }}</pre>
-                    </div>
-                  </div>
-                </template>
-              </el-table-column>
-              <el-table-column prop="key" label="链路片段" min-width="180" show-overflow-tooltip />
-              <el-table-column label="原运行" min-width="240" show-overflow-tooltip>
-                <template #default="{ row }">{{ spanDigest(row.baseline) }}</template>
-              </el-table-column>
-              <el-table-column label="重放" min-width="240" show-overflow-tooltip>
-                <template #default="{ row }">{{ spanDigest(row.candidate) }}</template>
-              </el-table-column>
-            </el-table>
-            <el-empty v-if="!changedSpanDiffs.length" description="执行链路一致" />
-          </el-tab-pane>
-          <el-tab-pane label="工具差异">
-            <el-table :data="changedToolDiffs" stripe>
-              <el-table-column type="expand">
-                <template #default="{ row }">
-                  <div class="diff-detail-grid">
-                    <div>
-                      <div class="panel-title">原运行</div>
-                      <pre>{{ pretty(row.baseline) }}</pre>
-                    </div>
-                    <div>
-                      <div class="panel-title">重放</div>
-                      <pre>{{ pretty(row.candidate) }}</pre>
-                    </div>
-                  </div>
-                </template>
-              </el-table-column>
-              <el-table-column prop="key" label="工具" min-width="180" show-overflow-tooltip />
-              <el-table-column label="原运行" min-width="240" show-overflow-tooltip>
-                <template #default="{ row }">{{ toolDigest(row.baseline) }}</template>
-              </el-table-column>
-              <el-table-column label="重放" min-width="240" show-overflow-tooltip>
-                <template #default="{ row }">{{ toolDigest(row.candidate) }}</template>
-              </el-table-column>
-            </el-table>
-            <el-empty v-if="!changedToolDiffs.length" description="工具调用一致" />
-          </el-tab-pane>
-          <el-tab-pane label="治理差异">
-            <el-table :data="changedGuardDiffs" stripe>
-              <el-table-column type="expand">
-                <template #default="{ row }">
-                  <div class="diff-detail-grid">
-                    <div>
-                      <div class="panel-title">原运行</div>
-                      <pre>{{ pretty(row.baseline) }}</pre>
-                    </div>
-                    <div>
-                      <div class="panel-title">重放</div>
-                      <pre>{{ pretty(row.candidate) }}</pre>
-                    </div>
-                  </div>
-                </template>
-              </el-table-column>
-              <el-table-column prop="key" label="策略对象" min-width="220" show-overflow-tooltip />
-              <el-table-column label="原运行" min-width="220" show-overflow-tooltip>
-                <template #default="{ row }">{{ guardDigest(row.baseline) }}</template>
-              </el-table-column>
-              <el-table-column label="重放" min-width="220" show-overflow-tooltip>
-                <template #default="{ row }">{{ guardDigest(row.candidate) }}</template>
-              </el-table-column>
-            </el-table>
-            <el-empty v-if="!changedGuardDiffs.length" description="治理决策一致" />
-          </el-tab-pane>
-        </el-tabs>
-      </el-card>
-
-      <section v-if="detail && summary && legacyDetailVisible" ref="detailTabsSection" class="run-detail-section">
-        <el-tabs v-model="activeTab" class="run-detail-tabs">
-        <el-tab-pane v-if="summary.runType === 'AGENT'" label="调度决策" name="supervisor">
-          <section class="supervisor-metrics">
-            <div v-for="item in supervisorMetrics" :key="item.label" class="supervisor-metric">
-              <span>{{ item.label }}</span>
-              <strong>{{ item.value }}</strong>
-              <small>{{ item.hint }}</small>
-            </div>
-          </section>
-          <el-table :data="supervisorEvents" row-key="id" class="supervisor-event-table">
-            <el-table-column label="阶段" width="136">
-              <template #default="{ row }">
-                <el-tag :type="phaseTagType(row.spanType)">{{ phaseLabel(row.spanType) }}</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column label="计划 / 选择" min-width="230">
-              <template #default="{ row }">{{ supervisorEventLabel(row) }}</template>
-            </el-table-column>
-            <el-table-column label="结果" min-width="260" show-overflow-tooltip>
-              <template #default="{ row }">{{ supervisorEventResultLabel(row) }}</template>
-            </el-table-column>
-            <el-table-column label="状态" width="112">
-              <template #default="{ row }"><el-tag :type="statusTagType(row.status)">{{ executionStatusLabel(row.status) }}</el-tag></template>
-            </el-table-column>
-            <el-table-column label="耗时" width="100">
-              <template #default="{ row }">{{ formatDuration(row.latencyMs) }}</template>
-            </el-table-column>
-          </el-table>
-          <el-empty v-if="!supervisorEvents.length" description="该运行尚无结构化调度决策事件" />
-        </el-tab-pane>
-
-        <el-tab-pane label="执行路径" name="execution">
-          <div class="execution-model" :class="{ 'workflow-only': summary.runType === 'WORKFLOW' }">
-            <template v-if="summary.runType === 'AGENT'">
-              <div><strong>调度器</strong><small>理解与调度</small></div>
-              <span>→</span>
-              <div><strong>规划 / 重规划</strong><small>规划与有限重规划</small></div>
-              <span>→</span>
-              <div><strong>工作流工具</strong><small>选择并调用工作流</small></div>
-              <span>→</span>
-            </template>
-            <div><strong>工作流节点</strong><small>执行 GraphSpec 节点</small></div>
-          </div>
-
-          <el-table :data="executionPath" row-key="spanId" stripe>
-            <el-table-column label="层级 / 阶段" min-width="260">
-              <template #default="{ row }">
-                <div class="execution-stage" :style="{ paddingLeft: `${Math.min(row.depth || 0, 4) * 24}px` }">
-                  <span v-if="row.depth" class="path-prefix">↳</span>
-                  <el-tag size="small" effect="plain" :type="phaseTagType(row.spanType)">
-                    {{ phaseLabel(row.spanType) }}
-                  </el-tag>
-                  <strong>{{ executionPathLabel(row) }}</strong>
-                </div>
-              </template>
-            </el-table-column>
-            <el-table-column label="运行时" width="150" show-overflow-tooltip>
-              <template #default="{ row }">{{ formatRuntimeTypeLabel(row.runtimeType) }}</template>
-            </el-table-column>
-            <el-table-column label="状态" width="112">
-              <template #default="{ row }"><el-tag size="small" :type="statusTagType(row.status)">{{ executionStatusLabel(row.status) }}</el-tag></template>
-            </el-table-column>
-            <el-table-column label="开始时间" width="180">
-              <template #default="{ row }">{{ formatDateTime(row.startedAt) }}</template>
-            </el-table-column>
-            <el-table-column label="结束时间" width="180">
-              <template #default="{ row }">{{ formatDateTime(row.endedAt) }}</template>
-            </el-table-column>
-          </el-table>
-          <el-empty v-if="!executionPath.length" description="暂无结构化执行路径" />
-        </el-tab-pane>
-
-        <el-tab-pane label="链路明细" name="spans">
-          <el-timeline class="span-timeline">
-            <el-timeline-item
-              v-for="span in detail.spans"
-              :key="span.id"
-              :timestamp="span.startedAt"
-              :type="statusTagType(span.status)"
-              placement="top"
-            >
-              <div class="span-item">
-                <div class="span-head">
-                  <div>
-                    <strong>{{ spanDisplayName(span) }}</strong>
-                    <span>{{ phaseLabel(span.spanType) }} · {{ formatRuntimeTypeLabel(span.runtimeType) }}</span>
-                  </div>
-                  <div class="span-tags">
-                    <el-tag size="small" :type="statusTagType(span.status)">{{ executionStatusLabel(span.status) }}</el-tag>
-                    <el-tag size="small" effect="plain">{{ formatDuration(span.latencyMs) }}</el-tag>
-                  </div>
-                </div>
-                <div v-if="span.errorMessage" class="error-text">
-                  {{ span.errorCode || 'SPAN_FAILED' }}：{{ executionSummaryLabel(span.errorMessage) }}
-                </div>
-                <div class="io-grid">
-                  <pre>{{ executionSummaryLabel(span.inputSummary) }}</pre>
-                  <pre>{{ executionSummaryLabel(span.outputSummary) }}</pre>
-                </div>
-              </div>
-            </el-timeline-item>
-          </el-timeline>
-          <el-empty v-if="!detail.spans.length" description="暂无结构化链路片段" />
-        </el-tab-pane>
-
-        <el-tab-pane label="工具调用" name="tools">
-          <el-table :data="detail.toolCalls" stripe>
-            <el-table-column prop="success" label="状态" width="100">
-              <template #default="{ row }">
-                <el-tag size="small" :type="row.success ? 'success' : 'danger'">{{ row.success ? '成功' : '失败' }}</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column prop="toolName" label="工具" min-width="220" show-overflow-tooltip />
-            <el-table-column prop="elapsedMs" label="耗时" width="100">
-              <template #default="{ row }">{{ formatDuration(row.elapsedMs) }}</template>
-            </el-table-column>
-            <el-table-column prop="tokenCost" label="Token 数" width="100" />
-            <el-table-column prop="errorCode" label="错误" width="180" show-overflow-tooltip />
-            <el-table-column prop="createdAt" label="时间" width="180" />
-          </el-table>
-          <el-empty v-if="!detail.toolCalls.length" description="该运行未调用工具" />
-        </el-tab-pane>
-
-        <el-tab-pane label="治理决策" name="guards">
-          <el-table :data="detail.guardDecisions" stripe>
-            <el-table-column prop="decision" label="决策" width="100">
-              <template #default="{ row }">
-                <el-tag size="small" :type="row.decision === 'DENY' ? 'danger' : 'success'">{{ guardDecisionLabel(row.decision) }}</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column label="类型" width="140">
-              <template #default="{ row }">{{ guardDecisionTypeLabel(row.decisionType) }}</template>
-            </el-table-column>
-            <el-table-column label="对象类型" width="120">
-              <template #default="{ row }">{{ guardTargetKindLabel(row.targetKind) }}</template>
-            </el-table-column>
-            <el-table-column prop="targetName" label="对象" min-width="180" show-overflow-tooltip />
-            <el-table-column label="原因" min-width="240" show-overflow-tooltip>
-              <template #default="{ row }">{{ executionSummaryLabel(row.reason) }}</template>
-            </el-table-column>
-            <el-table-column prop="createdAt" label="时间" width="180" />
-          </el-table>
-          <el-empty v-if="!detail.guardDecisions.length" description="暂无治理决策记录" />
-        </el-tab-pane>
-
-        <el-tab-pane label="发布配置与元数据" name="metadata">
-          <section class="snapshot-grid">
-            <div class="snapshot-panel">
-              <div class="panel-title">根运行元数据</div>
-              <pre>{{ pretty(summary.metadata) }}</pre>
-            </div>
-            <div class="snapshot-panel">
-              <div class="panel-title">已发布运行时配置</div>
-              <pre>{{ pretty(detail.snapshot?.runtimeConfig) }}</pre>
-            </div>
-            <div class="snapshot-panel">
-              <div class="panel-title">已发布 GraphSpec</div>
-              <pre>{{ pretty(detail.snapshot?.graphSpec) }}</pre>
-            </div>
-            <div class="snapshot-panel">
-              <div class="panel-title">配置版本身份</div>
-              <pre>{{ pretty(versionIdentity) }}</pre>
-            </div>
-          </section>
-        </el-tab-pane>
-        </el-tabs>
-      </section>
     </template>
 
     <AppDrawer
@@ -647,15 +382,18 @@ import type {
   RunComparison,
   RunDetail,
   RunExecutionPathItem,
-  RunGuardDecision,
   RunSpan,
   RunStatus,
   RunSummary,
-  RunToolCall,
   TraceWorkflowCandidateEligibility,
 } from '@/types/runops'
+import {
+  hasPlatformResourcePermission,
+  PLATFORM_PERMISSION_RUNOPS_OPERATE,
+  PLATFORM_PERMISSION_WORKFLOW_WRITE,
+} from '@/auth/platformAccess'
+import { platformSessionUser } from '@/auth/platformSession'
 
-type DetailTabName = 'supervisor' | 'execution' | 'spans' | 'tools' | 'guards' | 'metadata'
 type DiagnosticTone = 'success' | 'danger' | 'warning' | 'primary' | 'info'
 type RunOpsMoreCommand = 'context' | 'candidate' | 'compare'
 
@@ -665,7 +403,6 @@ interface FailureFocus {
   status?: string
   code?: string
   message: string
-  tab: DetailTabName
 }
 
 interface DiagnosticState {
@@ -679,7 +416,6 @@ interface DiagnosticState {
 const route = useRoute()
 const router = useRouter()
 const traceId = computed(() => route.params.traceId as string)
-const legacyDetailVisible = false
 const loading = ref(false)
 const replaying = ref(false)
 const replayDialogVisible = ref(false)
@@ -700,28 +436,25 @@ const detail = ref<RunDetail | null>(null)
 const comparison = ref<RunComparison | null>(null)
 const replayForm = ref<ReplayRequest>({})
 const replayRoles = ref<string[]>([])
-const activeTab = ref<DetailTabName>('execution')
-const detailTabsSection = ref<HTMLElement | null>(null)
 const investigationWorkbenchRef = ref<InstanceType<typeof RunOpsInvestigationWorkbench> | null>(null)
 const summary = computed(() => detail.value?.summary)
+const canOperateRun = computed(() => hasPlatformResourcePermission(
+  platformSessionUser.value?.permissionGrants,
+  PLATFORM_PERMISSION_RUNOPS_OPERATE,
+  'PROJECT',
+  null,
+  summary.value?.projectCode,
+))
+const canWriteSourceWorkflow = computed(() => hasPlatformResourcePermission(
+  platformSessionUser.value?.permissionGrants,
+  PLATFORM_PERMISSION_WORKFLOW_WRITE,
+  'PROJECT',
+  null,
+  summary.value?.projectCode,
+))
 const compareSource = computed(() =>
   (route.query.compareWith as string | undefined) || summary.value?.replayOfTraceId,
 )
-const supervisorEvents = computed(() => (detail.value?.spans || []).filter((span) =>
-  ['PLAN', 'REPLAN', 'WORKFLOW_TOOL'].includes(span.spanType || ''),
-))
-
-const supervisorMetrics = computed(() => {
-  const run = summary.value
-  if (!run) return []
-  return [
-    { label: '配置版本', value: run.agentConfigVersion || '-', hint: run.agentConfigVersionId == null ? '未记录版本 ID' : `版本 ID ${run.agentConfigVersionId}` },
-    { label: '计划次数', value: run.planCount ?? 0, hint: '调度器首次规划' },
-    { label: '重规划', value: run.replanCount ?? 0, hint: '有限重规划次数' },
-    { label: '工作流调用', value: run.workflowCallCount ?? 0, hint: '工作流工具' },
-  ]
-})
-
 const executionPath = computed<RunExecutionPathItem[]>(() => {
   if (detail.value?.executionPath?.length) return detail.value.executionPath
   return (detail.value?.spans || []).map((span) => ({
@@ -774,7 +507,6 @@ const failureFocus = computed<FailureFocus | null>(() => {
         failedSpan.errorMessage || failedSpan.outputSummary,
         `${phaseLabel(failedSpan.spanType)}“${title}”未成功完成${codeSuffix}。`,
       ),
-      tab: 'spans',
     }
   }
 
@@ -789,7 +521,6 @@ const failureFocus = computed<FailureFocus | null>(() => {
         failedTool.resultSummary,
         '工具调用失败，但没有记录更具体的错误信息。',
       ),
-      tab: 'tools',
     }
   }
 
@@ -800,7 +531,6 @@ const failureFocus = computed<FailureFocus | null>(() => {
       title: executionPathLabel(failedPath),
       status: failedPath.status,
       message: '执行路径中记录了非成功阶段，请展开对应链路查看输入、输出和错误码。',
-      tab: 'execution',
     }
   }
 
@@ -811,7 +541,6 @@ const failureFocus = computed<FailureFocus | null>(() => {
       status: run.status,
       code: run.errorCode,
       message: compactMessage(run.errorMessage, '根运行失败，但没有记录更具体的错误信息。'),
-      tab: 'execution',
     }
   }
 
@@ -893,44 +622,10 @@ const diagnosticIcon = computed(() => {
   return 'i'
 })
 
-const changedSummaryDiffs = computed(() => comparison.value?.summaryDiffs.filter((item) => item.changed) ?? [])
-const changedSpanDiffs = computed(() => comparison.value?.spanDiffs.filter((item) => item.changed) ?? [])
-const changedToolDiffs = computed(() => comparison.value?.toolDiffs.filter((item) => item.changed) ?? [])
-const changedGuardDiffs = computed(() => comparison.value?.guardDiffs.filter((item) => item.changed) ?? [])
-
-const summaryItems = computed(() => {
-  const run = summary.value
-  if (!run) return []
-  return [
-    { label: '所属项目', value: run.projectCode || '-', hint: runObjectId(run) },
-    { label: '发布版本', value: runVersionLabel(run), hint: run.runtimeType ? formatRuntimeTypeLabel(run.runtimeType) : '未记录运行时' },
-    { label: '运行入口', value: entryTypeLabel(run.entryType), hint: run.userId ? `用户 ${shortIdentifier(run.userId)}` : '匿名用户' },
-    { label: '调度', value: `${run.planCount ?? 0} 次规划`, hint: `${run.replanCount ?? 0} 次重规划` },
-    { label: '执行调用', value: `${run.workflowCallCount ?? 0} 个工作流`, hint: `${run.toolCallCount ?? 0} 个工具调用` },
-    { label: '治理事件', value: `${run.guardDenyCount ?? 0} 次拒绝`, hint: `${run.approvalCount ?? 0} 次审批` },
-  ]
-})
-
 const detailTitle = computed(() => {
   const run = summary.value
   if (!run) return '运行详情'
   return runObjectLabel(run)
-})
-
-const versionIdentity = computed(() => {
-  const run = summary.value
-  if (!run) return {}
-  return {
-    runType: run.runType,
-    agentId: run.agentId,
-    agentKeySlug: run.agentKeySlug,
-    agentConfigVersionId: run.agentConfigVersionId,
-    agentConfigVersion: run.agentConfigVersion,
-    workflowId: run.workflowId,
-    workflowKeySlug: run.workflowKeySlug,
-    workflowVersionId: run.workflowVersionId,
-    workflowVersion: run.workflowVersion,
-  }
 })
 
 async function loadDetail() {
@@ -1114,13 +809,14 @@ async function loadComparison() {
 }
 
 function openReplayDialog() {
+  if (!canOperateRun.value) return
   replayForm.value = { userId: summary.value?.userId }
   replayRoles.value = []
   replayDialogVisible.value = true
 }
 
 async function replayTrace() {
-  if (!detail.value) return
+  if (!detail.value || !canOperateRun.value) return
   replaying.value = true
   try {
     const request: ReplayRequest = { ...replayForm.value, roles: replayRoles.value }
@@ -1140,18 +836,23 @@ async function replayTrace() {
 }
 
 function runObjectLabel(run: RunSummary) {
-  return run.runType === 'AGENT'
-    ? run.agentName || run.agentKeySlug || run.agentId || '-'
-    : run.workflowName || run.workflowKeySlug || run.workflowId || '-'
+  if (run.runType === 'AGENT') return run.agentName || run.agentKeySlug || run.agentId || '-'
+  if (run.runType === 'WORKFLOW') return run.workflowName || run.workflowKeySlug || run.workflowId || '-'
+  return snapshotText('toolName') || run.workflowName || run.workflowKeySlug || run.workflowId || 'MCP 工具调用'
 }
 
 function runObjectId(run: RunSummary) {
-  return run.runType === 'AGENT'
-    ? run.agentKeySlug || run.agentId || '-'
-    : run.workflowKeySlug || run.workflowId || '-'
+  if (run.runType === 'AGENT') return run.agentKeySlug || run.agentId || '-'
+  if (run.runType === 'WORKFLOW') return run.workflowKeySlug || run.workflowId || '-'
+  return snapshotText('sourceRef') || run.workflowKeySlug || run.workflowId || '-'
 }
 
 function runVersionLabel(run: RunSummary) {
+  if (run.runType === 'MCP') {
+    const revisionNo = snapshotText('revisionNo')
+    if (revisionNo) return `MCP 发布修订 r${revisionNo}`
+    if (!run.workflowVersion && run.workflowVersionId == null) return '-'
+  }
   const version = run.runType === 'AGENT' ? run.agentConfigVersion : run.workflowVersion
   const versionId = run.runType === 'AGENT' ? run.agentConfigVersionId : run.workflowVersionId
   if (!version && versionId == null) return '-'
@@ -1162,6 +863,7 @@ function runTypeLabel(runType?: string) {
   const labels: Record<string, string> = {
     AGENT: '智能体',
     WORKFLOW: '工作流',
+    MCP: 'MCP 工具调用',
   }
   return runType ? labels[runType] || runType : '-'
 }
@@ -1173,9 +875,17 @@ function entryTypeLabel(entryType?: string) {
     GATEWAY: '网关',
     EVAL: '评测',
     REPLAY: '重放',
+    AUTOMATION: '自动化',
     API: 'API',
+    MCP: 'MCP',
   }
   return entryType ? labels[entryType] || entryType : '-'
+}
+
+function snapshotText(key: string) {
+  const value = detail.value?.snapshot?.snapshot?.[key]
+  if (value == null) return ''
+  return String(value).trim()
 }
 
 function formatDuration(ms?: number | null) {
@@ -1290,25 +1000,6 @@ function statusTagType(status?: string) {
   return 'danger'
 }
 
-function executionStatusLabel(status?: string) {
-  const labels: Record<string, string> = {
-    RUNNING: '运行中',
-    SUSPENDED: '已暂停',
-    COMPLETED: '已完成',
-    SUCCESS: '成功',
-    FAILED: '失败',
-    CANCELLED: '已取消',
-    TIMED_OUT: '已超时',
-    TIMEOUT: '已超时',
-    WAITING: '等待中',
-    WAITING_APPROVAL: '等待审批',
-    WAITING_USER: '等待用户交互',
-    RECORDED: '已记录',
-    EXPIRED: '已过期',
-  }
-  return status ? labels[status] || status : '-'
-}
-
 function phaseLabel(spanType?: string) {
   const labels: Record<string, string> = {
     SUPERVISOR: '调度器',
@@ -1317,14 +1008,6 @@ function phaseLabel(spanType?: string) {
     WORKFLOW_TOOL: '工作流工具',
   }
   return spanType ? labels[spanType] || '工作流节点' : '工作流节点'
-}
-
-function phaseTagType(spanType?: string) {
-  if (spanType === 'SUPERVISOR') return 'primary'
-  if (spanType === 'PLAN') return 'primary'
-  if (spanType === 'REPLAN') return 'warning'
-  if (spanType === 'WORKFLOW_TOOL') return 'success'
-  return 'info'
 }
 
 function semanticDepth(span: RunSpan) {
@@ -1348,124 +1031,6 @@ function spanDisplayName(span: RunSpan) {
     ? span.toolName || (typeof workflowName === 'string' ? workflowName : undefined) || span.nodeId || spanTypeLabel || span.spanId || '-'
     : span.nodeId || span.toolName || spanTypeLabel || span.spanId || '-'
   return nodeName ? `${base} · ${nodeName}` : base
-}
-
-function supervisorEventLabel(span: RunSpan) {
-  if (span.spanType === 'WORKFLOW_TOOL') {
-    const version = span.metadata?.workflowVersion
-    return `${span.toolName || span.nodeId || '工作流'}${version ? ` · ${version}` : ''}`
-  }
-  const planNo = span.metadata?.planNo
-  return planNo ? `第 ${planNo} 次规划` : span.nodeId || phaseLabel(span.spanType)
-}
-
-function supervisorEventResultLabel(span: RunSpan) {
-  const summaryText = executionSummaryLabel(span.outputSummary)
-  if (!['PLAN', 'REPLAN'].includes(span.spanType || '') || !span.outputSummary?.startsWith('{')) {
-    return summaryText
-  }
-  try {
-    const result = JSON.parse(span.outputSummary) as Record<string, unknown>
-    const planNo = Number(result.planNo || span.metadata?.planNo || 0)
-    const stepCount = Number(result.stepCount || 0)
-    const status = executionStatusLabel(typeof result.status === 'string' ? result.status : undefined)
-    const planText = planNo > 0 ? `第 ${planNo} 次规划` : '规划'
-    const stepText = Number.isFinite(stepCount) ? `，共 ${stepCount} 个步骤` : ''
-    return `${status === '-' ? '' : status}${planText}${stepText}`
-  } catch {
-    return summaryText
-  }
-}
-
-function diffFieldLabel(field: string) {
-  const labels: Record<string, string> = {
-    runType: '运行类型',
-    entryType: '运行入口',
-    status: '运行状态',
-    suspensionReason: '暂停原因',
-    agentId: '智能体 ID',
-    agentConfigVersionId: '智能体配置版本 ID',
-    workflowId: '工作流 ID',
-    workflowVersionId: '工作流版本 ID',
-    runtimeType: '运行时类型',
-    latencyMs: '耗时',
-    tokenCost: 'Token 数',
-    planCount: '规划次数',
-    replanCount: '重规划次数',
-    workflowCallCount: '工作流调用次数',
-    toolCallCount: '工具调用次数',
-    guardDenyCount: '治理拒绝次数',
-    approvalCount: '审批次数',
-    errorCode: '错误码',
-  }
-  return labels[field] || field
-}
-
-function displayDiffValue(field: string, value: unknown) {
-  if (value == null || value === '') return '-'
-  if (field === 'runType') return runTypeLabel(String(value))
-  if (field === 'entryType') return entryTypeLabel(String(value))
-  if (field === 'status') return executionStatusLabel(String(value))
-  if (field === 'suspensionReason') {
-    const labels: Record<string, string> = {
-      APPROVAL: '等待审批',
-      USER_INPUT: '等待用户输入',
-    }
-    return labels[String(value)] || String(value)
-  }
-  if (field === 'runtimeType') return formatRuntimeTypeLabel(String(value))
-  if (field === 'latencyMs') return formatDuration(Number(value))
-  if (field === 'tokenCost') return `${formatTokenCount(Number(value))} Token`
-  if (typeof value === 'boolean') return value ? '是' : '否'
-  return String(value)
-}
-
-function executionSummaryLabel(summary?: string) {
-  if (!summary) return '-'
-  if (summary === '[omitted]') return '[已省略]'
-  if (summary === '[redacted]') return '[已脱敏]'
-  return summary
-}
-
-function guardDecisionLabel(decision?: string) {
-  const labels: Record<string, string> = {
-    ALLOW: '允许',
-    DENY: '拒绝',
-    WAITING_APPROVAL: '等待审批',
-  }
-  return decision ? labels[decision] || decision : '-'
-}
-
-function guardDecisionTypeLabel(decisionType?: string) {
-  const labels: Record<string, string> = {
-    SUPERVISOR_TOOL_POLICY: '调度工具策略',
-  }
-  return decisionType ? labels[decisionType] || decisionType : '-'
-}
-
-function guardTargetKindLabel(targetKind?: string) {
-  const labels: Record<string, string> = {
-    WORKFLOW_TOOL: '工作流工具',
-  }
-  return targetKind ? labels[targetKind] || targetKind : '-'
-}
-
-function spanDigest(span?: RunSpan) {
-  if (!span) return '缺失'
-  const summaryText = ['PLAN', 'REPLAN'].includes(span.spanType || '')
-    ? supervisorEventResultLabel(span)
-    : executionSummaryLabel(span.outputSummary)
-  return `${executionStatusLabel(span.status)} · ${formatDuration(span.latencyMs)} · ${span.errorCode || summaryText}`
-}
-
-function toolDigest(tool?: RunToolCall) {
-  if (!tool) return '缺失'
-  return `${tool.success ? '成功' : '失败'} · ${formatDuration(tool.elapsedMs)} · ${tool.errorCode || tool.resultSummary || '-'}`
-}
-
-function guardDigest(guard?: RunGuardDecision) {
-  if (!guard) return '缺失'
-  return `${guardDecisionLabel(guard.decision)} · ${guard.reason || '-'}`
 }
 
 async function copyIssueSummary() {
@@ -1510,17 +1075,7 @@ function focusFailure() {
   })
 }
 
-function pretty(value: unknown) {
-  if (value == null) return '-'
-  try {
-    return JSON.stringify(value, null, 2)
-  } catch {
-    return String(value)
-  }
-}
-
 watch(traceId, () => {
-  activeTab.value = 'execution'
   loadDetail()
 })
 onMounted(loadDetail)
@@ -1547,623 +1102,10 @@ onMounted(loadDetail)
   margin-top: 16px;
 }
 
-.diagnostic-overview {
-  --diagnostic-tone: var(--status-info);
-  display: grid;
-  min-width: 0;
-  grid-template-columns: minmax(380px, 0.9fr) minmax(0, 1.1fr);
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--diagnostic-tone) 30%, var(--border-color));
-  border-left: 4px solid var(--diagnostic-tone);
-  border-radius: 12px;
-  background: var(--card-bg);
-  box-shadow: 0 14px 30px -28px color-mix(in srgb, var(--diagnostic-tone) 55%, transparent);
-
-  &.is-success { --diagnostic-tone: var(--status-success); }
-  &.is-danger { --diagnostic-tone: var(--status-danger); }
-  &.is-warning { --diagnostic-tone: var(--status-warning); }
-  &.is-primary { --diagnostic-tone: var(--brand-primary); }
-}
-
-.diagnostic-result {
-  min-width: 0;
-  padding: 20px 22px;
-  background: color-mix(in srgb, var(--diagnostic-tone) 6%, var(--card-bg));
-
-  h2,
-  p {
-    margin: 0;
-  }
-
-  h2 {
-    margin-top: 10px;
-    color: var(--text-primary);
-    font-size: clamp(20px, 1.6vw, 26px);
-    line-height: 1.35;
-  }
-
-  > p {
-    display: -webkit-box;
-    margin-top: 8px;
-    overflow: hidden;
-    color: var(--text-secondary);
-    line-height: 1.65;
-    overflow-wrap: anywhere;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
-  }
-}
-
-.diagnostic-result__heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-
-  > span {
-    color: var(--text-secondary);
-    font-size: 13px;
-    font-weight: 700;
-    letter-spacing: 0.06em;
-  }
-}
-
-.run-vitals {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-  margin: 18px 0 0;
-
-  div {
-    min-width: 0;
-  }
-
-  dt,
-  dd {
-    margin: 0;
-  }
-
-  dt {
-    color: var(--text-secondary);
-    font-size: 12px;
-  }
-
-  dd {
-    margin-top: 4px;
-    overflow: hidden;
-    color: var(--text-primary);
-    font-weight: 700;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-}
-
-.diagnostic-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 18px;
-
-  :deep(.el-button + .el-button) {
-    margin-left: 0;
-  }
-}
-
-.summary-grid {
-  display: grid;
-  min-width: 0;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  align-content: stretch;
-  margin: 0;
-}
-
-.snapshot-panel,
-.span-item {
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  background: var(--card-bg);
-}
-
-.summary-card {
-  min-width: 0;
-  padding: 16px 18px;
-  border-left: 1px solid var(--border-color);
-  border-bottom: 1px solid var(--border-color);
-
-  dt,
-  dd,
-  small {
-    display: block;
-    min-width: 0;
-    margin: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  dt,
-  small {
-    color: var(--text-secondary);
-  }
-
-  dt {
-    font-size: 12px;
-  }
-
-  dd {
-    margin: 7px 0 3px;
-    color: var(--text-primary);
-    font-size: 16px;
-    font-weight: 750;
-  }
-
-  small {
-    font-size: 12px;
-  }
-}
-
-.identifier-strip {
-  display: grid;
-  min-width: 0;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.identifier-item {
-  display: grid;
-  min-width: 0;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
-  border: 1px solid var(--border-color);
-  border-radius: 9px;
-  background: var(--card-bg);
-
-  > span {
-    color: var(--text-secondary);
-    font-size: 12px;
-    font-weight: 700;
-  }
-
-  code {
-    min-width: 0;
-    overflow: hidden;
-    color: var(--text-primary);
-    font-family: var(--el-font-family-monospace, ui-monospace, SFMono-Regular, Consolas, monospace);
-    font-size: 13px;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-}
-
-.diagnosis-panel {
-  min-width: 0;
-  padding: 18px 20px;
-  border: 1px solid color-mix(in srgb, var(--status-danger) 28%, var(--border-color));
-  border-radius: 12px;
-  background: var(--card-bg);
-}
-
-.diagnosis-panel__header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-
-  span,
-  h2 {
-    margin: 0;
-  }
-
-  > div > span {
-    color: var(--status-danger);
-    font-size: 12px;
-    font-weight: 800;
-    letter-spacing: 0.06em;
-  }
-
-  h2 {
-    margin-top: 3px;
-    color: var(--text-primary);
-    font-size: 18px;
-  }
-}
-
-.diagnosis-panel__content {
-  display: grid;
-  min-width: 0;
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.9fr);
-  gap: 18px;
-  margin-top: 16px;
-}
-
-.failure-focus {
-  padding: 14px 16px;
-  border-left: 3px solid var(--status-danger);
-  border-radius: 0 8px 8px 0;
-  background: color-mix(in srgb, var(--status-danger) 7%, var(--fill-color-light));
-
-  p {
-    margin: 8px 0 0;
-    color: var(--text-secondary);
-    line-height: 1.65;
-    overflow-wrap: anywhere;
-  }
-}
-
-.failure-focus__location {
-  display: flex;
-  min-width: 0;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-
-  > span {
-    color: var(--status-danger);
-    font-size: 12px;
-    font-weight: 750;
-  }
-
-  strong {
-    min-width: 0;
-    color: var(--text-primary);
-    overflow-wrap: anywhere;
-  }
-}
-
-.repair-list {
-  min-width: 0;
-  padding: 14px 16px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  background: var(--fill-color-light);
-
-  h3 {
-    margin: 0 0 8px;
-    color: var(--text-primary);
-    font-size: 14px;
-  }
-
-  ol {
-    display: grid;
-    gap: 6px;
-    margin: 0;
-    padding-left: 20px;
-    color: var(--text-secondary);
-    line-height: 1.55;
-  }
-
-  li {
-    padding-left: 4px;
-    overflow-wrap: anywhere;
-  }
-}
-
-.candidate-blockers {
-  margin-top: 16px;
-  padding-top: 14px;
-  border-top: 1px solid var(--border-color);
-  color: var(--text-secondary);
-
-  summary {
-    width: fit-content;
-    color: var(--text-primary);
-    font-weight: 700;
-    cursor: pointer;
-  }
-
-  ul {
-    display: grid;
-    gap: 5px;
-    margin: 12px 0 0;
-    padding-left: 20px;
-    line-height: 1.5;
-  }
-}
-
-.run-detail-section {
-  min-width: 0;
-  scroll-margin-top: 18px;
-}
-
-.run-detail-tabs {
-  min-width: 0;
-
-  :deep(.el-tabs__content),
-  :deep(.el-tab-pane) {
-    min-width: 0;
-  }
-}
-
-.supervisor-metrics {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-  margin-bottom: 14px;
-}
-
-.supervisor-metric {
-  padding: 14px;
-  border: 1px solid var(--border-color);
-  border-radius: 10px;
-  background: var(--card-bg);
-
-  span,
-  small {
-    display: block;
-    color: var(--text-secondary);
-  }
-
-  strong {
-    display: block;
-    margin: 7px 0 3px;
-    color: var(--text-primary);
-    font-size: 20px;
-  }
-}
-
-.supervisor-event-table {
-  margin-bottom: 16px;
-}
-
-.card-header,
-.span-head,
-.span-tags,
-.execution-stage {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.card-header,
-.span-head {
-  justify-content: space-between;
-}
-
-.card-header {
-  min-width: 0;
-  flex-wrap: wrap;
-
-  :deep(.el-tag) {
-    max-width: 100%;
-  }
-
-  :deep(.el-tag__content) {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-}
-
-.compare-summary {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-  margin-bottom: 12px;
-}
-
-.diff-chip {
-  padding: 12px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  background: var(--fill-color-light);
-
-  span,
-  strong {
-    display: block;
-  }
-
-  span {
-    color: var(--text-secondary);
-    font-size: 12px;
-  }
-
-  strong {
-    margin-top: 6px;
-    color: var(--text-primary);
-    word-break: break-word;
-  }
-}
-
-.diff-detail-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  padding: 10px 0;
-
-  > div {
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
-    overflow: hidden;
-    background: var(--card-bg);
-  }
-
-  .panel-title {
-    padding: 10px 12px;
-    border-bottom: 1px solid var(--border-color);
-    font-weight: 600;
-  }
-
-  pre {
-    max-height: 300px;
-    overflow: auto;
-    margin: 0;
-    padding: 12px;
-    white-space: pre-wrap;
-    word-break: break-word;
-  }
-}
-
 .hint-list {
   display: flex;
   flex-direction: column;
   gap: 4px;
-}
-
-.execution-model {
-  display: flex;
-  align-items: stretch;
-  gap: 10px;
-  margin: 6px 0 18px;
-
-  > div {
-    display: grid;
-    flex: 1;
-    gap: 4px;
-    padding: 14px;
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
-    background: var(--fill-color-light);
-  }
-
-  > span {
-    align-self: center;
-    color: var(--text-secondary);
-    font-size: 20px;
-  }
-
-  small {
-    color: var(--text-secondary);
-  }
-
-  &.workflow-only > div {
-    max-width: 320px;
-  }
-}
-
-.path-prefix {
-  color: var(--text-secondary);
-  font-size: 18px;
-}
-
-.span-timeline {
-  padding: 12px 8px;
-}
-
-.span-item {
-  padding: 14px;
-}
-
-.span-head strong,
-.span-head span {
-  display: block;
-}
-
-.span-head span {
-  margin-top: 4px;
-  color: var(--text-secondary);
-}
-
-.error-text {
-  margin-top: 10px;
-  color: var(--el-color-danger);
-}
-
-.io-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  margin-top: 12px;
-
-  pre {
-    max-height: 220px;
-    overflow: auto;
-    padding: 10px;
-    border-radius: 6px;
-    background: var(--fill-color-light);
-    white-space: pre-wrap;
-    word-break: break-word;
-  }
-}
-
-.snapshot-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
-}
-
-.snapshot-panel {
-  min-height: 280px;
-  overflow: hidden;
-
-  .panel-title {
-    padding: 12px 14px;
-    border-bottom: 1px solid var(--border-color);
-    font-weight: 600;
-  }
-
-  pre {
-    max-height: 480px;
-    overflow: auto;
-    margin: 0;
-    padding: 14px;
-    white-space: pre-wrap;
-    word-break: break-word;
-  }
-}
-
-@media (max-width: 1240px) {
-  .diagnostic-overview {
-    grid-template-columns: 1fr;
-  }
-
-  .summary-grid {
-    border-top: 1px solid var(--border-color);
-  }
-}
-
-@media (max-width: 1100px) {
-  .summary-grid,
-  .supervisor-metrics,
-  .compare-summary,
-  .diff-detail-grid,
-  .snapshot-grid,
-  .io-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .execution-model {
-    flex-direction: column;
-
-    > span {
-      transform: rotate(90deg);
-    }
-  }
-
-  .diagnosis-panel__content {
-    grid-template-columns: 1fr;
-  }
-}
-
-@media (max-width: 760px) {
-  .identifier-strip {
-    grid-template-columns: 1fr;
-  }
-
-  .diagnostic-result,
-  .diagnosis-panel {
-    padding: 16px;
-  }
-
-  .run-vitals {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 640px) {
-  .summary-grid,
-  .supervisor-metrics,
-  .compare-summary,
-  .diff-detail-grid,
-  .snapshot-grid,
-  .io-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .run-vitals {
-    grid-template-columns: 1fr;
-  }
 }
 
 /* RunOps investigation workbench V2 */

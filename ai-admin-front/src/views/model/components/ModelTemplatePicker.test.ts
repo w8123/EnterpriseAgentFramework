@@ -5,9 +5,11 @@ import type { ModelTemplate } from '@/types/model'
 import ModelTemplatePicker from './ModelTemplatePicker.vue'
 
 const getModelTemplates = vi.fn()
+const getModelCatalogStatus = vi.fn()
 
 vi.mock('@/api/model', () => ({
   getModelTemplates: (...args: unknown[]) => getModelTemplates(...args),
+  getModelCatalogStatus: (...args: unknown[]) => getModelCatalogStatus(...args),
 }))
 
 vi.mock('element-plus', async () => {
@@ -81,6 +83,24 @@ const catalog = [
 
 async function mountPicker(props: Record<string, unknown> = {}) {
   getModelTemplates.mockResolvedValue({ data: { data: catalog } })
+  getModelCatalogStatus.mockResolvedValue({
+    data: {
+      data: {
+        enabled: true,
+        autoSyncEnabled: true,
+        zoneId: 'Asia/Shanghai',
+        businessDate: '2026-08-25',
+        analyzerConfigured: true,
+        stale: false,
+        catalogVerifiedAt: '2026-08-25T09:30:00',
+        lastAnySuccessfulAt: '2026-08-25T09:35:00',
+        sourceCount: 8,
+        completedToday: 8,
+        message: '今日官方模型目录已同步',
+        sources: [],
+      },
+    },
+  })
   const wrapper = mount(ModelTemplatePicker, {
     props,
     global: {
@@ -112,6 +132,7 @@ async function mountPicker(props: Record<string, unknown> = {}) {
 describe('ModelTemplatePicker two-step catalog', () => {
   beforeEach(() => {
     getModelTemplates.mockReset()
+    getModelCatalogStatus.mockReset()
   })
 
   it('shows providers first and hides disabled templates from counts', async () => {
@@ -121,6 +142,8 @@ describe('ModelTemplatePicker two-step catalog', () => {
     expect(wrapper.text()).toContain('2 个模型')
     expect(wrapper.text()).toContain('自定义 OpenAI 兼容模型')
     expect(wrapper.findAll('.model-card')).toHaveLength(0)
+    expect(wrapper.text()).toContain('今日官方模型目录已同步')
+    expect(wrapper.text()).toContain('8/8 来源')
   })
 
   it('locks replace flow to same type providers and counts', async () => {
@@ -140,10 +163,12 @@ describe('ModelTemplatePicker two-step catalog', () => {
     const wrapper = await mountPicker()
     await wrapper.findAll('.provider-card')[0].trigger('click')
     await nextTick()
-    expect(wrapper.find('.model-context__back').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('返回选择厂商')
     expect(wrapper.findAll('.model-card')).toHaveLength(2)
     expect(wrapper.text()).toContain('DeepSeek Reasoner')
-    await wrapper.find('.model-context__back').trigger('click')
+    const providerStep = wrapper.findAll('.catalog-steps__item')[0]
+    expect(providerStep.element.tagName).toBe('BUTTON')
+    await providerStep.trigger('click')
     await nextTick()
     expect(wrapper.text()).toContain('选择模型厂商')
     expect(wrapper.findAll('.provider-card')).toHaveLength(2)
@@ -166,7 +191,7 @@ describe('ModelTemplatePicker two-step catalog', () => {
     const wrapper = await mountPicker({ modelType: 'LLM', lockModelType: true })
     await wrapper.findAll('.provider-card')[0].trigger('click')
     await nextTick()
-    expect(wrapper.find('.model-context__back').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('返回选择厂商')
 
     getModelTemplates.mockResolvedValue({
       data: {

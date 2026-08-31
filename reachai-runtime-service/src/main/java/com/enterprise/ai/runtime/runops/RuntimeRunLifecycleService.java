@@ -2,10 +2,14 @@ package com.enterprise.ai.runtime.runops;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.enterprise.ai.runtime.agent.RuntimeAgentConfigVersionEntity;
+import com.enterprise.ai.runtime.agent.RuntimeAgentSkillBindingEntity;
 import com.enterprise.ai.runtime.agent.RuntimeAgentView;
 import com.enterprise.ai.runtime.agent.RuntimeAgentWorkflowToolEntity;
+import com.enterprise.ai.runtime.execution.RuntimeAgentRunLifecyclePort;
 import com.enterprise.ai.runtime.execution.trace.WorkflowTraceSanitizer;
 import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionEntity;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowVersionEntity;
 import com.enterprise.ai.runtime.workflow.WorkflowSemanticValues;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -23,7 +27,7 @@ import java.util.Map;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class RuntimeRunLifecycleService {
+public class RuntimeRunLifecycleService implements RuntimeAgentRunLifecyclePort {
 
     private final RuntimeRunMapper runMapper;
     private final ObjectMapper objectMapper;
@@ -144,6 +148,42 @@ public class RuntimeRunLifecycleService {
             run.setUpdatedAt(now);
             runMapper.updateById(run);
         }, "resume Agent run");
+    }
+
+    /** Persists the exact Skill versions alongside the Agent config snapshot. */
+    public void recordSkillBindings(String traceId, List<RuntimeAgentSkillBindingEntity> bindings) {
+        if (!StringUtils.hasText(traceId)) return;
+        safe(() -> {
+            RuntimeRunEntity run = find(traceId);
+            if (run == null) return;
+            Map<String, Object> snapshot = jsonMap(run.getSnapshotJson());
+            List<Map<String, Object>> versions = bindings == null ? List.of() : bindings.stream()
+                    .filter(java.util.Objects::nonNull)
+                    .map(skill -> {
+                        Map<String, Object> value = new LinkedHashMap<>();
+                        value.put("skillId", skill.getSkillId());
+                        value.put("skillVersionId", skill.getSkillVersionId());
+                        value.put("publisher", skill.getPublisher());
+                        value.put("name", skill.getStandardName());
+                        if (StringUtils.hasText(skill.getVisibility())) {
+                            value.put("visibility", skill.getVisibility());
+                        }
+                        if (StringUtils.hasText(skill.getProjectCode())) {
+                            value.put("projectCode", skill.getProjectCode());
+                        }
+                        value.put("version", skill.getVersion());
+                        value.put("sourceSha256", skill.getSourceSha256());
+                        value.put("activationMode", skill.getActivationMode());
+                        value.put("scriptPolicy", skill.getScriptPolicy());
+                        return Map.copyOf(value);
+                    })
+                    .toList();
+            snapshot.put("skillBindingCount", versions.size());
+            snapshot.put("skillBindings", versions);
+            run.setSnapshotJson(json(snapshot));
+            run.setUpdatedAt(LocalDateTime.now());
+            runMapper.updateById(run);
+        }, "record Agent Skill binding snapshot");
     }
 
     public void finishAgent(String traceId,
@@ -382,6 +422,110 @@ public class RuntimeRunLifecycleService {
         insert(run, "begin Workflow run");
     }
 
+    /** Begins a non-Studio Workflow run against one immutable published version. */
+    public void beginPublishedWorkflow(String traceId,
+                                       String rootSpanId,
+                                       String entryType,
+                                       RuntimeWorkflowDefinitionEntity workflow,
+                                       RuntimeWorkflowVersionEntity version,
+                                       Map<String, Object> input,
+                                       WorkflowExecutionIdentity identity) {
+        LocalDateTime now = LocalDateTime.now();
+        Map<String, Object> normalized = input == null ? new LinkedHashMap<>() : new LinkedHashMap<>(input);
+        normalized.put("entryType", firstText(entryType, "API"));
+        normalized.putIfAbsent("projectCode", workflow.getProjectCode());
+        RuntimeRunEntity run = baseRun(traceId, normalized, now, identity);
+        run.setRunType("WORKFLOW");
+        run.setStatus(RuntimeRunStatus.RUNNING.name());
+        run.setProjectId(workflow.getProjectId());
+        run.setProjectCode(firstText(normalized.get("projectCode"), workflow.getProjectCode()));
+        run.setWorkflowId(trim(workflow.getId()));
+        run.setWorkflowKeySlug(trim(workflow.getKeySlug()));
+        run.setWorkflowName(trim(workflow.getName()));
+        run.setWorkflowVersionId(version.getId());
+        run.setWorkflowVersion(version.getVersion());
+        run.setRuntimeType(WorkflowSemanticValues.normalizeExecutionEngine(
+                firstText(workflow.getExecutionEngine(), WorkflowSemanticValues.ENGINE_GRAPH_SPEC)));
+        run.setRootSpanId(rootSpanId);
+        Map<String, Object> snapshot = new LinkedHashMap<>(
+                WorkflowTraceSanitizer.sanitizeWorkflowSnapshot(version.getGraphSpecSnapshotJson()));
+        snapshot.put("workflowId", trim(workflow.getId()));
+        snapshot.put("workflowKeySlug", trim(workflow.getKeySlug()));
+        snapshot.put("workflowVersionId", version.getId());
+        snapshot.put("workflowVersion", version.getVersion());
+        run.setSnapshotJson(json(snapshot));
+        insert(run, "begin published Workflow run");
+    }
+
+    /** Begins one externally initiated MCP tools/call as its own durable root run. */
+    public Long beginMcp(String traceId,
+                         String rootSpanId,
+                         String sourceKind,
+                         String sourceRef,
+                         Long workflowVersionId,
+                         String toolName,
+                         Map<String, Object> input,
+                         Map<String, Object> metadata,
+                         WorkflowExecutionIdentity identity) {
+        LocalDateTime now = LocalDateTime.now();
+        Map<String, Object> normalized = input == null ? new LinkedHashMap<>() : new LinkedHashMap<>(input);
+        normalized.put("entryType", "MCP");
+        normalized.put("projectCode", identity == null ? null : identity.projectCode());
+        normalized.put("tenantId", identity == null ? null : identity.tenantId());
+        RuntimeRunEntity run = baseRun(traceId, normalized, now, identity);
+        run.setRunType("MCP");
+        run.setStatus(RuntimeRunStatus.RUNNING.name());
+        run.setProjectId(identity == null ? null : identity.projectId());
+        run.setProjectCode(identity == null ? null : identity.projectCode());
+        run.setTenantId(identity == null ? null : identity.tenantId());
+        run.setRuntimeType("WORKFLOW".equalsIgnoreCase(sourceKind) ? "GRAPH_SPEC" : "CAPABILITY");
+        run.setRootSpanId(rootSpanId);
+        run.setToolCallCount(1);
+        if ("WORKFLOW".equalsIgnoreCase(sourceKind)) {
+            run.setWorkflowId(trim(sourceRef));
+            run.setWorkflowVersionId(workflowVersionId);
+            run.setWorkflowCallCount(1);
+        }
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("sourceKind", trim(sourceKind));
+        snapshot.put("sourceRef", trim(sourceRef));
+        snapshot.put("toolName", trim(toolName));
+        if (workflowVersionId != null) snapshot.put("workflowVersionId", workflowVersionId);
+        copyScalar(snapshot, metadata, "publicationId");
+        copyScalar(snapshot, metadata, "revisionNo");
+        copyScalar(snapshot, metadata, "environment");
+        run.setSnapshotJson(json(snapshot));
+        insert(run, "begin MCP run");
+        RuntimeRunEntity inserted = find(traceId);
+        return inserted == null ? null : inserted.getId();
+    }
+
+    /** Completes the MCP root without persisting tool arguments or response payloads. */
+    public void finishMcp(String traceId, boolean success, String code,
+                          boolean hasOutput, Map<String, Object> metadata) {
+        safe(() -> {
+            RuntimeRunEntity run = find(traceId);
+            if (run == null) return;
+            LocalDateTime ended = LocalDateTime.now();
+            run.setStatus(status(success, code));
+            run.setOutputSummary(hasOutput ? "[omitted]" : "");
+            run.setErrorCode(success ? null : trim(code));
+            run.setErrorMessage(success ? null : WorkflowTraceSanitizer.sanitizeRejectionSummary(code));
+            run.setLatencyMs(toInt(ChronoUnit.MILLIS.between(run.getStartedAt(), ended)));
+            Map<String, Object> safeMetadata = new LinkedHashMap<>();
+            copyScalar(safeMetadata, metadata, "sourceKind");
+            copyScalar(safeMetadata, metadata, "toolName");
+            copyScalar(safeMetadata, metadata, "publicationId");
+            copyScalar(safeMetadata, metadata, "revisionNo");
+            copyScalar(safeMetadata, metadata, "environment");
+            copyScalar(safeMetadata, metadata, "nodeCount");
+            run.setMetadataJson(json(safeMetadata));
+            run.setEndedAt(ended);
+            run.setUpdatedAt(ended);
+            runMapper.updateById(run);
+        }, "finish MCP run");
+    }
+
     public void finishWorkflow(String traceId,
                                boolean success,
                                String code,
@@ -439,6 +583,29 @@ public class RuntimeRunLifecycleService {
         run.setCreatedAt(now);
         run.setUpdatedAt(now);
         return run;
+    }
+
+    private void copyScalar(Map<String, Object> target, Map<String, Object> source, String key) {
+        if (source == null || target == null || key == null) return;
+        Object value = source.get(key);
+        if (value instanceof String || value instanceof Number || value instanceof Boolean) {
+            target.put(key, value);
+        }
+    }
+
+    private Map<String, Object> jsonMap(String value) {
+        if (!StringUtils.hasText(value)) return new LinkedHashMap<>();
+        try {
+            Object parsed = objectMapper.readValue(value, Object.class);
+            if (parsed instanceof Map<?, ?> map) {
+                Map<String, Object> result = new LinkedHashMap<>();
+                map.forEach((key, item) -> result.put(String.valueOf(key), item));
+                return result;
+            }
+        } catch (Exception ignored) {
+            // Replace corrupt observability metadata with a safe fresh object.
+        }
+        return new LinkedHashMap<>();
     }
 
     private void applyTrustedUser(RuntimeRunEntity run, WorkflowExecutionIdentity identity) {

@@ -51,7 +51,7 @@ assert.doesNotMatch(
 assert.match(
   headerSource,
   /将业务系统 API 接入 ReachAI/,
-  'API catalog detail header should explain the API-to-Tool-to-Agent product loop',
+  'API catalog detail header should explain the API-to-Capability-to-Agent product loop',
 )
 assert.match(
   headerSource,
@@ -73,7 +73,7 @@ assert.match(
   /@command="onMoreCommand"/,
   'API catalog detail header should collect secondary actions into a more-actions menu',
 )
-for (const label of ['AI 语义生成', '检查 Tool 关联', '维护动作']) {
+for (const label of ['AI 语义生成', '检查能力纳管', '维护动作']) {
   assert.match(headerSource, new RegExp(label), `Header more-actions menu should preserve ${label}`)
 }
 assert.doesNotMatch(
@@ -249,7 +249,7 @@ assert.doesNotMatch(summarySource, /查看 SDK 同步指引/, 'SDK guide should 
 assert.match(summarySource, /primaryLabel: '添加接口'/, 'SDK project without APIs should direct users to add-interface import')
 assert.match(summarySource, /primaryAction: 'importApi'/, 'SDK project without APIs should open the add-interface dialog')
 assert.doesNotMatch(scanDetailSource, /ScanProjectScanRulesDrawer/, 'Scan parsing rules should live in the add-interface dialog')
-assert.match(summarySource, /检查 Tool 关联/, 'Tool reconciliation should be presented as a Tool-link check')
+assert.match(summarySource, /检查能力纳管/, 'Runtime projection reconciliation should be presented as capability governance')
 
 assert.match(opsDrawerSource, /title="维护动作"/, 'Ops drawer should be narrowed to maintenance actions')
 assert.match(opsDrawerSource, /重建向量索引/, 'Maintenance actions should retain embedding index rebuild')
@@ -283,12 +283,12 @@ assert.doesNotMatch(
 assert.match(
   metricIconBgSource,
   /M12 2\.8v3\.4/,
-  'Tool publish icon should lift the publish arrow above the package top edge',
+  'Capability governance icon should lift the publish arrow above the package top edge',
 )
 assert.match(
   metricIconBgSource,
   /m9\.8 4\.9 2\.2-2\.1 2\.2 2\.1/,
-  'Tool publish icon should lift the publish arrow head with the stem',
+  'Capability governance icon should lift the publish arrow head with the stem',
 )
 assert.doesNotMatch(
   overviewSource,
@@ -322,7 +322,7 @@ assert.doesNotMatch(overviewSource, /class="governance-stage-strip"/, 'Overview 
 assert.doesNotMatch(overviewSource, /governance-entry-dot/, 'Overview should not keep the old low-fidelity dot marker')
 assert.doesNotMatch(overviewSource, /index \+ 1/, 'Governance entries should not imply numbered linear steps')
 assert.doesNotMatch(overviewSource, /风险复核/, 'Risk review should not be rendered as a governance node')
-for (const label of ['发现 API', '补全 AI 语义', '上架 Tool', '用于 Agent']) {
+for (const label of ['发现 API', '补全 AI 语义', '纳入能力目录', '用于 Agent']) {
   assert.match(overviewSource, new RegExp(label), `Overview should render governance entry ${label}`)
 }
 assert.doesNotMatch(

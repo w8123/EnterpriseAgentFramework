@@ -12,7 +12,6 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
@@ -44,14 +43,17 @@ public class PlatformIdentityController {
     private final PlatformAuthProviderMapper authProviderMapper;
     private final PlatformAuthProperties authProperties;
     private final PlatformConsoleAuthAvailability consoleAuthAvailability;
-    private final PlatformBearerAuthService bearerAuthService;
     private final PlatformAuthorizationService authorizationService;
+    private final PlatformRequestAuthorization requestAuthorization;
     private final PlatformAuthAuditService authAuditService;
     private final PlatformSessionTokenCodec sessionTokenCodec;
+    private final PlatformSessionCookieService sessionCookieService;
     private final PasswordEncoder platformPasswordEncoder;
 
     @PostMapping("/api/platform/auth/login")
-    public ResponseEntity<PlatformLoginResult> login(@RequestBody PlatformLoginRequest request) {
+    public ResponseEntity<PlatformLoginResult> login(
+            HttpServletRequest httpRequest,
+            @RequestBody PlatformLoginRequest request) {
         String username = requireText(request == null ? null : request.username(), "username");
         String password = requireText(request == null ? null : request.password(), "password");
         PlatformConsoleAuthAvailability.Availability availability = consoleAuthAvailability.current();
@@ -77,34 +79,34 @@ public class PlatformIdentityController {
         PlatformAuthenticatedSession authenticatedSession = authorizationService.authenticatedSession(
                 user,
                 issuedSession.session());
-        return ResponseEntity.ok(new PlatformLoginResult(
-                issuedSession.accessToken(),
-                authProperties.getSessionTtl().toSeconds(),
-                instantText(issuedSession.session().getExpiresAt()),
-                issuedSession.session().getSessionId(),
-                toProfile(authenticatedSession)));
+        return ResponseEntity.ok()
+                .header("Set-Cookie", sessionCookieService.issueCookie(httpRequest, issuedSession.accessToken()))
+                .header("Cache-Control", "no-store")
+                .body(new PlatformLoginResult(
+                        authProperties.getSessionTtl().toSeconds(),
+                        instantText(issuedSession.session().getExpiresAt()),
+                        issuedSession.session().getSessionId(),
+                        toProfile(authenticatedSession)));
     }
 
     @GetMapping("/api/platform/auth/me")
-    public ResponseEntity<PlatformSessionView> me(
-            @RequestHeader(value = "Authorization", required = false) String authorization) {
-        return bearerAuthService.resolveBearerSession(authorization)
-                .map(this::toSessionView)
-                .map(ResponseEntity::ok)
-                .orElseGet(() -> ResponseEntity.status(HttpStatus.UNAUTHORIZED).build());
+    public ResponseEntity<PlatformSessionView> me(HttpServletRequest request) {
+        return ResponseEntity.ok()
+                .header("Cache-Control", "no-store")
+                .body(toSessionView(requireAuthenticatedSession(request)));
     }
 
     @PostMapping("/api/platform/auth/logout")
-    public ResponseEntity<Void> logout(
-            @RequestHeader(value = "Authorization", required = false) String authorization) {
-        String token = bearerToken(authorization);
-        if (StringUtils.hasText(token)) {
-            sessionMapper.update(null, new LambdaUpdateWrapper<PlatformLoginSessionEntity>()
-                    .eq(PlatformLoginSessionEntity::getAccessTokenId, sessionTokenCodec.digest(token))
-                    .isNull(PlatformLoginSessionEntity::getRevokedAt)
-                    .set(PlatformLoginSessionEntity::getRevokedAt, LocalDateTime.now()));
-        }
-        return ResponseEntity.ok().build();
+    public ResponseEntity<Void> logout(HttpServletRequest request) {
+        PlatformAuthenticatedSession session = requireAuthenticatedSession(request);
+        sessionMapper.update(null, new LambdaUpdateWrapper<PlatformLoginSessionEntity>()
+                .eq(PlatformLoginSessionEntity::getSessionId, session.sessionId())
+                .isNull(PlatformLoginSessionEntity::getRevokedAt)
+                .set(PlatformLoginSessionEntity::getRevokedAt, LocalDateTime.now()));
+        return ResponseEntity.ok()
+                .header("Set-Cookie", sessionCookieService.expireCookie(request))
+                .header("Cache-Control", "no-store")
+                .build();
     }
 
     @GetMapping("/api/platform/auth-providers")
@@ -232,14 +234,6 @@ public class PlatformIdentityController {
         return new IssuedPlatformSession(entity, accessToken);
     }
 
-    private String bearerToken(String authorization) {
-        if (!StringUtils.hasText(authorization)) {
-            return null;
-        }
-        String trimmed = authorization.trim();
-        return trimmed.regionMatches(true, 0, "Bearer ", 0, 7) ? trimmed.substring(7).trim() : null;
-    }
-
     private boolean passwordMatches(PlatformUserEntity user, String password) {
         if (!StringUtils.hasText(user.getPasswordHash())) {
             return false;
@@ -268,7 +262,8 @@ public class PlatformIdentityController {
                 user.getUsername(),
                 user.getDisplayName(),
                 session.roles(),
-                session.permissions());
+                session.permissions(),
+                session.permissionGrants());
     }
 
     private PlatformSessionView toSessionView(PlatformAuthenticatedSession session) {
@@ -279,12 +274,11 @@ public class PlatformIdentityController {
     }
 
     private PlatformAuthenticatedSession requirePlatformAdmin(HttpServletRequest request) {
-        Object candidate = request.getAttribute(PlatformConsoleAuthInterceptor.SESSION_REQUEST_ATTRIBUTE);
-        if (!(candidate instanceof PlatformAuthenticatedSession session)) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "live ReachAI platform login is required");
-        }
-        authorizationService.requireGlobalPermission(session, "platform:admin");
-        return session;
+        return requestAuthorization.requireGlobalPermission(request, PlatformPermissions.PLATFORM_ADMIN);
+    }
+
+    private PlatformAuthenticatedSession requireAuthenticatedSession(HttpServletRequest request) {
+        return requestAuthorization.requireAuthenticated(request);
     }
 
     private List<NormalizedRoleGrantCommand> normalizeRoleGrantCommands(
@@ -293,13 +287,12 @@ public class PlatformIdentityController {
         if (requested.isEmpty()) {
             return List.of();
         }
+        if (requested.stream().anyMatch(command -> command == null || command.roleId() == null)) {
+            throw badRequest("each role grant must have a roleId");
+        }
         Set<Long> roleIds = requested.stream()
                 .map(PlatformUserRoleGrantCommand::roleId)
-                .filter(id -> id != null)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
-        if (roleIds.size() != requested.size()) {
-            throw badRequest("each role grant must have one distinct roleId");
-        }
         Map<Long, PlatformRoleEntity> roles = roleMapper.selectBatchIds(roleIds).stream()
                 .filter(role -> role.getId() != null)
                 .collect(Collectors.toMap(PlatformRoleEntity::getId, role -> role));
@@ -507,7 +500,6 @@ public class PlatformIdentityController {
     }
 
     public record PlatformLoginResult(
-            String accessToken,
             long expiresIn,
             String expiresAt,
             String sessionId,
@@ -527,7 +519,8 @@ public class PlatformIdentityController {
             String username,
             String displayName,
             List<String> roles,
-            List<String> permissions
+            List<String> permissions,
+            List<PlatformPermissionGrant> permissionGrants
     ) {
     }
 

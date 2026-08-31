@@ -50,13 +50,6 @@ public class RuntimeAgentSupervisorWorkflowAttachmentService {
                     + "不能因为用户没有说打开或操作页面就拒绝。"
                     + "名称、说明和回复默认使用简体中文；Token、MCP、AI、Agent、"
                     + "Supervisor、Workflow、Tool、API、SDK 等熟知专业术语和技术标识可保留英文。";
-    private static final Set<String> LEGACY_PAGE_COPILOT_DESCRIPTIONS = Set.of(
-            "Project page copilot Agent for embedded chat and Workflow routing.",
-            "Project page copilot Agent for embedded chat, page understanding, and Workflow routing.");
-    private static final Set<String> LEGACY_PAGE_COPILOT_SYSTEM_PROMPTS = Set.of(
-            "You are the project's page copilot Supervisor. Understand the request, plan, and select one or more permitted Workflows as tools. Use page-action Workflows only when the user explicitly asks to open, navigate, query, or operate a page.",
-            "You are the project's page copilot. Understand the user's intent and select the permitted Workflows as tools.");
-
     private final RuntimeCapabilityCatalogClient capabilityClient;
     private final RuntimeModelCatalogClient modelCatalogClient;
     private final RuntimeWorkflowDefinitionService workflowDefinitionService;
@@ -108,19 +101,13 @@ public class RuntimeAgentSupervisorWorkflowAttachmentService {
 
         Optional<com.enterprise.ai.runtime.agent.RuntimeAgentConfigVersionEntity> activeEntity =
                 agentConfigService.resolveActive(agent.getId());
-        boolean legacyActiveSystemPrompt = activeEntity
-                .map(com.enterprise.ai.runtime.agent.RuntimeAgentConfigVersionEntity::getSystemPrompt)
-                .filter(StringUtils::hasText)
-                .filter(LEGACY_PAGE_COPILOT_SYSTEM_PROMPTS::contains)
-                .isPresent();
         if (activeEntity.isPresent()) {
             List<WorkflowToolView> tools = agentConfigService.listTools(agent.getId(), activeEntity.get().getId());
             Optional<WorkflowToolView> attachedTool = tools.stream()
                     .filter(tool -> workflow.getId().equals(tool.workflowId()))
                     .findFirst();
             if (attachedTool.isPresent() && !hasToolOverrides(request)
-                    && modelMatches(activeEntity.get().getModelInstanceId(), modelInstanceId)
-                    && !legacyActiveSystemPrompt) {
+                    && modelMatches(activeEntity.get().getModelInstanceId(), modelInstanceId)) {
                 RuntimeWorkflowVersionEntity activeWorkflowVersion =
                         workflowVersionService.resolveActive(workflow.getId());
                 if (activeWorkflowVersion != null
@@ -145,9 +132,7 @@ public class RuntimeAgentSupervisorWorkflowAttachmentService {
         try {
             agentConfigService.saveDraft(agent.getId(), new AgentConfigDraftRequest(
                     "AGENTSCOPE",
-                    legacyActiveSystemPrompt
-                            ? DEFAULT_PAGE_COPILOT_SYSTEM_PROMPT
-                            : null,
+                    null,
                     modelInstanceId,
                     null,
                     null,
@@ -418,7 +403,6 @@ public class RuntimeAgentSupervisorWorkflowAttachmentService {
                 .last("LIMIT 1"));
         if (existing != null) {
             validateAgentProject(existing, project);
-            localizeLegacyAgentDefaults(existing);
             return existing;
         }
         RuntimeAgentEntity entity = new RuntimeAgentEntity();
@@ -444,34 +428,6 @@ public class RuntimeAgentSupervisorWorkflowAttachmentService {
                         "routing", "supervisor-workflow-tools"
                 )));
         return entity;
-    }
-
-    private void localizeLegacyAgentDefaults(
-            RuntimeAgentEntity existing) {
-        boolean changed = false;
-        String currentName = existing.getName();
-        if (StringUtils.hasText(currentName)
-                && currentName.endsWith(" Page Copilot")) {
-            existing.setName(
-                    currentName.substring(
-                            0,
-                            currentName.length()
-                                    - " Page Copilot".length())
-                            + " 页面副驾驶 Agent");
-            changed = true;
-        }
-        String currentDescription = existing.getDescription();
-        if (StringUtils.hasText(currentDescription)
-                && LEGACY_PAGE_COPILOT_DESCRIPTIONS.contains(
-                        currentDescription)) {
-            existing.setDescription(
-                    DEFAULT_PAGE_COPILOT_DESCRIPTION);
-            changed = true;
-        }
-        if (changed) {
-            existing.setUpdatedAt(LocalDateTime.now());
-            agentMapper.updateById(existing);
-        }
     }
 
     private String resolveModelInstanceId(RuntimeAgentEntity agent, String requested) {

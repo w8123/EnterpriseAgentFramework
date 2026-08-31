@@ -506,6 +506,12 @@ public class KnowledgeServiceImpl implements KnowledgeService, KnowledgeRetrieva
         List<KnowledgeBase> knowledgeBases = resolveKnowledgeBases(request.getKnowledgeBaseCodes());
 
         List<RetrievalTestResponse.RetrievalItem> allItems = new ArrayList<>();
+        int vectorRawCandidateCount = 0;
+        int vectorAcceptedCandidateCount = 0;
+        int keywordRawCandidateCount = 0;
+        int keywordAcceptedCandidateCount = 0;
+        int failedKnowledgeBaseCount = 0;
+        long retrievalStageStartedAt = System.currentTimeMillis();
         for (KnowledgeBase kb : knowledgeBases) {
             try {
                 if (!"keyword".equals(searchMode)) {
@@ -519,6 +525,10 @@ public class KnowledgeServiceImpl implements KnowledgeService, KnowledgeRetrieva
                         searchBuilder.filterExpression(request.getFileIdFilterExpression());
                     }
                     List<VectorSearchResult> results = vectorService.search(searchBuilder.build());
+                    if (results == null) {
+                        results = List.of();
+                    }
+                    vectorRawCandidateCount += results.size();
 
                     for (VectorSearchResult sr : results) {
                         if (sr.getScore() >= threshold) {
@@ -538,6 +548,7 @@ public class KnowledgeServiceImpl implements KnowledgeService, KnowledgeRetrieva
                             item.setScore(sr.getScore());
                             item.setReason("vector");
                             allItems.add(item);
+                            vectorAcceptedCandidateCount++;
                         }
                     }
                 }
@@ -545,7 +556,12 @@ public class KnowledgeServiceImpl implements KnowledgeService, KnowledgeRetrieva
                     Set<String> allowedFiles = request.getAccessibleFileIds() == null
                             ? null
                             : new HashSet<>(request.getAccessibleFileIds());
-                    for (Chunk chunk : keywordSearch(kb.getId(), request.getQuery(), topK * 3)) {
+                    List<Chunk> keywordCandidates = keywordSearch(kb.getId(), request.getQuery(), topK * 3);
+                    if (keywordCandidates == null) {
+                        keywordCandidates = List.of();
+                    }
+                    keywordRawCandidateCount += keywordCandidates.size();
+                    for (Chunk chunk : keywordCandidates) {
                         if (allowedFiles != null
                                 && (chunk.getFileId() == null || !allowedFiles.contains(String.valueOf(chunk.getFileId())))) {
                             continue;
@@ -557,13 +573,17 @@ public class KnowledgeServiceImpl implements KnowledgeService, KnowledgeRetrieva
                             item.setScore(keywordScore);
                             item.setReason("keyword");
                             allItems.add(item);
+                            keywordAcceptedCandidateCount++;
                         }
                     }
                 }
             } catch (Exception e) {
+                failedKnowledgeBaseCount++;
                 log.warn("检索知识库 {} 失败: {}", kb.getCode(), e.getMessage());
             }
         }
+        long retrievalStageMs = Math.max(0L, System.currentTimeMillis() - retrievalStageStartedAt);
+        int preMergeCandidateCount = allItems.size();
 
         // 按分数降序排列，取 topK
         Map<String, KnowledgeBase> kbMap = knowledgeBases.stream()
@@ -580,7 +600,10 @@ public class KnowledgeServiceImpl implements KnowledgeService, KnowledgeRetrieva
             }
         }
         allItems = new ArrayList<>(merged.values());
+        int mergedCandidateCount = allItems.size();
+        long rerankStageStartedAt = System.currentTimeMillis();
         applyModelRerank(request.getQuery(), kbMap, allItems, request.getRerankEnabled());
+        long rerankStageMs = Math.max(0L, System.currentTimeMillis() - rerankStageStartedAt);
         for (RetrievalTestResponse.RetrievalItem item : allItems) {
             KnowledgeBase kb = kbMap.get(item.getKnowledgeBaseCode());
             float vectorWeight = request.getVectorWeight() != null ? request.getVectorWeight()
@@ -591,9 +614,13 @@ public class KnowledgeServiceImpl implements KnowledgeService, KnowledgeRetrieva
                     : kb == null || Boolean.TRUE.equals(kb.getRerankEnabled());
             scoreItem(request, kb, searchMode, vectorWeight, keywordWeight, useRerank, item);
         }
+        int rerankedCandidateCount = (int) allItems.stream()
+                .filter(item -> item.getRerankScore() != null)
+                .count();
         allItems = allItems.stream()
                 .filter(item -> item.getScore() != null && item.getScore() >= threshold)
                 .collect(Collectors.toList());
+        int scoreAcceptedCandidateCount = allItems.size();
 
         allItems.sort(Comparator.comparingDouble(RetrievalTestResponse.RetrievalItem::getScore).reversed());
         List<RetrievalTestResponse.RetrievalItem> topItems = allItems.stream()
@@ -614,6 +641,25 @@ public class KnowledgeServiceImpl implements KnowledgeService, KnowledgeRetrieva
                 .orElse(null);
 
         long costMs = System.currentTimeMillis() - start;
+        Map<String, Object> diagnostics = new LinkedHashMap<>();
+        diagnostics.put("knowledgeBaseCount", knowledgeBases.size());
+        diagnostics.put("failedKnowledgeBaseCount", failedKnowledgeBaseCount);
+        diagnostics.put("vectorRawCandidateCount", vectorRawCandidateCount);
+        diagnostics.put("vectorAcceptedCandidateCount", vectorAcceptedCandidateCount);
+        diagnostics.put("keywordRawCandidateCount", keywordRawCandidateCount);
+        diagnostics.put("keywordAcceptedCandidateCount", keywordAcceptedCandidateCount);
+        diagnostics.put("preMergeCandidateCount", preMergeCandidateCount);
+        diagnostics.put("mergedCandidateCount", mergedCandidateCount);
+        diagnostics.put("rerankedCandidateCount", rerankedCandidateCount);
+        diagnostics.put("scoreAcceptedCandidateCount", scoreAcceptedCandidateCount);
+        diagnostics.put("scoreFilteredCandidateCount",
+                Math.max(0, mergedCandidateCount - scoreAcceptedCandidateCount));
+        diagnostics.put("topKTruncatedCandidateCount",
+                Math.max(0, scoreAcceptedCandidateCount - topItems.size()));
+        diagnostics.put("returnedCandidateCount", topItems.size());
+        diagnostics.put("retrievalStageMs", retrievalStageMs);
+        diagnostics.put("rerankStageMs", rerankStageMs);
+        diagnostics.put("totalCostMs", costMs);
         return RetrievalTestResponse.builder()
                 .query(request.getQuery())
                 .searchMode(searchMode)
@@ -622,6 +668,7 @@ public class KnowledgeServiceImpl implements KnowledgeService, KnowledgeRetrieva
                 .directReturn(direct != null)
                 .directReturnContent(direct != null ? direct.getContent() : null)
                 .items(topItems)
+                .diagnostics(diagnostics)
                 .build();
     }
 

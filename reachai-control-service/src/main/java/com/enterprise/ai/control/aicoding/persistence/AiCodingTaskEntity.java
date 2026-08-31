@@ -20,6 +20,11 @@ public class AiCodingTaskEntity {
     private String taskKind;
     private String protocolVersion;
     private String executorProvider;
+    private String executionMode;
+    private String managedExecutionId;
+    private String sandboxProfile;
+    private String managedExecutionStatus;
+    private String managedPendingInteractionId;
     private String title;
     private String objective;
     private String accessMode;

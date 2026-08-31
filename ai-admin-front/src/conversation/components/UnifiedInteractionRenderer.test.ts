@@ -74,6 +74,33 @@ describe('UnifiedInteractionRenderer DOM', () => {
     expect(formWrapper.text()).toContain('请填写必填项')
   })
 
+  it('allows decimal number fields while keeping integer fields integral', async () => {
+    const wrapper = mount(UnifiedInteractionRenderer, {
+      props: {
+        request: {
+          schemaVersion: '1.0',
+          interactionId: 'ix-number-step',
+          component: 'form',
+          fields: [
+            { key: 'latitude', label: '纬度', type: 'number', required: true },
+            { key: 'days', label: '天数', type: 'integer', required: true },
+          ],
+          prefilled: { latitude: 39.9042, days: 3 },
+        },
+      },
+    })
+
+    const inputs = wrapper.findAll('input[type="number"]')
+    expect(inputs[0].attributes('step')).toBe('any')
+    expect(inputs[1].attributes('step')).toBe('1')
+
+    await wrapper.find('form').trigger('submit.prevent')
+    expect(wrapper.emitted('submit')?.[0]).toEqual([
+      'submit',
+      { latitude: 39.9042, days: 3 },
+    ])
+  })
+
   it('renders declared table columns', () => {
     const wrapper = mount(UnifiedInteractionRenderer, {
       props: {

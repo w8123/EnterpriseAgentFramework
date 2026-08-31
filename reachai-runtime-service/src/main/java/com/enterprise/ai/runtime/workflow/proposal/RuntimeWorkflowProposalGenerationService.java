@@ -695,6 +695,13 @@ public class RuntimeWorkflowProposalGenerationService {
         }
         config.put("searchMode", searchMode);
         config.put("rerankEnabled", config.get("rerankEnabled") == null || bool(config.get("rerankEnabled")));
+        String evidencePolicy = firstText(text(config.get("evidencePolicy")), "REQUIRED")
+                .toUpperCase(Locale.ROOT);
+        if (!Set.of("REQUIRED", "OPTIONAL").contains(evidencePolicy)) {
+            warnings.add("知识检索节点 " + nodeId + " 的 evidencePolicy 无效，已按 REQUIRED 处理");
+            evidencePolicy = "REQUIRED";
+        }
+        config.put("evidencePolicy", evidencePolicy);
         // Workflow node no longer exposes directReturn*; KnowledgeBase admin may still keep those fields.
         config.remove("directReturnEnabled");
         config.remove("directReturnThreshold");
@@ -1184,6 +1191,11 @@ public class RuntimeWorkflowProposalGenerationService {
         out.put("similarityThreshold", doubleOr(config.get("similarityThreshold"), 0.5D));
         out.put("searchMode", firstText(text(config.get("searchMode")), "hybrid"));
         out.put("rerankEnabled", config.get("rerankEnabled") == null || bool(config.get("rerankEnabled")));
+        String evidencePolicy = firstText(text(config.get("evidencePolicy")), "REQUIRED")
+                .toUpperCase(Locale.ROOT);
+        out.put("evidencePolicy", Set.of("REQUIRED", "OPTIONAL").contains(evidencePolicy)
+                ? evidencePolicy
+                : "REQUIRED");
         // Workflow GraphSpec must never carry Chat-style directReturn* knobs.
         return out;
     }
@@ -1718,6 +1730,14 @@ public class RuntimeWorkflowProposalGenerationService {
                 {"summary":"short summary","entryNodeId":"real node id","exitNodeIds":["real node id"],"nodes":[{"id":"stable_snake_case","type":"canonical node type","label":"display name","description":"what it does","config":{},"inputs":[],"outputs":[]}],"edges":[{"id":"optional","from":"real node id","to":"real node id","condition":"always|approved|rejected|route:key|success|error","sourceHandle":"optional","targetHandle":"optional"}],"warnings":[]}
                 inputs and outputs must be arrays of port objects like {"id":"portId","name":"portName","type":"any"}, never bare strings.
                 """.formatted(authorableTypes, closedTypes));
+        prompt.append("""
+
+                KNOWLEDGE_RETRIEVAL evidence policy rules:
+                - Default config.evidencePolicy to REQUIRED for factual answers grounded in a knowledge base.
+                - REQUIRED must have exactly addressable route:evidence and route:no_evidence outgoing paths. Do not use always/success as a fallback from this node.
+                - The route:evidence path may synthesize an answer from retrieved hits. The route:no_evidence path must end in a fixed ANSWER that clearly says evidence was not found; it must not ask an LLM to invent an answer.
+                - Use OPTIONAL only when the requirement explicitly permits general-model knowledge fallback; OPTIONAL keeps the normal linear edge behavior.
+                """);
         if (isPageAssistantProposal(request)) {
             prompt.append("""
 

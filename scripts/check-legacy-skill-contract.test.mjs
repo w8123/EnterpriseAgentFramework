@@ -21,6 +21,7 @@ test('allows standard Agent Skill packages, A2A skills and the artifact route', 
     'src/ai-assist/skills/demo/SKILL.md': '# Demo Skill\n',
     'src/A2aCard.java': 'String card = "{\\"skills\\":[]}";\n',
     'src/ArtifactController.java': 'String route = "/api/ai-assist/skills/demo";\n',
+    'src/StandardSkillCatalog.java': 'String route = "/api/skills"; String contract = "SKILL.md";\n',
   })
   try {
     assert.deepEqual(scanLegacySkillContract(root, ['src']), [])
@@ -37,7 +38,7 @@ test('rejects each retired self-invented Skill contract surface', async () => {
       String config = "capabilityConfig";
       String node = "GraphNodeType.CAPABILITY";
       String kind = "kind='SKILL'";
-      String route = "/api/skills";
+      String route = "/api/skill-mining";
     `,
   })
   try {

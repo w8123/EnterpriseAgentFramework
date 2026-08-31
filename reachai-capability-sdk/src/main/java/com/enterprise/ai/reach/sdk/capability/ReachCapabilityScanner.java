@@ -11,6 +11,12 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
+/**
+ * Scans the declared methods of the given classes and emits one descriptor per
+ * method annotated with {@code @ReachCapability}. Non-annotated methods and
+ * null classes are ignored. Complex parameters are expanded one level into
+ * their directly declared {@code @ReachParam} fields only; no recursion.
+ */
 public final class ReachCapabilityScanner {
 
     private ReachCapabilityScanner() {

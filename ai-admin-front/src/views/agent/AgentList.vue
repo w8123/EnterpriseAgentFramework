@@ -6,18 +6,20 @@
         domain="agent"
         eyebrow="Agent Catalog"
         title="Agent 管理"
-        description="统一管理 Agent 身份、项目归属、Supervisor 配置状态和 Workflow-as-Tool 目录。"
+        description="统一管理 Agent 身份、项目归属、Supervisor 配置状态和可调用 Workflow。"
         :collapsed="isAgentHeaderCollapsed"
       >
         <template #tags>
           <el-tag effect="light">Supervisor Agent</el-tag>
           <el-tag type="success" effect="light">当前 {{ agentStatistics.totalAgents }} 个</el-tag>
-          <el-tag type="info" effect="light">Workflow-as-Tool</el-tag>
+          <el-tag type="info" effect="light">可调用 Workflow</el-tag>
         </template>
         <template #actions>
           <ViewToggle v-model="viewMode" />
-          <el-button :icon="Connection" @click="router.push('/runops')">运行中心</el-button>
-          <el-button type="primary" :icon="Plus" @click="handleCreate">新建智能体</el-button>
+          <el-button v-if="canOpenRunOps" :icon="Connection" @click="router.push('/runops')">运行中心</el-button>
+          <el-button v-if="canCreateAgent" type="primary" :icon="Plus" @click="handleCreate">
+            新建智能体
+          </el-button>
         </template>
       </PageHeader>
 
@@ -63,7 +65,7 @@
             class="filter-control is-project"
           >
             <el-option
-              v-for="project in scanProjects"
+              v-for="project in readableScanProjects"
               :key="project.id"
               :label="projectOptionLabel(project)"
               :value="project.id"
@@ -112,6 +114,7 @@
             <el-switch
               :model-value="agent.enabled !== false"
               size="small"
+              :disabled="!canWriteAgent(agent)"
               @change="(val: boolean) => handleToggle(agent, val)"
               @click.stop
             />
@@ -130,12 +133,12 @@
             <el-tag size="small" :type="configStatusType(agent.configStatus)" effect="plain">
               {{ configStatusLabel(agent) }}
             </el-tag>
-            <el-tag size="small" effect="plain">{{ agent.workflowToolCount || 0 }} tools</el-tag>
+            <el-tag size="small" effect="plain">{{ agent.workflowToolCount || 0 }} 个 Workflow</el-tag>
           </div>
 
           <div class="agent-card-footer" @click.stop>
             <el-button
-              v-for="action in agentListActions(agent)"
+              v-for="action in visibleAgentActions(agent)"
               :key="action.id"
               link
               :type="action.buttonType"
@@ -158,7 +161,12 @@
         >
           <el-table-column prop="name" label="名称" min-width="220" fixed="left">
             <template #default="{ row }">
-              <button type="button" class="agent-name-cell" @click="handleEdit(row.id)">
+              <button
+                type="button"
+                class="agent-name-cell"
+                :disabled="!canWriteAgent(row)"
+                @click="handleEdit(row.id)"
+              >
                 <span class="agent-name-avatar">{{ agentInitial(row.name) }}</span>
                 <span class="agent-name-copy">
                   <strong>{{ row.name }}</strong>
@@ -181,7 +189,7 @@
               <el-tag size="small" :type="configStatusType(row.configStatus)" effect="light">
                 {{ configStatusLabel(row) }}
               </el-tag>
-              <small class="config-tool-count">{{ row.workflowToolCount || 0 }} 个 Workflow 工具</small>
+              <small class="config-tool-count">{{ row.workflowToolCount || 0 }} 个可调用 Workflow</small>
             </template>
           </el-table-column>
           <el-table-column prop="enabled" label="状态" width="86" align="center">
@@ -189,6 +197,7 @@
               <el-switch
                 :model-value="row.enabled !== false"
                 size="small"
+                :disabled="!canWriteAgent(row)"
                 @change="(val: boolean) => handleToggle(row, val)"
               />
             </template>
@@ -200,7 +209,7 @@
             <template #default="{ row }">
               <div class="row-actions">
                 <el-button
-                  v-for="action in agentListActions(row)"
+                  v-for="action in visibleAgentActions(row)"
                   :key="action.id"
                   link
                   :type="action.buttonType"
@@ -230,32 +239,18 @@
           </div>
 
           <div class="agent-empty-guide__content">
-            <small class="agent-empty-guide__eyebrow">SUPERVISOR AGENT</small>
-            <h3>创建第一个 Agent，开始编排业务能力</h3>
-            <p>
-              为 Agent 定义身份与项目归属，发布 Supervisor 配置，并将可复用的 Workflow
-              加入 Workflow-as-Tool 目录。
-            </p>
-
-            <button class="agent-empty-guide__action" type="button" @click="handleCreate">
-              <span class="agent-empty-guide__action-icon">
-                <el-icon><Plus /></el-icon>
-              </span>
-              <span>
-                <strong>新建智能体</strong>
-                <small>定义身份、归属与 Supervisor 运行配置</small>
-              </span>
-              <el-icon class="agent-empty-guide__action-arrow"><ArrowRight /></el-icon>
-            </button>
-
-            <small class="agent-empty-guide__note">
-              创建后可继续配置 Workflow-as-Tool，并从运行中心查看执行记录。
-            </small>
+            <h3>创建第一个 Agent</h3>
+            <p>配置 Supervisor，并按需接入 Workflow 工具。</p>
+            <el-button v-if="canCreateAgent" type="primary" :icon="Plus" @click="handleCreate">
+              新建智能体
+            </el-button>
           </div>
         </div>
 
         <el-empty v-else description="暂无符合条件的智能体">
-          <el-button type="primary" :icon="Plus" @click="handleCreate">新建智能体</el-button>
+          <el-button v-if="canCreateAgent" type="primary" :icon="Plus" @click="handleCreate">
+            新建智能体
+          </el-button>
         </el-empty>
       </template>
 
@@ -279,7 +274,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, type TableInstance } from 'element-plus'
-import { ArrowRight, Connection, Cpu, Plus, RefreshLeft, Search } from '@element-plus/icons-vue'
+import { Connection, Cpu, Plus, RefreshLeft, Search } from '@element-plus/icons-vue'
 import type { Agent, AgentStatistics } from '@/types/workflow'
 import {
   deleteAgent,
@@ -301,10 +296,54 @@ import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
 import type { MetricStripItem } from '@/components/common/glassWorkbench'
 import { useCollapsiblePageHeader } from '@/composables/useCollapsiblePageHeader'
 import agentSupervisorOnboardingIllustration from '@/assets/illustrations/agent-supervisor-onboarding.webp'
+import {
+  hasPlatformGlobalPermissionGrant,
+  hasPlatformResourcePermission,
+  PLATFORM_PERMISSION_AGENT_DEBUG,
+  PLATFORM_PERMISSION_AGENT_EVALUATE,
+  PLATFORM_PERMISSION_AGENT_READ,
+  PLATFORM_PERMISSION_AGENT_WRITE,
+  PLATFORM_PERMISSION_RUNOPS_READ,
+} from '@/auth/platformAccess'
+import { platformSessionUser } from '@/auth/platformSession'
 
 const route = useRoute()
 const router = useRouter()
 const projectStore = useProjectStore()
+
+function canUseAgentPermission(permission: string, projectCode?: string | null) {
+  return hasPlatformResourcePermission(
+    platformSessionUser.value?.permissionGrants,
+    permission,
+    'PROJECT',
+    null,
+    projectCode,
+  )
+}
+
+function agentProjectCode(agent: Agent) {
+  return agent.projectCode || projectCodeById(agent.projectId)
+}
+
+function canWriteAgent(agent: Agent) {
+  return canUseAgentPermission(PLATFORM_PERMISSION_AGENT_WRITE, agentProjectCode(agent))
+}
+
+function visibleAgentActions(agent: Agent) {
+  const projectCode = agentProjectCode(agent)
+  return agentListActions(agent).filter((action) => {
+    if (action.id === 'edit' || action.id === 'delete') {
+      return canUseAgentPermission(PLATFORM_PERMISSION_AGENT_WRITE, projectCode)
+    }
+    if (action.id === 'debug') {
+      return canUseAgentPermission(PLATFORM_PERMISSION_AGENT_DEBUG, projectCode)
+    }
+    if (action.id === 'eval') {
+      return canUseAgentPermission(PLATFORM_PERMISSION_AGENT_EVALUATE, projectCode)
+    }
+    return canUseAgentPermission(PLATFORM_PERMISSION_RUNOPS_READ, projectCode)
+  })
+}
 
 const agents = ref<Agent[]>([])
 const statistics = ref<AgentStatistics | null>(null)
@@ -320,6 +359,33 @@ const agentTableRef = ref<TableInstance>()
 const agentTableShellRef = ref<HTMLElement | null>(null)
 /** 限制表格主体高度，搜索栏/表头固定，仅表体滚动。 */
 const agentTableMaxHeight = ref(480)
+
+const canReadAllAgents = computed(() => hasPlatformGlobalPermissionGrant(
+  platformSessionUser.value?.permissionGrants,
+  PLATFORM_PERMISSION_AGENT_READ,
+))
+const readableScanProjects = computed(() => scanProjects.value.filter((project) => (
+  canUseAgentPermission(PLATFORM_PERMISSION_AGENT_READ, project.projectCode)
+)))
+const writableScanProjects = computed(() => readableScanProjects.value.filter((project) => (
+  canUseAgentPermission(PLATFORM_PERMISSION_AGENT_WRITE, project.projectCode)
+)))
+const canCreateAgent = computed(() => (
+  hasPlatformGlobalPermissionGrant(
+    platformSessionUser.value?.permissionGrants,
+    PLATFORM_PERMISSION_AGENT_WRITE,
+  )
+  || writableScanProjects.value.length > 0
+))
+const canOpenRunOps = computed(() => (
+  hasPlatformGlobalPermissionGrant(
+    platformSessionUser.value?.permissionGrants,
+    PLATFORM_PERMISSION_RUNOPS_READ,
+  )
+  || scanProjects.value.some((project) => (
+    canUseAgentPermission(PLATFORM_PERMISSION_RUNOPS_READ, project.projectCode)
+  ))
+))
 
 let layoutRaf = 0
 let layoutFreezeUntil = 0
@@ -529,16 +595,18 @@ function projectCodeById(projectId?: number | null) {
 }
 
 function syncProjectFilter(allowRouteFallback = false) {
-  if (projectStore.currentProjectId !== null) {
-    filterProjectId.value = projectStore.currentProjectId
+  const currentProjectId = projectStore.currentProjectId
+  if (currentProjectId !== null
+    && readableScanProjects.value.some((project) => project.id === currentProjectId)) {
+    filterProjectId.value = currentProjectId
     return
   }
   const queryProjectId = Number(route.query.projectId)
-  if (allowRouteFallback && Number.isFinite(queryProjectId) && queryProjectId > 0) {
+  if (allowRouteFallback && readableScanProjects.value.some((project) => project.id === queryProjectId)) {
     filterProjectId.value = queryProjectId
     return
   }
-  filterProjectId.value = undefined
+  filterProjectId.value = canReadAllAgents.value ? undefined : readableScanProjects.value[0]?.id
 }
 
 async function loadScanProjects() {
@@ -552,7 +620,11 @@ async function loadScanProjects() {
 }
 
 function currentScopeParams() {
-  return filterProjectId.value !== undefined ? { projectId: filterProjectId.value } : undefined
+  if (filterProjectId.value === undefined) return undefined
+  return {
+    projectId: filterProjectId.value,
+    projectCode: projectCodeById(filterProjectId.value) || undefined,
+  }
 }
 
 async function fetchData() {
@@ -604,17 +676,28 @@ function resetFilters() {
 }
 
 function handleCreate() {
+  if (!canCreateAgent.value) return
+  const selectedProject = readableScanProjects.value.find(
+    (project) => project.id === filterProjectId.value,
+  )
+  const projectId = selectedProject
+    && canUseAgentPermission(PLATFORM_PERMISSION_AGENT_WRITE, selectedProject.projectCode)
+    ? selectedProject.id
+    : writableScanProjects.value[0]?.id
   router.push({
     path: '/agent/new/edit',
-    query: filterProjectId.value !== undefined ? { projectId: filterProjectId.value } : {},
+    query: projectId !== undefined ? { projectId } : {},
   })
 }
 
 function handleEdit(id: string) {
+  const agent = agents.value.find((item) => item.id === id)
+  if (agent && !canWriteAgent(agent)) return
   router.push(`/agent/${id}/edit`)
 }
 
 function handleAgentAction(agent: Agent, actionId: AgentListActionId) {
+  if (!visibleAgentActions(agent).some((action) => action.id === actionId)) return
   if (actionId === 'edit') return handleEdit(agent.id)
   if (actionId === 'debug') return router.push(`/agent/${agent.id}/debug`)
   if (actionId === 'eval') return router.push(`/agent/${agent.id}/evals`)
@@ -623,6 +706,7 @@ function handleAgentAction(agent: Agent, actionId: AgentListActionId) {
 }
 
 async function handleToggle(agent: Agent, enabled: boolean) {
+  if (!canWriteAgent(agent)) return
   try {
     await updateAgent(agent.id, { enabled })
     agent.enabled = enabled
@@ -634,6 +718,8 @@ async function handleToggle(agent: Agent, enabled: boolean) {
 }
 
 async function handleDelete(id: string) {
+  const agent = agents.value.find((item) => item.id === id)
+  if (!agent || !canWriteAgent(agent)) return
   try {
     await ElMessageBox.confirm('确认删除该 Agent？', '删除 Agent', { type: 'warning' })
     await deleteAgent(id)
@@ -813,6 +899,11 @@ watch(isAgentHeaderCollapsed, () => {
   margin: 22px 28px 0;
 }
 
+.agent-shell.is-empty :deep(.data-table-shell__body) {
+  min-height: 46px;
+  flex: 0 0 46px;
+}
+
 .agent-shell :deep(.data-table-shell__pagination) {
   min-height: 64px;
   align-items: center;
@@ -828,15 +919,21 @@ watch(isAgentHeaderCollapsed, () => {
   padding: 22px 28px 28px;
 }
 
+.agent-shell.is-empty :deep(.data-table-shell__empty) {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
 .agent-empty-guide {
   display: grid;
   width: min(980px, 100%);
-  min-height: 340px;
-  grid-template-columns: minmax(230px, 280px) minmax(0, 1fr);
+  min-height: clamp(280px, 32vh, 340px);
+  grid-template-columns: minmax(200px, clamp(220px, 26vh, 280px)) minmax(0, 1fr);
   align-items: center;
   gap: clamp(28px, 4vw, 52px);
   margin: 0 auto;
-  padding: clamp(24px, 3vw, 36px);
+  padding: clamp(22px, 3vh, 36px);
   overflow: hidden;
   border: 1px dashed var(--border-readable);
   border-radius: var(--radius-lg);
@@ -871,108 +968,30 @@ watch(isAgentHeaderCollapsed, () => {
   align-items: flex-start;
 }
 
-.agent-empty-guide__eyebrow,
 .agent-empty-guide__content h3,
 .agent-empty-guide__content p {
   margin: 0;
 }
 
-.agent-empty-guide__eyebrow {
-  color: var(--brand-active);
-  font-size: 0.7rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-}
-
 .agent-empty-guide__content h3 {
-  margin-top: 7px;
   color: var(--text-primary);
-  font-size: 1.15rem;
+  font-size: 1.25rem;
   line-height: 1.35;
 }
 
 .agent-empty-guide__content > p {
-  max-width: 560px;
-  margin-top: 8px;
+  margin-top: 10px;
   color: var(--text-muted);
   font-size: 0.85rem;
-  line-height: 1.65;
+  line-height: 1.55;
 }
 
-.agent-empty-guide__action {
-  display: grid;
-  width: 100%;
-  min-width: 0;
-  grid-template-columns: 40px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 12px;
-  margin-top: 20px;
-  padding: 12px 14px;
-  border: 1px solid color-mix(in srgb, var(--brand-primary) 30%, var(--border-subtle));
-  border-radius: var(--radius-md);
-  color: var(--text-secondary);
-  background: color-mix(in srgb, var(--brand-primary) 8%, var(--surface-solid-panel));
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-  transition:
-    border-color var(--motion-duration-fast) ease,
-    background var(--motion-duration-fast) ease,
-    transform var(--motion-duration-fast) ease;
-}
-
-.agent-empty-guide__action:hover {
-  border-color: color-mix(in srgb, var(--brand-primary) 48%, var(--border-subtle));
-  background: color-mix(in srgb, var(--brand-primary) 12%, var(--surface-solid-panel));
-  transform: translateY(-1px);
-}
-
-.agent-empty-guide__action:focus-visible {
-  outline: 2px solid var(--border-focus);
-  outline-offset: 2px;
-}
-
-.agent-empty-guide__action > span:nth-child(2) {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.agent-empty-guide__action strong {
-  color: var(--text-primary);
-  font-size: 0.86rem;
-}
-
-.agent-empty-guide__action small {
-  overflow: hidden;
-  color: var(--text-muted);
-  font-size: 0.74rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.agent-empty-guide__action-icon {
-  display: inline-flex;
-  width: 40px;
+.agent-empty-guide__content > .el-button {
+  min-width: 118px;
   height: 40px;
-  align-items: center;
-  justify-content: center;
-  border-radius: 12px;
-  color: var(--brand-primary);
-  background: var(--surface-solid-panel);
-  box-shadow: var(--inner-highlight);
-}
-
-.agent-empty-guide__action-arrow {
-  color: var(--brand-active);
-}
-
-.agent-empty-guide__note {
-  margin-top: 11px;
-  color: var(--text-muted);
-  font-size: 0.72rem;
-  line-height: 1.5;
+  margin-top: 20px;
+  border-radius: 10px;
+  font-weight: 700;
 }
 
 .agent-table-shell {
@@ -1350,8 +1369,5 @@ watch(isAgentHeaderCollapsed, () => {
     align-items: center;
   }
 
-  .agent-empty-guide__action {
-    text-align: left;
-  }
 }
 </style>

@@ -22,7 +22,8 @@ public interface RuntimeAgentExecutionInternalClient {
     String SESSION_PATH_PREFIX = "/internal/runtime/agents/sessions/";
 
     /**
-     * Prefer {@link RuntimeTrustedAgentExecutionGateway} which signs the exact serialized body bytes.
+     * Prefer the runtime-owned trusted execution gateway, which signs the exact
+     * serialized body bytes.
      * This Feign surface remains for diagnostics; callers must supply Body-SHA256 matching the body.
      */
     @PostMapping(EXECUTE_PATH)

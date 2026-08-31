@@ -1,8 +1,7 @@
 package com.enterprise.ai.control.pageworkbench.application;
 
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.ReadinessItem;
-import com.enterprise.ai.control.platform.PlatformEmbedE2eEvidenceService;
-import com.enterprise.ai.control.platform.PlatformEmbedE2eEvidenceService.EmbedConversationEvidence;
+import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchObservationPort.ConversationEvidence;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.RequiredArgsConstructor;
@@ -19,7 +18,7 @@ public class PageWorkbenchBrowserReadinessApplicationService {
     public static final String KEY = "PAGE_BROWSER_E2E_READY";
     private static final String LABEL = "业务页面浏览器链路";
 
-    private final PlatformEmbedE2eEvidenceService embedEvidence;
+    private final PageWorkbenchObservationPort observations;
     private final ObjectMapper objectMapper;
 
     public ReadinessItem evaluate(
@@ -34,9 +33,9 @@ public class PageWorkbenchBrowserReadinessApplicationService {
         if (observedAfter != null) {
             evidence.put("observedAfter", observedAfter.toString());
         }
-        EmbedConversationEvidence observed;
+        ConversationEvidence observed;
         try {
-            observed = embedEvidence.latestSuccessfulConversation(
+            observed = observations.latestSuccessfulConversation(
                     projectCode,
                     pageKey,
                     observedAfter);

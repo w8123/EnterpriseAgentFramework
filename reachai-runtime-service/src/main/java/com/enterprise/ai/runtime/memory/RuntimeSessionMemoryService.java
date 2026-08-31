@@ -3,6 +3,7 @@ package com.enterprise.ai.runtime.memory;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.enterprise.ai.runtime.agent.RuntimeAgentView;
+import com.enterprise.ai.runtime.execution.RuntimeSessionClearPort;
 import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
 import io.agentscope.core.message.Msg;
 import io.agentscope.core.message.MsgRole;
@@ -29,7 +30,7 @@ import java.util.Set;
 import java.util.UUID;
 
 @Service
-public class RuntimeSessionMemoryService {
+public class RuntimeSessionMemoryService implements RuntimeSessionClearPort {
 
     public static final String STATE_NAME = "agent_state";
     private static final String DEFAULT_TENANT = "default";
@@ -96,6 +97,20 @@ public class RuntimeSessionMemoryService {
     public RuntimeSessionMemoryKey resolve(RuntimeAgentView agent,
                                            String requestedSessionId,
                                            WorkflowExecutionIdentity identity) {
+        return resolve(agent, requestedSessionId, identity, true);
+    }
+
+    /** Eval executions keep an isolated in-process turn and never read or write durable chat memory. */
+    public RuntimeSessionMemoryKey resolveTransient(RuntimeAgentView agent,
+                                                    String requestedSessionId,
+                                                    WorkflowExecutionIdentity identity) {
+        return resolve(agent, requestedSessionId, identity, false);
+    }
+
+    private RuntimeSessionMemoryKey resolve(RuntimeAgentView agent,
+                                            String requestedSessionId,
+                                            WorkflowExecutionIdentity identity,
+                                            boolean allowPersistence) {
         String publicSessionId = StringUtils.hasText(requestedSessionId)
                 ? requestedSessionId.trim()
                 : UUID.randomUUID().toString().replace("-", "").substring(0, 16);
@@ -103,7 +118,8 @@ public class RuntimeSessionMemoryService {
             throw new IllegalArgumentException("sessionId must be at most 128 characters without control characters");
         }
         String agentId = agent == null ? "unknown-agent" : normalized(agent.id(), "unknown-agent");
-        boolean trusted = properties.enabled()
+        boolean trusted = allowPersistence
+                && properties.enabled()
                 && identity != null
                 && identity.canResolveUserAcl();
         if (!trusted) {

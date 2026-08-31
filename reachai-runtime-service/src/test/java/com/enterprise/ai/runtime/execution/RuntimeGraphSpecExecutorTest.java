@@ -1,5 +1,9 @@
 package com.enterprise.ai.runtime.execution;
 
+import com.enterprise.ai.common.capability.CapabilityInvocationFailureCategory;
+import com.enterprise.ai.common.capability.CapabilityInvocationRequest;
+import com.enterprise.ai.common.capability.CapabilityInvocationResponse;
+import com.enterprise.ai.common.capability.CapabilityInvocationStatus;
 import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient;
 import com.enterprise.ai.runtime.client.capability.RuntimeCapabilityCatalogClient;
 import com.enterprise.ai.runtime.client.control.RuntimeControlCatalogClient;
@@ -7,6 +11,9 @@ import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient.ModelCha
 import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient.ModelChatRequest;
 import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient.ModelChatRequest.ChatMessage;
 import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient.ModelChatResult;
+import com.enterprise.ai.runtime.eval.RuntimeEvalExecutionContext;
+import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
+import com.enterprise.ai.runtime.execution.http.WorkflowHttpClient;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -21,7 +28,9 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class RuntimeGraphSpecExecutorTest {
@@ -74,6 +83,37 @@ class RuntimeGraphSpecExecutorTest {
 
         assertTrue(result.success());
         assertEquals("收到：查询班组", result.answer());
+    }
+
+    @Test
+    void userInputPrefersStructuredFieldsOverScalarMessageFallback() {
+        RuntimeGraphSpecExecutionResult result = executor.execute("""
+                {
+                  "entryNodeId":"input",
+                  "exitNodeIds":["answer"],
+                  "nodes":[
+                    {"id":"input","type":"USER_INPUT","config":{
+                      "outputAlias":"params",
+                      "fields":[
+                        {"name":"latitude","source":"input.latitude"},
+                        {"name":"longitude","source":"input.longitude"},
+                        {"name":"current","source":"input.current"}
+                      ]
+                    }},
+                    {"id":"answer","type":"ANSWER","config":{
+                      "template":"{{ params.latitude }}|{{ params.longitude }}|{{ params.current }}"
+                    }}
+                  ],
+                  "edges":[{"from":"input","to":"answer","condition":"always"}]
+                }
+                """, Map.of(
+                "message", "39.9042",
+                "latitude", "39.9042",
+                "longitude", "116.4074",
+                "current", "temperature_2m"));
+
+        assertTrue(result.success());
+        assertEquals("39.9042|116.4074|temperature_2m", result.answer());
     }
 
     @Test
@@ -181,6 +221,189 @@ class RuntimeGraphSpecExecutorTest {
         assertEquals(true, request.getValue().confirmRequired());
         assertEquals(90_000, request.getValue().confirmationTimeoutMs());
         assertEquals(20_000, request.getValue().executionTimeoutMs());
+    }
+
+    @Test
+    void evalBlocksPageActionBeforeCallingControlBridge() {
+        RuntimeControlCatalogClient controlClient = mock(RuntimeControlCatalogClient.class);
+        RuntimeGraphSpecExecutor pageExecutor = new RuntimeGraphSpecExecutor(
+                new ObjectMapper(), modelClient, capabilityClient, controlClient);
+
+        RuntimeGraphSpecExecutionResult result = pageExecutor.execute("""
+                {"schemaVersion":2,"entryNodeId":"update","exitNodeIds":["update"],"nodes":[{
+                  "id":"update","type":"PAGE_ACTION","config":{
+                    "projectCode":"orders","pageKey":"orders.list","actionKey":"deleteOrder"
+                  }}]}
+                """, Map.of(
+                "sessionId", "eval-session",
+                "agentId", "agent-1",
+                "projectCode", "orders"),
+                RuntimeEvalExecutionContext.readOnly("exp-1", "item-1", "sha256:target"));
+
+        assertFalse(result.success());
+        assertEquals("EVAL_SIDE_EFFECT_BLOCKED", result.code());
+        assertEquals("PAGE_ACTION", result.nodeType());
+        assertEquals("READ_ONLY_EXECUTION", result.metadata().get("evalMode"));
+        verifyNoInteractions(controlClient);
+    }
+
+    @Test
+    void evalBlocksRawHttpBeforeCallingHttpClient() {
+        WorkflowHttpClient httpClient = mock(WorkflowHttpClient.class);
+        RuntimeGraphSpecExecutor httpExecutor = new RuntimeGraphSpecExecutor(
+                new ObjectMapper(), modelClient, capabilityClient,
+                mock(RuntimeControlCatalogClient.class), null, httpClient);
+
+        RuntimeGraphSpecExecutionResult result = httpExecutor.execute("""
+                {"schemaVersion":2,"entryNodeId":"http","exitNodeIds":["http"],"nodes":[{
+                  "id":"http","type":"HTTP_REQUEST","config":{
+                    "method":"GET","url":"https://example.test/orders"
+                  }}]}
+                """, Map.of(), RuntimeEvalExecutionContext.readOnly("exp-1", "item-2", null));
+
+        assertFalse(result.success());
+        assertEquals("EVAL_SIDE_EFFECT_BLOCKED", result.code());
+        assertEquals("HTTP_REQUEST", result.nodeType());
+        verifyNoInteractions(httpClient);
+    }
+
+    @Test
+    void evalBlocksStatefulInteractionButKeepsPresentOutputAvailable() {
+        RuntimeEvalExecutionContext evaluation =
+                RuntimeEvalExecutionContext.readOnly("exp-1", "item-interaction", null);
+
+        RuntimeGraphSpecExecutionResult blocked = executor.execute("""
+                {"schemaVersion":2,"entryNodeId":"form","exitNodeIds":["form"],"nodes":[{
+                  "id":"form","type":"INTERACTION","config":{
+                    "interactionType":"COLLECT_INPUT",
+                    "fields":[{"key":"q","required":true}]
+                  }}]}
+                """, Map.of(), evaluation);
+        RuntimeGraphSpecExecutionResult display = executor.execute("""
+                {"schemaVersion":2,"entryNodeId":"show","exitNodeIds":["show"],"nodes":[{
+                  "id":"show","type":"INTERACTION","config":{
+                    "interactionType":"PRESENT_OUTPUT",
+                    "component":"table",
+                    "data":{"rows":[{"id":1}]}
+                  }}]}
+                """, Map.of(), evaluation);
+
+        assertFalse(blocked.success());
+        assertEquals("EVAL_SIDE_EFFECT_BLOCKED", blocked.code());
+        assertEquals("INTERACTION", blocked.nodeType());
+        assertEquals("READ_ONLY_EXECUTION", blocked.metadata().get("evalMode"));
+        assertFalse(blocked.isWaitingUser());
+        assertTrue(display.success());
+        assertEquals(true, display.metadata().get("displayOnly"));
+    }
+
+    @Test
+    void automationBlocksStatefulInteractionBeforeCreatingAWaitingResult() {
+        WorkflowExecutionIdentity identity = WorkflowExecutionIdentity.fromAutomation(
+                "tenant-a", 7L, "orders", "AUTOMATION_SERVICE_ACCOUNT");
+
+        RuntimeGraphSpecExecutionResult blocked = executor.execute("""
+                {"schemaVersion":2,"entryNodeId":"form","exitNodeIds":["form"],"nodes":[{
+                  "id":"form","type":"INTERACTION","config":{
+                    "interactionType":"COLLECT_INPUT",
+                    "fields":[{"key":"q","required":true}]
+                  }}]}
+                """, Map.of(), identity);
+        RuntimeGraphSpecExecutionResult display = executor.execute("""
+                {"schemaVersion":2,"entryNodeId":"show","exitNodeIds":["show"],"nodes":[{
+                  "id":"show","type":"INTERACTION","config":{
+                    "interactionType":"PRESENT_OUTPUT",
+                    "component":"table",
+                    "data":{"rows":[{"id":1}]}
+                  }}]}
+                """, Map.of(), identity);
+
+        assertFalse(blocked.success());
+        assertEquals("AUTOMATION_INTERACTION_REQUIRED", blocked.code());
+        assertEquals("INTERACTION", blocked.nodeType());
+        assertFalse(blocked.isWaitingUser());
+        assertTrue(display.success());
+        assertEquals(true, display.metadata().get("displayOnly"));
+    }
+
+    @Test
+    void mcpClientBlocksStatefulInteractionBeforeCreatingAWaitingResult() {
+        WorkflowExecutionIdentity identity = WorkflowExecutionIdentity.fromMcpRemoteClient(
+                "tenant-a", 7L, "orders", "mcp-client-11");
+
+        RuntimeGraphSpecExecutionResult blocked = executor.execute("""
+                {"schemaVersion":2,"entryNodeId":"form","exitNodeIds":["form"],"nodes":[{
+                  "id":"form","type":"INTERACTION","config":{
+                    "interactionType":"COLLECT_INPUT",
+                    "fields":[{"key":"q","required":true}]
+                  }}]}
+                """, Map.of(), identity);
+        RuntimeGraphSpecExecutionResult display = executor.execute("""
+                {"schemaVersion":2,"entryNodeId":"show","exitNodeIds":["show"],"nodes":[{
+                  "id":"show","type":"INTERACTION","config":{
+                    "interactionType":"PRESENT_OUTPUT",
+                    "component":"table",
+                    "data":{"rows":[{"id":1}]}
+                  }}]}
+                """, Map.of(), identity);
+
+        assertFalse(blocked.success());
+        assertEquals("MCP_WORKFLOW_INTERACTION_UNSUPPORTED", blocked.code());
+        assertEquals("INTERACTION", blocked.nodeType());
+        assertFalse(blocked.isWaitingUser());
+        assertTrue(display.success());
+        assertEquals(true, display.metadata().get("displayOnly"));
+    }
+
+    @Test
+    void evalAllowsOnlyCapabilityWithExplicitReadOnlyDeclaration() {
+        RuntimeCapabilityCatalogClient client = mock(RuntimeCapabilityCatalogClient.class);
+        RuntimeGraphSpecExecutor toolExecutor = new RuntimeGraphSpecExecutor(
+                new ObjectMapper(), modelClient, client, mock(RuntimeControlCatalogClient.class));
+        when(client.getToolDefinition("orders:update")).thenReturn(
+                Map.of("qualifiedName", "orders:update", "sideEffect", "WRITE"));
+        when(client.getToolDefinition("orders:query")).thenReturn(
+                Map.of("qualifiedName", "orders:query", "sideEffect", "READ_ONLY"));
+        when(client.invokeTool(org.mockito.ArgumentMatchers.eq("orders:query"), any()))
+                .thenReturn(new CapabilityInvocationResponse(
+                        CapabilityInvocationRequest.CONTRACT_VERSION,
+                        "inv-query",
+                        "orders:query",
+                        "query",
+                        "Query orders",
+                        CapabilityInvocationStatus.SUCCEEDED,
+                        true,
+                        Map.of("total", 1),
+                        null,
+                        null,
+                        CapabilityInvocationFailureCategory.NONE,
+                        false,
+                        1L,
+                        1,
+                        null,
+                        Map.of()));
+        RuntimeEvalExecutionContext evaluation =
+                RuntimeEvalExecutionContext.readOnly("exp-1", "item-3", null);
+
+        RuntimeGraphSpecExecutionResult blocked = toolExecutor.execute("""
+                {"schemaVersion":2,"entryNodeId":"tool","exitNodeIds":["tool"],"nodes":[{
+                  "id":"tool","type":"TOOL","ref":{"kind":"TOOL","qualifiedName":"orders:update"}
+                }]}
+                """, Map.of(), evaluation);
+        RuntimeGraphSpecExecutionResult allowed = toolExecutor.execute("""
+                {"schemaVersion":2,"entryNodeId":"tool","exitNodeIds":["tool"],"nodes":[{
+                  "id":"tool","type":"TOOL","ref":{"kind":"TOOL","qualifiedName":"orders:query"}
+                }]}
+                """, Map.of(), evaluation);
+
+        assertEquals("EVAL_SIDE_EFFECT_BLOCKED", blocked.code());
+        verify(client, never()).invokeTool(org.mockito.ArgumentMatchers.eq("orders:update"), any());
+        assertTrue(allowed.success());
+        ArgumentCaptor<Map<String, Object>> requestCaptor = ArgumentCaptor.forClass(Map.class);
+        verify(client).invokeTool(org.mockito.ArgumentMatchers.eq("orders:query"), requestCaptor.capture());
+        assertTrue(requestCaptor.getValue().get(
+                RuntimeCapabilityCatalogClient.TRUSTED_EVAL_CONTEXT_ATTRIBUTE)
+                instanceof RuntimeEvalExecutionContext);
     }
 
     @Test

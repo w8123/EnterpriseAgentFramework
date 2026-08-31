@@ -16,6 +16,7 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.List;
@@ -24,6 +25,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -81,6 +83,17 @@ class WorkflowHttpClientTest {
         WorkflowHttpClient.HttpExecutionResult result = client.execute(getRequest(baseUrl, null));
         assertTrue(result.success(), result.code() + " " + result.body());
         assertEquals(1, resolveCalls.get(), "must pin the first resolution; no second getAllByName");
+    }
+
+    @Test
+    void pinnedDnsResolverNeverFallsBackToASecondAddress() throws Exception {
+        InetAddress approvedAddress = InetAddress.getByName("127.0.0.1");
+        WorkflowHttpClient.PinnedDnsResolver resolver =
+                new WorkflowHttpClient.PinnedDnsResolver("api.example.test", approvedAddress);
+
+        assertEquals(approvedAddress, resolver.resolve("API.EXAMPLE.TEST")[0]);
+        assertThrows(UnknownHostException.class, () -> resolver.resolve("other.example.test"),
+                "the transport must never perform an unrestricted fallback resolution");
     }
 
     @Test
@@ -300,4 +313,5 @@ class WorkflowHttpClientTest {
             out.write(bytes);
         }
     }
+
 }

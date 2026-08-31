@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -24,21 +25,30 @@ class RuntimeAgentExecutionContextResolverTest {
         RuntimeAgentMapper agentMapper = mock(RuntimeAgentMapper.class);
         RuntimeAgentConfigVersionMapper configMapper = mock(RuntimeAgentConfigVersionMapper.class);
         RuntimeAgentWorkflowToolMapper toolMapper = mock(RuntimeAgentWorkflowToolMapper.class);
+        RuntimeAgentSkillBindingMapper skillBindingMapper = mock(RuntimeAgentSkillBindingMapper.class);
         RuntimeWorkflowDefinitionMapper workflowMapper = mock(RuntimeWorkflowDefinitionMapper.class);
         RuntimeWorkflowVersionMapper versionMapper = mock(RuntimeWorkflowVersionMapper.class);
         RuntimeAgentExecutionContextResolver resolver = new RuntimeAgentExecutionContextResolver(
-                agentMapper, configMapper, toolMapper, workflowMapper, versionMapper);
+                agentMapper, configMapper, toolMapper, skillBindingMapper, workflowMapper, versionMapper);
         RuntimeAgentEntity agent = agent("agent-1", "orders-agent", 11L);
         RuntimeAgentConfigVersionEntity config = config("agent-1", 11L);
 
         when(agentMapper.selectOne(any())).thenReturn(agent);
         when(configMapper.selectById(11L)).thenReturn(config);
         when(toolMapper.selectList(any())).thenReturn(List.of());
+        RuntimeAgentSkillBindingEntity skill = new RuntimeAgentSkillBindingEntity();
+        skill.setAgentId("agent-1");
+        skill.setAgentConfigVersionId(11L);
+        skill.setPublisher("reachai");
+        skill.setStandardName("demo-skill");
+        skill.setEnabled(true);
+        when(skillBindingMapper.selectList(any())).thenReturn(List.of(skill));
 
         RuntimeAgentExecutionContext context = resolver.resolve("orders-agent").orElseThrow();
 
         assertEquals("agent-1", context.agentView().id());
         assertEquals(11L, context.config().getId());
+        assertEquals(1, context.skills().size());
         verify(agentMapper, times(1)).selectOne(any());
         verify(agentMapper, never()).selectById(any());
         verify(configMapper, never()).selectOne(any());
@@ -51,10 +61,11 @@ class RuntimeAgentExecutionContextResolverTest {
         RuntimeAgentMapper agentMapper = mock(RuntimeAgentMapper.class);
         RuntimeAgentConfigVersionMapper configMapper = mock(RuntimeAgentConfigVersionMapper.class);
         RuntimeAgentWorkflowToolMapper toolMapper = mock(RuntimeAgentWorkflowToolMapper.class);
+        RuntimeAgentSkillBindingMapper skillBindingMapper = mock(RuntimeAgentSkillBindingMapper.class);
         RuntimeWorkflowDefinitionMapper workflowMapper = mock(RuntimeWorkflowDefinitionMapper.class);
         RuntimeWorkflowVersionMapper versionMapper = mock(RuntimeWorkflowVersionMapper.class);
         RuntimeAgentExecutionContextResolver resolver = new RuntimeAgentExecutionContextResolver(
-                agentMapper, configMapper, toolMapper, workflowMapper, versionMapper);
+                agentMapper, configMapper, toolMapper, skillBindingMapper, workflowMapper, versionMapper);
         RuntimeAgentEntity agent = agent("agent-1", "orders-agent", 11L);
         RuntimeAgentConfigVersionEntity config = config("agent-1", 11L);
         RuntimeAgentWorkflowToolEntity tool = new RuntimeAgentWorkflowToolEntity();
@@ -86,6 +97,34 @@ class RuntimeAgentExecutionContextResolverTest {
         verify(agentMapper, never()).selectById(any());
         verify(workflowMapper, times(1)).selectBatchIds(any());
         verify(versionMapper, times(1)).selectBatchIds(any());
+    }
+
+    @Test
+    void exactDraftConfigIsAvailableOnlyThroughEvaluationResolver() {
+        RuntimeAgentMapper agentMapper = mock(RuntimeAgentMapper.class);
+        RuntimeAgentConfigVersionMapper configMapper = mock(RuntimeAgentConfigVersionMapper.class);
+        RuntimeAgentWorkflowToolMapper toolMapper = mock(RuntimeAgentWorkflowToolMapper.class);
+        RuntimeAgentSkillBindingMapper skillBindingMapper = mock(RuntimeAgentSkillBindingMapper.class);
+        RuntimeWorkflowDefinitionMapper workflowMapper = mock(RuntimeWorkflowDefinitionMapper.class);
+        RuntimeWorkflowVersionMapper versionMapper = mock(RuntimeWorkflowVersionMapper.class);
+        RuntimeAgentExecutionContextResolver resolver = new RuntimeAgentExecutionContextResolver(
+                agentMapper, configMapper, toolMapper, skillBindingMapper, workflowMapper, versionMapper);
+        RuntimeAgentEntity agent = agent("agent-1", "orders-agent", 11L);
+        RuntimeAgentConfigVersionEntity draft = config("agent-1", 12L);
+        draft.setStatus("DRAFT");
+        when(agentMapper.selectOne(any())).thenReturn(agent);
+        when(configMapper.selectById(12L)).thenReturn(draft);
+        when(toolMapper.selectList(any())).thenReturn(List.of());
+        when(skillBindingMapper.selectList(any())).thenReturn(List.of());
+
+        RuntimeAgentExecutionContext replay =
+                resolver.resolvePublished("agent-1", 12L).orElseThrow();
+        RuntimeAgentExecutionContext evaluation =
+                resolver.resolveForEvaluation("agent-1", 12L).orElseThrow();
+
+        assertNull(replay.config());
+        assertEquals(12L, evaluation.config().getId());
+        assertEquals("DRAFT", evaluation.config().getStatus());
     }
 
     private RuntimeAgentEntity agent(String id, String keySlug, Long activeConfigVersionId) {

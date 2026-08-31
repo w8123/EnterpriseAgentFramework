@@ -12,9 +12,9 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 
 /**
- * Creates exactly one LOCAL development administrator. The source distribution
- * ships a well-known quick-start credential; production deployment templates
- * disable both LOCAL login and bootstrap explicitly.
+ * Creates exactly one LOCAL development administrator from explicit runtime
+ * configuration. Production deployment templates disable LOCAL login and
+ * bootstrap explicitly.
  */
 @Component
 @RequiredArgsConstructor

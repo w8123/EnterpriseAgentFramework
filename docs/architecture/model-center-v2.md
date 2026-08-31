@@ -1,28 +1,91 @@
 # 模型中心 V2
 
-> Date: 2026-07-17
-> Scope: 第一阶段数据库/后端基座 + 第二阶段前端原子升级与 UI 改版
+> Date: 2026-08-25
+> Scope: 模型实例稳定契约 + 官方来源每日目录同步 + 前端目录新鲜度
 > Owner service: `reachai-model-service`
 > Frontend: `ai-admin-front` 模型中心页面
 
 ## 领域对象
 
-模型中心只保留两个对象。
+模型中心对业务仍只暴露两个核心对象：`model_template` 与 `model_instance`。官方来源、同步设置、每日运行、
+快照和候选变更是 Model Service 自有的目录治理事实，不成为 Agent / Workflow 的新业务资产。
 
 ### `model_template`
 
-平台提供的模型目录和创建模板。模板不含真实 API Key；本阶段由 SQL 种子维护，只读：
+平台提供的模型发布目录和创建模板。模板不含真实 API Key；SQL 种子仅作为 last-known-good
+启动目录，运行期由官方来源同步安全更新。对外仍只读：
 
 - `GET /model/templates`
 - `GET /model/templates/{id}`
 
 `disabled` 模板禁止创建实例。
 
+目录同步增加的生命周期、来源、最后核验时间与推荐治理字段会随模板返回。`sync_managed=1`
+表示该模板由官方目录同步首次创建；手工/种子模板不会因此丢失其连接配置和运维备注。
+
 `params_schema_json` 本阶段种子统一为 `[]`。原因：尚无统一的参数 Schema 契约与前端渲染协议；完整模板驱动参数表单留到后续阶段。当前可调参数通过 `default_options_json` 保守提供（如 `temperature` / `max_tokens`），不会把仅用于展示的元数据（如 embedding 维度）放入会真实发送给供应商的 defaultOptions。
 
 ### `model_instance`
 
 对 Agent / Workflow / Knowledge 暴露的稳定可执行资源。业务继续绑定稳定 `modelInstanceId`；实例不保存 `template_id`。
+
+## 官方来源每日同步
+
+### 调度与幂等
+
+- `reachai-model-service` 使用本服务 `@Scheduled` 轮询内部维护任务，不占用 Runtime Automation。
+- 自动同步开关持久化在单例表 `model_catalog_setting`，初始值为关闭；环境变量
+  `MODEL_CATALOG_SYNC_ENABLED` 只在单例记录缺失时作为兜底，不能覆盖已经保存的设置。
+- 服务启动 10 分钟后首次检查，之后每 10 分钟轮询；业务日期默认使用 `Asia/Shanghai`。开关开启时
+  才创建当天自动槽位，关闭时仍会处理已经持久化的手动槽位和失败重试。
+- `model_catalog_sync_run` 对 `source_id + business_date` 建唯一键。只有 `SUCCESS` / `NO_CHANGE`
+  表示该来源今天已完成，之后不会重复抓取；失败按同一槽位重试。
+- `lease_owner + lease_token + leased_until` 保证多副本中只有一个实例处理同一槽位；过期租约可恢复。
+- 开关开启后，每天首次轮询自动创建当日槽位，因此跨午夜无需重启。启动时若今天尚未完成，首次自动轮询会补偿。
+- 当天已失败耗尽的槽位会在新进程首次轮询时重置重试预算；已经 `SUCCESS` / `NO_CHANGE` 的槽位不动。
+- 手动同步为今天补齐来源槽位，并只重排 `PENDING` / `RETRY` / `DEAD`；今天已经
+  `SUCCESS` / `NO_CHANGE` 的来源不会重复执行。请求返回后由后台 worker 执行，不阻塞 HTTP 请求。
+
+### 设置与手动入口
+
+- 前端模型中心顶部“目录设置”打开设置弹窗，展示持久化开关、今日进度和分析器配置状态。
+- `GET /model/catalog/status`：读取当前设置、今日完成数、目录新鲜度与各来源状态。
+- `PUT /model/catalog/settings`：保存 `autoSyncEnabled`。
+- `POST /model/catalog/sync`：提交当天尚未完成来源的手动同步；自动同步关闭时同样可用。
+- 未配置 `MODEL_CATALOG_ANALYZER_MODEL_INSTANCE_ID` 时，手动入口失败关闭，不会暗选业务模型。
+
+### 来源与抓取边界
+
+- 默认来源只指向 OpenAI、阿里云百炼、Anthropic、Google Gemini、DeepSeek 官方页面。
+- 来源 URL 必须同时通过数据库 `allowed_host` 与代码内固定域名白名单；仅允许 HTTPS 443、无
+  userInfo、无 fragment、无重定向，避免数据库配置扩大 SSRF 边界。
+- 抓取使用 ETag / Last-Modified 与规范化内容 SHA-256；内容未变化时不调用 AI。
+- 单响应有严格字节上限。HTML 仅解析为文本，`script/style/noscript/svg/template` 不执行也不入库。
+- 结构化 Models API 可通过固定 `auth_type` 映射读取部署环境变量；数据库只保存枚举，不保存密钥。
+
+### AI 分析与发布守门
+
+目录分析模型必须通过 `MODEL_CATALOG_ANALYZER_MODEL_INSTANCE_ID` 显式绑定一个 ACTIVE LLM 实例。
+未配置时保存快照但明确失败，不会从业务模型中暗选一个实例。
+
+官方页面正文始终按不可信数据处理：系统提示要求忽略正文内指令，禁止工具和链接访问，只接受
+严格 JSON schema。候选必须再次通过确定性校验：精确模型 ID 必须原样出现在快照中、AI 给出的
+证据摘录必须可在快照原文中定位且包含该 ID、类型和生命周期枚举合法、日期为 ISO 格式、替代
+模型也必须有来源证据、来源必须为官方且置信度达到阈值。
+新模板还必须有官方文本明确证明当前 Runtime 所需的 Chat Completions / Embeddings / Rerank
+端点；只有“模型存在”但协议兼容性不清楚时，只落候选并进入评审，不生成貌似可用的模板。
+
+AI 不直接写模板。完整链路为：
+
+1. `model_catalog_snapshot` 保存不可变规范化快照、哈希和严格分析结果；
+2. `model_catalog_change` 保存逐模型候选、证据、校验与发布决定；
+3. 只有安全事实可更新 `model_template`；新 ACTIVE 模型使用代码审定的 OpenAI-compatible 连接默认值；
+4. `DEPRECATED` 只告警，`RETIRED` 可禁用模板，但绝不修改/迁移已有 `model_instance`；
+5. 生命周期只允许单调前进，不能因另一个“当前可用列表”自动把退役模型重新激活；
+6. 来源缺失不能推断下线，失败时继续使用 last-known-good 发布目录。
+
+模型“新”不等于“推荐”。同步任务只把 `recommendation_status` 设为 `UNASSESSED`；推荐等级和理由
+必须来自 EvalOps 代表性数据集证据或人工评审。Embedding 模型更换仍需单独重建向量索引。
 
 ## URL 语义
 
@@ -169,10 +232,15 @@
 | --- | --- |
 | `model_template` | `reachai-model-service` |
 | `model_instance` | `reachai-model-service` |
+| `model_catalog_source` | `reachai-model-service` |
+| `model_catalog_setting` | `reachai-model-service` |
+| `model_catalog_sync_run` | `reachai-model-service` |
+| `model_catalog_snapshot` | `reachai-model-service` |
+| `model_catalog_change` | `reachai-model-service` |
 
 ## 升级脚本行为
 
-脚本：`sql/upgrade-20260717-agent-supervisor-runops-model-center-v2.sql`（破坏性；先备份）。该文件是 Agent Supervisor、RunOps 与 Model Center V2 的统一已有库升级入口。
+历史脚本 `upgrade-20260717-agent-supervisor-runops-model-center-v2.sql` 已随最终结构进入 GitHub 基线并从当前工作树清理。早于 `ae9e1ce6` 的数据库应从对应 Git tag 获取当时迁移链或按当前 `initV2.sql` 重建；当前合并升级不重复承载这段历史破坏性迁移。
 
 识别并处理五类 `model_instance` 状态：
 
@@ -197,7 +265,8 @@
 
 上一版常见路径（普通 `project_scope_key` + 形状正确的唯一索引）：先 `DROP INDEX`（即便当前索引 valid），再 `DROP COLUMN` + `ADD` 正确生成列，最后重建唯一索引。禁止在同名索引仍引用该列时 `DROP COLUMN`。
 
-平台模板：对固定 31 个 `tpl-*` id 使用单条 `INSERT ... ON DUPLICATE KEY UPDATE`（`VALUES(column)` 兼容 MySQL 5.7）；刷新目录字段；保留已有 `enabled` / `created_at`。用户自建模板不受影响。
+平台模板：原固定 `tpl-*` 仍作为 last-known-good 启动种子；当前 `upgrade-20260830-platform-consolidated.sql` Section 10
+增加官方来源日同步表、默认关闭的持久化设置和模板治理字段。同步只做有证据的增量 upsert，保留稳定实例与用户自建模板。
 
 ## 实例测试状态失效
 

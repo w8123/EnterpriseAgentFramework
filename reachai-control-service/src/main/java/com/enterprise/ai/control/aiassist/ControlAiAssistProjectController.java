@@ -1,6 +1,7 @@
 package com.enterprise.ai.control.aiassist;
 
 import com.enterprise.ai.control.client.capability.CapabilityProjectOnboardingClient;
+import com.enterprise.ai.control.client.capability.CapabilityAiCodingAccessUpdateRequest;
 import feign.FeignException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.ResponseEntity;
@@ -161,7 +162,7 @@ public class ControlAiAssistProjectController {
     @PatchMapping("/ai-coding-access")
     public ResponseEntity<AiCodingAccessManifest> updateAiCodingAccess(
             @PathVariable Long projectId,
-            @RequestBody(required = false) AiCodingAccessUpdateRequest request) {
+            @RequestBody(required = false) CapabilityAiCodingAccessUpdateRequest request) {
         try {
             Map<String, Object> body = capabilityClient.updateAiCodingAccess(projectId, request);
             return ResponseEntity.ok(toAiCodingAccess(body));
@@ -357,9 +358,6 @@ public class ControlAiAssistProjectController {
 
     private String emptyToNull(String value) {
         return StringUtils.hasText(value) ? value.trim() : null;
-    }
-
-    public record AiCodingAccessUpdateRequest(Boolean enabled, String accessKey) {
     }
 
     public record OnboardingManifestResponse(

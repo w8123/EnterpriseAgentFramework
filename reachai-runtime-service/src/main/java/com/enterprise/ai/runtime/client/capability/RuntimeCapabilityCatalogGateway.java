@@ -1,7 +1,10 @@
 package com.enterprise.ai.runtime.client.capability;
 
 import com.enterprise.ai.common.internalauth.InternalServiceAuthHeaders;
+import com.enterprise.ai.common.capability.CapabilityInvocationRequest;
+import com.enterprise.ai.common.capability.CapabilityInvocationResponse;
 import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
+import com.enterprise.ai.runtime.eval.RuntimeEvalExecutionContext;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -16,6 +19,8 @@ import java.util.Set;
  */
 @Component
 public class RuntimeCapabilityCatalogGateway implements RuntimeCapabilityCatalogClient {
+
+    public static final String SIGNED_EVAL_POLICY_FIELD = "evaluationPolicy";
 
     private static final Set<String> IDENTITY_FIELDS = Set.of(
             "tenantId", "userId", "externalUserId", "globalUserId", "userName",
@@ -40,11 +45,24 @@ public class RuntimeCapabilityCatalogGateway implements RuntimeCapabilityCatalog
 
     @Override
     public Map<String, Object> executeTool(String qualifiedName, Map<String, Object> request) {
+        return invokeTool(qualifiedName, request).toLegacyMap();
+    }
+
+    @Override
+    public CapabilityInvocationResponse invokeTool(String qualifiedName, Map<String, Object> request) {
         Map<String, Object> outbound = request == null
                 ? new LinkedHashMap<>() : new LinkedHashMap<>(request);
         Object marker = outbound.remove(TRUSTED_IDENTITY_ATTRIBUTE);
         WorkflowExecutionIdentity identity = marker instanceof WorkflowExecutionIdentity trusted
                 ? trusted : null;
+        Object evalMarker = outbound.remove(TRUSTED_EVAL_CONTEXT_ATTRIBUTE);
+        RuntimeEvalExecutionContext evaluation = evalMarker instanceof RuntimeEvalExecutionContext trusted
+                ? trusted : RuntimeEvalExecutionContext.none();
+        // A caller-controlled map must never be able to forge or weaken a signed Eval policy.
+        outbound.remove(SIGNED_EVAL_POLICY_FIELD);
+        if (evaluation.isEvaluation()) {
+            outbound.put(SIGNED_EVAL_POLICY_FIELD, evaluation.toSignedPolicy());
+        }
 
         Map<String, Object> context = stringMap(outbound.get("context"));
         IDENTITY_FIELDS.forEach(context::remove);
@@ -63,15 +81,21 @@ public class RuntimeCapabilityCatalogGateway implements RuntimeCapabilityCatalog
         }
         outbound.put("context", context);
 
+        CapabilityInvocationRequest invocation = CapabilityInvocationRequest.fromRuntime(qualifiedName, outbound);
         byte[] exactBody;
         try {
-            exactBody = objectMapper.writeValueAsBytes(outbound);
+            exactBody = objectMapper.writeValueAsBytes(invocation.toWireMap());
         } catch (Exception serializationFailure) {
             throw new IllegalStateException("Capability Tool request serialization failed", serializationFailure);
         }
-        Map<String, String> headers = signer.signToolExecute(
-                qualifiedName, source, tenantId, userId, exactBody);
-        return transport.executeTool(qualifiedName, headers, exactBody);
+        Map<String, String> headers = signer.signInvocation(
+                source, tenantId, userId, exactBody);
+        CapabilityInvocationResponse response = transport.invokeCapability(headers, exactBody);
+        if (response == null) {
+            throw new IllegalStateException("Capability Tool response is missing");
+        }
+        validateResponse(invocation, response);
+        return response;
     }
 
     @Override
@@ -109,5 +133,23 @@ public class RuntimeCapabilityCatalogGateway implements RuntimeCapabilityCatalog
 
     private String normalized(String value) {
         return value == null ? "" : value.trim();
+    }
+
+    private void validateResponse(CapabilityInvocationRequest request,
+                                  CapabilityInvocationResponse response) {
+        if (!request.invocationId().equals(response.invocationId())
+                || !request.qualifiedName().equals(response.qualifiedName())) {
+            throw new IllegalStateException("Capability Tool response correlation is invalid");
+        }
+        boolean succeeded = response.status()
+                == com.enterprise.ai.common.capability.CapabilityInvocationStatus.SUCCEEDED;
+        if (succeeded != response.success()) {
+            throw new IllegalStateException("Capability Tool response status is inconsistent");
+        }
+        if (response.retryable()
+                && response.status()
+                != com.enterprise.ai.common.capability.CapabilityInvocationStatus.TECHNICAL_FAILED) {
+            throw new IllegalStateException("Capability Tool response retry policy is invalid");
+        }
     }
 }

@@ -14,7 +14,7 @@ ReachAI 是面向 Java 企业系统的 AI 能力中台。它不是单纯的 Work
 
 1. 业务系统引入 `reachai-spring-boot2-starter` 和 `reachai-capability-sdk`。
 2. 业务方法或 Controller 使用 `@ReachCapability` 声明能力，参数或 DTO 字段使用 `@ReachParam` 补充语义，返回 DTO 字段可使用 `@ReachOutput` 声明可引用输出。
-3. Starter 在启动时同步项目、实例、能力快照和 SDK 图。
+3. Starter 启动时扫描本地 Bean、注册项目并发送实例心跳；能力描述留在业务进程中，能力快照由 Project Onboarding 任务或 API 管理显式触发 SDK 同步，SDK 图也使用独立同步契约。
 4. 平台形成字段级 diff、评审 apply/ignore，并沉淀正式能力资产。
 5. Workflow Studio 基于能力资产编排 Workflow `GraphSpec`（表：`runtime_workflow`）。
 6. Agent（表：`runtime_agent`）发布版本化 Supervisor 配置和 Workflow-as-Tool 白名单；Runtime 通过 AgentScope 理解、规划和选择一个或多个已发布 Workflow，并对失败做有限重规划。
@@ -77,7 +77,7 @@ Agent 与 Workflow 已解耦：
 - Workflow Studio：可视化画布、交互式节点、会话式调试台、AI 生成/局部修改、SDK 图展示、发布校验、Runtime 执行与 Trace/RunOps 复盘。
 - Workflow-as-Tool（`runtime_agent_workflow_tool`）：某个 Agent 配置版本允许 Supervisor 选择的 Workflow 工具白名单和契约覆盖。
 - Workflow `INTERACTION`：Runtime 已具备 GraphSpec-native 暂停/恢复、canonical uiRequest、`WAITING_USER` RunOps 语义与 Debug/Agent/Embed 提交契约；详见 `docs/architecture/workflow-interaction-runtime.md`。Registry 仅在生产 Live E2E 全部门槛通过后开放（当前仍 `publishable/studio/aiAuthoring=false`，状态 CODE_READY / E2E_PENDING）。
-- Workflow 节点能力（安全范围已冻结）：`VARIABLE_ASSIGN` / `TEMPLATE` / `VARIABLE_AGGREGATOR`（STABLE）；`KNOWLEDGE_RETRIEVAL` / `HTTP_REQUEST` / `LOOP`（BETA open，Browser/Live/LOOP E2E PENDING）；`INTERACTION` 关闭。安全五项见 `SECURITY-BACKLOG.md`（不再扩张）。`LOOP` v1=有界串行 FOREACH（平面 GraphSpec + bodyNodeIds）。Control→Runtime：HMAC + `BODY_SHA256`；nonce 满容 fail-closed；审计 `userId` 仅来自 `WorkflowExecutionIdentity`。
+- Workflow 节点能力（安全范围已冻结）：`VARIABLE_ASSIGN` / `TEMPLATE` / `VARIABLE_AGGREGATOR`（STABLE）；`KNOWLEDGE_RETRIEVAL` / `HTTP_REQUEST` / `LOOP`（BETA open，Browser/Live/LOOP E2E PENDING）；`INTERACTION` 关闭。`KNOWLEDGE_RETRIEVAL` 新节点默认 `evidencePolicy=REQUIRED`，以 `route:evidence / route:no_evidence` 显式分流；无证据是成功业务结果，禁止 `always` 回退给 LLM，并只向 Trace 投影白名单计数/耗时。历史缺字段节点暂按 `OPTIONAL` 并产生发布警告。安全五项见 `SECURITY-BACKLOG.md`（不再扩张）。`LOOP` v1=有界串行 FOREACH（平面 GraphSpec + bodyNodeIds）。Control→Runtime：HMAC + `BODY_SHA256`；nonce 满容 fail-closed；审计 `userId` 仅来自 `WorkflowExecutionIdentity`。
 
 当前 Agent 主执行链路是：`Agent` -> ACTIVE Agent 配置版本 -> AgentScope Java `2.0.0` 正式版 Supervisor -> PLAN / Workflow-as-Tool / 有限 REPLAN -> 汇总回答。执行 API 统一使用 `agentId`。事实查询优先 API/数据 Workflow；只有用户明确要求打开、跳转、在页面查询或操作时才允许页面动作。跨路由页面动作必须在同一 embed session 内完成 `NAVIGATE -> TARGET_READY -> PAGE_ACTION`。
 
@@ -93,6 +93,7 @@ Supervisor 策略链已实现分级执行：READ 自动执行，PAGE_ACTION 校�
 
 - 产品和文档默认使用 `Capability / 能力`。
 - ReachAI 禁止重新引入自创的 Skill 业务资产模型。Skill 仅用于标准 Agent Skill 包或外部协议字段；Capability 是业务资产，Tool 是调用协议，Workflow 是 GraphSpec 编排。
+- 通用 Tool 不作为独立产品资产或菜单；管理端以能力目录、API、可调用 Workflow、MCP 暴露和调用权限呈现 owning object。`capability_tool_definition` 与 `/api/tools/**` 仅保留为运行时投影和兼容契约。未来“代码工具 / Code Tools”只表示注解方法（Methods as Tools），当前尚未建设。
 - `reachai-knowledge-service` 是 Knowledge / Retrieval 部署单元，不要再描述成“技能服务”。
 - `eaf.*`、`X-EAF-*`、`Eaf*` 属于兼容敏感技术身份；品牌文案改成 ReachAI 时不要顺手替换这些标识。
 
@@ -102,7 +103,7 @@ Supervisor 策略链已实现分级执行：READ 自动执行，PAGE_ACTION 校�
 
 当前前端大页已完成职责拆分：
 
-- `WorkflowStudio.vue` 保留主画布编排入口；持久化、发布、调试、AI draft、history、API query template 等逻辑已拆入 `views/workflow/composables/`，节点配置面板主路径为 `views/workflow/studio-panels/`。
+- `WorkflowStudio.vue` 只保留主画布编排 shell；持久化、发布、调试、AI draft、history、API query template 等状态和业务逻辑位于 `views/workflow/composables/`，节点配置面板位于 `views/workflow/studio-panels/`，评测、源码、API 查询模板、发布和调试覆盖层位于 `views/workflow/studio-overlays/`。
 - `PageAssistantWizard.vue` 保留兼容路由名，但产品语义是“业务页面工作台”；四个自由 Tab 的面板位于 `views/registry/components/page-workbench/`，真实 API 数据与操作集中在 `useBusinessPageWorkbench.ts`。
 - `ScanProjectDetail.vue` 已收敛为组装层；header、overview、modules/tools、drawers/dialogs 拆入 `views/scan/components/scan-project/`。
 - `RegistryProjectDetail.vue`、`SdkAccessWizard.vue` 已收为 composable 组装层；继续改动前先复用 registry viewModel/composables。

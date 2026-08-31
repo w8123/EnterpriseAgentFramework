@@ -11,6 +11,11 @@ class CredentialCipherTest {
     private final CredentialCipher cipher = new CredentialCipher("unit-test-secret-for-model-center");
 
     @Test
+    void rejectsMissingEncryptionSecret() {
+        assertThrows(IllegalStateException.class, () -> new CredentialCipher(" "));
+    }
+
+    @Test
     void encryptDecryptRoundTrip() {
         String plain = "{\"baseUrl\":\"https://api.example.com\",\"apiKey\":\"sk-secret\"}";
         String encrypted = cipher.encrypt(plain);

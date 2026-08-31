@@ -22,14 +22,16 @@ The runnable Spring Boot module needs the starter. Modules that declare
 annotations also need `reachai-capability-sdk`. Use the exact artifacts and
 hashes declared by the onboarding manifest.
 
-## Minimal configuration
+## Recommended enrollment configuration
 
 ```yaml
 reachai:
   registry:
     url: https://reachai.example.com
-    app-key: ${REACHAI_REGISTRY_APP_KEY}
-    app-secret: ${REACHAI_REGISTRY_APP_SECRET}
+    enrollment-token: ${REACHAI_REGISTRY_ENROLLMENT_TOKEN}
+    # Optional. Defaults to the current process user's
+    # ~/.reachai/registry-credentials/<project-code>.properties
+    credential-store-path: ${REACHAI_REGISTRY_CREDENTIAL_STORE_PATH:}
   project:
     code: order-service
     name: Order Service
@@ -40,9 +42,26 @@ reachai:
       - com.company.order
 ```
 
-`project.base-url` must be reachable from ReachAI. Capability synchronization
-is an explicit task/API Management action; it does not run automatically at
-application startup.
+On the first successful registration, Control exchanges the one-time Enrollment
+Token for a project `appKey` and `appSecret`. The Starter writes those project
+credentials atomically to the credential store and clears the Enrollment Token
+from memory; it never persists that token. Treat the credential-store file as a
+secret, keep it outside the application package, and restrict its filesystem
+permissions.
+
+Existing deployments may continue to inject static credentials instead:
+
+```yaml
+reachai:
+  registry:
+    url: https://reachai.example.com
+    app-key: ${REACHAI_REGISTRY_APP_KEY}
+    app-secret: ${REACHAI_REGISTRY_APP_SECRET}
+```
+
+`project.base-url` must be reachable from ReachAI. Startup performs project
+registration and heartbeat scheduling. Capability synchronization remains an
+explicit task/API Management action; it does not run automatically at startup.
 
 ## Server-side Embed Token broker
 
@@ -208,3 +227,17 @@ verified project identity to Knowledge. Knowledge rejects indexes whose stored
 `projectCode` differs. Automated attachment upload is intentionally absent;
 console attachment upload uses the platform-session BFF until a streaming
 detached-signature protocol is defined.
+
+## Build and verification
+
+Run from the repository root:
+
+```powershell
+mvn -pl reachai-spring-boot2-starter -am test
+mvn -pl reachai-capability-sdk,reachai-spring-boot2-starter -am -DskipTests package
+.\scripts\verify-java-sdk-artifacts-cleanroom.ps1
+```
+
+For the platform-side registration flow and a compact integration checklist,
+see [Project registration and capability assets](../docs/02-%E9%A1%B9%E7%9B%AE%E6%B3%A8%E5%86%8C%E4%B8%8E%E8%83%BD%E5%8A%9B%E8%B5%84%E4%BA%A7.md) and
+[SDK and Embed Chat quick reference](../docs/reference/SDK%E6%8E%A5%E5%85%A5%E4%B8%8EEmbedChat%E5%BF%AB%E9%80%9F%E5%8F%82%E8%80%83.md).

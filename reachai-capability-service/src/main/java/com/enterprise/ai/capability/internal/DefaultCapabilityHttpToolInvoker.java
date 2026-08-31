@@ -10,12 +10,19 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 
+import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 @Component
 @RequiredArgsConstructor
 public class DefaultCapabilityHttpToolInvoker implements CapabilityHttpToolInvoker {
+
+    private static final Pattern SAFE_IDEMPOTENCY_KEY = Pattern.compile("[A-Za-z0-9._:-]{1,200}");
+    private static final Pattern TRACEPARENT = Pattern.compile(
+            "00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}");
+    private static final long MAX_OUTBOUND_TIMEOUT_MS = 600_000L;
 
     private final RestTemplateBuilder restTemplateBuilder;
     private final CapabilityOutboundTransportPolicy transportPolicy;
@@ -23,7 +30,15 @@ public class DefaultCapabilityHttpToolInvoker implements CapabilityHttpToolInvok
     @Override
     public Map<String, Object> invoke(CapabilityHttpToolInvocation invocation) {
         transportPolicy.requireAllowed(invocation.url());
-        RestTemplate restTemplate = restTemplateBuilder.build();
+        RestTemplateBuilder requestBuilder = restTemplateBuilder;
+        Long remainingMs = remainingMillis(invocation.metadata(), System.currentTimeMillis());
+        if (remainingMs != null) {
+            Duration timeout = Duration.ofMillis(remainingMs);
+            requestBuilder = requestBuilder
+                    .connectTimeout(timeout)
+                    .readTimeout(timeout);
+        }
+        RestTemplate restTemplate = requestBuilder.build();
         HttpMethod method = HttpMethod.valueOf(invocation.method());
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
@@ -33,6 +48,19 @@ public class DefaultCapabilityHttpToolInvoker implements CapabilityHttpToolInvok
                 if (key != null && value != null) headers.set(String.valueOf(key), String.valueOf(value));
             });
         }
+        String idempotencyKey = safeText(
+                invocation.metadata() == null ? null : invocation.metadata().get("idempotencyKey"));
+        if (idempotencyKey != null && SAFE_IDEMPOTENCY_KEY.matcher(idempotencyKey).matches()) {
+            headers.set("Idempotency-Key", idempotencyKey);
+        }
+        Object rawTraceContext = invocation.metadata() == null
+                ? null : invocation.metadata().get("traceContext");
+        if (rawTraceContext instanceof Map<?, ?> traceContext) {
+            String traceparent = safeText(traceContext.get("traceparent"));
+            if (traceparent != null && TRACEPARENT.matcher(traceparent).matches()) {
+                headers.set("traceparent", traceparent);
+            }
+        }
         HttpEntity<?> entity = method == HttpMethod.GET
                 ? new HttpEntity<>(headers)
                 : new HttpEntity<>(invocation.body(), headers);
@@ -41,5 +69,30 @@ public class DefaultCapabilityHttpToolInvoker implements CapabilityHttpToolInvok
         body.put("statusCode", response.getStatusCode().value());
         body.put("body", response.getBody());
         return body;
+    }
+
+    static Long remainingMillis(Map<String, Object> metadata, long nowEpochMs) {
+        Object raw = metadata == null ? null : metadata.get("deadlineEpochMs");
+        if (raw == null) return null;
+        long deadline;
+        try {
+            deadline = raw instanceof Number number
+                    ? number.longValue()
+                    : Long.parseLong(String.valueOf(raw).trim());
+        } catch (NumberFormatException invalid) {
+            throw new IllegalArgumentException("Capability invocation deadline is invalid");
+        }
+        long remaining = deadline - nowEpochMs;
+        if (remaining <= 0L) {
+            throw new IllegalStateException("Capability invocation deadline has expired");
+        }
+        return Math.max(1L, Math.min(MAX_OUTBOUND_TIMEOUT_MS, remaining));
+    }
+
+    private static String safeText(Object value) {
+        if (value == null) return null;
+        String text = String.valueOf(value).trim();
+        if (text.isEmpty() || text.indexOf('\r') >= 0 || text.indexOf('\n') >= 0) return null;
+        return text;
     }
 }

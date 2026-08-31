@@ -1,8 +1,5 @@
 ﻿import { controlRequest } from '@/api/request'
-import {
-  setPlatformToken,
-  type PlatformUserProfile,
-} from '@/utils/platformAuth'
+import { type PlatformUserProfile } from '@/utils/platformAuth'
 import {
   markPlatformSessionAnonymous,
   markPlatformSessionAuthenticated,
@@ -10,7 +7,6 @@ import {
 } from '@/auth/platformSession'
 
 export interface PlatformLoginResult {
-  accessToken: string
   expiresIn: number
   expiresAt: string
   sessionId: string
@@ -52,6 +48,47 @@ export interface PlatformRoleView {
   status: string
 }
 
+export interface PlatformAccountUserView extends PlatformUserView {
+  email?: string
+  mobile?: string
+  createdAt?: string
+  updatedAt?: string
+  activeSessionCount: number
+  grants: PlatformUserRoleGrant[]
+}
+
+export interface PlatformPermissionView {
+  id: number
+  permissionCode: string
+  permissionName: string
+  resourceType?: string
+  action?: string
+  description?: string
+  reservedForSystemRole: boolean
+}
+
+export interface PlatformRoleManagementView extends PlatformRoleView {
+  description?: string
+  roleKind: 'SYSTEM' | 'CUSTOM'
+  permissionIds: number[]
+  permissionCodes: string[]
+  userCount: number
+  grantCount: number
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface PlatformAuthAuditEventView {
+  id: number
+  eventType: string
+  actorUserId?: number
+  actorUsername?: string
+  targetType: string
+  targetId?: string
+  detailsJson?: string
+  createdAt?: string
+}
+
 export interface PlatformUserRoleGrant {
   id?: number
   roleId: number
@@ -80,7 +117,6 @@ export function getCurrentPlatformUser() {
 }
 
 export function applyPlatformLogin(result: PlatformLoginResult) {
-  setPlatformToken(result.accessToken, result.expiresAt)
   markPlatformSessionAuthenticated({
     sessionId: result.sessionId,
     expiresAt: result.expiresAt,
@@ -89,11 +125,8 @@ export function applyPlatformLogin(result: PlatformLoginResult) {
 }
 
 export async function logoutPlatform() {
-  try {
-    await controlRequest.post('/api/platform/auth/logout')
-  } finally {
-    markPlatformSessionAnonymous()
-  }
+  await controlRequest.post('/api/platform/auth/logout')
+  markPlatformSessionAnonymous()
 }
 
 export function listPlatformAuthProviders() {
@@ -117,5 +150,91 @@ export function listPlatformUserRoleGrants(userId: number) {
 }
 
 export function savePlatformUserRoleGrants(userId: number, body: PlatformUserRoleGrantCommand[]) {
-  return controlRequest.put<PlatformUserRoleGrant[]>(`/api/platform/users/${userId}/roles`, body)
+  return controlRequest.put<PlatformUserRoleGrant[]>(
+    `/api/platform/account-management/users/${userId}/grants`,
+    body,
+  )
+}
+
+export function listPlatformAccounts() {
+  return controlRequest.get<PlatformAccountUserView[]>('/api/platform/account-management/users')
+}
+
+export function createPlatformAccount(body: {
+  username: string
+  displayName: string
+  email?: string
+  mobile?: string
+  password: string
+  status: string
+  grants: PlatformUserRoleGrantCommand[]
+}) {
+  return controlRequest.post<PlatformAccountUserView>('/api/platform/account-management/users', body)
+}
+
+export function updatePlatformAccount(userId: number, body: {
+  displayName: string
+  email?: string
+  mobile?: string
+  status: string
+}) {
+  return controlRequest.put<PlatformAccountUserView>(
+    `/api/platform/account-management/users/${userId}`,
+    body,
+  )
+}
+
+export function resetPlatformAccountPassword(userId: number, password: string) {
+  return controlRequest.post<{ revokedSessions: number }>(
+    `/api/platform/account-management/users/${userId}/password-reset`,
+    { password },
+  )
+}
+
+export function revokePlatformAccountSessions(userId: number) {
+  return controlRequest.post<{ revokedSessions: number }>(
+    `/api/platform/account-management/users/${userId}/sessions/revoke`,
+  )
+}
+
+export function listPlatformPermissions() {
+  return controlRequest.get<PlatformPermissionView[]>('/api/platform/account-management/permissions')
+}
+
+export function listPlatformManagedRoles() {
+  return controlRequest.get<PlatformRoleManagementView[]>('/api/platform/account-management/roles')
+}
+
+export function createPlatformRole(body: {
+  roleCode: string
+  roleName: string
+  description?: string
+  status: string
+  permissionIds: number[]
+}) {
+  return controlRequest.post<PlatformRoleManagementView>('/api/platform/account-management/roles', body)
+}
+
+export function updatePlatformRole(roleId: number, body: {
+  roleName: string
+  description?: string
+  status: string
+  permissionIds: number[]
+  acknowledgeAssignedUsers?: boolean
+}) {
+  return controlRequest.put<PlatformRoleManagementView>(
+    `/api/platform/account-management/roles/${roleId}`,
+    body,
+  )
+}
+
+export function listPlatformAuthAuditEvents(params?: {
+  eventType?: string
+  targetType?: string
+  limit?: number
+}) {
+  return controlRequest.get<PlatformAuthAuditEventView[]>(
+    '/api/platform/account-management/audit-events',
+    { params },
+  )
 }

@@ -9,7 +9,7 @@ Use Playwright MCP when a task requires browser interaction, screenshots, DOM sn
 Recommended prompts:
 
 ```text
-Use Playwright to open http://localhost:5173, take a screenshot, and verify the sidebar, project selector, and main content are visible.
+Use Playwright to open http://localhost:5200, take a screenshot, and verify the sidebar, project selector, and main content are visible.
 ```
 
 ```text

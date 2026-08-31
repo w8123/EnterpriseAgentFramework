@@ -9,10 +9,10 @@ const visible = defineModel<boolean>('visible', { required: true })
 </script>
 
 <template>
-  <el-dialog v-model="visible" title="API 与全局 Tool 字段差异" width="560px" destroy-on-close>
+  <el-dialog v-model="visible" title="API 与能力目录字段差异" width="560px" destroy-on-close>
     <template v-if="diffDialogRow">
       <p v-if="diffDialogRow.toolLinkMessage" class="diff-dialog-msg">{{ diffDialogRow.toolLinkMessage }}</p>
-      <p class="diff-dialog-sub">以下字段在「项目 API 目录行」与「全局 Tool」之间不一致：</p>
+      <p class="diff-dialog-sub">以下字段在「项目 API 目录行」与「能力目录执行定义」之间不一致：</p>
       <div v-if="(diffDialogRow.toolSyncDiffFields?.length || 0) > 0" class="diff-field-tags">
         <el-tag v-for="f in diffDialogRow.toolSyncDiffFields" :key="f" class="diff-field-tag" type="warning">{{ f }}</el-tag>
       </div>

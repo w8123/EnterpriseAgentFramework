@@ -1,5 +1,18 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import type { RouteLocationNormalizedLoaded, RouteRecordRaw } from 'vue-router'
+import {
+  PLATFORM_PERMISSION_ADMIN,
+  PLATFORM_PERMISSION_AGENT_DEBUG,
+  PLATFORM_PERMISSION_AGENT_EVALUATE,
+  PLATFORM_PERMISSION_AGENT_READ,
+  PLATFORM_PERMISSION_AGENT_WRITE,
+  PLATFORM_PERMISSION_AUTOMATION_READ,
+  PLATFORM_PERMISSION_BUSINESS_USER_READ,
+  PLATFORM_PERMISSION_MEMORY_ERASURE_MANAGE,
+  PLATFORM_PERMISSION_RUNOPS_READ,
+  PLATFORM_PERMISSION_WORKFLOW_READ,
+  PLATFORM_PERMISSION_WORKFLOW_WRITE,
+} from '@/auth/platformAccess'
 import { resolvePlatformNavigation } from '@/auth/platformNavigation'
 
 /** 项目详情动态面包屑目标：从当前路由取 projectCode。 */
@@ -25,6 +38,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '登录状态验证不可用', public: true },
   },
   {
+    path: '/access-denied',
+    name: 'AccessDenied',
+    component: () => import('@/views/AccessDenied.vue'),
+    meta: { title: '没有访问权限' },
+  },
+  {
     path: '/',
     component: () => import('@/views/layout/MainLayout.vue'),
     redirect: '/dashboard',
@@ -42,13 +61,25 @@ const routes: RouteRecordRaw[] = [
         path: 'agent',
         name: 'AgentList',
         component: () => import('@/views/agent/AgentList.vue'),
-        meta: { title: 'Agent', layoutMode: 'standard' },
+        meta: {
+          title: 'Agent',
+          layoutMode: 'standard',
+          requiredPermissions: [PLATFORM_PERMISSION_AGENT_READ],
+        },
       },
       {
         path: 'agent/:id/edit',
         name: 'AgentEdit',
         component: () => import('@/views/agent/AgentEdit.vue'),
-        meta: { title: 'Agent 编辑', layoutMode: 'standard' },
+        meta: {
+          title: 'Agent 编辑',
+          layoutMode: 'standard',
+          requiredPermissions: [PLATFORM_PERMISSION_AGENT_WRITE],
+          breadcrumb: [
+            { title: '智能体与编排', to: { path: '/agent' } },
+            { title: 'Agent 编辑' },
+          ],
+        },
       },
       {
         path: 'agent/:id/debug',
@@ -57,6 +88,7 @@ const routes: RouteRecordRaw[] = [
         meta: {
           title: 'Agent 调试',
           layoutMode: 'edge-to-edge',
+          requiredPermissions: [PLATFORM_PERMISSION_AGENT_DEBUG],
           breadcrumb: [
             { title: '智能体与编排', to: { path: '/agent' } },
             { title: 'Agent 调试' },
@@ -67,37 +99,83 @@ const routes: RouteRecordRaw[] = [
         path: 'agent/:id/evals',
         name: 'AgentEval',
         component: () => import('@/views/agent/AgentEval.vue'),
-        meta: { title: 'Agent 评测', layoutMode: 'standard' },
+        meta: {
+          title: 'Agent 评测',
+          layoutMode: 'standard',
+          requiredPermissions: [PLATFORM_PERMISSION_AGENT_EVALUATE],
+        },
+      },
+      {
+        path: 'skill-market',
+        name: 'SkillMarket',
+        component: () => import('@/views/skill-market/SkillMarket.vue'),
+        meta: { title: 'Skill 市场', layoutMode: 'standard' },
+      },
+      {
+        path: 'skills',
+        name: 'SkillCenter',
+        component: () => import('@/views/skill/SkillCenter.vue'),
+        meta: { title: 'Skill 管理', layoutMode: 'standard' },
       },
       {
         path: 'workflows',
         name: 'WorkflowList',
         component: () => import('@/views/workflow/WorkflowList.vue'),
-        meta: { title: 'Workflow 编排', layoutMode: 'project-workbench' },
+        meta: {
+          title: 'Workflow 编排',
+          layoutMode: 'project-workbench',
+          requiredPermissions: [PLATFORM_PERMISSION_WORKFLOW_READ],
+        },
       },
       {
         path: 'workflows/:workflowId/studio',
         name: 'WorkflowStudio',
         component: () => import('@/views/workflow/WorkflowStudio.vue'),
-        meta: { title: 'Workflow 编排 Studio', layoutMode: 'studio' },
+        meta: {
+          title: 'Workflow 编排 Studio',
+          layoutMode: 'studio',
+          requiredPermissions: [PLATFORM_PERMISSION_WORKFLOW_WRITE],
+        },
       },
       {
         path: 'workflows/:workflowId/versions',
         name: 'WorkflowVersions',
         component: () => import('@/views/workflow/WorkflowVersions.vue'),
-        meta: { title: 'Workflow 版本', layoutMode: 'standard' },
+        meta: {
+          title: 'Workflow 版本',
+          layoutMode: 'standard',
+          requiredPermissions: [PLATFORM_PERMISSION_WORKFLOW_READ],
+        },
       },
       {
         path: 'runops',
         name: 'RunOpsList',
         component: () => import('@/views/runops/RunOpsList.vue'),
-        meta: { title: '运行中心', layoutMode: 'standard' },
+        meta: {
+          title: '运行中心',
+          layoutMode: 'standard',
+          requiredPermissions: [PLATFORM_PERMISSION_RUNOPS_READ],
+        },
+      },
+      {
+        path: 'automations',
+        name: 'AutomationCenter',
+        component: () => import('@/views/automation/AutomationCenter.vue'),
+        meta: {
+          title: '自动化中心',
+          layoutMode: 'standard',
+          requiredPermissions: [PLATFORM_PERMISSION_AUTOMATION_READ],
+        },
       },
       {
         path: 'runops/:traceId',
         name: 'RunOpsDetail',
         component: () => import('@/views/runops/RunOpsDetail.vue'),
-        meta: { title: '运行详情', layoutMode: 'standard' },
+        meta: {
+          title: '运行详情',
+          layoutMode: 'standard',
+          requiredPermissions: [PLATFORM_PERMISSION_RUNOPS_READ],
+        },
       },
 
       // ── 知识管理 ──
@@ -168,24 +246,31 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '模型调试台', layoutMode: 'edge-to-edge' },
       },
 
-      // ── Tool 管理 ──
+      // ── 外部 API 市场 ──
       {
-        path: 'tool',
-        name: 'ToolList',
-        component: () => import('@/views/tool/ToolList.vue'),
-        meta: { title: 'Tool', layoutMode: 'standard' },
+        path: 'api-market',
+        name: 'ApiMarket',
+        component: () => import('@/views/api-market/ApiMarket.vue'),
+        meta: { title: 'API 市场', layoutMode: 'standard' },
       },
+
+      // ── Runtime 调用诊断；通用 Tool 不再作为可编辑产品资产 ──
       {
         path: 'tool/retrieval',
         name: 'ToolRetrievalTest',
         component: () => import('@/views/tool/ToolRetrievalTest.vue'),
-        meta: { title: 'Tool 检索测试', layoutMode: 'standard' },
+        meta: { title: '调用候选检索', layoutMode: 'standard' },
+      },
+      {
+        path: 'tool',
+        redirect: '/capability',
+        meta: { title: '能力目录', layoutMode: 'standard' },
       },
       {
         path: 'capability',
         name: 'CapabilityKernel',
         component: () => import('@/views/capability/CapabilityKernel.vue'),
-        meta: { title: '能力', layoutMode: 'standard' },
+        meta: { title: '能力目录', layoutMode: 'standard' },
       },
       {
         path: 'capability/review',
@@ -213,7 +298,7 @@ const routes: RouteRecordRaw[] = [
         path: 'capability/tools',
         name: 'CapabilityKernelTools',
         component: () => import('@/views/capability/CapabilityKernel.vue'),
-        meta: { title: '模块工具', layoutMode: 'standard' },
+        meta: { title: '能力执行动作', layoutMode: 'standard' },
       },
       {
         path: 'capability/compositions',
@@ -357,44 +442,84 @@ const routes: RouteRecordRaw[] = [
         },
       },
 
-      // ── 对外开放 / MCP ──
+      // ── MCP 互联中心：独立产品模块 ──
       {
-        path: 'mcp/visibility',
-        name: 'McpVisibilityBoard',
-        component: () => import('@/views/mcp/McpVisibilityBoard.vue'),
-        meta: { title: '对外开放 · MCP 白名单', layoutMode: 'standard' },
-      },
-      {
-        path: 'mcp/clients',
-        name: 'McpClientList',
-        component: () => import('@/views/mcp/McpClientList.vue'),
-        meta: { title: '对外开放 · MCP Client', layoutMode: 'standard' },
-      },
-      {
-        path: 'mcp/monitor',
-        name: 'McpCallMonitor',
-        component: () => import('@/views/mcp/McpCallMonitor.vue'),
-        meta: { title: '对外开放 · MCP 调用流水', layoutMode: 'standard' },
-      },
-      {
-        path: 'mcp/onboarding',
-        name: 'McpOnboarding',
-        component: () => import('@/views/mcp/McpOnboarding.vue'),
-        meta: { title: '对外开放 · MCP 接入向导', layoutMode: 'standard' },
+        path: 'mcp-hub',
+        component: () => import('@/views/mcp-hub/McpHubLayout.vue'),
+        redirect: '/mcp-hub/overview',
+        meta: { activeMenu: '/mcp-hub', layoutMode: 'standard' },
+        children: [
+          {
+            path: 'overview',
+            name: 'McpHubOverview',
+            component: () => import('@/views/mcp-hub/McpHubOverview.vue'),
+            meta: { title: 'MCP 互联中心 · 总览', activeMenu: '/mcp-hub', layoutMode: 'standard' },
+          },
+          {
+            path: 'publications',
+            name: 'McpHubPublications',
+            component: () => import('@/views/mcp-hub/McpPublicationList.vue'),
+            meta: { title: 'MCP 互联中心 · 对外发布', activeMenu: '/mcp-hub', layoutMode: 'standard' },
+          },
+          {
+            path: 'publications/:id',
+            name: 'McpHubPublicationDetail',
+            component: () => import('@/views/mcp-hub/McpPublicationDetail.vue'),
+            meta: { title: 'MCP 互联中心 · 发布详情', activeMenu: '/mcp-hub', layoutMode: 'standard' },
+          },
+          {
+            path: 'call-logs',
+            name: 'McpHubCallLogs',
+            component: () => import('@/views/mcp-hub/McpCallLogList.vue'),
+            meta: { title: 'MCP 互联中心 · 调用流水', activeMenu: '/mcp-hub', layoutMode: 'standard' },
+          },
+        ],
       },
 
-      // ── 对外开放 / A2A ──
+      // ── A2A 互联中心：独立产品模块 ──
       {
-        path: 'a2a/endpoints',
-        name: 'A2aEndpointList',
-        component: () => import('@/views/a2a/A2aEndpointList.vue'),
-        meta: { title: '对外开放 · A2A 暴露 Agent', layoutMode: 'standard' },
-      },
-      {
-        path: 'a2a/monitor',
-        name: 'A2aSessionMonitor',
-        component: () => import('@/views/a2a/A2aSessionMonitor.vue'),
-        meta: { title: '对外开放 · A2A 会话监控', layoutMode: 'standard' },
+        path: 'a2a-hub',
+        component: () => import('@/views/a2a-hub/A2aHubLayout.vue'),
+        redirect: '/a2a-hub/overview',
+        meta: { activeMenu: '/a2a-hub', layoutMode: 'standard' },
+        children: [
+          {
+            path: 'overview',
+            name: 'A2aHubOverview',
+            component: () => import('@/views/a2a-hub/A2aHubOverview.vue'),
+            meta: { title: 'A2A 互联中心 · 总览', activeMenu: '/a2a-hub', layoutMode: 'standard' },
+          },
+          {
+            path: 'publications',
+            name: 'A2aHubPublications',
+            component: () => import('@/views/a2a-hub/publications/A2aPublicationList.vue'),
+            meta: { title: 'A2A 互联中心 · 本地发布', activeMenu: '/a2a-hub', layoutMode: 'standard' },
+          },
+          {
+            path: 'remote-agents',
+            name: 'A2aHubRemoteAgents',
+            component: () => import('@/views/a2a-hub/remote-agents/A2aRemoteAgentCatalog.vue'),
+            meta: { title: 'A2A 互联中心 · 远程 Agent', activeMenu: '/a2a-hub', layoutMode: 'standard' },
+          },
+          {
+            path: 'tasks',
+            name: 'A2aHubTasks',
+            component: () => import('@/views/a2a-hub/tasks/A2aTaskCenter.vue'),
+            meta: { title: 'A2A 互联中心 · 任务中心', activeMenu: '/a2a-hub', layoutMode: 'standard' },
+          },
+          {
+            path: 'trust',
+            name: 'A2aHubTrust',
+            component: () => import('@/views/a2a-hub/trust/A2aTrustWorkspace.vue'),
+            meta: { title: 'A2A 互联中心 · 信任与策略', activeMenu: '/a2a-hub', layoutMode: 'standard' },
+          },
+          {
+            path: 'developer',
+            name: 'A2aHubDeveloper',
+            component: () => import('@/views/a2a-hub/developer/A2aDeveloperConsole.vue'),
+            meta: { title: 'A2A 互联中心 · 开发与诊断', activeMenu: '/a2a-hub', layoutMode: 'standard' },
+          },
+        ],
       },
 
       // ── 设置 / 护栏 ──
@@ -408,31 +533,47 @@ const routes: RouteRecordRaw[] = [
         path: 'settings/memory-erasure',
         name: 'MemoryErasure',
         component: () => import('@/views/settings/MemoryErasure.vue'),
-        meta: { title: '跨域记忆擦除', layoutMode: 'standard' },
+        meta: {
+          title: '跨域记忆擦除',
+          layoutMode: 'standard',
+          requiredPermissions: [PLATFORM_PERMISSION_MEMORY_ERASURE_MANAGE],
+        },
       },
       {
         path: 'settings/platform-users',
         name: 'PlatformUserSettings',
         component: () => import('@/views/settings/PlatformUserSettings.vue'),
-        meta: { title: '平台用户与角色', layoutMode: 'standard' },
+        meta: {
+          title: '账号与权限',
+          layoutMode: 'standard',
+          requiredPermissions: [PLATFORM_PERMISSION_ADMIN],
+        },
       },
       {
         path: 'settings/business-users',
         name: 'BusinessUserDirectory',
         component: () => import('@/views/settings/BusinessUserDirectory.vue'),
-        meta: { title: '业务用户目录', layoutMode: 'standard' },
+        meta: {
+          title: '业务用户目录',
+          layoutMode: 'standard',
+          requiredPermissions: [PLATFORM_PERMISSION_BUSINESS_USER_READ],
+        },
       },
       {
         path: 'settings/auth-providers',
         name: 'AuthProviderSettings',
         component: () => import('@/views/settings/AuthProviderSettings.vue'),
-        meta: { title: '认证源配置', layoutMode: 'standard' },
+        meta: {
+          title: '认证源配置',
+          layoutMode: 'standard',
+          requiredPermissions: [PLATFORM_PERMISSION_ADMIN],
+        },
       },
       {
         path: 'settings/tool-acl',
         name: 'ToolAclList',
         component: () => import('@/views/settings/ToolAclList.vue'),
-        meta: { title: 'Tool ACL', layoutMode: 'standard' },
+        meta: { title: '调用权限', layoutMode: 'standard' },
       },
 
       // ── 治理 / 领域 ──

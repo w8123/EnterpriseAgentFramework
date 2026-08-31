@@ -44,7 +44,7 @@ function onMoreCommand(command: MoreCommand) {
           </el-tag>
         </div>
         <p class="hero-description">
-          将业务系统 API 接入 ReachAI，补全 AI 语义并上架为可被 Agent 使用的 Tool。
+          将业务系统 API 接入 ReachAI，补全 AI 语义并纳入能力目录，供 Workflow 与 Agent 调用。
         </p>
       </div>
     </div>
@@ -92,7 +92,7 @@ function onMoreCommand(command: MoreCommand) {
           <el-dropdown-menu>
             <el-dropdown-item command="modelSettings" :icon="MagicStick">AI 语义生成</el-dropdown-item>
             <el-dropdown-item command="reconcile" :icon="Connection" :disabled="reconcileLoading">
-              检查 Tool 关联
+              检查能力纳管
             </el-dropdown-item>
             <el-dropdown-item command="ops" :icon="Tools">维护动作</el-dropdown-item>
           </el-dropdown-menu>

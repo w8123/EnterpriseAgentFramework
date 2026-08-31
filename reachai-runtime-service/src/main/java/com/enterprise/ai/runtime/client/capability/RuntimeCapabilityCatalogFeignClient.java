@@ -1,5 +1,6 @@
 package com.enterprise.ai.runtime.client.capability;
 
+import com.enterprise.ai.common.capability.CapabilityInvocationResponse;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -23,9 +24,15 @@ public interface RuntimeCapabilityCatalogFeignClient {
 
     @PostMapping(value = RuntimeCapabilityInternalAuthSigner.TOOL_EXECUTE_PATH_TEMPLATE,
             consumes = MediaType.APPLICATION_JSON_VALUE)
-    Map<String, Object> executeTool(@PathVariable("qualifiedName") String qualifiedName,
-                                    @RequestHeader Map<String, String> internalAuthHeaders,
-                                    @RequestBody byte[] exactBody);
+    CapabilityInvocationResponse invokeTool(@PathVariable("qualifiedName") String qualifiedName,
+                                            @RequestHeader Map<String, String> internalAuthHeaders,
+                                            @RequestBody byte[] exactBody);
+
+    @PostMapping(value = RuntimeCapabilityInternalAuthSigner.CAPABILITY_INVOCATION_PATH,
+            consumes = MediaType.APPLICATION_JSON_VALUE)
+    CapabilityInvocationResponse invokeCapability(
+            @RequestHeader Map<String, String> internalAuthHeaders,
+            @RequestBody byte[] exactBody);
 
     @GetMapping("/internal/capability/compositions/{qualifiedName}")
     Map<String, Object> getCompositionDefinition(@PathVariable("qualifiedName") String qualifiedName);

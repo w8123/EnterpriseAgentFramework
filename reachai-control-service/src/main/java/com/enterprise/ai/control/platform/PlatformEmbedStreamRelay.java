@@ -1,6 +1,6 @@
 package com.enterprise.ai.control.platform;
 
-import com.enterprise.ai.control.client.runtime.RuntimeTrustedAgentExecutionGateway;
+import com.enterprise.ai.control.runtime.RuntimeTrustedAgentExecutionGateway;
 import com.enterprise.ai.control.runtime.RuntimeAgentStreamProxy;
 import com.enterprise.ai.control.runtime.SseStreamRelay;
 import com.fasterxml.jackson.core.type.TypeReference;

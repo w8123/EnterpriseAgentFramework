@@ -7,6 +7,7 @@ import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionEventSink;
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionResult;
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutor;
 import com.enterprise.ai.runtime.execution.WorkflowExecutionStatus;
+import com.enterprise.ai.runtime.eval.RuntimeEvalExecutionContext;
 import com.enterprise.ai.runtime.execution.trace.WorkflowTraceSanitizer;
 import com.enterprise.ai.runtime.runops.RuntimeRunLifecycleService;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
@@ -19,6 +20,7 @@ import org.springframework.util.StringUtils;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -51,6 +53,11 @@ public class RuntimeWorkflowDebugService {
         String runId = firstText(text(debugOption(actual.debugOptions(), "runId")),
                 "studio-debug-run-" + UUID.randomUUID());
         String traceId = firstText(text(debugOption(actual.debugOptions(), "traceId")), runId);
+        boolean evalMode = Boolean.TRUE.equals(debugOption(actual.debugOptions(), "evalMode"))
+                || Boolean.TRUE.equals(debugOption(actual.debugOptions(), "sandboxSideEffects"));
+        RuntimeEvalExecutionContext evaluation = evalMode
+                ? RuntimeEvalExecutionContext.readOnly("workflow-debug:" + runId, "workflow", null)
+                : RuntimeEvalExecutionContext.none();
         long started = System.currentTimeMillis();
         Map<String, Object> context = inputContext(actual.message(), actual.modelInstanceId(), actual.inputParams());
         String entryNodeId = text(debugOption(actual.debugOptions(), "entryNodeId"));
@@ -67,8 +74,12 @@ public class RuntimeWorkflowDebugService {
         }
 
         RuntimeGraphSpecExecutionResult execution = StringUtils.hasText(entryNodeId)
-                ? graphSpecExecutor.executeFromNode(resolved.graphSpecJson(), context, entryNodeId, sink, cancel)
-                : graphSpecExecutor.execute(resolved.graphSpecJson(), context, sink, cancel);
+                ? graphSpecExecutor.executeFromNode(
+                        resolved.graphSpecJson(), context, entryNodeId, sink, cancel, evaluation)
+                : graphSpecExecutor.execute(
+                        resolved.graphSpecJson(), context, sink, cancel,
+                        com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity.untrustedDebug(),
+                        evaluation);
         finishWorkflowTrace(trace, execution, actual, context);
         return toDebugRunResult(runId, traceId, actual, context, resolved.graph(), execution, started);
     }
@@ -347,10 +358,10 @@ public class RuntimeWorkflowDebugService {
                 try { spanMapper.updateById(root); } catch (Exception ignored) { }
             }
         }
-        List<Map<String, Object>> steps = execution.steps() == null ? List.of() : execution.steps();
-        for (int index = 0; index < steps.size(); index++) {
-            Map<String, Object> step = steps.get(index) == null ? Map.of() : steps.get(index);
-            String nodeId = firstText(text(step.get("nodeId")), text(step.get("detail")));
+        List<Map<String, Object>> nodeTraces = canonicalNodeTraces(execution);
+        for (int index = 0; index < nodeTraces.size(); index++) {
+            Map<String, Object> nodeTrace = nodeTraces.get(index);
+            String nodeId = firstText(text(nodeTrace.get("nodeId")), text(nodeTrace.get("detail")));
             RuntimeTraceSpanEntity child = new RuntimeTraceSpanEntity();
             child.setTraceId(trace.traceId());
             child.setSpanId(compactId(16));
@@ -360,22 +371,28 @@ public class RuntimeWorkflowDebugService {
             child.setAgentId(workflowId);
             child.setAgentName(workflowName);
             child.setNodeId(nodeId);
-            boolean last = index == steps.size() - 1;
-            boolean failed = !execution.success() && !waiting && last;
-            boolean nodeWaiting = waiting && last;
-            child.setStatus(nodeWaiting ? "WAITING_USER" : (failed ? status : "SUCCESS"));
+            child.setToolName(text(nodeTrace.get("qualifiedName")));
+            String nodeStatus = firstText(text(nodeTrace.get("status")), "SUCCESS").toUpperCase();
+            boolean nodeWaiting = "WAITING_USER".equals(nodeStatus) || "WAITING".equals(nodeStatus);
+            boolean failed = "FAILED".equals(nodeStatus) || "ERROR".equals(nodeStatus)
+                    || "TIMEOUT".equals(nodeStatus);
+            child.setStatus(nodeWaiting ? "WAITING_USER" : (failed ? nodeStatus : nodeStatus));
             Map<String, Object> childMeta = new LinkedHashMap<>(
-                    WorkflowTraceSanitizer.sanitizeDebugStepMetadata(nodeTrace(step, nodeId)));
+                    WorkflowTraceSanitizer.sanitizeDebugStepMetadata(nodeTrace));
             childMeta.put("workflowKeySlug", workflowKeySlug == null ? "" : workflowKeySlug);
             if (nodeWaiting && execution.interactionId() != null) {
                 childMeta.put("interactionId", execution.interactionId());
             }
             child.setMetadataJson(json(childMeta));
-            child.setErrorCode(failed ? execution.code() : null);
-            child.setLatencyMs(0);
-            child.setStartedAt(ended);
-            child.setEndedAt(nodeWaiting ? null : ended);
-            child.setCreatedAt(ended);
+            child.setErrorCode(failed
+                    ? firstText(text(nodeTrace.get("failureCode")), execution.code())
+                    : null);
+            child.setLatencyMs(nonNegativeInt(nodeTrace.get("latencyMs")));
+            LocalDateTime nodeStarted = epochMillis(nodeTrace.get("startedAt"), ended);
+            LocalDateTime nodeEnded = epochMillis(nodeTrace.get("endedAt"), ended);
+            child.setStartedAt(nodeStarted);
+            child.setEndedAt(nodeWaiting ? null : nodeEnded);
+            child.setCreatedAt(nodeStarted);
             try { spanMapper.insert(child); } catch (Exception ignored) { }
         }
         Map<String, Object> metadata = new LinkedHashMap<>();
@@ -383,12 +400,12 @@ public class RuntimeWorkflowDebugService {
         metadata.put("workflowId", workflowId);
         metadata.put("workflowKeySlug", workflowKeySlug);
         metadata.put("workflowName", workflowName);
-        metadata.put("nodeCount", steps.size());
+        metadata.put("nodeCount", nodeTraces.size());
         if (execution.interactionId() != null) {
             metadata.put("interactionId", execution.interactionId());
         }
         runLifecycleService.finishWorkflow(trace.traceId(), execution.success(), execution.code(),
-                execution.answer(), steps.size(), metadata);
+                execution.answer(), nodeTraces.size(), metadata);
     }
 
     private String traceSpanStatus(RuntimeGraphSpecExecutionResult execution) {
@@ -410,6 +427,49 @@ public class RuntimeWorkflowDebugService {
         trace.put("failureCode", step.get("failureCode"));
         trace.put("traceSummary", step.get("traceSummary"));
         return trace;
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> canonicalNodeTraces(RuntimeGraphSpecExecutionResult execution) {
+        if (execution != null && execution.metadata() != null) {
+            Object projected = execution.metadata().get("workflowNodeTraces");
+            if (projected instanceof List<?> list && !list.isEmpty()) {
+                List<Map<String, Object>> traces = new ArrayList<>();
+                for (Object item : list) {
+                    if (item instanceof Map<?, ?> map) {
+                        traces.add(new LinkedHashMap<>((Map<String, Object>) map));
+                    }
+                }
+                if (!traces.isEmpty()) {
+                    return List.copyOf(traces);
+                }
+            }
+        }
+        List<Map<String, Object>> steps = execution == null || execution.steps() == null
+                ? List.of() : execution.steps();
+        List<Map<String, Object>> legacy = new ArrayList<>();
+        for (Map<String, Object> step : steps) {
+            Map<String, Object> safeStep = step == null ? Map.of() : step;
+            String nodeId = firstText(text(safeStep.get("nodeId")), text(safeStep.get("detail")));
+            legacy.add(nodeTrace(safeStep, nodeId));
+        }
+        return List.copyOf(legacy);
+    }
+
+    private LocalDateTime epochMillis(Object raw, LocalDateTime fallback) {
+        if (raw instanceof Number number && number.longValue() > 0L) {
+            return Instant.ofEpochMilli(number.longValue())
+                    .atZone(ZoneId.systemDefault())
+                    .toLocalDateTime();
+        }
+        return fallback;
+    }
+
+    private Integer nonNegativeInt(Object raw) {
+        if (!(raw instanceof Number number)) {
+            return 0;
+        }
+        return (int) Math.min(Integer.MAX_VALUE, Math.max(0L, number.longValue()));
     }
 
     private String compactId(int length) {

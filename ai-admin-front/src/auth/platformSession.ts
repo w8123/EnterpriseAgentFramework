@@ -1,14 +1,14 @@
 import { computed, readonly, ref } from 'vue'
 import {
   acknowledgeExplorationNotice,
-  clearPlatformToken,
+  clearPlatformSessionMetadata,
   discardLegacyPlatformPersistentSession,
   getPlatformSessionExpiresAt,
   getPlatformSessionId,
-  getPlatformToken,
   getPlatformUser,
   hasAcknowledgedExplorationNotice,
-  hasLocallyExpiredPlatformSession,
+  isPlatformLogoutEvent,
+  publishPlatformLogoutEvent,
   setPlatformSessionExpiresAt,
   setPlatformSessionId,
   setPlatformUser,
@@ -46,6 +46,10 @@ function persistedSession(): PlatformSessionView | null {
     ? { sessionId, expiresAt, principal }
     : null
 }
+
+// Run the credential migration even on public routes such as /login, where the
+// protected-route bootstrap is intentionally skipped.
+discardLegacyPlatformPersistentSession()
 
 const state = ref<PlatformSessionState>('BOOTSTRAPPING')
 const session = ref<PlatformSessionView | null>(persistedSession())
@@ -95,7 +99,7 @@ function replaceSession(nextSession: PlatformSessionView) {
 }
 
 function clearSession(stateAfterClear: PlatformSessionState = 'ANONYMOUS') {
-  clearPlatformToken()
+  clearPlatformSessionMetadata()
   session.value = null
   explorationAcknowledged.value = false
   state.value = stateAfterClear
@@ -106,8 +110,9 @@ function responseHeader(response: Response | { headers?: { get?: (name: string) 
 }
 
 /**
- * Performs the only authoritative client-side session bootstrap check. A saved
- * token is merely a hint; pages are unlocked only after Control accepts /me.
+ * Performs the only authoritative client-side session bootstrap check. The
+ * HttpOnly cookie is invisible to JavaScript, so every new tab asks Control
+ * whether the browser still owns a live session.
  */
 export function bootstrapPlatformSession(): Promise<PlatformSessionState> {
   if (state.value === 'AUTHENTICATED') {
@@ -117,12 +122,6 @@ export function bootstrapPlatformSession(): Promise<PlatformSessionState> {
 
   bootstrapPromise = (async () => {
     discardLegacyPlatformPersistentSession()
-    const token = getPlatformToken()
-    if (!token || hasLocallyExpiredPlatformSession()) {
-      clearSession()
-      return state.value
-    }
-
     state.value = 'BOOTSTRAPPING'
     const controller = new AbortController()
     const timeoutId = globalThis.setTimeout(
@@ -131,7 +130,7 @@ export function bootstrapPlatformSession(): Promise<PlatformSessionState> {
     )
     try {
       const response = await fetch('/api/platform/auth/me', {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: 'same-origin',
         signal: controller.signal,
       })
       if (response.status === 401) {
@@ -182,15 +181,21 @@ export function acknowledgePlatformExplorationNotice() {
   return true
 }
 
-export function markPlatformSessionAnonymous() {
+export function markPlatformSessionAnonymous(broadcast = true) {
   clearSession()
   loginNavigationStarted = false
+  if (broadcast) {
+    publishPlatformLogoutEvent()
+  }
 }
 
 /** Only a platform-console 401 may call this; business/API credential failures must not log out the console. */
 export function handlePlatformSessionFailure() {
-  const wasAuthenticated = state.value === 'AUTHENTICATED' || Boolean(getPlatformToken())
+  const wasAuthenticated = state.value === 'AUTHENTICATED' || Boolean(session.value)
   clearSession()
+  if (wasAuthenticated) {
+    publishPlatformLogoutEvent()
+  }
   if (!wasAuthenticated || loginNavigationStarted || typeof window === 'undefined') return false
   if (window.location.pathname.startsWith('/login')) return false
 
@@ -198,6 +203,20 @@ export function handlePlatformSessionFailure() {
   const redirect = window.location.pathname + window.location.search + window.location.hash
   window.location.assign(`/login?redirect=${encodeURIComponent(redirect)}`)
   return true
+}
+
+function handleCrossTabPlatformSessionEvent(event: StorageEvent) {
+  if (!isPlatformLogoutEvent(event)) return
+  clearSession()
+  loginNavigationStarted = false
+  if (typeof window === 'undefined' || window.location.pathname.startsWith('/login')) return
+
+  const redirect = window.location.pathname + window.location.search + window.location.hash
+  window.location.assign(`/login?redirect=${encodeURIComponent(redirect)}`)
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', handleCrossTabPlatformSessionEvent)
 }
 
 export function sanitizePlatformRedirect(redirect: unknown, fallback = '/dashboard'): string {

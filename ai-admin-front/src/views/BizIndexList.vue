@@ -122,13 +122,28 @@
           />
         </el-form-item>
         <el-form-item label="Embedding 实例" prop="embeddingModelInstanceId">
-          <el-select v-model="form.embeddingModelInstanceId" placeholder="请选择 Embedding 模型实例" style="width: 100%">
+          <el-select
+            v-model="form.embeddingModelInstanceId"
+            placeholder="请选择 Embedding 模型实例"
+            style="width: 100%"
+            :loading="embeddingInstancesLoading"
+            @visible-change="handleEmbeddingSelectVisible"
+          >
             <el-option
               v-for="item in embeddingInstances"
               :key="item.id"
               :label="`${item.name} / ${item.modelName}`"
               :value="item.id"
             />
+            <template #empty>
+              <ModelSelectEmptyState
+                model-type="EMBEDDING"
+                :option-count="embeddingInstances.length"
+                :loading="embeddingInstancesLoading"
+                :load-error="embeddingInstancesLoadError"
+                @retry="fetchEmbeddingInstances"
+              />
+            </template>
           </el-select>
         </el-form-item>
         <el-form-item label="附件切分策略">
@@ -172,6 +187,7 @@
 
 <script setup lang="ts">
 import AppDialog from '@/components/common/AppDialog.vue'
+import ModelSelectEmptyState from '@/components/model/ModelSelectEmptyState.vue'
 import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import type { FormInstance, FormRules } from 'element-plus'
@@ -184,6 +200,7 @@ import { createBizIndex, updateBizIndex, deleteBizIndex } from '@/api/bizIndex'
 import { getModelInstances } from '@/api/model'
 import type { BizIndex, BizIndexForm } from '@/types/bizIndex'
 import type { ModelInstance } from '@/types/model'
+import { normalizeActiveModelInstances } from '@/utils/modelSelection'
 
 const router = useRouter()
 const bizIndexStore = useBizIndexStore()
@@ -193,6 +210,8 @@ const isEdit = ref(false)
 const submitLoading = ref(false)
 const formRef = ref<FormInstance>()
 const embeddingInstances = ref<ModelInstance[]>([])
+const embeddingInstancesLoading = ref(false)
+const embeddingInstancesLoadError = ref(false)
 
 const form = reactive<BizIndexForm>({
   indexCode: '',
@@ -287,8 +306,21 @@ async function handleDelete(indexCode: string) {
 }
 
 async function fetchEmbeddingInstances() {
-  const { data } = await getModelInstances({ modelType: 'EMBEDDING' })
-  embeddingInstances.value = data?.data ?? (Array.isArray(data) ? data : [])
+  embeddingInstancesLoading.value = true
+  embeddingInstancesLoadError.value = false
+  try {
+    const { data } = await getModelInstances({ modelType: 'EMBEDDING' })
+    embeddingInstances.value = normalizeActiveModelInstances(data, 'EMBEDDING')
+  } catch {
+    embeddingInstances.value = []
+    embeddingInstancesLoadError.value = true
+  } finally {
+    embeddingInstancesLoading.value = false
+  }
+}
+
+function handleEmbeddingSelectVisible(visible: boolean) {
+  if (visible) void fetchEmbeddingInstances()
 }
 
 onMounted(() => {

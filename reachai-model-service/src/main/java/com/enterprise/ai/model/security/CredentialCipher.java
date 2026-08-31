@@ -1,6 +1,5 @@
 package com.enterprise.ai.model.security;
 
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -12,7 +11,6 @@ import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.util.Base64;
 
-@Slf4j
 @Component
 public class CredentialCipher {
 
@@ -23,11 +21,11 @@ public class CredentialCipher {
     private final SecureRandom secureRandom = new SecureRandom();
     private final SecretKeySpec keySpec;
 
-    public CredentialCipher(@Value("${model.credential-secret:dev-only-change-me-please-32-bytes}") String secret) {
-        this.keySpec = new SecretKeySpec(sha256(secret), "AES");
-        if (secret == null || secret.startsWith("dev-only-change-me")) {
-            log.warn("model.credential-secret is using the development default. Set MODEL_CREDENTIAL_SECRET in production.");
+    public CredentialCipher(@Value("${model.credential-secret:}") String secret) {
+        if (secret == null || secret.isBlank()) {
+            throw new IllegalStateException("MODEL_CREDENTIAL_SECRET must be configured");
         }
+        this.keySpec = new SecretKeySpec(sha256(secret), "AES");
     }
 
     public String encrypt(String plainText) {

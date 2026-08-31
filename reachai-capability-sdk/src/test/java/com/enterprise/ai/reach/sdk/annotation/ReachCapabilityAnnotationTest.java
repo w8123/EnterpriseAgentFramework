@@ -6,10 +6,13 @@ import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.lang.reflect.Parameter;
 import java.util.Arrays;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ReachCapabilityAnnotationTest {
@@ -52,5 +55,68 @@ class ReachCapabilityAnnotationTest {
         assertEquals(RetentionPolicy.RUNTIME, retention.value());
         assertTrue(Arrays.asList(target.value()).contains(ElementType.PARAMETER));
         assertTrue(Arrays.asList(target.value()).contains(ElementType.FIELD));
+    }
+
+    static class DefaultsApi {
+        @ReachCapability
+        String probe(@ReachParam String p) {
+            return p;
+        }
+    }
+
+    static class FieldProbe {
+        @ReachOutput
+        String out;
+    }
+
+    @Test
+    void reachOutputIsRuntimeFieldAnnotation() {
+        Retention retention = ReachOutput.class.getAnnotation(Retention.class);
+        Target target = ReachOutput.class.getAnnotation(Target.class);
+
+        assertEquals(RetentionPolicy.RUNTIME, retention.value());
+        assertEquals(1, target.value().length);
+        assertEquals(ElementType.FIELD, target.value()[0]);
+    }
+
+    @Test
+    void reachCapabilityDefaultsRemainStable() throws Exception {
+        ReachCapability capability = DefaultsApi.class
+                .getDeclaredMethod("probe", String.class)
+                .getAnnotation(ReachCapability.class);
+
+        assertEquals("", capability.name());
+        assertEquals("", capability.title());
+        assertEquals("", capability.description());
+        assertEquals("", capability.domain());
+        assertEquals("", capability.module());
+        assertEquals(0, capability.tags().length);
+        assertEquals(0, capability.requiredRoles().length);
+        assertEquals(ReachSideEffectLevel.WRITE, capability.sideEffect());
+        assertEquals(0, capability.timeoutMs());
+        assertEquals(-1, capability.retryLimit());
+    }
+
+    @Test
+    void reachParamAndReachOutputDefaultsRemainStable() throws Exception {
+        Parameter parameter = DefaultsApi.class
+                .getDeclaredMethod("probe", String.class)
+                .getParameters()[0];
+        ReachParam reachParam = parameter.getAnnotation(ReachParam.class);
+
+        assertEquals("", reachParam.name());
+        assertEquals("", reachParam.description());
+        assertEquals("", reachParam.example());
+        assertEquals("", reachParam.sourceHint());
+        assertEquals("", reachParam.dictType());
+        assertFalse(reachParam.required());
+        assertFalse(reachParam.sensitive());
+
+        Field field = FieldProbe.class.getDeclaredField("out");
+        ReachOutput output = field.getAnnotation(ReachOutput.class);
+
+        assertEquals("", output.description());
+        assertEquals("", output.example());
+        assertFalse(output.sensitive());
     }
 }

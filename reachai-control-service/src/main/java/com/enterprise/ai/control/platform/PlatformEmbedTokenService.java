@@ -39,6 +39,7 @@ public class PlatformEmbedTokenService {
         this.objectMapper = objectMapper;
         this.properties = properties;
         this.clock = clock;
+        requireSigningKey(properties);
     }
 
     public PlatformEmbedTokenIssueResult issue(PlatformEmbedTokenIssueCommand command) {
@@ -154,6 +155,16 @@ public class PlatformEmbedTokenService {
 
     private String activeKeyId() {
         return StringUtils.hasText(properties.getActiveKeyId()) ? properties.getActiveKeyId() : "default";
+    }
+
+    private static void requireSigningKey(PlatformEmbedTokenProperties properties) {
+        String activeKeyId = StringUtils.hasText(properties.getActiveKeyId())
+                ? properties.getActiveKeyId()
+                : "default";
+        String mapped = properties.getSecrets() == null ? null : properties.getSecrets().get(activeKeyId);
+        if (!StringUtils.hasText(mapped) && !StringUtils.hasText(properties.getSecret())) {
+            throw new IllegalStateException("EAF_EMBED_TOKEN_SECRET or the active EAF_EMBED_TOKEN_SECRETS entry must be configured");
+        }
     }
 
     private String signingSecret(String keyId) {

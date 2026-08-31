@@ -4,6 +4,21 @@ export type AiCodingExecutorProvider =
   | 'TRAE'
   | 'CLAUDE_CODE'
 export type AiCodingAccessMode = 'READ_ONLY' | 'READ_WRITE'
+export type AiCodingExecutionMode = 'EXTERNAL_CLIENT' | 'MANAGED_SANDBOX'
+export type AiCodingSandboxProfile = 'ANALYZE_READONLY' | 'WORKSPACE_PATCH'
+export type ManagedExecutionStatus =
+  | 'REQUESTED'
+  | 'QUEUED'
+  | 'PROVISIONING'
+  | 'RUNNING'
+  | 'WAITING_APPROVAL'
+  | 'WAITING_USER'
+  | 'FINALIZING'
+  | 'CANCELLING'
+  | 'SUCCEEDED'
+  | 'FAILED'
+  | 'TIMED_OUT'
+  | 'CANCELLED'
 export type AiCodingExecutionStatus =
   | 'READY'
   | 'RUNNING'
@@ -19,6 +34,7 @@ export type AiCodingConnectionStatus =
   | 'ACTIVE'
   | 'TIMED_OUT'
   | 'CLOSED'
+  | 'NOT_APPLICABLE'
 export type AiCodingTargetRole = 'PRIMARY' | 'RELATED'
 
 export interface AiCodingTaskTarget {
@@ -65,6 +81,11 @@ export interface AiCodingTask {
   taskKind: string
   protocolVersion: string
   executorProvider: AiCodingExecutorProvider
+  executionMode: AiCodingExecutionMode
+  managedExecutionId?: string
+  sandboxProfile?: AiCodingSandboxProfile
+  managedExecutionStatus?: ManagedExecutionStatus
+  managedPendingInteractionId?: string
   title: string
   objective: string
   accessMode: AiCodingAccessMode
@@ -138,10 +159,116 @@ export interface AiCodingTaskCreateRequest {
   projectCode: string
   taskKind: string
   executorProvider: AiCodingExecutorProvider
+  executionMode?: AiCodingExecutionMode
+  sandboxProfile?: AiCodingSandboxProfile
   title: string
   objective: string
   createdBy?: string
   targets: Omit<AiCodingTaskTarget, 'id'>[]
+}
+
+export interface ManagedExecutionStartRequest {
+  modelRef?: string
+  acceptanceProfile?: string
+  priority?: number
+  maxWallTimeSeconds?: number
+  approvalTimeoutSeconds?: number
+}
+
+export interface ManagedExecution {
+  executionId: string
+  tenantId: string
+  projectCode: string
+  requestedByUserId: string
+  sourceType: 'AI_CODING_TASK' | 'AGENT_DELEGATION' | 'OPERATOR' | string
+  sourceRef?: string
+  executorProvider: 'CODEX' | string
+  sandboxProfile: AiCodingSandboxProfile
+  modelRef?: string
+  acceptanceProfile: string
+  objectiveSha256: string
+  status: ManagedExecutionStatus
+  cleanupStatus: 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | string
+  pendingInteractionId?: string
+  pendingApprovalRequestId?: string
+  approvalCount: number
+  priority: number
+  maxWallTimeSeconds: number
+  approvalTimeoutSeconds: number
+  lastEventSequence: number
+  cancelRequested: boolean
+  errorCode?: string
+  errorMessage?: string
+  createdAt: string
+  updatedAt: string
+  startedAt?: string
+  finalizingAt?: string
+  completedAt?: string
+}
+
+export interface ManagedExecutionArtifact {
+  schema: string
+  executionId: string
+  artifactId: string
+  artifactType:
+    | 'PATCH'
+    | 'TEST_REPORT'
+    | 'EXECUTION_SUMMARY'
+    | 'EVIDENCE_MANIFEST'
+    | 'EVENT_LOG'
+    | string
+  sha256: string
+  sizeBytes: number
+  mediaType: string
+  validationStatus: string
+  scanStatus: string
+  createdAt: string
+  updatedAt: string
+  retentionExpiresAt: string
+}
+
+export interface ManagedExecutionApproval {
+  schema: string
+  executionId: string
+  interactionId: string
+  approvalRequestId: string
+  status: string
+  uiRequest: {
+    schema?: string
+    approvalKind?: 'COMMAND' | 'FILE_CHANGE' | string
+    message?: string
+    command?: string[]
+    reason?: string
+    actions?: string[]
+  }
+  expiresAt?: string
+  updatedAt?: string
+}
+
+export interface AiCodingManagedExecutionDetail {
+  schema: string
+  task: AiCodingTask
+  execution: ManagedExecution
+  artifacts: ManagedExecutionArtifact[]
+  approval?: ManagedExecutionApproval
+}
+
+export interface ManagedExecutionProgressEvent {
+  schema: 'reachai.ai-coding.managed-progress.v1' | string
+  taskId: string
+  executionId: string
+  status: ManagedExecutionStatus
+  cleanupStatus: string
+  pendingInteractionId?: string
+  lastEventSequence: number
+  approvalCount: number
+  terminal: boolean
+  observedAt: string
+}
+
+export interface ManagedApprovalDecisionRequest {
+  decision: 'APPROVE' | 'REJECT'
+  idempotencyKey?: string
 }
 
 export interface AiCodingHandoffPackage {

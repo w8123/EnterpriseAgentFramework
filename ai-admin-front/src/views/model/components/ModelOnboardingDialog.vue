@@ -7,7 +7,7 @@ import {
   createModelInstanceFromTemplate,
   testModelInstanceDraft,
 } from '@/api/model'
-import type { ModelInstance, ModelInstanceTestResult, ModelTemplate } from '@/types/model'
+import type { ModelInstance, ModelInstanceTestResult, ModelTemplate, ModelType } from '@/types/model'
 import {
   buildCreateRequest,
   buildDraftTestRequest,
@@ -24,9 +24,12 @@ import ModelInstanceForm from './ModelInstanceForm.vue'
 import ModelTemplatePicker from './ModelTemplatePicker.vue'
 import ModelTestResultPanel from './ModelTestResultPanel.vue'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   modelValue: boolean
-}>()
+  initialModelType?: ModelType | ''
+}>(), {
+  initialModelType: '',
+})
 
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
@@ -68,7 +71,7 @@ function resetDialogScroll() {
 
 function resetState() {
   step.value = 0
-  draft.value = draftFromCustomOpenAi('LLM')
+  draft.value = draftFromCustomOpenAi(props.initialModelType || 'LLM')
   selectedTemplate.value = null
   apiKey.value = ''
   testing.value = false
@@ -106,7 +109,7 @@ function handleSelectTemplate(template: ModelTemplate) {
 
 function handleSelectCustom() {
   selectedTemplate.value = null
-  draft.value = draftFromCustomOpenAi('LLM')
+  draft.value = draftFromCustomOpenAi(props.initialModelType || 'LLM')
   apiKey.value = ''
   testResult.value = null
   testStale.value = false
@@ -265,6 +268,8 @@ const credentialRequired = computed(() =>
 
     <ModelTemplatePicker
       v-if="step === 0"
+      :model-type="initialModelType"
+      :lock-model-type="Boolean(initialModelType)"
       @select-template="handleSelectTemplate"
       @select-custom="handleSelectCustom"
     />

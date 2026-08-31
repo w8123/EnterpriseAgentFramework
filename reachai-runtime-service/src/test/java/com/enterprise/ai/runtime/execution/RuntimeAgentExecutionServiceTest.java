@@ -6,11 +6,11 @@ import com.enterprise.ai.runtime.agent.RuntimeAgentExecutionContextResolver;
 import com.enterprise.ai.runtime.agent.RuntimeAgentExecutionView;
 import com.enterprise.ai.runtime.agent.RuntimeAgentView;
 import com.enterprise.ai.runtime.agent.RuntimeAgentWorkflowToolEntity;
-import com.enterprise.ai.runtime.chat.RuntimeChatMemoryStore;
+import com.enterprise.ai.runtime.a2a.RuntimeA2aRemoteAgentBindingEntity;
 import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
+import com.enterprise.ai.runtime.eval.RuntimeEvalExecutionContext;
 import com.enterprise.ai.runtime.runops.RuntimeRunLifecycleService;
 import com.enterprise.ai.runtime.supervisor.SupervisorApprovalInteractionService;
-import com.enterprise.ai.runtime.supervisor.SupervisorRuntimeAdapter;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -33,12 +33,62 @@ import static org.mockito.Mockito.when;
 class RuntimeAgentExecutionServiceTest {
 
     @Test
+    void projectsRemoteAgentPersistenceBindingIntoImmutableSupervisorSnapshot() {
+        RuntimeAgentExecutionContextResolver resolver = mock(RuntimeAgentExecutionContextResolver.class);
+        SupervisorRuntimeAdapter supervisor = mock(SupervisorRuntimeAdapter.class);
+        RuntimeAgentExecutionService service = new RuntimeAgentExecutionService(
+                resolver, supervisor, mock(SupervisorApprovalInteractionService.class),
+                mock(RuntimeInteractionResumeService.class), mock(RuntimeSessionClearPort.class),
+                mock(RuntimeRunLifecycleService.class));
+        RuntimeAgentExecutionView agent = agent("agent-1", "orders-bot", "orders");
+        RuntimeA2aRemoteAgentBindingEntity binding = new RuntimeA2aRemoteAgentBindingEntity();
+        binding.setId(31L);
+        binding.setPrincipalId(41L);
+        binding.setRemoteAgentId(51L);
+        binding.setRemoteAgentRevisionId(61L);
+        binding.setRemoteAgentKeySnapshot("remote-orders");
+        binding.setToolName("delegate_orders");
+        binding.setDescriptionSnapshot("Delegate order lookup");
+        binding.setAllowedSkillIdsJson("[\"lookup\"]");
+        binding.setOutputModesJson("[\"application/json\"]");
+        binding.setRiskLevel("READ");
+        binding.setPermissionKey("a2a.orders.read");
+        binding.setEnabled(true);
+        RuntimeAgentExecutionContext resolved = new RuntimeAgentExecutionContext(
+                agent, activeConfig(), List.of(), List.of(), List.of(binding), List.of(),
+                new RuntimeAgentExecutionContext.ResolveTimings(1L, 2L, 3L, 4L, 5L, 6L, 21L));
+        when(resolver.resolve("orders-bot")).thenReturn(Optional.of(resolved));
+        when(supervisor.execute(any())).thenReturn(new SupervisorRuntimeAdapter.SupervisorResult(
+                true, "OK", "answer", "trace-remote", List.of(), Map.of(), null));
+
+        service.execute(Map.of("agentId", "orders-bot", "message", "delegate"), false);
+
+        ArgumentCaptor<SupervisorRuntimeAdapter.SupervisorRequest> captor =
+                ArgumentCaptor.forClass(SupervisorRuntimeAdapter.SupervisorRequest.class);
+        verify(supervisor).execute(captor.capture());
+        SupervisorRuntimeAdapter.RemoteAgentBinding snapshot =
+                captor.getValue().remoteAgents().get(0);
+        assertEquals(31L, snapshot.id());
+        assertEquals(41L, snapshot.principalId());
+        assertEquals(51L, snapshot.remoteAgentId());
+        assertEquals(61L, snapshot.remoteAgentRevisionId());
+        assertEquals("remote-orders", snapshot.remoteAgentKeySnapshot());
+        assertEquals("delegate_orders", snapshot.toolName());
+        assertEquals("Delegate order lookup", snapshot.descriptionSnapshot());
+        assertEquals("[\"lookup\"]", snapshot.allowedSkillIdsJson());
+        assertEquals("[\"application/json\"]", snapshot.outputModesJson());
+        assertEquals("READ", snapshot.riskLevel());
+        assertEquals("a2a.orders.read", snapshot.permissionKey());
+        assertTrue(snapshot.enabled());
+    }
+
+    @Test
     void passesOnlyExplicitTrustedPersonalMemoryToSupervisor() {
         RuntimeAgentExecutionContextResolver resolver = mock(RuntimeAgentExecutionContextResolver.class);
         SupervisorRuntimeAdapter supervisor = mock(SupervisorRuntimeAdapter.class);
         RuntimeAgentExecutionService service = new RuntimeAgentExecutionService(
                 resolver, supervisor, mock(SupervisorApprovalInteractionService.class),
-                mock(RuntimeInteractionResumeService.class), mock(RuntimeChatMemoryStore.class),
+                mock(RuntimeInteractionResumeService.class), mock(RuntimeSessionClearPort.class),
                 mock(RuntimeRunLifecycleService.class));
         RuntimeAgentExecutionView agent = agent("agent-1", "orders-bot", "orders");
         when(resolver.resolve("orders-bot")).thenReturn(Optional.of(context(agent, activeConfig(), List.of())));
@@ -73,7 +123,7 @@ class RuntimeAgentExecutionServiceTest {
         RuntimeAgentExecutionService service = new RuntimeAgentExecutionService(
                 resolver, supervisor, mock(SupervisorApprovalInteractionService.class),
                 mock(RuntimeInteractionResumeService.class),
-                mock(RuntimeChatMemoryStore.class), mock(RuntimeRunLifecycleService.class));
+                mock(RuntimeSessionClearPort.class), mock(RuntimeRunLifecycleService.class));
         RuntimeAgentExecutionView agent = agent("agent-1", "orders-bot", "orders");
         RuntimeAgentConfigVersionEntity config = activeConfig();
         RuntimeAgentWorkflowToolEntity tool = new RuntimeAgentWorkflowToolEntity();
@@ -108,12 +158,51 @@ class RuntimeAgentExecutionServiceTest {
     }
 
     @Test
+    void executesCapturedDraftTargetAndIgnoresCallerEvalAndAgentOverrides() {
+        RuntimeAgentExecutionContextResolver resolver = mock(RuntimeAgentExecutionContextResolver.class);
+        SupervisorRuntimeAdapter supervisor = mock(SupervisorRuntimeAdapter.class);
+        RuntimeAgentExecutionService service = new RuntimeAgentExecutionService(
+                resolver, supervisor, mock(SupervisorApprovalInteractionService.class),
+                mock(RuntimeInteractionResumeService.class), mock(RuntimeSessionClearPort.class),
+                mock(RuntimeRunLifecycleService.class));
+        RuntimeAgentConfigVersionEntity draft = activeConfig();
+        draft.setId(12L);
+        draft.setStatus("DRAFT");
+        RuntimeAgentExecutionContext captured = context(
+                agent("agent-draft", "orders-draft", "orders"), draft, List.of());
+        when(supervisor.execute(any())).thenReturn(new SupervisorRuntimeAdapter.SupervisorResult(
+                true, "SUPERVISOR_COMPLETED", "ok", "trace-eval", List.of(), Map.of(), null));
+        RuntimeEvalExecutionContext evaluation =
+                RuntimeEvalExecutionContext.readOnly("exp-1", "item-1", "fingerprint-1");
+
+        Map<String, Object> response = service.executeEvaluation(captured, new LinkedHashMap<>(Map.of(
+                "agentId", "forged-active-agent",
+                "message", "query",
+                "evalMode", false,
+                "evaluationPolicy", Map.of("mode", "NONE"))), true, evaluation);
+
+        ArgumentCaptor<SupervisorRuntimeAdapter.SupervisorRequest> requestCaptor =
+                ArgumentCaptor.forClass(SupervisorRuntimeAdapter.SupervisorRequest.class);
+        verify(supervisor).execute(requestCaptor.capture());
+        assertEquals("agent-draft", requestCaptor.getValue().input().get("agentId"));
+        assertEquals("EVAL", requestCaptor.getValue().input().get("entryType"));
+        assertFalse(requestCaptor.getValue().input().containsKey("evalMode"));
+        assertFalse(requestCaptor.getValue().input().containsKey("evaluationPolicy"));
+        assertEquals(evaluation, requestCaptor.getValue().evalContext());
+        assertEquals(12L, requestCaptor.getValue().config().getId());
+        assertEquals("DRAFT", requestCaptor.getValue().config().getStatus());
+        assertEquals("fingerprint-1", ((Map<?, ?>) response.get("metadata"))
+                .get("evalTargetFingerprint"));
+        verify(resolver, never()).resolve(any());
+    }
+
+    @Test
     void returnsRuntimeOwnedErrorWhenAgentCannotBeResolved() {
         RuntimeAgentExecutionContextResolver resolver = mock(RuntimeAgentExecutionContextResolver.class);
         RuntimeAgentExecutionService service = new RuntimeAgentExecutionService(
                 resolver, mock(SupervisorRuntimeAdapter.class),
                 mock(SupervisorApprovalInteractionService.class), mock(RuntimeInteractionResumeService.class),
-                mock(RuntimeChatMemoryStore.class), mock(RuntimeRunLifecycleService.class));
+                mock(RuntimeSessionClearPort.class), mock(RuntimeRunLifecycleService.class));
         when(resolver.resolve("missing")).thenReturn(Optional.empty());
 
         Map<String, Object> response = service.execute(Map.of("agentId", "missing"), false);
@@ -131,7 +220,7 @@ class RuntimeAgentExecutionServiceTest {
         RuntimeAgentExecutionService service = new RuntimeAgentExecutionService(
                 resolver, supervisor, mock(SupervisorApprovalInteractionService.class),
                 mock(RuntimeInteractionResumeService.class),
-                mock(RuntimeChatMemoryStore.class), mock(RuntimeRunLifecycleService.class));
+                mock(RuntimeSessionClearPort.class), mock(RuntimeRunLifecycleService.class));
         when(resolver.resolve("orders-bot")).thenReturn(Optional.of(context(
                 agent("agent-1", "orders-bot", "orders"), null, List.of())));
 
@@ -149,7 +238,7 @@ class RuntimeAgentExecutionServiceTest {
         SupervisorApprovalInteractionService approvals = mock(SupervisorApprovalInteractionService.class);
         RuntimeAgentExecutionService service = new RuntimeAgentExecutionService(
                 resolver, supervisor, approvals, mock(RuntimeInteractionResumeService.class),
-                mock(RuntimeChatMemoryStore.class), mock(RuntimeRunLifecycleService.class));
+                mock(RuntimeSessionClearPort.class), mock(RuntimeRunLifecycleService.class));
         RuntimeAgentExecutionView agent = agent("agent-1", "orders-bot", "orders");
         RuntimeAgentConfigVersionEntity config = activeConfig();
         SupervisorRuntimeAdapter.PolicyApprovalGrant grant = new SupervisorRuntimeAdapter.PolicyApprovalGrant(
@@ -198,7 +287,7 @@ class RuntimeAgentExecutionServiceTest {
         SupervisorApprovalInteractionService approvals = mock(SupervisorApprovalInteractionService.class);
         RuntimeAgentExecutionService service = new RuntimeAgentExecutionService(
                 resolver, supervisor, approvals, mock(RuntimeInteractionResumeService.class),
-                mock(RuntimeChatMemoryStore.class), mock(RuntimeRunLifecycleService.class));
+                mock(RuntimeSessionClearPort.class), mock(RuntimeRunLifecycleService.class));
         Map<String, Object> replay = Map.of(
                 "success", true,
                 "answer", "订单已更新",
@@ -229,7 +318,7 @@ class RuntimeAgentExecutionServiceTest {
         RuntimeAgentExecutionService service = new RuntimeAgentExecutionService(
                 mock(RuntimeAgentExecutionContextResolver.class), mock(SupervisorRuntimeAdapter.class), approvals,
                 mock(RuntimeInteractionResumeService.class),
-                mock(RuntimeChatMemoryStore.class), runLifecycle);
+                mock(RuntimeSessionClearPort.class), runLifecycle);
         when(approvals.prepareResume(any(), any(), any())).thenReturn(
                 new SupervisorApprovalInteractionService.ResumeDecision(
                         false, true, "agent-1", Map.of("traceId", "trace-original"), null,
@@ -261,7 +350,7 @@ class RuntimeAgentExecutionServiceTest {
         RuntimeAgentExecutionService service = new RuntimeAgentExecutionService(
                 mock(RuntimeAgentExecutionContextResolver.class), supervisor,
                 mock(SupervisorApprovalInteractionService.class), resumeService,
-                mock(RuntimeChatMemoryStore.class), runLifecycle);
+                mock(RuntimeSessionClearPort.class), runLifecycle);
         when(resumeService.resume(any(), any(), any())).thenReturn(Map.of(
                 "success", true,
                 "code", "RUNTIME_GRAPH_EXECUTED",
@@ -297,7 +386,7 @@ class RuntimeAgentExecutionServiceTest {
         SupervisorRuntimeAdapter supervisor = mock(SupervisorRuntimeAdapter.class);
         RuntimeAgentExecutionService service = new RuntimeAgentExecutionService(
                 resolver, supervisor, mock(SupervisorApprovalInteractionService.class),
-                resumeService, mock(RuntimeChatMemoryStore.class), mock(RuntimeRunLifecycleService.class));
+                resumeService, mock(RuntimeSessionClearPort.class), mock(RuntimeRunLifecycleService.class));
         RuntimeAgentExecutionView agent = agent("agent-1", "orders-bot", "orders");
         RuntimeAgentConfigVersionEntity config = activeConfig();
         when(resumeService.resume(any(), any(), any())).thenReturn(Map.of(
@@ -348,7 +437,7 @@ class RuntimeAgentExecutionServiceTest {
         RuntimeAgentExecutionService service = new RuntimeAgentExecutionService(
                 resolver, supervisor, mock(SupervisorApprovalInteractionService.class),
                 mock(RuntimeInteractionResumeService.class),
-                mock(RuntimeChatMemoryStore.class), mock(RuntimeRunLifecycleService.class));
+                mock(RuntimeSessionClearPort.class), mock(RuntimeRunLifecycleService.class));
         RuntimeAgentExecutionView agent = agent("agent-1", "orders-bot", "orders");
         RuntimeAgentConfigVersionEntity archived = new RuntimeAgentConfigVersionEntity();
         archived.setId(91L);
@@ -393,7 +482,7 @@ class RuntimeAgentExecutionServiceTest {
         RuntimeAgentExecutionService service = new RuntimeAgentExecutionService(
                 resolver, supervisor, mock(SupervisorApprovalInteractionService.class),
                 mock(RuntimeInteractionResumeService.class),
-                mock(RuntimeChatMemoryStore.class), mock(RuntimeRunLifecycleService.class));
+                mock(RuntimeSessionClearPort.class), mock(RuntimeRunLifecycleService.class));
         RuntimeAgentExecutionView agent = agent("agent-1", "orders-bot", "orders");
         RuntimeAgentConfigVersionEntity config = activeConfig();
         when(resolver.resolve("orders-bot")).thenReturn(Optional.of(context(agent, config, List.of())));
@@ -434,7 +523,7 @@ class RuntimeAgentExecutionServiceTest {
         RuntimeAgentExecutionService service = new RuntimeAgentExecutionService(
                 resolver, supervisor, mock(SupervisorApprovalInteractionService.class),
                 mock(RuntimeInteractionResumeService.class),
-                mock(RuntimeChatMemoryStore.class), mock(RuntimeRunLifecycleService.class));
+                mock(RuntimeSessionClearPort.class), mock(RuntimeRunLifecycleService.class));
         RuntimeAgentExecutionView agent = agent("agent-1", "orders-bot", "orders");
         RuntimeAgentConfigVersionEntity config = activeConfig();
         when(resolver.resolve("orders-bot")).thenReturn(Optional.of(context(agent, config, List.of())));

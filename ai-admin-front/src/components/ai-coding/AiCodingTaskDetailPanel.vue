@@ -3,6 +3,7 @@ import { computed, reactive, watch } from 'vue'
 import { CircleClose, CopyDocument, Refresh } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import AiCodingArtifactEvidence from '@/components/ai-coding/AiCodingArtifactEvidence.vue'
+import AiCodingManagedExecutionPanel from '@/components/ai-coding/AiCodingManagedExecutionPanel.vue'
 import type {
   AiCodingTask,
   AiCodingTaskDetail,
@@ -74,6 +75,7 @@ const needsAcceptanceVerification = computed(() =>
 const canReissue = computed(() =>
   Boolean(
     task.value
+      && task.value.executionMode !== 'MANAGED_SANDBOX'
       && aiCodingExecutionAcceptsClientAccess(task.value.executionStatus)
       && ['WAITING_CONNECT', 'ACTIVE', 'TIMED_OUT', 'CLOSED'].includes(
         task.value.connection.status,
@@ -83,6 +85,7 @@ const canReissue = computed(() =>
 const canRestore = computed(() =>
   Boolean(
     task.value
+      && task.value.executionMode !== 'MANAGED_SANDBOX'
       && aiCodingExecutionAcceptsClientAccess(task.value.executionStatus)
       && aiCodingConnectionCanRestore(task.value.connection),
   ),
@@ -159,7 +162,9 @@ async function requestAcceptance(passed: boolean) {
 async function requestCancel() {
   if (!task.value) return
   await ElMessageBox.confirm(
-    '取消后当前交接凭据会立即失效，且该任务不能继续执行。',
+    task.value.executionMode === 'MANAGED_SANDBOX'
+      ? '取消后 Runtime 会终止 Worker 并清理一次性沙箱；已校验的证据仍会保留。'
+      : '取消后当前交接凭据会立即失效，且该任务不能继续执行。',
     '取消 AI 编程任务',
     {
       confirmButtonText: '确认取消',
@@ -210,6 +215,15 @@ function eventLabel(type: string) {
     COMPLETED: '任务完成',
     FAILED: '任务失败',
     CANCELLED: '任务已取消',
+    MANAGED_EXECUTION_STARTED: '隔离执行已启动',
+    MANAGED_EXECUTION_SNAPSHOT: '隔离执行状态已同步',
+    MANAGED_EXECUTION_STATUS_CHANGED: '隔离执行状态已变更',
+    MANAGED_EXECUTION_APPROVAL_REQUESTED: '隔离执行请求审批',
+    MANAGED_EXECUTION_APPROVAL_DECIDED: '审批决定已写入',
+    MANAGED_EXECUTION_APPROVAL_RESOLVED: 'Worker 已执行审批决定',
+    MANAGED_EXECUTION_SUCCEEDED: '隔离执行与证据校验成功',
+    MANAGED_EXECUTION_FAILED: '隔离执行失败',
+    MANAGED_EXECUTION_TIMED_OUT: '隔离执行超时',
   }[type] || type
 }
 
@@ -338,11 +352,21 @@ function formatDateTime(value?: string) {
             </dd>
           </div>
           <div>
-            <dt>连接状态</dt>
-            <dd>{{ aiCodingConnectionStatusDescription(task.connection) }}</dd>
+            <dt>{{ task.executionMode === 'MANAGED_SANDBOX' ? '执行方式' : '连接状态' }}</dt>
+            <dd>
+              {{ task.executionMode === 'MANAGED_SANDBOX'
+                ? 'ReachAI 隔离执行'
+                : aiCodingConnectionStatusDescription(task.connection) }}
+            </dd>
           </div>
         </dl>
       </section>
+
+      <AiCodingManagedExecutionPanel
+        v-if="task.executionMode === 'MANAGED_SANDBOX'"
+        :task="task"
+        @refresh-task="emit('refresh', $event)"
+      />
 
       <aside v-if="canRestore" class="ai-task-recovery">
         <span>

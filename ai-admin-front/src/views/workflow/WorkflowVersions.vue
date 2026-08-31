@@ -15,13 +15,15 @@
           </el-tag>
       </template>
       <template #actions>
-        <el-button :icon="ArrowLeft" @click="router.push(`/workflows/${workflowId}/studio`)">
+        <el-button v-if="canWriteWorkflow" :icon="ArrowLeft" @click="router.push(`/workflows/${workflowId}/studio`)">
           编排
         </el-button>
-        <el-button :icon="CircleCheck" :loading="validating" @click="validateRelease">
+        <el-button v-if="canWriteWorkflow" :icon="CircleCheck" :loading="validating" @click="validateRelease">
           校验
         </el-button>
-        <el-button type="primary" :icon="Upload" @click="publishOpen = true">发布</el-button>
+        <el-button v-if="canPublishWorkflow" type="primary" :icon="Upload" @click="publishOpen = true">
+          发布
+        </el-button>
       </template>
     </PageHeader>
 
@@ -63,6 +65,7 @@
       <el-table-column label="操作" width="160" fixed="right">
         <template #default="{ row }">
           <el-button
+            v-if="canPublishWorkflow"
             size="small"
             :disabled="row.status === 'ACTIVE'"
             :loading="rollingBackId === row.id"
@@ -124,6 +127,12 @@ import {
 } from '@/utils/workflowLabels'
 import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
+import {
+  hasPlatformResourcePermission,
+  PLATFORM_PERMISSION_WORKFLOW_PUBLISH,
+  PLATFORM_PERMISSION_WORKFLOW_WRITE,
+} from '@/auth/platformAccess'
+import { platformSessionUser } from '@/auth/platformSession'
 
 const route = useRoute()
 const router = useRouter()
@@ -148,6 +157,20 @@ const validationItems = computed(() => [
   ...(validation.value?.errors || []),
   ...(validation.value?.warnings || []),
 ])
+const canWriteWorkflow = computed(() => hasPlatformResourcePermission(
+  platformSessionUser.value?.permissionGrants,
+  PLATFORM_PERMISSION_WORKFLOW_WRITE,
+  'PROJECT',
+  null,
+  workflow.value?.projectCode,
+))
+const canPublishWorkflow = computed(() => hasPlatformResourcePermission(
+  platformSessionUser.value?.permissionGrants,
+  PLATFORM_PERMISSION_WORKFLOW_PUBLISH,
+  'PROJECT',
+  null,
+  workflow.value?.projectCode,
+))
 
 onMounted(async () => {
   await Promise.all([loadWorkflow(), loadVersions()])
@@ -169,6 +192,7 @@ async function loadVersions() {
 }
 
 async function validateRelease() {
+  if (!canWriteWorkflow.value) return
   validating.value = true
   try {
     const { data } = await validateWorkflowVersion(workflowId)
@@ -180,6 +204,7 @@ async function validateRelease() {
 }
 
 async function publishVersion() {
+  if (!canPublishWorkflow.value) return
   if (!publishForm.version.trim()) {
     ElMessage.warning('请填写版本号')
     return
@@ -202,6 +227,7 @@ async function publishVersion() {
 }
 
 async function rollback(row: WorkflowVersion) {
+  if (!canPublishWorkflow.value) return
   await ElMessageBox.confirm(`确认回滚到 ${row.version}？`, '回滚 Workflow', {
     type: 'warning',
   })

@@ -36,24 +36,6 @@
     </section>
 
     <el-card shadow="never" class="filter-card">
-      <FilterBar
-        class="trace-lookup-bar"
-        density="compact"
-        :show-reset="false"
-        query-label="打开追踪记录"
-        @query="openTrace"
-      >
-        <el-form-item label="追踪 ID">
-          <el-input
-            v-model="traceLookupId"
-            class="trace-lookup-input"
-            clearable
-            :prefix-icon="Search"
-            placeholder="输入完整追踪 ID，直接查看运行详情"
-          />
-        </el-form-item>
-      </FilterBar>
-
       <div class="section-heading">
         <h2>筛选运行记录</h2>
         <span class="section-count">当前匹配 {{ filteredRuns.length }} 条</span>
@@ -97,6 +79,7 @@
         >
           <el-option label="智能体" value="AGENT" />
           <el-option label="工作流" value="WORKFLOW" />
+          <el-option label="MCP 工具调用" value="MCP" />
         </el-select>
         <el-select
           v-model="draftFilters.entryType"
@@ -403,7 +386,7 @@
                     详情
                   </el-button>
                   <el-button
-                    v-if="row.runType === 'WORKFLOW' && row.workflowId"
+                    v-if="row.runType === 'WORKFLOW' && row.workflowId && canOpenWorkflowStudio(row)"
                     link
                     type="primary"
                     size="small"
@@ -449,39 +432,56 @@ import type {
   RunOpsQueryParams,
   RunStatus,
   RunSummary,
+  RunType,
   VersionComparison,
 } from '@/types/runops'
-import FilterBar from '@/components/common/FilterBar.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
 import { useProjectStore } from '@/store/project'
+import {
+  hasPlatformGlobalPermissionGrant,
+  hasPlatformResourcePermission,
+  platformProjectPermissionScopes,
+  PLATFORM_PERMISSION_RUNOPS_READ,
+  PLATFORM_PERMISSION_WORKFLOW_WRITE,
+} from '@/auth/platformAccess'
+import { platformSessionUser } from '@/auth/platformSession'
 
 const router = useRouter()
 const route = useRoute()
 const projectStore = useProjectStore()
+
+function canUseRunOpsRead(projectCode?: string | null) {
+  return hasPlatformResourcePermission(
+    platformSessionUser.value?.permissionGrants,
+    PLATFORM_PERMISSION_RUNOPS_READ,
+    'PROJECT',
+    null,
+    projectCode,
+  )
+}
+
+const canReadAllRunOps = computed(() => hasPlatformGlobalPermissionGrant(
+  platformSessionUser.value?.permissionGrants,
+  PLATFORM_PERMISSION_RUNOPS_READ,
+))
+const readableRunOpsProjects = computed(() => platformProjectPermissionScopes(
+  platformSessionUser.value?.permissionGrants,
+  PLATFORM_PERMISSION_RUNOPS_READ,
+))
 const loading = ref(false)
 const diagnosticsLoading = ref(false)
-const traceLookupId = ref('')
 const showMoreFilters = ref(false)
 const runs = ref<RunSummary[]>([])
 const currentPage = ref(1)
 const pageSize = ref(10)
-const entryTypes: RunEntryType[] = ['DEBUG', 'EMBED', 'GATEWAY', 'EVAL', 'REPLAY', 'API']
+const entryTypes: RunEntryType[] = ['DEBUG', 'EMBED', 'GATEWAY', 'EVAL', 'REPLAY', 'API', 'AUTOMATION', 'MCP']
 const diagnostics = ref<RunDiagnostics>({ failureClusters: [], versionComparisons: [] })
-
-function openTrace() {
-  const traceId = traceLookupId.value.trim()
-  if (!traceId) {
-    ElMessage.warning('请输入追踪 ID')
-    return
-  }
-  router.push({ name: 'RunOpsDetail', params: { traceId } })
-}
 
 type FilterState = {
   projectCode: string
   status: '' | RunStatus
-  runType: '' | 'AGENT' | 'WORKFLOW'
+  runType: '' | RunType
   entryType: '' | RunEntryType
   agentId: string
   userId: string
@@ -491,7 +491,10 @@ type FilterState = {
 
 function initialProjectCode() {
   const routeCode = typeof route.query.projectCode === 'string' ? route.query.projectCode.trim() : ''
-  return routeCode || projectStore.currentProjectCode || ''
+  if (routeCode && canUseRunOpsRead(routeCode)) return routeCode
+  const currentProjectCode = projectStore.currentProjectCode || ''
+  if (currentProjectCode && canUseRunOpsRead(currentProjectCode)) return currentProjectCode
+  return canReadAllRunOps.value ? '' : readableRunOpsProjects.value[0] || ''
 }
 
 const draftFilters = reactive<FilterState>({
@@ -565,6 +568,10 @@ const kpis = computed(() => {
 })
 
 async function loadRuns() {
+  if (!canUseRunOpsRead(requestParams.value.projectCode || null)) {
+    runs.value = []
+    return
+  }
   loading.value = true
   try {
     const { data } = await getRecentRunOps(requestParams.value)
@@ -577,6 +584,10 @@ async function loadRuns() {
 }
 
 async function loadDiagnostics() {
+  if (!canUseRunOpsRead(requestParams.value.projectCode || null)) {
+    diagnostics.value = { failureClusters: [], versionComparisons: [] }
+    return
+  }
   diagnosticsLoading.value = true
   try {
     const { data } = await getRunOpsDiagnostics(requestParams.value)
@@ -593,6 +604,11 @@ async function refreshAll() {
 }
 
 function applyFilters() {
+  const requestedProjectCode = draftFilters.projectCode.trim()
+  if (!canUseRunOpsRead(requestedProjectCode || null)) {
+    ElMessage.warning('当前账号没有该项目的 RunOps 查看权限')
+    return
+  }
   Object.assign(appliedFilters, {
     ...draftFilters,
     projectCode: draftFilters.projectCode.trim(),
@@ -621,18 +637,30 @@ function resetFilters() {
 }
 
 function runObjectLabel(run: RunSummary) {
-  return run.runType === 'AGENT'
-    ? run.agentName || run.agentKeySlug || run.agentId || '-'
-    : run.workflowName || run.workflowKeySlug || run.workflowId || '-'
+  if (run.runType === 'AGENT') return run.agentName || run.agentKeySlug || run.agentId || '-'
+  if (run.runType === 'WORKFLOW') return run.workflowName || run.workflowKeySlug || run.workflowId || '-'
+  return run.workflowName || run.workflowKeySlug || run.workflowId
+    || (run.runtimeType === 'CAPABILITY' ? 'MCP Capability 调用' : 'MCP 工具调用')
+}
+
+function canOpenWorkflowStudio(run: RunSummary) {
+  return hasPlatformResourcePermission(
+    platformSessionUser.value?.permissionGrants,
+    PLATFORM_PERMISSION_WORKFLOW_WRITE,
+    'PROJECT',
+    null,
+    run.projectCode,
+  )
 }
 
 function runObjectId(run: RunSummary) {
-  return run.runType === 'AGENT'
-    ? run.agentKeySlug || run.agentId || '-'
-    : run.workflowKeySlug || run.workflowId || '-'
+  if (run.runType === 'AGENT') return run.agentKeySlug || run.agentId || '-'
+  if (run.runType === 'WORKFLOW') return run.workflowKeySlug || run.workflowId || '-'
+  return run.workflowKeySlug || run.workflowId || run.runtimeType || '-'
 }
 
 function runVersionLabel(run: RunSummary) {
+  if (run.runType === 'MCP' && !run.workflowVersion && run.workflowVersionId == null) return '-'
   const version = run.runType === 'AGENT' ? run.agentConfigVersion : run.workflowVersion
   const versionId = run.runType === 'AGENT' ? run.agentConfigVersionId : run.workflowVersionId
   if (!version && versionId == null) return '-'
@@ -643,6 +671,7 @@ function runTypeLabel(runType?: string) {
   const labels: Record<string, string> = {
     AGENT: '智能体',
     WORKFLOW: '工作流',
+    MCP: 'MCP 工具调用',
   }
   return runType ? labels[runType] || runType : '-'
 }
@@ -677,7 +706,9 @@ function entryTypeLabel(entryType?: RunEntryType) {
     GATEWAY: '网关',
     EVAL: '评测',
     REPLAY: '重放',
+    AUTOMATION: '自动化',
     API: 'API',
+    MCP: 'MCP',
   }
   return entryType ? labels[entryType] : '-'
 }
@@ -755,7 +786,9 @@ async function copyTraceId(traceId?: string) {
 onMounted(async () => {
   if (!projectStore.projects.length) {
     await projectStore.fetchProjects()
-    if (!draftFilters.projectCode && projectStore.currentProjectCode) {
+    if (!draftFilters.projectCode
+      && projectStore.currentProjectCode
+      && canUseRunOpsRead(projectStore.currentProjectCode)) {
       draftFilters.projectCode = projectStore.currentProjectCode
       appliedFilters.projectCode = projectStore.currentProjectCode
     }
@@ -844,24 +877,6 @@ watch([filteredRuns, pageSize], () => {
 
 .filter-card :deep(.el-card__body) {
   padding: 14px 16px;
-}
-
-.trace-lookup-bar {
-  margin: -2px -2px 14px;
-  padding: 12px;
-}
-
-.trace-lookup-bar :deep(.filter-bar__fields) {
-  flex-wrap: nowrap;
-}
-
-.trace-lookup-bar :deep(.el-form-item) {
-  flex: 1;
-  margin: 0;
-}
-
-.trace-lookup-input {
-  width: min(520px, 100%);
 }
 
 .section-heading {

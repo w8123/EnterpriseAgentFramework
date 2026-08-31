@@ -18,7 +18,6 @@ import com.enterprise.ai.control.pageworkbench.persistence.PageResourceEntity;
 import com.enterprise.ai.control.pageworkbench.persistence.PageResourceMapper;
 import com.enterprise.ai.control.pageworkbench.persistence.ProjectPageEntity;
 import com.enterprise.ai.control.pageworkbench.persistence.ProjectPageMapper;
-import com.enterprise.ai.control.client.capability.CapabilityProjectOnboardingClient;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -47,7 +46,7 @@ public class PageCatalogApplicationService {
     private final PageResourceMapper resourceMapper;
     private final PageActionMapper actionMapper;
     private final ObjectMapper objectMapper;
-    private final CapabilityProjectOnboardingClient capabilityClient;
+    private final PageWorkbenchProjectPort capabilityClient;
 
     public List<PageView> listPages(String projectCode, boolean includeArchived) {
         var query = Wrappers.<ProjectPageEntity>lambdaQuery()

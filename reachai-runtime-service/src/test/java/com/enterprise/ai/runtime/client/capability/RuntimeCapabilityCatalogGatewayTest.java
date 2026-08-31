@@ -1,8 +1,13 @@
 package com.enterprise.ai.runtime.client.capability;
 
+import com.enterprise.ai.common.capability.CapabilityInvocationFailureCategory;
+import com.enterprise.ai.common.capability.CapabilityInvocationRequest;
+import com.enterprise.ai.common.capability.CapabilityInvocationResponse;
+import com.enterprise.ai.common.capability.CapabilityInvocationStatus;
 import com.enterprise.ai.common.internalauth.InternalServiceAuthHeaders;
 import com.enterprise.ai.common.internalauth.InternalServiceHmac;
 import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
+import com.enterprise.ai.runtime.eval.RuntimeEvalExecutionContext;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -32,8 +37,8 @@ class RuntimeCapabilityCatalogGatewayTest {
     @SuppressWarnings({"rawtypes", "unchecked"})
     void trustedMarkerOverwritesCallerIdentityAndSignsExactSerializedBytes() throws Exception {
         RuntimeCapabilityCatalogFeignClient transport = mock(RuntimeCapabilityCatalogFeignClient.class);
-        when(transport.executeTool(anyString(), anyMap(), any(byte[].class)))
-                .thenReturn(Map.of("success", true));
+        when(transport.invokeCapability(anyMap(), any(byte[].class)))
+                .thenAnswer(invocation -> successResponse(invocation.getArgument(1)));
         RuntimeCapabilityCatalogGateway gateway = new RuntimeCapabilityCatalogGateway(
                 transport, new RuntimeCapabilityInternalAuthSigner(SECRET), objectMapper);
 
@@ -53,9 +58,7 @@ class RuntimeCapabilityCatalogGatewayTest {
 
         ArgumentCaptor<Map> headerCaptor = ArgumentCaptor.forClass(Map.class);
         ArgumentCaptor<byte[]> bodyCaptor = ArgumentCaptor.forClass(byte[].class);
-        verify(transport).executeTool(
-                org.mockito.ArgumentMatchers.eq("bzjs20:team.memory.resolve"),
-                headerCaptor.capture(), bodyCaptor.capture());
+        verify(transport).invokeCapability(headerCaptor.capture(), bodyCaptor.capture());
 
         Map<String, String> headers = (Map<String, String>) headerCaptor.getValue();
         byte[] body = bodyCaptor.getValue();
@@ -80,8 +83,8 @@ class RuntimeCapabilityCatalogGatewayTest {
     @SuppressWarnings({"rawtypes", "unchecked"})
     void publicMapMarkerCannotCreateTrustAndAllIdentityFieldsAreScrubbed() throws Exception {
         RuntimeCapabilityCatalogFeignClient transport = mock(RuntimeCapabilityCatalogFeignClient.class);
-        when(transport.executeTool(anyString(), anyMap(), any(byte[].class)))
-                .thenReturn(Map.of("success", true));
+        when(transport.invokeCapability(anyMap(), any(byte[].class)))
+                .thenAnswer(invocation -> successResponse(invocation.getArgument(1)));
         RuntimeCapabilityCatalogGateway gateway = new RuntimeCapabilityCatalogGateway(
                 transport, new RuntimeCapabilityInternalAuthSigner(SECRET), objectMapper);
 
@@ -92,12 +95,16 @@ class RuntimeCapabilityCatalogGatewayTest {
                 "sessionId", "public-session")));
         request.put(RuntimeCapabilityCatalogClient.TRUSTED_IDENTITY_ATTRIBUTE, Map.of(
                 "source", "AGENT", "userId", "forged-user", "userTrusted", true));
+        request.put(RuntimeCapabilityCatalogClient.TRUSTED_EVAL_CONTEXT_ATTRIBUTE,
+                Map.of("mode", "READ_ONLY_EXECUTION"));
+        request.put(RuntimeCapabilityCatalogGateway.SIGNED_EVAL_POLICY_FIELD,
+                Map.of("mode", "READ_ONLY_EXECUTION"));
 
         gateway.executeTool("bzjs20:team.memory.resolve", request);
 
         ArgumentCaptor<Map> headerCaptor = ArgumentCaptor.forClass(Map.class);
         ArgumentCaptor<byte[]> bodyCaptor = ArgumentCaptor.forClass(byte[].class);
-        verify(transport).executeTool(anyString(), headerCaptor.capture(), bodyCaptor.capture());
+        verify(transport).invokeCapability(headerCaptor.capture(), bodyCaptor.capture());
         Map<String, String> headers = (Map<String, String>) headerCaptor.getValue();
         Map<String, Object> outbound = objectMapper.readValue(
                 bodyCaptor.getValue(), new TypeReference<Map<String, Object>>() { });
@@ -107,6 +114,8 @@ class RuntimeCapabilityCatalogGatewayTest {
         assertFalse(outboundContext.containsKey("tenantId"));
         assertFalse(outboundContext.containsKey("externalUserId"));
         assertFalse(outbound.containsKey(RuntimeCapabilityCatalogClient.TRUSTED_IDENTITY_ATTRIBUTE));
+        assertFalse(outbound.containsKey(RuntimeCapabilityCatalogClient.TRUSTED_EVAL_CONTEXT_ATTRIBUTE));
+        assertFalse(outbound.containsKey(RuntimeCapabilityCatalogGateway.SIGNED_EVAL_POLICY_FIELD));
         assertEquals(InternalServiceAuthHeaders.IDENTITY_SOURCE_RUNTIME_UNTRUSTED,
                 headers.get(InternalServiceAuthHeaders.IDENTITY_SOURCE));
         assertEquals("", headers.get(InternalServiceAuthHeaders.IDENTITY_TENANT_ID));
@@ -115,10 +124,42 @@ class RuntimeCapabilityCatalogGatewayTest {
     }
 
     @Test
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    void trustedEvalMarkerReplacesForgedPolicyAndIsCoveredByTheExactBodySignature() throws Exception {
+        RuntimeCapabilityCatalogFeignClient transport = mock(RuntimeCapabilityCatalogFeignClient.class);
+        when(transport.invokeCapability(anyMap(), any(byte[].class)))
+                .thenAnswer(invocation -> successResponse(invocation.getArgument(1)));
+        RuntimeCapabilityCatalogGateway gateway = new RuntimeCapabilityCatalogGateway(
+                transport, new RuntimeCapabilityInternalAuthSigner(SECRET), objectMapper);
+        Map<String, Object> request = new LinkedHashMap<>();
+        request.put(RuntimeCapabilityCatalogGateway.SIGNED_EVAL_POLICY_FIELD,
+                Map.of("mode", "NONE", "sideEffectPolicy", "ALLOW_ALL"));
+        request.put(RuntimeCapabilityCatalogClient.TRUSTED_EVAL_CONTEXT_ATTRIBUTE,
+                RuntimeEvalExecutionContext.readOnly("exp-1", "item-7", "sha256:abc"));
+
+        gateway.executeTool("orders:query", request);
+
+        ArgumentCaptor<Map> headerCaptor = ArgumentCaptor.forClass(Map.class);
+        ArgumentCaptor<byte[]> bodyCaptor = ArgumentCaptor.forClass(byte[].class);
+        verify(transport).invokeCapability(headerCaptor.capture(), bodyCaptor.capture());
+        Map<String, Object> outbound = objectMapper.readValue(
+                bodyCaptor.getValue(), new TypeReference<Map<String, Object>>() { });
+        Map<String, Object> policy = (Map<String, Object>) outbound.get(
+                RuntimeCapabilityCatalogGateway.SIGNED_EVAL_POLICY_FIELD);
+        assertFalse(outbound.containsKey(RuntimeCapabilityCatalogClient.TRUSTED_EVAL_CONTEXT_ATTRIBUTE));
+        assertEquals("READ_ONLY_EXECUTION", policy.get("mode"));
+        assertEquals("READ_ONLY_ONLY", policy.get("sideEffectPolicy"));
+        assertEquals("exp-1", policy.get("experimentId"));
+        assertEquals("item-7", policy.get("itemId"));
+        assertTrue(signatureValid((Map<String, String>) headerCaptor.getValue(),
+                bodyCaptor.getValue(), "orders:query"));
+    }
+
+    @Test
     void downstreamTransportFailureIsNotMisclassifiedAsSerializationFailure() {
         RuntimeCapabilityCatalogFeignClient transport = mock(RuntimeCapabilityCatalogFeignClient.class);
         RuntimeException downstream = new RuntimeException("downstream 404");
-        when(transport.executeTool(anyString(), anyMap(), any(byte[].class))).thenThrow(downstream);
+        when(transport.invokeCapability(anyMap(), any(byte[].class))).thenThrow(downstream);
         RuntimeCapabilityCatalogGateway gateway = new RuntimeCapabilityCatalogGateway(
                 transport, new RuntimeCapabilityInternalAuthSigner(SECRET), objectMapper);
 
@@ -128,11 +169,41 @@ class RuntimeCapabilityCatalogGatewayTest {
         assertSame(downstream, thrown);
     }
 
+    @Test
+    void rejectsMismatchedInvocationResponse() {
+        RuntimeCapabilityCatalogFeignClient transport = mock(RuntimeCapabilityCatalogFeignClient.class);
+        when(transport.invokeCapability(anyMap(), any(byte[].class)))
+                .thenReturn(new CapabilityInvocationResponse(
+                        CapabilityInvocationRequest.CONTRACT_VERSION,
+                        "different-invocation",
+                        "orders:query",
+                        "query",
+                        "Query",
+                        CapabilityInvocationStatus.SUCCEEDED,
+                        true,
+                        Map.of(),
+                        null,
+                        null,
+                        CapabilityInvocationFailureCategory.NONE,
+                        false,
+                        1L,
+                        1,
+                        null,
+                        Map.of()));
+        RuntimeCapabilityCatalogGateway gateway = new RuntimeCapabilityCatalogGateway(
+                transport, new RuntimeCapabilityInternalAuthSigner(SECRET), objectMapper);
+
+        IllegalStateException thrown = assertThrows(IllegalStateException.class,
+                () -> gateway.executeTool("orders:query", Map.of()));
+
+        assertEquals("Capability Tool response correlation is invalid", thrown.getMessage());
+    }
+
     private boolean signatureValid(Map<String, String> headers, byte[] body, String qualifiedName) {
         String digest = InternalServiceHmac.bodySha256Hex(body);
         String canonical = InternalServiceHmac.canonical(
                 "POST",
-                RuntimeCapabilityInternalAuthSigner.toolExecutePath(qualifiedName),
+                RuntimeCapabilityInternalAuthSigner.CAPABILITY_INVOCATION_PATH,
                 headers.get(InternalServiceAuthHeaders.CALLER),
                 headers.get(InternalServiceAuthHeaders.IDENTITY_SOURCE),
                 headers.get(InternalServiceAuthHeaders.IDENTITY_TENANT_ID),
@@ -143,5 +214,27 @@ class RuntimeCapabilityCatalogGatewayTest {
         return digest.equals(headers.get(InternalServiceAuthHeaders.BODY_SHA256))
                 && InternalServiceHmac.verifyConstantTime(
                 SECRET, canonical, headers.get(InternalServiceAuthHeaders.SIGNATURE));
+    }
+
+    private CapabilityInvocationResponse successResponse(byte[] requestBody) throws Exception {
+        Map<String, Object> request = objectMapper.readValue(
+                requestBody, new TypeReference<Map<String, Object>>() { });
+        return new CapabilityInvocationResponse(
+                CapabilityInvocationRequest.CONTRACT_VERSION,
+                String.valueOf(request.get("invocationId")),
+                String.valueOf(request.get("qualifiedName")),
+                "capability",
+                "Capability",
+                CapabilityInvocationStatus.SUCCEEDED,
+                true,
+                Map.of("ok", true),
+                null,
+                null,
+                CapabilityInvocationFailureCategory.NONE,
+                false,
+                1L,
+                1,
+                null,
+                Map.of("statusCode", 200));
     }
 }

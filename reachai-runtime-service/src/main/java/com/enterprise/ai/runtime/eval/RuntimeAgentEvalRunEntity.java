@@ -26,6 +26,14 @@ public class RuntimeAgentEvalRunEntity {
 
     private String status;
 
+    private Long targetSnapshotId;
+
+    private Long targetConfigVersionId;
+
+    private String targetConfigStatus;
+
+    private String targetFingerprint;
+
     private String canvasSnapshotJson;
 
     private String graphSpecJson;

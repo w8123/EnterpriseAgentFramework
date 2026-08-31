@@ -14,7 +14,7 @@ public class PlatformEmbedTokenProperties {
 
     private String issuer = "reachai";
     private String audience = "reachai-chat-embed";
-    private String secret = "dev-only-change-me-reachai-embed-token-secret";
+    private String secret = "";
     private String activeKeyId = "default";
     private Map<String, String> secrets = new LinkedHashMap<>();
     private int defaultTokenTtlSeconds = 600;

@@ -53,7 +53,7 @@ const RULES = [
   },
   {
     id: 'retired-public-route',
-    pattern: /\/api\/(?:skill-mining|capability-mining|compositions)(?:\/|["'`]|$)|\/api\/skills(?:\/|["'`]|$)|\/api\/market\/skills\/submit(?:\/|["'`]|$)/i,
+    pattern: /\/api\/(?:skill-mining|capability-mining|compositions)(?:\/|["'`]|$)|\/api\/market\/skills\/submit(?:\/|["'`]|$)/i,
     message: 'retired Skill catalog/mining public route is present',
   },
 ]

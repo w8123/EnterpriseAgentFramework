@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.enterprise.ai.runtime.api.SseHeartbeatSupport;
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionCancellation;
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionEventSink;
+import com.enterprise.ai.runtime.execution.event.RuntimeExecutionEvent;
 import com.enterprise.ai.runtime.execution.WorkflowExecutionStatus;
 import com.enterprise.ai.runtime.execution.interaction.WorkflowInteractionCodes;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDebugService;
@@ -480,6 +481,13 @@ public class RuntimeExecutableDebugSessionService {
     /** 包可见：单测直接断言安全最终输出的 node.output.delta + message.delta 各一次。 */
     RuntimeGraphSpecExecutionEventSink liveExecutionSink(DebugSessionSseSink sink) {
         return new RuntimeGraphSpecExecutionEventSink() {
+            @Override
+            public void onExecutionEvent(RuntimeExecutionEvent event) {
+                // Additive V1 channel for new consumers. Legacy node.* callbacks stay unchanged
+                // during rolling upgrades and public message deltas are never inferred here.
+                sendQuietly(sink, "runtime.execution.v1", event);
+            }
+
             @Override
             public void onNodeStarted(String nodeId, String nodeType, String nodeName, Map<String, Object> safePayload) {
                 sendQuietly(sink, "node.started", safePayload);

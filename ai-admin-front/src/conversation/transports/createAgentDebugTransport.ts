@@ -1,4 +1,4 @@
-import { getPlatformToken } from '@/utils/platformAuth'
+import { platformCsrfHeaders } from '@/utils/platformAuth'
 import type { ConversationEventEnvelope } from '../core/conversationEvents'
 import { createEvent } from '../core/conversationEvents'
 import { adaptAgentStreamEvent, expandAgentAdapted } from '../core/adapters/adaptAgentStreamEvent'
@@ -21,12 +21,10 @@ export function createAgentDebugTransport(options: AgentDebugTransportOptions): 
 
   async function* streamExecute(body: Record<string, unknown>, signal?: AbortSignal) {
     if (disposed) return
-    const token = getPlatformToken()
-    const headers: Record<string, string> = {
+    const headers = platformCsrfHeaders({
       'Content-Type': 'application/json',
       Accept: 'text/event-stream',
-    }
-    if (token) headers.Authorization = `Bearer ${token}`
+    })
 
     const localAbort = new AbortController()
     activeAbort = localAbort
@@ -38,6 +36,7 @@ export function createAgentDebugTransport(options: AgentDebugTransportOptions): 
         method: 'POST',
         headers,
         body: JSON.stringify(body),
+        credentials: 'same-origin',
         signal: localAbort.signal,
       })
       if (!response.ok || !response.body) {
@@ -128,12 +127,10 @@ export function createAgentDebugTransport(options: AgentDebugTransportOptions): 
     async clearSession() {
       const sessionId = options.getSessionId()
       if (!sessionId) return
-      const token = getPlatformToken()
-      const headers: Record<string, string> = {}
-      if (token) headers.Authorization = `Bearer ${token}`
       await fetchImpl(`/api/runtime/agents/sessions/${encodeURIComponent(sessionId)}`, {
         method: 'DELETE',
-        headers,
+        headers: platformCsrfHeaders(),
+        credentials: 'same-origin',
       })
       options.setSessionId(undefined)
     },

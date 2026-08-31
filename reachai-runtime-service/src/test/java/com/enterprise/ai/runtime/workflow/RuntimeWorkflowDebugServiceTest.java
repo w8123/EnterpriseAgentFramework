@@ -114,6 +114,34 @@ class RuntimeWorkflowDebugServiceTest {
     }
 
     @Test
+    void evalDebugOptionCannotExecutePageAction() {
+        RuntimeWorkflowDebugService.DebugRunRequest request =
+                new RuntimeWorkflowDebugService.DebugRunRequest(
+                        null, "wf-page", "Page action", "GENERAL", "orders", "GRAPH_SPEC",
+                        null,
+                        """
+                                {
+                                  "schemaVersion":2,
+                                  "entryNodeId":"delete",
+                                  "exitNodeIds":["delete"],
+                                  "nodes":[{"id":"delete","type":"PAGE_ACTION","config":{
+                                    "projectCode":"orders","pageKey":"orders.list","actionKey":"deleteOrder"
+                                  }}],
+                                  "edges":[]
+                                }
+                                """,
+                        null, "删除订单", Map.of(),
+                        Map.of("runId", "eval-debug-1", "evalMode", true,
+                                "sandboxSideEffects", true));
+
+        RuntimeWorkflowDebugService.DebugRunResult result = service.debugRun(request);
+
+        assertFalse(result.success());
+        assertEquals("FAILED", result.status());
+        assertEquals("EVAL_SIDE_EFFECT_BLOCKED", result.errorCode());
+    }
+
+    @Test
     void debugNodeExecutesFromRequestedNodeAndCanLoadGraphSpecByWorkflowId() {
         RuntimeWorkflowDefinitionEntity workflow = new RuntimeWorkflowDefinitionEntity();
         workflow.setId("wf-1");

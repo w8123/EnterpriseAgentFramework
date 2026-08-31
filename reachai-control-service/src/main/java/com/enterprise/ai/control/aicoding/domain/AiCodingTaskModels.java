@@ -28,7 +28,23 @@ public final class AiCodingTaskModels {
             String title,
             String objective,
             String createdBy,
-            List<TaskTargetCommand> targets) {
+            List<TaskTargetCommand> targets,
+            String executionMode,
+            String sandboxProfile) {
+
+        /** Keeps existing in-process producers source compatible. */
+        public CreateTaskCommand(
+                Long projectId,
+                String projectCode,
+                String taskKind,
+                String executorProvider,
+                String title,
+                String objective,
+                String createdBy,
+                List<TaskTargetCommand> targets) {
+            this(projectId, projectCode, taskKind, executorProvider, title,
+                    objective, createdBy, targets, null, null);
+        }
     }
 
     public record TaskTargetView(
@@ -82,6 +98,11 @@ public final class AiCodingTaskModels {
             String taskKind,
             String protocolVersion,
             String executorProvider,
+            String executionMode,
+            String managedExecutionId,
+            String sandboxProfile,
+            String managedExecutionStatus,
+            String managedPendingInteractionId,
             String title,
             String objective,
             String accessMode,
@@ -98,6 +119,40 @@ public final class AiCodingTaskModels {
             ConnectionView connection,
             List<TaskTargetView> targets,
             List<QuestionView> openQuestions) {
+
+        /** Source-compatible constructor for existing external-client callers. */
+        public TaskView(
+                String taskId,
+                Long projectId,
+                String projectCode,
+                String capabilityKey,
+                String taskKind,
+                String protocolVersion,
+                String executorProvider,
+                String title,
+                String objective,
+                String accessMode,
+                String executionStatus,
+                String resultContractKey,
+                String resultContractVersion,
+                String lastMessage,
+                String createdBy,
+                LocalDateTime startedAt,
+                LocalDateTime resultSubmittedAt,
+                LocalDateTime completedAt,
+                LocalDateTime createdAt,
+                LocalDateTime updatedAt,
+                ConnectionView connection,
+                List<TaskTargetView> targets,
+                List<QuestionView> openQuestions) {
+            this(taskId, projectId, projectCode, capabilityKey, taskKind,
+                    protocolVersion, executorProvider, "EXTERNAL_CLIENT", null,
+                    null, null, null, title, objective, accessMode,
+                    executionStatus, resultContractKey, resultContractVersion,
+                    lastMessage, createdBy, startedAt, resultSubmittedAt,
+                    completedAt, createdAt, updatedAt, connection, targets,
+                    openQuestions);
+        }
     }
 
     public record TaskEventView(

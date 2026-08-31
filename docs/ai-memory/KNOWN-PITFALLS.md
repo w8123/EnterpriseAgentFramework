@@ -27,9 +27,9 @@
 - Entity `@TableName` 和字段。
 - 索引和唯一约束。
 
-## EmbedTokenService Startup Failure
+## Embed Token 启动失败
 
-如果后端启动失败并指向 `EmbedTokenService` / `EmbedChatController`，不要凭旧记忆假设已经修好。必须检查当前源文件和实际启动 stack trace。
+如果 Control 启动失败并指向 `PlatformEmbedTokenService` / `PlatformEmbedPublicController`，不要凭旧记忆假设已经修好。必须检查当前源文件和实际启动 stack trace。若运行日志仍出现已退役的 `EmbedTokenService` / `EmbedChatController`，先核对监听进程是否加载了旧 JAR。
 
 过去出现过 `No default constructor found` 签名，也出现过修复中误用整文件写入导致文件被截断的风险。修复这类问题时优先用 patch 风格小改，并在改后重新启动或跑目标测试。
 
@@ -78,7 +78,7 @@ Get-Content -Encoding UTF8 path\to\file.md
 
 处理顺序：
 
-1. Agent 身份/策略/入口 → `runtime_agent` + `/api/agents` + `AgentController`。
+1. Agent 身份/策略/入口 → `runtime_agent` + `/api/agents` + `RuntimeAgentController`。
 2. GraphSpec / 画布 / 发布 → `runtime_workflow` + `/api/workflows` + `WorkflowStudio.vue`。
 3. Agent 执行配置 → `runtime_agent_config_version` + `/api/agents/{agentId}/config-versions`。
 4. Agent 可选 Workflow → `runtime_agent_workflow_tool`，随配置版本保存和发布。

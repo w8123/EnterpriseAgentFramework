@@ -69,6 +69,8 @@ public class CapabilityCompatibilityProxyController {
     @RequestMapping(path = {
             "/api/capabilities",
             "/api/capabilities/{*path}",
+            "/api/api-market",
+            "/api/api-market/{*path}",
             "/api/tools",
             "/api/tools/{*path}",
             "/api/api-graph",

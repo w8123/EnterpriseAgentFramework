@@ -43,6 +43,29 @@ class CapabilityToolExecutionServiceTest {
     }
 
     @Test
+    void forwardsInvocationControlsToTheOutboundTransport() {
+        ToolDefinitionMapper mapper = mock(ToolDefinitionMapper.class);
+        CapturingInvoker invoker = new CapturingInvoker(
+                Map.of("statusCode", 200, "body", Map.of("ok", true)));
+        CapabilityToolExecutionService service = new CapabilityToolExecutionService(mapper, invoker);
+        when(mapper.selectOne(any())).thenReturn(tool("orders:queryOrder", true));
+        Map<String, Object> traceContext = Map.of(
+                "traceparent", "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01");
+
+        service.execute("orders:queryOrder", Map.of(
+                "input", Map.of("orderNo", "A001"),
+                "invocationId", "inv-7",
+                "deadlineEpochMs", 123456789L,
+                "idempotencyKey", "wf:inv-7",
+                "traceContext", traceContext));
+
+        assertEquals("inv-7", invoker.invocation.metadata().get("invocationId"));
+        assertEquals(123456789L, invoker.invocation.metadata().get("deadlineEpochMs"));
+        assertEquals("wf:inv-7", invoker.invocation.metadata().get("idempotencyKey"));
+        assertEquals(traceContext, invoker.invocation.metadata().get("traceContext"));
+    }
+
+    @Test
     void marksNon200BusinessResponseAsCapabilityFailure() {
         ToolDefinitionMapper mapper = mock(ToolDefinitionMapper.class);
         CapturingInvoker invoker = new CapturingInvoker(Map.of(
@@ -85,6 +108,47 @@ class CapabilityToolExecutionServiceTest {
                 () -> service.execute("orders:queryOrder", Map.of()));
 
         assertEquals("Tool definition is disabled: orders:queryOrder", ex.getMessage());
+    }
+
+    @Test
+    void signedEvalPolicyRejectsWriteOrUndeclaredCapabilityBeforeInvocation() {
+        ToolDefinitionMapper mapper = mock(ToolDefinitionMapper.class);
+        CapturingInvoker invoker = new CapturingInvoker(Map.of("statusCode", 200, "body", Map.of()));
+        CapabilityToolExecutionService service = new CapabilityToolExecutionService(mapper, invoker);
+        ToolDefinitionEntity tool = tool("orders:updateOrder", true);
+        tool.setSideEffect("WRITE");
+        when(mapper.selectOne(any())).thenReturn(tool);
+
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> service.execute("orders:updateOrder", Map.of(
+                        "input", Map.of("orderNo", "A001"),
+                        "evaluationPolicy", Map.of(
+                                "mode", "READ_ONLY_EXECUTION",
+                                "sideEffectPolicy", "READ_ONLY_ONLY"))));
+
+        assertTrue(ex.getMessage().startsWith("EVAL_SIDE_EFFECT_BLOCKED"));
+        assertNull(invoker.invocation);
+    }
+
+    @Test
+    void signedEvalPolicyAllowsExplicitReadOnlyCapability() {
+        ToolDefinitionMapper mapper = mock(ToolDefinitionMapper.class);
+        CapturingInvoker invoker = new CapturingInvoker(
+                Map.of("statusCode", 200, "body", Map.of("orderStatus", "PAID")));
+        CapabilityToolExecutionService service = new CapabilityToolExecutionService(mapper, invoker);
+        ToolDefinitionEntity tool = tool("orders:queryOrder", true);
+        tool.setSideEffect("READ_ONLY");
+        when(mapper.selectOne(any())).thenReturn(tool);
+
+        Map<String, Object> response = service.execute("orders:queryOrder", Map.of(
+                "input", Map.of("orderNo", "A001"),
+                "evaluationPolicy", Map.of(
+                        "mode", "READ_ONLY_EXECUTION",
+                        "sideEffectPolicy", "READ_ONLY_ONLY")));
+
+        assertEquals(true, response.get("success"));
+        assertEquals("orders:queryOrder", response.get("qualifiedName"));
+        assertEquals("POST", invoker.invocation.method());
     }
 
     @Test

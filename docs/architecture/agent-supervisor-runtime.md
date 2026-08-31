@@ -28,7 +28,7 @@ runtime_agent
 
 Agent 身份 API 与 Supervisor 配置 API 是两条独立写路径：`POST/PUT /api/agents` 只维护 `runtime_agent` 的稳定身份字段，不接收提示词、模型或扩展配置；这些运行设置只能通过配置草稿 API 写入。项目接入自动 provisioning 也必须先创建/复用 Agent，再单独创建并发布配置版本，禁止一次请求同时写两个聚合边界。
 
-配置版本生命周期为 `DRAFT -> ACTIVE -> ARCHIVED`。ACTIVE 和 ARCHIVED 都是不可变快照；`POST /api/agents/{agentId}/config-versions/{configVersionId}/copy-to-draft` 会把历史快照及其完整工具目录复制为新的单一 DRAFT，再由用户编辑和发布。
+配置版本生命周期为 `DRAFT -> ACTIVE -> ARCHIVED`。ACTIVE 和 ARCHIVED 都是不可变快照；`POST /api/agents/{agentId}/config-versions/{configVersionId}/copy-to-draft` 会把历史快照及其完整可调用 Workflow 列表复制为新的单一 DRAFT，再由用户编辑和发布。
 
 ## 产品与 API 语义
 
@@ -41,7 +41,7 @@ Agent 身份 API 与 Supervisor 配置 API 是两条独立写路径：`POST/PUT 
 ## 管理端交互
 
 - Agent 列表显示接入形态、Supervisor 配置状态/版本和已发布 Workflow 工具数，并提供编辑、调试、评测和 RunOps 操作。
-- Agent Supervisor 工作台分为“Agent 身份与接入”和“Supervisor 运行配置”；工具目录支持名称、风险、权限键、Schema 覆盖、启停和排序。
+- Agent Supervisor 工作台分为“Agent 身份与接入”和“Supervisor 运行配置”；可调用 Workflow 列表支持调用名称、风险、权限键、Schema 覆盖、启停和排序。底层继续使用 Workflow-as-Tool 契约。
 - 配置版本抽屉可查看 DRAFT/ACTIVE/ARCHIVED 历史并把不可变快照复制为草稿。
 - Agent 调试只有 Supervisor Agent 执行，不再提供 Lightweight Chat 或独立“流式对话”模式。调试请求统一走 `/api/runtime/agents/execute/stream`，实时呈现 `supervisor.step`，并在完成时保留完整结果、Trace、UI 请求和会话 ID；RunOps 单独呈现 PLAN、REPLAN、WORKFLOW_TOOL 和配置版本指标。
 - Agent Eval 通过 `RuntimeAgentExecutionService` 执行已发布配置，断言 zero/single/multi Workflow、有限重规划、页面动作、策略决策、UI 请求、Trace 和最终回答，不再评测一份脱离发布状态的 GraphSpec 副本。

@@ -16,7 +16,6 @@ const files = {
   pageWorkbench: 'src/views/registry/PageAssistantWizard.vue',
   agentList: 'src/views/agent/AgentList.vue',
   workflowList: 'src/views/workflow/WorkflowList.vue',
-  toolList: 'src/views/tool/ToolList.vue',
   toolRetrieval: 'src/views/tool/ToolRetrievalTest.vue',
   toolAcl: 'src/views/settings/ToolAclList.vue',
   knowledgeList: 'src/views/KnowledgeList.vue',
@@ -28,10 +27,7 @@ const files = {
   bizIndexDetail: 'src/views/BizIndexDetail.vue',
   modelInstances: 'src/views/model/ModelInstances.vue',
   modelPlayground: 'src/views/model/ModelPlayground.vue',
-  mcpVisibility: 'src/views/mcp/McpVisibilityBoard.vue',
-  mcpClients: 'src/views/mcp/McpClientList.vue',
-  mcpCalls: 'src/views/mcp/McpCallMonitor.vue',
-  mcpOnboarding: 'src/views/mcp/McpOnboarding.vue',
+  mcpHub: 'src/views/mcp-hub/McpHubLayout.vue',
   a2aEndpoints: 'src/views/a2a/A2aEndpointList.vue',
   a2aSessions: 'src/views/a2a/A2aSessionMonitor.vue',
   platformUsers: 'src/views/settings/PlatformUserSettings.vue',
@@ -293,7 +289,6 @@ function validate(sources, { validateAssets = true } = {}) {
     '.agent-page',
     '.agent-table .el-scrollbar__wrap',
   )
-  expectPageHeader(failures, sources.toolList, 'standard', 'tool', 'ToolList')
   expectPageHeader(failures, sources.toolRetrieval, 'standard', 'tool', 'ToolRetrievalTest', { enriched: true })
   expectPageHeader(failures, sources.toolAcl, 'standard', 'governance', 'ToolAclList', { enriched: true, primaryLast: true })
   expectPageHeader(failures, sources.knowledgeList, 'overview', 'knowledge', 'KnowledgeList', { enriched: true, primaryLast: true })
@@ -305,10 +300,7 @@ function validate(sources, { validateAssets = true } = {}) {
   expectPageHeader(failures, sources.bizIndexDetail, 'entity', 'knowledge', 'BizIndexDetail')
   expectPageHeader(failures, sources.modelInstances, 'overview', 'platform', 'ModelInstances', { enriched: true, primaryLast: true })
   expectPageHeader(failures, sources.modelPlayground, 'standard', 'platform', 'ModelPlayground', { compact: true })
-  expectPageHeader(failures, sources.mcpVisibility, 'standard', 'governance', 'McpVisibilityBoard', { enriched: true, noActionControls: true })
-  expectPageHeader(failures, sources.mcpClients, 'standard', 'governance', 'McpClientList', { enriched: true, primaryLast: true })
-  expectPageHeader(failures, sources.mcpCalls, 'standard', 'governance', 'McpCallMonitor', { enriched: true, noActionControls: true })
-  expectPageHeader(failures, sources.mcpOnboarding, 'workbench', 'platform', 'McpOnboarding', { enriched: true })
+  expectPageHeader(failures, sources.mcpHub, 'overview', 'platform', 'McpHubLayout', { enriched: true, noActionControls: true })
   expectPageHeader(failures, sources.a2aEndpoints, 'standard', 'platform', 'A2aEndpointList', { enriched: true, noActionControls: true, primaryLast: true })
   expectPageHeader(failures, sources.a2aSessions, 'standard', 'governance', 'A2aSessionMonitor', { enriched: true, noActionControls: true })
   expectPageHeader(failures, sources.platformUsers, 'standard', 'platform', 'PlatformUserSettings', { enriched: true })
@@ -326,7 +318,6 @@ function validate(sources, { validateAssets = true } = {}) {
   expectIncludes(failures, actionSlot(sources.domainList), '@click="openCreate"', 'DomainList create action')
   expectIncludes(failures, actionSlot(sources.contextGovernance), '@click="reloadAll"', 'ContextGovernance reload action')
   expectIncludes(failures, actionSlot(sources.runOpsList), '@click="refreshAll"', 'RunOpsList refresh action')
-  expectIncludes(failures, sources.runOpsList, '@query="openTrace"', 'RunOpsList trace lookup entry')
   for (const [fragment, label] of [
     ['<MetricStrip', 'metric strip'],
     ['<FilterBar', 'shared filter bar'],
@@ -381,17 +372,14 @@ if (process.argv.includes('--self-test')) {
       ['page-class-override', 'projectList', (value) => value.replace('<PageHeader', '<PageHeader class="rogue-header"'), 'must not override PageHeader'],
       ['tool-retrieval-compact', 'toolRetrieval', (value) => value.replace('title="Tool 检索测试"', 'title="Tool 检索测试"\n      compact'), 'ToolRetrievalTest PageHeader must not declare compact'],
       ['knowledge-wrong-variant', 'knowledgeList', (value) => value.replace('variant="overview"', 'variant="standard"'), 'KnowledgeList PageHeader is missing variant="overview"'],
-      ['mcp-wrong-domain', 'mcpVisibility', (value) => value.replace('domain="governance"', 'domain="platform"'), 'McpVisibilityBoard PageHeader is missing domain="governance"'],
+      ['mcp-wrong-domain', 'mcpHub', (value) => value.replace('domain="platform"', 'domain="governance"'), 'McpHubLayout PageHeader is missing domain="platform"'],
       ['legacy-page-header', 'a2aEndpoints', (value) => value.replace('<PageHeader', '<div class="page-header"></div>\n    <PageHeader'), 'A2aEndpointList must not retain a legacy page header'],
-      ['form-control-in-dock', 'mcpCalls', (value) => value.replace('<template #actions>', '<template #actions>\n        <el-select />'), 'McpCallMonitor action dock must not contain form controls'],
-      ['primary-action-order', 'mcpClients', (value) => value.replace('<template #actions>', '<template #actions>\n        <el-button type="primary">非法前置主操作</el-button>'), 'McpClientList primary action must be the last button'],
       ['knowledge-artwork-disabled', 'retrievalTest', (value) => value.replace('title="召回测试实验室"', 'title="召回测试实验室"\n      :artwork="false"'), 'RetrievalTest must not disable PageHeader artwork'],
       ['platform-users-domain', 'platformUsers', (value) => value.replace('domain="platform"', 'domain="governance"'), 'PlatformUserSettings PageHeader is missing domain="platform"'],
       ['context-wrong-variant', 'contextGovernance', (value) => value.replace('variant="workbench"', 'variant="standard"'), 'ContextGovernance PageHeader is missing variant="workbench"'],
       ['runops-control-in-dock', 'runOpsList', (value) => value.replace('<template #actions>', '<template #actions>\n        <el-input />'), 'RunOpsList action dock must not contain form controls'],
       ['auth-primary-order', 'authProviders', (value) => value.replace('<template #actions>', '<template #actions>\n        <el-button type="primary">非法前置主操作</el-button>'), 'AuthProviderSettings primary action must be the last button'],
       ['classifier-compact', 'domainClassifier', (value) => value.replace(' compact>', '>'), 'DomainClassifierTest PageHeader must declare compact'],
-      ['runops-trace-entry', 'runOpsList', (value) => value.replace('@query="openTrace"', ''), 'RunOpsList trace lookup entry is missing @query="openTrace"'],
       ['project-collapse-binding', 'projectList', (value) => value.replace(':collapsed="isProjectHeaderCollapsed"', ':collapsed="false"'), 'RegistryProjectList collapse region is missing <CollapsibleHeaderRegion :collapsed="isProjectHeaderCollapsed">'],
       ['workflow-page-collapse-binding', 'workflowList', (value) => value.replace(':collapsed="isWorkflowHeaderCollapsed"', ':collapsed="false"'), 'WorkflowList collapse region is missing <CollapsibleHeaderRegion :collapsed="isWorkflowHeaderCollapsed">'],
       ['agent-page-collapse-binding', 'agentList', (value) => value.replace(':collapsed="isAgentHeaderCollapsed"', ':collapsed="false"'), 'AgentList collapse region is missing <CollapsibleHeaderRegion :collapsed="isAgentHeaderCollapsed">'],

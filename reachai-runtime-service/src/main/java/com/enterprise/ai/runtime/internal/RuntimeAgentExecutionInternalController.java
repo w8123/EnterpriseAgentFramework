@@ -8,7 +8,7 @@ import com.enterprise.ai.runtime.execution.TrustedPersonalMemoryContext;
 import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
 import com.enterprise.ai.runtime.internalauth.VerifiedInternalServiceAuth;
 import com.enterprise.ai.runtime.memory.RuntimeSessionRetentionException;
-import com.enterprise.ai.runtime.supervisor.SupervisorRuntimeAdapter;
+import com.enterprise.ai.runtime.execution.SupervisorRuntimeAdapter;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -29,6 +29,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledFuture;
+
+import static com.enterprise.ai.common.internalauth.InternalServiceAuthHeaders.IDENTITY_SOURCE_A2A_REMOTE_AGENT;
 
 /**
  * HMAC-authenticated Control→Runtime Agent execute entry (sync + SSE).
@@ -286,6 +288,9 @@ public class RuntimeAgentExecutionInternalController {
             case "AGENT" -> StringUtils.hasText(userId)
                     ? WorkflowExecutionIdentity.fromAgent(tenantId, null, null, userId)
                     : WorkflowExecutionIdentity.fromAgent(tenantId, null, null, null);
+            case IDENTITY_SOURCE_A2A_REMOTE_AGENT -> StringUtils.hasText(userId)
+                    ? WorkflowExecutionIdentity.fromA2aRemoteAgent(tenantId, null, null, userId)
+                    : null;
             default -> null;
         };
     }

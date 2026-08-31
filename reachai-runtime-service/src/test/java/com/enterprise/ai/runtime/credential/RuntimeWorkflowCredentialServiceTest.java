@@ -18,20 +18,10 @@ import static org.mockito.Mockito.when;
 class RuntimeWorkflowCredentialServiceTest {
 
     @Test
-    void rejectsTheDevelopmentCredentialSecretWhenProductionGuardIsEnabled() {
-        assertThrows(IllegalStateException.class, () -> new RuntimeWorkflowCredentialCipher(
-                RuntimeWorkflowCredentialCipher.DEVELOPMENT_DEFAULT_SECRET,
-                true,
-                "staging"));
-        assertThrows(IllegalStateException.class, () -> new RuntimeWorkflowCredentialCipher(
-                RuntimeWorkflowCredentialCipher.DEVELOPMENT_DEFAULT_SECRET,
-                false,
-                "prod"));
-        assertThrows(IllegalStateException.class, () -> new RuntimeWorkflowCredentialCipher(
-                "  " + RuntimeWorkflowCredentialCipher.DEVELOPMENT_DEFAULT_SECRET,
-                true,
-                "staging"));
-        assertTrue(new RuntimeWorkflowCredentialCipher("unit-test-secret", true, "prod")
+    void rejectsMissingCredentialSecret() {
+        assertThrows(IllegalStateException.class, () -> new RuntimeWorkflowCredentialCipher(""));
+        assertThrows(IllegalStateException.class, () -> new RuntimeWorkflowCredentialCipher("   "));
+        assertTrue(new RuntimeWorkflowCredentialCipher("unit-test-secret")
                 .encrypt("safe").startsWith("aesgcm:"));
     }
 

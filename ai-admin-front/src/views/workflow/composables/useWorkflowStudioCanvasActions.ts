@@ -68,11 +68,16 @@ export function isDynamicCondition(condition?: string) {
   return !!normalized && normalized !== 'always' && normalized !== 'default'
 }
 
+function isRequiredKnowledgeNode(source?: CanvasNode | null) {
+  return source?.data.kind === 'knowledge'
+    && source.data.knowledgeConfig?.evidencePolicy === 'REQUIRED'
+}
+
 export function connectionCondition(source?: CanvasNode | null, sourceHandle?: string) {
   // FOREACH v1: LOOP has a single linear outgoing edge.
   if (source?.data.kind === 'loop') return 'always'
   if (!sourceHandle) return 'always'
-  if (['condition', 'classifier', 'approval'].includes(source?.data.kind || '')) {
+  if (['condition', 'classifier', 'approval'].includes(source?.data.kind || '') || isRequiredKnowledgeNode(source)) {
     const normalized = sourceHandle.trim()
     if (!normalized) return 'always'
     return normalized === 'else' || normalized === 'default' ? 'else' : `route:${normalized}`
@@ -96,6 +101,9 @@ function isKnownBareBranchRoute(source: CanvasNode | null | undefined, route: st
     const classes = source.data.classifierConfig?.classes || []
     const defaultRoute = (source.data.classifierConfig?.defaultRoute || 'else').trim()
     return classes.some((item) => item.id?.trim() === route) || defaultRoute === route
+  }
+  if (isRequiredKnowledgeNode(source)) {
+    return ['evidence', 'no_evidence'].includes(route)
   }
   return source.data.kind === 'approval' && ['approved', 'rejected', 'timeout'].includes(route)
 }
@@ -192,7 +200,13 @@ export function useWorkflowStudioCanvasActions({
     const normalized = raw.toLowerCase()
     const source = edge ? nodes.value.find((node) => node.id === edge.source) : null
     if (!raw || normalized === 'always' || normalized === 'default') {
-      return source?.data.kind === 'condition' || source?.data.kind === 'classifier' || source?.data.kind === 'approval' || source?.data.kind === 'loop' ? '默认' : ''
+      return source?.data.kind === 'condition'
+        || source?.data.kind === 'classifier'
+        || source?.data.kind === 'approval'
+        || source?.data.kind === 'loop'
+        || isRequiredKnowledgeNode(source)
+        ? '默认'
+        : ''
     }
     const labels: Record<string, string> = {
       success: '成功',
@@ -222,7 +236,10 @@ export function useWorkflowStudioCanvasActions({
     } else if (workflowExecutionPath.value.length && workflowExecutionSourceNodeIds.value.has(edge.source)) {
       classes.push('edge-route-miss')
     }
-    if ((source?.data.kind === 'condition' || source?.data.kind === 'classifier' || source?.data.kind === 'approval') && route) {
+    if ((source?.data.kind === 'condition'
+      || source?.data.kind === 'classifier'
+      || source?.data.kind === 'approval'
+      || isRequiredKnowledgeNode(source)) && route) {
       const expected = condition.toLowerCase().startsWith('route:')
         ? condition.slice('route:'.length).trim()
         : condition === 'else' || condition === 'default'

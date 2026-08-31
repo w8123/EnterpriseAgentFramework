@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { computed, ref } from 'vue'
 import type { WorkflowGraphNodeTypeDescriptor } from '@/types/agent'
 import type { CanvasNode } from '@/types/studio'
-import { useWorkflowStudioCanvasActions } from './useWorkflowStudioCanvasActions'
+import { connectionCondition, useWorkflowStudioCanvasActions } from './useWorkflowStudioCanvasActions'
 
 const elMessage = vi.hoisted(() => ({
   success: vi.fn(),
@@ -210,5 +210,26 @@ describe('useWorkflowStudioCanvasActions pasteCopiedNode guard', () => {
     expect(ctx.syncJsonFromCanvas).toHaveBeenCalledTimes(1)
     expect(ctx.nextTick).toHaveBeenCalledTimes(1)
     expect(ctx.fitView).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('knowledge evidence branch conditions', () => {
+  it('uses explicit evidence routes only for REQUIRED knowledge nodes', () => {
+    const knowledge = canvasNode('knowledge')
+    knowledge.data.knowledgeConfig = {
+      knowledgeBaseCodes: ['kb_demo'],
+      query: 'input',
+      topK: 5,
+      similarityThreshold: 0.5,
+      searchMode: 'hybrid',
+      rerankEnabled: true,
+      evidencePolicy: 'REQUIRED',
+    }
+
+    expect(connectionCondition(knowledge, 'evidence')).toBe('route:evidence')
+    expect(connectionCondition(knowledge, 'no_evidence')).toBe('route:no_evidence')
+
+    knowledge.data.knowledgeConfig.evidencePolicy = 'OPTIONAL'
+    expect(connectionCondition(knowledge, 'no_evidence')).toBe('always')
   })
 })

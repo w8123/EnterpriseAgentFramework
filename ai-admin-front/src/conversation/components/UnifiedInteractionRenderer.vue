@@ -39,6 +39,7 @@
           v-else-if="field.type === 'number' || field.type === 'integer'"
           v-model.number="formValues[field.key]"
           type="number"
+          :step="field.type === 'integer' ? '1' : 'any'"
           :disabled="isDisabled"
           :placeholder="field.placeholder"
         />

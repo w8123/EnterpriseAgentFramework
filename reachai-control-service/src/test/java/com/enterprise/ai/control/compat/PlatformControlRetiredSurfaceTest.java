@@ -2,8 +2,7 @@ package com.enterprise.ai.control.compat;
 
 import com.enterprise.ai.control.runtime.ControlRuntimePublicController;
 
-import com.enterprise.ai.control.governance.ControlA2aEndpointController;
-import com.enterprise.ai.control.governance.ControlMcpEndpointController;
+import com.enterprise.ai.control.mcp.api.protocol.McpEndpointController;
 import com.enterprise.ai.control.platform.PlatformEmbedPublicController;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -30,10 +29,8 @@ class PlatformControlRetiredSurfaceTest {
 
     @Test
     void keepsExternalPlatformControlContractsOnRealControllers() {
-        assertHasRoute(ControlMcpEndpointController.class, "/mcp/manifest");
-        assertHasRoute(ControlMcpEndpointController.class, "/mcp/jsonrpc");
-        assertHasRoute(ControlA2aEndpointController.class, "/a2a/{agentKey}/.well-known/agent.json");
-        assertHasRoute(ControlA2aEndpointController.class, "/a2a/{agentKey}/jsonrpc");
+        assertHasRoute(McpEndpointController.class, "/mcp/manifest");
+        assertHasRoute(McpEndpointController.class, "/mcp/jsonrpc");
         assertHasRoute(ControlRuntimePublicController.class, "/gateway/catalog");
         assertHasRoute(ControlRuntimePublicController.class, "/gateway/agents/{key}/chat");
         assertHasRoute(PlatformEmbedPublicController.class, "/api/embed/token/exchange");

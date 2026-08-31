@@ -7,7 +7,7 @@
 ## 当前结论
 
 - 核心实现、JDK 8 SDK/Starter、管理端、企业入口、会话保留、Legal Hold、并发擦除、在线语义投影、真实 embedding canary 和合成 shadow benchmark 已完成源码验证。
-- `sql/upgrade-20260815-runtime-session-retention.sql`、`sql/upgrade-20260815-personal-memory-outbox-redaction.sql`、`sql/upgrade-20260815-cross-domain-memory-erasure.sql`、`sql/upgrade-20260815-personal-memory-semantic-projection.sql` 与 `sql/upgrade-20260815-knowledge-enterprise-ingress.sql` **尚未在远程开发库执行**，对应 live E2E 为 `NOT RUN`。
+- 20260813-20260815 的个人记忆历史迁移在对应远程环境仍为 `NOT RUN`；这些脚本的最终结构已进入 GitHub 基线并从当前树清理。若目标库早于 `ae9e1ce6`，必须从对应 Git tag 获取历史迁移链或按当前 `initV2.sql` 重建，不能用当前合并升级补跑缺失的历史阶段。
 - 2026-08-16 对当前环境变量目标再次完成无凭据网络/TLS preflight：目标为非 loopback、TCP 可达且 MySQL 支持 TLS 1.2，但 JDBC `sslMode` 未显式配置；服务证书没有 DNS SAN，私有根也不在当前受信任存储中，因此 `VERIFY_IDENTITY` 无法通过。探测没有发送用户名、密码或 SQL；在 DBA 签发匹配当前 DNS SAN 的证书并提供受控 CA/JVM truststore 前，不读取 schema、更不执行迁移。
 - 本手册和脚本不会自动连接数据库或写远程环境。远程迁移、双用户负载和擦除/恢复演练必须绑定批准的 change、目标环境和回滚负责人后显式执行。
 
@@ -36,21 +36,11 @@
 ## 2. 迁移前检查
 
 1. 从服务实际部署配置解析 MySQL/Redis/内部 URL，保存脱敏后的 host、库名和配置来源。不要在命令行或证据文件保存密码。
-2. 对以下脚本计算 SHA-256，并把值写入当次证据清单：
-
-   - `sql/upgrade-20260813-runtime-session-memory.sql`
-   - `sql/upgrade-20260814-runtime-conversation-turn-id.sql`
-   - `sql/upgrade-20260813-personal-memory-candidates.sql`
-   - `sql/upgrade-20260815-personal-memory-outbox-redaction.sql`
-   - `sql/upgrade-20260815-personal-memory-semantic-projection.sql`
-   - `sql/upgrade-20260814-business-memory-reference.sql`
-   - `sql/upgrade-20260815-runtime-session-retention.sql`
-   - `sql/upgrade-20260815-knowledge-enterprise-ingress.sql`
-   - `sql/upgrade-20260815-cross-domain-memory-erasure.sql`
-
-3. 优先使用仓库的 `scripts/apply-memory-migrations.mjs`，或使用具备同等门禁的组织远程迁移 runner；不要把 SQL 通过 Windows 默认编码管道传给原生 MySQL 客户端。仓库 runner 固定上述顺序，只允许 `reach_ai` 非 loopback 目标，先做无凭据 `VERIFY_IDENTITY` 握手，随后才把环境变量凭据交给 Connector/J。
-4. runner 对每份脚本执行后回查目标表、列、索引、权限绑定和安全聚合计数，并立即执行第二遍验证幂等性；任一语句、回查或第二遍失败都会停止后续迁移。DDL 会自动提交，不能把 runner 结果描述成可整体事务回滚。
-5. 迁移证据必须包含 change ID、开始/结束时间、脚本 checksum、两遍执行结果和回查结果；仓库 runner 使用 `wx` 创建指定的绝对证据路径，拒绝覆盖旧证据，且不记录 host、URL、用户名、密码、SQL 正文或异常消息。
+2. 先证明目标数据库已经达到 GitHub 基线 `ae9e1ce6`；无法证明时停止，改用对应 Git tag 的历史迁移链或重建。
+3. 对当前唯一升级脚本 `sql/upgrade-20260830-platform-consolidated.sql` 计算 SHA-256，并把值写入当次证据清单。该脚本包含 A2A/MCP clean-slate 段，必须额外确认旧数据处置边界。
+4. 可使用仓库的 `scripts/apply-memory-migrations.mjs` 或具备同等门禁的组织远程迁移 runner；不要把 SQL 通过 Windows 默认编码管道传给原生 MySQL 客户端。当前 runner 只计划这一份合并升级，只允许 `reach_ai` 目标，先做无凭据传输检查，随后才把环境变量凭据交给 Connector/J。
+5. runner 对整份脚本执行后回查目标表、列、索引、权限绑定和安全聚合计数，并立即执行第二遍验证幂等性；任一语句、回查或第二遍失败都会停止。DDL 会自动提交，不能把 runner 结果描述成可整体事务回滚。
+6. 迁移证据必须包含 change ID、开始/结束时间、脚本 checksum、两遍执行结果和回查结果；仓库 runner 使用 `wx` 创建指定的绝对证据路径，拒绝覆盖旧证据，且不记录 host、URL、用户名、密码、SQL 正文或异常消息。
 
 先运行 dry-run 和无凭据 preflight：
 
@@ -62,12 +52,7 @@ node scripts/apply-memory-migrations.mjs --preflight
 只有第二条返回 `transport.ready=true` 后，才在批准的维护窗口注入数据库凭据、change ID、备份/重置路径确认、worker 关闭确认和精确执行确认：
 
 ```powershell
-$env:REACHAI_MEMORY_MIGRATION_ALLOW_REMOTE = 'YES'
-$env:REACHAI_MEMORY_MIGRATION_EXECUTE_ACK = 'I_UNDERSTAND_THIS_APPLIES_MEMORY_SCHEMA_TO_THE_REMOTE_DEVELOPMENT_DATABASE'
-$env:REACHAI_MEMORY_MIGRATION_BACKUP_ACK = 'I_CONFIRM_A_RECOVERABLE_BACKUP_OR_APPROVED_DEVELOPMENT_DATABASE_RESET_PATH_EXISTS'
-$env:REACHAI_MEMORY_MIGRATION_WORKERS_DISABLED_ACK = 'I_CONFIRM_MEMORY_ERASURE_RETENTION_AND_PROJECTION_WORKERS_ARE_DISABLED'
-$env:REACHAI_MEMORY_MIGRATION_CHANGE_ID = '<approved-change-id>'
-node scripts/apply-memory-migrations.mjs --execute --evidence=C:\approved-change\memory-migration-evidence.json
+node scripts/apply-memory-migrations.mjs --execute --confirm=reach_ai --allow-remote --evidence=C:\approved-change\memory-migration-evidence.json
 ```
 
 私有 CA 同时要求 `REACHAI_MYSQL_CA_FILE=<PEM>` 供无凭据 Node 探针使用，以及 `REACHAI_MYSQL_JAVA_TRUSTSTORE=<JKS-or-PKCS12>`、`REACHAI_MYSQL_JAVA_TRUSTSTORE_PASSWORD` 供 Connector/J 使用；只配置其中一侧会失败关闭。证据目录必须预先存在，文件必须不存在。

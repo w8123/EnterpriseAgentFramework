@@ -68,6 +68,8 @@
         :node-id="nodeId"
         :canvas-nodes="canvasNodes"
         :model-options="modelOptions"
+        :model-options-loading="modelOptionsLoading"
+        :model-options-load-error="modelOptionsLoadError"
         :knowledge-options="knowledgeOptions"
         :variable-options="variableOptions"
         :credential-options="credentialOptions"
@@ -80,6 +82,7 @@
         @credential-created="$emit('credentialCreated', $event)"
         @create-call-node="$emit('createCallNode', $event)"
         @validation-change="$emit('validationChange', $event)"
+        @reload-model-options="$emit('reloadModelOptions')"
       />
       <div v-else class="node-specific-panel">
         <el-divider>节点配置</el-divider>
@@ -161,6 +164,8 @@ const props = defineProps<{
   nodeId?: string
   canvasNodes?: import('@/types/studio').CanvasNode[]
   modelOptions: ModelInstance[]
+  modelOptionsLoading: boolean
+  modelOptionsLoadError: boolean
   knowledgeOptions: KnowledgeBase[]
   toolOptions: ToolInfo[]
   variableOptions: Array<string | StudioVariableOption>
@@ -175,6 +180,7 @@ defineEmits<{
   credentialCreated: [credential: WorkflowCredential]
   createCallNode: [request: InteractionCallNodeRequest]
   validationChange: [payload: { nodeId?: string; valid: boolean; message?: string }]
+  reloadModelOptions: []
 }>()
 
 const registry = {

@@ -1,7 +1,9 @@
 package com.enterprise.ai.runtime.eval;
 
+import com.enterprise.ai.runtime.agent.RuntimeAgentExecutionContext;
 import com.enterprise.ai.runtime.execution.RuntimeAgentExecutionService;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -28,9 +30,30 @@ class RuntimeAgentEvalServiceTest {
     private final RuntimeAgentEvalRunMapper runMapper = mock(RuntimeAgentEvalRunMapper.class);
     private final RuntimeAgentEvalCaseResultMapper resultMapper = mock(RuntimeAgentEvalCaseResultMapper.class);
     private final RuntimeAgentExecutionService executionService = mock(RuntimeAgentExecutionService.class);
+    private final RuntimeEvalTargetSnapshotService targetSnapshotService =
+            mock(RuntimeEvalTargetSnapshotService.class);
+    private final RuntimeAgentExecutionContext targetExecutionContext =
+            mock(RuntimeAgentExecutionContext.class);
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final RuntimeAgentEvalService service = new RuntimeAgentEvalService(
-            datasetMapper, caseMapper, runMapper, resultMapper, objectMapper, executionService);
+            datasetMapper, caseMapper, runMapper, resultMapper, objectMapper,
+            executionService, targetSnapshotService);
+
+    @BeforeEach
+    void setUpTargetSnapshot() {
+        RuntimeEvalTargetSnapshotEntity snapshot = new RuntimeEvalTargetSnapshotEntity();
+        snapshot.setId(41L);
+        snapshot.setAgentConfigVersionId(99L);
+        snapshot.setSourceStatus("DRAFT");
+        snapshot.setFingerprintSha256("abcdef0123456789");
+        when(targetSnapshotService.captureAgent(
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.nullable(Long.class),
+                org.mockito.ArgumentMatchers.nullable(String.class),
+                org.mockito.ArgumentMatchers.nullable(String.class)))
+                .thenReturn(new RuntimeEvalTargetSnapshotService.CapturedTarget(
+                        snapshot, targetExecutionContext));
+    }
 
     @Test
     void executesAgentRuntimeAndGradesWorkflowAndPolicyAssertions() throws Exception {
@@ -60,7 +83,8 @@ class RuntimeAgentEvalServiceTest {
             return 1;
         }).when(resultMapper).insert(any());
         when(resultMapper.selectList(any())).thenAnswer(invocation -> List.copyOf(storedResults));
-        when(executionService.execute(any(), eq(true)))
+        when(executionService.executeEvaluation(
+                eq(targetExecutionContext), any(), eq(true), any()))
                 .thenReturn(Map.of(
                         "success", true,
                         "answer", "第一条有效班组是一班",
@@ -99,10 +123,22 @@ class RuntimeAgentEvalServiceTest {
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, Object>> inputCaptor = ArgumentCaptor.forClass(Map.class);
-        verify(executionService, org.mockito.Mockito.times(2)).execute(inputCaptor.capture(), eq(true));
+        ArgumentCaptor<RuntimeEvalExecutionContext> evalCaptor =
+                ArgumentCaptor.forClass(RuntimeEvalExecutionContext.class);
+        verify(executionService, org.mockito.Mockito.times(2))
+                .executeEvaluation(eq(targetExecutionContext), inputCaptor.capture(),
+                        eq(true), evalCaptor.capture());
         assertEquals("agent-1", inputCaptor.getAllValues().get(0).get("agentId"));
         assertEquals("AGENT_EVAL", inputCaptor.getAllValues().get(0).get("intentHint"));
-        assertEquals(true, inputCaptor.getAllValues().get(0).get("evalMode"));
+        assertFalse(inputCaptor.getAllValues().get(0).containsKey("evalMode"));
+        assertEquals(RuntimeEvalExecutionContext.Mode.READ_ONLY_EXECUTION,
+                evalCaptor.getAllValues().get(0).mode());
+        assertEquals("legacy-run:21", evalCaptor.getAllValues().get(0).experimentId());
+        assertEquals("single-workflow:round:1", evalCaptor.getAllValues().get(0).itemId());
+        assertEquals("abcdef0123456789", evalCaptor.getAllValues().get(0).targetFingerprint());
+        assertEquals(41L, view.run().targetSnapshotId());
+        assertEquals(99L, view.run().targetConfigVersionId());
+        assertEquals("DRAFT", view.run().targetConfigStatus());
     }
 
     @Test
@@ -123,7 +159,8 @@ class RuntimeAgentEvalServiceTest {
             return 1;
         }).when(resultMapper).insert(any());
         when(resultMapper.selectList(any())).thenAnswer(invocation -> List.copyOf(stored));
-        when(executionService.execute(any(), eq(true))).thenReturn(Map.of(
+        when(executionService.executeEvaluation(
+                eq(targetExecutionContext), any(), eq(true), any())).thenReturn(Map.of(
                 "success", true,
                 "answer", "完成",
                 "steps", List.of(Map.of("name", "workflow", "detail", Map.of("toolName", "other_tool"))),

@@ -183,7 +183,7 @@ export function useRegistryProjectDetailActions(deps: UseRegistryProjectDetailAc
     if (!(await ensureScanOperationAllowed())) return
     try {
       await ElMessageBox.confirm(
-        `确认删除项目「${p.name}」吗？将删除关联扫描行、挂到本项目的全局 Tool / 粗粒度能力、模块与语义数据等（若仍存在引用则被阻止）。`,
+        `确认删除项目「${p.name}」吗？将删除关联扫描行、能力目录执行定义、模块与语义数据等（若仍存在引用则被阻止）。`,
         '删除确认',
         { type: 'warning' },
       )

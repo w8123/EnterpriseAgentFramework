@@ -47,7 +47,12 @@ function handleSizeChange(size: number) {
 <template>
   <section
     v-loading="props.loading"
-    :class="['data-table-shell', 'glass-surface-panel', densityClass(props.density)]"
+    :class="[
+      'data-table-shell',
+      'glass-surface-panel',
+      densityClass(props.density),
+      { 'is-empty': props.empty && !props.loading },
+    ]"
   >
     <div v-if="$slots.toolbar" class="data-table-shell__toolbar">
       <slot name="toolbar" />

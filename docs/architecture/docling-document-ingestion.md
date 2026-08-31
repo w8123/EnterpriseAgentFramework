@@ -51,7 +51,7 @@ Docling Kubernetes Service 只使用 `ClusterIP`；不配置公网 Ingress，也
 Knowledge 服务配置前缀为 `reachai.knowledge.docling`，部署时通过环境变量提供：
 
 - `REACHAI_DOCLING_BASE_URL`：集群内部 Docling URL，例如 `http://reachai-docling:5001`。
-- `REACHAI_DOCLING_API_KEY`：生产环境只从 Secret 注入；本地应用与 Compose 共享可发现的弱默认值 `local-dev-change-me`，`prod` / `production` profile 会拒绝空值和该默认值。
+- `REACHAI_DOCLING_API_KEY`：仓库不提供默认凭据；本地应用与 Compose 从 Git 忽略的 `deploy/.env` 读取，生产环境只从 Secret 注入，`prod` / `production` profile 会拒绝空值。
 - `REACHAI_DOCLING_ENABLED`、`REACHAI_DOCLING_REQUEST_TIMEOUT_MS`、`REACHAI_DOCLING_DOCUMENT_TIMEOUT_SECONDS`：容量与超时控制。
 - `REACHAI_DOCLING_MAX_CONCURRENT_REQUESTS`、`REACHAI_DOCLING_CONCURRENCY_WAIT_TIMEOUT_MS`：Knowledge 侧并发准入；1 GiB Pod 默认只归一化一个 Docling 响应，扩容内存后才能同步提高并发。
 - `REACHAI_DOCLING_MAX_RESPONSE_BYTES`：流式响应的硬上限，默认 64 MiB；超限以 `DOCLING_RESPONSE_TOO_LARGE` 失败，不把不完整结果写入知识库。提高上限时必须同步验证 Knowledge Pod heap。
@@ -80,7 +80,7 @@ npm run build
 Set-Location ..
 
 docker build -f deploy/Dockerfile.docling -t reachai-docling:v1.30.0 .
-docker compose -f deploy/docker-compose.infra.yml --profile docling up -d
+docker compose --env-file deploy/.env -f deploy/docker-compose.infra.yml --profile docling up -d
 ```
 
 验证至少覆盖 Java Fast UTF-8 文本、Docling PDF/图片 OCR、旧 `.doc` 的 LibreOffice 依赖、无 API Key 返回 401、结构化 `body.children` 顺序以及删除后的工件清理。

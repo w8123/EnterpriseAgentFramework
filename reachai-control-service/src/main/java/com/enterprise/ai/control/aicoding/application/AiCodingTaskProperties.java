@@ -15,5 +15,5 @@ public class AiCodingTaskProperties {
     private Duration tokenTtl = Duration.ofHours(72);
     private Duration connectionLease = Duration.ofMinutes(5);
     private int maxActivationAttempts = 5;
-    private String secretPepper = "reachai-local-dev-ai-coding-task-pepper";
+    private String secretPepper = "";
 }

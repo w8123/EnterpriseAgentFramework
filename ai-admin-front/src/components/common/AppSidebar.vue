@@ -18,21 +18,21 @@
       </button>
     </div>
 
-    <section v-if="!collapsed && !hideProjectPanel" class="sidebar-project-panel" aria-label="当前项目">
-      <div class="sidebar-section-caption">当前项目</div>
+    <section v-if="!collapsed && !hideProjectPanel" class="sidebar-project-panel" aria-label="当前范围">
+      <div class="sidebar-section-caption">当前范围</div>
       <el-select
         class="sidebar-project-select"
         :model-value="resolvedCurrentProjectId"
         :loading="projectStore.loading"
         filterable
-        placeholder="未选择项目"
+        placeholder="平台范围"
         @update:model-value="handleProjectChange"
         @visible-change="handleProjectVisibleChange"
       >
         <template #prefix>
           <span class="project-status-dot" :class="{ active: Boolean(projectStore.currentProject) }" />
         </template>
-        <el-option :value="NO_PROJECT_VALUE" label="未选择项目" />
+        <el-option :value="NO_PROJECT_VALUE" label="平台范围" />
         <el-option
           v-for="project in projectStore.projects"
           :key="project.id"
@@ -46,7 +46,7 @@
         </el-option>
       </el-select>
       <span class="sidebar-project-pill" :class="{ active: Boolean(projectStore.currentProject) }">
-        {{ projectStore.currentProject ? '运行中' : '未选择' }}
+        {{ projectStore.currentProject ? '项目级' : '平台级' }}
       </span>
     </section>
 
@@ -59,7 +59,7 @@
         router
         class="sidebar-menu"
       >
-        <template v-for="(entry, i) in sidebarMenu" :key="entry.kind === 'item' ? entry.index : `group-${i}`">
+        <template v-for="(entry, i) in visibleSidebarMenu" :key="entry.kind === 'item' ? entry.index : `group-${i}`">
           <li v-if="entry.kind === 'group'" class="menu-group" :class="{ 'is-first': i === 0 }" role="presentation">
             <span class="menu-group-label">{{ entry.label }}</span>
           </li>
@@ -107,7 +107,20 @@
           </button>
         </div>
         <div class="footer-tab-panel" role="tabpanel">
-          <div v-if="activeFooterPanel === 'settings'" class="appearance-panel">
+          <div v-if="activeFooterPanel === 'profile'" class="profile-panel">
+            <button
+              class="profile-action"
+              type="button"
+              :disabled="loggingOut"
+              :aria-busy="loggingOut"
+              @click="handleLogout"
+            >
+              <el-icon><SwitchButton /></el-icon>
+              <span>{{ loggingOut ? '正在退出…' : '退出账号' }}</span>
+            </button>
+          </div>
+
+          <div v-else class="appearance-panel">
             <div class="appearance-heading">
               <span class="panel-kicker">界面星盘</span>
               <strong>光影与色彩</strong>
@@ -187,11 +200,27 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
-import { ArrowLeft, ArrowRight, Check, Moon, Setting, Sunny, User } from '@element-plus/icons-vue'
+import { useRoute, useRouter } from 'vue-router'
+import {
+  ArrowLeft,
+  ArrowRight,
+  Check,
+  Moon,
+  Setting,
+  Sunny,
+  SwitchButton,
+  User,
+} from '@element-plus/icons-vue'
+import { logoutPlatform } from '@/api/platformAuth'
+import { platformSessionUser } from '@/auth/platformSession'
 import { useTheme } from '@/composables/useTheme'
 import { useProjectStore } from '@/store/project'
-import { resolveActiveMenu, resolveOpenGroups, sidebarMenu } from './sidebarMenu'
+import {
+  filterSidebarMenu,
+  resolveActiveMenu,
+  resolveOpenGroups,
+  sidebarMenu,
+} from './sidebarMenu'
 
 const props = withDefaults(defineProps<{
   collapsed?: boolean
@@ -205,13 +234,19 @@ const emit = defineEmits<{
 }>()
 
 const route = useRoute()
+const router = useRouter()
 const projectStore = useProjectStore()
 const { theme, brand, brandOptions, setBrand } = useTheme()
 const collapsed = computed(() => props.collapsed)
 const hideProjectPanel = computed(() => props.hideProjectPanel)
 const activeMenu = computed(() => resolveActiveMenu(route.path, route.meta.activeMenu))
 const openGroups = computed(() => resolveOpenGroups(route.path))
+const visibleSidebarMenu = computed(() => filterSidebarMenu(
+  sidebarMenu,
+  platformSessionUser.value?.permissions ?? [],
+))
 const activeFooterPanel = ref<'profile' | 'settings' | null>(null)
+const loggingOut = ref(false)
 const NO_PROJECT_VALUE = '__reachai_no_project__'
 const resolvedCurrentProjectId = computed(
   () => projectStore.currentProject?.id ?? NO_PROJECT_VALUE,
@@ -250,6 +285,20 @@ function handleProjectVisibleChange(visible: boolean) {
 
 function toggleFooterPanel(panel: 'profile' | 'settings') {
   activeFooterPanel.value = activeFooterPanel.value === panel ? null : panel
+}
+
+async function handleLogout() {
+  if (loggingOut.value) return
+  loggingOut.value = true
+  try {
+    await logoutPlatform()
+    activeFooterPanel.value = null
+    await router.replace('/login')
+  } catch {
+    // Keep the live cookie session available so the user can retry.
+  } finally {
+    loggingOut.value = false
+  }
 }
 </script>
 
@@ -542,7 +591,7 @@ function toggleFooterPanel(panel: 'profile' | 'settings') {
   overflow: hidden;
 }
 
-/* 分组小标题（工作台 / 资产与编排 / 平台治理） */
+/* 信息架构分组小标题 */
 .menu-group {
   list-style: none;
   margin: 16px 0 6px;
@@ -621,11 +670,11 @@ function toggleFooterPanel(panel: 'profile' | 'settings') {
     color: var(--sb-title);
   }
 
-  /* 含激活子项的父级：浅品牌底 + 品牌色加粗 + 箭头着色 */
+  /* 含激活子项的父级只做语义强调，避免与当前子项形成两个强选中块。 */
   :deep(.el-sub-menu.is-active > .el-sub-menu__title) {
-    background: var(--sb-parent-active-bg);
+    background: transparent;
     color: var(--sb-parent-active-text);
-    font-weight: 700;
+    font-weight: 600;
 
     .menu-icon {
       color: var(--sb-active-icon);
@@ -785,6 +834,43 @@ function toggleFooterPanel(panel: 'profile' | 'settings') {
   overflow: auto;
   padding: 10px 10px 12px;
   border-top: 1px solid rgba(180, 205, 235, 0.24);
+}
+
+.profile-panel {
+  display: flex;
+}
+
+.profile-action {
+  width: 100%;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 12px;
+  border: 1px solid var(--sb-divider);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--sb-text);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease;
+
+  .el-icon {
+    color: var(--el-color-danger);
+    font-size: 16px;
+  }
+
+  &:hover {
+    border-color: color-mix(in srgb, var(--el-color-danger) 32%, transparent);
+    background: color-mix(in srgb, var(--el-color-danger) 8%, transparent);
+    color: var(--el-color-danger);
+  }
+
+  &:disabled {
+    cursor: wait;
+    opacity: 0.68;
+  }
 }
 
 .appearance-panel {
@@ -1042,6 +1128,11 @@ function toggleFooterPanel(panel: 'profile' | 'settings') {
 
     :deep(.el-menu-item.is-active)::before {
       left: -8px;
+    }
+
+    /* 折叠后没有子项可见，恢复父级底色以标明当前所属模块。 */
+    :deep(.el-sub-menu.is-active > .el-sub-menu__title) {
+      background: var(--sb-parent-active-bg);
     }
   }
 }

@@ -6,7 +6,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Formal production Knowledge retrieval entry for Runtime and admin reuse.
@@ -55,6 +57,7 @@ public class KnowledgeRetrievalCore {
                     .costMs(0L)
                     .directReturn(false)
                     .items(List.of())
+                    .diagnostics(Map.of())
                     .build();
         }
         List<KnowledgeRetrievalCoreResponse.RetrievalItem> items = new ArrayList<>();
@@ -89,6 +92,9 @@ public class KnowledgeRetrievalCore {
                 .directReturn(response.getDirectReturn())
                 .directReturnContent(response.getDirectReturnContent())
                 .items(items)
+                .diagnostics(response.getDiagnostics() == null
+                        ? Map.of()
+                        : new LinkedHashMap<>(response.getDiagnostics()))
                 .build();
     }
 }

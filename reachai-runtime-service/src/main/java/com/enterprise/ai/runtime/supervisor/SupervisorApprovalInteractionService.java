@@ -8,8 +8,9 @@ import com.enterprise.ai.runtime.execution.RuntimeInteractionEventEntity;
 import com.enterprise.ai.runtime.execution.RuntimeInteractionEventMapper;
 import com.enterprise.ai.runtime.execution.RuntimeInteractionSessionEntity;
 import com.enterprise.ai.runtime.execution.RuntimeInteractionSessionMapper;
+import com.enterprise.ai.runtime.execution.RuntimeSupervisorApprovalPort;
 import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
-import com.enterprise.ai.runtime.supervisor.SupervisorRuntimeAdapter.PolicyApprovalGrant;
+import com.enterprise.ai.runtime.execution.SupervisorRuntimeAdapter.PolicyApprovalGrant;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -27,9 +28,9 @@ import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
-public class SupervisorApprovalInteractionService {
+public class SupervisorApprovalInteractionService implements RuntimeSupervisorApprovalPort {
 
-    public static final String INTERACTION_PREFIX = "spv_";
+    public static final String INTERACTION_PREFIX = RuntimeSupervisorApprovalPort.INTERACTION_PREFIX;
     public static final String SOURCE_TYPE = "SUPERVISOR_POLICY";
     public static final String INTERACTION_TYPE = "CONFIRM_ACTION";
     public static final String WAITING_USER = "WAITING_USER";
@@ -52,15 +53,33 @@ public class SupervisorApprovalInteractionService {
                                   Map<String, Object> args,
                                   String reason,
                                   WorkflowExecutionIdentity trustedIdentity) {
+        return create(trace, agent, config, "WORKFLOW",
+                tool.getToolName(), tool.getPermissionKey(), tool.getRiskLevel(),
+                input, args, reason, trustedIdentity);
+    }
+
+    @Transactional
+    public ApprovalRequest create(SupervisorExecutionTraceService.TraceHandle trace,
+                                  RuntimeAgentView agent,
+                                  RuntimeAgentConfigVersionEntity config,
+                                  String toolKind,
+                                  String toolName,
+                                  String permissionKey,
+                                  String riskLevel,
+                                  Map<String, Object> input,
+                                  Map<String, Object> args,
+                                  String reason,
+                                  WorkflowExecutionIdentity trustedIdentity) {
         LocalDateTime now = LocalDateTime.now();
         String interactionId = INTERACTION_PREFIX + UUID.randomUUID().toString().replace("-", "");
         Map<String, Object> checkpoint = new LinkedHashMap<>();
         checkpoint.put("phase", "CONFIRM");
         checkpoint.put("agentId", agent.id());
         checkpoint.put("agentConfigVersionId", config.getId());
-        checkpoint.put("toolName", tool.getToolName());
-        checkpoint.put("permissionKey", tool.getPermissionKey());
-        checkpoint.put("riskLevel", tool.getRiskLevel());
+        checkpoint.put("toolKind", firstText(toolKind, "TOOL"));
+        checkpoint.put("toolName", toolName);
+        checkpoint.put("permissionKey", permissionKey);
+        checkpoint.put("riskLevel", riskLevel);
         checkpoint.put("args", args == null ? Map.of() : args);
         checkpoint.put("input", input == null ? Map.of() : input);
 
@@ -70,12 +89,13 @@ public class SupervisorApprovalInteractionService {
         uiRequest.put("type", INTERACTION_TYPE);
         uiRequest.put("component", "confirm");
         uiRequest.put("interactionId", interactionId);
-        uiRequest.put("title", "确认执行：" + firstText(tool.getToolName(), "Workflow Tool"));
+        uiRequest.put("title", "确认执行：" + firstText(toolName, "Tool"));
         uiRequest.put("message", confirmationMessage(reason, displayArgs));
         Map<String, Object> cardData = new LinkedHashMap<>();
-        cardData.put("toolName", firstText(tool.getToolName(), ""));
-        cardData.put("permissionKey", firstText(tool.getPermissionKey(), ""));
-        cardData.put("riskLevel", firstText(tool.getRiskLevel(), "WRITE"));
+        cardData.put("toolName", firstText(toolName, ""));
+        cardData.put("toolKind", firstText(toolKind, "TOOL"));
+        cardData.put("permissionKey", firstText(permissionKey, ""));
+        cardData.put("riskLevel", firstText(riskLevel, "WRITE"));
         cardData.put("arguments", displayArgs);
         uiRequest.put("data", cardData);
         uiRequest.put("actions", List.of(
@@ -84,15 +104,16 @@ public class SupervisorApprovalInteractionService {
         uiRequest.put("extension", Map.of(
                 "kind", "SUPERVISOR_POLICY_APPROVAL",
                 "resumeVia", "AGENT_EXECUTE",
-                "permissionKey", firstText(tool.getPermissionKey(), ""),
-                "riskLevel", firstText(tool.getRiskLevel(), "WRITE")));
+                "permissionKey", firstText(permissionKey, ""),
+                "riskLevel", firstText(riskLevel, "WRITE")));
 
         Map<String, Object> continuation = new LinkedHashMap<>();
         continuation.put("agentId", agent.id());
         continuation.put("agentConfigVersionId", config.getId());
-        continuation.put("toolName", firstText(tool.getToolName(), ""));
-        continuation.put("permissionKey", firstText(tool.getPermissionKey(), ""));
-        continuation.put("riskLevel", firstText(tool.getRiskLevel(), "WRITE"));
+        continuation.put("toolKind", firstText(toolKind, "TOOL"));
+        continuation.put("toolName", firstText(toolName, ""));
+        continuation.put("permissionKey", firstText(permissionKey, ""));
+        continuation.put("riskLevel", firstText(riskLevel, "WRITE"));
         continuation.put("resumeVia", "AGENT_EXECUTE");
 
         RuntimeInteractionSessionEntity row = new RuntimeInteractionSessionEntity();
@@ -100,7 +121,7 @@ public class SupervisorApprovalInteractionService {
         row.setSourceType(SOURCE_TYPE);
         row.setAgentId(agent.id());
         row.setTraceId(trace.traceId());
-        row.setNodeId(firstText(tool.getToolName(), "workflow"));
+        row.setNodeId(firstText(toolName, firstText(toolKind, "tool").toLowerCase(Locale.ROOT)));
         row.setInteractionType(INTERACTION_TYPE);
         row.setStatus(WAITING_USER);
         row.setRevision(0);
@@ -114,7 +135,7 @@ public class SupervisorApprovalInteractionService {
         row.setExpiresAt(now.plusMinutes(15));
         sessionMapper.insert(row);
         writeEvent(interactionId, "CREATED", Map.of(
-                "toolName", firstText(tool.getToolName(), ""),
+                "toolName", firstText(toolName, ""),
                 "traceId", firstText(trace.traceId(), ""),
                 "agentId", agent.id()), row.getUserId());
         writeEvent(interactionId, "REQUESTED", Map.of(
@@ -519,7 +540,8 @@ public class SupervisorApprovalInteractionService {
                                  String message,
                                  String idempotencyKey,
                                  Map<String, Object> submittedPayload,
-                                 Map<String, Object> replayResult) {
+                                 Map<String, Object> replayResult)
+            implements RuntimeSupervisorApprovalPort.ResumeDecision {
 
         public ResumeDecision(boolean approved,
                               boolean rejected,

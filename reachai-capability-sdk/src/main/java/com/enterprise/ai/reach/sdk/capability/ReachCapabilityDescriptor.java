@@ -6,6 +6,11 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
+/**
+ * Scanned-capability result holder. Collection setters store a defensive
+ * snapshot of the incoming list, and getters return unmodifiable views, so
+ * later mutation of the caller's list cannot change this descriptor.
+ */
 public class ReachCapabilityDescriptor {
 
     private String name;

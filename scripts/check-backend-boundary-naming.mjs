@@ -292,8 +292,7 @@ const architectureOverviewDoc = findDocByPrefix('01-')
 const knowledgeAssetDoc = findDocByPrefix('05-')
 const embedSupportDoc = 'docs/reference/嵌入式对话与页面动作.md'
 const jdkRuntimeLayeringDoc = 'docs/reference/JDK8-SDK与JDK17-Runtime分层.md'
-const backendNamingDoc = 'docs/architecture/backend-boundaries-and-naming.md'
-const retiredStructureDoc = 'docs/architecture/legacy-retirement.md'
+const backendNamingDoc = 'docs/architecture/service-boundaries.md'
 const aiMemoryDocs = [
   'docs/ai-memory/README.md',
   'docs/ai-memory/PROJECT-MEMORY.md',
@@ -308,7 +307,11 @@ const readableEntryDocs = [
 ]
 const readableServiceDocs = [
   'ai-admin-front/README.md',
-  'reachai-knowledge-service/README.md'
+  'reachai-control-service/README.md',
+  'reachai-runtime-service/README.md',
+  'reachai-capability-service/README.md',
+  'reachai-knowledge-service/README.md',
+  'reachai-model-service/README.md'
 ]
 const readableAuthorityDocs = [
   architectureOverviewDoc,
@@ -370,11 +373,6 @@ for (const rel of readableEntryDocs) {
 
 for (const rel of readableServiceDocs) {
   assertFile(rel)
-  assertIncludes(rel, 'reachai-control-service')
-  assertIncludes(rel, 'reachai-runtime-service')
-  assertIncludes(rel, 'reachai-capability-service')
-  assertIncludes(rel, 'reachai-knowledge-service')
-  assertIncludes(rel, 'reachai-model-service')
   assertNotIncludes(rel, 'disabled response')
   assertNotIncludes(rel, 'disabled route')
   assertNotIncludes(rel, 'Platform Control route is no longer proxied to ai-agent-service')
@@ -405,13 +403,6 @@ if (backendNamingDoc) {
   assertNotIncludes(backendNamingDoc, '褰撳墠')
   assertNotIncludes(backendNamingDoc, '绂佺敤鍝嶅簲')
   assertNotIncludes(backendNamingDoc, '杩斿洖鏄庣‘ disabled')
-}
-if (retiredStructureDoc) {
-  assertFile(retiredStructureDoc)
-  assertNotIncludes(retiredStructureDoc, '鏃х粨')
-  assertNotIncludes(retiredStructureDoc, '褰撳墠')
-  assertNotIncludes(retiredStructureDoc, '绂佺敤鍝嶅簲')
-  assertNotIncludes(retiredStructureDoc, '鍚庣画')
 }
 assertNoFilesUnder('docs/superpowers', '.md')
 for (const rel of [
@@ -459,6 +450,8 @@ if (backendNamingDoc) {
   assertIncludes(backendNamingDoc, 'reachai-control-service')
   assertIncludes(backendNamingDoc, 'reachai-runtime-service')
   assertIncludes(backendNamingDoc, 'reachai-capability-service')
+  assertIncludes(backendNamingDoc, 'reachai-knowledge-service')
+  assertIncludes(backendNamingDoc, 'reachai-model-service')
 }
 assertIncludes('docs/architecture/physical-split-route-ownership.md', '`reachai-control-service` is the only public API/BFF entry in the first phase.')
 assertIncludes('docs/architecture/physical-split-route-ownership.md', 'docs/architecture/public-route-contracts.md')
@@ -541,19 +534,23 @@ assertIncludes('sql/initV2.sql', '当前归属 reachai-knowledge-service')
 assertIncludes('sql/initV2.sql', '当前归属 reachai-model-service')
 assertNotIncludes('sql/initV2.sql', '对应 ai-skills-service')
 assertNotIncludes('sql/initV2.sql', '对应 ai-model-service')
-assertIncludes('ai-admin-front/README.md', '# ReachAI Admin Frontend')
-assertIncludes('ai-admin-front/README.md', 'Vite dev server runs on http://localhost:5200')
-assertIncludes('ai-admin-front/README.md', 'Frontend does not call reachai-runtime-service:18604 or reachai-capability-service:18605 directly.')
-assertIncludes('reachai-knowledge-service/README.md', '目录名和 Maven artifactId 均已收口到 `reachai-knowledge-service`')
-assertIncludes('reachai-knowledge-service/README.md', 'context path `/ai`')
+assertIncludes('ai-admin-front/README.md', '# ReachAI 管理端')
+assertIncludes('ai-admin-front/README.md', 'Vite 默认端口为 `5200`')
+assertIncludes('ai-admin-front/README.md', '前端不得直连 `reachai-runtime-service:18604` 或 `reachai-capability-service:18605`')
+assertIncludes('reachai-control-service/README.md', '# ReachAI Control Service')
+assertIncludes('reachai-runtime-service/README.md', '# ReachAI Runtime Service')
+assertIncludes('reachai-capability-service/README.md', '# ReachAI Capability Service')
+assertIncludes('reachai-knowledge-service/README.md', '# ReachAI Knowledge Service')
+assertIncludes('reachai-model-service/README.md', '# ReachAI Model Service')
+assertIncludes('reachai-knowledge-service/README.md', '`reachai-knowledge-service` 是 ReachAI Knowledge / Retrieval 部署单元')
+assertIncludes('reachai-knowledge-service/README.md', 'Spring context path 为 `/ai`')
 assertNotIncludes('reachai-knowledge-service/README.md', 'artifactId 暂时保留')
 assertNotIncludes('reachai-knowledge-service/README.md', 'artifactId 鏆')
-assertNotIncludes('docs/architecture/backend-boundaries-and-naming.md', '历史 artifactId')
-assertNotIncludes('docs/architecture/backend-boundaries-and-naming.md', '鍘嗗彶 artifactId')
-assertNotIncludes('docs/architecture/physical-services-and-startup.md', 'artifactId 暂时保留')
-assertNotIncludes('docs/architecture/physical-services-and-startup.md', 'artifactId 鏆')
-assertNotIncludes('docs/architecture/legacy-retirement.md', 'artifactId 暂时保留')
-assertNotIncludes('docs/architecture/legacy-retirement.md', 'artifactId 鏆')
+assertNotIncludes('docs/architecture/service-boundaries.md', '历史 artifactId')
+assertNotIncludes('docs/architecture/service-boundaries.md', '鍘嗗彶 artifactId')
+assertPathAbsent('docs/architecture/backend-boundaries-and-naming.md')
+assertPathAbsent('docs/architecture/physical-services-and-startup.md')
+assertPathAbsent('docs/architecture/legacy-retirement.md')
 assertIncludes(
   'reachai-control-service/src/main/java/com/enterprise/ai/control/aiassist/ControlAiAssistSkillController.java',
   '@RequestMapping("/api/ai-assist")')
@@ -565,18 +562,15 @@ assertNotIncludes('reachai-model-service/pom.xml', '<name>AI Model Service</name
 assertIncludes('reachai-knowledge-service/pom.xml', '<name>ReachAI Knowledge Retrieval Service</name>')
 assertNotIncludes('reachai-knowledge-service/pom.xml', '<name>AI Skills Service</name>')
 assertNotIncludes('reachai-knowledge-service/README.md', '# AI Skills Service')
-assertIncludes('reachai-knowledge-service/README.md', '# ReachAI Knowledge / Retrieval Service')
+assertIncludes('reachai-knowledge-service/README.md', '# ReachAI Knowledge Service')
 assertIncludes('ai-admin-front/src/api/request.ts', 'Knowledge / Retrieval deployment unit')
 assertIncludes('ai-admin-front/src/api/request.ts', 'Platform Control public API/BFF')
 assertIncludes('ai-admin-front/src/api/request.ts', '请求失败')
 assertNotIncludes('ai-admin-front/src/api/request.ts', '鈥')
 assertNotIncludes('ai-admin-front/src/api/request.ts', '锛')
-assertIncludes('ai-admin-front/src/views/dashboard/Dashboard.vue', 'Knowledge / Retrieval')
-assertIncludes('ai-admin-front/src/views/dashboard/Dashboard.vue', '服务拓扑')
-assertIncludes('ai-admin-front/src/views/dashboard/Dashboard.vue', '正常')
-assertIncludes('ai-admin-front/src/views/dashboard/Dashboard.vue', '异常')
-assertIncludes('ai-admin-front/src/views/dashboard/Dashboard.vue', '系统启动完成')
-assertIncludes('ai-admin-front/src/views/dashboard/Dashboard.vue', '模型实例')
+assertIncludes('ai-admin-front/src/views/dashboard/Dashboard.vue', '智能体运营中心')
+assertIncludes('ai-admin-front/src/views/dashboard/Dashboard.vue', '服务健康')
+assertIncludes('ai-admin-front/src/views/dashboard/Dashboard.vue', '部分数据暂不可用')
 assertNotIncludes('ai-admin-front/src/views/dashboard/Dashboard.vue', '姝ｅ父')
 assertNotIncludes('ai-admin-front/src/views/dashboard/Dashboard.vue', '寮傚父')
 assertNotIncludes('ai-admin-front/src/views/dashboard/Dashboard.vue', '姒傝')
@@ -586,11 +580,10 @@ assertNotIncludes('ai-admin-front/src/views/dashboard/Dashboard.vue', '妯″瀷
 assertNotIncludes('ai-admin-front/src/views/dashboard/Dashboard.vue', '绯荤粺')
 assertNotIncludes('reachai-knowledge-service/src/main/java/com/enterprise/ai/text/tooling/scanner/ScanOptions.java', 'ai-agent-service')
 assertIncludes('reachai-knowledge-service/src/main/java/com/enterprise/ai/client/ModelServiceClient.java', 'ReachAI Model Gateway deployment unit')
-assertIncludes('ai-admin-front/src/views/dashboard/Dashboard.vue', "serviceHealth['reachai-control-service']")
-assertIncludes('ai-admin-front/src/views/dashboard/Dashboard.vue', "serviceHealth['reachai-runtime-service']")
-assertIncludes('ai-admin-front/src/views/dashboard/Dashboard.vue', "serviceHealth['reachai-capability-service']")
-assertIncludes('ai-admin-front/src/views/dashboard/Dashboard.vue', "serviceHealth['reachai-knowledge-service']")
-assertIncludes('ai-admin-front/src/views/dashboard/Dashboard.vue', "serviceHealth['reachai-model-service']")
+assertIncludes('ai-admin-front/src/views/dashboard/Dashboard.vue', "['runtime', 'Runtime']")
+assertIncludes('ai-admin-front/src/views/dashboard/Dashboard.vue', "['capability', 'Capability']")
+assertIncludes('ai-admin-front/src/views/dashboard/Dashboard.vue', "['knowledge', 'Knowledge']")
+assertIncludes('ai-admin-front/src/views/dashboard/Dashboard.vue', "['model', 'Model']")
 assertIncludes('ai-admin-front/src/views/dashboard/Dashboard.vue', '/api/internal-services/health')
 assertNotIncludes('ai-admin-front/src/views/dashboard/Dashboard.vue', 'checkHttpService')
 assertNotIncludes('ai-admin-front/src/views/dashboard/Dashboard.vue', '/model/providers')
@@ -669,7 +662,10 @@ const keyApiPaths = [
   ['reachai-control-service/src/main/java/com/enterprise/ai/control/platform/PlatformEmbedPublicController.java', '@RequestMapping("/api/embed")'],
   ['reachai-control-service/src/main/java/com/enterprise/ai/control/aiassist/ControlAiAssistSkillController.java', '@RequestMapping("/api/ai-assist")'],
   ['reachai-control-service/src/main/java/com/enterprise/ai/control/aiassist/ControlAiCodingProjectController.java', '@RequestMapping("/api/ai-coding/projects/{projectId}")'],
-  ['reachai-control-service/src/main/java/com/enterprise/ai/control/governance/ControlMcpAdminController.java', '@RequestMapping("/api/mcp")'],
+  ['reachai-control-service/src/main/java/com/enterprise/ai/control/mcp/api/management/McpPublicationController.java', '@RequestMapping("/api/mcp/publications")'],
+  ['reachai-control-service/src/main/java/com/enterprise/ai/control/mcp/api/management/McpHubOverviewController.java', '@RequestMapping("/api/mcp/overview")'],
+  ['reachai-control-service/src/main/java/com/enterprise/ai/control/mcp/api/management/McpCallLogController.java', '@RequestMapping("/api/mcp/call-logs")'],
+  ['reachai-control-service/src/main/java/com/enterprise/ai/control/mcp/api/protocol/McpEndpointController.java', '@PostMapping({"/mcp", "/mcp/jsonrpc"})'],
   ['reachai-control-service/src/main/java/com/enterprise/ai/control/governance/ControlToolAclController.java', '@RequestMapping("/api/tool-acl")'],
   ['reachai-control-service/src/main/java/com/enterprise/ai/control/internal/InternalPageActionCatalogController.java', '@RequestMapping("/internal/control/page-actions")']
 ]
@@ -682,7 +678,8 @@ for (const retiredController of [
   'reachai-knowledge-service/src/main/java/com/enterprise/ai/controller/PipelineController.java',
   'reachai-capability-service/src/main/java/com/enterprise/ai/capability/catalog/mining/CapabilityMiningController.java',
   'reachai-capability-service/src/main/java/com/enterprise/ai/capability/catalog/composition/CapabilityCompositionCatalogController.java',
-  'reachai-runtime-service/src/main/java/com/enterprise/ai/runtime/internal/RuntimeToolCallLogInternalController.java'
+  'reachai-runtime-service/src/main/java/com/enterprise/ai/runtime/internal/RuntimeToolCallLogInternalController.java',
+  'reachai-control-service/src/main/java/com/enterprise/ai/control/governance/ControlMcpAdminController.java'
 ]) {
   assertPathAbsent(retiredController)
 }

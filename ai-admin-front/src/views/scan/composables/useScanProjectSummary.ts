@@ -112,20 +112,20 @@ export function useScanProjectSummary(deps: UseScanProjectSummaryDeps) {
       },
       {
         key: 'tool',
-        label: '上架 Tool',
+        label: '纳入能力目录',
         value: hasApi ? `${linkedToolCount.value}/${apiCount.value}` : '-',
         desc: !hasApi
           ? '等待项目接口'
           : addableToolCount.value > 0
-            ? `${addableToolCount.value} 个 API 可添加为 Tool`
-            : 'Tool 关联已治理',
+            ? `${addableToolCount.value} 个 API 可纳入能力目录`
+            : '能力目录纳管已完成',
         status: !hasApi ? 'todo' : addableToolCount.value > 0 ? 'active' : 'done',
       },
       {
         key: 'agent',
         label: '用于 Agent',
         value: hasApi ? `${enabledToolCount.value}` : '-',
-        desc: enabledToolCount.value > 0 ? '已可进入智能体编排' : '上架并启用后开放给 Agent',
+        desc: enabledToolCount.value > 0 ? '已可进入智能体编排' : '纳入并启用后开放给 Agent',
         status: enabledToolCount.value > 0 ? 'done' : hasApi && linkedToolCount.value > 0 ? 'active' : 'todo',
       },
     ]
@@ -138,7 +138,7 @@ export function useScanProjectSummary(deps: UseScanProjectSummaryDeps) {
     if (!project) {
       return {
         title: '正在加载 API 治理上下文',
-        description: '读取项目接入方式、接口目录和 Tool 关联状态。',
+        description: '读取项目接入方式、接口目录和能力纳管状态。',
         primaryLabel: '刷新',
         primaryAction: 'refresh',
       }
@@ -165,8 +165,8 @@ export function useScanProjectSummary(deps: UseScanProjectSummaryDeps) {
     }
     if (semanticMissingToolCount.value > 0) {
       return {
-        title: '先补全 AI 语义，再上架给 Agent',
-        description: `${semanticMissingToolCount.value} 个接口还缺少 AI 理解，补齐后更适合进入 Tool 和 Workflow。`,
+        title: '先补全 AI 语义，再开放给 Agent',
+        description: `${semanticMissingToolCount.value} 个接口还缺少 AI 理解，补齐后更适合纳入能力目录并用于 Workflow。`,
         primaryLabel: '一键生成 AI 语义',
         primaryAction: 'generateAi',
         secondaryLabel: '模型设置',
@@ -185,19 +185,19 @@ export function useScanProjectSummary(deps: UseScanProjectSummaryDeps) {
     }
     if (addableToolCount.value > 0) {
       return {
-        title: '这些 API 已准备好上架为 Tool',
-        description: `${addableToolCount.value} 个接口还没有 Tool 关联，可在接口目录中按模块或按接口添加。`,
-        primaryLabel: '查看可上架 API',
+        title: '这些 API 已准备好纳入能力目录',
+        description: `${addableToolCount.value} 个接口尚未纳管，可在接口目录中按模块或按接口添加。`,
+        primaryLabel: '查看待纳管 API',
         primaryAction: 'viewCatalog',
-        secondaryLabel: '检查 Tool 关联',
+        secondaryLabel: '检查能力纳管',
         secondaryAction: 'reconcile',
       }
     }
     if (outOfSyncToolCount.value > 0) {
       return {
-        title: 'Tool 关联存在差异',
-        description: `${outOfSyncToolCount.value} 个接口与已上架 Tool 不一致，请对账后同步更新。`,
-        primaryLabel: '检查 Tool 关联',
+        title: '能力目录定义存在差异',
+        description: `${outOfSyncToolCount.value} 个接口与能力目录执行定义不一致，请对账后同步更新。`,
+        primaryLabel: '检查能力纳管',
         primaryAction: 'reconcile',
         secondaryLabel: '查看接口目录',
         secondaryAction: 'viewCatalog',
@@ -205,7 +205,7 @@ export function useScanProjectSummary(deps: UseScanProjectSummaryDeps) {
     }
     return {
       title: 'API 已进入 Agent 可用链路',
-      description: '接口目录、AI 语义和 Tool 关联已具备基础治理信息，可继续用于 Agent 与 Workflow 编排。',
+      description: '接口目录、AI 语义和能力纳管已具备基础治理信息，可继续用于 Agent 与 Workflow 编排。',
       primaryLabel: '刷新状态',
       primaryAction: 'refresh',
       secondaryLabel: '维护动作',
@@ -231,13 +231,13 @@ export function useScanProjectSummary(deps: UseScanProjectSummaryDeps) {
       tone: semanticCompletionPercent.value >= 80 ? 'success' : semanticCompletionPercent.value > 0 ? 'warning' : 'muted',
     },
     {
-      label: 'Tool 同步',
+      label: '能力纳管',
       value: `${linkedToolCount.value}/${deps.tools.value.length || 0}`,
       desc: apiCount.value <= 0
         ? '等待项目接口'
         : outOfSyncToolCount.value > 0
           ? `${outOfSyncToolCount.value} 个接口存在差异`
-          : 'API 与 Tool 关联状态可治理',
+          : 'API 与能力目录状态可治理',
       tone: outOfSyncToolCount.value > 0 ? 'warning' : 'success',
     },
     {

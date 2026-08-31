@@ -11,8 +11,24 @@
       />
     </el-form-item>
     <el-form-item v-if="config.mode === 'llm'" label="模型实例">
-      <el-select v-model="config.modelInstanceId" filterable placeholder="选择用于提取的模型" style="width: 100%">
+      <el-select
+        v-model="config.modelInstanceId"
+        filterable
+        placeholder="选择用于提取的模型"
+        style="width: 100%"
+        :loading="modelOptionsLoading"
+        @visible-change="handleModelSelectVisible"
+      >
         <el-option v-for="item in modelOptions" :key="item.id" :label="`${item.name} / ${item.modelName}`" :value="item.id" />
+        <template #empty>
+          <ModelSelectEmptyState
+            model-type="LLM"
+            :option-count="modelOptions.length"
+            :loading="modelOptionsLoading"
+            :load-error="modelOptionsLoadError"
+            @retry="emit('reloadModelOptions')"
+          />
+        </template>
       </el-select>
     </el-form-item>
     <template v-if="config.mode === 'llm'">
@@ -75,12 +91,19 @@
 import { computed } from 'vue'
 import type { CanvasNodeData, ParameterNodeConfig } from '@/types/studio'
 import type { ModelInstance } from '@/types/model'
+import ModelSelectEmptyState from '@/components/model/ModelSelectEmptyState.vue'
 import { addField, ensureFieldList } from './panelUtils'
 import { parameterPromptInputWarning } from './parameterPromptContract'
 
 const props = defineProps<{
   data: CanvasNodeData
   modelOptions: ModelInstance[]
+  modelOptionsLoading: boolean
+  modelOptionsLoadError: boolean
+}>()
+
+const emit = defineEmits<{
+  reloadModelOptions: []
 }>()
 
 const config = computed<ParameterNodeConfig>(() => {
@@ -96,6 +119,10 @@ const config = computed<ParameterNodeConfig>(() => {
 })
 const fields = computed(() => ensureFieldList(props.data))
 const promptInputWarning = computed(() => parameterPromptInputWarning(config.value))
+
+function handleModelSelectVisible(visible: boolean) {
+  if (visible) emit('reloadModelOptions')
+}
 </script>
 
 <style scoped>

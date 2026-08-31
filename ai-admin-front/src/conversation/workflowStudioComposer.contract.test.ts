@@ -4,14 +4,19 @@ import { describe, expect, it } from 'vitest'
 
 describe('WorkflowStudio conversation composer frame contract', () => {
   it('keeps custom composer slot but does not re-own shared glass material', () => {
-    const src = readFileSync(
+    const studioSrc = readFileSync(
       resolve(__dirname, '../views/workflow/WorkflowStudio.vue'),
       'utf8',
     )
-    expect(src).toMatch(/ConversationView/)
-    expect(src).toMatch(/debug-chat-composer/)
-    expect(src).toMatch(/UnifiedInteractionRenderer/)
-    expect(src).not.toMatch(/backdrop-filter:\s*var\(--reachai-chat-glass-blur-composer\)/)
-    expect(src).not.toMatch(/background:\s*var\(--reachai-chat-glass-composer\)/)
+    const drawerSrc = readFileSync(
+      resolve(__dirname, '../views/workflow/studio-overlays/WorkflowStudioDebugDrawer.vue'),
+      'utf8',
+    )
+    expect(studioSrc).toMatch(/WorkflowStudioDebugDrawer/)
+    expect(drawerSrc).toMatch(/ConversationView/)
+    expect(drawerSrc).toMatch(/debug-chat-composer/)
+    expect(drawerSrc).toMatch(/UnifiedInteractionRenderer/)
+    expect(drawerSrc).not.toMatch(/backdrop-filter:\s*var\(--reachai-chat-glass-blur-composer\)/)
+    expect(drawerSrc).not.toMatch(/background:\s*var\(--reachai-chat-glass-composer\)/)
   })
 })

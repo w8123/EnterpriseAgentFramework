@@ -5,7 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.enterprise.ai.common.dto.ApiResult;
 import com.enterprise.ai.control.client.capability.CapabilityProxyClient;
 import com.enterprise.ai.control.client.runtime.RuntimeProxyClient;
-import com.enterprise.ai.control.client.runtime.RuntimeTrustedAgentExecutionGateway;
+import com.enterprise.ai.control.runtime.RuntimeTrustedAgentExecutionGateway;
 import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.core.JsonProcessingException;
