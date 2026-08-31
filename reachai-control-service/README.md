@@ -76,7 +76,7 @@
 - Skill 制品：`REACHAI_SKILL_*`，生产多实例必须使用持久共享存储；
 - Personal Memory 与擦除 worker：`REACHAI_PERSONAL_MEMORY_*`、`REACHAI_MEMORY_ERASURE_*`。
 
-本地默认账号只用于开发体验。生产必须关闭 LOCAL/bootstrap，并禁止在配置、日志或 README 中保存真实密钥。
+本地默认账号以及 Embed、AI Coding、内部调用和 Personal Memory 的公开开发值只用于开箱体验，显式环境变量始终优先。`prod` / `production` profile 和 Kubernetes 不会获得这些开发值；生产必须关闭 LOCAL/bootstrap、从 Secret 注入独立密钥，并禁止在配置、日志或 README 中保存真实密钥。
 
 ## 构建、启动与验证
 

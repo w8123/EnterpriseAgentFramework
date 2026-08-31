@@ -65,6 +65,8 @@ Runtime 通过 Capability internal API 获取/执行能力；不得直接读取 
 - `RUNTIME_SERVICE_URL`、`KNOWLEDGE_SERVICE_URL`、`MODEL_SERVICE_URL`；
 - `REACHAI_INTERNAL_SERVICE_SECRET`、`REACHAI_INTERNAL_SERVICE_ACCEPTED_SECRETS`、`REACHAI_INTERNAL_TRANSPORT_MODE`。
 
+默认本地模式会提供公开的内部调用开发值，便于开箱体验；显式配置优先，生产 profile 与 Kubernetes 环境必须从 Secret 注入。
+
 Registry/项目请求的身份来自签名、Enrollment 或 Control 已验证主体；浏览器字段不能提升为可信项目身份。
 
 ## 构建、启动与验证

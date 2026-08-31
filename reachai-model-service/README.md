@@ -49,7 +49,7 @@
 | 变量 | 说明 |
 | --- | --- |
 | `AI_MYSQL_*` | 共享 MySQL 连接；本服务只访问 Model-owned 表 |
-| `MODEL_CREDENTIAL_SECRET` | 模型实例凭据加密 key；所有环境必须注入，源码无默认值 |
+| `MODEL_CREDENTIAL_SECRET` | 模型实例凭据加密 key；默认本地模式使用公开开发值，显式配置优先；生产/Kubernetes 必须注入 |
 | `MODEL_INSTANCE_RUNTIME_CACHE_TTL_MS` | 多实例状态/凭据变更的短缓存 TTL，代码限制最大值 |
 
 不要在日志、错误响应、README 或前端状态中输出真实 API Key。归档/禁用和凭据更新在多实例环境中还需验证缓存收敛。

@@ -72,7 +72,7 @@ npm ci
 npm run dev
 ```
 
-本地开源模式默认提供开发账号 `admin / admin123`，并由登录页预填，仅用于首次体验。生产必须显式关闭 `REACHAI_LOCAL_AUTH_ENABLED` 和 `REACHAI_BOOTSTRAP_ADMIN_ENABLED`，并接入正式身份体系。
+本地开源模式默认提供开发账号 `admin / admin123`，并由登录页预填；五服务还会获得公开的开发专用加密、签名、内部调用和个人记忆身份值，均只用于首次体验。显式配置始终优先；`prod` / `production` profile、Kubernetes 环境或 `REACHAI_LOCAL_DEVELOPMENT_DEFAULTS_ENABLED=false` 不会注入这些值。生产必须显式关闭 `REACHAI_LOCAL_AUTH_ENABLED` 和 `REACHAI_BOOTSTRAP_ADMIN_ENABLED`，从 Secret 注入独立密钥，并接入正式身份体系。
 
 ## 配置分组
 
@@ -81,7 +81,7 @@ npm run dev
 | MySQL | `AI_MYSQL_URL`、`AI_MYSQL_HOST`、`AI_MYSQL_PORT`、`AI_MYSQL_DATABASE`、`AI_MYSQL_USER`、`AI_MYSQL_PASSWORD` | 五服务共享连接，表所有权仍按服务隔离 |
 | 基础设施 | `REDIS_*`、`MILVUS_*` | Control/Knowledge/Runtime 按各自职责使用 |
 | 服务地址 | `CONTROL_SERVICE_URL`、`RUNTIME_SERVICE_URL`、`CAPABILITY_SERVICE_URL`、`KNOWLEDGE_SERVICE_URL`、`MODEL_SERVICE_URL` | 默认指向本机五服务端口 |
-| 内部认证 | `REACHAI_INTERNAL_SERVICE_SECRET`、`REACHAI_INTERNAL_SERVICE_ACCEPTED_SECRETS`、`REACHAI_INTERNAL_TRANSPORT_MODE` | 生产密钥不得使用开发值；轮换和传输模式见相关安全契约 |
+| 内部认证 | `REACHAI_INTERNAL_SERVICE_SECRET`、`REACHAI_INTERNAL_SERVICE_ACCEPTED_SECRETS`、`REACHAI_INTERNAL_TRANSPORT_MODE` | 本地默认值免配置；生产必须注入独立密钥，轮换和传输模式见相关安全契约 |
 | 功能配置 | 各服务 `application.yml` 中的 `REACHAI_*`、`RUNTIME_*`、`MODEL_*` | 以 owning service README 和配置类为准，不在总览重复完整清单 |
 
 不要把凭据写入 README、Run Configuration、Git 或命令输出。生产配置还必须逐项验证持久存储、加密密钥、TLS/mTLS、网络策略、备份与恢复。

@@ -1,0 +1,2 @@
+org.springframework.boot.env.EnvironmentPostProcessor=\
+com.enterprise.ai.common.config.ReachAiLocalDevelopmentDefaultsEnvironmentPostProcessor

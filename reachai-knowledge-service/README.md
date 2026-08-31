@@ -69,6 +69,8 @@
 | 个人记忆投影 | `REACHAI_PERSONAL_MEMORY_*` | Embedding、search mode、阈值、worker 与指标 |
 | 内部认证 | `REACHAI_INTERNAL_*` | HMAC、轮换与传输模式 |
 
+默认本地模式会提供公开的内部调用和个人记忆身份开发值；显式配置优先，生产 profile 与 Kubernetes 环境必须从 Secret 注入。
+
 生产启用 Docling、S3/MinIO、向量或异步 worker 前，必须验证目标存储、网络、密钥、容量、重试/死信和恢复。
 
 ## 构建、启动与验证

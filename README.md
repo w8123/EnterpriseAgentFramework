@@ -409,7 +409,7 @@ mvn clean install -DskipTests
 
 ### 3. 启动五个服务
 
-仓库提供 `.run/00-reachai-five-services.run.xml`，可在 IntelliJ IDEA 中一键启动。除本地开发账号外，`MODEL_CREDENTIAL_SECRET`、`AGENT_WORKFLOW_CREDENTIAL_SECRET`、`EAF_EMBED_TOKEN_SECRET` 和 `REACHAI_AI_CODING_TASK_SECRET_PEPPER` 等签名、摘要或加密材料仍需通过本机环境注入，不得提交。也可以按以下顺序分别执行 `mvn spring-boot:run`：
+仓库提供 `.run/00-reachai-five-services.run.xml`，可在 IntelliJ IDEA 中一键启动。默认本地模式会为五服务注入公开的开发专用加密/签名值，体验用户无需配置 `MODEL_CREDENTIAL_SECRET`、`AGENT_WORKFLOW_CREDENTIAL_SECRET`、`EAF_EMBED_TOKEN_SECRET`、`REACHAI_AI_CODING_TASK_SECRET_PEPPER` 或内部调用密钥；显式环境变量始终优先。`prod` / `production` profile、Kubernetes 环境以及 `REACHAI_LOCAL_DEVELOPMENT_DEFAULTS_ENABLED=false` 都不会注入这些开发值，正式部署仍必须从 Secret 注入独立密钥。也可以按以下顺序分别执行 `mvn spring-boot:run`：
 
 ```text
 reachai-model-service      18601

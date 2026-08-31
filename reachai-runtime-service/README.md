@@ -80,7 +80,7 @@ Runtime 不直接复用其他服务的 Mapper、Entity 或业务实现类。
 
 - 数据库和服务 URL：`AI_MYSQL_*`、`*_SERVICE_URL`；
 - 内部认证/传输：`REACHAI_INTERNAL_*`；
-- Workflow 凭据：属性 `agent.workflow-credential-secret`，环境变量使用 Spring relaxed binding 的 `AGENT_WORKFLOW_CREDENTIAL_SECRET`；所有环境必须注入，源码无默认值；
+- Workflow 凭据：属性 `agent.workflow-credential-secret`，环境变量使用 Spring relaxed binding 的 `AGENT_WORKFLOW_CREDENTIAL_SECRET`；默认本地模式使用公开开发值，生产/Kubernetes 必须注入；
 - Skill cache：`RUNTIME_SKILL_*`；生产必须使用受控、持久、可写目录；
 - 会话与上下文：`RUNTIME_SESSION_MEMORY_*`、`RUNTIME_CONTEXT_*`；
 - HTTP egress：`RUNTIME_HTTP_EGRESS_*`；
