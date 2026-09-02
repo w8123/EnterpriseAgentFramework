@@ -5,8 +5,11 @@ import com.enterprise.ai.vector.VectorSearchResult;
 import com.enterprise.ai.vector.VectorService;
 import io.milvus.client.MilvusServiceClient;
 import io.milvus.grpc.DataType;
+import io.milvus.grpc.FieldSchema;
+import io.milvus.grpc.KeyValuePair;
 import io.milvus.grpc.MutationResult;
 import io.milvus.grpc.SearchResults;
+import io.milvus.grpc.DescribeCollectionResponse;
 import io.milvus.param.IndexType;
 import io.milvus.param.MetricType;
 import io.milvus.param.R;
@@ -36,7 +39,14 @@ public class MilvusVectorService implements VectorService {
         R<Boolean> hasCollection = milvusClient.hasCollection(
                 HasCollectionParam.newBuilder().withCollectionName(collectionName).build());
         if (hasCollection.getData() != null && hasCollection.getData()) {
-            log.debug("Collection {} already exists", collectionName);
+            int existingDim = describeVectorDimension(collectionName);
+            if (existingDim != dimension) {
+                throw new IllegalStateException(String.format(
+                        "Collection %s already exists with vector dimension %d, but requested dimension is %d. " +
+                        "Drop the collection first to let it be recreated with the correct dimension.",
+                        collectionName, existingDim, dimension));
+            }
+            log.debug("Collection {} already exists (dimension={})", collectionName, dimension);
             return;
         }
 
@@ -95,6 +105,24 @@ public class MilvusVectorService implements VectorService {
                 LoadCollectionParam.newBuilder().withCollectionName(collectionName).build());
 
         log.info("Collection {} created and loaded", collectionName);
+    }
+
+    private int describeVectorDimension(String collectionName) {
+        R<DescribeCollectionResponse> resp = milvusClient.describeCollection(
+                DescribeCollectionParam.newBuilder().withCollectionName(collectionName).build());
+        if (resp.getException() != null) {
+            throw new RuntimeException("Failed to describe collection: " + collectionName, resp.getException());
+        }
+        for (FieldSchema field : resp.getData().getSchema().getFieldsList()) {
+            if (DataType.FloatVector == field.getDataType()) {
+                for (KeyValuePair param : field.getTypeParamsList()) {
+                    if ("dim".equals(param.getKey())) {
+                        return Integer.parseInt(param.getValue());
+                    }
+                }
+            }
+        }
+        throw new IllegalStateException("Collection " + collectionName + " has no FloatVector field");
     }
 
     @Override
