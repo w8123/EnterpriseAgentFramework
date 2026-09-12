@@ -28,7 +28,8 @@ class RuntimeInteractionExpiryProcessorTest {
     void setUp() {
         RuntimeWorkflowInteractionSessionService sessionService =
                 new RuntimeWorkflowInteractionSessionService(sessionMapper, eventMapper, new ObjectMapper());
-        processor = new RuntimeInteractionExpiryProcessor(sessionMapper, sessionService, traceService);
+        processor = new RuntimeInteractionExpiryProcessor(sessionMapper, sessionService, traceService,
+                mock(RuntimeSupervisorApprovalService.class));
     }
 
     @Test

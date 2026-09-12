@@ -23,6 +23,8 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -41,19 +43,20 @@ class CapabilityRegistryOperationsCompatibilityControllerTest {
                 .getDeclaredMethod("offline", String.class,
                         CapabilityRegistryOperationsCompatibilityController.InstanceOfflineRequest.class);
         Method syncCapabilities = CapabilityRegistryOperationsCompatibilityController.class
-                .getDeclaredMethod("syncCapabilities", String.class, CapabilitySyncRequest.class);
+                .getDeclaredMethod("syncCapabilities", String.class, String.class, String.class,
+                        String.class, String.class, CapabilitySyncRequest.class);
         Method diffCapabilities = CapabilityRegistryOperationsCompatibilityController.class
                 .getDeclaredMethod("diffCapabilities", String.class, CapabilitySyncRequest.class);
-        Method applyCapabilities = CapabilityRegistryOperationsCompatibilityController.class
-                .getDeclaredMethod("applyCapabilities", String.class, CapabilitySyncRequest.class);
         Method listSnapshots = CapabilityRegistryOperationsCompatibilityController.class
                 .getDeclaredMethod("listCapabilitySnapshots", String.class);
         Method listDiffItems = CapabilityRegistryOperationsCompatibilityController.class
-                .getDeclaredMethod("listCapabilityDiffItems", Long.class);
+                .getDeclaredMethod("listCapabilityDiffItems", String.class, Long.class);
         Method reviewDiffItem = CapabilityRegistryOperationsCompatibilityController.class
-                .getDeclaredMethod("reviewCapabilityDiffItem", Long.class, CapabilityReviewRequest.class);
+                .getDeclaredMethod("reviewCapabilityDiffItem", String.class, Long.class,
+                        CapabilityReviewRequest.class);
         Method rollbackDiffItem = CapabilityRegistryOperationsCompatibilityController.class
-                .getDeclaredMethod("rollbackCapabilityDiffItem", Long.class, CapabilityReviewRequest.class);
+                .getDeclaredMethod("rollbackCapabilityDiffItem", String.class, Long.class,
+                        CapabilityReviewRequest.class);
         Method purgeOfflineInstances = CapabilityRegistryOperationsCompatibilityController.class
                 .getDeclaredMethod("purgeOfflineInstances", String.class,
                         CapabilityRegistryOperationsCompatibilityController.PurgeOfflineRequest.class);
@@ -72,20 +75,20 @@ class CapabilityRegistryOperationsCompatibilityControllerTest {
                 syncCapabilities.getAnnotation(PostMapping.class).value());
         assertArrayEquals(new String[] {"/projects/{projectCode}/capabilities/diff"},
                 diffCapabilities.getAnnotation(PostMapping.class).value());
-        assertArrayEquals(new String[] {"/projects/{projectCode}/capabilities/apply"},
-                applyCapabilities.getAnnotation(PostMapping.class).value());
         assertArrayEquals(new String[] {"/projects/{projectCode}/capability-snapshots"},
                 listSnapshots.getAnnotation(GetMapping.class).value());
-        assertArrayEquals(new String[] {"/capability-snapshots/{snapshotId}/diff-items"},
+        assertArrayEquals(new String[] {"/projects/{projectCode}/capability-snapshots/{snapshotId}/diff-items"},
                 listDiffItems.getAnnotation(GetMapping.class).value());
-        assertArrayEquals(new String[] {"/capability-diff-items/{diffItemId}/review"},
+        assertArrayEquals(new String[] {"/projects/{projectCode}/capability-diff-items/{diffItemId}/review"},
                 reviewDiffItem.getAnnotation(PostMapping.class).value());
-        assertArrayEquals(new String[] {"/capability-diff-items/{diffItemId}/rollback"},
+        assertArrayEquals(new String[] {"/projects/{projectCode}/capability-diff-items/{diffItemId}/rollback"},
                 rollbackDiffItem.getAnnotation(PostMapping.class).value());
         assertArrayEquals(new String[] {"/projects/{projectCode}/instances/purge-offline"},
                 purgeOfflineInstances.getAnnotation(PostMapping.class).value());
         assertArrayEquals(new String[] {"/projects/{projectCode}/instances/status"},
                 updateInstanceStatus.getAnnotation(PostMapping.class).value());
+        assertThrows(NoSuchMethodException.class, () -> CapabilityRegistryOperationsCompatibilityController.class
+                .getDeclaredMethod("applyCapabilities", String.class, CapabilitySyncRequest.class));
     }
 
     @Test
@@ -197,39 +200,14 @@ class CapabilityRegistryOperationsCompatibilityControllerTest {
                 0,
                 List.of()
         );
-        when(registryService.sync("orders", request)).thenReturn(delegated);
+        when(registryService.syncFromProject(eq("orders"), eq(request), any())).thenReturn(delegated);
 
-        ResponseEntity<?> response = controller.syncCapabilities("orders", request);
-
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertEquals(delegated, response.getBody());
-        verify(registryService).sync("orders", request);
-    }
-
-    @Test
-    void applyRouteDelegatesToCapabilityRegistryService() {
-        CapabilityRegistryService registryService = mock(CapabilityRegistryService.class);
-        CapabilityRegistryOperationsCompatibilityController controller =
-                new CapabilityRegistryOperationsCompatibilityController(registryService);
-        CapabilitySyncRequest request = new CapabilitySyncRequest("sync-1", "SDK", false, List.of());
-        CapabilitySyncResponse delegated = new CapabilitySyncResponse(
-                "sync-1",
-                7L,
-                "orders",
-                0,
-                0,
-                0,
-                0,
-                0,
-                List.of()
-        );
-        when(registryService.apply("orders", request)).thenReturn(delegated);
-
-        ResponseEntity<?> response = controller.applyCapabilities("orders", request);
+        ResponseEntity<?> response = controller.syncCapabilities(
+                "orders", "key", "123", "nonce", "signature", request);
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals(delegated, response.getBody());
-        verify(registryService).apply("orders", request);
+        verify(registryService).syncFromProject(eq("orders"), eq(request), any());
     }
 
     @Test
@@ -282,13 +260,13 @@ class CapabilityRegistryOperationsCompatibilityControllerTest {
                 null,
                 true
         );
-        when(registryService.listDiffItems(21L)).thenReturn(List.of(item));
+        when(registryService.listDiffItems("orders", 21L)).thenReturn(List.of(item));
 
-        ResponseEntity<?> response = controller.listCapabilityDiffItems(21L);
+        ResponseEntity<?> response = controller.listCapabilityDiffItems("orders", 21L);
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals(List.of(item), response.getBody());
-        verify(registryService).listDiffItems(21L);
+        verify(registryService).listDiffItems("orders", 21L);
     }
 
     @Test
@@ -313,13 +291,13 @@ class CapabilityRegistryOperationsCompatibilityControllerTest {
                 "not ready",
                 true
         );
-        when(registryService.reviewDiffItem(31L, request)).thenReturn(reviewed);
+        when(registryService.reviewDiffItem("orders", 31L, request)).thenReturn(reviewed);
 
-        ResponseEntity<?> response = controller.reviewCapabilityDiffItem(31L, request);
+        ResponseEntity<?> response = controller.reviewCapabilityDiffItem("orders", 31L, request);
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals(reviewed, response.getBody());
-        verify(registryService).reviewDiffItem(31L, request);
+        verify(registryService).reviewDiffItem("orders", 31L, request);
     }
 
     @Test
@@ -328,10 +306,10 @@ class CapabilityRegistryOperationsCompatibilityControllerTest {
         CapabilityRegistryOperationsCompatibilityController controller =
                 new CapabilityRegistryOperationsCompatibilityController(registryService);
         CapabilityReviewRequest request = new CapabilityReviewRequest("APPLY", "alice", null);
-        when(registryService.reviewDiffItem(31L, request))
+        when(registryService.reviewDiffItem("orders", 31L, request))
                 .thenThrow(new IllegalArgumentException("Capability diff APPLY has not moved into reachai-capability-service yet"));
 
-        ResponseEntity<?> response = controller.reviewCapabilityDiffItem(31L, request);
+        ResponseEntity<?> response = controller.reviewCapabilityDiffItem("orders", 31L, request);
 
         assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
         assertEquals(new CapabilityRegistryOperationsCompatibilityController.ApiErrorResponse(
@@ -348,13 +326,13 @@ class CapabilityRegistryOperationsCompatibilityControllerTest {
         CapabilityDiffItemDTO rolledBack = new CapabilityDiffItemDTO(
                 31L, 21L, "sync-1", "orders", "orders:createOrder", "createOrder",
                 "orders_create_order", "CHANGED", 12L, "[]", "{}", "ROLLED_BACK", "restore stable version", true);
-        when(registryService.rollbackDiffItem(31L, request)).thenReturn(rolledBack);
+        when(registryService.rollbackDiffItem("orders", 31L, request)).thenReturn(rolledBack);
 
-        ResponseEntity<?> response = controller.rollbackCapabilityDiffItem(31L, request);
+        ResponseEntity<?> response = controller.rollbackCapabilityDiffItem("orders", 31L, request);
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals(rolledBack, response.getBody());
-        verify(registryService).rollbackDiffItem(31L, request);
+        verify(registryService).rollbackDiffItem("orders", 31L, request);
     }
 
     @Test

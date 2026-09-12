@@ -35,6 +35,8 @@ public final class InternalServiceAuthHeaders {
     public static final String IDENTITY_SOURCE_PROJECT_CREDENTIAL = "PROJECT_CREDENTIAL";
 
     public static final String IDENTITY_SOURCE_RUNTIME_TRUSTED = "RUNTIME_TRUSTED_IDENTITY";
+    /** Runtime-attested tenant scope without a business user or user-role claims. */
+    public static final String IDENTITY_SOURCE_RUNTIME_TENANT_TRUSTED = "RUNTIME_TRUSTED_TENANT";
     public static final String IDENTITY_SOURCE_RUNTIME_UNTRUSTED = "RUNTIME_UNTRUSTED";
 
     private InternalServiceAuthHeaders() {

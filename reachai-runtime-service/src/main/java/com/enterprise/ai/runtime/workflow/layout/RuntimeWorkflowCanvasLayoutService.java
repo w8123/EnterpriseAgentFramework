@@ -571,10 +571,6 @@ public class RuntimeWorkflowCanvasLayoutService {
         else target.put(key, value);
     }
 
-    private void putPositiveDimension(Map<String, Object> target, String key, Double value) {
-        if (value != null && value > 0) target.put(key, value);
-    }
-
     private int positiveInt(Object value, int fallback) {
         if (value instanceof Number number && number.doubleValue() > 0) {
             return (int) Math.round(number.doubleValue());

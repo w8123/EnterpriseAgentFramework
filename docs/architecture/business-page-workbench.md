@@ -60,6 +60,10 @@ JSON 只用于结构化 schema、快照、证据列表和可扩展元数据。�
 
 `WORKFLOW_ENGINEERING` 只允许选择当前主页面已登记且有效的 Page Action。任务 context 同时提供该页面当前已挂载的 `existingPageWorkflows`；版本化 Artifact 可选声明 `replaceWorkflowId`，但平台只把它当作建议。Artifact 经 Control 校验后，由 Runtime 创建带唯一 `TARGET PAGE` 绑定的 `PAGE_ASSISTANT` 草稿；该动作不会发布 Workflow，也不会修改 Agent 配置。只有任务完成人工验收后，用户才能在发布确认框明确选择“新增并保留全部”或“替换指定旧 Workflow”。Runtime 再次验证精确目标，并在同一事务中完成发布与 Workflow-as-Tool 目录变更，失败时不得留下半发布或半接入状态。
 
+Workflow 草稿的跨服务重试由 Runtime 的 [投递服务](../../reachai-runtime-service/src/main/java/com/enterprise/ai/runtime/workflow/RuntimeWorkflowDraftSubmissionService.java) 管理。`runtime_workflow_draft_submission` 保存任务作用域、规范化请求摘要及成功应用修订；相同请求重放只读取当前草稿，旧请求不会覆盖后来的自动修正或人工编辑。新内容只可替换上次自动应用后未经其他编辑的 DRAFT，否则返回修订冲突。Workflow ID 由来源、项目、任务与目标页面确定，修改请求中的展示键不会创建另一份草稿。已删除、移出项目或已发布的草稿不能被自动重建或替换。
+
+投递记录与草稿写入在同一个 Runtime 事务内完成，不能将 Control 的本地事务回滚解释为远端草稿也已回滚。已有环境部署前执行 [草稿投递表升级](../../sql/upgrade-20260906-workflow-draft-submissions.sql)；不根据旧草稿猜测历史请求摘要，旧任务遇到冲突时使用新任务或在 Studio 显式编辑。RunOps Trace 候选草稿共用该规则，仍保留自己的来源校验。[持久化回归](../../reachai-runtime-service/src/test/java/com/enterprise/ai/runtime/workflow/RuntimeWorkflowDraftSubmissionPersistenceTest.java) 使用 Spring/MyBatis/H2；真实 MySQL 与跨服务故障恢复尚未验收。
+
 页面地图中的“接入检查”是只读诊断，不是当前首轮接入的强制发布门禁。它只使用服务端已经观察到的页面信息、有效操作目录、带 `pageInstanceId`/SDK 版本的 Embed Session、Bridge 操作快照和真实 Page Action 终态结果；客户端自报或 HTTP 200 不能生成 PASS。
 
 发布前检查的客户端报告只负责声明精确 `workflowId`、`workflowVersion` 和交付材料。ReachAI Runtime 必须独立验证该 Workflow 的项目、`PAGE_ASSISTANT` 类型、唯一 `TARGET PAGE`、当前发布校验和目标版本状态；验证结果以 `PRE_RELEASE_READY` readiness 返回。Runtime 暂不可用时保持 `PENDING`，不得把客户端自报通过展示为平台已验证。
@@ -71,6 +75,8 @@ JSON 只用于结构化 schema、快照、证据列表和可扩展元数据。�
 从“已发布”列表发起验收时，页面同时提交精确的 Workflow 与版本快照。Control 在创建任务时通过 Runtime 已发布查询复核目标，拒绝已下线、页面不匹配或版本漂移的对象。运行后，`PAGE_WORKFLOW_TRACE_READY` 只接受当前任务启动后的当前页面 Trace，并要求 Runtime Run 已完成且成功 `WORKFLOW_TOOL` Span 精确匹配该 Workflow 版本。AI Coding 回传的 `traceId` 必须精确命中；没有回传时仅允许唯一符合条件的 Trace 自动关联，多条候选继续等待明确选择。
 
 `PAGE_WORKFLOW_TRACE_READY` 通过后，Control 再按该精确已发布版本的 GraphSpec 判断是否声明了 `TOOL` 与 `PAGE_ACTION` 节点。声明的能力节点只有在同一精确 Trace 中观察到相应成功 `WORKFLOW_NODE` 后，`CAPABILITY_TOOL_E2E_READY` 才能通过；声明的页面动作只有在观察到相应节点的 `SUCCESS` 或可解释的 `BUSINESS_TERMINAL` 后，`PAGE_ACTION_E2E_READY` 才能通过。未声明的类别明确显示为 `NOT_REQUIRED`，图中存在节点本身绝不等于已执行。
+
+节点证据还必须属于目标 Workflow 的成功调用：`parentSpanId` 指向精确匹配任务版本、状态为 `SUCCESS` 或 `BUSINESS_TERMINAL` 的 `WORKFLOW_TOOL` Span，节点元数据中的 `workflowId + workflowVersionId + workflowVersion` 也必须一致。同一 Trace 中其他 Workflow、其他版本、失败调用或未关联父调用的节点均不能补足目标的证据；缺失或损坏的元数据按未观测处理。发布图声明 `INTERACTION/PRESENT_OUTPUT` 时，只有符合上述归属条件且执行成功的展示节点才放行。
 
 如果页面动作会写入业务数据，`WRITE_ACTION_E2E_READY` 仍只接受真实 `SUCCESS`；`NO_DATA`、`PRECONDITION_FAILED` 与 `USER_CANCELLED` 证明桥接和业务终态已被正确传回，但不会被误标为“写操作成功”。入口可见性、业务正确性和视觉体验继续由结构化浏览器材料与人工验收负责，不能被“Workflow 执行过”替代。
 

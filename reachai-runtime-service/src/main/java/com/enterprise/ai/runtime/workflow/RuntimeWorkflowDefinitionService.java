@@ -2,8 +2,7 @@ package com.enterprise.ai.runtime.workflow;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.enterprise.ai.runtime.agent.RuntimeAgentWorkflowToolEntity;
-import com.enterprise.ai.runtime.agent.RuntimeAgentWorkflowToolMapper;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDeletionReferences;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
@@ -25,9 +24,10 @@ public class RuntimeWorkflowDefinitionService {
 
     private final RuntimeWorkflowDefinitionMapper mapper;
     private final RuntimeWorkflowVersionMapper versionMapper;
-    private final RuntimeAgentWorkflowToolMapper workflowToolMapper;
+    private final RuntimeWorkflowDeletionReferences workflowUsage;
     private final RuntimeWorkflowDocumentCanonicalizer documentCanonicalizer;
     private final RuntimeWorkflowResourceBindingService resourceBindingService;
+    private final RuntimeWorkflowReferenceIndex referenceIndex;
 
     public List<RuntimeWorkflowDefinitionEntity> list(Long projectId,
                                                        String projectCode,
@@ -54,9 +54,10 @@ public class RuntimeWorkflowDefinitionService {
             query.eq(RuntimeWorkflowDefinitionEntity::getStatus, status.trim());
         }
         List<RuntimeWorkflowDefinitionEntity> items = mapper.selectList(query);
-        for (RuntimeWorkflowDefinitionEntity item : items) {
-            item.setDeletable(isDeletable(item));
-        }
+        var referenced = workflowUsage.referencedWorkflowIds(items.stream()
+                .filter(item -> "DRAFT".equalsIgnoreCase(item.getStatus())).map(RuntimeWorkflowDefinitionEntity::getId).toList());
+        for (RuntimeWorkflowDefinitionEntity item : items) item.setDeletable(
+                "DRAFT".equalsIgnoreCase(item.getStatus()) && !referenced.contains(item.getId()));
         return items;
     }
 
@@ -81,7 +82,8 @@ public class RuntimeWorkflowDefinitionService {
                 searchQuery(projectId, projectCode, workflowKind, definitionAuthority, status, keyword)
                         .orderByDesc(RuntimeWorkflowDefinitionEntity::getUpdatedAt)
                         .last("LIMIT " + offset + ", " + safeSize));
-        return new RuntimeWorkflowSearchPage(records, totalCount, safeCurrent, safeSize);
+        return new RuntimeWorkflowSearchPage(records.stream().map(RuntimeWorkflowDefinitionView::fromEntity).toList(),
+                totalCount, safeCurrent, safeSize);
     }
 
     private LambdaQueryWrapper<RuntimeWorkflowDefinitionEntity> searchQuery(Long projectId,
@@ -151,6 +153,7 @@ public class RuntimeWorkflowDefinitionService {
             // authoritative guard when two requests race to create the same key.
             throw new RuntimeWorkflowKeySlugConflictException(entity.getKeySlug());
         }
+        referenceIndex.indexDraft(entity);
         return entity;
     }
 
@@ -194,11 +197,29 @@ public class RuntimeWorkflowDefinitionService {
             RuntimeWorkflowDefinitionEntity latest = findById(id).orElse(current);
             throw revisionConflict(id, baseRevision, latest.getUpdatedAt());
         }
+        referenceIndex.indexDraft(current);
         return current;
     }
 
     public void assertRevision(RuntimeWorkflowDefinitionEntity workflow, String baseRevision) {
         assertRevision(workflow, baseRevision, parseBaseRevision(baseRevision));
+    }
+
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
+    public RuntimeWorkflowDefinitionEntity lockForWrite(String id) {
+        RuntimeWorkflowDefinitionEntity workflow = mapper.selectForRelease(id);
+        if (workflow == null) throw new IllegalArgumentException("workflow not found: " + id);
+        return workflow;
+    }
+
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
+    public RuntimeWorkflowDefinitionEntity lockForRelease(String id, String baseRevision) {
+        if (!StringUtils.hasText(baseRevision)) {
+            throw new IllegalArgumentException("WORKFLOW_REVISION_REQUIRED: 发布或回滚必须携带已读取的草稿修订");
+        }
+        RuntimeWorkflowDefinitionEntity workflow = lockForWrite(id);
+        assertRevision(workflow, baseRevision);
+        return workflow;
     }
 
     @Transactional
@@ -207,17 +228,17 @@ public class RuntimeWorkflowDefinitionService {
             throw new IllegalArgumentException("workflow id is required");
         }
         String workflowId = id.trim();
-        RuntimeWorkflowDefinitionEntity workflow = findById(workflowId)
-                .orElseThrow(() -> new IllegalArgumentException("workflow not found: " + id));
+        RuntimeWorkflowDefinitionEntity workflow = lockForWrite(workflowId);
         if (!"DRAFT".equalsIgnoreCase(workflow.getStatus())) {
             throw new IllegalArgumentException("仅草稿状态的 Workflow 可删除");
         }
-        if (!listWorkflowTools(workflowId).isEmpty()) {
+        if (!workflowUsage.referencedWorkflowIds(List.of(workflowId)).isEmpty()) {
             throw new IllegalArgumentException("该 Workflow 仍被 Agent 配置为 Workflow-as-Tool，请先从 Agent 配置中移除后再删除");
         }
         versionMapper.delete(Wrappers.<RuntimeWorkflowVersionEntity>lambdaQuery()
                 .eq(RuntimeWorkflowVersionEntity::getWorkflowId, workflowId));
         resourceBindingService.deleteForWorkflow(workflowId);
+        referenceIndex.delete(workflowId);
         if (mapper.deleteById(workflowId) <= 0) {
             throw new IllegalArgumentException("workflow not found: " + id);
         }
@@ -237,12 +258,7 @@ public class RuntimeWorkflowDefinitionService {
         if (!"DRAFT".equalsIgnoreCase(workflow.getStatus())) {
             return false;
         }
-        return listWorkflowTools(workflow.getId()).isEmpty();
-    }
-
-    private List<RuntimeAgentWorkflowToolEntity> listWorkflowTools(String workflowId) {
-        return workflowToolMapper.selectList(Wrappers.<RuntimeAgentWorkflowToolEntity>lambdaQuery()
-                .eq(RuntimeAgentWorkflowToolEntity::getWorkflowId, workflowId));
+        return workflowUsage.referencedWorkflowIds(List.of(workflow.getId())).isEmpty();
     }
 
     private void normalizeForCreate(RuntimeWorkflowDefinitionEntity entity) {
@@ -334,7 +350,7 @@ public class RuntimeWorkflowDefinitionService {
                 || StringUtils.hasText(workflow.getCreationChannel());
     }
 
-    private void requireValidKeySlug(String keySlug) {
+    void requireValidKeySlug(String keySlug) {
         if (!StringUtils.hasText(keySlug) || !KEY_SLUG.matcher(keySlug.trim()).matches()) {
             throw new IllegalArgumentException("invalid workflow keySlug: " + keySlug);
         }

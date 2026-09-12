@@ -1,7 +1,6 @@
 package com.enterprise.ai.runtime.execution;
 
-import com.enterprise.ai.runtime.agent.RuntimeAgentView;
-import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
+import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
 
 import java.time.LocalDateTime;
 import java.util.Map;
@@ -17,10 +16,14 @@ import java.util.Map;
 public interface RuntimeAgentRunLifecyclePort {
 
     void rejectAgent(String traceId,
-                     RuntimeAgentView agent,
+                     AgentTarget agent,
                      Map<String, Object> input,
                      String code,
-                     String message);
+                     String message,
+                     WorkflowExecutionIdentity identity);
+
+    /** Resolved target facts only; no Agent configuration, permission or mutable definition travels to RunOps. */
+    record AgentTarget(String id, String keySlug, String name, Long projectId, String projectCode) { }
 
     void resumeAgent(String traceId);
 

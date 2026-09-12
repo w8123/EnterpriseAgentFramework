@@ -13,7 +13,9 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.zip.CRC32;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
@@ -22,11 +24,16 @@ import java.util.zip.ZipOutputStream;
 public class BuiltinAgentSkillSource {
 
     private static final String BASE = "ai-assist/skills/";
+    private static final Set<String> TEXT_SUFFIXES = Set.of(
+            "md", "yaml", "yml", "json", "xml", "java", "ts", "js", "mjs", "cjs",
+            "py", "ps1", "html", "css", "conf", "properties");
     private static final Map<String, Descriptor> DESCRIPTORS = Map.of(
+            "agent-ai-coding", new Descriptor(
+                    "agent-ai-coding", "0.1.0", "ReachAI Agent AI Coding skill for project Agent authoring and governed Skill binding."),
             "reachai-onboarding", new Descriptor(
-                    "reachai-onboarding", "0.6.0", "ReachAI SDK onboarding skill for AI coding tools."),
+                    "reachai-onboarding", "0.6.1", "ReachAI SDK onboarding skill for AI coding tools."),
             "workflow-ai-coding", new Descriptor(
-                    "workflow-ai-coding", "0.1.0", "ReachAI Workflow AI Coding skill for editing, validating, and debugging workflow drafts."));
+                    "workflow-ai-coding", "0.1.1", "ReachAI Workflow AI Coding skill for editing, validating, and debugging workflow drafts."));
 
     private final PathMatchingResourcePatternResolver resources = new PathMatchingResourcePatternResolver();
 
@@ -70,7 +77,7 @@ public class BuiltinAgentSkillSource {
                 for (Map.Entry<String, Resource> file : files) {
                     byte[] content;
                     try (var input = file.getValue().getInputStream()) {
-                        content = input.readAllBytes();
+                        content = normalizeTextLineEndings(file.getKey(), input.readAllBytes());
                     }
                     CRC32 crc = new CRC32();
                     crc.update(content);
@@ -91,6 +98,23 @@ public class BuiltinAgentSkillSource {
         } catch (IOException exception) {
             throw AgentSkillException.artifactFailure("Built-in Skill could not be packaged: " + name, exception);
         }
+    }
+
+    private byte[] normalizeTextLineEndings(String path, byte[] content) {
+        int dot = path.lastIndexOf('.');
+        if (dot < 0 || !TEXT_SUFFIXES.contains(path.substring(dot + 1).toLowerCase(Locale.ROOT))) {
+            return content;
+        }
+        // Only our bundled text resources use canonical LF. External archives and
+        // binary artifacts keep their original bytes and immutable source hashes.
+        ByteArrayOutputStream normalized = new ByteArrayOutputStream(content.length);
+        for (int i = 0; i < content.length; i++) {
+            if (content[i] == '\r' && i + 1 < content.length && content[i + 1] == '\n') {
+                continue;
+            }
+            normalized.write(content[i]);
+        }
+        return normalized.toByteArray();
     }
 
     private String relativePath(Resource resource, String root) throws IOException {

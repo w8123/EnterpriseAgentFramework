@@ -25,6 +25,7 @@ import java.util.Map;
 public class ControlAiAssistProjectController {
 
     private static final String SECRET_ENV_NAME = "REACHAI_REGISTRY_APP_SECRET";
+    private static final String AGENT_AI_CODING_SKILL_NAME = "agent-ai-coding";
     private static final String WORKFLOW_AI_CODING_SKILL_NAME = "workflow-ai-coding";
     private static final String ONBOARDING_SKILL_NAME = "reachai-onboarding";
 
@@ -104,6 +105,27 @@ public class ControlAiAssistProjectController {
                         "supervisorConfigStatus", "supervisorConfig.status",
                         "createdSupervisorConfig", "createdSupervisorConfig"),
                 "POST /api/ai-coding/projects/{projectId}/agents/provision is not ApiResult-wrapped."));
+        shapes.put("agentAiCoding", new ResponseShape(
+                "bare-json",
+                Map.of(
+                        "list", "agents",
+                        "context.agent", "agent",
+                        "context.configVersions", "configVersions",
+                        "context.mutableBase", "mutableBase",
+                        "create.config", "supervisorConfig",
+                        "draft", "draft",
+                        "publish", "activeConfig"),
+                "Project Agent authoring endpoints are not ApiResult-wrapped; read mutableBase before every config or Skill mutation."));
+        shapes.put("agentSkillBinding", new ResponseShape(
+                "bare-json",
+                Map.of(
+                        "catalog", "bindings",
+                        "catalogScriptPolicy", "scriptPolicy",
+                        "attachment", "binding",
+                        "attachmentConfig", "config",
+                        "detachmentRemoved", "removed",
+                        "errorSchema", "agent-ai-coding-error.v1"),
+                "Skill ids and versions come from the bindable catalog; project AI Coding always binds with scriptPolicy=DENY."));
         shapes.put("sdkAccessCheck", new ResponseShape(
                 "bare-json",
                 Map.of(
@@ -247,17 +269,23 @@ public class ControlAiAssistProjectController {
                                                                  AgentProvisioningManifest provisioning,
                                                                  String baseUrl) {
         String globalAgentKeySlug = provisioning.defaultKeySlug();
+        String aiCodingProjectRoot = baseUrl + "/api/ai-coding/projects/" + project.id();
         return new AgentSupervisorManifest(
-                "agent-supervisor.workflow-tools.v1",
+                "agent-supervisor.authoring.v2",
                 globalAgentKeySlug,
                 "AGENTSCOPE",
                 "WORKFLOW_AS_TOOL_ALLOW_LIST",
                 new AgentSupervisorEndpoints(
-                        baseUrl + "/api/agents",
-                        baseUrl + "/api/agents/{agentId}/config-versions",
-                        baseUrl + "/api/agents/{agentId}/config-versions/draft",
-                        baseUrl + "/api/ai-coding/projects/" + project.id() + "/agent-supervisor/workflow-tools/attach",
-                        baseUrl + "/api/runtime/agents/execute"),
+                        aiCodingProjectRoot + "/agents",
+                        aiCodingProjectRoot + "/agents/{agentId}",
+                        aiCodingProjectRoot + "/agents/{agentId}/config/draft",
+                        aiCodingProjectRoot + "/agent-supervisor/workflow-tools/attach",
+                        baseUrl + "/api/runtime/agents/execute",
+                        aiCodingProjectRoot + "/agents/{agentId}/config/publish",
+                        aiCodingProjectRoot + "/agent-skills/bindable",
+                        aiCodingProjectRoot + "/agents/{agentId}/skills/attach",
+                        aiCodingProjectRoot + "/agents/{agentId}/skills/detach",
+                        baseUrl + "/api/ai-assist/skills/" + AGENT_AI_CODING_SKILL_NAME + "/latest.zip"),
                 new WorkflowAiCodingManifest(
                         baseUrl + "/api/ai-assist/skills/" + WORKFLOW_AI_CODING_SKILL_NAME + "/latest.zip",
                         baseUrl + "/api/workflows/ai-coding/workflows",
@@ -279,12 +307,14 @@ public class ControlAiAssistProjectController {
                                 "Read /context before patch; use workflow.updatedAt as baseRevision when saving.",
                                 "After the first valid workflow draft is saved, call /publish once to create the initial ACTIVE workflow version.")),
                 List.of(
-                        "Provision or reuse one project-level page copilot Agent entry.",
+                        "Download and install the agent-ai-coding skill before authoring project Agents or binding Skills from AI tools.",
+                        "Use only the project-key Agent endpoints in this manifest; do not call console /api/agents or /api/skills endpoints with an AI Coding key.",
+                        "Read Agent context and mutableBase before every config or Skill mutation; send the current DRAFT id when one exists.",
+                        "Bind only exact published Skill versions returned by bindableSkillsUrl; AI Coding forces scriptPolicy=DENY and cannot access PRIVATE Skills.",
                         "Store every executable graph as a runtime_workflow and publish an ACTIVE version before attachment.",
                         "Attach published Workflows via the generic agent-supervisor workflow-tools attach endpoint using agentKeySlug.",
-                        "The Page Assistant-specific endpoint accepts PAGE_ASSISTANT only.",
-                        "Publish a new Agent config version after changing its tool catalog.",
-                        "Use only the published Agent config Workflow-as-Tool catalog for runtime selection."));
+                        "Publish a new Agent config version after changing Supervisor, Skill, or Workflow bindings.",
+                        "Remote A2A bindings and Skill package governance still require the human console."));
     }
 
     private String pageCopilotKeySlug(String projectCode, Long projectId) {
@@ -514,7 +544,12 @@ public class ControlAiAssistProjectController {
             String configVersionsUrlTemplate,
             String configDraftUrlTemplate,
             String workflowToolAttachUrlTemplate,
-            String executeUrl
+            String executeUrl,
+            String configPublishUrlTemplate,
+            String bindableSkillsUrl,
+            String skillAttachUrlTemplate,
+            String skillDetachUrlTemplate,
+            String skillPackageUrl
     ) {
     }
 

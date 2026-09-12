@@ -1,7 +1,7 @@
 package com.enterprise.ai.runtime.supervisor;
 
-import com.enterprise.ai.runtime.agent.RuntimeAgentConfigVersionEntity;
-import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
+import com.enterprise.ai.runtime.agent.RuntimeAgentConfigSnapshot;
+import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
 import com.enterprise.ai.runtime.managed.ManagedArtifactReadService;
 import com.enterprise.ai.runtime.managed.ManagedExecutionService;
 import com.enterprise.ai.runtime.managed.ManagedExecutionViews.ArtifactView;
@@ -55,8 +55,9 @@ class ManagedExecutorAgentDelegationServiceTest {
         assertThat(policy.maxWallTimeSeconds()).isEqualTo(900);
         assertThat(policy.approvalTimeoutSeconds()).isEqualTo(300);
 
-        RuntimeAgentConfigVersionEntity draft = config(validPolicy(false));
-        draft.setStatus("DRAFT");
+        RuntimeAgentConfigSnapshot draft = config(validPolicy(false)).toBuilder()
+                .status("DRAFT")
+                .build();
         assertThat(service.resolvePolicy(draft, identity()).enabled()).isFalse();
         assertThat(service.resolvePolicy(config("{\"managedExecutor\":{\"enabled\":true,\"unknown\":1}}"),
                 identity()).enabled()).isFalse();
@@ -105,8 +106,9 @@ class ManagedExecutorAgentDelegationServiceTest {
     @Test
     void evalShadowCanMeasureVersionRoutingWithoutStartingARealExecution() {
         ManagedExecutorAgentDelegationService evalService = service(false, false);
-        RuntimeAgentConfigVersionEntity draft = config(validPolicy(true));
-        draft.setStatus("DRAFT");
+        RuntimeAgentConfigSnapshot draft = config(validPolicy(true)).toBuilder()
+                .status("DRAFT")
+                .build();
         var policy = evalService.resolveEvaluationPolicy(draft, "QMS");
 
         Map<String, Object> card = evalService.simulate(
@@ -129,7 +131,7 @@ class ManagedExecutorAgentDelegationServiceTest {
 
     @Test
     void startReturnsImmediatelyAndUsesOnlyTrustedIdentityAndImmutablePolicyAuthority() {
-        RuntimeAgentConfigVersionEntity config = config(validPolicy(false));
+        RuntimeAgentConfigSnapshot config = config(validPolicy(false));
         var policy = service.resolvePolicy(config, identity());
         AtomicReference<com.enterprise.ai.runtime.managed.ManagedExecutionViews.CreateRequest> captured =
                 new AtomicReference<>();
@@ -168,7 +170,7 @@ class ManagedExecutorAgentDelegationServiceTest {
 
     @Test
     void rejectsAnyModelAttemptToAddProjectProfileBudgetOrNetworkAuthority() {
-        RuntimeAgentConfigVersionEntity config = config(validPolicy(false));
+        RuntimeAgentConfigSnapshot config = config(validPolicy(false));
         var policy = service.resolvePolicy(config, identity());
 
         assertThatThrownBy(() -> service.invoke(
@@ -193,7 +195,7 @@ class ManagedExecutorAgentDelegationServiceTest {
 
     @Test
     void productionMutationIntentNeverExposesOrStartsManagedExecutor() {
-        RuntimeAgentConfigVersionEntity config = config(validPolicy(false));
+        RuntimeAgentConfigSnapshot config = config(validPolicy(false));
         var policy = service.resolvePolicy(config, identity());
         Map<String, Object> input = Map.of(
                 "managedExecutorRequested", true,
@@ -218,7 +220,7 @@ class ManagedExecutorAgentDelegationServiceTest {
 
     @Test
     void statusIsFencedByTenantProjectUserSourceAndExactConfigVersion() {
-        RuntimeAgentConfigVersionEntity config = config(validPolicy(false));
+        RuntimeAgentConfigSnapshot config = config(validPolicy(false));
         var policy = service.resolvePolicy(config, identity());
         when(executionService.get("mex_other", "tenant-a"))
                 .thenReturn(execution("mex_other", "user-b", "acv:42:trace:abc", "RUNNING"));
@@ -234,7 +236,7 @@ class ManagedExecutorAgentDelegationServiceTest {
 
     @Test
     void readResultReturnsOnlyVerifiedReferencesAndBoundedOutcomeCounts() {
-        RuntimeAgentConfigVersionEntity config = config(validPolicy(false));
+        RuntimeAgentConfigSnapshot config = config(validPolicy(false));
         var policy = service.resolvePolicy(config, identity());
         ExecutionView execution = execution("mex_1", "user-a", "acv:42:trace:abc", "SUCCEEDED");
         when(executionService.get("mex_1", "tenant-a")).thenReturn(execution);
@@ -280,7 +282,7 @@ class ManagedExecutorAgentDelegationServiceTest {
 
     @Test
     void readResultRefusesNonSuccessfulExecutionsBeforeOpeningArtifacts() {
-        RuntimeAgentConfigVersionEntity config = config(validPolicy(false));
+        RuntimeAgentConfigSnapshot config = config(validPolicy(false));
         var policy = service.resolvePolicy(config, identity());
         when(executionService.get("mex_1", "tenant-a"))
                 .thenReturn(execution("mex_1", "user-a", "acv:42:trace:abc", "RUNNING"));
@@ -315,11 +317,12 @@ class ManagedExecutorAgentDelegationServiceTest {
                 executionService, artifactReadService, properties, objectMapper);
     }
 
-    private RuntimeAgentConfigVersionEntity config(String json) {
-        RuntimeAgentConfigVersionEntity config = new RuntimeAgentConfigVersionEntity();
-        config.setId(42L);
-        config.setStatus("PUBLISHED");
-        config.setConfigJson(json);
+    private RuntimeAgentConfigSnapshot config(String json) {
+        RuntimeAgentConfigSnapshot config = RuntimeAgentConfigSnapshot.builder()
+                .id(42L)
+                .status("PUBLISHED")
+                .configJson(json)
+                .build();
         return config;
     }
 

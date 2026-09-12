@@ -44,7 +44,7 @@ class RuntimeAgentSkillRepositoryFactoryTest {
         files.put("SKILL.md", skillMd);
         files.put("references/guide.txt", reference);
         byte[] archive = zip("demo-skill/", files);
-        RuntimeAgentSkillBindingEntity binding = binding(archive, files, "ALWAYS");
+        RuntimeAgentSkillBindingSnapshot binding = binding(archive, files, "ALWAYS");
 
         RuntimeAgentSkillCatalogClient client = mock(RuntimeAgentSkillCatalogClient.class);
         HttpHeaders headers = new HttpHeaders();
@@ -77,7 +77,7 @@ class RuntimeAgentSkillRepositoryFactoryTest {
                 .getBytes(StandardCharsets.UTF_8);
         Map<String, byte[]> files = Map.of("SKILL.md", skillMd);
         byte[] archive = zip("demo-skill/", files);
-        RuntimeAgentSkillBindingEntity binding = binding(archive, files, "MODEL_SELECTED");
+        RuntimeAgentSkillBindingSnapshot binding = binding(archive, files, "MODEL_SELECTED");
         RuntimeAgentSkillCatalogClient client = mock(RuntimeAgentSkillCatalogClient.class);
         HttpHeaders headers = new HttpHeaders();
         headers.set("X-ReachAI-Skill-SHA256", binding.getSourceSha256());
@@ -110,7 +110,7 @@ class RuntimeAgentSkillRepositoryFactoryTest {
                 .getBytes(StandardCharsets.UTF_8);
         Map<String, byte[]> files = Map.of("SKILL.md", skillMd);
         byte[] archive = zip("demo-skill/", files);
-        RuntimeAgentSkillBindingEntity binding = binding(archive, files, "MODEL_SELECTED");
+        RuntimeAgentSkillBindingSnapshot binding = binding(archive, files, "MODEL_SELECTED");
         byte[] otherArchive = zip("demo-skill/", Map.of("SKILL.md", "other".getBytes(StandardCharsets.UTF_8)));
         RuntimeAgentSkillCatalogClient client = mock(RuntimeAgentSkillCatalogClient.class);
         HttpHeaders headers = new HttpHeaders();
@@ -137,7 +137,7 @@ class RuntimeAgentSkillRepositoryFactoryTest {
                 .getBytes(StandardCharsets.UTF_8);
         Map<String, byte[]> files = Map.of("SKILL.md", skillMd);
         byte[] archive = zip("demo-skill/", files);
-        RuntimeAgentSkillBindingEntity binding = binding(archive, files, "MODEL_SELECTED");
+        RuntimeAgentSkillBindingSnapshot binding = binding(archive, files, "MODEL_SELECTED");
         RuntimeAgentSkillCatalogClient client = mock(RuntimeAgentSkillCatalogClient.class);
         HttpHeaders headers = new HttpHeaders();
         headers.set("X-ReachAI-Skill-SHA256", binding.getSourceSha256());
@@ -168,8 +168,9 @@ class RuntimeAgentSkillRepositoryFactoryTest {
                 .getBytes(StandardCharsets.UTF_8);
         Map<String, byte[]> files = Map.of("SKILL.md", skillMd);
         byte[] archive = zip("demo-skill/", files);
-        RuntimeAgentSkillBindingEntity binding = binding(archive, files, "MODEL_SELECTED");
-        binding.setRequired(false);
+        RuntimeAgentSkillBindingSnapshot binding = binding(archive, files, "MODEL_SELECTED").toBuilder()
+                .required(false)
+                .build();
         RuntimeAgentSkillCatalogClient client = mock(RuntimeAgentSkillCatalogClient.class);
         when(client.resolveExecution(org.mockito.ArgumentMatchers.anyList()))
                 .thenReturn(List.of(new RuntimeAgentSkillCatalogClient.ExecutionResolution(
@@ -192,12 +193,13 @@ class RuntimeAgentSkillRepositoryFactoryTest {
                 .getBytes(StandardCharsets.UTF_8);
         Map<String, byte[]> files = Map.of("SKILL.md", skillMd);
         byte[] archive = zip("demo-skill/", files);
-        RuntimeAgentSkillBindingEntity required = binding(archive, files, "MODEL_SELECTED");
-        RuntimeAgentSkillBindingEntity missingOptional = binding(archive, files, "MODEL_SELECTED");
-        missingOptional.setSkillId(12L);
-        missingOptional.setSkillVersionId(22L);
-        missingOptional.setStandardName("missing-skill");
-        missingOptional.setRequired(false);
+        RuntimeAgentSkillBindingSnapshot required = binding(archive, files, "MODEL_SELECTED");
+        RuntimeAgentSkillBindingSnapshot missingOptional = binding(archive, files, "MODEL_SELECTED").toBuilder()
+                .skillId(12L)
+                .skillVersionId(22L)
+                .standardName("missing-skill")
+                .required(false)
+                .build();
 
         RuntimeAgentSkillCatalogClient client = mock(RuntimeAgentSkillCatalogClient.class);
         HttpHeaders headers = new HttpHeaders();
@@ -233,13 +235,14 @@ class RuntimeAgentSkillRepositoryFactoryTest {
                 .getBytes(StandardCharsets.UTF_8);
         Map<String, byte[]> files = Map.of("SKILL.md", skillMd);
         byte[] archive = zip("demo-skill/", files);
-        RuntimeAgentSkillBindingEntity required = binding(archive, files, "MODEL_SELECTED");
-        RuntimeAgentSkillBindingEntity malformedOptional = binding(archive, files, "MODEL_SELECTED");
-        malformedOptional.setSkillId(12L);
-        malformedOptional.setSkillVersionId(22L);
-        malformedOptional.setStandardName("malformed-skill");
-        malformedOptional.setSourceSha256(null);
-        malformedOptional.setRequired(false);
+        RuntimeAgentSkillBindingSnapshot required = binding(archive, files, "MODEL_SELECTED");
+        RuntimeAgentSkillBindingSnapshot malformedOptional = binding(archive, files, "MODEL_SELECTED").toBuilder()
+                .skillId(12L)
+                .skillVersionId(22L)
+                .standardName("malformed-skill")
+                .sourceSha256(null)
+                .required(false)
+                .build();
 
         RuntimeAgentSkillCatalogClient client = mock(RuntimeAgentSkillCatalogClient.class);
         HttpHeaders headers = new HttpHeaders();
@@ -268,7 +271,7 @@ class RuntimeAgentSkillRepositoryFactoryTest {
         byte[] skillMd = ("---\nname: demo-skill\ndescription: Demo\n---\nOriginal\n")
                 .getBytes(StandardCharsets.UTF_8);
         Map<String, byte[]> files = Map.of("SKILL.md", skillMd);
-        RuntimeAgentSkillBindingEntity binding = binding(
+        RuntimeAgentSkillBindingSnapshot binding = binding(
                 zip("demo-skill/", files), files, "MODEL_SELECTED");
         RuntimeAgentSkillCatalogClient client = mock(RuntimeAgentSkillCatalogClient.class);
         when(client.resolveExecution(org.mockito.ArgumentMatchers.anyList()))
@@ -290,10 +293,9 @@ class RuntimeAgentSkillRepositoryFactoryTest {
         byte[] skillMd = ("---\nname: demo-skill\ndescription: Demo\n---\nOriginal\n")
                 .getBytes(StandardCharsets.UTF_8);
         Map<String, byte[]> files = Map.of("SKILL.md", skillMd);
-        RuntimeAgentSkillBindingEntity binding = binding(
-                zip("demo-skill/", files), files, "MODEL_SELECTED");
-        binding.setVisibility("PROJECT");
-        binding.setProjectCode("finance-core");
+        RuntimeAgentSkillBindingSnapshot binding = binding(
+                zip("demo-skill/", files), files, "MODEL_SELECTED").toBuilder()
+                .visibility("PROJECT").projectCode("finance-core").build();
         RuntimeAgentSkillCatalogClient client = mock(RuntimeAgentSkillCatalogClient.class);
         RuntimeAgentSkillRepositoryFactory factory = new RuntimeAgentSkillRepositoryFactory(
                 client, new ObjectMapper(), tempDir.toString(), 1024 * 1024,
@@ -315,7 +317,7 @@ class RuntimeAgentSkillRepositoryFactoryTest {
         files.put("references/Guide.md", "one".getBytes(StandardCharsets.UTF_8));
         files.put("references/guide.md", "two".getBytes(StandardCharsets.UTF_8));
         byte[] archive = zip("demo-skill/", files);
-        RuntimeAgentSkillBindingEntity binding = binding(archive, files, "MODEL_SELECTED");
+        RuntimeAgentSkillBindingSnapshot binding = binding(archive, files, "MODEL_SELECTED");
         RuntimeAgentSkillCatalogClient client = mock(RuntimeAgentSkillCatalogClient.class);
         allowExecution(client, binding);
         RuntimeAgentSkillRepositoryFactory factory = new RuntimeAgentSkillRepositoryFactory(
@@ -338,7 +340,7 @@ class RuntimeAgentSkillRepositoryFactoryTest {
         files.put("references", "not a directory".getBytes(StandardCharsets.UTF_8));
         files.put("references/guide.md", "guide".getBytes(StandardCharsets.UTF_8));
         byte[] archive = zip("demo-skill/", files);
-        RuntimeAgentSkillBindingEntity binding = binding(archive, files, "MODEL_SELECTED");
+        RuntimeAgentSkillBindingSnapshot binding = binding(archive, files, "MODEL_SELECTED");
         RuntimeAgentSkillCatalogClient client = mock(RuntimeAgentSkillCatalogClient.class);
         allowExecution(client, binding);
         RuntimeAgentSkillRepositoryFactory factory = new RuntimeAgentSkillRepositoryFactory(
@@ -358,13 +360,15 @@ class RuntimeAgentSkillRepositoryFactoryTest {
                 .getBytes(StandardCharsets.UTF_8);
         Map<String, byte[]> files = Map.of("SKILL.md", skillMd);
         byte[] archive = zip("demo-skill/", files);
-        RuntimeAgentSkillBindingEntity binding = binding(archive, files, "MODEL_SELECTED");
-        binding.setContentTreeSha256("f".repeat(64));
+        RuntimeAgentSkillBindingSnapshot sourceBinding = binding(archive, files, "MODEL_SELECTED").toBuilder()
+                .contentTreeSha256("f".repeat(64))
+                .build();
         @SuppressWarnings("unchecked")
         Map<String, Object> manifest = new ObjectMapper().readValue(
-                binding.getPackageManifestJson(), Map.class);
-        manifest.put("contentTreeSha256", binding.getContentTreeSha256());
-        binding.setPackageManifestJson(new ObjectMapper().writeValueAsString(manifest));
+                sourceBinding.getPackageManifestJson(), Map.class);
+        manifest.put("contentTreeSha256", sourceBinding.getContentTreeSha256());
+        RuntimeAgentSkillBindingSnapshot binding = sourceBinding.toBuilder()
+                .packageManifestJson(new ObjectMapper().writeValueAsString(manifest)).build();
         RuntimeAgentSkillCatalogClient client = mock(RuntimeAgentSkillCatalogClient.class);
         allowExecution(client, binding);
         RuntimeAgentSkillRepositoryFactory factory = new RuntimeAgentSkillRepositoryFactory(
@@ -378,7 +382,7 @@ class RuntimeAgentSkillRepositoryFactoryTest {
         verify(client, times(0)).getPackage(11L, 21L);
     }
 
-    private RuntimeAgentSkillBindingEntity binding(byte[] archive,
+    private RuntimeAgentSkillBindingSnapshot binding(byte[] archive,
                                                     Map<String, byte[]> files,
                                                     String activationMode) throws Exception {
         String sourceSha = sha256(archive);
@@ -401,26 +405,27 @@ class RuntimeAgentSkillRepositoryFactoryTest {
         manifest.put("contentTreeSha256", treeSha);
         manifest.put("files", manifestFiles);
 
-        RuntimeAgentSkillBindingEntity binding = new RuntimeAgentSkillBindingEntity();
-        binding.setId(31L);
-        binding.setAgentId("agent-1");
-        binding.setAgentConfigVersionId(41L);
-        binding.setSkillId(11L);
-        binding.setSkillVersionId(21L);
-        binding.setPublisher("community");
-        binding.setStandardName("demo-skill");
-        binding.setDisplayName("Demo Skill");
-        binding.setVisibility("PUBLIC");
-        binding.setVersion("1.2.3");
-        binding.setSourceSha256(sourceSha);
-        binding.setContentTreeSha256(treeSha);
-        binding.setSourceRoot("demo-skill/");
-        binding.setPackageManifestJson(new ObjectMapper().writeValueAsString(manifest));
-        binding.setHasScripts(false);
-        binding.setActivationMode(activationMode);
-        binding.setScriptPolicy("DENY");
-        binding.setRequired(true);
-        binding.setEnabled(true);
+        RuntimeAgentSkillBindingSnapshot binding = RuntimeAgentSkillBindingSnapshot.builder()
+                .id(31L)
+                .agentId("agent-1")
+                .agentConfigVersionId(41L)
+                .skillId(11L)
+                .skillVersionId(21L)
+                .publisher("community")
+                .standardName("demo-skill")
+                .displayName("Demo Skill")
+                .visibility("PUBLIC")
+                .version("1.2.3")
+                .sourceSha256(sourceSha)
+                .contentTreeSha256(treeSha)
+                .sourceRoot("demo-skill/")
+                .packageManifestJson(new ObjectMapper().writeValueAsString(manifest))
+                .hasScripts(false)
+                .activationMode(activationMode)
+                .scriptPolicy("DENY")
+                .required(true)
+                .enabled(true)
+                .build();
         return binding;
     }
 
@@ -439,7 +444,7 @@ class RuntimeAgentSkillRepositoryFactoryTest {
     }
 
     private void allowExecution(RuntimeAgentSkillCatalogClient client,
-                                RuntimeAgentSkillBindingEntity binding) {
+                                RuntimeAgentSkillBindingSnapshot binding) {
         when(client.resolveExecution(org.mockito.ArgumentMatchers.anyList()))
                 .thenReturn(List.of(new RuntimeAgentSkillCatalogClient.ExecutionResolution(
                         binding.getSkillId(), binding.getSkillVersionId(), "PUBLISHED",

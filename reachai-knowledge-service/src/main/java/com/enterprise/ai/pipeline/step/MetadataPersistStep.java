@@ -20,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Objects;
+import static com.enterprise.ai.domain.KnowledgeBaseSettings.requireVectorCollectionName;
 
 /**
  * 步骤七：元数据持久化 — 将文件信息和 chunk 记录写入 MySQL。
@@ -39,16 +40,21 @@ public class MetadataPersistStep implements PipelineStep {
     private final FileInfoRepository fileInfoRepository;
     private final ChunkRepository chunkRepository;
     private final ObjectMapper objectMapper;
+    private final com.enterprise.ai.pipeline.document.job.DocumentImportPublicationGuard publicationGuard;
+    private final com.enterprise.ai.service.impl.KnowledgeTagService tags;
+    private final com.enterprise.ai.service.impl.KnowledgeQuestionService questions;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void process(PipelineContext context) {
         String kbCode = context.getKnowledgeBaseCode();
-        KnowledgeBase kb = knowledgeBaseRepository.selectOne(
-                new LambdaQueryWrapper<KnowledgeBase>().eq(KnowledgeBase::getCode, kbCode));
-        if (kb == null) {
-            throw new PipelineException(getName(), context.getFileId(), "知识库不存在: " + kbCode);
+        KnowledgeBase kb = context.getKnowledgeBaseId() == null ? null
+                : knowledgeBaseRepository.selectById(context.getKnowledgeBaseId());
+        if (kb == null || !Objects.equals(kb.getCode(), kbCode)
+                || !Objects.equals(requireVectorCollectionName(kb), context.getVectorCollectionName())) {
+            throw new PipelineException(getName(), context.getFileId(), "导入知识库身份已失效: " + kbCode);
         }
+        publicationGuard.lockOwnedExecution(context, kb.getId());
 
         List<String> chunks = context.getChunks();
         List<String> vectorIds = context.getVectorIds();
@@ -58,13 +64,19 @@ public class MetadataPersistStep implements PipelineStep {
         // a retry after "vectors written, metadata/complete marker failed" is
         // idempotent.  A different job may never take over an existing fileId.
         FileInfo existingFile = fileInfoRepository.selectOne(
-                new LambdaQueryWrapper<FileInfo>().eq(FileInfo::getFileId, context.getFileId()));
-        if (existingFile != null && !Objects.equals(existingFile.getImportJobId(), context.getImportJobId())) {
+                new LambdaQueryWrapper<FileInfo>().eq(FileInfo::getFileId, context.getFileId()).last("FOR UPDATE"));
+        if (existingFile != null && (context.getImportJobId() == null
+                || !Objects.equals(existingFile.getKnowledgeBaseId(), kb.getId())
+                || !Objects.equals(existingFile.getImportJobId(), context.getImportJobId()))) {
             throw new PipelineException(getName(), context.getFileId(),
-                    "fileId 已被其他导入任务占用: " + context.getFileId());
+                    "fileId 已被其他知识库或导入任务占用: " + context.getFileId());
         }
-        chunkRepository.delete(new LambdaQueryWrapper<Chunk>().eq(Chunk::getFileId, context.getFileId()));
-        fileInfoRepository.delete(new LambdaQueryWrapper<FileInfo>().eq(FileInfo::getFileId, context.getFileId()));
+        questions.unlinkFileChunks(kb.getId(), context.getFileId());
+        tags.retireFile(kb.getId(), context.getFileId());
+        chunkRepository.delete(new LambdaQueryWrapper<Chunk>().eq(Chunk::getFileId, context.getFileId())
+                .eq(Chunk::getKnowledgeBaseId, kb.getId()));
+        fileInfoRepository.delete(new LambdaQueryWrapper<FileInfo>().eq(FileInfo::getFileId, context.getFileId())
+                .eq(FileInfo::getKnowledgeBaseId, kb.getId()));
 
         // 保存文件记录（含文件大小和原始文本，支持后续重新解析）
         FileInfo fileInfo = new FileInfo();
@@ -103,7 +115,7 @@ public class MetadataPersistStep implements PipelineStep {
             chunk.setContent(chunks.get(i));
             chunk.setChunkIndex(i);
             chunk.setVectorId(i < vectorIds.size() ? vectorIds.get(i) : null);
-            chunk.setCollectionName(kbCode);
+            chunk.setCollectionName(context.getVectorCollectionName());
             chunk.setHitCount(0);
             chunk.setEnabled(1);
             DocumentChunkSource source = i < context.getChunkSources().size()
@@ -116,6 +128,7 @@ public class MetadataPersistStep implements PipelineStep {
             chunkRepository.insert(chunk);
         }
 
+        publicationGuard.completeInMetadataTransaction(context);
         log.debug("MetadataPersistStep 完成: fileId={}, 知识库={}, chunk数={}",
                 context.getFileId(), kbCode, chunks.size());
     }

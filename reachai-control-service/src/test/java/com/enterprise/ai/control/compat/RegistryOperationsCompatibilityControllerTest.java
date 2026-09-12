@@ -4,12 +4,10 @@ import com.enterprise.ai.control.client.capability.CapabilityProxyClient;
 import com.enterprise.ai.control.client.runtime.RuntimeProxyClient;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 
 import java.lang.reflect.Method;
-import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -30,41 +28,16 @@ class RegistryOperationsCompatibilityControllerTest {
         Method syncCapabilities = RegistryOperationsCompatibilityController.class
                 .getDeclaredMethod("syncCapabilities", String.class, String.class, String.class,
                         String.class, String.class, Map.class);
-        Method diffCapabilities = RegistryOperationsCompatibilityController.class
-                .getDeclaredMethod("diffCapabilities", String.class, String.class, String.class,
-                        String.class, String.class, Map.class);
-        Method applyCapabilities = RegistryOperationsCompatibilityController.class
-                .getDeclaredMethod("applyCapabilities", String.class, Map.class);
         Method syncAgentGraphs = RegistryOperationsCompatibilityController.class
                 .getDeclaredMethod("syncAgentGraphs", String.class, Map.class);
-        Method listSnapshots = RegistryOperationsCompatibilityController.class
-                .getDeclaredMethod("listCapabilitySnapshots", String.class);
-        Method listDiffItems = RegistryOperationsCompatibilityController.class
-                .getDeclaredMethod("listCapabilityDiffItems", Long.class);
-        Method reviewDiffItem = RegistryOperationsCompatibilityController.class
-                .getDeclaredMethod("reviewCapabilityDiffItem", Long.class, Map.class);
-        Method rollbackDiffItem = RegistryOperationsCompatibilityController.class
-                .getDeclaredMethod("rollbackCapabilityDiffItem", Long.class, Map.class);
 
         assertArrayEquals(new String[] {"/api/registry"}, controllerMapping.value());
         assertArrayEquals(new String[] {"/projects/{projectCode}/instances/heartbeat"},
                 heartbeat.getAnnotation(PostMapping.class).value());
         assertArrayEquals(new String[] {"/projects/{projectCode}/capabilities/sync"},
                 syncCapabilities.getAnnotation(PostMapping.class).value());
-        assertArrayEquals(new String[] {"/projects/{projectCode}/capabilities/diff"},
-                diffCapabilities.getAnnotation(PostMapping.class).value());
-        assertArrayEquals(new String[] {"/projects/{projectCode}/capabilities/apply"},
-                applyCapabilities.getAnnotation(PostMapping.class).value());
         assertArrayEquals(new String[] {"/projects/{projectCode}/agent-graphs/sync"},
                 syncAgentGraphs.getAnnotation(PostMapping.class).value());
-        assertArrayEquals(new String[] {"/projects/{projectCode}/capability-snapshots"},
-                listSnapshots.getAnnotation(GetMapping.class).value());
-        assertArrayEquals(new String[] {"/capability-snapshots/{snapshotId}/diff-items"},
-                listDiffItems.getAnnotation(GetMapping.class).value());
-        assertArrayEquals(new String[] {"/capability-diff-items/{diffItemId}/review"},
-                reviewDiffItem.getAnnotation(PostMapping.class).value());
-        assertArrayEquals(new String[] {"/capability-diff-items/{diffItemId}/rollback"},
-                rollbackDiffItem.getAnnotation(PostMapping.class).value());
     }
 
     @Test
@@ -80,25 +53,16 @@ class RegistryOperationsCompatibilityControllerTest {
                 "orders", "key", "123", "nonce", "signature", request)).thenReturn(delegated);
         when(capabilityProxyClient.syncCapabilities(
                 "orders", "key", "123", "nonce", "signature", request)).thenReturn(delegated);
-        when(capabilityProxyClient.diffCapabilities(
-                "orders", "key", "123", "nonce", "signature", request)).thenReturn(delegated);
-        when(capabilityProxyClient.applyCapabilities("orders", request)).thenReturn(delegated);
 
         assertEquals(delegated, controller.heartbeat(
                 "orders", "key", "123", "nonce", "signature", request));
         assertEquals(delegated, controller.syncCapabilities(
                 "orders", "key", "123", "nonce", "signature", request));
-        assertEquals(delegated, controller.diffCapabilities(
-                "orders", "key", "123", "nonce", "signature", request));
-        assertEquals(delegated, controller.applyCapabilities("orders", request));
 
         verify(capabilityProxyClient).heartbeat(
                 "orders", "key", "123", "nonce", "signature", request);
         verify(capabilityProxyClient).syncCapabilities(
                 "orders", "key", "123", "nonce", "signature", request);
-        verify(capabilityProxyClient).diffCapabilities(
-                "orders", "key", "123", "nonce", "signature", request);
-        verify(capabilityProxyClient).applyCapabilities("orders", request);
     }
 
     @Test
@@ -117,32 +81,4 @@ class RegistryOperationsCompatibilityControllerTest {
         verify(runtimeProxyClient).syncAgentGraphs("orders", request);
     }
 
-    @Test
-    void delegatesSdkRegistryReviewReadsToCapabilityService() {
-        CapabilityProxyClient capabilityProxyClient = mock(CapabilityProxyClient.class);
-        RuntimeProxyClient runtimeProxyClient = mock(RuntimeProxyClient.class);
-        RegistryOperationsCompatibilityController controller =
-                new RegistryOperationsCompatibilityController(capabilityProxyClient, runtimeProxyClient);
-        ResponseEntity<Object> snapshots = ResponseEntity.ok(List.of(Map.of("id", 1L)));
-        ResponseEntity<Object> diffItems = ResponseEntity.ok(List.of(Map.of("id", 12L)));
-        ResponseEntity<Object> review = ResponseEntity.ok(Map.of("id", 12L, "reviewStatus", "APPLIED"));
-        ResponseEntity<Object> rollback = ResponseEntity.ok(Map.of("id", 12L, "reviewStatus", "ROLLED_BACK"));
-        Map<String, Object> reviewRequest = Map.of("action", "APPLY");
-        Map<String, Object> rollbackRequest = Map.of("operator", "alice");
-
-        when(capabilityProxyClient.listCapabilitySnapshots("orders")).thenReturn(snapshots);
-        when(capabilityProxyClient.listCapabilityDiffItems(1L)).thenReturn(diffItems);
-        when(capabilityProxyClient.reviewCapabilityDiffItem(12L, reviewRequest)).thenReturn(review);
-        when(capabilityProxyClient.rollbackCapabilityDiffItem(12L, rollbackRequest)).thenReturn(rollback);
-
-        assertEquals(snapshots, controller.listCapabilitySnapshots("orders"));
-        assertEquals(diffItems, controller.listCapabilityDiffItems(1L));
-        assertEquals(review, controller.reviewCapabilityDiffItem(12L, reviewRequest));
-        assertEquals(rollback, controller.rollbackCapabilityDiffItem(12L, rollbackRequest));
-
-        verify(capabilityProxyClient).listCapabilitySnapshots("orders");
-        verify(capabilityProxyClient).listCapabilityDiffItems(1L);
-        verify(capabilityProxyClient).reviewCapabilityDiffItem(12L, reviewRequest);
-        verify(capabilityProxyClient).rollbackCapabilityDiffItem(12L, rollbackRequest);
-    }
 }

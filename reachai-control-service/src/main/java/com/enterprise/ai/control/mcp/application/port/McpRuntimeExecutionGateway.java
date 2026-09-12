@@ -23,7 +23,15 @@ public interface McpRuntimeExecutionGateway {
             String environment,
             String tenantId,
             long publicationId,
-            int revisionNo) {
+            int revisionNo,
+            String capabilityContractHash) {
+        public ToolExecutionCommand(String sourceKind, String sourceRef, Long workflowVersionId,
+                String toolName, Map<String, Object> arguments, long mcpClientId, String mcpClientName,
+                Long projectId, String projectCode, String environment, String tenantId,
+                long publicationId, int revisionNo) {
+            this(sourceKind, sourceRef, workflowVersionId, toolName, arguments, mcpClientId, mcpClientName,
+                    projectId, projectCode, environment, tenantId, publicationId, revisionNo, null);
+        }
     }
 
     record ExecutionOutcome(

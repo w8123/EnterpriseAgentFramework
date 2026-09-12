@@ -43,8 +43,19 @@ class RuntimeKernelFacadePerformanceTest {
 
     @Test
     void facadeP95AddsNoMoreThanFivePercentToRepresentativeExecution() {
+        var modelWait = new java.util.concurrent.atomic.AtomicLong();
         RuntimeModelServiceClient model = request -> {
-            LockSupport.parkNanos(MODEL_LATENCY_NANOS);
+            long waitStarted = System.nanoTime();
+            long remaining = MODEL_LATENCY_NANOS;
+            do {
+                // parkNanos may return early; every sample must include the declared model latency.
+                LockSupport.parkNanos(remaining);
+                if (Thread.currentThread().isInterrupted()) {
+                    throw new IllegalStateException("Performance sample interrupted during model wait");
+                }
+                remaining = MODEL_LATENCY_NANOS - (System.nanoTime() - waitStarted);
+            } while (remaining > 0);
+            modelWait.set(System.nanoTime() - waitStarted);
             return new ModelChatResult(200, "ok",
                     new ModelChatData("answer", "benchmark-model", "test", null, null, null, "stop"));
         };
@@ -63,19 +74,37 @@ class RuntimeKernelFacadePerformanceTest {
 
         long[] baselineSamples = new long[SAMPLE_COUNT];
         long[] candidateSamples = new long[SAMPLE_COUNT];
+        long[] baselineWaits = new long[SAMPLE_COUNT];
+        long[] candidateWaits = new long[SAMPLE_COUNT];
         for (int i = 0; i < SAMPLE_COUNT; i++) {
             if ((i & 1) == 0) {
                 baselineSamples[i] = measure(() -> baseline.execute(GRAPH, INPUT));
+                baselineWaits[i] = modelWait.get();
                 candidateSamples[i] = measure(() -> candidate.execute(GRAPH, INPUT));
+                candidateWaits[i] = modelWait.get();
             } else {
                 candidateSamples[i] = measure(() -> candidate.execute(GRAPH, INPUT));
+                candidateWaits[i] = modelWait.get();
                 baselineSamples[i] = measure(() -> baseline.execute(GRAPH, INPUT));
+                baselineWaits[i] = modelWait.get();
             }
         }
 
         long baselineP95 = percentile95(baselineSamples);
         long candidateP95 = percentile95(candidateSamples);
+        long minimumModelWait = Math.min(Arrays.stream(baselineWaits).min().orElseThrow(),
+                Arrays.stream(candidateWaits).min().orElseThrow());
+        assertTrue(minimumModelWait >= MODEL_LATENCY_NANOS,
+                "Each timing sample must include the declared minimum model latency");
         double overheadPercent = ((double) candidateP95 / baselineP95 - 1.0d) * 100.0d;
+        long[] baselineNormalized = new long[SAMPLE_COUNT];
+        long[] candidateNormalized = new long[SAMPLE_COUNT];
+        Arrays.setAll(baselineNormalized, i -> baselineSamples[i] - baselineWaits[i] + MODEL_LATENCY_NANOS);
+        Arrays.setAll(candidateNormalized, i -> candidateSamples[i] - candidateWaits[i] + MODEL_LATENCY_NANOS);
+        System.out.printf("Runtime Kernel wait diagnostics: baselineWaitP95=%.3fms candidateWaitP95=%.3fms normalizedBaselineP95=%.3fms normalizedCandidateP95=%.3fms minimumModelWait=%.3fms%n",
+                percentile95(baselineWaits) / 1_000_000.0d, percentile95(candidateWaits) / 1_000_000.0d,
+                percentile95(baselineNormalized) / 1_000_000.0d, percentile95(candidateNormalized) / 1_000_000.0d,
+                minimumModelWait / 1_000_000.0d);
         System.out.printf(
                 "Runtime Kernel V2 representative P95: baseline=%.3fms candidate=%.3fms overhead=%.2f%%%n",
                 baselineP95 / 1_000_000.0d, candidateP95 / 1_000_000.0d, overheadPercent);

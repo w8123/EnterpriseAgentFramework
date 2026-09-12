@@ -51,6 +51,11 @@ public class CapabilityItemContractResolver implements McpItemContractResolver {
             throw failure("MCP_CAPABILITY_TOOL_DISABLED", qualifiedName,
                     "capability tool is disabled: " + qualifiedName);
         }
+        String contractHash = text(definition.get("contractHash"));
+        if (contractHash == null || !contractHash.matches("[0-9a-f]{64}")
+                || !"READY".equals(definition.get("sourceAvailability"))) {
+            throw failure("MCP_CAPABILITY_SOURCE_NOT_READY", qualifiedName, "能力来源或契约尚未就绪: " + qualifiedName);
+        }
         String inputSchemaJson = inputSchemaJson(text(definition.get("parametersJson")), qualifiedName);
         String description = firstText(
                 text(definition.get("aiDescription")),
@@ -60,8 +65,8 @@ public class CapabilityItemContractResolver implements McpItemContractResolver {
                 text(definition.get("name")),
                 qualifiedName));
         return new McpToolProjection(toolName, description, inputSchemaJson,
-                McpPublicationItemKind.CAPABILITY, qualifiedName, null,
-                riskLevel(text(definition.get("sideEffect"))));
+                McpPublicationItemKind.CAPABILITY, firstText(text(definition.get("qualifiedName")), qualifiedName), null,
+                riskLevel(text(definition.get("sideEffect"))), contractHash);
     }
 
     private Map<String, Object> lookup(String qualifiedName) {

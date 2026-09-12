@@ -2259,10 +2259,6 @@ public class RuntimeWorkflowProposalGenerationService {
         return items.isEmpty() ? fallback : items;
     }
 
-    private String firstString(List<String> values) {
-        return values == null || values.isEmpty() ? "" : values.get(0);
-    }
-
     private void putIfText(Map<String, Object> target, String key, String value) {
         if (StringUtils.hasText(value)) {
             target.put(key, value.trim());

@@ -27,6 +27,7 @@ const emit = defineEmits<{
 <template>
   <form
     :class="['filter-bar', 'glass-surface-control', densityClass(props.density)]"
+    novalidate
     @submit.prevent="emit('query')"
   >
     <div class="filter-bar__fields">

@@ -955,7 +955,6 @@ html[data-theme='dark'] {
   font-size: 10px;
 }
 
-.ops-filter-button,
 .ops-date-chip,
 .ops-action-btn {
   min-height: 32px;
@@ -971,15 +970,33 @@ html[data-theme='dark'] {
   white-space: nowrap;
 }
 
-.ops-filter-button,
-.ops-action-btn {
-  cursor: pointer;
+.ops-scope-chip {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
+  color: var(--ops-text-muted);
+  background: color-mix(in srgb, var(--ops-surface-control-strong) 54%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ops-border) 72%, transparent);
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 650;
+  white-space: nowrap;
 }
 
-.ops-filter-button i {
-  margin-left: 8px;
-  color: var(--ops-text-muted);
-  font-style: normal;
+.ops-scope-chip::before {
+  width: 5px;
+  height: 5px;
+  flex: 0 0 auto;
+  content: '';
+  background: var(--ops-blue);
+  border-radius: 50%;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ops-blue) 12%, transparent);
+}
+
+.ops-action-btn {
+  cursor: pointer;
 }
 
 .ops-date-chip i {
@@ -1002,9 +1019,7 @@ html[data-theme='dark'] {
 }
 
 .ops-action-btn:hover,
-.ops-action-btn:focus-visible,
-.ops-filter-button:hover,
-.ops-filter-button:focus-visible {
+.ops-action-btn:focus-visible {
   color: var(--ops-blue);
   border-color: var(--ops-border-strong);
   outline: none;

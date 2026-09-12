@@ -26,31 +26,6 @@ public class RegistrySecurityService {
     private final RegistryCredentialMapper credentialMapper;
     private final ObjectMapper objectMapper;
 
-    public void upsertCredential(Long projectId, String projectCode, String appKey, String appSecret) {
-        if (!StringUtils.hasText(appKey) || !StringUtils.hasText(appSecret)) {
-            return;
-        }
-        RegistryCredentialEntity entity = credentialMapper.selectOne(Wrappers.<RegistryCredentialEntity>lambdaQuery()
-                .eq(RegistryCredentialEntity::getProjectCode, projectCode)
-                .eq(RegistryCredentialEntity::getAppKey, appKey)
-                .last("limit 1"));
-        if (entity == null) {
-            entity = new RegistryCredentialEntity();
-            entity.setProjectId(projectId);
-            entity.setProjectCode(projectCode);
-            entity.setAppKey(appKey);
-            entity.setCreatedAt(LocalDateTime.now());
-        }
-        entity.setAppSecret(appSecret);
-        entity.setStatus("ACTIVE");
-        entity.setUpdatedAt(LocalDateTime.now());
-        if (entity.getId() == null) {
-            credentialMapper.insert(entity);
-        } else {
-            credentialMapper.updateById(entity);
-        }
-    }
-
     @Transactional
     public RegistryCredentialEntity savePrimaryCredential(Long projectId,
                                                           String projectCode,
@@ -62,26 +37,62 @@ public class RegistrySecurityService {
         if (!StringUtils.hasText(appKey) || !StringUtils.hasText(appSecret)) {
             throw new IllegalArgumentException("registry credential appKey/appSecret is required");
         }
-        RegistryCredentialEntity entity = credentialMapper.selectOne(Wrappers.<RegistryCredentialEntity>lambdaQuery()
-                .eq(RegistryCredentialEntity::getProjectCode, projectCode.trim())
-                .eq(RegistryCredentialEntity::getStatus, "ACTIVE")
-                .orderByDesc(RegistryCredentialEntity::getUpdatedAt)
-                .last("limit 1"));
+        RegistryCredentialEntity entity = findPrimaryActiveCredential(projectCode).orElse(null);
+        LocalDateTime now = LocalDateTime.now();
         if (entity == null) {
             entity = new RegistryCredentialEntity();
             entity.setProjectId(projectId);
             entity.setProjectCode(projectCode.trim());
-            entity.setCreatedAt(LocalDateTime.now());
-        }
-        entity.setAppKey(appKey.trim());
-        entity.setAppSecret(appSecret.trim());
-        entity.setStatus("ACTIVE");
-        entity.setUpdatedAt(LocalDateTime.now());
-        if (entity.getId() == null) {
+            entity.setCreatedAt(now);
+            entity.setAppKey(appKey.trim());
+            entity.setAppSecret(appSecret.trim());
+            entity.setStatus("ACTIVE");
+            entity.setUpdatedAt(now);
             credentialMapper.insert(entity);
         } else {
-            credentialMapper.updateById(entity);
+            int updated = credentialMapper.update(null, Wrappers.<RegistryCredentialEntity>lambdaUpdate()
+                    .eq(RegistryCredentialEntity::getId, entity.getId())
+                    .eq(RegistryCredentialEntity::getProjectId, projectId)
+                    .eq(RegistryCredentialEntity::getProjectCode, projectCode.trim())
+                    .eq(RegistryCredentialEntity::getStatus, "ACTIVE")
+                    // Cover each utf8mb4 column's full byte width; lengths distinguish binary padding.
+                    .apply("CAST(app_key AS BINARY(512)) = CAST({0} AS BINARY(512)) "
+                            + "AND OCTET_LENGTH(app_key) = OCTET_LENGTH({0})", entity.getAppKey())
+                    .apply("CAST(app_secret AS BINARY(1024)) = CAST({0} AS BINARY(1024)) "
+                            + "AND OCTET_LENGTH(app_secret) = OCTET_LENGTH({0})", entity.getAppSecret())
+                    .set(RegistryCredentialEntity::getAppKey, appKey.trim())
+                    .set(RegistryCredentialEntity::getAppSecret, appSecret.trim())
+                    .set(RegistryCredentialEntity::getUpdatedAt, now));
+            if (updated != 1) {
+                throw new IllegalArgumentException("registry credential changed during rotation; reload and retry");
+            }
         }
+        return requireCredential(entity.getId());
+    }
+
+    /** Full administrative policy replacement; credential identity is owned by rotation. */
+    @Transactional
+    public RegistryCredentialEntity updateAdministrativePolicy(Long credentialId,
+                                                               List<String> allowedOrigins,
+                                                               List<String> allowedAgentIds,
+                                                               int tokenTtlSeconds,
+                                                               String status) {
+        var update = Wrappers.<RegistryCredentialEntity>lambdaUpdate()
+                .eq(RegistryCredentialEntity::getId, credentialId)
+                .set(RegistryCredentialEntity::getAllowedOriginsJson, writeJson(allowedOrigins))
+                .set(RegistryCredentialEntity::getAllowedAgentIdsJson, writeJson(allowedAgentIds))
+                .set(RegistryCredentialEntity::getTokenTtlSeconds, tokenTtlSeconds)
+                .set(RegistryCredentialEntity::getUpdatedAt, LocalDateTime.now());
+        if (StringUtils.hasText(status)) update.set(RegistryCredentialEntity::getStatus, status.trim());
+        if (credentialMapper.update(null, update) != 1) {
+            throw new IllegalArgumentException("Credential not found: " + credentialId);
+        }
+        return requireCredential(credentialId);
+    }
+
+    private RegistryCredentialEntity requireCredential(Long credentialId) {
+        RegistryCredentialEntity entity = credentialMapper.selectById(credentialId);
+        if (entity == null) throw new IllegalArgumentException("Credential not found: " + credentialId);
         return entity;
     }
 
@@ -90,26 +101,29 @@ public class RegistrySecurityService {
                                   List<String> allowedOrigins,
                                   List<String> allowedAgentIds,
                                   Integer tokenTtlSeconds) {
-        RegistryCredentialEntity entity = findActiveCredential(projectCode, appKey);
-        if (entity == null) {
+        if (!StringUtils.hasText(projectCode) || !StringUtils.hasText(appKey)) {
             return;
         }
+        var update = Wrappers.<RegistryCredentialEntity>lambdaUpdate()
+                .eq(RegistryCredentialEntity::getProjectCode, projectCode)
+                .eq(RegistryCredentialEntity::getAppKey, appKey)
+                .eq(RegistryCredentialEntity::getStatus, "ACTIVE");
         boolean changed = false;
         if (allowedOrigins != null && !allowedOrigins.isEmpty()) {
-            entity.setAllowedOriginsJson(writeJson(allowedOrigins));
+            update.set(RegistryCredentialEntity::getAllowedOriginsJson, writeJson(allowedOrigins));
             changed = true;
         }
         if (allowedAgentIds != null && !allowedAgentIds.isEmpty()) {
-            entity.setAllowedAgentIdsJson(writeJson(allowedAgentIds));
+            update.set(RegistryCredentialEntity::getAllowedAgentIdsJson, writeJson(allowedAgentIds));
             changed = true;
         }
         if (tokenTtlSeconds != null && tokenTtlSeconds > 0) {
-            entity.setTokenTtlSeconds(tokenTtlSeconds);
+            update.set(RegistryCredentialEntity::getTokenTtlSeconds, tokenTtlSeconds);
             changed = true;
         }
         if (changed) {
-            entity.setUpdatedAt(LocalDateTime.now());
-            credentialMapper.updateById(entity);
+            update.set(RegistryCredentialEntity::getUpdatedAt, LocalDateTime.now());
+            credentialMapper.update(null, update);
         }
     }
 
@@ -124,6 +138,7 @@ public class RegistrySecurityService {
                 .eq(RegistryCredentialEntity::getProjectCode, projectCode.trim())
                 .eq(RegistryCredentialEntity::getStatus, "ACTIVE")
                 .orderByDesc(RegistryCredentialEntity::getUpdatedAt)
+                .orderByDesc(RegistryCredentialEntity::getId)
                 .last("LIMIT 1")));
     }
 
@@ -137,31 +152,6 @@ public class RegistrySecurityService {
         credentialMapper.update(null, Wrappers.<RegistryCredentialEntity>lambdaUpdate()
                 .eq(RegistryCredentialEntity::getProjectId, projectId)
                 .set(RegistryCredentialEntity::getProjectCode, newProjectCode.trim()));
-    }
-
-    public void verifyIfConfigured(String projectCode, RegistrySignatureHeaders headers) {
-        boolean projectRequiresSignature = credentialMapper.selectCount(Wrappers.<RegistryCredentialEntity>lambdaQuery()
-                .eq(RegistryCredentialEntity::getProjectCode, projectCode)
-                .eq(RegistryCredentialEntity::getStatus, "ACTIVE")) > 0;
-        if (!projectRequiresSignature) {
-            return;
-        }
-        RegistryCredentialEntity credential = findActiveCredential(projectCode, headers == null ? null : headers.appKey());
-        if (credential == null) {
-            throw new IllegalArgumentException("注册中心项目凭证无效");
-        }
-        if (headers == null
-                || !StringUtils.hasText(headers.timestamp())
-                || !StringUtils.hasText(headers.nonce())
-                || !StringUtils.hasText(headers.signature())) {
-            throw new IllegalArgumentException("注册中心请求缺少签名头");
-        }
-        validateTimestamp(headers.timestamp());
-        String message = projectCode + "\n" + headers.timestamp() + "\n" + headers.nonce();
-        String expected = hmacSha256Hex(credential.getAppSecret(), message);
-        if (!expected.equalsIgnoreCase(headers.signature())) {
-            throw new IllegalArgumentException("注册中心请求签名无效");
-        }
     }
 
     public RegistryCredentialEntity verifyRequired(String projectCode, RegistrySignatureHeaders headers) {

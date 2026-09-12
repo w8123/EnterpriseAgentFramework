@@ -3,7 +3,7 @@ package com.enterprise.ai.runtime.execution.http;
 import com.enterprise.ai.runtime.credential.RuntimeWorkflowCredentialRuntime;
 import com.enterprise.ai.runtime.credential.RuntimeWorkflowCredentialService;
 import com.enterprise.ai.runtime.credential.WorkflowCredentialTypes;
-import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
+import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.hc.client5.http.DnsResolver;
 import org.apache.hc.client5.http.classic.methods.HttpUriRequestBase;

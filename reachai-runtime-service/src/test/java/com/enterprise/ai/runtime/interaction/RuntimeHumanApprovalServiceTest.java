@@ -3,7 +3,8 @@ package com.enterprise.ai.runtime.interaction;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.enterprise.ai.runtime.execution.RuntimeInteractionSessionEntity;
 import com.enterprise.ai.runtime.execution.RuntimeInteractionSessionMapper;
-import com.enterprise.ai.runtime.supervisor.SupervisorApprovalInteractionService;
+import com.enterprise.ai.runtime.execution.RuntimeSupervisorApprovalService;
+import com.enterprise.ai.runtime.execution.RuntimeInteractionEventMapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.Test;
@@ -25,7 +26,9 @@ class RuntimeHumanApprovalServiceTest {
     private final RuntimeInteractionSessionMapper sessionMapper = mock(RuntimeInteractionSessionMapper.class);
     private final ObjectMapper objectMapper = JsonMapper.builder().findAndAddModules().build();
     private final RuntimeHumanApprovalService service =
-            new RuntimeHumanApprovalService(sessionMapper, objectMapper);
+            new RuntimeHumanApprovalService(new RuntimeSupervisorApprovalService(
+                    sessionMapper, mock(RuntimeInteractionEventMapper.class), objectMapper,
+                    mock(com.enterprise.ai.runtime.execution.RuntimeInteractionExpiryTracePort.class), 900), objectMapper);
 
     @Test
     void listPendingHumanApprovalsMapsSupervisorPolicySessions() throws Exception {
@@ -49,7 +52,7 @@ class RuntimeHumanApprovalServiceTest {
         assertEquals("WAITING_USER", view.status());
         assertEquals("确认修改班组", view.title());
         assertEquals("是否继续？", view.message());
-        assertEquals("T-1", view.state().get("teamId"));
+        assertEquals(Map.of("agentId", "agent-7"), view.state());
         @SuppressWarnings({"rawtypes", "unchecked"})
         ArgumentCaptor<QueryWrapper<RuntimeInteractionSessionEntity>> queryCaptor =
                 (ArgumentCaptor) ArgumentCaptor.forClass(QueryWrapper.class);
@@ -63,8 +66,8 @@ class RuntimeHumanApprovalServiceTest {
     private RuntimeInteractionSessionEntity pendingRow() throws Exception {
         RuntimeInteractionSessionEntity row = new RuntimeInteractionSessionEntity();
         row.setId("spv_confirm-1");
-        row.setSourceType(SupervisorApprovalInteractionService.SOURCE_TYPE);
-        row.setInteractionType(SupervisorApprovalInteractionService.INTERACTION_TYPE);
+        row.setSourceType(RuntimeSupervisorApprovalService.SOURCE_TYPE);
+        row.setInteractionType(RuntimeSupervisorApprovalService.INTERACTION_TYPE);
         row.setAgentId("agent-7");
         row.setTraceId("trace-1");
         row.setSessionId("session-1");

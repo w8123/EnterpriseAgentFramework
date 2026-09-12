@@ -1,7 +1,6 @@
 package com.enterprise.ai.runtime.managed;
 
-import com.enterprise.ai.runtime.runops.RuntimeRunEntity;
-import com.enterprise.ai.runtime.runops.RuntimeRunMapper;
+import com.enterprise.ai.runtime.runops.RuntimeManagedRunProjectionWriter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -9,55 +8,54 @@ import org.mockito.ArgumentCaptor;
 import java.time.LocalDateTime;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class ManagedExecutionRunProjectorTest {
 
-    private final RuntimeRunMapper mapper = mock(RuntimeRunMapper.class);
+    private final ManagedExecutionMapper mapper = mock(ManagedExecutionMapper.class);
+    private final RuntimeManagedRunProjectionWriter writer = mock(RuntimeManagedRunProjectionWriter.class);
     private final ManagedExecutionRunProjector projector =
-            new ManagedExecutionRunProjector(mapper, new ObjectMapper());
+            new ManagedExecutionRunProjector(mapper, writer, new ObjectMapper());
 
     @Test
-    void createsACodexHarnessRootRunWithoutPersistingTheObjective() {
+    void projectsFrozenExecutionFactsWithoutPersistingTheObjective() {
         ManagedExecutionEntity execution = execution("QUEUED");
-        when(mapper.selectOne(any())).thenReturn(null);
-        when(mapper.insert(any())).thenReturn(1);
+        when(mapper.selectForUpdate(execution.getExecutionId())).thenReturn(execution);
 
-        projector.sync(execution);
+        projector.sync(execution.getExecutionId());
 
-        ArgumentCaptor<RuntimeRunEntity> run = ArgumentCaptor.forClass(RuntimeRunEntity.class);
-        verify(mapper).insert(run.capture());
-        assertThat(run.getValue().getRunType()).isEqualTo("MANAGED_EXECUTION");
-        assertThat(run.getValue().getRuntimeType()).isEqualTo("CODEX_HARNESS");
-        assertThat(run.getValue().getStatus()).isEqualTo("RUNNING");
-        assertThat(run.getValue().getSnapshotJson())
+        ArgumentCaptor<RuntimeManagedRunProjectionWriter.Projection> run =
+                ArgumentCaptor.forClass(RuntimeManagedRunProjectionWriter.Projection.class);
+        verify(writer).sync(run.capture());
+        assertThat(run.getValue().executionId()).isEqualTo(execution.getExecutionId());
+        assertThat(run.getValue().sourceType()).isEqualTo("AI_CODING_TASK");
+        assertThat(run.getValue().status()).isEqualTo("RUNNING");
+        assertThat(run.getValue().snapshotJson())
                 .contains("WORKSPACE_PATCH", "objectiveSha256")
                 .doesNotContain(execution.getObjectiveText());
-        assertThat(run.getValue().getInputSummary()).doesNotContain(execution.getObjectiveText());
+        assertThat(run.getValue().inputSummary()).doesNotContain(execution.getObjectiveText());
     }
 
     @Test
     void mapsApprovalToSuspendedAndVerifiedSuccessToCompleted() {
         ManagedExecutionEntity execution = execution("WAITING_APPROVAL");
-        when(mapper.selectOne(any())).thenReturn(new RuntimeRunEntity());
-        when(mapper.updateManagedExecutionProjection(
-                any(), any(), any(), any(), any(), any(), any(),
-                org.mockito.ArgumentMatchers.anyInt(), any(), any(), any())).thenReturn(1);
+        when(mapper.selectForUpdate(execution.getExecutionId())).thenReturn(execution);
 
-        projector.sync(execution);
-        verify(mapper).updateManagedExecutionProjection(
-                any(), any(), any(), any(), any(), any(), any(),
-                org.mockito.ArgumentMatchers.anyInt(), any(), any(), any());
+        projector.sync(execution.getExecutionId());
 
         execution.setStatus("SUCCEEDED");
         execution.setCompletedAt(LocalDateTime.now());
-        projector.sync(execution);
-        verify(mapper, org.mockito.Mockito.times(2)).updateManagedExecutionProjection(
-                any(), any(), any(), any(), any(), any(), any(),
-                org.mockito.ArgumentMatchers.anyInt(), any(), any(), any());
+        projector.sync(execution.getExecutionId());
+        ArgumentCaptor<RuntimeManagedRunProjectionWriter.Projection> values =
+                ArgumentCaptor.forClass(RuntimeManagedRunProjectionWriter.Projection.class);
+        verify(writer, org.mockito.Mockito.times(2)).sync(values.capture());
+        assertThat(values.getAllValues()).extracting(RuntimeManagedRunProjectionWriter.Projection::status)
+                .containsExactly("SUSPENDED", "COMPLETED");
+        assertThat(values.getAllValues().get(0).suspensionReason()).isEqualTo("APPROVAL");
+        assertThat(values.getAllValues().get(0).endedAt()).isNull();
+        assertThat(values.getAllValues().get(1).endedAt()).isEqualTo(execution.getCompletedAt());
     }
 
     private ManagedExecutionEntity execution(String status) {

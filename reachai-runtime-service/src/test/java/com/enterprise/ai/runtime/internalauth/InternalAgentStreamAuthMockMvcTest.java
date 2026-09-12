@@ -3,9 +3,9 @@ package com.enterprise.ai.runtime.internalauth;
 import com.enterprise.ai.common.internalauth.InternalServiceAuthHeaders;
 import com.enterprise.ai.common.internalauth.InternalServiceHmac;
 import com.enterprise.ai.runtime.api.SseHeartbeatSupport;
-import com.enterprise.ai.runtime.execution.RuntimeAgentExecutionService;
+import com.enterprise.ai.runtime.supervisor.RuntimeAgentExecutionService;
 import com.enterprise.ai.runtime.execution.TrustedControlTiming;
-import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
+import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
 import com.enterprise.ai.runtime.internal.RuntimeAgentExecutionInternalController;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -14,12 +14,10 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
-
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;

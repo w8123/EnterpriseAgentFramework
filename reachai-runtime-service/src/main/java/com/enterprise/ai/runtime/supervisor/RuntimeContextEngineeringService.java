@@ -1,5 +1,7 @@
 package com.enterprise.ai.runtime.supervisor;
 
+import com.enterprise.ai.runtime.configuration.RuntimeContextEngineeringProperties;
+
 import com.enterprise.ai.runtime.agentscope.ModelStreamFailure;
 import com.enterprise.ai.runtime.agentscope.ReachAiAgentScopeChatModel;
 import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient;
@@ -22,7 +24,6 @@ import io.agentscope.harness.agent.memory.compaction.CompactionConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import reactor.core.publisher.Mono;
@@ -38,7 +39,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 @Service
-@EnableConfigurationProperties(RuntimeContextEngineeringProperties.class)
 public class RuntimeContextEngineeringService {
 
     private static final Logger log =

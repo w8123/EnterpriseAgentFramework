@@ -1,5 +1,5 @@
 <template>
-  <el-dialog v-model="open" title="从项目接口生成查询流程" width="900px" class="api-query-template-dialog">
+  <AppDialog v-model="open" title="从项目接口生成查询流程" width="900px" class="api-query-template-dialog">
     <div class="api-query-template-body">
       <el-alert
         type="info"
@@ -82,10 +82,11 @@
         />
       </div>
     </div>
-  </el-dialog>
+  </AppDialog>
 </template>
 
 <script setup lang="ts">
+import AppDialog from '@/components/common/AppDialog.vue'
 import { Search } from '@element-plus/icons-vue'
 import type { ProjectToolInfo } from '@/types/scanProject'
 

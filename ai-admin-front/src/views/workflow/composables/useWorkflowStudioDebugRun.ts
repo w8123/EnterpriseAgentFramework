@@ -1,4 +1,4 @@
-import { computed, onUnmounted, ref } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import type { ComputedRef, Ref } from 'vue'
 import {
@@ -22,7 +22,8 @@ import type { StudioFieldSchema } from '@/types/studio'
 import { buildWorkflowDebugWorkingCopyPayload } from '@/utils/workflowStudio'
 import { runDisplayName } from '@/utils/workflowRunOps'
 import { normalizeJson } from '@/views/workflow/composables/workflowStudioJson'
-import type { WorkflowNodeTraceState } from '@/views/workflow/composables/useWorkflowStudioCanvasActions'
+import { debugStepStatus, stringifyDebugPayload, formatElapsed, type WorkflowNodeTraceState } from './workflowStudioTrace'
+import { isWorkflowSessionInFlight } from '@/conversation/core/adapters/adaptWorkflowSessionView'
 import type { CanvasSnapshot } from '@/types/studio'
 import {
   buildWorkflowInitialFormRequest,
@@ -54,6 +55,7 @@ export interface WorkflowStudioMetaForm {
 }
 
 export interface UseWorkflowStudioDebugRunDeps {
+  debugSessionScope: Readonly<Ref<string>>
   workflowId: Readonly<Ref<string>>
   studio: Ref<WorkflowWorkingCopyState | null>
   workflowMeta: WorkflowStudioMetaForm
@@ -93,39 +95,16 @@ export interface UseWorkflowStudioDebugRunDeps {
   syncJsonFromCanvas: () => void
   canvasSnapshot: () => CanvasSnapshot
   refreshWorkflowNodeClasses: () => void
-  applyDebugSession: (data: WorkflowDebugSessionView) => void
+  applyDebugSession: (data: WorkflowDebugSessionView, scope: string) => void
   forgetDebugSession: () => void
+  debugCreationKey?: Readonly<Ref<string | undefined>>
+  setDebugCreationKey?: (key: string | undefined) => void
   loadStoredDebugSession: () => Promise<void>
   getViewport: () => { zoom?: number }
   setCenter: (x: number, y: number, options?: { zoom?: number; duration?: number }) => void
   nextTick: (fn?: () => void) => Promise<void>
   findNodePosition: (nodeId: string) => { x: number; y: number } | null
   parseOptionalObject: (value: string, label: string) => Record<string, unknown> | undefined
-}
-
-export function debugStepStatus(status?: string): WorkflowNodeTraceState['status'] {
-  const normalized = (status || '').trim().toUpperCase()
-  if (normalized === 'RUNNING' || normalized === 'EXECUTING') return 'running'
-  if (normalized === 'SUSPENDED' || normalized === 'WAITING' || normalized === 'WAITING_USER') return 'waiting'
-  if (normalized === 'ERROR' || normalized === 'FAILED' || normalized === 'FAILURE' || normalized === 'FAIL') return 'error'
-  if (['SUCCESS', 'OK', 'COMPLETED'].includes(normalized)) return 'success'
-  return 'success'
-}
-
-export function stringifyDebugPayload(value: unknown) {
-  if (value === null || value === undefined || value === '') return '-'
-  if (typeof value === 'string') return value
-  try {
-    return JSON.stringify(value, null, 2)
-  } catch {
-    return String(value)
-  }
-}
-
-export function formatElapsed(value?: number) {
-  if (value === null || value === undefined) return '-'
-  if (value < 1000) return `${value}ms`
-  return `${(value / 1000).toFixed(2)}s`
 }
 
 function parseDebugJsonLike(value: unknown) {
@@ -148,11 +127,18 @@ export function useWorkflowStudioDebugRun(deps: UseWorkflowStudioDebugRunDeps) {
   let sessionViewSyncToken = 0
   let traceReplayRequestSequence = 0
   let debugController: ReturnType<typeof createConversationController> | null = null
+  let controllerGeneration = 0
 
-  async function syncShellFromWorkflowSessionView(view: WorkflowDebugSessionView) {
+  function currentDebugScope() {
+    const scope = deps.debugSessionScope.value
+    const generation = controllerGeneration
+    return () => Boolean(scope) && deps.debugSessionScope.value === scope && generation === controllerGeneration
+  }
+
+  async function syncShellFromWorkflowSessionView(view: WorkflowDebugSessionView, scope: string) {
     const token = sessionViewSyncToken + 1
     sessionViewSyncToken = token
-    deps.applyDebugSession(view)
+    deps.applyDebugSession(view, scope)
     deps.currentTraceId.value = view.traceId || ''
     deps.replayTraceInput.value = view.traceId || ''
     deps.selectedRecentTraceId.value = view.traceId || ''
@@ -187,10 +173,16 @@ export function useWorkflowStudioDebugRun(deps: UseWorkflowStudioDebugRunDeps) {
   }
 
   function createDebugController() {
+    const scope = deps.debugSessionScope.value
+    const generation = controllerGeneration
+    const isCurrent = () => Boolean(scope) && deps.debugSessionScope.value === scope && generation === controllerGeneration
     const transport = createWorkflowWorkingCopyTransport({
       tryStream: true,
-      getSessionId: () => deps.debugSession.value?.sessionId,
+      getCreationKey: () => isCurrent() ? deps.debugCreationKey?.value : undefined,
+      setCreationKey: (key) => { if (isCurrent()) deps.setDebugCreationKey?.(key) },
+      getSessionId: () => isCurrent() ? deps.debugSession.value?.sessionId : undefined,
       setSessionId: (sessionId) => {
+        if (!isCurrent()) return
         if (!sessionId) {
           deps.debugSession.value = null
           return
@@ -207,8 +199,11 @@ export function useWorkflowStudioDebugRun(deps: UseWorkflowStudioDebugRunDeps) {
         debugOptions: {},
       }),
       onSessionView: (view) => {
-        void syncShellFromWorkflowSessionView(view).then(() => {
+        if (!isCurrent()) return
+        void syncShellFromWorkflowSessionView(view, scope).then(() => {
+          if (!isCurrent()) return
           if (!deps.debugLoading.value) return
+          if (isWorkflowSessionInFlight(view.status)) return
           if (debugStepStatus(view.status) === 'waiting') {
             ElMessage.warning('当前 Workflow 工作副本等待用户补充信息')
           } else {
@@ -218,6 +213,7 @@ export function useWorkflowStudioDebugRun(deps: UseWorkflowStudioDebugRunDeps) {
           }
           deps.debugLoading.value = false
         }).catch((err) => {
+          if (!isCurrent()) return
           if (!deps.debugLoading.value) return
           ElMessage.error('同步调试会话失败：' + (err as Error).message)
           deps.debugLoading.value = false
@@ -228,14 +224,15 @@ export function useWorkflowStudioDebugRun(deps: UseWorkflowStudioDebugRunDeps) {
     return createConversationController({
       transport,
       initialSessionId: deps.debugSession.value?.sessionId,
-      onDebugEvent: handleWorkflowDebugEvent,
+      onDebugEvent: (event) => { if (isCurrent()) handleWorkflowDebugEvent(event) },
       onChange(state) {
-        debugConversationSnapshot.value = state
+        if (isCurrent()) debugConversationSnapshot.value = state
       },
     })
   }
 
   function ensureDebugController() {
+    if (!deps.debugSessionScope.value) throw new Error('请先登录后再调试 Workflow')
     if (!debugController) {
       debugController = createDebugController()
     }
@@ -243,12 +240,15 @@ export function useWorkflowStudioDebugRun(deps: UseWorkflowStudioDebugRunDeps) {
   }
 
   function disposeDebugConversation() {
+    controllerGeneration += 1
     debugController?.dispose()
     debugController = null
   }
 
   async function restoreDebugConversation() {
-    const snapshot = await ensureDebugController().restore()
+    const controller = ensureDebugController()
+    const snapshot = await controller.restore()
+    if (controller !== debugController) return
     if (snapshot?.sessionId && deps.debugSession.value) {
       debugConversationSnapshot.value = snapshot
     }
@@ -284,6 +284,27 @@ export function useWorkflowStudioDebugRun(deps: UseWorkflowStudioDebugRunDeps) {
   onUnmounted(() => {
     disposeDebugConversation()
   })
+
+  watch(deps.debugSessionScope, () => {
+    sessionViewSyncToken += 1
+    traceReplayRequestSequence += 1
+    deps.debugPlaybackToken.value += 1
+    disposeDebugConversation()
+    debugConversationSnapshot.value = createEmptySnapshot()
+    deps.debugLoading.value = false
+    deps.traceReplayLoading.value = false
+    deps.traceNodes.value = []
+    deps.runOpsDetail.value = null
+    deps.recentRuns.value = []
+    deps.nodeDebugResult.value = null
+    deps.debugResult.value = null
+    deps.nodeDebugLoading.value = false
+    deps.recentRunsLoading.value = false
+    deps.debugMessage.value = ''
+    deps.nodeDebugMessage.value = ''
+    deps.nodeDebugStateJson.value = '{}'
+    Object.keys(deps.debugInputParams).forEach(key => { delete deps.debugInputParams[key] })
+  }, { flush: 'sync' })
 
   function currentStudioStateForDebug(): WorkflowWorkingCopyState {
     if (!deps.studio.value) {
@@ -463,6 +484,7 @@ export function useWorkflowStudioDebugRun(deps: UseWorkflowStudioDebugRunDeps) {
   }
 
   async function handleDebug() {
+    const isCurrent = currentDebugScope()
     deps.debugOpen.value = true
     deps.propertyPanelCollapsed.value = false
     for (const field of deps.debugInputFields.value) {
@@ -472,9 +494,16 @@ export function useWorkflowStudioDebugRun(deps: UseWorkflowStudioDebugRunDeps) {
     }
     if (!deps.recentRuns.value.length) {
       await loadRecentStudioRuns()
+      if (!isCurrent()) return
     }
-    await deps.loadStoredDebugSession()
-    await restoreDebugConversation()
+    try {
+      await deps.loadStoredDebugSession()
+      if (!isCurrent()) return
+      await restoreDebugConversation()
+    } catch {
+      if (!isCurrent()) return
+      ElMessage.error('暂时无法查询调试结果，已保留原会话。请稍后重新打开调试面板。')
+    }
   }
 
   async function beginWorkingCopyDebugTurn(input: {
@@ -482,6 +511,9 @@ export function useWorkflowStudioDebugRun(deps: UseWorkflowStudioDebugRunDeps) {
     values?: Record<string, unknown>
     interactionId?: string
   }) {
+    const isCurrent = currentDebugScope()
+    if (!isCurrent()) return
+    const controller = ensureDebugController()
     deps.debugLoading.value = true
     deps.currentTraceId.value = ''
     deps.traceNodes.value = []
@@ -495,12 +527,15 @@ export function useWorkflowStudioDebugRun(deps: UseWorkflowStudioDebugRunDeps) {
     deps.debugPlaybackToken.value += 1
     // Clear transport-owned session id so a new free-text turn never submits a stale session.
     try {
-      await ensureDebugController().clearSession()
+      await controller.clearSession()
     } catch {
+      if (!isCurrent()) return
       // ignore clear errors; create path will still run
     }
     try {
-      await ensureDebugController().send(input)
+      if (!isCurrent()) return
+      await controller.send(input)
+      if (!isCurrent()) return
       const status = debugConversationSnapshot.value.turnStatus
       if (status === 'failed') {
         ElMessage.error(debugConversationSnapshot.value.error || '工作副本调试失败')
@@ -509,6 +544,7 @@ export function useWorkflowStudioDebugRun(deps: UseWorkflowStudioDebugRunDeps) {
         deps.debugLoading.value = false
       }
     } catch (err) {
+      if (!isCurrent()) return
       ElMessage.error('工作副本调试失败：' + (err as Error).message)
       deps.debugLoading.value = false
     }
@@ -545,6 +581,7 @@ export function useWorkflowStudioDebugRun(deps: UseWorkflowStudioDebugRunDeps) {
     action: string,
     values: Record<string, unknown>,
   ) {
+    const isCurrent = currentDebugScope()
     if (interactionId === WORKFLOW_INITIAL_INPUT_ID) {
       const message = debugMessageFromParams(values)
       if (!message.trim() && !Object.keys(values).length) {
@@ -565,6 +602,7 @@ export function useWorkflowStudioDebugRun(deps: UseWorkflowStudioDebugRunDeps) {
     deps.debugLoading.value = true
     try {
       await ensureDebugController().submitInteraction(interactionId, action, values)
+      if (!isCurrent()) return
       const status = debugConversationSnapshot.value.turnStatus
       if (status === 'failed') {
         ElMessage.error(debugConversationSnapshot.value.error || '调试会话执行失败')
@@ -574,9 +612,10 @@ export function useWorkflowStudioDebugRun(deps: UseWorkflowStudioDebugRunDeps) {
         ElMessage.success('调试会话已继续执行')
       }
     } catch (err) {
+      if (!isCurrent()) return
       ElMessage.error('提交交互失败：' + (err as Error).message)
     } finally {
-      deps.debugLoading.value = false
+      if (isCurrent()) deps.debugLoading.value = false
     }
   }
 
@@ -607,17 +646,20 @@ export function useWorkflowStudioDebugRun(deps: UseWorkflowStudioDebugRunDeps) {
   }
 
   async function handleCancelDebugSession() {
+    const isCurrent = currentDebugScope()
     if (!deps.debugSession.value?.sessionId) return
     deps.debugLoading.value = true
     try {
       await ensureDebugController().cancel()
+      if (!isCurrent()) return
       deps.currentDebugNodeId.value = ''
       deps.refreshWorkflowNodeClasses()
       ElMessage.success('调试会话已取消')
     } catch (err) {
+      if (!isCurrent()) return
       ElMessage.error('取消调试会话失败：' + (err as Error).message)
     } finally {
-      deps.debugLoading.value = false
+      if (isCurrent()) deps.debugLoading.value = false
     }
   }
 
@@ -645,14 +687,17 @@ export function useWorkflowStudioDebugRun(deps: UseWorkflowStudioDebugRunDeps) {
   }
 
   async function loadRecentStudioRuns() {
+    const isCurrent = currentDebugScope()
     deps.recentRunsLoading.value = true
     try {
       const { data } = await getRecentRunOps({ days: 7, limit: 100 })
+      if (!isCurrent()) return
       deps.recentRuns.value = data ?? []
     } catch {
+      if (!isCurrent()) return
       ElMessage.error('加载最近运行失败')
     } finally {
-      deps.recentRunsLoading.value = false
+      if (isCurrent()) deps.recentRunsLoading.value = false
     }
   }
 
@@ -694,6 +739,27 @@ export function useWorkflowStudioDebugRun(deps: UseWorkflowStudioDebugRunDeps) {
     }
   }
 
+  async function handleRestoreDebugSession() {
+    const isCurrent = currentDebugScope()
+    if (!isCurrent()) return
+    if (deps.debugLoading.value) return
+    deps.debugLoading.value = true
+    try {
+      await deps.loadStoredDebugSession()
+      if (!isCurrent()) return
+      if (!deps.debugSession.value?.sessionId) {
+        ElMessage.warning('尚未取得会话标识，无法查询原调试结果。')
+        return
+      }
+      await restoreDebugConversation()
+    } catch {
+      if (!isCurrent()) return
+      ElMessage.error('暂时无法查询调试结果，已保留原会话。请稍后重试查询。')
+    } finally {
+      if (isCurrent()) deps.debugLoading.value = false
+    }
+  }
+
   function handleRecentTraceChange(value: string | number | boolean | undefined) {
     const traceId = String(value || '').trim()
     if (traceId) {
@@ -724,6 +790,8 @@ export function useWorkflowStudioDebugRun(deps: UseWorkflowStudioDebugRunDeps) {
   }
 
   async function handleRunPublishedDebug() {
+    const isCurrent = currentDebugScope()
+    if (!isCurrent()) return
     const inputParams = buildDebugInputParams()
     const message = debugMessageFromParams(inputParams)
     if (!message.trim()) {
@@ -741,6 +809,7 @@ export function useWorkflowStudioDebugRun(deps: UseWorkflowStudioDebugRunDeps) {
     deps.debugPlaybackToken.value += 1
     try {
       const { data: versions } = await listWorkflowVersions(deps.workflowId.value)
+      if (!isCurrent()) return
       const active = versions.find((item) => (item.status || '').toUpperCase() === 'ACTIVE')
       if (!active?.graphSpecSnapshotJson) {
         ElMessage.warning('没有可验证的 ACTIVE 发布版本')
@@ -757,6 +826,7 @@ export function useWorkflowStudioDebugRun(deps: UseWorkflowStudioDebugRunDeps) {
           publishedVersionId: active.id,
         },
       })
+      if (!isCurrent()) return
       deps.debugResult.value = {
         answer: data.answer || data.errorMessage || '',
         metadata: {
@@ -773,20 +843,25 @@ export function useWorkflowStudioDebugRun(deps: UseWorkflowStudioDebugRunDeps) {
         deps.replayTraceInput.value = data.traceId
         deps.selectedRecentTraceId.value = data.traceId
         try {
-          await loadTraceArtifacts(data.traceId)
+          await loadTraceArtifacts(data.traceId, isCurrent)
         } catch {
+          if (!isCurrent()) return
           // trace 可能尚未写入
         }
       }
+      if (!isCurrent()) return
       ElMessage[data.success ? 'success' : 'error'](data.success ? '发布版本验证完成' : '发布版本验证失败')
     } catch (err) {
+      if (!isCurrent()) return
       ElMessage.error('发布版本验证失败：' + (err as Error).message)
     } finally {
-      deps.debugLoading.value = false
+      if (isCurrent()) deps.debugLoading.value = false
     }
   }
 
   async function runNodeDebug() {
+    const isCurrent = currentDebugScope()
+    if (!isCurrent()) return
     if (!deps.debugNodeId.value.trim()) {
       ElMessage.warning('请输入节点 ID')
       return
@@ -799,6 +874,7 @@ export function useWorkflowStudioDebugRun(deps: UseWorkflowStudioDebugRunDeps) {
         message: deps.debugMessage.value || undefined,
         state: deps.parseOptionalObject(deps.nodeDebugStateJson.value, 'Node state'),
       })
+      if (!isCurrent()) return
       deps.nodeDebugResult.value = data
       deps.debugRunResult.value = null
       deps.debugSession.value = null
@@ -809,9 +885,10 @@ export function useWorkflowStudioDebugRun(deps: UseWorkflowStudioDebugRunDeps) {
       deps.refreshWorkflowNodeClasses()
       ElMessage.success(data.success ? 'Node debug completed' : 'Node debug failed')
     } catch (err) {
+      if (!isCurrent()) return
       ElMessage.error((err as Error).message)
     } finally {
-      deps.nodeDebugLoading.value = false
+      if (isCurrent()) deps.nodeDebugLoading.value = false
     }
   }
 
@@ -864,6 +941,7 @@ export function useWorkflowStudioDebugRun(deps: UseWorkflowStudioDebugRunDeps) {
     workflowInitialChatField,
     isDebugConversationBusy,
     restoreDebugConversation,
+    handleRestoreDebugSession,
     disposeDebugConversation,
   }
 }

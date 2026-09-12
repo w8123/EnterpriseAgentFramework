@@ -8,10 +8,10 @@ import com.enterprise.ai.runtime.client.capability.RuntimeCapabilityCatalogClien
 import com.enterprise.ai.runtime.client.control.RuntimeControlCatalogClient;
 import com.enterprise.ai.runtime.client.control.RuntimeControlCatalogClient.PageBridgeExecutionRequest;
 import com.enterprise.ai.runtime.client.control.RuntimeControlCatalogClient.PageBridgeExecutionResponse;
-import com.enterprise.ai.runtime.eval.RuntimeEvalExecutionContext;
+import com.enterprise.ai.runtime.execution.policy.RuntimeEvalExecutionContext;
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionCancellation;
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionResult;
-import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
+import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
 import com.enterprise.ai.runtime.execution.interaction.WorkflowInteractionNodeHandler;
 import com.enterprise.ai.runtime.execution.interaction.WorkflowInteractionType;
 import org.springframework.util.StringUtils;
@@ -114,6 +114,9 @@ final class RuntimeActionNodeHandlers {
         Map<String, Object> request = new LinkedHashMap<>();
         request.put("input", buildToolInput(node, context));
         request.put("context", toolExecutionContext(node, nodeType, context));
+        if (node.getRef() != null && StringUtils.hasText(node.getRef().getContractHash())) {
+            request.put("constraints", Map.of("expectedContractHash", node.getRef().getContractHash()));
+        }
         CapabilityInvocationControl invocationControl = capabilityInvocationControl(node, qualifiedName, context);
         request.put("invocationId", invocationControl.invocationId());
         request.put("idempotencyKey", invocationControl.idempotencyKey());
@@ -505,20 +508,7 @@ final class RuntimeActionNodeHandlers {
     }
 
     private String resolveQualifiedName(GraphSpec.Node node) {
-        if (node.getRef() != null) {
-            String qualifiedName = firstText(
-                    text(node.getRef().getQualifiedName()), text(node.getRef().getName()));
-            if (StringUtils.hasText(qualifiedName)) return qualifiedName;
-        }
-        Map<String, Object> config = node.getConfig() == null ? Map.of() : node.getConfig();
-        Map<String, Object> nested = mapValue(config.get("toolConfig"));
-        return firstText(
-                text(config.get("qualifiedName")),
-                configuredReference(config.get("ref")),
-                text(config.get("toolName")),
-                nested == null ? null : text(nested.get("qualifiedName")),
-                nested == null ? null : configuredReference(nested.get("ref")),
-                nested == null ? null : text(nested.get("toolName")));
+        return com.enterprise.ai.agent.graph.GraphSpecToolContract.resolve(node);
     }
 
     private String configuredReference(Object rawReference) {

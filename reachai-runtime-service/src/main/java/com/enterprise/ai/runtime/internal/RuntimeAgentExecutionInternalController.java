@@ -1,14 +1,14 @@
 package com.enterprise.ai.runtime.internal;
 
+import com.enterprise.ai.runtime.execution.RuntimeAgentExecutionEventSink;
 import com.enterprise.ai.runtime.api.SseHeartbeatSupport;
 import com.enterprise.ai.runtime.execution.RuntimeAgentExecutionCancellation;
-import com.enterprise.ai.runtime.execution.RuntimeAgentExecutionService;
+import com.enterprise.ai.runtime.supervisor.RuntimeAgentExecutionService;
 import com.enterprise.ai.runtime.execution.TrustedControlTiming;
 import com.enterprise.ai.runtime.execution.TrustedPersonalMemoryContext;
-import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
+import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
 import com.enterprise.ai.runtime.internalauth.VerifiedInternalServiceAuth;
 import com.enterprise.ai.runtime.memory.RuntimeSessionRetentionException;
-import com.enterprise.ai.runtime.execution.SupervisorRuntimeAdapter;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -22,14 +22,12 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
-
 import java.io.IOException;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledFuture;
-
 import static com.enterprise.ai.common.internalauth.InternalServiceAuthHeaders.IDENTITY_SOURCE_A2A_REMOTE_AGENT;
 
 /**
@@ -82,7 +80,7 @@ public class RuntimeAgentExecutionInternalController {
         Map<String, Object> result = agentExecutionService.execute(
                 body,
                 false,
-                SupervisorRuntimeAdapter.SupervisorEventSink.NOOP,
+                RuntimeAgentExecutionEventSink.NOOP,
                 RuntimeAgentExecutionCancellation.NOOP,
                 identity,
                 controlTiming,

@@ -2,6 +2,9 @@ package com.enterprise.ai.runtime.workflow;
 
 import com.enterprise.ai.runtime.runops.RuntimeRunEntity;
 import com.enterprise.ai.runtime.runops.RuntimeRunMapper;
+import com.enterprise.ai.runtime.runops.RuntimeRunReader;
+import com.enterprise.ai.runtime.trace.RuntimeToolCallLogMapper;
+import com.enterprise.ai.runtime.trace.RuntimeTraceQueryService;
 import com.enterprise.ai.runtime.trace.RuntimeTraceSpanEntity;
 import com.enterprise.ai.runtime.trace.RuntimeTraceSpanMapper;
 import com.enterprise.ai.runtime.workflow.RuntimePageWorkbenchExecutionReadinessService.ExecutionReadinessView;
@@ -39,8 +42,8 @@ class RuntimePageWorkbenchExecutionReadinessServiceTest {
         bindingService = mock(RuntimeWorkflowResourceBindingService.class);
         objectMapper = new ObjectMapper();
         service = new RuntimePageWorkbenchExecutionReadinessService(
-                runMapper,
-                spanMapper,
+                new RuntimeRunReader(runMapper),
+                new RuntimeTraceQueryService(mock(RuntimeToolCallLogMapper.class), spanMapper, objectMapper),
                 workflowMapper,
                 versionMapper,
                 bindingService,
@@ -200,6 +203,95 @@ class RuntimePageWorkbenchExecutionReadinessServiceTest {
         assertEquals("RUNTIME_RUN_IDENTITY_MISMATCH", result.code());
     }
 
+    @Test
+    void rejectsPresentationFromAnotherWorkflowInvocation() throws Exception {
+        RuntimeWorkflowVersionEntity published = version();
+        published.setGraphSpecSnapshotJson("""
+                {"nodes":[{"id":"present","type":"INTERACTION",
+                  "config":{"interactionType":"PRESENT_OUTPUT"}}]}
+                """);
+        when(versionMapper.selectById(21L)).thenReturn(published);
+        RuntimeTraceSpanEntity sibling = workflowSpan("SUCCESS", 22L);
+        sibling.setSpanId("other-invocation");
+        sibling.setMetadataJson("""
+                {"workflowId":"wf-other","workflowVersionId":22,"workflowVersion":"v2.0.0"}
+                """);
+        RuntimeTraceSpanEntity presentation = interactionNodeSpan("PRESENT_OUTPUT", "SUCCESS");
+        presentation.setParentSpanId(sibling.getSpanId());
+        presentation.setMetadataJson("""
+                {"workflowId":"wf-other","workflowVersionId":22,"workflowVersion":"v2.0.0",
+                 "nodeType":"INTERACTION","interactionType":"PRESENT_OUTPUT"}
+                """);
+        when(spanMapper.selectList(any())).thenReturn(List.of(
+                workflowSpan("SUCCESS", 21L), sibling, presentation));
+
+        ExecutionReadinessView result = evaluate();
+
+        assertEquals("FAIL", result.status());
+        assertEquals("STRUCTURED_PRESENTATION_NOT_OBSERVED", result.code());
+        assertTrue(result.workflowObserved());
+        assertTrue(!result.structuredPresentationObserved());
+    }
+
+    @Test
+    void ignoresNodeEvidenceFromFailedOrUnlinkedInvocations() throws Exception {
+        RuntimeWorkflowVersionEntity published = version();
+        published.setGraphSpecSnapshotJson("""
+                {"nodes":[{"id":"call","type":"TOOL"},
+                  {"id":"action","type":"PAGE_ACTION"}]}
+                """);
+        when(versionMapper.selectById(21L)).thenReturn(published);
+        RuntimeTraceSpanEntity failed = workflowSpan("FAILED", 21L);
+        failed.setSpanId("failed-invocation");
+        RuntimeTraceSpanEntity capability = nodeSpan("TOOL", "SUCCESS");
+        capability.setParentSpanId(failed.getSpanId());
+        RuntimeTraceSpanEntity orphan = nodeSpan("PAGE_ACTION", "BUSINESS_TERMINAL");
+        orphan.setParentSpanId(null);
+        when(spanMapper.selectList(any())).thenReturn(List.of(
+                workflowSpan("SUCCESS", 21L), failed, capability, orphan));
+
+        ExecutionReadinessView result = evaluate();
+
+        assertEquals("PASS", result.status());
+        assertTrue(!result.capabilityObserved());
+        assertTrue(!result.pageActionObserved());
+        assertTrue(!result.pageActionBusinessTerminalObserved());
+    }
+
+    @Test
+    void rejectsNodeVersionMetadataThatContradictsItsParent() throws Exception {
+        RuntimeWorkflowVersionEntity published = version();
+        published.setGraphSpecSnapshotJson("""
+                {"nodes":[{"id":"present","type":"INTERACTION",
+                  "config":{"interactionType":"PRESENT_OUTPUT"}}]}
+                """);
+        when(versionMapper.selectById(21L)).thenReturn(published);
+        for (Map<String, Object> versionIdentity : List.<Map<String, Object>>of(
+                Map.of("workflowId", "another-workflow", "workflowVersionId", 21L, "workflowVersion", "v1.0.0"),
+                Map.of("workflowId", "wf-orders", "workflowVersionId", 22L, "workflowVersion", "v1.0.0"),
+                Map.of("workflowId", "wf-orders", "workflowVersionId", 21L, "workflowVersion", "v2.0.0"))) {
+            RuntimeTraceSpanEntity node = interactionNodeSpan("PRESENT_OUTPUT", "SUCCESS");
+            var metadata = objectMapper.valueToTree(versionIdentity);
+            ((com.fasterxml.jackson.databind.node.ObjectNode) metadata)
+                    .put("nodeType", "INTERACTION").put("interactionType", "PRESENT_OUTPUT");
+            node.setMetadataJson(objectMapper.writeValueAsString(metadata));
+            when(spanMapper.selectList(any())).thenReturn(List.of(workflowSpan("SUCCESS", 21L), node));
+
+            assertEquals("STRUCTURED_PRESENTATION_NOT_OBSERVED", evaluate().code());
+        }
+    }
+
+    @Test
+    void treatsIncompleteSpanMetadataAsMissingEvidence() throws Exception {
+        for (String incomplete : List.of("", "null", "[]", "{}", "{")) {
+            RuntimeTraceSpanEntity span = workflowSpan("SUCCESS", 21L);
+            span.setMetadataJson(incomplete);
+            when(spanMapper.selectList(any())).thenReturn(List.of(span));
+
+            assertEquals("WORKFLOW_EXECUTION_NOT_OBSERVED", evaluate().code());
+        }
+    }
+
     private ExecutionReadinessView evaluate() {
         return service.evaluate(
                 "orders",
@@ -247,6 +339,8 @@ class RuntimePageWorkbenchExecutionReadinessServiceTest {
             String status,
             Long versionId) throws Exception {
         RuntimeTraceSpanEntity span = new RuntimeTraceSpanEntity();
+        span.setSpanId("workflow-invocation");
+        span.setTraceId("trace-orders");
         span.setSpanType("WORKFLOW_TOOL");
         span.setStatus(status);
         span.setMetadataJson(objectMapper.writeValueAsString(Map.of(
@@ -260,10 +354,15 @@ class RuntimePageWorkbenchExecutionReadinessServiceTest {
             String nodeType,
             String status) throws Exception {
         RuntimeTraceSpanEntity span = new RuntimeTraceSpanEntity();
+        span.setParentSpanId("workflow-invocation");
+        span.setTraceId("trace-orders");
         span.setSpanType("WORKFLOW_NODE");
         span.setStatus(status);
         span.setMetadataJson(objectMapper.writeValueAsString(Map.of(
-                "nodeType", nodeType)));
+                "nodeType", nodeType,
+                "workflowId", "wf-orders",
+                "workflowVersionId", 21L,
+                "workflowVersion", "v1.0.0")));
         return span;
     }
 
@@ -271,11 +370,16 @@ class RuntimePageWorkbenchExecutionReadinessServiceTest {
             String interactionType,
             String status) throws Exception {
         RuntimeTraceSpanEntity span = new RuntimeTraceSpanEntity();
+        span.setParentSpanId("workflow-invocation");
+        span.setTraceId("trace-orders");
         span.setSpanType("WORKFLOW_NODE");
         span.setStatus(status);
         span.setMetadataJson(objectMapper.writeValueAsString(Map.of(
                 "nodeType", "INTERACTION",
-                "interactionType", interactionType)));
+                "interactionType", interactionType,
+                "workflowId", "wf-orders",
+                "workflowVersionId", 21L,
+                "workflowVersion", "v1.0.0")));
         return span;
     }
 

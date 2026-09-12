@@ -36,9 +36,10 @@ This document is the short source of truth for public route lifecycle decisions.
 | Runtime debug sessions and Tool execution | `/api/runtime/**` | Control | Runtime |
 | Traces and RunOps | `/api/traces/**`, `/api/runops/**` | Control | Runtime |
 | SDK registry and capability sync | `/api/registry/**` | Control | Capability, except Control-owned page registration and Runtime-owned agent graph sync |
+| Capability snapshot review and diagnostics | `/api/capability-review/projects/{projectCode}/**` | Control | Capability; Control enforces platform session, project-scoped RBAC, trusted operator identity and exact-body HMAC; bulk apply is not exposed |
 | Business page workbench | `/api/registry/projects/{projectCode}/page-workbench/**` | Control | Control, with Runtime published-data query |
 | AI Coding task console, handoff activation and task protocol | `/api/ai-coding-console/tasks/**`, `/api/ai-coding/handoffs/**`, `/api/ai-coding/tasks/{taskId}/**` | Control | Control |
-| Capability catalog, runtime Tool projection, Composition, API graph | `/api/capabilities/**`, `/api/tools/**`, `/api/api-graph/**` | Control | Capability |
+| Capability catalog and API graph | `GET /api/tools/**`, `/api/api-graph/**` | Control | Capability; `/api/tools` is a read-only projection and legacy `/api/capabilities/**` returns `410 Gone` |
 | API 市场公开目录与项目接入 | `/api/api-market/**` | Control | Capability；Workflow 执行和凭据仍归 Runtime |
 | Skill Center catalog, import, review and release | `/api/skills/**` | Control | Control |
 | Public built-in Agent Skill downloads | `/api/ai-assist/skills/**` | Control | Control |

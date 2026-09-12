@@ -1,6 +1,7 @@
 package com.enterprise.ai.domain.entity;
 
 import com.baomidou.mybatisplus.annotation.*;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.Data;
 
 import java.time.LocalDateTime;
@@ -11,6 +12,11 @@ public class FileInfo {
 
     @TableId(type = IdType.AUTO)
     private Long id;
+
+    /** 每次插入生成的记录身份；主键复用不延续原文件。 */
+    @JsonIgnore
+    @TableField(fill = FieldFill.INSERT, updateStrategy = FieldStrategy.NEVER)
+    private String recordGeneration;
 
     /** 文件业务ID（对外暴露） */
     private String fileId;
@@ -59,4 +65,16 @@ public class FileInfo {
 
     @TableField(fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updateTime;
+
+    public String requireRecordGeneration() {
+        if (recordGeneration == null || !recordGeneration.matches("[0-9a-f]{32}")) {
+            throw new IllegalStateException("文件缺少有效记录身份，请完成数据库升级");
+        }
+        return recordGeneration;
+    }
+
+    public boolean hasRecordIdentity(Long rowId, String generation) {
+        return rowId != null && rowId.equals(id) && generation != null
+                && generation.matches("[0-9a-f]{32}") && generation.equals(recordGeneration);
+    }
 }

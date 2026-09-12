@@ -7,10 +7,10 @@
     <el-breadcrumb :separator="separator">
       <el-breadcrumb-item
         v-for="(item, index) in breadcrumbItems"
-        :key="`${item.title}-${index}`"
+        :key="`${resolveCrumbTitle(item)}-${index}`"
         :to="resolveCrumbTo(item)"
       >
-        {{ item.title }}
+        {{ resolveCrumbTitle(item) }}
       </el-breadcrumb-item>
     </el-breadcrumb>
   </div>
@@ -23,7 +23,7 @@ import type { RouteLocationNormalizedLoaded, RouteLocationRaw } from 'vue-router
 import { ArrowLeft } from '@element-plus/icons-vue'
 
 interface AppBreadcrumbItem {
-  title: string
+  title: string | ((route: RouteLocationNormalizedLoaded) => string)
   to?: RouteLocationRaw | ((route: RouteLocationNormalizedLoaded) => RouteLocationRaw)
 }
 
@@ -60,6 +60,10 @@ function findAutoParentTarget(): RouteLocationRaw | undefined {
 }
 
 const autoParentCrumbTarget = computed(() => findAutoParentTarget())
+
+function resolveCrumbTitle(item: AppBreadcrumbItem): string {
+  return typeof item.title === 'function' ? item.title(route) : item.title
+}
 
 const breadcrumbItems = computed<AppBreadcrumbItem[]>(() => {
   if (props.items?.length) return props.items

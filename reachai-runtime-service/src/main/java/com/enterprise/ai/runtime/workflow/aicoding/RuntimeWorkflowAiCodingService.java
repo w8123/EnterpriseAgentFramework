@@ -66,10 +66,16 @@ public class RuntimeWorkflowAiCodingService {
 
     @Transactional
     public ContextView createWorkflow(CreateRequest request) {
+        return createWorkflow(null, request);
+    }
+
+    @Transactional
+    public ContextView createWorkflow(String workflowId, CreateRequest request) {
         if (request == null) {
             throw new IllegalArgumentException("workflow ai-coding create request is required");
         }
         RuntimeWorkflowDefinitionEntity entity = new RuntimeWorkflowDefinitionEntity();
+        entity.setId(workflowId);
         entity.setName(requireText(request.name(), "workflow name is required"));
         entity.setKeySlug(requireText(request.keySlug(), "workflow keySlug is required"));
         entity.setProjectId(request.projectId());
@@ -110,17 +116,18 @@ public class RuntimeWorkflowAiCodingService {
     }
 
     /**
-     * Replaces the working copy of an existing DRAFT created by Page Workbench
-     * AI Coding. Same-request retries stay on one Workflow id; corrected retries
-     * must overwrite GraphSpec/canvas/metadata instead of silently reusing the
-     * first orphan draft left by a rolled-back Control transaction.
+     * Replaces a task draft only at the revision accepted by its submission ledger.
+     * Request replay and task provenance are checked by the owning delivery service.
      */
     @Transactional
-    public ContextView replaceDraft(String workflowId, CreateRequest request) {
+    public ContextView replaceDraft(String workflowId, CreateRequest request, String baseRevision) {
         if (request == null) {
             throw new IllegalArgumentException("workflow ai-coding replace request is required");
         }
-        RuntimeWorkflowDefinitionEntity workflow = requireWorkflow(workflowId);
+        String expectedRevision = requireText(baseRevision,
+                "baseRevision is required for task draft replacement");
+        RuntimeWorkflowDefinitionEntity workflow = workflowService.lockForWrite(workflowId);
+        workflowService.assertRevision(workflow, expectedRevision);
         if (!"DRAFT".equalsIgnoreCase(workflow.getStatus())) {
             throw new IllegalArgumentException(
                     "task-scoped workflow is no longer a draft");
@@ -155,7 +162,8 @@ public class RuntimeWorkflowAiCodingService {
         update.setExtraJson(writeJsonOrNull(request.extra()));
         RuntimeWorkflowDefinitionEntity saved = workflowService.update(
                 workflow.getId(),
-                update);
+                update,
+                expectedRevision);
         resourceBindingService.replace(saved, request.resourceBindings());
         return contextFromWorkflow(saved);
     }
@@ -318,7 +326,7 @@ public class RuntimeWorkflowAiCodingService {
                 ? actual.version().trim()
                 : "v" + VERSION_TIME.format(LocalDateTime.now());
         int rolloutPercent = actual.rolloutPercent() == null ? 100 : actual.rolloutPercent();
-        String publishedBy = defaultText(actual.publishedBy(), "workflow-ai-coding");
+        String publishedBy = "system:workflow-ai-coding";
         RuntimeWorkflowVersionEntity published = versionService.publish(
                 workflowId,
                 version,

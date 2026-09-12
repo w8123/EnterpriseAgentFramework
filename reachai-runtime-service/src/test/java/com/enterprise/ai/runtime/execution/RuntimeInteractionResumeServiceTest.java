@@ -46,7 +46,6 @@ class RuntimeInteractionResumeServiceTest {
         expiryProcessor = mock(RuntimeInteractionExpiryProcessor.class);
         when(expiryProcessor.expireOne(any(), any())).thenReturn(true);
         service = new RuntimeInteractionResumeService(
-                sessionMapper,
                 sessionService,
                 mock(RuntimeCapabilityCatalogClient.class),
                 graphSpecExecutor,
@@ -93,13 +92,13 @@ class RuntimeInteractionResumeServiceTest {
         when(sessionMapper.selectById("wfi_session1")).thenReturn(session);
 
         assertForbidden(service.resume("wfi_session1", Map.of("values", Map.of("q", "x")),
-                new RuntimeInteractionResumeService.Ownership("app-1", "tenant-a", "chat-wrong", "user-1")));
+                owner("app-1", "tenant-a", "chat-wrong", "user-1")));
         assertForbidden(service.resume("wfi_session1", Map.of("values", Map.of("q", "x")),
-                new RuntimeInteractionResumeService.Ownership("app-wrong", "tenant-a", "chat-1", "user-1")));
+                owner("app-wrong", "tenant-a", "chat-1", "user-1")));
         assertForbidden(service.resume("wfi_session1", Map.of("values", Map.of("q", "x")),
-                new RuntimeInteractionResumeService.Ownership("app-1", "tenant-wrong", "chat-1", "user-1")));
+                owner("app-1", "tenant-wrong", "chat-1", "user-1")));
         assertForbidden(service.resume("wfi_session1", Map.of("values", Map.of("q", "x")),
-                new RuntimeInteractionResumeService.Ownership("app-1", "tenant-a", "chat-1", "user-wrong")));
+                owner("app-1", "tenant-a", "chat-1", "user-wrong")));
     }
 
     @Test
@@ -109,7 +108,7 @@ class RuntimeInteractionResumeServiceTest {
 
         Map<String, Object> result = service.resume("wfi_session1",
                 Map.of("values", Map.of("q", "x")),
-                new RuntimeInteractionResumeService.Ownership("app-b", null, "chat-1", "user-1"));
+                owner("app-b", null, "chat-1", "user-1"));
 
         assertEquals(false, result.get("success"));
         assertEquals("RUNTIME_INTERACTION_FORBIDDEN", result.get("code"));
@@ -133,7 +132,8 @@ class RuntimeInteractionResumeServiceTest {
         RuntimeInteractionSessionEntity session = waitingSession();
         when(sessionMapper.selectById("wfi_session1")).thenReturn(session);
         AtomicInteger updates = new AtomicInteger();
-        when(sessionMapper.update(any(), any())).thenAnswer(invocation -> updates.getAndIncrement() == 0 ? 1 : 0);
+        // The first attempt now has two guarded updates: claim and terminal publication.
+        when(sessionMapper.update(any(), any())).thenAnswer(invocation -> updates.getAndIncrement() < 2 ? 1 : 0);
 
         Map<String, Object> first = service.resume("wfi_session1", Map.of(
                 "values", Map.of("q", "a"),
@@ -308,13 +308,39 @@ class RuntimeInteractionResumeServiceTest {
         assertEquals("RUNTIME_CHECKPOINT_DIGEST_MISMATCH", result.get("code"));
     }
 
+    @Test
+    void requestContextCannotOverwritePersistedWorkflowStateAfterCheckpointValidation() {
+        RuntimeInteractionSessionEntity session = waitingSession();
+        session.setGraphSpecSnapshotJson(session.getGraphSpecSnapshotJson()
+                .replace("got:{{ q }}", "{{ savedValue }}:{{ q }}"));
+        sessionService.applyCheckpoint(session, sessionService.encodeCheckpoint(
+                Map.of("traceId", "trace-1", "runId", "run-1", "savedValue", "before-pause"),
+                session.getGraphSpecSnapshotJson(), session.getNodeId()));
+        when(sessionMapper.selectById("wfi_session1")).thenReturn(session);
+        when(sessionMapper.update(any(), any())).thenReturn(1);
+
+        Map<String, Object> result = service.resume("wfi_session1", Map.of(
+                "values", Map.of("q", "submitted"),
+                "context", Map.of("savedValue", "request-override"),
+                "idempotencyKey", "preserve-snapshot-1"), owner());
+
+        assertEquals(true, result.get("success"));
+        assertEquals("before-pause:submitted", result.get("answer"));
+    }
+
     private static void assertForbidden(Map<String, Object> result) {
         assertEquals(false, result.get("success"));
         assertEquals("RUNTIME_INTERACTION_FORBIDDEN", result.get("code"));
     }
 
     private static RuntimeInteractionResumeService.Ownership owner() {
-        return new RuntimeInteractionResumeService.Ownership("app-1", null, "chat-1", "user-1");
+        return owner("app-1", null, "chat-1", "user-1");
+    }
+
+    private static RuntimeInteractionResumeService.Ownership owner(String appId, String tenantId,
+                                                                  String sessionId, String userId) {
+        return new RuntimeInteractionResumeService.Ownership(appId, sessionId,
+                com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity.fromAgent(tenantId, null, appId, userId));
     }
 
     private RuntimeInteractionSessionEntity waitingSession() {

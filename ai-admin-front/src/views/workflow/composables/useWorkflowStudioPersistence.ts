@@ -169,12 +169,17 @@ export function useWorkflowStudioPersistence({
       if (!isCurrentSave()) return null
       const graph = normalizeJson(graphSpecJson.value, 'GraphSpec')
       const canvas = normalizeJson(canvasJson.value || '{}', 'Canvas')
+      const baseRevision = baseStudio.revision || baseStudio.updatedAt
+      if (!baseRevision?.trim()) {
+        ElMessage.error('未能读取草稿版本，请保留编辑内容并重新加载')
+        return null
+      }
       const savedEditGeneration = editGeneration.value
       const { data } = await saveWorkflowWorkingCopy(requestedWorkflowId, {
         graphSpecJson: graph,
         canvasJson: canvas,
         extraJson: baseStudio.extraJson || null,
-        baseRevision: baseStudio.revision || baseStudio.updatedAt || null,
+        baseRevision,
         keySlug: workflowMeta.keySlug.trim() || baseStudio.keySlug || null,
         name: workflowMeta.name.trim() || baseStudio.name || 'Workflow',
         description: workflowMeta.description.trim(),
@@ -232,11 +237,12 @@ export function useWorkflowStudioPersistence({
           '检测到版本冲突',
           {
             type: 'warning',
+            autofocus: false,
             confirmButtonText: '加载最新版本（覆盖本地）',
             cancelButtonText: '保留当前修改',
           },
         ).then(() => {
-          void loadStudio()
+          if (isCurrentSave()) void loadStudio()
         }).catch(() => undefined)
       } else {
         ElMessage.error(`Workflow 工作副本保存失败：${error.response?.data?.message || error.message || '服务请求失败'}`)

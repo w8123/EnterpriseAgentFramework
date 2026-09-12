@@ -14,7 +14,7 @@ class WorkflowTraceSanitizerSourceConstraintTest {
 
     @Test
     void productionSourceDoesNotContainTestSensitiveMarkers() throws Exception {
-        Path source = Paths.get("src/main/java/com/enterprise/ai/runtime/execution/trace/WorkflowTraceSanitizer.java");
+        Path source = Paths.get("src/main/java/com/enterprise/ai/runtime/trace/WorkflowTraceSanitizer.java");
         String content = Files.readString(source, StandardCharsets.UTF_8);
 
         for (String forbidden : List.of(

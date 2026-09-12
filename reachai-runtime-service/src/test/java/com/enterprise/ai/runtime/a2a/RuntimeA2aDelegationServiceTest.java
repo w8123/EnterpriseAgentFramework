@@ -5,6 +5,9 @@ import com.enterprise.ai.runtime.agent.RuntimeAgentConfigVersionMapper;
 import com.enterprise.ai.runtime.client.control.RuntimeA2aControlClient;
 import com.enterprise.ai.runtime.client.control.RuntimeA2aControlClient.SendRequest;
 import com.enterprise.ai.runtime.client.control.RuntimeA2aControlClient.SendResponse;
+import com.enterprise.ai.runtime.agent.RuntimeAgentRemoteBindingEntity;
+import com.enterprise.ai.runtime.agent.RuntimeAgentRemoteBindingMapper;
+import com.enterprise.ai.runtime.agent.RuntimeAgentRemoteBindingReader;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -23,13 +26,13 @@ import static org.mockito.Mockito.when;
 
 class RuntimeA2aDelegationServiceTest {
 
-    private final RuntimeA2aRemoteAgentBindingMapper bindingMapper =
-            mock(RuntimeA2aRemoteAgentBindingMapper.class);
+    private final RuntimeAgentRemoteBindingMapper bindingMapper =
+            mock(RuntimeAgentRemoteBindingMapper.class);
     private final RuntimeAgentConfigVersionMapper configMapper =
             mock(RuntimeAgentConfigVersionMapper.class);
     private final RuntimeA2aControlClient controlClient = mock(RuntimeA2aControlClient.class);
     private final RuntimeA2aDelegationService service = new RuntimeA2aDelegationService(
-            bindingMapper, configMapper, controlClient, new ObjectMapper());
+            new RuntimeAgentRemoteBindingReader(bindingMapper, configMapper), controlClient, new ObjectMapper());
 
     @Test
     void delegatesOnlyThroughTheActiveFixedBindingAndPropagatesAttestedReferences() {
@@ -98,8 +101,8 @@ class RuntimeA2aDelegationServiceTest {
         return config;
     }
 
-    private RuntimeA2aRemoteAgentBindingEntity binding() {
-        RuntimeA2aRemoteAgentBindingEntity binding = new RuntimeA2aRemoteAgentBindingEntity();
+    private RuntimeAgentRemoteBindingEntity binding() {
+        RuntimeAgentRemoteBindingEntity binding = new RuntimeAgentRemoteBindingEntity();
         binding.setId(31L);
         binding.setAgentId("agent-1");
         binding.setAgentConfigVersionId(23L);

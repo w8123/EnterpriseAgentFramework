@@ -4,6 +4,7 @@ import com.enterprise.ai.common.internalauth.InternalServiceAuthHeaders;
 import com.enterprise.ai.common.internalauth.InternalServiceHmac;
 import com.enterprise.ai.common.internalauth.InternalServiceSecretRing;
 import jakarta.servlet.FilterChain;
+import jakarta.servlet.MultipartConfigElement;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -39,6 +40,12 @@ public class KnowledgeProjectIngressAuthFilter extends OncePerRequestFilter {
     private final long skewMillis;
     private final long maxBodyBytes;
     private final KnowledgeInternalNonceStore nonceStore;
+    private MultipartConfigElement multipartConfig;
+
+    @Autowired(required = false)
+    void configureMultipart(MultipartConfigElement config) {
+        this.multipartConfig = config;
+    }
 
     @Autowired
     public KnowledgeProjectIngressAuthFilter(
@@ -87,6 +94,7 @@ public class KnowledgeProjectIngressAuthFilter extends OncePerRequestFilter {
             }
             cached.setAttribute(VERIFIED_PROJECT_ATTRIBUTE, identity.projectCode());
             cached.setAttribute(VERIFIED_CREDENTIAL_ATTRIBUTE, identity.credentialActorId());
+            cached.configureMultipart(multipartConfig);
             filterChain.doFilter(cached, response);
         } catch (KnowledgeReplayableBodyRequest.BodyTooLargeException tooLarge) {
             reject(response, HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE,

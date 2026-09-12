@@ -1,7 +1,7 @@
 package com.enterprise.ai.runtime.credential;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
+import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;

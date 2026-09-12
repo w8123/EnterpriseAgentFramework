@@ -1,6 +1,7 @@
 package com.enterprise.ai.domain.entity;
 
 import com.baomidou.mybatisplus.annotation.FieldFill;
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
@@ -18,10 +19,18 @@ public class DocumentImportJob {
     private Long id;
     private String jobId;
     private String fileId;
-    /** Existing file superseded after this replacement job completes. */
+    /** Existing file superseded in the same transaction as replacement publication. */
+    @TableField(updateStrategy = FieldStrategy.NEVER)
     private String replaceFileId;
+    @TableField(updateStrategy = FieldStrategy.NEVER)
+    private Long replaceFileRowId;
+    @TableField(updateStrategy = FieldStrategy.NEVER)
+    private String replaceFileGeneration;
     private Long knowledgeBaseId;
     private String knowledgeBaseCode;
+    /** 提交时确认的物理集合；历史缺失值不推断，不能继续索引。 */
+    @TableField(updateStrategy = FieldStrategy.NEVER)
+    private String vectorCollectionName;
     /** Control-configured tenant snapshot for the authenticated console actor. */
     private String tenantId;
     /** User that created the job; status and mutations are owner-fenced. */

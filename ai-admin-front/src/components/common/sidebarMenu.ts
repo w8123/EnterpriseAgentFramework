@@ -6,7 +6,9 @@ import {
   PLATFORM_PERMISSION_AUTOMATION_READ,
   PLATFORM_PERMISSION_BUSINESS_USER_READ,
   PLATFORM_PERMISSION_MEMORY_ERASURE_MANAGE,
+  PLATFORM_PERMISSION_READ,
   PLATFORM_PERMISSION_RUNOPS_READ,
+  PLATFORM_PERMISSION_WRITE,
   PLATFORM_PERMISSION_WORKFLOW_READ,
 } from '@/auth/platformAccess'
 import {
@@ -16,6 +18,7 @@ import {
   Connection,
   Cpu,
   DataAnalysis,
+  Grid,
   SetUp,
   Share,
   Timer,
@@ -52,10 +55,10 @@ export const sidebarMenu: SidebarEntry[] = [
   { kind: 'group', label: 'AI 资产' },
   {
     kind: 'item',
-    index: '/agent',
-    label: 'Agent',
-    icon: Cpu,
-    requiredPermissions: [PLATFORM_PERMISSION_AGENT_READ],
+    index: '/capability',
+    label: '能力目录',
+    icon: Grid,
+    requiredPermissions: [PLATFORM_PERMISSION_READ],
   },
   {
     kind: 'item',
@@ -63,6 +66,13 @@ export const sidebarMenu: SidebarEntry[] = [
     label: 'Workflow',
     icon: Share,
     requiredPermissions: [PLATFORM_PERMISSION_WORKFLOW_READ],
+  },
+  {
+    kind: 'item',
+    index: '/agent',
+    label: 'Agent',
+    icon: Cpu,
+    requiredPermissions: [PLATFORM_PERMISSION_AGENT_READ],
   },
   { kind: 'item', index: '/skills', label: 'Skill', icon: Collection },
   {
@@ -152,8 +162,6 @@ export const sidebarMenu: SidebarEntry[] = [
     label: '实验性能力',
     icon: Compass,
     children: [
-      { index: '/capability', label: '能力目录' },
-      { index: '/capability/review', label: '变更评审' },
       { index: '/context/governance', label: '上下文治理' },
       { index: '/domain', label: '领域定义' },
       { index: '/domain/board', label: '归属画布' },
@@ -165,7 +173,7 @@ export const sidebarMenu: SidebarEntry[] = [
     label: '诊断工具',
     icon: SetUp,
     children: [
-      { index: '/capability/sync-snapshot', label: '同步能力快照' },
+      { index: '/capability/sync-snapshot', label: '同步能力快照', requiredPermissions: [PLATFORM_PERMISSION_WRITE] },
       { index: '/tool/retrieval', label: '调用候选检索' },
       { index: '/retrieval', label: '知识检索测试' },
       { index: '/domain/classifier-test', label: '分类器测试' },
@@ -239,13 +247,13 @@ export function resolveActiveMenu(path: string, metaActiveMenu?: unknown): strin
   if (path.startsWith('/settings/business-users')) return '/settings/business-users'
   if (path.startsWith('/settings/auth-providers')) return '/settings/auth-providers'
   if (path.startsWith('/settings/tool-acl')) return '/settings/tool-acl'
-  if (path.startsWith('/capability/review')) return '/capability/review'
+  if (path.startsWith('/capability/review')) return '/capability'
   if (path.startsWith('/capability/sync-snapshot')) return '/capability/sync-snapshot'
   if (path.startsWith('/capability/tools')) return '/capability'
   if (path.startsWith('/capability/compositions')) return '/capability'
   if (path.startsWith('/capability/interactions')) return '/capability'
   if (path.startsWith('/capability')) return '/capability'
-  if (path.startsWith('/registry/capability-sync')) return '/capability/review'
+  if (path.startsWith('/registry/capability-sync')) return '/capability'
   if (path.startsWith('/registry/projects')) return '/registry/projects'
   if (path.startsWith('/scan-project')) return '/registry/projects'
   if (path.startsWith('/automations')) return '/automations'
@@ -291,10 +299,9 @@ export function resolveOpenGroups(path: string): string[] {
     open.push('/model-group')
   }
 
+
   if (
-    active === '/capability'
-    || active === '/capability/review'
-    || active === '/context/governance'
+    active === '/context/governance'
     || active === '/domain'
     || active === '/domain/board'
   ) {

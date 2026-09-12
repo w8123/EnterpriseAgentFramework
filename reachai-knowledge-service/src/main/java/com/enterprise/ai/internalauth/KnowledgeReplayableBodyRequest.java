@@ -1,9 +1,12 @@
 package com.enterprise.ai.internalauth;
 
 import jakarta.servlet.ReadListener;
+import jakarta.servlet.MultipartConfigElement;
+import jakarta.servlet.ServletException;
 import jakarta.servlet.ServletInputStream;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletRequestWrapper;
+import jakarta.servlet.http.Part;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -18,6 +21,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.util.HexFormat;
+import java.util.Collection;
+import java.util.Enumeration;
+import java.util.Locale;
+import java.util.Map;
 
 /**
  * Captures a signed request once, then replays it to Spring MVC. Small bodies
@@ -32,6 +39,47 @@ final class KnowledgeReplayableBodyRequest extends HttpServletRequestWrapper imp
     private final Path bodyFile;
     private final long bodyLength;
     private final String bodySha256;
+    private KnowledgeReplayableMultipart multipart;
+
+    /** Called only after authentication; MVC must parse the captured bytes, not the consumed container stream. */
+    void configureMultipart(MultipartConfigElement config) {
+        if (getContentType() != null && getContentType().toLowerCase(Locale.ROOT).startsWith("multipart/")) {
+            multipart = new KnowledgeReplayableMultipart(this, config);
+        }
+    }
+
+    @Override
+    public Collection<Part> getParts() throws IOException, ServletException {
+        return multipart == null ? super.getParts() : multipart.parts();
+    }
+
+    @Override
+    public Part getPart(String name) throws IOException, ServletException {
+        if (multipart == null) return super.getPart(name);
+        return getParts().stream().filter(part -> part.getName().equals(name)).findFirst().orElse(null);
+    }
+
+    @Override
+    public Map<String, String[]> getParameterMap() {
+        return multipart == null ? super.getParameterMap() : multipart.parameters();
+    }
+
+    @Override
+    public String[] getParameterValues(String name) {
+        return multipart == null ? super.getParameterValues(name) : multipart.values(name);
+    }
+
+    @Override
+    public String getParameter(String name) {
+        if (multipart == null) return super.getParameter(name);
+        String[] values = getParameterValues(name);
+        return values == null || values.length == 0 ? null : values[0];
+    }
+
+    @Override
+    public Enumeration<String> getParameterNames() {
+        return multipart == null ? super.getParameterNames() : multipart.names();
+    }
 
     private KnowledgeReplayableBodyRequest(HttpServletRequest request,
                                            byte[] memoryBody,
@@ -194,8 +242,10 @@ final class KnowledgeReplayableBodyRequest extends HttpServletRequestWrapper imp
 
     @Override
     public void close() throws IOException {
-        if (bodyFile != null) {
-            Files.deleteIfExists(bodyFile);
+        try {
+            if (multipart != null) multipart.close();
+        } finally {
+            if (bodyFile != null) Files.deleteIfExists(bodyFile);
         }
     }
 

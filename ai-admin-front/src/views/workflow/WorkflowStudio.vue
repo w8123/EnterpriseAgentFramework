@@ -1077,7 +1077,7 @@
         <el-alert
           v-if="studioReadOnly"
           class="readonly-alert"
-          title="代码托管 Workflow 只读展示；请在业务代码中修改后重启同步。"
+          title="此 Workflow 由其他入口维护，只读展示。请从原创建入口更新。"
           type="warning"
           :closable="false"
         />
@@ -1136,7 +1136,7 @@
               <span>在这里编辑配置、调试节点，或查看连线条件。</span>
             </div>
             <el-divider>Workflow 元数据</el-divider>
-            <el-form label-width="100px" size="small" class="property-form">
+            <el-form label-width="100px" size="small" class="property-form" :disabled="studioReadOnly">
               <el-form-item label="名称">
                 <el-input v-model="workflowMeta.name" @change="markCanvasDirty" />
               </el-form-item>
@@ -1488,6 +1488,7 @@
       @open-runops="router.push('/runops/' + $event)"
       @open-node-trace="openNodeTrace"
       @cancel-session="handleCancelDebugSession"
+      @restore-session="handleRestoreDebugSession"
       @interaction-submit="handleDebugInteractionSubmit"
       @interaction-cancel="handleDebugInteractionCancel"
       @run-working-copy="handleRunWorkingCopyDebug"
@@ -1558,6 +1559,8 @@
   </div>
 </template>
 <script setup lang="ts">
+import { useWorkflowStudioTraceProjection } from '@/views/workflow/composables/useWorkflowStudioTraceProjection'
+import { debugWaitingOutput, formatElapsed, type WorkflowNodeTraceState } from '@/views/workflow/composables/workflowStudioTrace'
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
@@ -1606,10 +1609,10 @@ import '@vue-flow/minimap/dist/style.css'
 import {
   attachPageAssistantWorkflowTool,
   getWorkflowDebugSession,
-  validateWorkflowRuntime as validateWorkflowRuntimeApi,
+  getWorkflowDebugSessionByCreationKey,
 } from '@/api/workflow'
 import type { TraceNode } from '@/types/trace'
-import type { RunDetail, RunExecutionPathItem, RunSpan, RunSummary } from '@/types/runops'
+import type { RunDetail, RunSummary } from '@/types/runops'
 import type { ChatResponse } from '@/types/chat'
 import type {
   WorkflowDebugRunResult,
@@ -1630,7 +1633,6 @@ import type {
   StudioVariableOption,
 } from '@/types/studio'
 import type { ModelInstance } from '@/types/model'
-import type { UiRequestPayload } from '@/types/interaction'
 import {
   createWorkflowCanvasNode,
   workflowCanvasToSaveRequest,
@@ -1655,20 +1657,18 @@ import WorkflowStudioSourceDrawer from '@/views/workflow/studio-overlays/Workflo
 import { useWorkflowStudioNodeMetadata } from '@/views/workflow/composables/useWorkflowStudioNodeMetadata'
 import { useWorkflowStudioPalette } from '@/views/workflow/composables/useWorkflowStudioPalette'
 import { useWorkflowStudioDebugSession } from '@/views/workflow/composables/useWorkflowStudioDebugSession'
+import { isPlatformAuthenticated, platformSessionUser } from '@/auth/platformSession'
 import { useWorkflowStudioSessionLifecycle } from '@/views/workflow/composables/useWorkflowStudioSessionLifecycle'
 import { useWorkflowStudioCanvasSearch } from '@/views/workflow/composables/useWorkflowStudioCanvasSearch'
+import { useWorkflowStudioRuntimeValidation } from '@/views/workflow/composables/useWorkflowStudioRuntimeValidation'
 import { useWorkflowStudioPersistence } from '@/views/workflow/composables/useWorkflowStudioPersistence'
 import { useWorkflowStudioPanelValidation } from '@/views/workflow/composables/useWorkflowStudioPanelValidation'
 import { useWorkflowStudioRelease } from '@/views/workflow/composables/useWorkflowStudioRelease'
 import {
   useWorkflowStudioCanvasActions,
-  type WorkflowNodeTraceState,
 } from '@/views/workflow/composables/useWorkflowStudioCanvasActions'
 import {
   useWorkflowStudioDebugRun,
-  debugStepStatus,
-  stringifyDebugPayload,
-  formatElapsed,
 } from '@/views/workflow/composables/useWorkflowStudioDebugRun'
 import { useWorkflowStudioProposalContext } from '@/views/workflow/composables/useWorkflowStudioProposalContext'
 import { useWorkflowStudioProposalActions } from '@/views/workflow/composables/useWorkflowStudioProposalActions'
@@ -1699,7 +1699,6 @@ const publishing = ref(false)
 const pageAssistantSyncing = ref(false)
 const releaseChecking = ref(false)
 const releaseValidationReady = ref(false)
-let validationSequence = 0
 const layoutRunning = ref(false)
 const canvasSearchOpen = ref(false)
 const canvasSearchKeyword = ref('')
@@ -1799,7 +1798,6 @@ const publishForm = reactive<WorkflowPublishRequest>({
   version: 'v1.0.0',
   rolloutPercent: 100,
   note: '',
-  publishedBy: '',
 })
 const workflowMeta = reactive({
   name: '',
@@ -1842,7 +1840,7 @@ const {
 const studioReadOnly = computed(() => {
   const authority = studio.value?.definitionAuthority
   const creationChannel = studio.value?.creationChannel
-  return authority === 'SDK' || creationChannel === 'AI_QUICK_ACCESS'
+  return authority === 'SDK' || authority === 'SYSTEM' || creationChannel === 'AI_QUICK_ACCESS'
 })
 
 const selectedAiEditModelLabel = computed(() =>
@@ -2005,10 +2003,15 @@ const {
 
 const {
   forgetDebugSession,
+  debugCreationKey,
+  setDebugCreationKey,
+  debugSessionScope,
   applyDebugSession,
   clearDebugSessionView,
   loadStoredDebugSession,
 } = useWorkflowStudioDebugSession({
+  ownerScope: computed(() => isPlatformAuthenticated.value && platformSessionUser.value
+    ? `platform:${platformSessionUser.value.userId}` : ''),
   workflowId,
   workflowKeySlug: computed(() => workflowMeta.keySlug),
   debugSession,
@@ -2021,6 +2024,10 @@ const {
   refreshWorkflowNodeClasses: () => refreshWorkflowNodeClasses(),
   getDebugSessionById: async (sessionId: string) => {
     const { data } = await getWorkflowDebugSession(sessionId)
+    return data
+  },
+  getDebugSessionByCreationKey: async (key: string) => {
+    const { data } = await getWorkflowDebugSessionByCreationKey(key)
     return data
   },
 })
@@ -2180,83 +2187,26 @@ const debugInputFields = computed<StudioFieldSchema[]>(() => {
     .filter((field) => !!field.name?.trim())
 })
 
-const debugWaitingRequest = computed<UiRequestPayload | null>(() => {
-  if (debugSession.value?.status === 'WAITING' && debugSession.value.uiRequest) {
-    return debugSession.value.uiRequest
-  }
-  for (const step of debugRunResult.value?.steps || []) {
-    if (debugStepStatus(step.status) !== 'waiting') continue
-    const output = debugWaitingOutput(step)
-    const request = uiRequestFromOutput(output)
-    if (request) return request
-  }
-  return null
-})
-
-const debugSessionMessages = computed(() => debugSession.value?.messages || [])
-
-const debugCurrentUiRequest = computed<UiRequestPayload | null>(() =>
-  debugSession.value?.status === 'WAITING'
-    ? debugSession.value.uiRequest || debugWaitingRequest.value
-    : null,
-)
-
 const debugSessionSteps = computed<WorkflowDebugStepResult[]>(() =>
   debugSession.value?.steps || debugRunResult.value?.steps || [],
 )
 
-const workflowExecutionPath = computed<RunExecutionPathItem[]>(() =>
-  (runOpsDetail.value?.executionPath ?? []).filter((item) => {
-    const spanType = (item.spanType || '').trim().toUpperCase()
-    if (spanType === 'WORKFLOW' || spanType === 'WORKFLOW_NODE') return true
-    if (item.fromNodeId || item.toNodeId) return true
-    return Boolean(item.nodeId && !['SUPERVISOR', 'PLAN', 'REPLAN', 'WORKFLOW_TOOL'].includes(spanType))
-  }),
-)
-
-const workflowExecutionNodeIds = computed(() => {
-  const ids = new Set<string>()
-  for (const step of debugRunResult.value?.steps || []) {
-    ids.add(step.nodeId)
-  }
-  for (const item of workflowExecutionPath.value) {
-    const nodeId = item.fromNodeId || item.nodeId
-    if (nodeId) ids.add(nodeId)
-    if (item.toNodeId) ids.add(item.toNodeId)
-  }
-  return ids
-})
-
-const workflowHitEdgeKeys = computed(() => {
-  const keys = new Set<string>()
-  for (const step of debugRunResult.value?.steps || []) {
-    if (step.nextNodeId) {
-      keys.add(edgeKey(step.nodeId, step.nextNodeId))
-    }
-  }
-  for (const item of workflowExecutionPath.value) {
-    if (item.fromNodeId && item.toNodeId) {
-      keys.add(edgeKey(item.fromNodeId, item.toNodeId))
-    }
-  }
-  const nodeSequence = workflowExecutionPath.value
-    .map((item) => item.fromNodeId || item.nodeId || item.toNodeId || '')
-    .filter((nodeId, index, values) => !!nodeId && (index === 0 || nodeId !== values[index - 1]))
-  for (let index = 0; index < nodeSequence.length - 1; index += 1) {
-    keys.add(edgeKey(nodeSequence[index], nodeSequence[index + 1]))
-  }
-  return keys
-})
-
-const workflowReplaySummary = computed(() => {
-  if (!workflowExecutionPath.value.length) return []
-  const waiting = workflowExecutionPath.value.filter((item) => workflowExecutionItemStatus(item) === 'waiting').length
-  const errors = workflowExecutionPath.value.filter((item) => workflowExecutionItemStatus(item) === 'error').length
-  return [
-    { label: 'RunOps path', value: String(workflowExecutionPath.value.length) },
-    { label: 'Waiting', value: String(waiting) },
-    { label: 'Errors', value: String(errors) },
-  ]
+const {
+  workflowExecutionPath,
+  workflowExecutionNodeIds,
+  workflowHitEdgeKeys,
+  workflowReplaySummary,
+  nodeTraceStates,
+  nodeTraceList,
+  debugOpsItems,
+  lastRouteForNode,
+} = useWorkflowStudioTraceProjection({
+  nodes,
+  debugRunResult,
+  nodeDebugResult,
+  debugResult,
+  runOpsDetail,
+  traceNodes,
 })
 
 const studioRecentRuns = computed(() => {
@@ -2283,26 +2233,6 @@ const studioRecentRunsPlaceholder = computed(() => {
     return '当前 Workflow 最近运行'
   }
   return '最近运行（含其他 Workflow）'
-})
-
-const nodeTraceList = computed(() =>
-  Object.values(nodeTraceStates.value).sort((a, b) => {
-    const ai = nodes.value.findIndex((node) => node.id === a.nodeId)
-    const bi = nodes.value.findIndex((node) => node.id === b.nodeId)
-    return (ai < 0 ? 9999 : ai) - (bi < 0 ? 9999 : bi)
-  }),
-)
-
-const debugOpsItems = computed(() => {
-  const metadata = debugResult.value?.metadata || {}
-  return [
-    { label: '发布版本', value: textValue(metadata.agentConfigVersion || metadata.workflowVersion) },
-    { label: '运行时', value: textValue(metadata.runtimeType) },
-    { label: '业务项目', value: textValue(metadata.projectCode) },
-    { label: 'Workflow', value: textValue(metadata.workflowKeySlug || metadata.workflowId) },
-    { label: '实例', value: textValue(metadata.instanceId) },
-    { label: '追踪 ID', value: textValue(metadata.traceId) },
-  ].filter((item) => item.value !== '-')
 })
 
 const variablePreview = computed(() => {
@@ -2332,66 +2262,6 @@ const variablePreview = computed(() => {
   }
 })
 
-const nodeTraceStates = computed<Record<string, WorkflowNodeTraceState>>(() => {
-  const states: Record<string, WorkflowNodeTraceState> = {}
-  const debugSteps = debugRunResult.value?.steps || []
-  if (debugSteps.length) {
-    for (const step of debugSteps) {
-      states[step.nodeId] = {
-        nodeId: step.nodeId,
-        status: debugStepStatus(step.status),
-        elapsedMs: step.elapsedMs,
-        input: stringifyDebugPayload(step.input),
-        output: stringifyDebugPayload(step.output ?? step.statePatch),
-        errorCode: step.errorCode,
-        route: step.route,
-        createdAt: step.startedAt,
-      }
-    }
-    return states
-  }
-  const runSpans = runOpsDetail.value?.spans ?? []
-  if (runSpans.length) {
-    const orderedSpans = [...runSpans].sort((a, b) => dateMs(a.startedAt) - dateMs(b.startedAt))
-    for (const item of orderedSpans) {
-      const next = spanToNodeTraceState(item)
-      if (!next) continue
-      const previous = states[next.nodeId]
-      states[next.nodeId] = preferNodeTraceState(previous, next)
-    }
-    for (const item of workflowExecutionPath.value) {
-      const nodeId = (item.fromNodeId || item.nodeId || '').trim()
-      if (!nodeId) continue
-      const previous = states[nodeId]
-      const next: WorkflowNodeTraceState = {
-        nodeId,
-        status: workflowExecutionItemStatus(item),
-        route: item.route || item.condition,
-        createdAt: item.startedAt,
-      }
-      states[nodeId] = preferNodeTraceState(previous, next)
-    }
-    return states
-  }
-  const ordered = [...traceNodes.value].sort((a, b) => dateMs(a.createdAt) - dateMs(b.createdAt))
-  for (const item of ordered) {
-    const nodeId = (item.nodeId || '').trim()
-    if (!nodeId) continue
-    const next: WorkflowNodeTraceState = {
-      nodeId,
-      status: item.success ? 'success' : 'error',
-      elapsedMs: item.elapsedMs,
-      input: item.argsJson,
-      output: item.resultSummary,
-      errorCode: item.errorCode,
-      createdAt: item.createdAt,
-    }
-    const previous = states[nodeId]
-    states[nodeId] = preferNodeTraceState(previous, next)
-  }
-  return states
-})
-
 function markCanvasDirty() {
   if (loading.value || historyApplying.value || !historyReady.value) return
   editGeneration.value += 1
@@ -2412,32 +2282,12 @@ function handleCanvasEdgesChange(changes: Array<{ type?: string }>) {
   }
 }
 
-function lastRouteForNode(nodeId: string) {
-  if (nodeDebugResult.value?.nodeId === nodeId) {
-    const route = nodeDebugResult.value.lastRoute || String(nodeDebugResult.value.outputState?.lastRoute || '')
-    if (route) return route
-  }
-  const fromWorkflow = workflowExecutionPath.value.find(
-    (item) => (item.fromNodeId || item.nodeId) === nodeId && item.route,
-  )?.route
-  if (fromWorkflow) return fromWorkflow
-  const trace = nodeTraceStates.value[nodeId]
-  if (trace?.route) return trace.route
-  if (!trace?.output) return ''
-  try {
-    const parsed = JSON.parse(trace.output)
-    return String(parsed.lastRoute || parsed.outputState?.lastRoute || '')
-  } catch {
-    const match = trace.output.match(/lastRoute[=:]\s*([A-Za-z0-9_-]+)/)
-    return match?.[1] || ''
-  }
-}
-
 const {
   decorateWorkflowEdge,
   decorateWorkflowNode,
   refreshWorkflowNodeClasses,
   canvasSnapshot,
+  serializeWorkflowEdge,
   onConnect,
   copySelectedNode,
   pasteCopiedNode,
@@ -2514,6 +2364,7 @@ const {
   stripTransientNodeClasses,
   decorateWorkflowNode,
   decorateWorkflowEdge,
+  serializeWorkflowEdge,
   syncJsonFromCanvas: () => syncJsonFromCanvas(),
   nextTick,
 })
@@ -2604,11 +2455,10 @@ const {
   openNodeTrace,
   handleDebug,
   handleRunWorkingCopyDebug,
-  handleDebugUiSubmit,
   handleDebugInteractionSubmit,
   handleDebugInteractionCancel,
-  handleDebugConversationSend,
   handleCancelDebugSession,
+  handleRestoreDebugSession,
   loadRecentStudioRuns,
   handleLoadTraceReplay,
   handleRecentTraceChange,
@@ -2623,6 +2473,9 @@ const {
   isDebugConversationBusy,
   disposeDebugConversation,
 } = useWorkflowStudioDebugRun({
+  debugCreationKey,
+  setDebugCreationKey,
+  debugSessionScope,
   workflowId,
   studio,
   workflowMeta,
@@ -3025,62 +2878,11 @@ watch(
   },
 )
 
-function workflowRequestErrorMessage(err: unknown) {
-  const error = err as { response?: { data?: { message?: string } }; message?: string }
-  return error.response?.data?.message || error.message || '服务请求失败'
-}
-
-async function validateRuntime(options: { silent?: boolean; syncCanvas?: boolean } = {}) {
-  if (!studio.value || !workflowId.value) return null
-  const validationToken = ++validationSequence
-  let validatedWorkflowId = workflowId.value
-  let validatedGraphSpecJson = graphSpecJson.value
-  let validatedModelInstanceId = workflowMeta.defaultModelInstanceId
-  let validatedEditGeneration = editGeneration.value
-  const isCurrentValidation = () => (
-    validationToken === validationSequence
-    && workflowId.value === validatedWorkflowId
-    && graphSpecJson.value === validatedGraphSpecJson
-    && workflowMeta.defaultModelInstanceId === validatedModelInstanceId
-    && editGeneration.value === validatedEditGeneration
-  )
-  validating.value = true
-  try {
-    if (options.syncCanvas !== false && nodes.value.length) {
-      syncJsonFromCanvas()
-    }
-    validatedWorkflowId = workflowId.value
-    validatedGraphSpecJson = graphSpecJson.value
-    validatedModelInstanceId = workflowMeta.defaultModelInstanceId
-    validatedEditGeneration = editGeneration.value
-    const { data } = await validateWorkflowRuntimeApi({
-      workflowId: validatedWorkflowId,
-      graphSpecJson: validatedGraphSpecJson,
-      executionEngine: studio.value?.executionEngine || 'GRAPH_SPEC',
-      defaultModelInstanceId: validatedModelInstanceId,
-    })
-    if (!isCurrentValidation()) return null
-    validation.value = data
-    validationRequestError.value = ''
-    if (data.valid && !options.silent) {
-      ElMessage.success('Workflow GraphSpec 校验通过')
-    }
-    if (!data.valid && !options.silent) {
-      ElMessage.warning(`Workflow 仍有 ${data.errors.length} 个发布阻断项`)
-    }
-    return data
-  } catch (err) {
-    if (!isCurrentValidation()) return null
-    validation.value = null
-    validationRequestError.value = workflowRequestErrorMessage(err)
-    if (!options.silent) {
-      ElMessage.error(`Workflow 校验失败：${validationRequestError.value}`)
-    }
-    return null
-  } finally {
-    if (validationToken === validationSequence) validating.value = false
-  }
-}
+const { validateRuntime } = useWorkflowStudioRuntimeValidation({
+  workflowId, studio, graphSpecJson,
+  defaultModelInstanceId: computed(() => workflowMeta.defaultModelInstanceId),
+  editGeneration, nodes, validating, validation, validationRequestError, syncJsonFromCanvas,
+})
 
 function onDragStart(event: DragEvent, kind: CanvasNodeKind) {
   if (studioReadOnly.value) {
@@ -3616,88 +3418,6 @@ function handleHeaderCommand(command: string | number | object) {
   }
   if (command === 'versions') {
     router.push(`/workflows/${workflowId.value}/versions`)
-  }
-}
-
-function objectPayload(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : {}
-}
-
-function debugWaitingOutput(step: WorkflowDebugStepResult) {
-  const raw = objectPayload(step.rawOutput)
-  if (raw.status === 'WAITING') return raw
-  const output = objectPayload(step.output)
-  const lastOutput = objectPayload(output.lastOutput)
-  return lastOutput.status === 'WAITING' ? lastOutput : null
-}
-
-function uiRequestFromOutput(output: Record<string, unknown> | null) {
-  const request = objectPayload(output?.uiRequest)
-  return request.component || request.fields ? request as unknown as UiRequestPayload : null
-}
-
-function edgeKey(source?: string, target?: string) {
-  return `${source || ''}->${target || ''}`
-}
-
-function textValue(value: unknown) {
-  if (value === null || value === undefined || value === '') return '-'
-  return String(value)
-}
-
-function dateMs(value?: string) {
-  if (!value) return 0
-  const ms = Date.parse(value)
-  return Number.isFinite(ms) ? ms : 0
-}
-
-function stringMeta(metadata: Record<string, unknown>, key: string) {
-  const value = metadata[key]
-  return value === null || value === undefined ? '' : String(value)
-}
-
-function workflowExecutionItemStatus(item: RunExecutionPathItem): WorkflowNodeTraceState['status'] {
-  const status = (item.status || item.workflowStatus || '').trim().toUpperCase()
-  if (status === 'RUNNING' || status === 'EXECUTING') return 'running'
-  if (status === 'WAITING') return 'waiting'
-  if (status === 'ERROR' || status === 'FAILED' || status === 'FAILURE') return 'error'
-  return 'success'
-}
-
-function preferNodeTraceState(previous: WorkflowNodeTraceState | undefined, next: WorkflowNodeTraceState) {
-  if (!previous) return next
-  if (previous.status === 'error' && next.status !== 'error') return previous
-  if (next.status === 'running') return { ...previous, ...next }
-  if (next.status === 'waiting') return { ...previous, ...next }
-  if (previous.status === 'waiting' && next.status === 'success') return previous
-  return next.createdAt && previous.createdAt && dateMs(previous.createdAt) > dateMs(next.createdAt)
-    ? previous
-    : { ...previous, ...next }
-}
-
-function spanToNodeTraceState(span: RunSpan): WorkflowNodeTraceState | null {
-  const nodeId = (span.nodeId || '').trim()
-  if (!nodeId) return null
-  const metadata = span.metadata || {}
-  const normalized = (span.status || '').trim().toUpperCase()
-  let status: WorkflowNodeTraceState['status'] = 'success'
-  if (normalized === 'RUNNING' || normalized === 'EXECUTING') status = 'running'
-  else if (normalized === 'WAITING') status = 'waiting'
-  else if (normalized === 'ERROR' || normalized === 'FAILED' || normalized === 'FAILURE') status = 'error'
-  return {
-    nodeId,
-    status,
-    elapsedMs: span.latencyMs,
-    spanType: span.spanType,
-    toolName: span.toolName,
-    input: span.inputSummary,
-    output: span.outputSummary,
-    errorCode: span.errorCode,
-    route: stringMeta(metadata, 'lastRoute') || stringMeta(metadata, 'route'),
-    interactionId: stringMeta(metadata, 'interactionId'),
-    createdAt: span.startedAt,
   }
 }
 

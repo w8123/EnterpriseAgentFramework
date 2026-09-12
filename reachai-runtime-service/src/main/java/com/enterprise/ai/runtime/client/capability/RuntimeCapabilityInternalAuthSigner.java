@@ -58,6 +58,7 @@ public class RuntimeCapabilityInternalAuthSigner {
         }
         String source = safeHeader(identitySource, "identitySource", false);
         if (!InternalServiceAuthHeaders.IDENTITY_SOURCE_RUNTIME_TRUSTED.equals(source)
+                && !InternalServiceAuthHeaders.IDENTITY_SOURCE_RUNTIME_TENANT_TRUSTED.equals(source)
                 && !InternalServiceAuthHeaders.IDENTITY_SOURCE_RUNTIME_UNTRUSTED.equals(source)) {
             throw new IllegalArgumentException("unsupported Runtime Capability identity source");
         }
@@ -70,6 +71,10 @@ public class RuntimeCapabilityInternalAuthSigner {
         if (InternalServiceAuthHeaders.IDENTITY_SOURCE_RUNTIME_UNTRUSTED.equals(source)
                 && (StringUtils.hasText(tenantId) || StringUtils.hasText(userId))) {
             throw new IllegalArgumentException("untrusted Runtime Capability calls cannot carry an identity");
+        }
+        if (InternalServiceAuthHeaders.IDENTITY_SOURCE_RUNTIME_TENANT_TRUSTED.equals(source)
+                && (!StringUtils.hasText(tenantId) || StringUtils.hasText(userId))) {
+            throw new IllegalArgumentException("tenant-scoped Runtime Capability calls require a tenant and no business user");
         }
 
         String timestamp = String.valueOf(System.currentTimeMillis());

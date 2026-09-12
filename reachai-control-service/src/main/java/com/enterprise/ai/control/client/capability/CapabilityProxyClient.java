@@ -44,34 +44,8 @@ public interface CapabilityProxyClient {
                                             @RequestHeader(value = "X-ReachAI-Signature", required = false) String signature,
                                             @RequestBody Map<String, Object> body);
 
-    @RequestMapping(method = RequestMethod.POST, path = "/api/registry/projects/{projectCode}/capabilities/diff")
-    ResponseEntity<Object> diffCapabilities(@PathVariable("projectCode") String projectCode,
-                                            @RequestHeader(value = "X-ReachAI-App-Key", required = false) String appKey,
-                                            @RequestHeader(value = "X-ReachAI-Timestamp", required = false) String timestamp,
-                                            @RequestHeader(value = "X-ReachAI-Nonce", required = false) String nonce,
-                                            @RequestHeader(value = "X-ReachAI-Signature", required = false) String signature,
-                                            @RequestBody Map<String, Object> body);
-
     @RequestMapping(method = RequestMethod.GET, path = "/internal/capability/tools/{qualifiedName}")
     ResponseEntity<Map<String, Object>> getToolDefinition(@PathVariable("qualifiedName") String qualifiedName);
-
-    @RequestMapping(method = RequestMethod.POST, path = "/api/registry/projects/{projectCode}/capabilities/apply")
-    ResponseEntity<Object> applyCapabilities(@PathVariable("projectCode") String projectCode,
-                                             @RequestBody Map<String, Object> body);
-
-    @RequestMapping(method = RequestMethod.GET, path = "/api/registry/projects/{projectCode}/capability-snapshots")
-    ResponseEntity<Object> listCapabilitySnapshots(@PathVariable("projectCode") String projectCode);
-
-    @RequestMapping(method = RequestMethod.GET, path = "/api/registry/capability-snapshots/{snapshotId}/diff-items")
-    ResponseEntity<Object> listCapabilityDiffItems(@PathVariable("snapshotId") Long snapshotId);
-
-    @RequestMapping(method = RequestMethod.POST, path = "/api/registry/capability-diff-items/{diffItemId}/review")
-    ResponseEntity<Object> reviewCapabilityDiffItem(@PathVariable("diffItemId") Long diffItemId,
-                                                    @RequestBody Map<String, Object> body);
-
-    @RequestMapping(method = RequestMethod.POST, path = "/api/registry/capability-diff-items/{diffItemId}/rollback")
-    ResponseEntity<Object> rollbackCapabilityDiffItem(@PathVariable("diffItemId") Long diffItemId,
-                                                      @RequestBody Map<String, Object> body);
 
     @RequestMapping(method = RequestMethod.GET, path = "/internal/capability/embed/credentials")
     ResponseEntity<Object> listEmbedCredentialPolicies(@RequestParam(value = "projectCode", required = false) String projectCode,

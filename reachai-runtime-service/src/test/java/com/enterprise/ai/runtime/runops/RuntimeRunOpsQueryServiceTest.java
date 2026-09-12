@@ -12,8 +12,12 @@ import com.enterprise.ai.runtime.trace.RuntimeToolCallLogEntity;
 import com.enterprise.ai.runtime.trace.RuntimeToolCallLogMapper;
 import com.enterprise.ai.runtime.trace.RuntimeTraceSpanEntity;
 import com.enterprise.ai.runtime.trace.RuntimeTraceSpanMapper;
+import com.enterprise.ai.runtime.trace.RuntimeTraceQueryService;
+import com.enterprise.ai.runtime.trace.RuntimeTraceSummaryView;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 
@@ -38,7 +42,7 @@ class RuntimeRunOpsQueryServiceTest {
     private final RuntimeToolCallLogMapper toolMapper = mock(RuntimeToolCallLogMapper.class);
     private final RuntimeGuardDecisionLogMapper guardMapper = mock(RuntimeGuardDecisionLogMapper.class);
     private final RuntimeRunOpsQueryService service = new RuntimeRunOpsQueryService(
-            runMapper, spanMapper, toolMapper, guardMapper, new ObjectMapper());
+            runMapper, new RuntimeTraceQueryService(toolMapper, spanMapper, new ObjectMapper()), guardMapper, new ObjectMapper());
 
     @Test
     void recentIncludesDirectAnswerSupervisorRunWithNoWorkflowOrToolCalls() {
@@ -184,6 +188,25 @@ class RuntimeRunOpsQueryServiceTest {
         assertEquals(0.5D, diagnostics.versionComparisons().get(0).successRate());
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"WAITING_APPROVAL", "BUSINESS_TERMINAL", "TIMEOUT"})
+    void diagnosticsAcceptsSpanStatesProducedBySupervisor(String spanStatus) {
+        RuntimeRunEntity root = supervisorRun("trace-native-status",
+                "WAITING_APPROVAL".equals(spanStatus) ? "SUSPENDED" : "COMPLETED");
+        when(runMapper.selectList(any())).thenReturn(List.of(root));
+        when(runMapper.selectOne(any())).thenReturn(root);
+        when(spanMapper.selectList(any())).thenReturn(List.of(span(1L, root.getTraceId(),
+                "native-span", "root", "WORKFLOW_TOOL", spanStatus)));
+        when(toolMapper.selectList(any())).thenReturn(List.of());
+        when(guardMapper.selectList(any())).thenReturn(List.of());
+
+        RuntimeRunOpsDiagnosticsView diagnostics = service.diagnostics(
+                "qmssmp", null, "AGENT", null, "agent-1", null, 20, 7);
+
+        assertEquals("TIMEOUT".equals(spanStatus) ? 1 : 0, diagnostics.failureClusters().size());
+        assertEquals(spanStatus, service.detail(root.getTraceId()).spans().get(0).status());
+    }
+
     private RuntimeRunEntity supervisorRun(String traceId, String status) {
         RuntimeRunEntity run = new RuntimeRunEntity();
         run.setId(1L);
@@ -214,6 +237,47 @@ class RuntimeRunOpsQueryServiceTest {
         run.setMetadataJson("{\"sourceType\":\"AGENT_SUPERVISOR\"}");
         run.setStartedAt(LocalDateTime.parse("2026-07-14T08:00:00"));
         run.setEndedAt(LocalDateTime.parse("2026-07-14T08:00:01"));
+        return run;
+    }
+
+    @Test
+    void listsRecentTracesFromRootRunsWithMostRecentFirst() {
+        when(runMapper.selectList(org.mockito.ArgumentMatchers.<Wrapper<RuntimeRunEntity>>any())).thenReturn(List.of(
+                run(2L, "trace-b", "COMPLETED", 1,
+                        LocalDateTime.parse("2026-06-29T12:02:00"), LocalDateTime.parse("2026-06-29T12:02:00")),
+                run(1L, "trace-a", "FAILED", 2,
+                        LocalDateTime.parse("2026-06-29T12:00:00"), LocalDateTime.parse("2026-06-29T12:01:00"))));
+
+        List<RuntimeTraceSummaryView> summaries = service.listRecentTraces("user-1", 20, 7);
+
+        assertEquals(2, summaries.size());
+        assertEquals("trace-b", summaries.get(0).traceId());
+        assertEquals(1, summaries.get(0).callCount());
+        assertEquals(1L, summaries.get(0).successCount());
+        assertEquals("trace-a", summaries.get(1).traceId());
+        assertEquals(2, summaries.get(1).callCount());
+        assertEquals(0L, summaries.get(1).successCount());
+        assertEquals(LocalDateTime.parse("2026-06-29T12:00:00"), summaries.get(1).startedAt());
+        assertEquals(LocalDateTime.parse("2026-06-29T12:01:00"), summaries.get(1).endedAt());
+    }
+
+    private RuntimeRunEntity run(Long id,
+                                 String traceId,
+                                 String status,
+                                 int toolCallCount,
+                                 LocalDateTime startedAt,
+                                 LocalDateTime endedAt) {
+        RuntimeRunEntity run = new RuntimeRunEntity();
+        run.setId(id);
+        run.setTraceId(traceId);
+        run.setStatus(status);
+        run.setSessionId("session-1");
+        run.setUserId("user-1");
+        run.setAgentName("Order Agent");
+        run.setEntryType("API");
+        run.setToolCallCount(toolCallCount);
+        run.setStartedAt(startedAt);
+        run.setEndedAt(endedAt);
         return run;
     }
 

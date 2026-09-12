@@ -32,12 +32,7 @@ public interface VectorService {
     List<VectorSearchResult> search(VectorSearchRequest request);
 
     /**
-     * 按 file_id 删除向量
-     */
-    void deleteByFileId(String collectionName, String fileId);
-
-    /**
-     * 删除整个 collection
+     * 按准确主键删除一条向量
      */
     void deleteById(String collectionName, String id);
 

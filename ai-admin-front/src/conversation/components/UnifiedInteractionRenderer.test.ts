@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
+import { describe, expect, it, afterEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { defineComponent, h } from 'vue'
 import UnifiedInteractionRenderer from '../components/UnifiedInteractionRenderer.vue'
@@ -70,8 +70,14 @@ describe('UnifiedInteractionRenderer DOM', () => {
         },
       },
     })
-    await formWrapper.find('form').trigger('submit.prevent')
+    const form = formWrapper.get('form')
+    expect(form.attributes()).toHaveProperty('novalidate')
+    await form.trigger('submit.prevent')
     expect(formWrapper.text()).toContain('请填写必填项')
+    const input = formWrapper.get('input[type="text"]')
+    const error = formWrapper.get('[role="alert"]')
+    expect(input.attributes('aria-invalid')).toBe('true')
+    expect(input.attributes('aria-describedby')).toBe(error.attributes('id'))
   })
 
   it('allows decimal number fields while keeping integer fields integral', async () => {

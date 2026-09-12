@@ -8,6 +8,7 @@ import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskDescript
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskTargetView;
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskValues.ArtifactNextAction;
 import com.enterprise.ai.control.aicoding.provider.AiCodingContractResourceLoader;
+import com.enterprise.ai.control.aicoding.provider.AiCodingArtifactApplicationUnconfirmedException;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.ActionView;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.PageView;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.PublishedWorkflowView;
@@ -20,6 +21,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.http.ResponseEntity;
 
 import java.time.LocalDateTime;
@@ -30,6 +33,7 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.argThat;
@@ -144,6 +148,29 @@ class PageWorkbenchTaskProviderTest {
                         "ait_page_test".equals(request.get("taskId"))
                                 && "orders.detail".equals(
                                 request.get("pageKey"))));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"NULL_RESPONSE", "EMPTY", "MISSING_WORKFLOW", "MISSING_ID", "MISSING_REVISION",
+            "WRONG_SCHEMA", "WRONG_TASK", "WRONG_PAGE"})
+    void workflowReceiptMustConfirmItsIdentityBeforeFinalizingTheArtifact(String fault) {
+        var provider = provider(PageWorkbenchTaskProvider.WORKFLOW_ENGINEERING, "workflow-engineering-report-v1");
+        when(pageCatalog.findAction("orders", "orders.detail", "getPageState"))
+                .thenReturn(Optional.of(activeAction()));
+        var draft = new WorkflowEngineeringDraftView(
+                fault.equals("WRONG_SCHEMA") ? "another-schema" : "reachai.page-workbench.workflow-engineering-draft.v1",
+                fault.equals("WRONG_TASK") ? "another-task" : "ait_page_test",
+                fault.equals("WRONG_PAGE") ? "another-page" : "orders.detail", "Draft",
+                List.of("getPageState"), List.of("src/views/orders/Detail.vue"), List.of("Read only"), List.of(),
+                fault.equals("MISSING_WORKFLOW") ? null : new WorkflowDraftView(
+                        fault.equals("MISSING_ID") ? null : "wf-orders-detail", "orders-assistant", "Draft", "DRAFT",
+                        fault.equals("MISSING_REVISION") ? null : LocalDateTime.of(2026, 9, 9, 10, 0)), null);
+        when(runtimeClient.createPageWorkbenchWorkflowDraft(org.mockito.ArgumentMatchers.eq("orders"),
+                org.mockito.ArgumentMatchers.anyMap())).thenReturn(fault.equals("NULL_RESPONSE")
+                ? null : ResponseEntity.ok(fault.equals("EMPTY") ? null : draft));
+        assertThrows(AiCodingArtifactApplicationUnconfirmedException.class, () -> provider.applyArtifact(
+                task(PageWorkbenchTaskProvider.WORKFLOW_ENGINEERING),
+                artifact("reachai.workflow-engineering-report", example("workflow-engineering-report-v1"))));
     }
 
     @Test

@@ -25,6 +25,7 @@ import java.util.Set;
 public class InternalServiceAuthFilter extends OncePerRequestFilter {
 
     private static final Set<String> PROTECTED_PATHS = Set.of(
+            "/internal/runtime/capability-references",
             "/internal/runtime/agents/execute",
             "/internal/runtime/agents/execute/stream");
 
@@ -41,6 +42,8 @@ public class InternalServiceAuthFilter extends OncePerRequestFilter {
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String path = normalizePath(request);
         return !PROTECTED_PATHS.contains(path)
+                && !isDebugSessionPath(path)
+                && !isWorkflowReleasePath(path)
                 && !path.equals("/internal/runtime/a2a/executions")
                 && !(path.startsWith("/internal/runtime/a2a/executions/")
                 && path.endsWith(":cancel"))
@@ -78,7 +81,8 @@ public class InternalServiceAuthFilter extends OncePerRequestFilter {
                 cached.getHeader(InternalServiceAuthHeaders.SIGNATURE),
                 bodyBytes,
                 System.currentTimeMillis());
-        if (verified.isEmpty()) {
+        if (verified.isEmpty() || (("/internal/runtime/capability-references".equals(path) || isWorkflowReleasePath(path) || isDebugSessionPath(path))
+                && !InternalServiceAuthHeaders.IDENTITY_SOURCE_PLATFORM_SESSION.equals(verified.get().identitySource()))) {
             writeUnauthorized(response);
             return;
         }
@@ -93,6 +97,14 @@ public class InternalServiceAuthFilter extends OncePerRequestFilter {
         response.getWriter().write(
                 "{\"success\":false,\"code\":\"RUNTIME_INTERNAL_AUTH_REQUIRED\","
                         + "\"answer\":\"internal service authentication failed\"}");
+    }
+
+    private static boolean isWorkflowReleasePath(String path) {
+        return path.matches("/api/workflows/[^/]+/versions/(publish|[^/]+/rollback)");
+    }
+
+    private static boolean isDebugSessionPath(String path) {
+        return path.equals("/api/runtime/debug-sessions") || path.startsWith("/api/runtime/debug-sessions/");
     }
 
     private static String normalizePath(HttpServletRequest request) {

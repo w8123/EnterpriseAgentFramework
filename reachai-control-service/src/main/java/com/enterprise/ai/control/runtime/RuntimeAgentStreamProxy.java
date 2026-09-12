@@ -36,8 +36,7 @@ public class RuntimeAgentStreamProxy {
 
     private static final Set<String> EXACT_ALLOWED_PATHS = Set.of(
             AGENT_EXECUTE_STREAM,
-            AGENT_EXECUTE_TRUSTED_STREAM,
-            DEBUG_SESSION_STREAM);
+            AGENT_EXECUTE_TRUSTED_STREAM);
 
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
@@ -76,9 +75,21 @@ public class RuntimeAgentStreamProxy {
                                           Map<String, String> signedHeaders,
                                           OutputStream outputStream,
                                           SseStreamRelay.FrameHandler handler) throws IOException {
+        streamSigned(AGENT_EXECUTE_TRUSTED_STREAM, signedBodyBytes, signedHeaders, outputStream, handler);
+    }
+
+    public void streamSignedDebugSession(String path, byte[] signedBodyBytes, Map<String, String> signedHeaders,
+                                         OutputStream outputStream) throws IOException {
+        if (!DEBUG_SESSION_STREAM.equals(path) && (path == null || !DEBUG_SUBMIT_STREAM.matcher(path).matches()))
+            throw new IllegalArgumentException("debug stream path is not allowlisted");
+        streamSigned(path, signedBodyBytes, signedHeaders, outputStream, SseStreamRelay.passthrough());
+    }
+
+    private void streamSigned(String path, byte[] signedBodyBytes, Map<String, String> signedHeaders,
+                              OutputStream outputStream, SseStreamRelay.FrameHandler handler) throws IOException {
         byte[] payload = signedBodyBytes == null ? new byte[0] : signedBodyBytes;
         HttpRequest.Builder builder = HttpRequest.newBuilder()
-                .uri(URI.create(runtimeServiceUrl + AGENT_EXECUTE_TRUSTED_STREAM))
+                .uri(URI.create(runtimeServiceUrl + path))
                 .timeout(REQUEST_TIMEOUT)
                 .header("Content-Type", "application/json")
                 .header("Accept", "text/event-stream");
@@ -114,15 +125,6 @@ public class RuntimeAgentStreamProxy {
 
     public void stream(String path, Map<String, Object> body, OutputStream outputStream) throws IOException {
         stream(path, body, outputStream, SseStreamRelay.passthrough());
-    }
-
-    public void streamDebugSubmit(String sessionId,
-                                  Map<String, Object> body,
-                                  OutputStream outputStream) throws IOException {
-        if (!StringUtils.hasText(sessionId)) {
-            throw new IllegalArgumentException("sessionId is required");
-        }
-        stream("/api/runtime/debug-sessions/" + sessionId.trim() + "/submit/stream", body, outputStream);
     }
 
     public void stream(String path,
@@ -192,7 +194,7 @@ public class RuntimeAgentStreamProxy {
             throw new IllegalArgumentException("stream path is required");
         }
         String normalized = path.trim();
-        if (EXACT_ALLOWED_PATHS.contains(normalized) || DEBUG_SUBMIT_STREAM.matcher(normalized).matches()) {
+        if (EXACT_ALLOWED_PATHS.contains(normalized)) {
             return normalized;
         }
         throw new IllegalArgumentException("stream path is not allowlisted: " + normalized);

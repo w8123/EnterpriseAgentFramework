@@ -82,11 +82,14 @@ export interface WorkflowWorkingCopy {
 export interface WorkflowWorkingCopyInput
   extends Partial<Omit<
     WorkflowWorkingCopy,
-    'id' | 'createdAt' | 'updatedAt' | 'graphSpecJson'
+    'id' | 'createdAt' | 'updatedAt' | 'deletable' | 'graphSpecJson'
   >> {
-  id?: string
   graphSpec?: WorkflowGraphSpec
   graphSpecJson?: string | null
+}
+
+export interface WorkflowWorkingCopyUpdateInput extends WorkflowWorkingCopyInput {
+  baseRevision: string
 }
 
 export interface WorkflowWorkingCopyState {
@@ -121,7 +124,7 @@ export interface SaveWorkflowWorkingCopyRequest {
   graphSpecJson: string
   canvasJson?: string | null
   extraJson?: string | null
-  baseRevision?: string | null
+  baseRevision: string
   keySlug?: string | null
   name?: string | null
   description?: string | null
@@ -207,6 +210,7 @@ export type WorkflowDebugStepResult = AgentWorkflowDebugStepResult
 export type WorkflowDebugMessage = ExecutableDebugMessage
 
 export interface WorkflowDebugSessionCreateRequest {
+  idempotencyKey?: string
   targetType: 'WORKFLOW_WORKING_COPY' | 'WORKFLOW_VERSION' | string
   workingCopyDefinition: Record<string, unknown>
   message?: string
@@ -250,11 +254,10 @@ export interface WorkflowPublishRequest {
   version: string
   rolloutPercent?: number
   note?: string
-  publishedBy?: string
   baseRevision?: string | null
 }
 
-export type PublishWorkflowVersionRequest = WorkflowPublishRequest
+export type PublishWorkflowVersionRequest = WorkflowPublishRequest & { baseRevision: string }
 
 export interface WorkflowReleaseValidationItem {
   code: string

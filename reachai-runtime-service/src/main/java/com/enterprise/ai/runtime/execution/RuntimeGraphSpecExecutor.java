@@ -4,9 +4,9 @@ import com.enterprise.ai.runtime.client.capability.RuntimeCapabilityCatalogClien
 import com.enterprise.ai.runtime.client.control.RuntimeControlCatalogClient;
 import com.enterprise.ai.runtime.client.knowledge.RuntimeKnowledgeRetrievalClient;
 import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient;
-import com.enterprise.ai.runtime.eval.RuntimeEvalExecutionContext;
+import com.enterprise.ai.runtime.execution.policy.RuntimeEvalExecutionContext;
 import com.enterprise.ai.runtime.execution.http.WorkflowHttpClient;
-import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
+import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
 import com.enterprise.ai.runtime.execution.checkpoint.WorkflowCheckpointCodec;
 import com.enterprise.ai.runtime.execution.kernel.RuntimeGraphSpecExecutionEngine;
 import com.enterprise.ai.runtime.execution.trace.RuntimeExecutionTraceProjector;

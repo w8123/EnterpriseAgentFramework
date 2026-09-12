@@ -5,7 +5,6 @@ import com.enterprise.ai.common.exception.GlobalExceptionHandler;
 import com.enterprise.ai.retrieval.KnowledgeRetrievalCore;
 import com.enterprise.ai.retrieval.KnowledgeRetrievalCoreRequest;
 import com.enterprise.ai.retrieval.KnowledgeRetrievalCoreResponse;
-import com.enterprise.ai.security.PermissionService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.http.MediaType;
@@ -33,9 +32,6 @@ class KnowledgeRetrievalInternalControllerTest {
     @Test
     void passesSearchModeAndRerankOverrideToKnowledgeRetrievalCore() {
         KnowledgeRetrievalCore core = mock(KnowledgeRetrievalCore.class);
-        PermissionService permissionService = mock(PermissionService.class);
-        when(permissionService.getAccessibleFileIds("u1")).thenReturn(List.of("f1"));
-        when(permissionService.buildMilvusFilter(List.of("f1"))).thenReturn("file_id in [\"f1\"]");
         when(core.retrieve(any())).thenReturn(KnowledgeRetrievalCoreResponse.builder()
                 .query("q")
                 .searchMode("keyword")
@@ -50,7 +46,7 @@ class KnowledgeRetrievalInternalControllerTest {
                 .totalResults(1)
                 .build());
         KnowledgeRetrievalInternalController controller =
-                new KnowledgeRetrievalInternalController(core, permissionService);
+                new KnowledgeRetrievalInternalController(core);
 
         ApiResult<KnowledgeRetrievalInternalController.RetrievalData> result = controller.retrieve(
                 new KnowledgeRetrievalInternalController.RetrievalRequest(
@@ -61,8 +57,7 @@ class KnowledgeRetrievalInternalControllerTest {
         KnowledgeRetrievalCoreRequest request = captor.getValue();
         assertEquals("keyword", request.getSearchMode());
         assertFalse(Boolean.TRUE.equals(request.getRerankEnabled()));
-        assertEquals(List.of("f1"), request.getAccessibleFileIds());
-        assertEquals("file_id in [\"f1\"]", request.getFileIdFilterExpression());
+        assertEquals("u1", request.getUserId());
         assertEquals(1, result.getData().hitCount());
         assertEquals("hello", result.getData().hits().get(0).content());
         assertEquals("HIT", result.getData().outcome());
@@ -73,10 +68,8 @@ class KnowledgeRetrievalInternalControllerTest {
     @Test
     void returnsEmptyWhenUserHasNoAccessibleFiles() {
         KnowledgeRetrievalCore core = mock(KnowledgeRetrievalCore.class);
-        PermissionService permissionService = mock(PermissionService.class);
-        when(permissionService.getAccessibleFileIds("u1")).thenReturn(List.of());
         KnowledgeRetrievalInternalController controller =
-                new KnowledgeRetrievalInternalController(core, permissionService);
+                new KnowledgeRetrievalInternalController(core);
 
         ApiResult<KnowledgeRetrievalInternalController.RetrievalData> result = controller.retrieve(
                 new KnowledgeRetrievalInternalController.RetrievalRequest(
@@ -90,21 +83,18 @@ class KnowledgeRetrievalInternalControllerTest {
     }
 
     @Test
-    void filtersUnauthorizedFileHits() {
+    void filtersHitsWithoutResolvedFileIdentity() {
         KnowledgeRetrievalCore core = mock(KnowledgeRetrievalCore.class);
-        PermissionService permissionService = mock(PermissionService.class);
-        when(permissionService.getAccessibleFileIds("u1")).thenReturn(List.of("f1"));
-        when(permissionService.buildMilvusFilter(List.of("f1"))).thenReturn("file_id in [\"f1\"]");
         when(core.retrieve(any())).thenReturn(KnowledgeRetrievalCoreResponse.builder()
                 .query("q")
                 .items(List.of(
                         KnowledgeRetrievalCoreResponse.RetrievalItem.builder()
                                 .chunkId("c1").fileId("f1").content("ok").score(1f).build(),
                         KnowledgeRetrievalCoreResponse.RetrievalItem.builder()
-                                .chunkId("c2").fileId("secret").content("nope").score(1f).build()))
+                                .chunkId("c2").fileId(null).content("nope").score(1f).build()))
                 .build());
         KnowledgeRetrievalInternalController controller =
-                new KnowledgeRetrievalInternalController(core, permissionService);
+                new KnowledgeRetrievalInternalController(core);
 
         ApiResult<KnowledgeRetrievalInternalController.RetrievalData> result = controller.retrieve(
                 new KnowledgeRetrievalInternalController.RetrievalRequest(
@@ -117,9 +107,6 @@ class KnowledgeRetrievalInternalControllerTest {
     @Test
     void capsEvidenceContentAndReportsOnlyNonSensitiveDiagnostics() {
         KnowledgeRetrievalCore core = mock(KnowledgeRetrievalCore.class);
-        PermissionService permissionService = mock(PermissionService.class);
-        when(permissionService.getAccessibleFileIds("u1")).thenReturn(List.of("f1"));
-        when(permissionService.buildMilvusFilter(List.of("f1"))).thenReturn("file_id in [\"f1\"]");
         String evidence = "sensitive-evidence-" + "x".repeat(5_000);
         List<KnowledgeRetrievalCoreResponse.RetrievalItem> items = IntStream.range(0, 7)
                 .mapToObj(index -> KnowledgeRetrievalCoreResponse.RetrievalItem.builder()
@@ -138,7 +125,7 @@ class KnowledgeRetrievalInternalControllerTest {
                         "unsafeMetric", 12))
                 .build());
         KnowledgeRetrievalInternalController controller =
-                new KnowledgeRetrievalInternalController(core, permissionService);
+                new KnowledgeRetrievalInternalController(core);
 
         ApiResult<KnowledgeRetrievalInternalController.RetrievalData> result = controller.retrieve(
                 new KnowledgeRetrievalInternalController.RetrievalRequest(
@@ -157,13 +144,12 @@ class KnowledgeRetrievalInternalControllerTest {
     }
 
     @Test
-    void rejectsMissingUserIdBeforePermissionServiceIsCalled() throws Exception {
+    void rejectsBlankUserIdBeforeRetrievalIsCalled() throws Exception {
         KnowledgeRetrievalCore core = mock(KnowledgeRetrievalCore.class);
-        PermissionService permissionService = mock(PermissionService.class);
         org.springframework.validation.beanvalidation.LocalValidatorFactoryBean validator =
                 new org.springframework.validation.beanvalidation.LocalValidatorFactoryBean();
         validator.afterPropertiesSet();
-        MockMvc mockMvc = mockMvc(core, permissionService, validator);
+        MockMvc mockMvc = mockMvc(core, validator);
 
         mockMvc.perform(post("/internal/knowledge/retrieval/query")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -172,18 +158,16 @@ class KnowledgeRetrievalInternalControllerTest {
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(400));
-
-        verifyNoInteractions(permissionService, core);
+        verifyNoInteractions(core);
     }
 
     @Test
-    void rejectsAbsentUserIdFieldBeforePermissionServiceIsCalled() throws Exception {
+    void rejectsAbsentUserIdBeforeRetrievalIsCalled() throws Exception {
         KnowledgeRetrievalCore core = mock(KnowledgeRetrievalCore.class);
-        PermissionService permissionService = mock(PermissionService.class);
         org.springframework.validation.beanvalidation.LocalValidatorFactoryBean validator =
                 new org.springframework.validation.beanvalidation.LocalValidatorFactoryBean();
         validator.afterPropertiesSet();
-        MockMvc mockMvc = mockMvc(core, permissionService, validator);
+        MockMvc mockMvc = mockMvc(core, validator);
 
         mockMvc.perform(post("/internal/knowledge/retrieval/query")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -192,15 +176,13 @@ class KnowledgeRetrievalInternalControllerTest {
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(400));
-
-        verifyNoInteractions(permissionService, core);
+        verifyNoInteractions(core);
     }
 
     private static MockMvc mockMvc(KnowledgeRetrievalCore core,
-                                   PermissionService permissionService,
                                    org.springframework.validation.beanvalidation.LocalValidatorFactoryBean validator) {
         return MockMvcBuilders
-                .standaloneSetup(new KnowledgeRetrievalInternalController(core, permissionService))
+                .standaloneSetup(new KnowledgeRetrievalInternalController(core))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .setValidator(validator)
                 .setMessageConverters(new MappingJackson2HttpMessageConverter())

@@ -1,5 +1,5 @@
 <template>
-  <el-drawer
+  <AppDrawer
     v-model="open"
     title="Workflow 评测"
     size="760px"
@@ -110,10 +110,11 @@
         </el-table>
       </section>
     </div>
-  </el-drawer>
+  </AppDrawer>
 </template>
 
 <script setup lang="ts">
+import AppDrawer from '@/components/common/AppDrawer.vue'
 import type {
   WorkflowEvalCase,
   WorkflowEvalResult,

@@ -90,9 +90,19 @@ class ControlAiAssistProjectControllerTest {
         assertTrue(response.getBody().gatewayChecklist().get(0).required());
         assertTrue(response.getBody().agentSupervisor().endpoints().workflowToolAttachUrlTemplate()
                 .contains("/agent-supervisor/workflow-tools/attach"));
+        assertEquals("agent-supervisor.authoring.v2", response.getBody().agentSupervisor().model());
+        assertTrue(response.getBody().agentSupervisor().endpoints().agentsUrl()
+                .contains("/api/ai-coding/projects/7/agents"));
+        assertTrue(response.getBody().agentSupervisor().endpoints().skillPackageUrl()
+                .endsWith("/api/ai-assist/skills/agent-ai-coding/latest.zip"));
+        assertTrue(response.getBody().agentSupervisor().endpoints().bindableSkillsUrl()
+                .endsWith("/agent-skills/bindable"));
         assertEquals("ApiResult", response.getBody().responseShapes().get("embed").wrapper());
         assertEquals("data.token", response.getBody().responseShapes().get("embed").fields().get("token"));
         assertEquals("bare-json", response.getBody().responseShapes().get("agentProvisioning").wrapper());
+        assertEquals("bare-json", response.getBody().responseShapes().get("agentAiCoding").wrapper());
+        assertEquals("bindings", response.getBody().responseShapes().get("agentSkillBinding")
+                .fields().get("catalog"));
         assertEquals("agent.keySlug",
                 response.getBody().responseShapes().get("agentProvisioning").fields().get("agentKeySlug"));
         assertEquals("supervisorConfig.status",

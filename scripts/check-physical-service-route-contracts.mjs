@@ -10,8 +10,11 @@ const serviceRoots = {
 }
 
 const controlClientRoots = {
-  runtime: 'reachai-control-service/src/main/java/com/enterprise/ai/control/client/runtime',
-  capability: 'reachai-control-service/src/main/java/com/enterprise/ai/control/client/capability'
+  runtime: [
+    'reachai-control-service/src/main/java/com/enterprise/ai/control/client/runtime',
+    'reachai-control-service/src/main/java/com/enterprise/ai/control/config/pageworkbench'
+  ],
+  capability: ['reachai-control-service/src/main/java/com/enterprise/ai/control/client/capability']
 }
 
 const controlServiceRoot = 'reachai-control-service/src/main/java'
@@ -234,14 +237,6 @@ const migratedRuntimeMethods = new Map([
   ]]
 ])
 const migratedCapabilityRoutes = [
-  { method: 'GET', path: '/api/capabilities' },
-  { method: 'POST', path: '/api/capabilities' },
-  { method: 'GET', path: '/api/capabilities/{code}/tools' },
-  { method: 'POST', path: '/api/capabilities/{code}/tools' },
-  { method: 'GET', path: '/api/capabilities/{code}/compositions' },
-  { method: 'POST', path: '/api/capabilities/{code}/compositions' },
-  { method: 'GET', path: '/api/capabilities/{code}/interactions' },
-  { method: 'POST', path: '/api/capabilities/{code}/interactions' },
   { method: 'GET', path: '/api/domains' },
   { method: 'POST', path: '/api/domains' },
   { method: 'PUT', path: '/api/domains/{id}' },
@@ -260,17 +255,13 @@ const migratedCapabilityRoutes = [
   { method: 'POST', path: '/api/registry/projects/{projectCode}/instances/status' },
   { method: 'POST', path: '/api/registry/projects/{projectCode}/capabilities/sync' },
   { method: 'POST', path: '/api/registry/projects/{projectCode}/capabilities/diff' },
-  { method: 'POST', path: '/api/registry/projects/{projectCode}/capabilities/apply' },
   { method: 'GET', path: '/api/registry/projects/{projectCode}/capability-snapshots' },
-  { method: 'GET', path: '/api/registry/capability-snapshots/{snapshotId}/diff-items' },
-  { method: 'POST', path: '/api/registry/capability-diff-items/{diffItemId}/review' },
+  { method: 'GET', path: '/api/registry/projects/{projectCode}/capability-changes' },
+  { method: 'GET', path: '/api/registry/projects/{projectCode}/capability-snapshots/{snapshotId}/diff-items' },
+  { method: 'POST', path: '/api/registry/projects/{projectCode}/capability-diff-items/{diffItemId}/review' },
+  { method: 'POST', path: '/api/registry/projects/{projectCode}/capability-diff-items/{diffItemId}/rollback' },
   { method: 'GET', path: '/api/tools' },
-  { method: 'POST', path: '/api/tools' },
   { method: 'GET', path: '/api/tools/{name}' },
-  { method: 'PUT', path: '/api/tools/{name}' },
-  { method: 'DELETE', path: '/api/tools/{name}' },
-  { method: 'PUT', path: '/api/tools/{name}/toggle' },
-  { method: 'POST', path: '/api/tools/{name}/test' },
   { method: 'POST', path: '/api/tool-retrieval/search' },
   { method: 'POST', path: '/api/tool-retrieval/rebuild' },
   { method: 'GET', path: '/api/tool-retrieval/rebuild/status' },
@@ -538,7 +529,7 @@ function isPublicRoute(route) {
 }
 
 function isControlClientFile(file) {
-  return file.includes('/com/enterprise/ai/control/client/')
+  return file.includes('/com/enterprise/ai/control/client/') || /@FeignClient\s*\(/.test(read(file))
 }
 
 function methodMatches(controlRoute, candidateRoute) {
@@ -752,12 +743,9 @@ function report(title, issues) {
   }
 }
 
-for (const [service, clientRoot] of Object.entries(controlClientRoots)) {
-  if (!exists(clientRoot)) {
-    continue
-  }
+for (const [service, clientRoots] of Object.entries(controlClientRoots)) {
   const targetRoot = serviceRoots[service]
-  const clientRoutes = collectRoutes(walk(clientRoot))
+  const clientRoutes = collectRoutes(clientRoots.filter(exists).flatMap(walk))
   const targetRoutes = collectRoutes(walk(targetRoot))
   const issues = clientRoutes
     .filter((route) => !routeCoveredByControl(targetRoutes, route))
@@ -790,11 +778,8 @@ if (exists(controlServiceRoot)) {
     }])
   }
 
-  for (const [service, clientRoot] of Object.entries(controlClientRoots)) {
-    if (!exists(clientRoot)) {
-      continue
-    }
-    const clientRoutes = collectRoutes(walk(clientRoot)).filter(isPublicRoute)
+  for (const [service, clientRoots] of Object.entries(controlClientRoots)) {
+    const clientRoutes = collectRoutes(clientRoots.filter(exists).flatMap(walk)).filter(isPublicRoute)
     const issues = clientRoutes
       .filter((route) => !routeCoveredByControl(controlPublicRoutes, route))
       .map((route) => ({

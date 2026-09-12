@@ -63,6 +63,7 @@ public class TrustedMcpRuntimeExecutionGateway implements McpRuntimeExecutionGat
         Map<String, Object> requestBody = new LinkedHashMap<>();
         requestBody.put("sourceKind", command.sourceKind());
         requestBody.put("sourceRef", command.sourceRef());
+        requestBody.put("capabilityContractHash", command.capabilityContractHash());
         if (command.workflowVersionId() != null) {
             requestBody.put("workflowVersionId", command.workflowVersionId());
         }

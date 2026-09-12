@@ -1,5 +1,7 @@
 package com.enterprise.ai.control.internal;
 
+import com.enterprise.ai.control.client.health.InternalHealthFeignConfig;
+
 import com.enterprise.ai.control.client.capability.CapabilityHealthClient;
 import com.enterprise.ai.control.client.knowledge.KnowledgeHealthClient;
 import com.enterprise.ai.control.client.model.ModelHealthClient;

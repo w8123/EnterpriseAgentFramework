@@ -1,13 +1,7 @@
 package com.enterprise.ai.runtime.automation;
 
-import com.enterprise.ai.runtime.agent.RuntimeAgentConfigVersionEntity;
-import com.enterprise.ai.runtime.agent.RuntimeAgentConfigVersionMapper;
-import com.enterprise.ai.runtime.agent.RuntimeAgentEntity;
-import com.enterprise.ai.runtime.agent.RuntimeAgentMapper;
-import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionEntity;
-import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionMapper;
-import com.enterprise.ai.runtime.workflow.RuntimeWorkflowVersionEntity;
-import com.enterprise.ai.runtime.workflow.RuntimeWorkflowVersionMapper;
+import com.enterprise.ai.runtime.agent.RuntimeAgentPublishedConfigQuery;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowExecutionQuery;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -16,16 +10,13 @@ import java.util.LinkedHashMap;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 
 @Component
 @RequiredArgsConstructor
 final class RuntimeAutomationTargetValidator {
 
-    private final RuntimeAgentMapper agentMapper;
-    private final RuntimeAgentConfigVersionMapper agentVersionMapper;
-    private final RuntimeWorkflowDefinitionMapper workflowMapper;
-    private final RuntimeWorkflowVersionMapper workflowVersionMapper;
+    private final RuntimeAgentPublishedConfigQuery agentTargets;
+    private final RuntimeWorkflowExecutionQuery workflowTargets;
     private final RuntimeAutomationJsonSupport json;
 
     TargetSnapshot validate(RuntimeAutomationViews.TargetCommand command,
@@ -49,47 +40,48 @@ final class RuntimeAutomationTargetValidator {
                                          Long versionId,
                                          Long requestedProjectId,
                                          String requestedProjectCode) {
-        RuntimeAgentEntity agent = agentMapper.selectById(id);
-        RuntimeAgentConfigVersionEntity version = agentVersionMapper.selectById(versionId);
-        if (agent == null || !Boolean.TRUE.equals(agent.getEnabled())) {
-            throw RuntimeAutomationException.badRequest(
-                    "AUTOMATION_AGENT_UNAVAILABLE", "Agent must exist and be enabled");
+        RuntimeAgentPublishedConfigQuery.Target target;
+        try {
+            target = agentTargets.resolve(id, versionId);
+        } catch (RuntimeAgentPublishedConfigQuery.LookupFailure failure) {
+            throw switch (failure.reason()) {
+                case AGENT_UNAVAILABLE -> RuntimeAutomationException.badRequest(
+                        "AUTOMATION_AGENT_UNAVAILABLE", "Agent must exist and be enabled");
+                case VERSION_INVALID -> RuntimeAutomationException.badRequest(
+                        "AUTOMATION_AGENT_VERSION_INVALID", "Agent version must be an exact published version");
+            };
         }
-        if (version == null || !id.equals(version.getAgentId())
-                || !Set.of("ACTIVE", "ARCHIVED").contains(RuntimeAutomationTypes.upper(version.getStatus()))) {
-            throw RuntimeAutomationException.badRequest(
-                    "AUTOMATION_AGENT_VERSION_INVALID", "Agent version must be an exact published version");
-        }
-        verifyProject(agent.getProjectId(), agent.getProjectCode(), requestedProjectId, requestedProjectCode);
+        verifyProject(target.projectId(), target.projectCode(), requestedProjectId, requestedProjectCode);
         Map<String, Object> snapshot = new LinkedHashMap<>();
         snapshot.put("type", "AGENT");
-        snapshot.put("id", agent.getId());
-        snapshot.put("keySlug", agent.getKeySlug());
-        snapshot.put("name", agent.getName());
-        snapshot.put("versionId", version.getId());
-        snapshot.put("versionNo", version.getVersionNo());
-        snapshot.put("runtimeType", version.getRuntimeType());
-        snapshot.put("publishedAt", version.getPublishedAt());
-        return new TargetSnapshot("AGENT", agent.getId(), version.getId(),
-                agent.getProjectId(), agent.getProjectCode(), immutableSnapshot(snapshot), json.fingerprint(snapshot));
+        snapshot.put("id", target.agentId());
+        snapshot.put("keySlug", target.keySlug());
+        snapshot.put("name", target.name());
+        snapshot.put("versionId", target.versionId());
+        snapshot.put("versionNo", target.versionNo());
+        snapshot.put("runtimeType", target.runtimeType());
+        snapshot.put("publishedAt", target.publishedAt());
+        return new TargetSnapshot("AGENT", target.agentId(), target.versionId(),
+                target.projectId(), target.projectCode(), immutableSnapshot(snapshot), json.fingerprint(snapshot));
     }
 
     private TargetSnapshot validateWorkflow(String id,
                                             Long versionId,
                                             Long requestedProjectId,
                                             String requestedProjectCode) {
-        RuntimeWorkflowDefinitionEntity workflow = workflowMapper.selectById(id);
-        RuntimeWorkflowVersionEntity version = workflowVersionMapper.selectById(versionId);
-        if (workflow == null || !"ACTIVE".equalsIgnoreCase(workflow.getStatus())) {
-            throw RuntimeAutomationException.badRequest(
-                    "AUTOMATION_WORKFLOW_UNAVAILABLE", "Workflow must exist and be active");
+        RuntimeWorkflowExecutionQuery.Target target;
+        try {
+            target = workflowTargets.resolveOne(id, versionId);
+        } catch (RuntimeWorkflowExecutionQuery.LookupFailure failure) {
+            throw switch (failure.reason()) {
+                case WORKFLOW_UNAVAILABLE -> RuntimeAutomationException.badRequest(
+                        "AUTOMATION_WORKFLOW_UNAVAILABLE", "Workflow must exist and be active");
+                case VERSION_INVALID -> RuntimeAutomationException.badRequest(
+                        "AUTOMATION_WORKFLOW_VERSION_INVALID", "Workflow version must be an exact published version");
+            };
         }
-        if (version == null || !id.equals(version.getWorkflowId())
-                || !Set.of("ACTIVE", "RETIRED").contains(RuntimeAutomationTypes.upper(version.getStatus()))
-                || !StringUtils.hasText(version.getGraphSpecSnapshotJson())) {
-            throw RuntimeAutomationException.badRequest(
-                    "AUTOMATION_WORKFLOW_VERSION_INVALID", "Workflow version must be an exact published version");
-        }
+        var workflow = target.workflow();
+        var version = target.version();
         verifyProject(workflow.getProjectId(), workflow.getProjectCode(), requestedProjectId, requestedProjectCode);
         Map<String, Object> snapshot = new LinkedHashMap<>();
         snapshot.put("type", "WORKFLOW");

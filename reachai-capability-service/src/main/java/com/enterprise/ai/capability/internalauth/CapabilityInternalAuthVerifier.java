@@ -82,14 +82,16 @@ public class CapabilityInternalAuthVerifier {
         String normalizedTenant = normalized(tenantId);
         String normalizedUser = normalized(userId);
         boolean trusted = InternalServiceAuthHeaders.IDENTITY_SOURCE_RUNTIME_TRUSTED.equals(normalizedSource);
+        boolean tenantTrusted = InternalServiceAuthHeaders.IDENTITY_SOURCE_RUNTIME_TENANT_TRUSTED.equals(normalizedSource);
         boolean untrusted = InternalServiceAuthHeaders.IDENTITY_SOURCE_RUNTIME_UNTRUSTED.equals(normalizedSource);
         if (!properties.secretConfigured()
                 || !"POST".equalsIgnoreCase(method)
                 || (!CapabilityInternalAuthFilter.isToolExecutionPath(path)
                 && !CapabilityInternalAuthFilter.CAPABILITY_INVOCATION_PATH.equals(path))
                 || !InternalServiceAuthHeaders.CALLER_RUNTIME.equals(normalized(caller))
-                || (!trusted && !untrusted)
+                || (!trusted && !tenantTrusted && !untrusted)
                 || (trusted && !StringUtils.hasText(normalizedUser))
+                || (tenantTrusted && (!StringUtils.hasText(normalizedTenant) || StringUtils.hasText(normalizedUser)))
                 || (untrusted && (StringUtils.hasText(normalizedTenant) || StringUtils.hasText(normalizedUser)))
                 || !StringUtils.hasText(timestamp) || !StringUtils.hasText(nonce)
                 || !StringUtils.hasText(bodyDigest) || !StringUtils.hasText(signature)) {
@@ -113,7 +115,7 @@ public class CapabilityInternalAuthVerifier {
                 method, path, normalizedCaller, normalizedSource, normalizedTenant, normalizedUser,
                 timestamp.trim(), nonce.trim(), actualDigest);
         if (!InternalServiceHmac.verifyAnyConstantTime(properties.verificationSecrets(), canonical, signature)
-                || !identityMatchesBody(trusted, normalizedTenant, normalizedUser, body)
+                || !identityMatchesBody(trusted, tenantTrusted, normalizedTenant, normalizedUser, body)
                 || !nonceStore.tryConsume(normalizedCaller, nonce.trim(), nowMillis,
                 properties.nonceTtlSeconds(), properties.nonceMaxEntries())) {
             return Optional.empty();
@@ -176,6 +178,7 @@ public class CapabilityInternalAuthVerifier {
     }
 
     private boolean identityMatchesBody(boolean trusted,
+                                        boolean tenantTrusted,
                                         String tenantId,
                                         String userId,
                                         byte[] body) {
@@ -185,8 +188,13 @@ public class CapabilityInternalAuthVerifier {
                     new TypeReference<Map<String, Object>>() { });
             Object rawContext = root.get("context");
             Map<?, ?> context = rawContext instanceof Map<?, ?> map ? map : Map.of();
-            if (!trusted) {
+            if (!trusted && !tenantTrusted) {
                 return ALL_IDENTITY_FIELDS.stream().noneMatch(context::containsKey);
+            }
+            if (tenantTrusted) {
+                return tenantId.equals(normalized(context.get("tenantId")))
+                        && ALL_IDENTITY_FIELDS.stream().filter(field -> !"tenantId".equals(field))
+                        .noneMatch(context::containsKey);
             }
             if (!tenantId.equals(normalized(context.get("tenantId")))
                     || !userId.equals(normalized(context.get("externalUserId")))) {

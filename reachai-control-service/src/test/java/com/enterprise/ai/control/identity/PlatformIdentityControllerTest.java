@@ -371,7 +371,7 @@ class PlatformIdentityControllerTest {
             PlatformUserEntity user,
             PlatformLoginSessionEntity loginSession) {
         return new PlatformAuthenticatedSession(
-                user,
+                PlatformPrincipal.fromUser(user),
                 loginSession.getSessionId(),
                 loginSession.getExpiresAt(),
                 List.of("PLATFORM_ADMIN"),

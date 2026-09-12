@@ -8,9 +8,11 @@
         </div>
 
         <div class="ops-topbar__controls">
-          <button type="button" class="ops-filter-button" title="当前数据范围为全部可见项目">
-            <span>全部可见项目</span><i aria-hidden="true">⌄</i>
-          </button>
+          <span
+            class="ops-scope-chip"
+            aria-label="当前数据范围：全部可见项目"
+            title="当前数据范围为全部可见项目"
+          >全部可见项目</span>
           <span class="ops-date-chip"><i aria-hidden="true" />{{ currentDateLabel }}</span>
           <div class="ops-range" aria-label="统计时间范围">
             <button

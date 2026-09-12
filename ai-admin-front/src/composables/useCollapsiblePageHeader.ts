@@ -13,16 +13,23 @@ export interface CollapsiblePageHeaderOptions {
 const DEFAULT_COLLAPSE_SCROLL_TOP = 80
 const DEFAULT_EXPAND_SCROLL_TOP = 24
 const DEFAULT_WHEEL_DELTA = 8
-/** Match page-header / summary motion, with buffer against trackpad bounce. */
-const LAYOUT_SETTLE_DELAY = 280
+/** Keep in sync with --motion-duration-normal: layout consumers update as the CSS motion ends. */
+const LAYOUT_TRANSITION_DURATION = 240
+/** Slightly longer than the visual motion to absorb trackpad direction bounce. */
+const INTERACTION_SETTLE_DELAY = 280
 /** Require sustained upward intent before re-expanding (avoids flicker). */
 const EXPAND_WHEEL_ACCUMULATION = 28
+
+function prefersReducedMotion() {
+  return typeof window !== 'undefined'
+    && typeof window.matchMedia === 'function'
+    && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+}
 
 export function useCollapsiblePageHeader(options: CollapsiblePageHeaderOptions) {
   const collapsed = ref(false)
   const scrollTargets = new Set<HTMLElement>()
   let mainContentScrollEl: HTMLElement | null = null
-  let previousScrollTop = 0
   let settleTimer = 0
   let reverseLockUntil = 0
   let pendingExpandDelta = 0
@@ -42,22 +49,30 @@ export function useCollapsiblePageHeader(options: CollapsiblePageHeaderOptions) 
     return current
   }
 
-  function notifyLayoutChange() {
+  function notifyLayoutChange(delay: number) {
     // Only notify after the CSS height/summary transition finishes. Relayout during
     // the animation fights sticky/table geometry and reads as flicker/stutter.
     window.clearTimeout(settleTimer)
-    settleTimer = window.setTimeout(() => {
+    const notify = () => {
       options.onLayoutChange?.(collapsed.value)
       options.onScroll?.()
-    }, LAYOUT_SETTLE_DELAY)
+    }
+    if (delay === 0) {
+      notify()
+      return
+    }
+    settleTimer = window.setTimeout(() => {
+      notify()
+    }, delay)
   }
 
   function setCollapsed(value: boolean) {
     if (collapsed.value === value) return
     collapsed.value = value
     pendingExpandDelta = 0
-    reverseLockUntil = performance.now() + LAYOUT_SETTLE_DELAY
-    nextTick(notifyLayoutChange)
+    const reduceMotion = prefersReducedMotion()
+    reverseLockUntil = performance.now() + (reduceMotion ? 0 : INTERACTION_SETTLE_DELAY)
+    nextTick(() => notifyLayoutChange(reduceMotion ? 0 : LAYOUT_TRANSITION_DURATION))
   }
 
   function isReverseLocked() {
@@ -90,7 +105,6 @@ export function useCollapsiblePageHeader(options: CollapsiblePageHeaderOptions) 
     if (scrollTop > collapseScrollTop) {
       setCollapsed(true)
     }
-    previousScrollTop = scrollTop
   }
 
   function handleWheel(event: WheelEvent) {
@@ -137,13 +151,12 @@ export function useCollapsiblePageHeader(options: CollapsiblePageHeaderOptions) 
     for (const target of scrollTargets) {
       target.addEventListener('scroll', updateCollapsedByScroll, { passive: true })
     }
-    previousScrollTop = getScrollTop()
   }
 
   onMounted(() => {
     mainContentScrollEl = document.querySelector('.main-layout .main-content') as HTMLElement | null
     // Ignore restored scroll / first layout thrash so the page doesn't boot collapsed.
-    bootGraceUntil = performance.now() + LAYOUT_SETTLE_DELAY
+    bootGraceUntil = performance.now() + (prefersReducedMotion() ? 0 : INTERACTION_SETTLE_DELAY)
     if (mainContentScrollEl) mainContentScrollEl.scrollTop = 0
     mainContentScrollEl?.addEventListener('wheel', handleWheel, { passive: true })
     nextTick(() => {

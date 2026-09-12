@@ -22,7 +22,7 @@
 <script setup lang="ts">
 import { Grid, Menu } from '@element-plus/icons-vue'
 
-const props = defineProps<{
+defineProps<{
   modelValue: 'table' | 'card'
 }>()
 

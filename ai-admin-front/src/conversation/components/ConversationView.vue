@@ -253,6 +253,8 @@ onBeforeUnmount(() => {
 }
 
 .reachai-conversation__error button {
+  flex-shrink: 0;
+  white-space: nowrap;
   border: 1px solid color-mix(in srgb, var(--reachai-chat-danger, #b42318) 28%, transparent);
   background: var(--reachai-chat-glass-control, rgb(255 255 255 / 0.84));
   border-radius: 8px;

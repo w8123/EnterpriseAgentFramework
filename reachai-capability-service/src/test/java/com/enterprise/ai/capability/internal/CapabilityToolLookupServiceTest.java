@@ -16,7 +16,9 @@ import static org.mockito.Mockito.when;
 class CapabilityToolLookupServiceTest {
 
     private final ToolDefinitionMapper toolDefinitionMapper = mock(ToolDefinitionMapper.class);
-    private final CapabilityToolLookupService service = new CapabilityToolLookupService(toolDefinitionMapper);
+    private final CapabilityToolLookupService service = new CapabilityToolLookupService(toolDefinitionMapper,
+            new com.enterprise.ai.capability.registry.CapabilityChangePolicy(new com.fasterxml.jackson.databind.ObjectMapper()),
+            org.mockito.Mockito.mock(CapabilitySourceContractGuard.class));
 
     @Test
     void returnsToolDefinitionByQualifiedName() {

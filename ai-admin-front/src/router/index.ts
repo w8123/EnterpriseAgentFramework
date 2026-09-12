@@ -9,7 +9,9 @@ import {
   PLATFORM_PERMISSION_AUTOMATION_READ,
   PLATFORM_PERMISSION_BUSINESS_USER_READ,
   PLATFORM_PERMISSION_MEMORY_ERASURE_MANAGE,
+  PLATFORM_PERMISSION_READ,
   PLATFORM_PERMISSION_RUNOPS_READ,
+  PLATFORM_PERMISSION_WRITE,
   PLATFORM_PERMISSION_WORKFLOW_READ,
   PLATFORM_PERMISSION_WORKFLOW_WRITE,
 } from '@/auth/platformAccess'
@@ -23,6 +25,10 @@ const toProjectDetail = (route: RouteLocationNormalizedLoaded) => ({
 const toProjectPageActions = (route: RouteLocationNormalizedLoaded) => ({
   path: `/registry/projects/${route.params.projectCode}/page-actions`,
 })
+
+const resolveAgentEditorTitle = (route: RouteLocationNormalizedLoaded) => (
+  route.params.id === 'new' ? '新建 Agent' : 'Agent 编辑'
+)
 
 const routes: RouteRecordRaw[] = [
   {
@@ -72,12 +78,12 @@ const routes: RouteRecordRaw[] = [
         name: 'AgentEdit',
         component: () => import('@/views/agent/AgentEdit.vue'),
         meta: {
-          title: 'Agent 编辑',
+          title: resolveAgentEditorTitle,
           layoutMode: 'standard',
           requiredPermissions: [PLATFORM_PERMISSION_AGENT_WRITE],
           breadcrumb: [
             { title: '智能体与编排', to: { path: '/agent' } },
-            { title: 'Agent 编辑' },
+            { title: resolveAgentEditorTitle },
           ],
         },
       },
@@ -270,17 +276,23 @@ const routes: RouteRecordRaw[] = [
         path: 'capability',
         name: 'CapabilityKernel',
         component: () => import('@/views/capability/CapabilityKernel.vue'),
-        meta: { title: '能力目录', layoutMode: 'standard' },
+        meta: {
+          title: '能力目录',
+          layoutMode: 'standard',
+          requiredPermissions: [PLATFORM_PERMISSION_READ],
+          breadcrumb: [{ title: '能力资产' }, { title: '能力目录' }],
+        },
       },
       {
         path: 'capability/review',
         name: 'CapabilityReview',
         component: () => import('@/views/registry/CapabilitySyncDebug.vue'),
         meta: {
-          title: '能力变更评审',
+          title: '能力变化',
           layoutMode: 'standard',
-          activeMenu: '/capability/review',
-          breadcrumb: [{ title: '能力内核' }, { title: '能力变更评审' }],
+          requiredPermissions: [PLATFORM_PERMISSION_READ],
+          activeMenu: '/capability',
+          breadcrumb: [{ title: '能力目录', path: '/capability' }, { title: '能力变化' }],
         },
       },
       {
@@ -290,27 +302,28 @@ const routes: RouteRecordRaw[] = [
         meta: {
           title: '同步能力快照',
           layoutMode: 'standard',
+          requiredPermissions: [PLATFORM_PERMISSION_WRITE],
           activeMenu: '/capability/sync-snapshot',
-          breadcrumb: [{ title: '能力内核' }, { title: '同步能力快照' }],
+          breadcrumb: [{ title: '能力资产' }, { title: '同步能力快照' }],
         },
       },
       {
         path: 'capability/tools',
         name: 'CapabilityKernelTools',
-        component: () => import('@/views/capability/CapabilityKernel.vue'),
-        meta: { title: '能力执行动作', layoutMode: 'standard' },
+        redirect: '/capability',
+        meta: { title: '能力目录', layoutMode: 'standard' },
       },
       {
         path: 'capability/compositions',
         name: 'CapabilityKernelCompositions',
-        component: () => import('@/views/capability/CapabilityKernel.vue'),
-        meta: { title: '组合', layoutMode: 'standard' },
+        redirect: '/capability',
+        meta: { title: '能力目录', layoutMode: 'standard' },
       },
       {
         path: 'capability/interactions',
         name: 'CapabilityKernelInteractions',
-        component: () => import('@/views/capability/CapabilityKernel.vue'),
-        meta: { title: '交互', layoutMode: 'standard' },
+        redirect: '/capability',
+        meta: { title: '能力目录', layoutMode: 'standard' },
       },
       {
         path: 'registry/projects',
@@ -343,14 +356,15 @@ const routes: RouteRecordRaw[] = [
       {
         path: 'registry/capability-sync',
         name: 'CapabilitySyncDebug',
-        component: () => import('@/views/registry/CapabilitySyncDebug.vue'),
+        redirect: '/capability/review',
         meta: {
-          title: '能力变更评审',
+          title: '能力变化',
           layoutMode: 'standard',
-          activeMenu: '/capability/review',
+          requiredPermissions: [PLATFORM_PERMISSION_READ],
+          activeMenu: '/capability',
           breadcrumb: [
-            { title: '能力内核' },
-            { title: '能力变更评审' },
+            { title: '能力资产' },
+            { title: '能力变化' },
           ],
         },
       },
@@ -611,7 +625,9 @@ const router = createRouter({
 })
 
 router.beforeEach(async (to) => {
-  document.title = `${(to.meta.title as string) || ''} - 睿池 ReachAI`
+  const metaTitle = to.meta.title
+  const resolvedTitle = typeof metaTitle === 'function' ? metaTitle(to) : metaTitle
+  document.title = `${typeof resolvedTitle === 'string' ? resolvedTitle : ''} - 睿池 ReachAI`
   return resolvePlatformNavigation(to)
 })
 

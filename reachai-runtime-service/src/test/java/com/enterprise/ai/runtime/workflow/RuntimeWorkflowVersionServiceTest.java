@@ -24,6 +24,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class RuntimeWorkflowVersionServiceTest {
+    private static final String REVISION = "2026-07-14T10:30:00";
+    private final RuntimeWorkflowReleaseEventMapper releaseEvents = mock(RuntimeWorkflowReleaseEventMapper.class);
 
     private RuntimeWorkflowVersionMapper versionMapper;
     private RuntimeWorkflowDefinitionService workflowService;
@@ -73,7 +75,8 @@ class RuntimeWorkflowVersionServiceTest {
 
         RuntimeWorkflowDefinitionEntity workflow = workflow();
         when(workflowService.findById("wf-1")).thenReturn(Optional.of(workflow));
-        when(workflowService.update(eq("wf-1"), any(RuntimeWorkflowDefinitionEntity.class)))
+        when(workflowService.lockForRelease(eq("wf-1"), anyString())).thenReturn(workflow);
+        when(workflowService.update(eq("wf-1"), any(RuntimeWorkflowDefinitionEntity.class), anyString()))
                 .thenAnswer(inv -> {
                     RuntimeWorkflowDefinitionEntity update = inv.getArgument(1);
                     if (update.getGraphSpecJson() != null) workflow.setGraphSpecJson(update.getGraphSpecJson());
@@ -94,12 +97,12 @@ class RuntimeWorkflowVersionServiceTest {
                             .readGraph(json, report);
                 });
 
-        service = new RuntimeWorkflowVersionService(versionMapper, workflowService, validationService, new ObjectMapper());
+        service = new RuntimeWorkflowVersionService(versionMapper, workflowService, validationService, new ObjectMapper(), passThroughPins(), releaseEvents, mock(RuntimeWorkflowReferenceIndex.class));
     }
 
     @Test
     void listVersionsDelegatesToRuntimeOwnedVersionMapper() {
-        RuntimeWorkflowVersionEntity version = service.publish("wf-1", "v1.0.0", 100, "first", "alice");
+        RuntimeWorkflowVersionEntity version = service.publish("wf-1", "v1.0.0", 100, "first", "alice", REVISION);
 
         List<RuntimeWorkflowVersionEntity> versions = service.listVersions("wf-1");
 
@@ -109,7 +112,7 @@ class RuntimeWorkflowVersionServiceTest {
 
     @Test
     void publishCreatesActiveWorkflowVersionSnapshot() {
-        RuntimeWorkflowVersionEntity published = service.publish("wf-1", "v1.0.0", 100, "first", "alice");
+        RuntimeWorkflowVersionEntity published = service.publish("wf-1", "v1.0.0", 100, "first", "alice", REVISION);
 
         assertEquals("wf-1", published.getWorkflowId());
         assertEquals("v1.0.0", published.getVersion());
@@ -119,13 +122,13 @@ class RuntimeWorkflowVersionServiceTest {
                 published.getGraphSpecSnapshotJson());
         assertNotNull(published.getSnapshotJson());
         verify(validationService).validate(any(RuntimeWorkflowDefinitionEntity.class));
-        verify(workflowService).update(eq("wf-1"), any(RuntimeWorkflowDefinitionEntity.class));
+        verify(workflowService).update(eq("wf-1"), any(RuntimeWorkflowDefinitionEntity.class), anyString());
     }
 
     @Test
     void publishRejectsPercentageWithoutARealVersionRouter() {
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
-                () -> service.publish("wf-1", "v1.0.0", 20, "partial", "alice"));
+                () -> service.publish("wf-1", "v1.0.0", 20, "partial", "alice", REVISION));
 
         assertEquals(
                 "rolloutPercent must be 100 until deterministic workflow version routing is implemented",
@@ -141,7 +144,7 @@ class RuntimeWorkflowVersionServiceTest {
                         .build());
 
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
-                () -> service.publish("wf-1", "v1.0.0", 100, "bad", "alice"));
+                () -> service.publish("wf-1", "v1.0.0", 100, "bad", "alice", REVISION));
 
         assertEquals("workflow release validation failed: GRAPH_ENTRY_MISSING", error.getMessage());
     }
@@ -154,10 +157,10 @@ class RuntimeWorkflowVersionServiceTest {
                 mock(RuntimeControlCatalogClient.class),
                 new ObjectMapper());
         RuntimeWorkflowVersionService actualService = new RuntimeWorkflowVersionService(
-                versionMapper, workflowService, actualValidation, new ObjectMapper());
+                versionMapper, workflowService, actualValidation, new ObjectMapper(), passThroughPins(), releaseEvents, mock(RuntimeWorkflowReferenceIndex.class));
 
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
-                () -> actualService.publish("wf-1", "v1.0.0", 100, "bad", "alice"));
+                () -> actualService.publish("wf-1", "v1.0.0", 100, "bad", "alice", REVISION));
 
         assertEquals("workflow release validation failed: GRAPH_SPEC_INVALID", error.getMessage());
         verify(versionMapper, never()).insert(any(RuntimeWorkflowVersionEntity.class));
@@ -169,7 +172,7 @@ class RuntimeWorkflowVersionServiceTest {
         String baseRevision = "2026-07-14T10:30:00";
         RuntimeWorkflowRevisionConflictException conflict = new RuntimeWorkflowRevisionConflictException(
                 "wf-1", baseRevision, "2026-07-14T10:31:00");
-        doThrow(conflict).when(workflowService).assertRevision(workflow, baseRevision);
+        doThrow(conflict).when(workflowService).lockForRelease("wf-1", baseRevision);
 
         RuntimeWorkflowRevisionConflictException thrown = assertThrows(
                 RuntimeWorkflowRevisionConflictException.class,
@@ -186,7 +189,7 @@ class RuntimeWorkflowVersionServiceTest {
 
         service.publish("wf-1", "v1.0.0", 100, "first", "alice", baseRevision);
 
-        verify(workflowService).assertRevision(any(RuntimeWorkflowDefinitionEntity.class), eq(baseRevision));
+        verify(workflowService).lockForRelease("wf-1", baseRevision);
         verify(workflowService).update(
                 eq("wf-1"),
                 org.mockito.ArgumentMatchers.argThat(update -> "ACTIVE".equals(update.getStatus())),
@@ -194,14 +197,14 @@ class RuntimeWorkflowVersionServiceTest {
     }
 
     @Test
-    void rollbackReactivatesSelectedVersionAndRestoresWorkflowSnapshots() {
-        RuntimeWorkflowVersionEntity v1 = service.publish("wf-1", "v1.0.0", 100, "first", "alice");
-        RuntimeWorkflowVersionEntity v2 = service.publish("wf-1", "v1.0.1", 100, "second", "bob");
+    void rollbackReactivatesSelectedVersionAndPreservesPublisherAndDraft() {
+        RuntimeWorkflowVersionEntity v1 = service.publish("wf-1", "v1.0.0", 100, "first", "alice", REVISION);
+        RuntimeWorkflowVersionEntity v2 = service.publish("wf-1", "v1.0.1", 100, "second", "bob", REVISION);
 
-        RuntimeWorkflowVersionEntity rolled = service.rollback("wf-1", v1.getId(), "carol");
+        RuntimeWorkflowVersionEntity rolled = service.rollback("wf-1", v1.getId(), "carol", REVISION);
 
         assertEquals("ACTIVE", rolled.getStatus());
-        assertEquals("carol", rolled.getPublishedBy());
+        assertEquals("alice", rolled.getPublishedBy());
         RuntimeWorkflowVersionEntity second = store.stream()
                 .filter(v -> v.getId().equals(v2.getId()))
                 .findFirst()
@@ -210,8 +213,8 @@ class RuntimeWorkflowVersionServiceTest {
         verify(workflowService, org.mockito.Mockito.atLeastOnce())
                 .update(eq("wf-1"), org.mockito.Mockito.argThat(update ->
                         "ACTIVE".equals(update.getStatus())
-                                && v1.getGraphSpecSnapshotJson().equals(update.getGraphSpecJson())
-                                && v1.getCanvasSnapshotJson().equals(update.getCanvasJson())));
+                                && update.getGraphSpecJson() == null
+                                && update.getCanvasJson() == null), eq(REVISION));
         verify(validationService).validateProposed(any(RuntimeWorkflowDefinitionEntity.class), any());
     }
 
@@ -223,12 +226,12 @@ class RuntimeWorkflowVersionServiceTest {
                 """);
 
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
-                () -> actualService.rollback("wf-1", historical.getId(), "carol"));
+                () -> actualService.rollback("wf-1", historical.getId(), "carol", REVISION));
 
         assertTrue(error.getMessage().contains("workflow rollback validation failed: GRAPH_NODE_NOT_PUBLISHABLE"));
         verify(versionMapper, never()).updateById(any(RuntimeWorkflowVersionEntity.class));
         verify(versionMapper, never()).insert(any(RuntimeWorkflowVersionEntity.class));
-        verify(workflowService, never()).update(eq("wf-1"), any(RuntimeWorkflowDefinitionEntity.class));
+        verify(workflowService, never()).update(eq("wf-1"), any(RuntimeWorkflowDefinitionEntity.class), anyString());
     }
 
     @Test
@@ -239,11 +242,11 @@ class RuntimeWorkflowVersionServiceTest {
                 """);
 
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
-                () -> actualService.rollback("wf-1", historical.getId(), "carol"));
+                () -> actualService.rollback("wf-1", historical.getId(), "carol", REVISION));
 
         assertTrue(error.getMessage().contains("workflow rollback validation failed: GRAPH_NODE_RUNTIME_UNSUPPORTED"));
         verify(versionMapper, never()).updateById(any(RuntimeWorkflowVersionEntity.class));
-        verify(workflowService, never()).update(eq("wf-1"), any(RuntimeWorkflowDefinitionEntity.class));
+        verify(workflowService, never()).update(eq("wf-1"), any(RuntimeWorkflowDefinitionEntity.class), anyString());
     }
 
     @Test
@@ -253,7 +256,7 @@ class RuntimeWorkflowVersionServiceTest {
         RuntimeWorkflowVersionService actualService = new RuntimeWorkflowVersionService(
                 versionMapper, workflowService,
                 new RuntimeWorkflowReleaseValidationService(catalogClient, new ObjectMapper()),
-                new ObjectMapper());
+                new ObjectMapper(), passThroughPins(), releaseEvents, mock(RuntimeWorkflowReferenceIndex.class));
         RuntimeWorkflowDefinitionEntity workflow = workflowService.findById("wf-1").orElseThrow();
         workflow.setProjectCode("demo");
         RuntimeWorkflowVersionEntity historical = historicalVersion("""
@@ -261,11 +264,11 @@ class RuntimeWorkflowVersionServiceTest {
                 """);
 
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
-                () -> actualService.rollback("wf-1", historical.getId(), "carol"));
+                () -> actualService.rollback("wf-1", historical.getId(), "carol", REVISION));
 
         assertTrue(error.getMessage().contains("workflow rollback validation failed:"));
         verify(versionMapper, never()).updateById(any(RuntimeWorkflowVersionEntity.class));
-        verify(workflowService, never()).update(eq("wf-1"), any(RuntimeWorkflowDefinitionEntity.class));
+        verify(workflowService, never()).update(eq("wf-1"), any(RuntimeWorkflowDefinitionEntity.class), anyString());
     }
 
     @Test
@@ -279,11 +282,11 @@ class RuntimeWorkflowVersionServiceTest {
                 "{\"nodes\":[{\"id\":\"answer\",\"type\":\"ANSWER\"}],\"entryNodeId\":\"answer\",\"exitNodeIds\":[\"answer\"]}");
         historical.setVersion("v-stable");
 
-        RuntimeWorkflowVersionEntity rolled = actualService.rollback("wf-1", historical.getId(), "carol");
+        RuntimeWorkflowVersionEntity rolled = actualService.rollback("wf-1", historical.getId(), "carol", REVISION);
 
         assertEquals("ACTIVE", rolled.getStatus());
         assertEquals("RETIRED", active.getStatus());
-        verify(workflowService).update(eq("wf-1"), any(RuntimeWorkflowDefinitionEntity.class));
+        verify(workflowService).update(eq("wf-1"), any(RuntimeWorkflowDefinitionEntity.class), anyString());
     }
 
     private RuntimeWorkflowVersionService realValidationService() {
@@ -291,7 +294,7 @@ class RuntimeWorkflowVersionServiceTest {
                 versionMapper,
                 workflowService,
                 new RuntimeWorkflowReleaseValidationService(mock(RuntimeControlCatalogClient.class), new ObjectMapper()),
-                new ObjectMapper());
+                new ObjectMapper(), passThroughPins(), releaseEvents, mock(RuntimeWorkflowReferenceIndex.class));
     }
 
     private RuntimeWorkflowVersionEntity historicalVersion(String graphSpecJson) {
@@ -300,6 +303,7 @@ class RuntimeWorkflowVersionServiceTest {
         entity.setWorkflowId("wf-1");
         entity.setVersion("v-hist-" + entity.getId());
         entity.setStatus("RETIRED");
+        entity.setSnapshotJson("{\"defaultModelInstanceId\":null,\"workflowKind\":\"GENERAL\"}");
         entity.setRolloutPercent(100);
         entity.setGraphSpecSnapshotJson(graphSpecJson);
         entity.setCanvasSnapshotJson("{\"nodes\":[]}");
@@ -320,5 +324,12 @@ class RuntimeWorkflowVersionServiceTest {
         workflow.setCreationChannel("STUDIO");
         workflow.setStatus("DRAFT");
         return workflow;
+    }
+
+    private RuntimeCapabilityContractPins passThroughPins() {
+        RuntimeCapabilityContractPins pins = org.mockito.Mockito.mock(RuntimeCapabilityContractPins.class);
+        org.mockito.Mockito.when(pins.pin(org.mockito.ArgumentMatchers.anyString()))
+                .thenAnswer(call -> call.getArgument(0));
+        return pins;
     }
 }

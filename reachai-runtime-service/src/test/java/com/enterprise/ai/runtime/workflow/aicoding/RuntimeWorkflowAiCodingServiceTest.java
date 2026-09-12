@@ -601,7 +601,7 @@ class RuntimeWorkflowAiCodingServiceTest {
         published.setPublishedBy("codex");
         published.setPublishedAt(LocalDateTime.of(2026, 7, 1, 11, 0));
         when(versionService.publish(
-                "wf-ai-1", "v1.0.0", 100, "first", "codex", "2026-07-01T09:00"))
+                "wf-ai-1", "v1.0.0", 100, "first", "system:workflow-ai-coding", "2026-07-01T09:00"))
                 .thenReturn(published);
 
         RuntimeWorkflowAiCodingService.PublishView view = service.publishWorkflow(
@@ -617,7 +617,7 @@ class RuntimeWorkflowAiCodingServiceTest {
         assertEquals("v1.0.0", view.version());
         assertEquals("ACTIVE", view.status());
         verify(versionService).publish(
-                "wf-ai-1", "v1.0.0", 100, "first", "codex", "2026-07-01T09:00");
+                "wf-ai-1", "v1.0.0", 100, "first", "system:workflow-ai-coding", "2026-07-01T09:00");
     }
 
     @Test
@@ -625,7 +625,7 @@ class RuntimeWorkflowAiCodingServiceTest {
         RuntimeWorkflowRevisionConflictException conflict = new RuntimeWorkflowRevisionConflictException(
                 "wf-ai-1", "2026-07-01T09:00", "2026-07-01T09:01");
         when(versionService.publish(
-                "wf-ai-1", "v1.0.0", 100, "first", "codex", "2026-07-01T09:00"))
+                "wf-ai-1", "v1.0.0", 100, "first", "system:workflow-ai-coding", "2026-07-01T09:00"))
                 .thenThrow(conflict);
 
         RuntimeWorkflowRevisionConflictException thrown = assertThrows(
@@ -642,8 +642,8 @@ class RuntimeWorkflowAiCodingServiceTest {
                         .getAnnotation(org.springframework.web.bind.annotation.ResponseStatus.class)
                         .value());
         verify(versionService).publish(
-                "wf-ai-1", "v1.0.0", 100, "first", "codex", "2026-07-01T09:00");
-        verify(versionService, never()).publish("wf-ai-1", "v1.0.0", 100, "first", "codex");
+                "wf-ai-1", "v1.0.0", 100, "first", "system:workflow-ai-coding", "2026-07-01T09:00");
+        verify(versionService, never()).publish("wf-ai-1", "v1.0.0", 100, "first", "system:workflow-ai-coding", null);
     }
 
     @Test
@@ -705,6 +705,73 @@ class RuntimeWorkflowAiCodingServiceTest {
                 () -> service.validatePageAssistant("wf-general", null));
         assertThrows(IllegalArgumentException.class,
                 () -> service.smokeTestPageAssistant("wf-general", null));
+    }
+
+    @Test
+    void taskDraftCreationPersistsTheSubmissionAssignedIdentity() {
+        when(workflowService.create(any(RuntimeWorkflowDefinitionEntity.class))).thenAnswer(call -> {
+            RuntimeWorkflowDefinitionEntity draft = call.getArgument(0);
+            draft.setUpdatedAt(LocalDateTime.of(2026, 7, 1, 9, 0));
+            return draft;
+        });
+        assertEquals("wf-task-identity", service.createWorkflow("wf-task-identity", taskDraftRequest()).workflow().id());
+        verify(workflowService).create(org.mockito.ArgumentMatchers.argThat(
+                draft -> "wf-task-identity".equals(draft.getId())));
+    }
+
+    @Test
+    void taskDraftReplacementUsesLockedRevisionAndUpdatesBindingsAfterSuccessfulCas() throws Exception {
+        var current = workflow("wf-task-identity");
+        String revision = current.getUpdatedAt().toString();
+        when(workflowService.lockForWrite(current.getId())).thenReturn(current);
+        when(workflowService.update(eq(current.getId()), any(), eq(revision))).thenAnswer(call -> {
+            RuntimeWorkflowDefinitionEntity update = call.getArgument(1);
+            current.setName(update.getName());
+            current.setGraphSpecJson(update.getGraphSpecJson());
+            current.setCanvasJson(update.getCanvasJson());
+            current.setExtraJson(update.getExtraJson());
+            current.setUpdatedAt(current.getUpdatedAt().plusSeconds(1));
+            return current;
+        });
+
+        var result = service.replaceDraft(current.getId(), taskDraftRequest(), revision);
+
+        assertEquals("Corrected draft", result.workflow().name());
+        assertEquals("corrected", result.graphSpec().getEntryNodeId());
+        assertEquals("PAGE_WORKBENCH", new ObjectMapper().readTree(current.getExtraJson()).path("source").asText());
+        var order = org.mockito.Mockito.inOrder(workflowService, resourceBindingService);
+        order.verify(workflowService).lockForWrite(current.getId());
+        order.verify(workflowService).assertRevision(current, revision);
+        order.verify(workflowService).update(eq(current.getId()), any(), eq(revision));
+        order.verify(resourceBindingService).replace(eq(current), eq(taskDraftRequest().resourceBindings()));
+        verify(workflowService, never()).update(any(), any());
+    }
+
+    @Test
+    void taskDraftReplacementRejectsMissingRevisionBeforeAnyWrites() {
+        assertThrows(IllegalArgumentException.class,
+                () -> service.replaceDraft("wf-task-identity", taskDraftRequest(), " "));
+        verify(workflowService, never()).lockForWrite(any());
+        verify(resourceBindingService, never()).replace(any(), any());
+    }
+
+    @Test
+    void taskDraftReplacementDoesNotWriteBindingsAfterRevisionConflict() {
+        var current = workflow("wf-task-identity");
+        when(workflowService.lockForWrite(current.getId())).thenReturn(current);
+        doThrow(new IllegalArgumentException("stale task draft revision"))
+                .when(workflowService).assertRevision(current, "2026-01-01T00:00");
+        assertThrows(IllegalArgumentException.class,
+                () -> service.replaceDraft(current.getId(), taskDraftRequest(), "2026-01-01T00:00"));
+        verify(workflowService, never()).update(any(), any(), any());
+        verify(resourceBindingService, never()).replace(any(), any());
+    }
+
+    private RuntimeWorkflowAiCodingService.CreateRequest taskDraftRequest() {
+        return new RuntimeWorkflowAiCodingService.CreateRequest("Corrected draft", "task-draft", 12L, "orders",
+                "Correction", "PAGE_ASSISTANT", "GRAPH_SPEC", "model-1", graph("corrected"), null,
+                Map.of("source", "PAGE_WORKBENCH"),
+                List.of(new BindingInput(12L, "orders", "PAGE", "orders.detail", "TARGET")), "task draft");
     }
 
     private RuntimeWorkflowDefinitionEntity workflow(String id) {

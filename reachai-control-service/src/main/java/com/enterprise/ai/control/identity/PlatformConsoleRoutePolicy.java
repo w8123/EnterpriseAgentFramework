@@ -22,6 +22,10 @@ public final class PlatformConsoleRoutePolicy {
 
     private static final AntPathMatcher PATH_MATCHER = new AntPathMatcher();
 
+    /** Public compatibility execution optionally accepts a validated platform login. */
+    public static final List<String> OPTIONAL_SESSION_PATH_PATTERNS = List.of(
+            "/api/runtime/agents/execute/**");
+
     public static final List<String> PROTECTED_PATH_PATTERNS = List.of(
             "/api/platform/**",
             "/api/knowledge/**",
@@ -52,6 +56,7 @@ public final class PlatformConsoleRoutePolicy {
             "/api/runtime/interactions/**",
             "/api/runtime/debug-sessions/**",
             "/api/capabilities/**",
+            "/api/capability-review/**",
             "/api/api-market/**",
             "/api/tools/**",
             "/api/api-graph/**",
@@ -87,7 +92,6 @@ public final class PlatformConsoleRoutePolicy {
         List<String> patterns = new ArrayList<>(List.of(
             "/api/embed/**",
             "/embed/**",
-            "/api/runtime/agents/execute/**",
             "/api/v1/agents/**",
             "/api/ai-assist/skills/**",
             "/api/ai-assist/artifacts/**",
@@ -97,6 +101,7 @@ public final class PlatformConsoleRoutePolicy {
             "/a2a/**",
             "/gateway/**",
             "/internal/**"));
+        patterns.addAll(OPTIONAL_SESSION_PATH_PATTERNS);
         patterns.addAll(AI_CODING_KEY_PATH_PATTERNS);
         return List.copyOf(patterns);
     }

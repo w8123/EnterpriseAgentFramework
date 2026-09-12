@@ -18,19 +18,29 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class RuntimeDebugSessionCompatibilityControllerTest {
+    private static final com.enterprise.ai.runtime.debug.RuntimeDebugSessionOwner OWNER =
+            new com.enterprise.ai.runtime.debug.RuntimeDebugSessionOwner("default", "42");
+
+    private jakarta.servlet.http.HttpServletRequest authenticated() {
+        var request = new org.springframework.mock.web.MockHttpServletRequest();
+        request.setAttribute(com.enterprise.ai.runtime.internalauth.VerifiedInternalServiceAuth.REQUEST_ATTR,
+                new com.enterprise.ai.runtime.internalauth.VerifiedInternalServiceAuth(
+                    com.enterprise.ai.common.internalauth.InternalServiceAuthHeaders.CALLER_CONTROL, "PLATFORM_SESSION", "default", "42"));
+        return request;
+    }
 
     @Test
     void keepsPublicDebugSessionRoutesOnRuntimeService() throws Exception {
         Method create = RuntimeDebugSessionCompatibilityController.class
-                .getDeclaredMethod("create", RuntimeExecutableDebugSessionService.CreateRequest.class);
-        Method get = RuntimeDebugSessionCompatibilityController.class.getDeclaredMethod("get", String.class);
+                .getDeclaredMethod("create", RuntimeExecutableDebugSessionService.CreateRequest.class, jakarta.servlet.http.HttpServletRequest.class);
+        Method get = RuntimeDebugSessionCompatibilityController.class.getDeclaredMethod("get", String.class, jakarta.servlet.http.HttpServletRequest.class);
         Method submit = RuntimeDebugSessionCompatibilityController.class
-                .getDeclaredMethod("submit", String.class, RuntimeExecutableDebugSessionService.SubmitRequest.class);
-        Method cancel = RuntimeDebugSessionCompatibilityController.class.getDeclaredMethod("cancel", String.class);
+                .getDeclaredMethod("submit", String.class, RuntimeExecutableDebugSessionService.SubmitRequest.class, jakarta.servlet.http.HttpServletRequest.class);
+        Method cancel = RuntimeDebugSessionCompatibilityController.class.getDeclaredMethod("cancel", String.class, jakarta.servlet.http.HttpServletRequest.class);
         Method streamCreate = RuntimeDebugSessionCompatibilityController.class
-                .getDeclaredMethod("streamCreate", RuntimeExecutableDebugSessionService.CreateRequest.class);
+                .getDeclaredMethod("streamCreate", RuntimeExecutableDebugSessionService.CreateRequest.class, jakarta.servlet.http.HttpServletRequest.class);
         Method streamSubmit = RuntimeDebugSessionCompatibilityController.class
-                .getDeclaredMethod("streamSubmit", String.class, RuntimeExecutableDebugSessionService.SubmitRequest.class);
+                .getDeclaredMethod("streamSubmit", String.class, RuntimeExecutableDebugSessionService.SubmitRequest.class, jakarta.servlet.http.HttpServletRequest.class);
 
         assertArrayEquals(new String[] {"/api/runtime/debug-sessions"}, create.getAnnotation(PostMapping.class).path());
         assertArrayEquals(new String[] {"/api/runtime/debug-sessions/stream"},
@@ -55,27 +65,27 @@ class RuntimeDebugSessionCompatibilityControllerTest {
         RuntimeExecutableDebugSessionService.SessionView expected =
                 new RuntimeExecutableDebugSessionService.SessionView(
                         "session-1", "run-1", "trace-1", "WORKFLOW_DRAFT", true, "SUCCESS", "answer",
-                        "ok", List.of(), List.of(), Map.of(), null, null, null, null);
-        when(service.create(createRequest)).thenReturn(expected);
-        when(service.get("session-1")).thenReturn(expected);
-        when(service.submit("session-1", submitRequest)).thenReturn(expected);
-        when(service.cancel("session-1")).thenReturn(expected);
+                        "ok", List.of(), List.of(), Map.of(), null, null, null, null, null, null);
+        when(service.create(OWNER, createRequest)).thenReturn(expected);
+        when(service.get(OWNER, "session-1")).thenReturn(expected);
+        when(service.submit(OWNER, "session-1", submitRequest)).thenReturn(expected);
+        when(service.cancel(OWNER, "session-1")).thenReturn(expected);
 
-        ResponseEntity<RuntimeExecutableDebugSessionService.SessionView> createResponse = controller.create(createRequest);
-        ResponseEntity<RuntimeExecutableDebugSessionService.SessionView> getResponse = controller.get("session-1");
+        ResponseEntity<RuntimeExecutableDebugSessionService.SessionView> createResponse = controller.create(createRequest, authenticated());
+        ResponseEntity<RuntimeExecutableDebugSessionService.SessionView> getResponse = controller.get("session-1", authenticated());
         ResponseEntity<RuntimeExecutableDebugSessionService.SessionView> submitResponse =
-                controller.submit("session-1", submitRequest);
-        ResponseEntity<RuntimeExecutableDebugSessionService.SessionView> cancelResponse = controller.cancel("session-1");
+                controller.submit("session-1", submitRequest, authenticated());
+        ResponseEntity<RuntimeExecutableDebugSessionService.SessionView> cancelResponse = controller.cancel("session-1", authenticated());
 
         assertEquals(HttpStatus.OK, createResponse.getStatusCode());
         assertEquals(expected, createResponse.getBody());
         assertEquals(expected, getResponse.getBody());
         assertEquals(expected, submitResponse.getBody());
         assertEquals(expected, cancelResponse.getBody());
-        verify(service).create(createRequest);
-        verify(service).get("session-1");
-        verify(service).submit("session-1", submitRequest);
-        verify(service).cancel("session-1");
+        verify(service).create(OWNER, createRequest);
+        verify(service).get(OWNER, "session-1");
+        verify(service).submit(OWNER, "session-1", submitRequest);
+        verify(service).cancel(OWNER, "session-1");
     }
 
     @Test
@@ -90,12 +100,12 @@ class RuntimeDebugSessionCompatibilityControllerTest {
                 new org.springframework.web.servlet.mvc.method.annotation.SseEmitter();
         org.springframework.web.servlet.mvc.method.annotation.SseEmitter submitEmitter =
                 new org.springframework.web.servlet.mvc.method.annotation.SseEmitter();
-        when(service.streamCreate(createRequest)).thenReturn(createEmitter);
-        when(service.streamSubmit("session-1", submitRequest)).thenReturn(submitEmitter);
+        when(service.streamCreate(OWNER, createRequest)).thenReturn(createEmitter);
+        when(service.streamSubmit(OWNER, "session-1", submitRequest)).thenReturn(submitEmitter);
 
-        assertEquals(createEmitter, controller.streamCreate(createRequest));
-        assertEquals(submitEmitter, controller.streamSubmit("session-1", submitRequest));
-        verify(service).streamCreate(createRequest);
-        verify(service).streamSubmit("session-1", submitRequest);
+        assertEquals(createEmitter, controller.streamCreate(createRequest, authenticated()));
+        assertEquals(submitEmitter, controller.streamSubmit("session-1", submitRequest, authenticated()));
+        verify(service).streamCreate(OWNER, createRequest);
+        verify(service).streamSubmit(OWNER, "session-1", submitRequest);
     }
 }

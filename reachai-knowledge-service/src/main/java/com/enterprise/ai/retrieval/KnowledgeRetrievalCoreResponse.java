@@ -27,6 +27,15 @@ public class KnowledgeRetrievalCoreResponse {
     /** Non-sensitive retrieval counters/timings for Runtime trace projection. */
     private Map<String, Object> diagnostics;
 
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private com.enterprise.ai.security.FileAccessSnapshot accessSnapshot;
+
+    public List<com.enterprise.ai.domain.vo.SimilarItem> toSimilarItems() {
+        return items == null ? List.of() : items.stream().map(item -> com.enterprise.ai.domain.vo.SimilarItem.builder()
+                .chunkId(item.getChunkId()).fileId(item.getFileId()).fileName(item.getFileName())
+                .content(item.getContent()).score(item.getScore()).knowledgeBaseCode(item.getKnowledgeBaseCode()).build()).toList();
+    }
+
     @Data
     @Builder
     @NoArgsConstructor

@@ -1,6 +1,6 @@
 package com.enterprise.ai.control.runtime;
 
-import com.enterprise.ai.control.aiassist.ControlAiCodingAccessGuard;
+import com.enterprise.ai.control.identity.ControlAiCodingAccessGuard;
 import com.enterprise.ai.control.agentskill.AgentSkillBindingSnapshotAssembler;
 import com.enterprise.ai.control.a2a.application.remoteagent.A2aRemoteBindingSnapshotAssembler;
 import com.enterprise.ai.control.client.runtime.RuntimeProxyClient;
@@ -9,7 +9,7 @@ import com.enterprise.ai.control.identity.PlatformBearerAuthService;
 import com.enterprise.ai.control.identity.PlatformAuthenticatedSession;
 import com.enterprise.ai.control.identity.PlatformConsoleAuthInterceptor;
 import com.enterprise.ai.control.identity.PlatformPermissions;
-import com.enterprise.ai.control.identity.PlatformUserEntity;
+import com.enterprise.ai.control.identity.PlatformPrincipal;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.CacheControl;
@@ -17,6 +17,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.util.StringUtils;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -59,6 +61,18 @@ public class ControlRuntimePublicController {
     private final AgentSkillBindingSnapshotAssembler agentSkillBindingSnapshotAssembler;
     private A2aRemoteBindingSnapshotAssembler a2aRemoteBindingSnapshotAssembler;
     private RuntimeManagementAccess runtimeManagementAccess;
+    private RuntimeWorkflowReleaseGateway workflowReleaseGateway;
+    private RuntimeDebugSessionGateway debugSessionGateway;
+
+    @Autowired
+    void setDebugSessionGateway(RuntimeDebugSessionGateway gateway) {
+        this.debugSessionGateway = gateway;
+    }
+
+    @Autowired
+    void setWorkflowReleaseGateway(RuntimeWorkflowReleaseGateway gateway) {
+        this.workflowReleaseGateway = gateway;
+    }
 
     @Autowired(required = false)
     void setA2aRemoteBindingSnapshotAssembler(
@@ -209,9 +223,7 @@ public class ControlRuntimePublicController {
     public ResponseEntity<Void> clearAgentSession(
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @PathVariable String sessionId) {
-        Optional<PlatformUserEntity> user = bearerAuthService == null
-                ? Optional.empty()
-                : bearerAuthService.resolveBearerUser(authorization);
+        Optional<PlatformPrincipal> user = authenticatedAgentUser(authorization);
         if (user.isEmpty()) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
@@ -588,12 +600,10 @@ public class ControlRuntimePublicController {
     @PostMapping("/api/workflows/{workflowId}/versions/publish")
     public ResponseEntity<Object> publishWorkflowVersion(@PathVariable String workflowId,
                                                         @RequestBody Map<String, Object> body) {
-        if (runtimeManagementAccess != null) {
-            PlatformAuthenticatedSession session = requireRuntimePermission(PlatformPermissions.WORKFLOW_PUBLISH);
-            requireRuntimeResponseProject(
-                    session, PlatformPermissions.WORKFLOW_PUBLISH, runtimeProxyClient.getWorkflow(workflowId));
-        }
-        return runtimeProxyClient.publishWorkflowVersion(workflowId, body);
+        PlatformAuthenticatedSession session = requireRuntimePermission(PlatformPermissions.WORKFLOW_PUBLISH);
+        requireRuntimeResponseProject(
+                session, PlatformPermissions.WORKFLOW_PUBLISH, runtimeProxyClient.getWorkflow(workflowId));
+        return workflowReleaseGateway.publish(workflowId, body, session);
     }
 
     @PostMapping("/api/workflows/{workflowId}/versions/validate")
@@ -610,12 +620,10 @@ public class ControlRuntimePublicController {
     public ResponseEntity<Object> rollbackWorkflowVersion(@PathVariable String workflowId,
                                                          @PathVariable Long versionId,
                                                          @RequestBody(required = false) Map<String, Object> body) {
-        if (runtimeManagementAccess != null) {
-            PlatformAuthenticatedSession session = requireRuntimePermission(PlatformPermissions.WORKFLOW_PUBLISH);
-            requireRuntimeResponseProject(
-                    session, PlatformPermissions.WORKFLOW_PUBLISH, runtimeProxyClient.getWorkflow(workflowId));
-        }
-        return runtimeProxyClient.rollbackWorkflowVersion(workflowId, versionId, body);
+        PlatformAuthenticatedSession session = requireRuntimePermission(PlatformPermissions.WORKFLOW_PUBLISH);
+        requireRuntimeResponseProject(
+                session, PlatformPermissions.WORKFLOW_PUBLISH, runtimeProxyClient.getWorkflow(workflowId));
+        return workflowReleaseGateway.rollback(workflowId, versionId, body, session);
     }
 
     @PostMapping("/api/workflows/{id}/page-assistant/attach-tool")
@@ -1195,50 +1203,34 @@ public class ControlRuntimePublicController {
 
     @PostMapping("/api/runtime/debug-sessions")
     public ResponseEntity<Object> createRuntimeDebugSession(@RequestBody Map<String, Object> body) {
-        PlatformAuthenticatedSession session = requireRuntimePermission(PlatformPermissions.WORKFLOW_DEBUG);
-        requireWorkflowPayload(session, PlatformPermissions.WORKFLOW_DEBUG, body);
-        return runtimeProxyClient.createRuntimeDebugSession(body);
+        return debugSessionGateway.create(body);
     }
 
     @GetMapping("/api/runtime/debug-sessions/{sessionId}")
     public ResponseEntity<Object> getRuntimeDebugSession(@PathVariable String sessionId) {
-        PlatformAuthenticatedSession session = requireRuntimePermission(PlatformPermissions.WORKFLOW_DEBUG);
-        ResponseEntity<Object> response = runtimeProxyClient.getRuntimeDebugSession(sessionId);
-        requireRuntimeResponseProject(session, PlatformPermissions.WORKFLOW_DEBUG, response);
-        return response;
+        return debugSessionGateway.get(sessionId);
+    }
+
+    @GetMapping("/api/runtime/debug-sessions/by-creation-key/{key}")
+    public ResponseEntity<Object> getRuntimeDebugSessionByCreationKey(@PathVariable String key) {
+        return debugSessionGateway.getByCreationKey(key);
     }
 
     @PostMapping("/api/runtime/debug-sessions/{sessionId}/submit")
     public ResponseEntity<Object> submitRuntimeDebugSession(@PathVariable String sessionId,
                                                             @RequestBody Map<String, Object> body) {
-        if (runtimeManagementAccess != null) {
-            PlatformAuthenticatedSession session = requireRuntimePermission(PlatformPermissions.WORKFLOW_DEBUG);
-            requireRuntimeResponseProject(
-                    session,
-                    PlatformPermissions.WORKFLOW_DEBUG,
-                    runtimeProxyClient.getRuntimeDebugSession(sessionId));
-        }
-        return runtimeProxyClient.submitRuntimeDebugSession(sessionId, body);
+        return debugSessionGateway.submit(sessionId, body);
     }
 
     @PostMapping("/api/runtime/debug-sessions/{sessionId}/cancel")
     public ResponseEntity<Object> cancelRuntimeDebugSession(@PathVariable String sessionId) {
-        if (runtimeManagementAccess != null) {
-            PlatformAuthenticatedSession session = requireRuntimePermission(PlatformPermissions.WORKFLOW_DEBUG);
-            requireRuntimeResponseProject(
-                    session,
-                    PlatformPermissions.WORKFLOW_DEBUG,
-                    runtimeProxyClient.getRuntimeDebugSession(sessionId));
-        }
-        return runtimeProxyClient.cancelRuntimeDebugSession(sessionId);
+        return debugSessionGateway.cancel(sessionId);
     }
 
     @PostMapping(value = "/api/runtime/debug-sessions/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public ResponseEntity<StreamingResponseBody> createRuntimeDebugSessionStream(
             @RequestBody Map<String, Object> body) {
-        PlatformAuthenticatedSession session = requireRuntimePermission(PlatformPermissions.WORKFLOW_DEBUG);
-        requireWorkflowPayload(session, PlatformPermissions.WORKFLOW_DEBUG, body);
-        return streamDebugProxy(RuntimeAgentStreamProxy.DEBUG_SESSION_STREAM, body);
+        return debugSessionGateway.streamCreate(body);
     }
 
     @PostMapping(value = "/api/runtime/debug-sessions/{sessionId}/submit/stream",
@@ -1246,19 +1238,7 @@ public class ControlRuntimePublicController {
     public ResponseEntity<StreamingResponseBody> submitRuntimeDebugSessionStream(
             @PathVariable String sessionId,
             @RequestBody Map<String, Object> body) {
-        if (runtimeManagementAccess != null) {
-            PlatformAuthenticatedSession session = requireRuntimePermission(PlatformPermissions.WORKFLOW_DEBUG);
-            requireRuntimeResponseProject(
-                    session,
-                    PlatformPermissions.WORKFLOW_DEBUG,
-                    runtimeProxyClient.getRuntimeDebugSession(sessionId));
-        }
-        if (runtimeAgentStreamProxy == null) {
-            throw new IllegalStateException("Runtime stream proxy is not configured");
-        }
-        StreamingResponseBody stream = outputStream ->
-                runtimeAgentStreamProxy.streamDebugSubmit(sessionId, body, outputStream);
-        return streamResponse(stream);
+        return debugSessionGateway.streamSubmit(sessionId, body);
     }
 
     @GetMapping("/api/runtime/interactions/human-approvals")
@@ -1302,7 +1282,7 @@ public class ControlRuntimePublicController {
             safe.put("variants", sanitized);
         }
         safe.put("tenantId", "default");
-        PlatformUserEntity user = session.user();
+        PlatformPrincipal user = session.user();
         String username = StringUtils.hasText(user.getUsername()) ? user.getUsername().trim() : "unknown";
         safe.put("createdBy", "platform:" + user.getId() + ":" + username);
         return safe;
@@ -1357,8 +1337,8 @@ public class ControlRuntimePublicController {
     }
 
     /**
-     * Prefer server-attested platform login identity via internal Runtime contract.
-     * Without a real Bearer session, forward to public Runtime execute with userTrusted=false
+     * Prefer the server-attested Cookie or Bearer login via the internal Runtime contract.
+     * Without a platform login, forward to public Runtime execute with userTrusted=false
      * (body userId is business data only and never becomes ACL identity).
      */
     private ResponseEntity<Map<String, Object>> executeAgentWithServerIdentity(
@@ -1371,9 +1351,7 @@ public class ControlRuntimePublicController {
         safeBody.remove("trustedIdentity");
         safeBody.remove("_trustedUserId");
 
-        Optional<PlatformUserEntity> user = bearerAuthService == null
-                ? Optional.empty()
-                : bearerAuthService.resolveBearerUser(authorization);
+        Optional<PlatformPrincipal> user = authenticatedAgentUser(authorization);
         if (user.isPresent() && trustedExecutionGateway != null) {
             String trustedUserId = trustedAgentUserId(user.get());
             ResponseEntity<Map<String, Object>> trusted =
@@ -1401,9 +1379,7 @@ public class ControlRuntimePublicController {
         safeBody.remove("__workflowExecutionIdentity");
         safeBody.remove("trustedIdentity");
         safeBody.remove("_trustedUserId");
-        Optional<PlatformUserEntity> user = bearerAuthService == null
-                ? Optional.empty()
-                : bearerAuthService.resolveBearerUser(authorization);
+        Optional<PlatformPrincipal> user = authenticatedAgentUser(authorization);
         StreamingResponseBody stream;
         if (user.isPresent() && trustedExecutionGateway != null) {
             String trustedUserId = trustedAgentUserId(user.get());
@@ -1415,22 +1391,26 @@ public class ControlRuntimePublicController {
         return streamResponse(stream);
     }
 
-    private String trustedAgentUserId(PlatformUserEntity user) {
+    private Optional<PlatformPrincipal> authenticatedAgentUser(String authorization) {
+        if (RequestContextHolder.getRequestAttributes() instanceof ServletRequestAttributes attributes) {
+            Object candidate = attributes.getRequest()
+                    .getAttribute(PlatformConsoleAuthInterceptor.SESSION_REQUEST_ATTRIBUTE);
+            return candidate instanceof PlatformAuthenticatedSession session
+                    ? Optional.ofNullable(session.user()) : Optional.empty();
+        }
+        // Direct non-MVC callers retain the existing Bearer resolution contract.
+        return bearerAuthService == null ? Optional.empty()
+                : bearerAuthService.resolveBearerPrincipal(authorization);
+    }
+
+    private String trustedAgentUserId(PlatformPrincipal user) {
         if (personalMemoryIdentityResolver == null) {
             // Compatibility path for narrow unit tests and legacy direct construction only.
             return String.valueOf(user.getId());
         }
         return personalMemoryIdentityResolver
-                .resolveAttestedPlatformUser(user, null, "default")
+                .resolveAttestedPlatformPrincipal(user, null, "default")
                 .runtimeUserId();
-    }
-
-    private ResponseEntity<StreamingResponseBody> streamDebugProxy(String path, Map<String, Object> body) {
-        if (runtimeAgentStreamProxy == null) {
-            throw new IllegalStateException("Runtime stream proxy is not configured");
-        }
-        StreamingResponseBody stream = outputStream -> runtimeAgentStreamProxy.stream(path, body, outputStream);
-        return streamResponse(stream);
     }
 
     private ResponseEntity<StreamingResponseBody> streamResponse(StreamingResponseBody stream) {

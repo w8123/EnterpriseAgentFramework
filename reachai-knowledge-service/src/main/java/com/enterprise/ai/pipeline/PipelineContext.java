@@ -47,9 +47,25 @@ public class PipelineContext {
     private String sourceSha256;
     private String parseArtifactObjectKey;
     private String importJobId;
+    /** Unique worker lease for this indexing execution, separate from the durable job ID. */
+    private String importLeaseOwner;
+    /** Independent identity for a synchronous PIPELINE, DIRECT or REEMBED write. */
+    private String indexExecutionId;
+    private String indexOperation;
+    private com.enterprise.ai.pipeline.document.job.DocumentIndexTargetSnapshot indexTarget;
+    /** Set only after the metadata and job completion transaction commits. */
+    private boolean importPublished;
 
     /** 目标知识库编码 */
     private String knowledgeBaseCode;
+
+    /** 异步任务保留提交时的知识库 ID；执行入口按此 ID 确认目标，禁止转向同编码新库。 */
+    private Long knowledgeBaseId;
+
+    /** 执行入口从目标知识库解析，后续写入、发布和补偿使用相同物理集合。 */
+    private String vectorCollectionName;
+
+    private Integer knowledgeBaseDimension;
 
     /** 切分策略: fixed_length / paragraph / semantic */
     private String chunkStrategy = "fixed_length";

@@ -111,6 +111,9 @@ export interface RunToolCall {
   intentType?: string
   projectCode?: string
   success: boolean
+  /** success preserves the original observation; status describes the current correlated outcome. */
+  status?: string
+  statusSourceSpanId?: string
   argsJson?: string
   resultSummary?: string
   errorCode?: string

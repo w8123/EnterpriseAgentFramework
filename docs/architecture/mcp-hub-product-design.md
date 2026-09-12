@@ -5,6 +5,8 @@
 > 适用协议基线：Model Context Protocol，JSON-RPC 2.0 over HTTP（protocol version 协商）
 > 决策日期：2026-08-28
 
+开发环境验证更新（2026-09-10）：出向 Workflow 已通过真实 HTTP 客户端的双协议执行、固定发布版本与 schema、ACL 和工具范围拒绝、发布暂停、凭证吊销，以及 RunOps/调用日志/MySQL 回读。能力分支已修复发布契约指纹的 HTTP 传递和可信租户丢失，实际 Spring Boot 2 SDK 样例通过注册、平台回调同步、只读自动接纳、契约漂移拒绝、接受新契约、旧发布拒绝及重新发布后的双协议调用。SDK 业务端签名追踪号现与平台生成的 MCP 根追踪号一致，调用参数不能覆盖；客户部署环境、双源业务与浏览器整体验收仍未完成。详见 [Workflow 验收](../../output/tasks/architecture-audit-20260905/mcp-contract-wire-notes.md)、[SDK 能力验收](../../output/tasks/architecture-audit-20260905/capability-tenant-scope-notes.md) 和 [SDK 追踪号验收](../../output/tasks/architecture-audit-20260905/sdk-trace-propagation-notes.md)。
+
 ## 1. 产品决策
 
 MCP Hub 是 ReachAI 的独立产品模块，不是"暴露白名单开关"，也不是现有 `ControlMcpAdminController`、三张表和四个平铺页面的增量升级。
@@ -232,6 +234,7 @@ Workflow 侧不新建表：GraphSpec 新增 `MCP_TOOL` 节点（`serverKey` + `t
 - `POST /mcp` 与兼容入口 `POST /mcp/jsonrpc`：同一 Streamable HTTP 适配器同时支持 legacy `2025-11-25` 与 modern `2026-07-28`。legacy 先 `initialize` 再发送 `notifications/initialized`；modern 直接 `server/discover`，并校验逐请求版本、方法与名称元数据。认证（Bearer API Key → Client → Publication）后：
   - `tools/list`：从 Client 所属 Publication 的当前生效修订快照计算，再按 Client `tool_scope` 收窄。
   - `tools/call`：按修订快照校验可见性 → 项目级 Tool ACL（Client `roles_json` 走 `control_tool_acl` 决策，DENY 优先、无命中默认拒绝）→ Control 以 HMAC `MCP_REMOTE_CLIENT` 身份调用 Runtime `POST /internal/runtime/mcp/tool-executions`。Runtime 按 `source_kind` 执行 Capability 或修订固定版本的 Workflow GraphSpec。
+    能力调用的顶层 `capabilityContractHash` 必须取自冻结修订，并完整经过 Runtime HTTP 接收对象进入执行命令，最终成为 Capability 的 `constraints.expectedContractHash`。缺失指纹拒绝执行，工具参数中的同名字段不能代替发布指纹；Workflow 分支继续固定 `workflowVersionId`。
   - 协议交换尽力写入 `control_mcp_call_log`，保留 `success`、`error_category`、`trace_id`、`run_id` 等非敏感证据；原始请求/响应正文默认关闭，显式开启后也先递归脱敏并按保留期清理。
   - 每次外部 `tools/call` 在 Runtime 形成独立 `runType=MCP` 根 Run 与 Trace；阻塞式人工交互在 MCP 身份下 fail-closed。
 

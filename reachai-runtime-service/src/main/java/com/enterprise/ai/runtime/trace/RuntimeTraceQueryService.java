@@ -1,9 +1,6 @@
 package com.enterprise.ai.runtime.trace;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.enterprise.ai.runtime.runops.RuntimeRunEntity;
-import com.enterprise.ai.runtime.runops.RuntimeRunMapper;
-import com.enterprise.ai.runtime.runops.RuntimeRunStatus;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -12,6 +9,10 @@ import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 import java.util.Comparator;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -19,28 +20,87 @@ import java.util.stream.Stream;
 
 @Service
 @RequiredArgsConstructor
-public class RuntimeTraceQueryService {
+public class RuntimeTraceQueryService implements RuntimeTraceRecordQuery {
 
     private static final TypeReference<List<Map<String, Object>>> CANDIDATES_TYPE = new TypeReference<>() {
     };
 
     private final RuntimeToolCallLogMapper toolLogMapper;
     private final RuntimeTraceSpanMapper spanMapper;
-    private final RuntimeRunMapper runMapper;
     private final ObjectMapper objectMapper;
+
+    @Override
+    public RuntimeTraceRecords findRecords(String traceId) {
+        if (!StringUtils.hasText(traceId)) {
+            return new RuntimeTraceRecords(List.of(), List.of());
+        }
+        String normalizedTraceId = traceId.trim();
+        List<RuntimeToolCallLogEntity> logs = toolLogMapper.selectList(new LambdaQueryWrapper<RuntimeToolCallLogEntity>()
+                .eq(RuntimeToolCallLogEntity::getTraceId, normalizedTraceId)
+                .orderByAsc(RuntimeToolCallLogEntity::getCreateTime)
+                .orderByAsc(RuntimeToolCallLogEntity::getId));
+        return new RuntimeTraceRecords(
+                findSpans(normalizedTraceId),
+                logs.stream().map(this::toRecord).toList());
+    }
+
+    @Override
+    public Map<String, RuntimeTraceRecords> findRecordsByTraceIds(List<String> traceIds) {
+        LinkedHashSet<String> ids = new LinkedHashSet<>();
+        if (traceIds != null) {
+            for (String traceId : traceIds) {
+                if (StringUtils.hasText(traceId)) ids.add(traceId.trim());
+                if (ids.size() > MAX_BATCH_TRACE_IDS) {
+                    throw new IllegalArgumentException("Trace record batch exceeds " + MAX_BATCH_TRACE_IDS + " distinct IDs");
+                }
+            }
+        }
+        if (ids.isEmpty()) return Map.of();
+        Map<String, List<RuntimeTraceRecords.Span>> spans = new LinkedHashMap<>();
+        Map<String, List<RuntimeTraceRecords.ToolCall>> calls = new LinkedHashMap<>();
+        ids.forEach(id -> {
+            spans.put(id, new ArrayList<>());
+            calls.put(id, new ArrayList<>());
+        });
+        List<RuntimeTraceSpanEntity> spanRows = spanMapper.selectList(new LambdaQueryWrapper<RuntimeTraceSpanEntity>()
+                .in(RuntimeTraceSpanEntity::getTraceId, ids)
+                .orderByAsc(RuntimeTraceSpanEntity::getStartedAt)
+                .orderByAsc(RuntimeTraceSpanEntity::getId));
+        for (RuntimeTraceSpanEntity row : spanRows) {
+            List<RuntimeTraceRecords.Span> target = spans.get(row.getTraceId());
+            if (target != null) target.add(toRecord(row));
+        }
+        List<RuntimeToolCallLogEntity> callRows = toolLogMapper.selectList(new LambdaQueryWrapper<RuntimeToolCallLogEntity>()
+                .in(RuntimeToolCallLogEntity::getTraceId, ids)
+                .orderByAsc(RuntimeToolCallLogEntity::getCreateTime)
+                .orderByAsc(RuntimeToolCallLogEntity::getId));
+        for (RuntimeToolCallLogEntity row : callRows) {
+            List<RuntimeTraceRecords.ToolCall> target = calls.get(row.getTraceId());
+            if (target != null) target.add(toRecord(row));
+        }
+        Map<String, RuntimeTraceRecords> records = new LinkedHashMap<>();
+        ids.forEach(id -> records.put(id, new RuntimeTraceRecords(spans.get(id), calls.get(id))));
+        return Collections.unmodifiableMap(records);
+    }
+
+    @Override
+    public List<RuntimeTraceRecords.Span> findSpans(String traceId) {
+        if (!StringUtils.hasText(traceId)) return List.of();
+        return spanMapper.selectList(new LambdaQueryWrapper<RuntimeTraceSpanEntity>()
+                        .eq(RuntimeTraceSpanEntity::getTraceId, traceId.trim())
+                        .orderByAsc(RuntimeTraceSpanEntity::getStartedAt)
+                        .orderByAsc(RuntimeTraceSpanEntity::getId))
+                .stream().map(this::toRecord).toList();
+    }
 
     public Optional<RuntimeTraceDetailView> getTraceDetail(String traceId) {
         if (!StringUtils.hasText(traceId)) {
             return Optional.empty();
         }
         String normalizedTraceId = traceId.trim();
-        List<RuntimeToolCallLogEntity> logs = toolLogMapper.selectList(new LambdaQueryWrapper<RuntimeToolCallLogEntity>()
-                .eq(RuntimeToolCallLogEntity::getTraceId, normalizedTraceId)
-                .orderByAsc(RuntimeToolCallLogEntity::getId));
-        List<RuntimeTraceSpanEntity> spans = spanMapper.selectList(new LambdaQueryWrapper<RuntimeTraceSpanEntity>()
-                .eq(RuntimeTraceSpanEntity::getTraceId, normalizedTraceId)
-                .orderByAsc(RuntimeTraceSpanEntity::getStartedAt)
-                .orderByAsc(RuntimeTraceSpanEntity::getId));
+        RuntimeTraceRecords records = findRecords(normalizedTraceId);
+        List<RuntimeTraceRecords.ToolCall> logs = records.toolCalls();
+        List<RuntimeTraceRecords.Span> spans = records.spans();
         if (logs.isEmpty() && spans.isEmpty()) {
             return Optional.empty();
         }
@@ -54,64 +114,64 @@ public class RuntimeTraceQueryService {
         return Optional.of(new RuntimeTraceDetailView(normalizedTraceId, nodes));
     }
 
-    public List<RuntimeTraceSummaryView> listRecentTraces(String userId, int limit, int days) {
-        int safeLimit = Math.max(1, Math.min(limit, 200));
-        int safeDays = Math.max(1, Math.min(days, 30));
-        LambdaQueryWrapper<RuntimeRunEntity> wrapper = new LambdaQueryWrapper<RuntimeRunEntity>()
-                .ge(RuntimeRunEntity::getStartedAt, LocalDateTime.now().minusDays(safeDays))
-                .orderByDesc(RuntimeRunEntity::getStartedAt)
-                .orderByDesc(RuntimeRunEntity::getId)
-                .last("limit " + safeLimit);
-        if (StringUtils.hasText(userId)) {
-            wrapper.eq(RuntimeRunEntity::getUserId, userId.trim());
-        }
-        return runMapper.selectList(wrapper).stream()
-                .map(this::toSummary)
-                .toList();
+    private RuntimeTraceRecords.Span toRecord(RuntimeTraceSpanEntity span) {
+        return new RuntimeTraceRecords.Span(
+                span.getId(), span.getTraceId(), span.getAgentName(), span.getSpanId(), span.getParentSpanId(),
+                span.getSpanType(), span.getRuntimeType(), span.getNodeId(), span.getToolName(), span.getStatus(),
+                span.getInputSummary(), span.getOutputSummary(), span.getMetadataJson(), span.getErrorCode(),
+                span.getErrorMessage(), span.getLatencyMs(), span.getTokenCost(), span.getStartedAt(), span.getEndedAt(),
+                span.getCreatedAt());
     }
 
-    private RuntimeTraceNodeView toNode(RuntimeToolCallLogEntity log) {
+    private RuntimeTraceRecords.ToolCall toRecord(RuntimeToolCallLogEntity log) {
+        return new RuntimeTraceRecords.ToolCall(
+                log.getId(), log.getTraceId(), log.getToolName(), log.getAgentName(), log.getSessionId(), log.getUserId(),
+                log.getIntentType(), log.getProjectCode(), log.getSuccess(), log.getArgsJson(), log.getResultSummary(),
+                log.getErrorCode(), log.getElapsedMs(), log.getTokenCost(), log.getRetrievalTraceJson(), log.getCreateTime());
+    }
+
+    private RuntimeTraceNodeView toNode(RuntimeTraceRecords.ToolCall log) {
         return new RuntimeTraceNodeView(
-                log.getId(),
+                log.id(),
                 "runtime_tool_call_log",
-                log.getTraceId(),
-                log.getAgentName(),
-                log.getToolName(),
+                log.traceId(),
+                log.agentName(),
+                log.toolName(),
                 null,
                 null,
                 null,
                 null,
                 null,
-                log.getArgsJson(),
-                log.getResultSummary(),
-                Boolean.TRUE.equals(log.getSuccess()),
-                log.getErrorCode(),
-                log.getElapsedMs(),
-                log.getTokenCost(),
-                parseRetrieval(log.getRetrievalTraceJson()),
-                log.getCreateTime());
+                log.argsJson(),
+                log.resultSummary(),
+                Boolean.TRUE.equals(log.success()),
+                log.errorCode(),
+                log.elapsedMs(),
+                log.tokenCost(),
+                parseRetrieval(log.retrievalTraceJson()),
+                log.createTime());
     }
 
-    private RuntimeTraceNodeView toNode(RuntimeTraceSpanEntity span) {
+    private RuntimeTraceNodeView toNode(RuntimeTraceRecords.Span span) {
         return new RuntimeTraceNodeView(
-                span.getId(),
+                span.id(),
                 "runtime_trace_span",
-                span.getTraceId(),
-                span.getAgentName(),
+                span.traceId(),
+                span.agentName(),
                 traceSpanName(span),
-                span.getSpanType(),
-                span.getSpanId(),
-                span.getParentSpanId(),
-                span.getNodeId(),
-                span.getRuntimeType(),
-                span.getInputSummary(),
-                span.getOutputSummary(),
-                "SUCCESS".equalsIgnoreCase(span.getStatus()),
-                span.getErrorCode(),
-                span.getLatencyMs(),
-                span.getTokenCost(),
+                span.spanType(),
+                span.spanId(),
+                span.parentSpanId(),
+                span.nodeId(),
+                span.runtimeType(),
+                span.inputSummary(),
+                span.outputSummary(),
+                "SUCCESS".equalsIgnoreCase(span.status()),
+                span.errorCode(),
+                span.latencyMs(),
+                span.tokenCost(),
                 List.of(),
-                span.getStartedAt() == null ? span.getCreatedAt() : span.getStartedAt());
+                span.startedAt() == null ? span.createdAt() : span.startedAt());
     }
 
     private List<Map<String, Object>> parseRetrieval(String raw) {
@@ -125,30 +185,14 @@ public class RuntimeTraceQueryService {
         }
     }
 
-    static String traceSpanName(RuntimeTraceSpanEntity span) {
-        if (StringUtils.hasText(span.getToolName())) {
-            return "span:" + span.getToolName();
+    static String traceSpanName(RuntimeTraceRecords.Span span) {
+        if (StringUtils.hasText(span.toolName())) {
+            return "span:" + span.toolName();
         }
-        if (StringUtils.hasText(span.getNodeId())) {
-            return "span:" + span.getNodeId();
+        if (StringUtils.hasText(span.nodeId())) {
+            return "span:" + span.nodeId();
         }
-        return "span:" + span.getSpanType();
+        return "span:" + span.spanType();
     }
 
-    private RuntimeTraceSummaryView toSummary(RuntimeRunEntity run) {
-        return new RuntimeTraceSummaryView(
-                run.getTraceId(),
-                run.getSessionId(),
-                run.getUserId(),
-                firstText(run.getAgentName(), run.getWorkflowName()),
-                run.getEntryType(),
-                run.getToolCallCount() == null ? 0 : run.getToolCallCount(),
-                RuntimeRunStatus.parse(run.getStatus()) == RuntimeRunStatus.COMPLETED ? 1L : 0L,
-                run.getStartedAt(),
-                run.getEndedAt());
-    }
-
-    private String firstText(String first, String second) {
-        return StringUtils.hasText(first) ? first : second;
-    }
 }

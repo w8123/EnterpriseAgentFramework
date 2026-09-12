@@ -37,7 +37,7 @@ class AiCodingTaskReadProjectionTest {
     private final AiCodingHandoffApplicationService handoffService =
             mock(AiCodingHandoffApplicationService.class);
     private final AiCodingTaskApplicationService service =
-            new AiCodingTaskApplicationService(
+            AiCodingTaskTestServices.create(
                     taskMapper,
                     targetMapper,
                     mock(AiCodingTaskEventMapper.class),

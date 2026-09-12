@@ -32,6 +32,12 @@ class RuntimeAgentStreamProxyTest {
                 () -> proxy.stream("/api/runtime/agents/execute", Map.of(), new ByteArrayOutputStream()));
         assertThrows(IllegalArgumentException.class,
                 () -> proxy.stream("/api/embed/chat/stream", Map.of(), new ByteArrayOutputStream()));
+        assertThrows(IllegalArgumentException.class,
+                () -> proxy.stream(RuntimeAgentStreamProxy.DEBUG_SESSION_STREAM, Map.of(), new ByteArrayOutputStream()));
+        assertThrows(IllegalArgumentException.class,
+                () -> proxy.stream("/api/runtime/debug-sessions/session-1/submit/stream", Map.of(), new ByteArrayOutputStream()));
+        assertThrows(IllegalArgumentException.class,
+                () -> proxy.streamSignedDebugSession("/api/embed/chat/stream", new byte[0], Map.of(), new ByteArrayOutputStream()));
     }
 
     @Test

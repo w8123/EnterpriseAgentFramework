@@ -1,7 +1,9 @@
 package com.enterprise.ai.control.skillmarket;
 
+import com.enterprise.ai.control.identity.PlatformPrincipal;
+
 import com.enterprise.ai.control.agentskill.AgentSkillAccessPolicy;
-import com.enterprise.ai.control.agentskill.AgentSkillExceptionHandler;
+import com.enterprise.ai.control.config.web.AgentSkillExceptionHandler;
 import com.enterprise.ai.control.identity.PlatformAuthAuditService;
 import com.enterprise.ai.control.identity.PlatformAuthenticatedSession;
 import com.enterprise.ai.control.identity.PlatformConsoleAuthInterceptor;
@@ -108,7 +110,7 @@ class SkillMarketControllerTest {
         user.setId(7L);
         user.setUsername("user-7");
         return new PlatformAuthenticatedSession(
-                user,
+                PlatformPrincipal.fromUser(user),
                 "session",
                 LocalDateTime.now().plusHours(1),
                 List.of(),

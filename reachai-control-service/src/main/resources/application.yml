@@ -38,6 +38,9 @@ spring:
           reachai-runtime-proxy:
             connectTimeout: 5000
             readTimeout: 270000
+          reachai-page-workbench-runtime:
+            connectTimeout: 5000
+            readTimeout: 270000
           # Health probes use InternalHealthFeignConfig (1.5s connect / 2s read).
           # Named entries document intent; Feign configuration class is authoritative.
           reachai-runtime-health:

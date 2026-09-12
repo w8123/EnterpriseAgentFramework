@@ -1,8 +1,7 @@
 package com.enterprise.ai.runtime.eval;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.enterprise.ai.runtime.agent.RuntimeAgentEntity;
-import com.enterprise.ai.runtime.agent.RuntimeAgentMapper;
+import com.enterprise.ai.runtime.agent.RuntimeAgentIdentityQuery;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
@@ -38,7 +37,7 @@ public class RuntimeEvalExperimentService {
     private final RuntimeEvalDatasetMapper datasetMapper;
     private final RuntimeEvalEvaluatorSuiteService suiteService;
     private final RuntimeEvalTargetSnapshotService targetSnapshotService;
-    private final RuntimeAgentMapper agentMapper;
+    private final RuntimeAgentIdentityQuery agentIdentities;
     private final RuntimeEvalJsonSupport json;
 
     public List<RuntimeEvalExperimentSummaryView> list(String tenantId, String targetId) {
@@ -557,11 +556,8 @@ public class RuntimeEvalExperimentService {
     private String canonicalAgentId(String value) {
         if (!StringUtils.hasText(value)) return null;
         String lookup = value.trim();
-        RuntimeAgentEntity agent = agentMapper.selectOne(Wrappers.<RuntimeAgentEntity>lambdaQuery()
-                .and(query -> query.eq(RuntimeAgentEntity::getId, lookup)
-                        .or().eq(RuntimeAgentEntity::getKeySlug, lookup))
-                .last("LIMIT 1"));
-        return agent == null || !StringUtils.hasText(agent.getId()) ? lookup : agent.getId();
+        return agentIdentities.find(lookup).map(agent -> agent.id())
+                .filter(StringUtils::hasText).orElse(lookup);
     }
 
     private String upper(String value) {

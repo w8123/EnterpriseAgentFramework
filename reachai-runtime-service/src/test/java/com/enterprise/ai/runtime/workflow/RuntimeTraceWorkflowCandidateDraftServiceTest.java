@@ -11,7 +11,7 @@ import org.junit.jupiter.api.Test;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
+import java.util.function.Function;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -25,20 +25,33 @@ class RuntimeTraceWorkflowCandidateDraftServiceTest {
 
     private final RuntimeWorkflowAiCodingService aiCodingService =
             mock(RuntimeWorkflowAiCodingService.class);
-    private final RuntimeWorkflowDefinitionService definitionService =
-            mock(RuntimeWorkflowDefinitionService.class);
+    private final RuntimeWorkflowDraftSubmissionService submissions =
+            mock(RuntimeWorkflowDraftSubmissionService.class);
+    private RuntimeWorkflowDefinitionEntity submissionCurrent;
+    private boolean submissionReplay;
     private final RuntimeWorkflowReleaseValidationService validationService =
             mock(RuntimeWorkflowReleaseValidationService.class);
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final RuntimeTraceWorkflowCandidateDraftService service =
             new RuntimeTraceWorkflowCandidateDraftService(
                     aiCodingService,
-                    definitionService,
                     validationService,
-                    objectMapper);
+                    objectMapper,
+                    submissions);
 
     @BeforeEach
     void validationPasses() {
+        when(submissions.apply(any(), any(), any(), any())).thenAnswer(call -> {
+            if (submissionReplay) {
+                Function<String, ContextView> readCurrent = call.getArgument(3);
+                return readCurrent.apply("wf-existing");
+            }
+            Function<RuntimeWorkflowDraftSubmissionService.Attempt,
+                    RuntimeWorkflowDraftSubmissionService.Applied<ContextView>> writer = call.getArgument(2);
+            return writer.apply(new RuntimeWorkflowDraftSubmissionService.Attempt(
+                    submissionCurrent == null ? "wf-new" : submissionCurrent.getId(),
+                    submissionCurrent, "2026-07-26T10:00")).value();
+        });
         when(validationService.validateProposed(any(), any()))
                 .thenReturn(RuntimeWorkflowReleaseValidationResult.builder().build());
     }
@@ -47,12 +60,10 @@ class RuntimeTraceWorkflowCandidateDraftServiceTest {
     void createsNewTaskOwnedDraft() {
         DraftRequest request = request();
         ContextView created = context("wf-new");
-        when(definitionService.findByKeySlug("candidate-ait123"))
-                .thenReturn(Optional.empty());
-        when(aiCodingService.createWorkflow(any())).thenReturn(created);
+        when(aiCodingService.createWorkflow(eq("wf-new"), any())).thenReturn(created);
 
         assertEquals(created, service.createOrReplace(request));
-        verify(aiCodingService).createWorkflow(any());
+        verify(aiCodingService).createWorkflow(eq("wf-new"), any());
     }
 
     @Test
@@ -60,27 +71,50 @@ class RuntimeTraceWorkflowCandidateDraftServiceTest {
         DraftRequest request = request();
         RuntimeWorkflowDefinitionEntity existing = existingOwnedDraft();
         ContextView replaced = context("wf-existing");
-        when(definitionService.findByKeySlug("candidate-ait123"))
-                .thenReturn(Optional.of(existing));
-        when(aiCodingService.replaceDraft(eq("wf-existing"), any()))
+        submissionCurrent = existing;
+        when(aiCodingService.replaceDraft(eq("wf-existing"), any(), eq("2026-07-26T10:00")))
                 .thenReturn(replaced);
 
         assertEquals(replaced, service.createOrReplace(request));
-        verify(aiCodingService).replaceDraft(eq("wf-existing"), any());
+        verify(aiCodingService).replaceDraft(eq("wf-existing"), any(), eq("2026-07-26T10:00"));
     }
 
     @Test
-    void refusesKeyCollisionOwnedByAnotherTask() throws Exception {
+    void refusesDraftWithProvenanceChangedToAnotherTask() throws Exception {
         RuntimeWorkflowDefinitionEntity existing = existingOwnedDraft();
         Map<String, Object> metadata = objectMapper.readValue(
                 existing.getExtraJson(), Map.class);
         metadata.put("taskId", "ait_other");
         existing.setExtraJson(objectMapper.writeValueAsString(metadata));
-        when(definitionService.findByKeySlug("candidate-ait123"))
-                .thenReturn(Optional.of(existing));
+        submissionCurrent = existing;
 
         assertThrows(IllegalArgumentException.class,
                 () -> service.createOrReplace(request()));
+    }
+
+    @Test
+    void replayReadsCurrentContextWithoutReplacingOrRevalidatingOldGraph() {
+        submissionReplay = true;
+        var current = context("wf-existing");
+        when(aiCodingService.context("wf-existing")).thenReturn(current);
+
+        assertEquals(current, service.createOrReplace(request()));
+
+        verify(aiCodingService).context("wf-existing");
+        verify(aiCodingService, org.mockito.Mockito.never()).replaceDraft(any(), any(), any());
+        verify(validationService, org.mockito.Mockito.never()).validateProposed(any(), any());
+    }
+
+    @Test
+    void rejectsInvalidCorrectionBeforeReplacingDraft() throws Exception {
+        submissionCurrent = existingOwnedDraft();
+        when(validationService.validateProposed(any(), any()))
+                .thenThrow(new IllegalArgumentException("candidate graph is invalid"));
+
+        assertThrows(IllegalArgumentException.class, () -> service.createOrReplace(request()));
+
+        verify(aiCodingService, org.mockito.Mockito.never()).replaceDraft(any(), any(), any());
+        verify(aiCodingService, org.mockito.Mockito.never()).createWorkflow(any(), any());
     }
 
     private DraftRequest request() {

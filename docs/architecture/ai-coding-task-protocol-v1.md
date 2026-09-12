@@ -221,6 +221,33 @@ Authorization: Bearer <taskToken>
 
 公共内核不猜测 readiness，也不把 `WARN`、`PENDING` 自动转换为任务失败；它只执行 Provider 显式声明的验收门禁，并坚持“全部 `PASS` 才可验收”。
 
+门禁 key 按去除首尾空白、忽略大小写匹配。同一个必需 key 若返回多条观察结果，每条都必须为 `PASS`；后返回的 `PASS` 不能覆盖已有的 `FAIL`、`PENDING` 或未知状态。未声明为必需项的提示不阻塞验收，缺失的必需项仍阻塞。确认验收时重新读取平台证据。
+
+Control 中的实现按以下职责组织：
+
+- [任务门面](../../reachai-control-service/src/main/java/com/enterprise/ai/control/aicoding/application/AiCodingTaskApplicationService.java) 保持公开协议、返回视图和请求事务入口。
+- [交付服务](../../reachai-control-service/src/main/java/com/enterprise/ai/control/aicoding/application/AiCodingTaskDeliveryService.java) 负责 Artifact 合约与报告者校验、内容幂等、Provider 验证与应用、验收门禁和交接关闭；模块内命令返回值不作为公共协议。
+- [任务事件服务](../../reachai-control-service/src/main/java/com/enterprise/ai/control/aicoding/application/AiCodingTaskEventService.java) 负责客户端事件、重放及人工取消。取消和 Provider 验证必须加入门面事务；门面不再直接推进任务状态或追加事件。取消使用已经读取的任务身份关闭接入记录，首尾空白规范化必须在状态写入与交接关闭之间保持一致。
+- [状态写入](../../reachai-control-service/src/main/java/com/enterprise/ai/control/aicoding/application/AiCodingTaskStateChanges.java) 共用既有状态机，负责乐观锁、事件及终态问题关闭；必须加入调用方事务，不能独立写入半条状态变化。
+- [描述查询](../../reachai-control-service/src/main/java/com/enterprise/ai/control/aicoding/application/AiCodingTaskDescriptorReader.java) 负责 Provider 描述与目标读取；[JSON 支持](../../reachai-control-service/src/main/java/com/enterprise/ai/control/aicoding/application/AiCodingTaskJsonSupport.java) 统一规范化、内容指纹和既有历史值读取规则。
+- [任务查询与响应投影](../../reachai-control-service/src/main/java/com/enterprise/ai/control/aicoding/application/AiCodingTaskQueryService.java) 负责列表、详情、上下文、事件、问题、Artifact 和轻量接入结果查询。命令仍在门面事务内组装返回视图，投影失败继续回滚命令；查询不会因此新增包围 Provider 或远端调用的长事务。事件、问题、Artifact 条件和上下文端点使用已解析任务的正式 ID，不能在 `requireTask` 接受首尾空白后继续使用原字符串。活动游标仍为严格大于，列表批量读取与旧任务已应用结果回退规则保留。轻量结果 DTO 归入 `AiCodingTaskModels`，页面工作台不依赖门面内部 record，JSON 字段不变。
+
+Provider 保存点只回滚同一数据源、同一事务内的领域写入：拒绝结果仍保留 Artifact 与校验事件；后续任务审计失败时，外层事务连同领域写入一起回滚。[持久化回归](../../reachai-control-service/src/test/java/com/enterprise/ai/control/aicoding/application/AiCodingTaskDeliveryPersistenceTest.java) 验证本地 Spring/MyBatis/H2 保存点、幂等与并发乐观锁。HTTP 调用产生的远端副作用不受该保存点控制，不能将这些测试解释成跨服务事务或实际 MySQL 验收。
+
+页面工作台和 RunOps Trace 候选的 Workflow 草稿通过 Runtime 自有的 [投递凭据](../../reachai-runtime-service/src/main/java/com/enterprise/ai/runtime/workflow/RuntimeWorkflowDraftSubmissionService.java) 恢复重试。目标身份由任务作用域确定；相同规范化内容只读取当前结果，新内容需匹配最近一次自动应用修订且目标仍为 DRAFT。外部编辑产生修订冲突时保留当前内容，删除后的目标不能自动重建。凭据和草稿在 Runtime 本地事务内提交，Control 仍按上述 Artifact 幂等规则处理本地结果；这保证两侧可重试，不构成跨服务原子事务。已有环境需先执行 [投递表升级](../../sql/upgrade-20260906-workflow-draft-submissions.sql)，旧请求不做推测性回填。
+
+Control 必须把远端结果未确认与确定的领域拒绝分开。页面草稿的响应必须包含当前协议、相同任务与页面、Workflow ID 和修订号；Trace 候选必须取得 Workflow ID、明确的校验结果，以及身份一致的草稿回读、GraphSpec 与修订号。缺失或不匹配时抛出 [应用未确认异常](../../reachai-control-service/src/main/java/com/enterprise/ai/control/aicoding/provider/AiCodingArtifactApplicationUnconfirmedException.java)，让 Control 外层事务回滚，不持久化 APPLIED 或 REJECTED。客户端复用原 `artifactKey`、`clientEventId` 和内容即可通过 Runtime 凭据恢复；已经明确失败的 GraphSpec 校验仍保留拒绝审计，修改内容需要新 key。
+
+[页面跨进程恢复验证](../../output/tasks/architecture-audit-20260905/workflow-draft-recovery-notes.md) 使用独立 Runtime JVM、真实 MVC/Feign HTTP、两侧各自的 Spring/MyBatis/H2 事务，覆盖保存后空回执、截断、非法 JSON、缺失 ID、错误任务、保存前失败、重复提交和恢复前人工编辑。Runtime 凭据、草稿、页面绑定和引用索引由生产实现写入。
+
+Trace 候选恢复时重新读取的前置条件也必须可确认：源轨迹响应缺失或身份不符、源版本响应不是有效列表、预校验缺少布尔 `valid`，均属于结果未确认。禁止用请求中的 traceId 补齐缺失的响应身份，或将缺少校验结果当作 `valid=false`。有效版本列表明确不含目标版本、明确的 `valid=false` 仍是领域拒绝。
+
+[Trace 跨进程恢复验证](../../output/tasks/architecture-audit-20260905/trace-draft-recovery-notes.md) 将源 RunOps 查询、版本读取和发布校验接入生产实现，候选创建后各阶段回执故障及重试中前置查询故障均验证原 Artifact 可恢复。17 项 HTTP 用例包含原有 8 项页面用例和新增 9 项 Trace 用例；受控源轨迹在 H2 中预置，未运行真实 AgentScope 或模型。两套完整生产配置、实际 MySQL、部署入口认证和真实外部目录仍不在该验收范围内。
+
+[草稿投递 MySQL 验证](../../output/tasks/architecture-audit-20260905/workflow-draft-mysql-notes.md) 另以当前开发表结构的独立克隆表执行相同 15 项 Runtime 事务用例，验证并发请求、当前凭据读取、回滚及人工编辑保护；默认 H2 也通过。该结果只覆盖 Runtime 的 Workflow 与投递凭据，未将上述 Control/Runtime HTTP 恢复改为 MySQL，也不替代完整部署与真实运行验收。
+
+[两侧 MySQL 恢复验证](../../output/tasks/architecture-audit-20260905/workflow-http-mysql-notes.md) 进一步使用 Control 5 张、Runtime 9 张自有表的独立克隆表通过 18 项真实 HTTP 用例。除原有响应故障与重试外，实际中断 Runtime 已提交后的 Control 事务连接，验证本地记录回滚、原请求恢复和后续中文人工编辑保留。H2 保留原有 17 项，专用断连用例明确跳过；源轨迹仍是预置证据，完整应用配置、部署认证/网关及真实 AgentScope 运行仍不在该验收范围内。
+
 ## 6. 一次性交接与任务级鉴权
 
 ### 6.1 交接原则
@@ -694,6 +721,7 @@ artifactContract: reachai.page-map-report.v1
 - 从“已发布”列表发起浏览器验收时，任务额外保存一个 `RELATED WORKFLOW` 目标，快照包含精确 `workflowVersionId + workflowVersion`。Page Workbench Provider 在创建任务、持久化快照前，必须通过 Runtime 的已发布查询重新确认该 Workflow、页面和版本仍为精确的 `ACTIVE` 对象，不能信任前端快照。
 - 绑定 Workflow 的浏览器验收还要求 `PAGE_WORKFLOW_TRACE_READY`。Control 先从当前任务启动后、当前页面的真实 Embed 会话中选择助手回复关联的 Trace；Runtime 再核对该 Trace 的 Embed Run 已完成，并且 `WORKFLOW_TOOL` 成功 Span 精确匹配任务绑定的 Workflow 和版本。Artifact 回传 `traceId` 时只核对该 Trace；未回传时只有唯一一条符合条件的 Trace 才可自动关联，多条候选保持 `PENDING` 并要求 AI Coding 使用新的 `artifactKey` 明确回传。
 - `PAGE_WORKFLOW_TRACE_READY` 只证明“当前页面 Trace 成功执行了指定 Workflow 版本”。随后 Runtime 才以该精确已发布 GraphSpec 判断是否声明 `TOOL`、`PAGE_ACTION` 及写动作：对应 `CAPABILITY_TOOL_E2E_READY` 和 `PAGE_ACTION_E2E_READY` 必须在同一 Trace 观察到真实节点结果后才通过，未声明者为 `NOT_REQUIRED`；写动作只有真实 `SUCCESS` 才能使 `WRITE_ACTION_E2E_READY` 通过。`NO_DATA`、`PRECONDITION_FAILED`、`USER_CANCELLED` 是可解释业务终态，不伪装成桥接失败，也不伪装成写成功。上述状态均不替代业务结果、页面入口可见性、截图和人工体验验收。
+- 上述节点证据须通过调用归属校验：节点的 `parentSpanId` 必须指向精确匹配任务 Workflow 版本且成功完成的 `WORKFLOW_TOOL` Span，节点元数据中的 `workflowId + workflowVersionId + workflowVersion` 必须相同。其他 Workflow、其他版本、失败调用、孤立节点或损坏元数据不能补足目标证据。发布图声明 `INTERACTION/PRESENT_OUTPUT` 时，必须观测到符合这些条件的成功展示节点。
 - `PRE_RELEASE_CHECK` 必须同时满足顶层 `passed=true`、全部检查为 `PASS`，并提供非空 `workflowId` 和 `workflowVersion`。报告失败或缺少明确版本时保留材料并进入 `FAILED`。
 - 报告通过后仍先停留在 `RESULT_APPLIED`。Page Workbench Provider 将最新 `APPLIED` Artifact 的 `applicationResult.preRelease` 交给 Runtime owning service，精确核对该 Workflow 属于当前项目、类型为 `PAGE_ASSISTANT`、唯一 `TARGET PAGE` 等于当前主页面、当前发布校验通过，并确认目标版本是尚未占用的合法待发布版本或精确的 `ACTIVE` 已发布版本。
 - Runtime 不可用、响应缺失或返回非确定状态时，`PRE_RELEASE_READY` 保持 `PENDING`；对象不匹配或校验失败时为 `FAIL`。只有服务端返回 `PASS`，Task Kernel 才能进入 `ACCEPTANCE_READY`。该门禁验证发布就绪性，不自动发布 Workflow。

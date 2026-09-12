@@ -22,6 +22,14 @@ public class CapabilitySnapshotEntity {
 
     private String source;
 
+    private String intakeMode;
+
+    private String contentHash;
+
+    private Integer reportCount;
+
+    private LocalDateTime lastSeenAt;
+
     /** PENDING / APPLIED / PARTIAL / IGNORED。 */
     private String status;
 

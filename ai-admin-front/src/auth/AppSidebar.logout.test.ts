@@ -75,6 +75,17 @@ describe('AppSidebar account actions', () => {
     expect(wrapper.find('.sidebar-footer-popover').exists()).toBe(false)
   })
 
+  it('uses the Capability platform positioning and hides unavailable theme modes', async () => {
+    const wrapper = mountSidebar()
+
+    expect(wrapper.get('.brand-sub').text()).toBe('企业 AI 能力中台')
+    await wrapper.findAll('.footer-entry')[1].trigger('click')
+
+    expect(wrapper.text()).toContain('主题配色')
+    expect(wrapper.find('.appearance-mode').exists()).toBe(false)
+    expect(wrapper.find('.appearance-mode-button').exists()).toBe(false)
+  })
+
   it('keeps the current session when the server logout request fails', async () => {
     mocks.logoutPlatform.mockRejectedValue(new Error('network unavailable'))
     const wrapper = mountSidebar()

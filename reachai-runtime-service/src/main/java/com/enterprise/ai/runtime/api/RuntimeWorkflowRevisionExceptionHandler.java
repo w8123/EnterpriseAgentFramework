@@ -3,6 +3,7 @@ package com.enterprise.ai.runtime.api;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowRevisionConflictException;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowRevisionFormatException;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowKeySlugConflictException;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowEditingException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -18,6 +19,11 @@ import java.util.Map;
         RuntimeWorkflowVersionPublicController.class
 })
 public class RuntimeWorkflowRevisionExceptionHandler {
+
+    @ExceptionHandler(RuntimeWorkflowEditingException.class)
+    public ResponseEntity<Map<String, Object>> handleEditingRejected(RuntimeWorkflowEditingException ex) {
+        return ResponseEntity.badRequest().body(Map.of("code", ex.getCode(), "message", ex.getMessage()));
+    }
 
     @ExceptionHandler(RuntimeWorkflowKeySlugConflictException.class)
     public ResponseEntity<Map<String, Object>> handleKeySlugConflict(RuntimeWorkflowKeySlugConflictException ex) {

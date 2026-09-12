@@ -1,30 +1,29 @@
 package com.enterprise.ai.runtime.supervisor;
 
-import com.enterprise.ai.runtime.agent.RuntimeAgentConfigVersionEntity;
-import com.enterprise.ai.runtime.agent.RuntimeAgentSkillBindingEntity;
+import com.enterprise.ai.runtime.agent.RuntimeAgentConfigSnapshot;
+import com.enterprise.ai.runtime.agent.RuntimeAgentSkillBindingSnapshot;
 import com.enterprise.ai.runtime.agent.RuntimeAgentSkillRepositoryFactory.SkippedSkill;
 import com.enterprise.ai.runtime.agent.RuntimeAgentView;
-import com.enterprise.ai.runtime.agent.RuntimeAgentWorkflowToolEntity;
-import com.enterprise.ai.runtime.execution.SupervisorRuntimeAdapter.RemoteAgentBinding;
+import com.enterprise.ai.runtime.agent.RuntimeAgentWorkflowToolSnapshot;
+import com.enterprise.ai.runtime.supervisor.SupervisorRuntimeAdapter.RemoteAgentBinding;
 import com.enterprise.ai.runtime.execution.RuntimeInteractionExpiryTracePort;
 import com.enterprise.ai.runtime.client.control.RuntimeA2aControlClient.SendResponse;
-import com.enterprise.ai.runtime.runops.RuntimeGuardDecisionLogEntity;
-import com.enterprise.ai.runtime.runops.RuntimeGuardDecisionLogMapper;
 import com.enterprise.ai.runtime.runops.RuntimeRunLifecycleService;
-import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.enterprise.ai.runtime.runops.RuntimeRunSnapshots;
 import com.enterprise.ai.runtime.execution.interaction.WorkflowInteractionCodes;
-import com.enterprise.ai.runtime.execution.trace.WorkflowTraceSanitizer;
-import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
-import com.enterprise.ai.runtime.trace.RuntimeTraceSpanEntity;
-import com.enterprise.ai.runtime.trace.RuntimeTraceSpanMapper;
-import com.enterprise.ai.runtime.trace.RuntimeToolCallLogEntity;
-import com.enterprise.ai.runtime.trace.RuntimeToolCallLogMapper;
+import com.enterprise.ai.runtime.trace.WorkflowTraceSanitizer;
+import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
+import com.enterprise.ai.runtime.execution.RuntimeAgentRunLifecyclePort.AgentTarget;
+import com.enterprise.ai.runtime.trace.RuntimeTraceEvidenceWriter;
+import com.enterprise.ai.runtime.trace.RuntimeTraceEvidenceWriter.ChildSpan;
+import com.enterprise.ai.runtime.trace.RuntimeTraceEvidenceWriter.ToolCall;
+import com.enterprise.ai.runtime.trace.RuntimeTraceRootService;
+import com.enterprise.ai.runtime.trace.RuntimeTraceSpanTerminationService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
-
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -39,11 +38,11 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class SupervisorExecutionTraceService implements RuntimeInteractionExpiryTracePort {
 
-    private final RuntimeTraceSpanMapper spanMapper;
-    private final RuntimeToolCallLogMapper toolLogMapper;
-    private final RuntimeGuardDecisionLogMapper guardLogMapper;
+    private final RuntimeTraceEvidenceWriter evidence;
     private final RuntimeRunLifecycleService runLifecycleService;
     private final ObjectMapper objectMapper;
+    private final RuntimeTraceRootService rootSpans;
+    private final RuntimeTraceSpanTerminationService spanTermination;
 
     /**
      * Closes every still-waiting span plus the root RunOps row for an expired interaction.
@@ -56,45 +55,66 @@ public class SupervisorExecutionTraceService implements RuntimeInteractionExpiry
             return;
         }
         LocalDateTime endedAt = expiredAt == null ? LocalDateTime.now() : expiredAt;
-        spanMapper.update(null, Wrappers.<RuntimeTraceSpanEntity>lambdaUpdate()
-                .eq(RuntimeTraceSpanEntity::getTraceId, traceId.trim())
-                .in(RuntimeTraceSpanEntity::getStatus, List.of("WAITING_USER", "WAITING_APPROVAL"))
-                .isNull(RuntimeTraceSpanEntity::getEndedAt)
-                .set(RuntimeTraceSpanEntity::getStatus, "TIMEOUT")
-                .set(RuntimeTraceSpanEntity::getErrorCode, "RUNTIME_INTERACTION_EXPIRED")
-                .set(RuntimeTraceSpanEntity::getErrorMessage, "Interaction expired: " + interactionId)
-                .set(RuntimeTraceSpanEntity::getEndedAt, endedAt));
+        spanTermination.expireWaiting(traceId, interactionId, endedAt);
         runLifecycleService.expireWaitingInteraction(traceId, interactionId, endedAt);
     }
 
+    @Override
+    public void expireResumingInteraction(String traceId, String interactionId, LocalDateTime expiredAt) {
+        spanTermination.timeoutWaiting(traceId, WorkflowInteractionCodes.RESUME_TIMEOUT,
+                WorkflowInteractionCodes.RESUME_TIMEOUT_MESSAGE, expiredAt);
+        runLifecycleService.timeoutWaitingInteraction(traceId, WorkflowInteractionCodes.RESUME_TIMEOUT,
+                WorkflowInteractionCodes.RESUME_TIMEOUT_MESSAGE, expiredAt);
+    }
+
+    @Override
+    public void expireSupervisorApprovalResume(String traceId, String interactionId, LocalDateTime expiredAt) {
+        spanTermination.timeoutResuming(traceId,
+                com.enterprise.ai.runtime.execution.RuntimeSupervisorApprovalService.RESUME_TIMEOUT,
+                com.enterprise.ai.runtime.execution.RuntimeSupervisorApprovalService.RESUME_TIMEOUT_MESSAGE, expiredAt);
+        runLifecycleService.timeoutResumingInteraction(traceId,
+                com.enterprise.ai.runtime.execution.RuntimeSupervisorApprovalService.RESUME_TIMEOUT,
+                com.enterprise.ai.runtime.execution.RuntimeSupervisorApprovalService.RESUME_TIMEOUT_MESSAGE, expiredAt);
+    }
+
     public TraceHandle begin(RuntimeAgentView agent,
-                             RuntimeAgentConfigVersionEntity config,
-                             List<RuntimeAgentWorkflowToolEntity> workflowTools,
+                             RuntimeAgentConfigSnapshot config,
+                             List<RuntimeAgentWorkflowToolSnapshot> workflowTools,
                              Map<String, Object> input) {
         return begin(agent, config, workflowTools, input, null);
     }
 
     public TraceHandle begin(RuntimeAgentView agent,
-                             RuntimeAgentConfigVersionEntity config,
-                             List<RuntimeAgentWorkflowToolEntity> workflowTools,
+                             RuntimeAgentConfigSnapshot config,
+                             List<RuntimeAgentWorkflowToolSnapshot> workflowTools,
                              Map<String, Object> input,
                              WorkflowExecutionIdentity identity) {
+        input = input == null ? Map.of() : input;
         String traceId = firstText(input.get("traceId"), id(32));
         String spanId = id(16);
         LocalDateTime now = LocalDateTime.now();
-        RuntimeTraceSpanEntity root = baseSpan(traceId, spanId, null, "SUPERVISOR", agent, config, input);
-        root.setStatus("RUNNING");
-        root.setInputSummary(json(WorkflowTraceSanitizer.sanitizeInputSummary(input)));
-        root.setMetadataJson(json(Map.of(
+        var root = rootSpans.startBestEffort(RuntimeTraceRootService.Start.builder()
+                .traceId(traceId).spanId(spanId).spanType("SUPERVISOR").runtimeType("AGENTSCOPE")
+                .agentId(agent.id()).agentName(agent.name()).modelInstanceId(config.getModelInstanceId())
+                .projectCode(agent.projectCode())
+                .tenantId(identity != null && identity.projectTrusted() ? identity.tenantId() : null)
+                .appId(firstText(input.get("appId"), agent.projectCode()))
+                .pageInstanceId(text(input.get("pageInstanceId"))).input(input)
+                .metadataJson(json(Map.of(
                 "agentConfigVersionId", config.getId(),
                 "agentConfigVersion", config.getVersionNo(),
                 "policyProfile", config.getPolicyProfile(),
-                "toolCatalogMode", config.getToolCatalogMode())));
-        root.setStartedAt(now);
-        root.setCreatedAt(now);
-        safe(() -> spanMapper.insert(root), "insert Supervisor root span");
-        runLifecycleService.beginAgent(traceId, spanId, now, agent, config, workflowTools, input, identity);
-        return new TraceHandle(traceId, spanId, root.getId(), now);
+                "toolCatalogMode", config.getToolCatalogMode())))
+                .startedAt(now).build());
+        RuntimeRunSnapshots.AgentConfiguration runConfig = new RuntimeRunSnapshots.AgentConfiguration(
+                config.getId(), config.getVersionNo(), config.getRuntimeType(),
+                workflowTools == null ? 0 : workflowTools.size(),
+                workflowTools == null ? List.of() : workflowTools.stream()
+                        .map(RuntimeAgentWorkflowToolSnapshot::getToolName).filter(StringUtils::hasText).toList());
+        runLifecycleService.beginAgent(traceId, spanId, now,
+                new AgentTarget(agent.id(), agent.keySlug(), agent.name(), agent.projectId(), agent.projectCode()),
+                runConfig, input, identity);
+        return new TraceHandle(traceId, spanId, root.id(), now, root.scope());
     }
 
     /**
@@ -102,40 +122,22 @@ public class SupervisorExecutionTraceService implements RuntimeInteractionExpiry
      * Returns null when no reusable root exists (caller should {@link #begin}).
      */
     public TraceHandle resume(String traceId) {
-        if (!StringUtils.hasText(traceId)) {
-            return null;
-        }
-        String id = traceId.trim();
-        RuntimeTraceSpanEntity root = spanMapper.selectOne(Wrappers.<RuntimeTraceSpanEntity>lambdaQuery()
-                .eq(RuntimeTraceSpanEntity::getTraceId, id)
-                .eq(RuntimeTraceSpanEntity::getSpanType, "SUPERVISOR")
-                .isNull(RuntimeTraceSpanEntity::getParentSpanId)
-                .orderByAsc(RuntimeTraceSpanEntity::getId)
-                .last("LIMIT 1"));
-        if (root == null) {
-            return null;
-        }
-        LocalDateTime now = LocalDateTime.now();
-        root.setStatus("RUNNING");
-        root.setEndedAt(null);
-        root.setErrorCode(null);
-        root.setErrorMessage(null);
-        safe(() -> spanMapper.updateById(root), "resume Supervisor root span");
-        runLifecycleService.resumeAgent(id);
-        LocalDateTime startedAt = root.getStartedAt() == null ? now : root.getStartedAt();
-        return new TraceHandle(id, root.getSpanId(), root.getId(), startedAt);
+        var root = rootSpans.resumeSupervisor(traceId);
+        if (root == null) return null;
+        runLifecycleService.resumeAgent(root.traceId());
+        return new TraceHandle(root.traceId(), root.spanId(), root.id(), root.startedAt(), root.scope());
     }
 
     public TraceHandle beginOrResume(RuntimeAgentView agent,
-                                     RuntimeAgentConfigVersionEntity config,
-                                     List<RuntimeAgentWorkflowToolEntity> workflowTools,
+                                     RuntimeAgentConfigSnapshot config,
+                                     List<RuntimeAgentWorkflowToolSnapshot> workflowTools,
                                      Map<String, Object> input) {
         return beginOrResume(agent, config, workflowTools, input, null);
     }
 
     public TraceHandle beginOrResume(RuntimeAgentView agent,
-                                     RuntimeAgentConfigVersionEntity config,
-                                     List<RuntimeAgentWorkflowToolEntity> workflowTools,
+                                     RuntimeAgentConfigSnapshot config,
+                                     List<RuntimeAgentWorkflowToolSnapshot> workflowTools,
                                      Map<String, Object> input,
                                      WorkflowExecutionIdentity identity) {
         String resumeTraceId = firstText(input == null ? null : input.get("traceId"));
@@ -154,49 +156,43 @@ public class SupervisorExecutionTraceService implements RuntimeInteractionExpiry
     }
 
     /** Adds the immutable Skill binding snapshot to the root trace and RunOps row. */
-    public void skillBindings(TraceHandle trace, List<RuntimeAgentSkillBindingEntity> bindings) {
+    public void skillBindings(TraceHandle trace, List<RuntimeAgentSkillBindingSnapshot> bindings) {
         if (trace == null) return;
-        List<Map<String, Object>> snapshots = skillSnapshots(bindings);
-        safe(() -> {
-            RuntimeTraceSpanEntity root = trace.rootId() == null
-                    ? spanMapper.selectOne(Wrappers.<RuntimeTraceSpanEntity>lambdaQuery()
-                    .eq(RuntimeTraceSpanEntity::getTraceId, trace.traceId())
-                    .eq(RuntimeTraceSpanEntity::getSpanId, trace.rootSpanId())
-                    .last("LIMIT 1"))
-                    : spanMapper.selectById(trace.rootId());
-            if (root == null) return;
-            Map<String, Object> metadata = jsonMap(root.getMetadataJson());
-            metadata.put("skillBindingCount", snapshots.size());
-            metadata.put("skillBindings", snapshots);
-            root.setMetadataJson(json(metadata));
-            spanMapper.updateById(root);
-        }, "record Supervisor Skill binding snapshot");
-        runLifecycleService.recordSkillBindings(trace.traceId(), bindings);
+        List<RuntimeRunSnapshots.SkillBinding> snapshots = skillSnapshots(bindings);
+        try {
+            if (!rootSpans.recordSkillBindings(new RuntimeTraceRootService.Handle(
+                    trace.rootId(), trace.traceId(), trace.rootSpanId(), trace.startedAt()),
+                    json(snapshots.stream().map(RuntimeRunSnapshots.SkillBinding::traceMetadata).toList()))) return;
+        } catch (Exception failure) {
+            log.warn("Failed to record Supervisor Skill binding snapshot: {}", failure.getClass().getSimpleName());
+        }
+        runLifecycleService.recordSkillBindings(trace.traceId(), snapshots);
     }
 
     /** Records which bound Skills were actually exposed to AgentScope for this turn. */
     public void skillActivation(TraceHandle trace,
                                 RuntimeAgentView agent,
-                                RuntimeAgentConfigVersionEntity config,
+                                RuntimeAgentConfigSnapshot config,
                                 Map<String, Object> input,
-                                List<RuntimeAgentSkillBindingEntity> activeBindings) {
+                                List<RuntimeAgentSkillBindingSnapshot> activeBindings) {
         skillActivation(trace, agent, config, input, activeBindings, List.of());
     }
 
     public void skillActivation(TraceHandle trace,
                                 RuntimeAgentView agent,
-                                RuntimeAgentConfigVersionEntity config,
+                                RuntimeAgentConfigSnapshot config,
                                 Map<String, Object> input,
-                                List<RuntimeAgentSkillBindingEntity> activeBindings,
+                                List<RuntimeAgentSkillBindingSnapshot> activeBindings,
                                 List<SkippedSkill> skippedSkills) {
         if (trace == null) return;
-        List<RuntimeAgentSkillBindingEntity> active = activeBindings == null ? List.of() : activeBindings;
+        List<RuntimeAgentSkillBindingSnapshot> active = activeBindings == null ? List.of() : activeBindings;
         List<SkippedSkill> skipped = skippedSkills == null ? List.of() : skippedSkills;
         if (active.isEmpty() && skipped.isEmpty()) return;
         LocalDateTime now = LocalDateTime.now();
-        RuntimeTraceSpanEntity span = baseSpan(trace.traceId(), id(16), trace.rootSpanId(),
+        ChildSpan.ChildSpanBuilder span = baseSpan(trace, id(16), trace.rootSpanId(),
                 "SKILL_CONTEXT", agent, config, input);
-        List<Map<String, Object>> snapshots = skillSnapshots(active);
+        List<Map<String, Object>> snapshots = skillSnapshots(active).stream()
+                .map(RuntimeRunSnapshots.SkillBinding::traceMetadata).toList();
         List<Map<String, Object>> skippedSnapshots = skipped.stream()
                 .map(skill -> Map.<String, Object>of(
                         "skillId", skill.skillId(),
@@ -204,9 +200,9 @@ public class SupervisorExecutionTraceService implements RuntimeInteractionExpiry
                         "identity", skill.identity() + "@" + skill.version(),
                         "reason", skill.reason()))
                 .toList();
-        span.setNodeId("agent-skill-context");
-        span.setStatus("SUCCESS");
-        span.setOutputSummary(limit(json(Map.of(
+        span.nodeId("agent-skill-context");
+        span.status("SUCCESS");
+        span.outputSummary(limit(json(Map.of(
                 "activeSkillCount", snapshots.size(),
                 "skippedSkillCount", skippedSnapshots.size(),
                 "activeSkillVersions", snapshots.stream()
@@ -217,39 +213,39 @@ public class SupervisorExecutionTraceService implements RuntimeInteractionExpiry
         metadata.put("skills", snapshots);
         metadata.put("skippedSkills", skippedSnapshots);
         metadata.put("scriptExecutionEnabled", false);
-        span.setMetadataJson(json(metadata));
-        span.setLatencyMs(0);
-        span.setStartedAt(now);
-        span.setEndedAt(now);
-        span.setCreatedAt(now);
-        safe(() -> spanMapper.insert(span), "insert Agent Skill context span");
+        span.metadataJson(json(metadata));
+        span.latencyMs(0);
+        span.startedAt(now);
+        span.endedAt(now);
+        span.createdAt(now);
+        safe(() -> evidence.appendChild(span.build()), "insert Agent Skill context span");
     }
 
     public void plan(TraceHandle trace,
                      RuntimeAgentView agent,
-                     RuntimeAgentConfigVersionEntity config,
+                     RuntimeAgentConfigSnapshot config,
                      Map<String, Object> input,
                      int planNo,
                      Map<String, Object> plan) {
         LocalDateTime now = LocalDateTime.now();
-        RuntimeTraceSpanEntity span = baseSpan(trace.traceId(), id(16), trace.rootSpanId(),
+        ChildSpan.ChildSpanBuilder span = baseSpan(trace, id(16), trace.rootSpanId(),
                 planNo == 1 ? "PLAN" : "REPLAN", agent, config, input);
         Map<String, Object> safePlan = WorkflowTraceSanitizer.sanitizePlanSummary(planNo, plan);
-        span.setNodeId("supervisor-plan-" + planNo);
-        span.setStatus("SUCCESS");
-        span.setInputSummary(json(WorkflowTraceSanitizer.sanitizeInputSummary(input)));
-        span.setOutputSummary(limit(json(safePlan), 4000));
-        span.setMetadataJson(json(safePlan));
-        span.setLatencyMs(0);
-        span.setStartedAt(now);
-        span.setEndedAt(now);
-        span.setCreatedAt(now);
-        safe(() -> spanMapper.insert(span), "insert plan span");
+        span.nodeId("supervisor-plan-" + planNo);
+        span.status("SUCCESS");
+        span.inputSummary(json(WorkflowTraceSanitizer.sanitizeInputSummary(input)));
+        span.outputSummary(limit(json(safePlan), 4000));
+        span.metadataJson(json(safePlan));
+        span.latencyMs(0);
+        span.startedAt(now);
+        span.endedAt(now);
+        span.createdAt(now);
+        safe(() -> evidence.appendChild(span.build()), "insert plan span");
     }
 
     public void workflow(TraceHandle trace,
                          RuntimeAgentView agent,
-                         RuntimeAgentConfigVersionEntity config,
+                         RuntimeAgentConfigSnapshot config,
                          Map<String, Object> input,
                          String toolName,
                          String workflowId,
@@ -269,7 +265,7 @@ public class SupervisorExecutionTraceService implements RuntimeInteractionExpiry
     public void a2aDelegation(
             TraceHandle trace,
             RuntimeAgentView agent,
-            RuntimeAgentConfigVersionEntity config,
+            RuntimeAgentConfigSnapshot config,
             Map<String, Object> input,
             RemoteAgentBinding binding,
             Map<String, Object> args,
@@ -278,7 +274,7 @@ public class SupervisorExecutionTraceService implements RuntimeInteractionExpiry
             String code,
             long elapsedMs) {
         LocalDateTime endedAt = LocalDateTime.now();
-        RuntimeTraceSpanEntity span = baseSpan(trace.traceId(), id(16), trace.rootSpanId(),
+        ChildSpan.ChildSpanBuilder span = baseSpan(trace, id(16), trace.rootSpanId(),
                 "A2A_DELEGATION", agent, config, input);
         Map<String, Object> safeInput = new LinkedHashMap<>();
         safeInput.put("protocolSkillId", args == null ? null : text(args.get("protocolSkillId")));
@@ -296,15 +292,15 @@ public class SupervisorExecutionTraceService implements RuntimeInteractionExpiry
             safeOutput.put("messageCount", response.agentMessages().size());
             safeOutput.put("artifactCount", response.artifacts().size());
         }
-        span.setToolName(binding.getToolName());
-        span.setNodeId(binding.getRemoteAgentKeySnapshot() + "#" + binding.getRemoteAgentRevisionId());
+        span.toolName(binding.getToolName());
+        span.nodeId(binding.getRemoteAgentKeySnapshot() + "#" + binding.getRemoteAgentRevisionId());
         String remoteState = response == null ? null : response.state();
         boolean waiting = "TASK_STATE_WORKING".equals(remoteState)
                 || "TASK_STATE_INPUT_REQUIRED".equals(remoteState)
                 || "TASK_STATE_AUTH_REQUIRED".equals(remoteState);
-        span.setStatus(waiting ? "WAITING_REMOTE" : (success ? "SUCCESS" : "FAILED"));
-        span.setInputSummary(limit(json(safeInput), 4000));
-        span.setOutputSummary(limit(json(safeOutput), 4000));
+        span.status(waiting ? "WAITING_REMOTE" : (success ? "SUCCESS" : "FAILED"));
+        span.inputSummary(limit(json(safeInput), 4000));
+        span.outputSummary(limit(json(safeOutput), 4000));
         Map<String, Object> metadata = new LinkedHashMap<>(safeOutput);
         metadata.put("remoteAgentId", binding.getRemoteAgentId());
         metadata.put("remoteAgentRevisionId", binding.getRemoteAgentRevisionId());
@@ -312,21 +308,21 @@ public class SupervisorExecutionTraceService implements RuntimeInteractionExpiry
         metadata.put("principalId", binding.getPrincipalId());
         metadata.put("riskLevel", binding.getRiskLevel());
         metadata.put("permissionKey", binding.getPermissionKey());
-        span.setMetadataJson(json(metadata));
-        span.setErrorCode(success || waiting ? null : code);
-        span.setErrorMessage(success || waiting ? null : limit(code, 2000));
-        span.setLatencyMs(toInt(elapsedMs));
-        span.setStartedAt(endedAt.minus(elapsedMs, ChronoUnit.MILLIS));
-        span.setEndedAt(endedAt);
-        span.setCreatedAt(endedAt);
-        safe(() -> spanMapper.insert(span), "insert A2A delegation span");
+        span.metadataJson(json(metadata));
+        span.errorCode(success || waiting ? null : code);
+        span.errorMessage(success || waiting ? null : limit(code, 2000));
+        span.latencyMs(toInt(elapsedMs));
+        span.startedAt(endedAt.minus(elapsedMs, ChronoUnit.MILLIS));
+        span.endedAt(endedAt);
+        span.createdAt(endedAt);
+        safe(() -> evidence.appendChild(span.build()), "insert A2A delegation span");
     }
 
     /** Persists only sanitized Managed Executor references; objective and Artifact bodies stay out of Trace. */
     public void managedExecutor(
             TraceHandle trace,
             RuntimeAgentView agent,
-            RuntimeAgentConfigVersionEntity config,
+            RuntimeAgentConfigSnapshot config,
             Map<String, Object> input,
             String toolName,
             Map<String, Object> args,
@@ -335,7 +331,7 @@ public class SupervisorExecutionTraceService implements RuntimeInteractionExpiry
             String code,
             long elapsedMs) {
         LocalDateTime endedAt = LocalDateTime.now();
-        RuntimeTraceSpanEntity span = baseSpan(trace.traceId(), id(16), trace.rootSpanId(),
+        ChildSpan.ChildSpanBuilder span = baseSpan(trace, id(16), trace.rootSpanId(),
                 "MANAGED_EXECUTOR", agent, config, input);
         Map<String, Object> safeInput = new LinkedHashMap<>();
         Object objective = args == null ? null : args.get("objective");
@@ -351,28 +347,28 @@ public class SupervisorExecutionTraceService implements RuntimeInteractionExpiry
         if (result != null && result.get("artifacts") instanceof List<?> artifacts) {
             safeOutput.put("artifactCount", artifacts.size());
         }
-        span.setToolName(toolName);
-        span.setNodeId(text(safeOutput.get("executionId")));
-        span.setStatus(success ? "SUCCESS" : "FAILED");
-        span.setInputSummary(limit(json(safeInput), 4000));
-        span.setOutputSummary(limit(json(safeOutput), 4000));
+        span.toolName(toolName);
+        span.nodeId(text(safeOutput.get("executionId")));
+        span.status(success ? "SUCCESS" : "FAILED");
+        span.inputSummary(limit(json(safeInput), 4000));
+        span.outputSummary(limit(json(safeOutput), 4000));
         Map<String, Object> metadata = new LinkedHashMap<>(safeOutput);
         metadata.put("sourceType", "AGENT_DELEGATION");
         metadata.put("async", true);
         metadata.put("objectivePersistedInTrace", false);
-        span.setMetadataJson(json(metadata));
-        span.setErrorCode(success ? null : code);
-        span.setErrorMessage(success ? null : limit(code, 2000));
-        span.setLatencyMs(toInt(elapsedMs));
-        span.setStartedAt(endedAt.minus(elapsedMs, ChronoUnit.MILLIS));
-        span.setEndedAt(endedAt);
-        span.setCreatedAt(endedAt);
-        safe(() -> spanMapper.insert(span), "insert Managed Executor span");
+        span.metadataJson(json(metadata));
+        span.errorCode(success ? null : code);
+        span.errorMessage(success ? null : limit(code, 2000));
+        span.latencyMs(toInt(elapsedMs));
+        span.startedAt(endedAt.minus(elapsedMs, ChronoUnit.MILLIS));
+        span.endedAt(endedAt);
+        span.createdAt(endedAt);
+        safe(() -> evidence.appendChild(span.build()), "insert Managed Executor span");
     }
 
     public void workflow(TraceHandle trace,
                          RuntimeAgentView agent,
-                         RuntimeAgentConfigVersionEntity config,
+                         RuntimeAgentConfigSnapshot config,
                          Map<String, Object> input,
                          String toolName,
                          String workflowId,
@@ -386,8 +382,10 @@ public class SupervisorExecutionTraceService implements RuntimeInteractionExpiry
                          Map<String, Object> resultMetadata,
                          WorkflowExecutionIdentity identity) {
         LocalDateTime endedAt = LocalDateTime.now();
-        RuntimeTraceSpanEntity span = baseSpan(trace.traceId(), id(16), trace.rootSpanId(),
+        ChildSpan.ChildSpanBuilder span = baseSpan(trace, id(16), trace.rootSpanId(),
                 "WORKFLOW_TOOL", agent, config, input);
+        var scope = scope(trace, agent, input, identity);
+        span.projectCode(scope.projectCode()).tenantId(scope.tenantId()).appId(scope.appId());
         boolean waiting = WorkflowInteractionCodes.WAITING.equals(code)
                 || "WAITING_USER".equalsIgnoreCase(code)
                 || "RUNTIME_INTERACTION_WAITING".equals(code);
@@ -396,81 +394,58 @@ public class SupervisorExecutionTraceService implements RuntimeInteractionExpiry
                 firstText(safeResult.get("outcomeClass")));
         Map<String, Object> safeArgs = WorkflowTraceSanitizer.sanitizeArgs(args);
         String safeAnswer = WorkflowTraceSanitizer.sanitizeAnswer(answer);
-        span.setToolName(toolName);
-        span.setNodeId(workflowId);
-        span.setStatus(waiting
+        span.toolName(toolName);
+        span.nodeId(workflowId);
+        span.status(waiting
                 ? "WAITING_USER"
                 : (businessTerminal ? "BUSINESS_TERMINAL" : (success ? "SUCCESS" : "FAILED")));
-        span.setInputSummary(limit(json(safeArgs), 4000));
-        span.setOutputSummary(limit(safeAnswer, 4000));
+        span.inputSummary(limit(json(safeArgs), 4000));
+        span.outputSummary(limit(safeAnswer, 4000));
         Map<String, Object> metadata = new LinkedHashMap<>();
         metadata.put("workflowId", workflowId);
         metadata.put("workflowVersionId", workflowVersionId);
         metadata.put("workflowVersion", workflowVersion);
         metadata.put("workflowResult", safeResult);
-        span.setMetadataJson(json(metadata));
-        span.setErrorCode(success || waiting || businessTerminal ? null : code);
-        span.setErrorMessage(success || waiting || businessTerminal ? null : limit(safeAnswer, 2000));
-        span.setLatencyMs(toInt(elapsedMs));
-        span.setStartedAt(endedAt.minus(elapsedMs, ChronoUnit.MILLIS));
-        span.setEndedAt(waiting ? null : endedAt);
-        span.setCreatedAt(endedAt);
-        safe(() -> spanMapper.insert(span), "insert Workflow tool span");
-        recordWorkflowNodeSpans(trace, span, agent, config, input, workflowId,
+        span.metadataJson(json(metadata));
+        span.errorCode(success || waiting || businessTerminal ? null : code);
+        span.errorMessage(success || waiting || businessTerminal ? null : limit(safeAnswer, 2000));
+        span.latencyMs(toInt(elapsedMs));
+        span.startedAt(endedAt.minus(elapsedMs, ChronoUnit.MILLIS));
+        span.endedAt(waiting ? null : endedAt);
+        span.createdAt(endedAt);
+        safe(() -> evidence.appendChild(span.build()), "insert Workflow tool span");
+        recordWorkflowNodeSpans(trace, span.build(), agent, config, input, workflowId,
                 workflowVersionId, workflowVersion, success, code, safeResult, endedAt);
 
-        RuntimeToolCallLogEntity logEntity = new RuntimeToolCallLogEntity();
-        logEntity.setTraceId(trace.traceId());
-        logEntity.setSessionId(text(input.get("sessionId")));
-        logEntity.setUserId(identity != null && identity.userTrusted() ? identity.userId() : null);
-        logEntity.setAgentName(agent.name());
-        logEntity.setIntentType(text(input.get("intentHint")));
-        logEntity.setProjectId(agent.projectId());
-        logEntity.setProjectCode(firstText(agent.projectCode(), input.get("projectCode")));
-        logEntity.setEnvironment(firstText(input.get("environment"), "DEV"));
-        logEntity.setTenantId(text(input.get("tenantId")));
-        logEntity.setAppId(firstText(input.get("appId"), agent.projectCode(), input.get("projectCode")));
-        logEntity.setExternalUserId(identity != null && identity.userTrusted() ? identity.userId() : null);
-        logEntity.setGlobalUserId(identity != null && identity.userTrusted() ? identity.userId() : null);
-        logEntity.setPageInstanceId(text(input.get("pageInstanceId")));
-        logEntity.setOrigin(text(input.get("origin")));
-        logEntity.setToolName(toolName);
-        logEntity.setArgsJson(json(safeArgs));
-        logEntity.setResultSummary(limit(safeAnswer, 4000));
-        logEntity.setSuccess(success);
-        logEntity.setErrorCode(success || waiting ? null : code);
-        logEntity.setElapsedMs(toInt(elapsedMs));
+        ToolCall.ToolCallBuilder logEntity = ToolCall.builder();
+        logEntity.traceId(trace.traceId());
+        logEntity.sessionId(text(input.get("sessionId")));
+        logEntity.userId(identity != null && identity.userTrusted() ? identity.userId() : null);
+        logEntity.agentName(agent.name());
+        logEntity.intentType(text(input.get("intentHint")));
+        logEntity.projectId(agent.projectId());
+        logEntity.projectCode(scope.projectCode());
+        logEntity.environment(firstText(input.get("environment"), "DEV"));
+        logEntity.tenantId(scope.tenantId());
+        logEntity.appId(scope.appId());
+        logEntity.externalUserId(identity != null && identity.userTrusted() ? identity.userId() : null);
+        logEntity.globalUserId(identity != null && identity.userTrusted() ? identity.userId() : null);
+        logEntity.pageInstanceId(text(input.get("pageInstanceId")));
+        logEntity.origin(text(input.get("origin")));
+        logEntity.toolName(toolName);
+        logEntity.argsJson(json(safeArgs));
+        logEntity.resultSummary(limit(safeAnswer, 4000));
+        logEntity.success(success);
+        logEntity.errorCode(success || waiting ? null : code);
+        logEntity.elapsedMs(toInt(elapsedMs));
         // Never persist full workflow payload / retrieval content.
-        logEntity.setRetrievalTraceJson(json(Map.of(
+        logEntity.retrievalTraceJson(json(Map.of(
                 "workflowId", workflowId,
                 "workflowVersionId", workflowVersionId,
                 "code", firstText(code, ""),
                 "summary", safeResult)));
-        logEntity.setCreateTime(endedAt);
-        safe(() -> toolLogMapper.insert(logEntity), "insert Workflow tool log");
-    }
-
-    public void guard(TraceHandle trace,
-                      RuntimeAgentView agent,
-                      Map<String, Object> input,
-                      String targetName,
-                      String decision,
-                      String reason,
-                      Map<String, Object> metadata) {
-        RuntimeGuardDecisionLogEntity entity = new RuntimeGuardDecisionLogEntity();
-        entity.setTraceId(trace.traceId());
-        entity.setProjectId(agent.projectId());
-        entity.setProjectCode(firstText(input.get("projectCode"), agent.projectCode()));
-        entity.setEnvironment(firstText(input.get("environment"), "DEV"));
-        entity.setTenantId(text(input.get("tenantId")));
-        entity.setDecisionType("SUPERVISOR_TOOL_POLICY");
-        entity.setTargetKind("WORKFLOW_TOOL");
-        entity.setTargetName(targetName);
-        entity.setDecision(decision);
-        entity.setReason(WorkflowTraceSanitizer.sanitizeAnswer(reason));
-        entity.setMetadataJson(json(WorkflowTraceSanitizer.sanitizeGuardMetadata(metadata)));
-        entity.setCreatedAt(LocalDateTime.now());
-        safe(() -> guardLogMapper.insert(entity), "insert Supervisor policy decision");
+        logEntity.createTime(endedAt);
+        safe(() -> evidence.appendToolCall(logEntity.build()), "insert Workflow tool log");
     }
 
     public void finish(TraceHandle trace, boolean success, String code, String answer, Map<String, Object> metadata) {
@@ -487,30 +462,20 @@ public class SupervisorExecutionTraceService implements RuntimeInteractionExpiry
         int tokenCost = RuntimeRunLifecycleService.resolveTokenCost(metadata);
         Map<String, Object> safeMetadata = new LinkedHashMap<>(
                 WorkflowTraceSanitizer.sanitizeFinishMetadata(metadata));
-        safeMetadata.put("tokenCost", tokenCost);
+        if (RuntimeRunLifecycleService.hasReportedTokenCost(metadata)) safeMetadata.put("tokenCost", tokenCost);
         Integer latencyMs = waiting ? null : toInt(ChronoUnit.MILLIS.between(trace.startedAt(), ended));
-        if (trace.rootId() != null) {
-            // Direct conditional update — no selectById before finish.
-            safe(() -> spanMapper.update(null, Wrappers.<RuntimeTraceSpanEntity>lambdaUpdate()
-                    .eq(RuntimeTraceSpanEntity::getId, trace.rootId())
-                    .set(RuntimeTraceSpanEntity::getStatus, resolved)
-                    .set(RuntimeTraceSpanEntity::getOutputSummary, limit(safeAnswer, 4000))
-                    .set(RuntimeTraceSpanEntity::getErrorCode, success || waiting ? null : code)
-                    .set(RuntimeTraceSpanEntity::getErrorMessage, success || waiting ? null : limit(safeAnswer, 2000))
-                    .set(RuntimeTraceSpanEntity::getMetadataJson, json(safeMetadata))
-                    .set(RuntimeTraceSpanEntity::getLatencyMs, latencyMs)
-                    .set(RuntimeTraceSpanEntity::getEndedAt, waiting ? null : ended)),
-                    "finish Supervisor root span");
-        }
+        if (!rootSpans.finishBestEffort(new RuntimeTraceRootService.Handle(
+                trace.rootId(), trace.traceId(), trace.rootSpanId(), trace.startedAt()),
+                new RuntimeTraceRootService.Completion(resolved, code, safeAnswer, ended, json(safeMetadata)))) return;
         runLifecycleService.finishAgent(trace.traceId(), success, code, safeAnswer, safeMetadata, ended,
                 identity, latencyMs, trace.startedAt());
     }
 
     @SuppressWarnings("unchecked")
     private void recordWorkflowNodeSpans(TraceHandle trace,
-                                         RuntimeTraceSpanEntity workflowSpan,
+                                         ChildSpan workflowSpan,
                                          RuntimeAgentView agent,
-                                         RuntimeAgentConfigVersionEntity config,
+                                         RuntimeAgentConfigSnapshot config,
                                          Map<String, Object> input,
                                          String workflowId,
                                          Long workflowVersionId,
@@ -532,13 +497,14 @@ public class SupervisorExecutionTraceService implements RuntimeInteractionExpiry
                 continue;
             }
             String nodeId = firstText(nodeTrace.get("nodeId"));
-            RuntimeTraceSpanEntity child = baseSpan(trace.traceId(), id(16), workflowSpan.getSpanId(),
+            ChildSpan.ChildSpanBuilder child = baseSpan(trace, id(16), workflowSpan.spanId(),
                     "WORKFLOW_NODE", agent, config, input);
-            child.setRuntimeType("LANGGRAPH4J");
-            child.setNodeId(nodeId);
-            child.setToolName(firstText(nodeTrace.get("qualifiedName")));
+            child.projectCode(workflowSpan.projectCode()).tenantId(workflowSpan.tenantId()).appId(workflowSpan.appId());
+            child.runtimeType("LANGGRAPH4J");
+            child.nodeId(nodeId);
+            child.toolName(firstText(nodeTrace.get("qualifiedName")));
             String status = firstText(nodeTrace.get("status"), workflowSuccess ? "SUCCESS" : "FAILED");
-            child.setStatus(status);
+            child.status(status);
             Map<String, Object> childMetadata = new LinkedHashMap<>();
             childMetadata.put("workflowId", workflowId);
             childMetadata.put("workflowVersionId", workflowVersionId);
@@ -559,46 +525,52 @@ public class SupervisorExecutionTraceService implements RuntimeInteractionExpiry
             putIfPresent(childMetadata, "traceSummary", nodeTrace.get("traceSummary"));
             putIfPresent(childMetadata, "interactionId", nodeTrace.get("interactionId"));
             putIfPresent(childMetadata, "interactionType", nodeTrace.get("interactionType"));
-            child.setMetadataJson(json(childMetadata));
-            child.setErrorCode(firstText(nodeTrace.get("failureCode"),
+            child.metadataJson(json(childMetadata));
+            child.errorCode(firstText(nodeTrace.get("failureCode"),
                     "FAILED".equalsIgnoreCase(status) ? workflowCode : null));
-            child.setLatencyMs(toInt(longValue(nodeTrace.get("latencyMs"), 0L)));
+            child.latencyMs(toInt(longValue(nodeTrace.get("latencyMs"), 0L)));
             LocalDateTime started = epochMillisToLocalDateTime(nodeTrace.get("startedAt"), endedAt);
-            child.setStartedAt(started);
+            child.startedAt(started);
             if ("WAITING_USER".equalsIgnoreCase(status)) {
-                child.setEndedAt(null);
+                child.endedAt(null);
             } else {
-                child.setEndedAt(epochMillisToLocalDateTime(nodeTrace.get("endedAt"), endedAt));
+                child.endedAt(epochMillisToLocalDateTime(nodeTrace.get("endedAt"), endedAt));
             }
-            child.setCreatedAt(endedAt);
-            safe(() -> spanMapper.insert(child), "insert Workflow node span");
+            child.createdAt(endedAt);
+            safe(() -> evidence.appendChild(child.build()), "insert Workflow node span");
         }
     }
 
-    private RuntimeTraceSpanEntity baseSpan(String traceId,
+    private RuntimeTraceRootService.Scope scope(TraceHandle trace, RuntimeAgentView agent,
+                                                Map<String, Object> input, WorkflowExecutionIdentity identity) {
+        if (trace.scope() != null) return trace.scope();
+        // A lifecycle-only handle cannot recover tenant attribution from a business map.
+        return new RuntimeTraceRootService.Scope(agent.projectCode(),
+                identity != null && identity.projectTrusted() ? identity.tenantId() : null,
+                firstText(input.get("appId"), agent.projectCode()));
+    }
+
+    private ChildSpan.ChildSpanBuilder baseSpan(TraceHandle trace,
                                              String spanId,
                                              String parentSpanId,
                                              String spanType,
                                              RuntimeAgentView agent,
-                                             RuntimeAgentConfigVersionEntity config,
+                                             RuntimeAgentConfigSnapshot config,
                                              Map<String, Object> input) {
-        RuntimeTraceSpanEntity entity = new RuntimeTraceSpanEntity();
-        entity.setTraceId(traceId);
-        entity.setSpanId(spanId);
-        entity.setParentSpanId(parentSpanId);
-        entity.setSpanType(spanType);
-        entity.setRuntimeType("AGENTSCOPE");
-        entity.setAgentId(agent.id());
-        entity.setAgentName(agent.name());
-        entity.setModelInstanceId(config.getModelInstanceId());
-        entity.setProjectCode(firstText(input.get("projectCode"), agent.projectCode()));
-        entity.setTenantId(text(input.get("tenantId")));
-        entity.setAppId(firstText(input.get("appId"), input.get("projectCode"), agent.projectCode()));
-        // This shared builder receives caller-controlled maps. Audit identity is only written
-        // explicitly by persistence paths that receive WorkflowExecutionIdentity.
-        entity.setExternalUserId(null);
-        entity.setGlobalUserId(null);
-        entity.setPageInstanceId(text(input.get("pageInstanceId")));
+        ChildSpan.ChildSpanBuilder entity = ChildSpan.builder();
+        entity.traceId(trace.traceId());
+        entity.spanId(spanId);
+        entity.parentSpanId(parentSpanId);
+        entity.spanType(spanType);
+        entity.runtimeType("AGENTSCOPE");
+        entity.agentId(agent.id());
+        entity.agentName(agent.name());
+        entity.modelInstanceId(config.getModelInstanceId());
+        var scope = scope(trace, agent, input, null);
+        entity.projectCode(scope.projectCode());
+        entity.tenantId(scope.tenantId());
+        entity.appId(scope.appId());
+        entity.pageInstanceId(text(input.get("pageInstanceId")));
         return entity;
     }
 
@@ -631,39 +603,14 @@ public class SupervisorExecutionTraceService implements RuntimeInteractionExpiry
         }
     }
 
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> jsonMap(String value) {
-        if (!StringUtils.hasText(value)) return new LinkedHashMap<>();
-        try {
-            Object parsed = objectMapper.readValue(value, Object.class);
-            if (parsed instanceof Map<?, ?> map) {
-                Map<String, Object> result = new LinkedHashMap<>();
-                map.forEach((key, item) -> result.put(String.valueOf(key), item));
-                return result;
-            }
-        } catch (Exception ignored) {
-            // Replace corrupt observability metadata with a safe fresh object.
-        }
-        return new LinkedHashMap<>();
-    }
-
-    private List<Map<String, Object>> skillSnapshots(List<RuntimeAgentSkillBindingEntity> bindings) {
+    private List<RuntimeRunSnapshots.SkillBinding> skillSnapshots(List<RuntimeAgentSkillBindingSnapshot> bindings) {
         if (bindings == null || bindings.isEmpty()) return List.of();
-        return bindings.stream().filter(java.util.Objects::nonNull).map(skill -> {
-            Map<String, Object> value = new LinkedHashMap<>();
-            value.put("identity", skill.getPublisher() + "/" + skill.getStandardName() + "@"
-                    + skill.getVersion() + "#" + skill.getSourceSha256());
-            value.put("skillId", skill.getSkillId());
-            value.put("skillVersionId", skill.getSkillVersionId());
-            value.put("publisher", skill.getPublisher());
-            value.put("name", skill.getStandardName());
-            value.put("version", skill.getVersion());
-            value.put("sourceSha256", skill.getSourceSha256());
-            value.put("activationMode", skill.getActivationMode());
-            value.put("scriptPolicy", skill.getScriptPolicy());
-            value.put("required", Boolean.TRUE.equals(skill.getRequired()));
-            return Map.copyOf(value);
-        }).toList();
+        return bindings.stream().filter(java.util.Objects::nonNull)
+                .map(skill -> new RuntimeRunSnapshots.SkillBinding(
+                        skill.getSkillId(), skill.getSkillVersionId(), skill.getPublisher(), skill.getStandardName(),
+                        skill.getVisibility(), skill.getProjectCode(), skill.getVersion(), skill.getSourceSha256(),
+                        skill.getActivationMode(), skill.getScriptPolicy(), Boolean.TRUE.equals(skill.getRequired())))
+                .toList();
     }
 
     private String id(int length) {
@@ -714,6 +661,10 @@ public class SupervisorExecutionTraceService implements RuntimeInteractionExpiry
         return LocalDateTime.ofInstant(Instant.ofEpochMilli(millis), ZoneId.systemDefault());
     }
 
-    public record TraceHandle(String traceId, String rootSpanId, Long rootId, LocalDateTime startedAt) {
+    public record TraceHandle(String traceId, String rootSpanId, Long rootId, LocalDateTime startedAt,
+                              RuntimeTraceRootService.Scope scope) {
+        public TraceHandle(String traceId, String rootSpanId, Long rootId, LocalDateTime startedAt) {
+            this(traceId, rootSpanId, rootId, startedAt, null);
+        }
     }
 }

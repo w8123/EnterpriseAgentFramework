@@ -1,5 +1,7 @@
 package com.enterprise.ai.control.agentskill;
 
+import com.enterprise.ai.control.identity.PlatformPrincipal;
+
 import com.enterprise.ai.control.agentskill.AgentSkillContracts.SkillSummary;
 import com.enterprise.ai.control.identity.PlatformAuthenticatedSession;
 import com.enterprise.ai.control.identity.PlatformPermissionGrant;
@@ -75,6 +77,20 @@ class AgentSkillAccessPolicyTest {
         assertEquals(org.springframework.http.HttpStatus.FORBIDDEN, failure.status());
     }
 
+    @Test
+    void projectCredentialCanBindOnlySharedPublicOrSameProjectSkills() {
+        assertTrue(policy.canBindWithProjectCredential(skill("PUBLIC", null, null), "finance-core"));
+        assertTrue(policy.canBindWithProjectCredential(skill("SHARED", null, null), "finance-core"));
+        assertTrue(policy.canBindWithProjectCredential(
+                skill("PROJECT", null, "finance-core"), "finance-core"));
+        assertFalse(policy.canBindWithProjectCredential(
+                skill("PROJECT", null, "hr-core"), "finance-core"));
+        assertFalse(policy.canBindWithProjectCredential(
+                skill("PRIVATE", 7L, null), "finance-core"));
+        assertThrows(AgentSkillException.class, () -> policy.requireProjectCredentialBind(
+                skill("PRIVATE", 7L, null), "finance-core"));
+    }
+
     private PlatformAuthenticatedSession session(Long userId,
                                                  List<String> roles,
                                                  String scopeType,
@@ -83,7 +99,7 @@ class AgentSkillAccessPolicyTest {
         user.setId(userId);
         user.setUsername("user-" + userId);
         return new PlatformAuthenticatedSession(
-                user,
+                PlatformPrincipal.fromUser(user),
                 "session",
                 LocalDateTime.now().plusHours(1),
                 roles,
@@ -102,7 +118,7 @@ class AgentSkillAccessPolicyTest {
         user.setId(userId);
         user.setUsername("user-" + userId);
         return new PlatformAuthenticatedSession(
-                user,
+                PlatformPrincipal.fromUser(user),
                 "session",
                 LocalDateTime.now().plusHours(1),
                 List.of(),

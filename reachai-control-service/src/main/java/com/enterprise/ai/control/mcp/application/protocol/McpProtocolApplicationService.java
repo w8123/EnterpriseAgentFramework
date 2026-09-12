@@ -160,7 +160,7 @@ public class McpProtocolApplicationService {
                             client.environment(),
                             client.tenantId(),
                             session.publication().id(),
-                            session.revision().revisionNo()));
+                            session.revision().revisionNo(), tool.capabilityContractHash()));
         } catch (RuntimeException boundaryFailure) {
             outcome = new McpRuntimeExecutionGateway.ExecutionOutcome(
                     false, "MCP_RUNTIME_EXECUTION_BOUNDARY_FAILED", Map.of(),

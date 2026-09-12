@@ -1,5 +1,7 @@
 package com.enterprise.ai.control.knowledge;
 
+import com.enterprise.ai.control.identity.PlatformPrincipal;
+
 import com.enterprise.ai.control.identity.PlatformAuthAuditService;
 import com.enterprise.ai.control.identity.PlatformAuthenticatedSession;
 import com.enterprise.ai.control.identity.PlatformAuthorizationService;
@@ -89,7 +91,7 @@ class KnowledgeBizIndexConsoleControllerTest {
         PlatformUserEntity user = new PlatformUserEntity();
         user.setId(userId);
         return new PlatformAuthenticatedSession(
-                user,
+                PlatformPrincipal.fromUser(user),
                 "pls_test",
                 LocalDateTime.now().plusHours(1),
                 List.of("admin"),

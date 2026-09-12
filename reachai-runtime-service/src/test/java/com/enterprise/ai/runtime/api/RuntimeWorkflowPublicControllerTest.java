@@ -1,9 +1,9 @@
 package com.enterprise.ai.runtime.api;
 
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDebugService;
-import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionEntity;
-import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionService;
-import com.enterprise.ai.runtime.workflow.RuntimeWorkflowReleaseValidationService;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionView;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowWriteCommand;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowManagementService;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowSearchPage;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowStudioService;
 import com.enterprise.ai.runtime.workflow.proposal.RuntimeWorkflowProposalEditRequest;
@@ -38,10 +38,10 @@ class RuntimeWorkflowPublicControllerTest {
                 "search", Long.class, String.class, String.class, String.class, String.class,
                 String.class, int.class, int.class);
         Method create = RuntimeWorkflowPublicController.class.getDeclaredMethod(
-                "create", RuntimeWorkflowDefinitionEntity.class);
+                "create", RuntimeWorkflowWriteCommand.class);
         Method get = RuntimeWorkflowPublicController.class.getDeclaredMethod("get", String.class);
         Method update = RuntimeWorkflowPublicController.class.getDeclaredMethod(
-                "update", String.class, RuntimeWorkflowDefinitionEntity.class);
+                "update", String.class, RuntimeWorkflowWriteCommand.class);
         Method delete = RuntimeWorkflowPublicController.class.getDeclaredMethod("delete", String.class);
         Method workingCopy = RuntimeWorkflowPublicController.class.getDeclaredMethod("workingCopy", String.class);
         Method saveWorkingCopy = RuntimeWorkflowPublicController.class.getDeclaredMethod(
@@ -77,9 +77,9 @@ class RuntimeWorkflowPublicControllerTest {
 
     @Test
     void delegatesCanonicalListAndSearchFilters() {
-        RuntimeWorkflowDefinitionService service = mock(RuntimeWorkflowDefinitionService.class);
+        RuntimeWorkflowManagementService service = mock(RuntimeWorkflowManagementService.class);
         RuntimeWorkflowPublicController controller = controller(service);
-        List<RuntimeWorkflowDefinitionEntity> workflows = List.of(workflow("wf-1"));
+        List<RuntimeWorkflowDefinitionView> workflows = List.of(workflow("wf-1"));
         RuntimeWorkflowSearchPage page = new RuntimeWorkflowSearchPage(workflows, 1L, 1, 10);
         when(service.list(7L, "orders", "GENERAL", "USER", "DRAFT")).thenReturn(workflows);
         when(service.search(7L, "orders", "GENERAL", "USER", "DRAFT", "order", 1, 10))
@@ -96,8 +96,7 @@ class RuntimeWorkflowPublicControllerTest {
     void delegatesCanonicalWorkingCopySave() {
         RuntimeWorkflowStudioService studioService = mock(RuntimeWorkflowStudioService.class);
         RuntimeWorkflowPublicController controller = new RuntimeWorkflowPublicController(
-                mock(RuntimeWorkflowDefinitionService.class),
-                mock(RuntimeWorkflowReleaseValidationService.class),
+                mock(RuntimeWorkflowManagementService.class),
                 studioService,
                 mock(RuntimeWorkflowDebugService.class),
                 mock(RuntimeWorkflowProposalGenerationService.class),
@@ -115,29 +114,23 @@ class RuntimeWorkflowPublicControllerTest {
 
     @Test
     void returnsNotFoundForMissingWorkflow() {
-        RuntimeWorkflowDefinitionService service = mock(RuntimeWorkflowDefinitionService.class);
+        RuntimeWorkflowManagementService service = mock(RuntimeWorkflowManagementService.class);
         when(service.findById("missing")).thenReturn(java.util.Optional.empty());
 
         assertEquals(HttpStatus.NOT_FOUND, controller(service).get("missing").getStatusCode());
     }
 
-    private RuntimeWorkflowPublicController controller(RuntimeWorkflowDefinitionService service) {
+    private RuntimeWorkflowPublicController controller(RuntimeWorkflowManagementService service) {
         return new RuntimeWorkflowPublicController(
                 service,
-                mock(RuntimeWorkflowReleaseValidationService.class),
                 mock(RuntimeWorkflowStudioService.class),
                 mock(RuntimeWorkflowDebugService.class),
                 mock(RuntimeWorkflowProposalGenerationService.class),
                 mock(RuntimeWorkflowProposalEditService.class));
     }
 
-    private RuntimeWorkflowDefinitionEntity workflow(String id) {
-        RuntimeWorkflowDefinitionEntity entity = new RuntimeWorkflowDefinitionEntity();
-        entity.setId(id);
-        entity.setKeySlug("orders");
-        entity.setName("Orders");
-        entity.setStatus("DRAFT");
-        return entity;
+    private RuntimeWorkflowDefinitionView workflow(String id) {
+        return RuntimeWorkflowDefinitionView.builder().id(id).keySlug("orders").name("Orders").status("DRAFT").build();
     }
 
     private RuntimeWorkflowStudioService.WorkflowWorkingCopyState workingCopyState() {

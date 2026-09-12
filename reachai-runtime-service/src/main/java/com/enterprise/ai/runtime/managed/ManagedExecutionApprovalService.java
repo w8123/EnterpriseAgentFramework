@@ -1,19 +1,17 @@
 package com.enterprise.ai.runtime.managed;
 
-import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
-import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
-import com.enterprise.ai.runtime.execution.RuntimeInteractionEventEntity;
-import com.enterprise.ai.runtime.execution.RuntimeInteractionEventMapper;
-import com.enterprise.ai.runtime.execution.RuntimeInteractionSessionEntity;
-import com.enterprise.ai.runtime.execution.RuntimeInteractionSessionMapper;
 import com.enterprise.ai.runtime.managed.ManagedExecutionPayloadSanitizer.SanitizedEvent;
 import com.enterprise.ai.runtime.managed.ManagedExecutionViews.ApprovalDecisionRequest;
 import com.enterprise.ai.runtime.managed.ManagedExecutionViews.ApprovalDecisionView;
 import com.enterprise.ai.runtime.managed.ManagedExecutionViews.ApprovalView;
+import com.enterprise.ai.runtime.execution.RuntimeManagedApprovalInteractionStore;
+import com.enterprise.ai.runtime.execution.RuntimeManagedApprovalInteractionStore.Scope;
+import com.enterprise.ai.runtime.execution.RuntimeManagedApprovalInteractionStore.Snapshot;
+import com.enterprise.ai.runtime.execution.RuntimeManagedApprovalInteractionStore.Start;
+import com.enterprise.ai.runtime.execution.RuntimeManagedApprovalInteractionStore.Event;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
-import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -33,11 +31,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class ManagedExecutionApprovalService {
 
-    static final String SOURCE_TYPE = "MANAGED_EXECUTOR";
-    static final String INTERACTION_TYPE = "CONFIRM_ACTION";
-
-    private final RuntimeInteractionSessionMapper sessionMapper;
-    private final RuntimeInteractionEventMapper eventMapper;
+    private final RuntimeManagedApprovalInteractionStore interactions;
     private final ManagedExecutionMapper executionMapper;
     private final ObjectMapper objectMapper;
 
@@ -46,274 +40,235 @@ public class ManagedExecutionApprovalService {
         JsonNode data = data(event);
         String kind = enumText(data.path("approvalKind").asText(null),
                 List.of("COMMAND", "FILE_CHANGE", "PERMISSIONS"), "approvalKind");
-        if ("PERMISSIONS".equals(kind)) {
-            return null; // Permission expansion is permanently denied inside the Worker.
+        if ("PERMISSIONS".equals(kind)) return null;
+        String requestId = boundedIdentifier(data.path("approvalRequestId").asText(null), "approvalRequestId", 160);
+        ManagedExecutionEntity current = locked(execution);
+        String interactionId = "mei_" + sha256(current.getExecutionId() + "\n" + requestId).substring(0, 32);
+        boolean pending = StringUtils.hasText(current.getPendingInteractionId())
+                || StringUtils.hasText(current.getPendingApprovalRequestId());
+        if (pending && (!requestId.equals(current.getPendingApprovalRequestId())
+                || !interactionId.equals(current.getPendingInteractionId()))) {
+            throw conflict("MANAGED_APPROVAL_CONFLICT", "Managed Executor already has a different pending approval");
         }
-        String requestId = boundedIdentifier(data.path("approvalRequestId").asText(null),
-                "approvalRequestId", 160);
-        String interactionId = "mei_" + sha256(execution.getExecutionId() + "\n" + requestId)
-                .substring(0, 32);
+        if (!"WAITING_APPROVAL".equals(current.getStatus())) {
+            throw conflict("MANAGED_APPROVAL_NOT_PENDING", "Managed Executor is not waiting for approval");
+        }
         LocalDateTime now = LocalDateTime.now();
-        RuntimeInteractionSessionEntity row = new RuntimeInteractionSessionEntity();
-        row.setId(interactionId);
-        row.setSourceType(SOURCE_TYPE);
-        row.setRunId(execution.getExecutionId());
-        row.setTraceId(execution.getExecutionId());
-        row.setNodeId("approval:" + sha256(requestId).substring(0, 24));
-        row.setInteractionType(INTERACTION_TYPE);
-        row.setStatus("WAITING_USER");
-        row.setRevision(0);
-        row.setResumeCheckpointJson(json(Map.of(
-                "schema", "reachai.managed-executor.approval-checkpoint.v1",
-                "executionId", execution.getExecutionId(),
-                "approvalRequestId", requestId,
-                "approvalKind", kind)));
-        row.setCheckpointSchemaVersion(0);
-        row.setExecutionEngineVersion("CODEX_HARNESS");
-        row.setUiRequestJson(json(uiRequest(execution, event, data, interactionId, requestId, kind)));
-        row.setTenantId(execution.getTenantId());
-        row.setUserId(execution.getRequestedByUserId());
-        row.setCreateTime(now);
-        row.setUpdateTime(now);
-        row.setExpiresAt(now.plusSeconds(Math.max(30, execution.getApprovalTimeoutSeconds())));
-        try {
-            sessionMapper.insert(row);
-            writeEvent(interactionId, "CREATED", Map.of(
-                    "executionId", execution.getExecutionId(),
-                    "approvalRequestId", requestId,
-                    "approvalKind", kind), "runtime");
-        } catch (DuplicateKeyException duplicate) {
-            RuntimeInteractionSessionEntity existing = sessionMapper.selectById(interactionId);
-            if (existing == null
-                    || !SOURCE_TYPE.equals(existing.getSourceType())
-                    || !execution.getExecutionId().equals(existing.getRunId())) {
-                throw conflict("MANAGED_APPROVAL_REPLAY_MISMATCH",
-                        "Managed Executor approval replay does not match its interaction");
-            }
+        var opened = interactions.open(new Start(scope(current, interactionId, requestId),
+                json(Map.of("schema", "reachai.managed-executor.approval-checkpoint.v1",
+                        "executionId", current.getExecutionId(), "approvalRequestId", requestId, "approvalKind", kind)),
+                json(uiRequest(current, event, data, interactionId, requestId, kind)),
+                now.plusSeconds(Math.max(30, current.getApprovalTimeoutSeconds())),
+                new Event(json(Map.of("executionId", current.getExecutionId(), "approvalRequestId", requestId,
+                        "approvalKind", kind)), "runtime", now)));
+        boolean matchesExistingBinding = opened.created() ? !pending : pending;
+        if (opened.snapshot() == null || !matchesExistingBinding
+                || !List.of("WAITING_USER", "RESUMING", "EXPIRED").contains(opened.snapshot().status())) {
+            throw conflict("MANAGED_APPROVAL_REPLAY_MISMATCH", "Managed approval replay does not match its open request");
         }
-        if (executionMapper.openApproval(
-                execution.getExecutionId(), requestId, interactionId, now) != 1) {
-            ManagedExecutionEntity latest = findExecution(execution.getExecutionId());
-            if (latest == null
-                    || !requestId.equals(latest.getPendingApprovalRequestId())
-                    || !interactionId.equals(latest.getPendingInteractionId())) {
-                throw conflict("MANAGED_APPROVAL_CONFLICT",
-                        "Managed Executor already has a different pending approval");
-            }
+        if (opened.created() && executionMapper.openApproval(current.getExecutionId(), requestId, interactionId, now) != 1) {
+            throw conflict("MANAGED_APPROVAL_CONFLICT", "Managed approval execution fence was lost");
         }
-        execution.setPendingApprovalRequestId(requestId);
-        execution.setPendingInteractionId(interactionId);
-        execution.setApprovalDecision(null);
-        execution.setApprovalCount((execution.getApprovalCount() == null
-                ? 0 : execution.getApprovalCount()) + 1);
+        copyApprovalState(executionMapper.selectForUpdate(current.getExecutionId()), execution);
         return new ApprovalOpened(interactionId, requestId, kind);
     }
 
     @Transactional
-    public ApprovalDecisionView resolve(ManagedExecutionEntity execution,
-                                        String actorUserId,
-                                        String interactionId,
-                                        ApprovalDecisionRequest request) {
-        if (execution == null || !StringUtils.hasText(interactionId) || request == null) {
-            throw invalid("Managed Executor approval decision is required");
+    public ApprovalDecisionView resolve(ManagedExecutionEntity execution, String actorUserId,
+                                        String interactionId, ApprovalDecisionRequest request) {
+        if (request == null) throw invalid("Managed Executor approval decision is required");
+        ManagedExecutionEntity current = locked(execution);
+        String id = boundedIdentifier(interactionId, "interactionId", 64);
+        if (!id.equals(current.getPendingInteractionId()) || !StringUtils.hasText(current.getPendingApprovalRequestId())) {
+            throw conflict("MANAGED_APPROVAL_NOT_PENDING", "Managed Executor approval is not pending for this execution");
         }
-        String normalizedInteractionId = boundedIdentifier(interactionId, "interactionId", 64);
-        if (!normalizedInteractionId.equals(execution.getPendingInteractionId())
-                || !StringUtils.hasText(execution.getPendingApprovalRequestId())) {
-            throw conflict("MANAGED_APPROVAL_NOT_PENDING",
-                    "Managed Executor approval is not pending for this execution");
+        Snapshot row = requireInteraction(id, current);
+        String actor = boundedIdentifier(actorUserId, "actorUserId", 128);
+        if (!actor.equals(current.getRequestedByUserId())) {
+            throw forbidden("MANAGED_APPROVAL_ACTOR_FORBIDDEN", "Managed approval can only be decided by its requesting user");
         }
-        RuntimeInteractionSessionEntity row = requireInteraction(normalizedInteractionId, execution);
-        String normalizedActorUserId = boundedIdentifier(
-                actorUserId, "actorUserId", 128);
-        if (!normalizedActorUserId.equals(execution.getRequestedByUserId())
-                || !normalizedActorUserId.equals(row.getUserId())) {
-            throw forbidden("MANAGED_APPROVAL_ACTOR_FORBIDDEN",
-                    "Managed Executor approval can only be decided by its requesting user");
+        String requestedDecision = decision(request.decision());
+        String key = StringUtils.hasText(request.idempotencyKey())
+                ? boundedIdentifier(request.idempotencyKey(), "idempotencyKey", 128) : id + ":" + requestedDecision;
+        if ("RESUMING".equals(row.status()) || "EXPIRED".equals(row.status())) {
+            var replay = replayDecision(current, row, key, requestedDecision);
+            copyApprovalState(current, execution);
+            return replay;
         }
-        String decision = decision(request.decision());
-        String idempotencyKey = StringUtils.hasText(request.idempotencyKey())
-                ? boundedIdentifier(request.idempotencyKey(), "idempotencyKey", 128)
-                : normalizedInteractionId + ":" + decision;
+        if (!"WAITING_USER".equals(row.status())) {
+            throw conflict("MANAGED_APPROVAL_NOT_PENDING", "Managed approval interaction is already closed");
+        }
         LocalDateTime now = LocalDateTime.now();
-        boolean expired = row.getExpiresAt() != null && !row.getExpiresAt().isAfter(now);
-        if (expired) decision = "decline";
-        String submitted = json(Map.of("decision", decision));
+        boolean expired = row.expiresAt() != null && !row.expiresAt().isAfter(now);
+        String effectiveDecision = expired ? "decline" : requestedDecision;
+        long commandSequence = Math.addExact(current.getCommandSequence() == null ? 0L : current.getCommandSequence(), 1L);
+        String submitted = json(Map.of("schema", "reachai.managed-executor.approval-decision.v1",
+                "requestedDecision", requestedDecision, "decision", effectiveDecision,
+                "commandSequence", commandSequence, "expired", expired));
+        if (!interactions.submit(scope(current, id, current.getPendingApprovalRequestId()), row.revision(), key,
+                submitted, expired, new Event(json(Map.of("decision", effectiveDecision,
+                        "executionId", current.getExecutionId())), actor, now))) {
+            throw conflict("MANAGED_APPROVAL_CONFLICT", "Managed approval changed concurrently");
+        }
+        if (executionMapper.resolveApproval(current.getExecutionId(), current.getPendingApprovalRequestId(),
+                id, effectiveDecision, now) != 1) {
+            throw conflict("MANAGED_APPROVAL_CONFLICT", "Managed approval execution fence was lost");
+        }
+        copyApprovalState(executionMapper.selectForUpdate(current.getExecutionId()), execution);
+        return new ApprovalDecisionView(current.getExecutionId(), id, current.getPendingApprovalRequestId(),
+                effectiveDecision, commandSequence, expired, false);
+    }
 
-        if ("RESUMING".equals(row.getStatus()) || "EXPIRED".equals(row.getStatus())) {
-            if (!idempotencyKey.equals(row.getIdempotencyKey())
-                    || !submitted.equals(row.getSubmittedPayloadJson())) {
-                throw conflict("MANAGED_APPROVAL_IDEMPOTENCY_CONFLICT",
-                        "Managed Executor approval was already decided differently");
+    private ApprovalDecisionView replayDecision(ManagedExecutionEntity current, Snapshot row,
+                                                 String key, String requestedDecision) {
+        try {
+            JsonNode submitted = objectMapper.readTree(row.submittedPayloadJson());
+            String effective = submitted.path("decision").asText();
+            long sequence = submitted.path("commandSequence").asLong(-1);
+            boolean expired = submitted.path("expired").asBoolean();
+            if (!"reachai.managed-executor.approval-decision.v1".equals(submitted.path("schema").asText())
+                    || !key.equals(row.idempotencyKey())
+                    || !requestedDecision.equals(submitted.path("requestedDecision").asText())
+                    || !effective.equals(current.getApprovalDecision())
+                    || sequence < 1 || sequence > (current.getCommandSequence() == null ? 0L : current.getCommandSequence())
+                    || expired != "EXPIRED".equals(row.status())) {
+                throw new IllegalArgumentException("Decision receipt mismatch");
             }
-            return new ApprovalDecisionView(
-                    execution.getExecutionId(), normalizedInteractionId,
-                    execution.getPendingApprovalRequestId(), decision,
-                    execution.getCommandSequence() == null ? 0L : execution.getCommandSequence(),
-                    expired, true);
+            return new ApprovalDecisionView(current.getExecutionId(), row.id(), current.getPendingApprovalRequestId(),
+                    effective, sequence, expired, true);
+        } catch (Exception invalidReceipt) {
+            throw conflict("MANAGED_APPROVAL_IDEMPOTENCY_CONFLICT", "Managed approval was already decided differently");
         }
-        if (!"WAITING_USER".equals(row.getStatus())) {
-            throw conflict("MANAGED_APPROVAL_NOT_PENDING",
-                    "Managed Executor approval interaction is already closed");
-        }
-        String nextInteractionStatus = expired ? "EXPIRED" : "RESUMING";
-        int revision = row.getRevision() == null ? 0 : row.getRevision();
-        UpdateWrapper<RuntimeInteractionSessionEntity> decisionUpdate = new UpdateWrapper<>();
-        decisionUpdate.eq("id", row.getId())
-                .eq("status", "WAITING_USER")
-                .eq("revision", revision)
-                .set("status", nextInteractionStatus)
-                .set("revision", revision + 1)
-                .set("idempotency_key", idempotencyKey)
-                .set("submitted_payload_json", submitted)
-                .set("update_time", now);
-        int updated = sessionMapper.update(null, decisionUpdate);
-        if (updated != 1) {
-            throw conflict("MANAGED_APPROVAL_CONFLICT",
-                    "Managed Executor approval changed concurrently");
-        }
-        if (executionMapper.resolveApproval(
-                execution.getExecutionId(), execution.getPendingApprovalRequestId(),
-                normalizedInteractionId, decision, now) != 1) {
-            throw conflict("MANAGED_APPROVAL_CONFLICT",
-                    "Managed Executor approval execution fence was lost");
-        }
-        writeEvent(row.getId(), expired ? "EXPIRED" : "SUBMITTED", Map.of(
-                "decision", decision,
-                "executionId", execution.getExecutionId()),
-                normalizedActorUserId);
-        long nextSequence = (execution.getCommandSequence() == null ? 0L : execution.getCommandSequence()) + 1L;
-        execution.setCommandSequence(nextSequence);
-        execution.setApprovalDecision(decision);
-        execution.setApprovalDecidedAt(now);
-        return new ApprovalDecisionView(
-                execution.getExecutionId(), normalizedInteractionId,
-                execution.getPendingApprovalRequestId(), decision,
-                nextSequence, expired, false);
     }
 
     public ApprovalView view(ManagedExecutionEntity execution) {
-        if (execution == null || !StringUtils.hasText(execution.getPendingInteractionId())) {
-            return null;
-        }
-        RuntimeInteractionSessionEntity row = requireInteraction(
-                execution.getPendingInteractionId(), execution);
+        if (execution == null || !StringUtils.hasText(execution.getPendingInteractionId())) return null;
+        Snapshot row = checkedInteraction(interactions.find(pendingScope(execution.getPendingInteractionId(), execution)));
         JsonNode ui;
-        try {
-            ui = objectMapper.readTree(row.getUiRequestJson());
-        } catch (Exception failure) {
-            throw new ManagedExecutionException(500, "MANAGED_APPROVAL_VIEW_INVALID",
-                    "Managed Executor approval view is unavailable");
+        try { ui = objectMapper.readTree(row.uiRequestJson()); }
+        catch (Exception failure) {
+            throw new ManagedExecutionException(500, "MANAGED_APPROVAL_VIEW_INVALID", "Managed approval view is unavailable");
         }
         if (ui == null || !ui.isObject()) {
-            throw new ManagedExecutionException(500, "MANAGED_APPROVAL_VIEW_INVALID",
-                    "Managed Executor approval view is unavailable");
+            throw new ManagedExecutionException(500, "MANAGED_APPROVAL_VIEW_INVALID", "Managed approval view is unavailable");
         }
-        return new ApprovalView(
-                "reachai.managed-executor.approval.v1",
-                execution.getExecutionId(),
-                row.getId(),
-                execution.getPendingApprovalRequestId(),
-                row.getStatus(),
-                ui,
-                row.getExpiresAt(),
-                row.getUpdateTime());
+        return new ApprovalView("reachai.managed-executor.approval.v1", execution.getExecutionId(), row.id(),
+                execution.getPendingApprovalRequestId(), row.status(), ui, row.expiresAt(), row.updateTime());
     }
 
     @Transactional
     public ApprovalClosed onResolved(ManagedExecutionEntity execution, SanitizedEvent event) {
         JsonNode data = data(event);
-        String requestId = boundedIdentifier(data.path("approvalRequestId").asText(null),
-                "approvalRequestId", 160);
+        String requestId = boundedIdentifier(data.path("approvalRequestId").asText(null), "approvalRequestId", 160);
         String workerDecision = workerDecision(data.path("decision").asText(null));
-        if (!requestId.equals(execution.getPendingApprovalRequestId())) {
-            return null; // Includes the permanently denied PERMISSIONS request path.
+        ManagedExecutionEntity current = locked(execution);
+        if (!requestId.equals(current.getPendingApprovalRequestId())) {
+            copyApprovalState(current, execution);
+            return null;
         }
-        if (StringUtils.hasText(execution.getApprovalDecision())
-                && !execution.getApprovalDecision().equals(workerDecision)) {
-            throw conflict("MANAGED_APPROVAL_DECISION_MISMATCH",
-                    "Worker approval result does not match the Runtime decision");
+        if ("accept".equals(workerDecision) && !StringUtils.hasText(current.getApprovalDecision())) {
+            throw conflict("MANAGED_APPROVAL_DECISION_MISSING", "Worker acceptance requires a recorded Runtime approval");
         }
-        RuntimeInteractionSessionEntity row = sessionMapper.selectById(execution.getPendingInteractionId());
+        if (StringUtils.hasText(current.getApprovalDecision()) && !current.getApprovalDecision().equals(workerDecision)) {
+            throw conflict("MANAGED_APPROVAL_DECISION_MISMATCH", "Worker approval result does not match the Runtime decision");
+        }
+        Snapshot row = requireInteraction(current.getPendingInteractionId(), current);
         LocalDateTime now = LocalDateTime.now();
-        if (row != null && SOURCE_TYPE.equals(row.getSourceType())) {
-            if ("WAITING_USER".equals(row.getStatus()) || "RESUMING".equals(row.getStatus())) {
-                int revision = row.getRevision() == null ? 0 : row.getRevision();
-                UpdateWrapper<RuntimeInteractionSessionEntity> completion = new UpdateWrapper<>();
-                completion.eq("id", row.getId())
-                        .eq("revision", revision)
-                        .in("status", "WAITING_USER", "RESUMING")
-                        .set("status", "COMPLETED")
-                        .set("revision", revision + 1)
-                        .set("result_json", json(Map.of("decision", workerDecision)))
-                        .set("update_time", now);
-                sessionMapper.update(null, completion);
+        if ("WAITING_USER".equals(row.status()) || "RESUMING".equals(row.status())) {
+            if ("accept".equals(workerDecision) && !"RESUMING".equals(row.status())) {
+                throw conflict("MANAGED_APPROVAL_CONFLICT", "Runtime approval interaction is not submitted");
             }
-            writeEvent(row.getId(), "COMPLETED", Map.of(
-                    "decision", workerDecision,
-                    "executionId", execution.getExecutionId()), "worker");
+            if (!interactions.complete(scope(current, row.id(), requestId), row.revision(),
+                    json(Map.of("decision", workerDecision)), new Event(json(Map.of("decision", workerDecision,
+                            "executionId", current.getExecutionId())), "worker", now))) {
+                throw conflict("MANAGED_APPROVAL_CONFLICT", "Managed approval changed concurrently");
+            }
+        } else if ("COMPLETED".equals(row.status())) {
+            try {
+                if (!workerDecision.equals(objectMapper.readTree(row.resultJson()).path("decision").asText())) {
+                    throw new IllegalArgumentException("Result mismatch");
+                }
+            } catch (Exception mismatch) {
+                throw conflict("MANAGED_APPROVAL_DECISION_MISMATCH", "Worker result differs from the completed interaction");
+            }
+        } else if (!"decline".equals(workerDecision)) {
+            throw conflict("MANAGED_APPROVAL_CONFLICT", "A closed interaction cannot acknowledge acceptance");
         }
-        executionMapper.closeApproval(execution.getExecutionId(), requestId, now);
-        ApprovalClosed closed = new ApprovalClosed(
-                execution.getPendingInteractionId(), requestId, workerDecision);
-        execution.setPendingInteractionId(null);
-        execution.setPendingApprovalRequestId(null);
-        execution.setApprovalDecision(null);
-        execution.setApprovalDecidedAt(null);
-        return closed;
+        String id = current.getPendingInteractionId();
+        closePending(current, now);
+        copyApprovalState(executionMapper.selectForUpdate(current.getExecutionId()), execution);
+        return new ApprovalClosed(id, requestId, workerDecision);
     }
 
     @Transactional
     public void onExecutionTerminal(ManagedExecutionEntity execution) {
-        if (execution == null
-                || !StringUtils.hasText(execution.getPendingInteractionId())
-                || !StringUtils.hasText(execution.getPendingApprovalRequestId())) {
+        if (execution == null) return;
+        ManagedExecutionEntity current = locked(execution);
+        if (!ManagedExecutionStatus.parse(current.getStatus()).terminal()) return;
+        if (!StringUtils.hasText(current.getPendingInteractionId()) || !StringUtils.hasText(current.getPendingApprovalRequestId())) {
+            copyApprovalState(current, execution);
             return;
         }
-        RuntimeInteractionSessionEntity row = sessionMapper.selectById(execution.getPendingInteractionId());
+        Scope scope = scope(current, current.getPendingInteractionId(), current.getPendingApprovalRequestId());
         LocalDateTime now = LocalDateTime.now();
-        if (row != null && SOURCE_TYPE.equals(row.getSourceType())) {
-            int revision = row.getRevision() == null ? 0 : row.getRevision();
-            UpdateWrapper<RuntimeInteractionSessionEntity> cancellation = new UpdateWrapper<>();
-            cancellation.eq("id", row.getId())
-                    .eq("revision", revision)
-                    .in("status", "WAITING_USER", "RESUMING")
-                    .set("status", "CANCELLED")
-                    .set("revision", revision + 1)
-                    .set("update_time", now);
-            int updated = sessionMapper.update(null, cancellation);
-            if (updated == 1) {
-                writeEvent(row.getId(), "CANCELLED", Map.of(
-                        "executionId", execution.getExecutionId(),
-                        "reason", "execution_terminal"), "runtime");
-            }
-        }
-        executionMapper.closeApproval(
-                execution.getExecutionId(), execution.getPendingApprovalRequestId(), now);
-        execution.setPendingInteractionId(null);
-        execution.setPendingApprovalRequestId(null);
-        execution.setApprovalDecision(null);
-        execution.setApprovalDecidedAt(null);
+        interactions.cancel(scope, new Event(json(Map.of("executionId", current.getExecutionId(),
+                "reason", "execution_terminal")), "runtime", now));
+        closePending(current, now);
+        copyApprovalState(executionMapper.selectForUpdate(current.getExecutionId()), execution);
     }
 
-    private RuntimeInteractionSessionEntity requireInteraction(
-            String interactionId, ManagedExecutionEntity execution) {
-        RuntimeInteractionSessionEntity row = sessionMapper.selectById(interactionId);
-        if (row == null
-                || !SOURCE_TYPE.equals(row.getSourceType())
-                || !INTERACTION_TYPE.equals(row.getInteractionType())
-                || !execution.getExecutionId().equals(row.getRunId())
-                || !execution.getTenantId().equals(row.getTenantId())) {
-            throw conflict("MANAGED_APPROVAL_NOT_FOUND",
-                    "Managed Executor approval interaction was not found");
+    private void closePending(ManagedExecutionEntity current, LocalDateTime now) {
+        if (executionMapper.closeApproval(current.getExecutionId(), current.getPendingApprovalRequestId(),
+                current.getPendingInteractionId(), now) != 1) {
+            throw conflict("MANAGED_APPROVAL_CONFLICT", "Managed approval execution fence was lost");
         }
+    }
+
+    private Snapshot requireInteraction(String interactionId, ManagedExecutionEntity execution) {
+        return checkedInteraction(interactions.lock(pendingScope(interactionId, execution)));
+    }
+
+    private Scope pendingScope(String interactionId, ManagedExecutionEntity execution) {
+        if (!StringUtils.hasText(interactionId) || !StringUtils.hasText(execution.getPendingApprovalRequestId())) {
+            throw conflict("MANAGED_APPROVAL_NOT_FOUND", "Managed approval interaction was not found");
+        }
+        return scope(execution, interactionId, execution.getPendingApprovalRequestId());
+    }
+
+    private Snapshot checkedInteraction(Snapshot row) {
+        if (row == null) throw conflict("MANAGED_APPROVAL_NOT_FOUND", "Managed approval interaction was not found");
         return row;
     }
 
-    private ManagedExecutionEntity findExecution(String executionId) {
-        return executionMapper.selectOne(new QueryWrapper<ManagedExecutionEntity>()
-                .eq("execution_id", executionId));
+    private Scope scope(ManagedExecutionEntity execution, String interactionId, String requestId) {
+        return new Scope(interactionId, execution.getExecutionId(), execution.getTenantId(),
+                execution.getRequestedByUserId(), "approval:" + sha256(requestId).substring(0, 24));
     }
+
+    private ManagedExecutionEntity locked(ManagedExecutionEntity supplied) {
+        if (supplied == null) throw invalid("Managed execution is required for approval");
+        String id = boundedIdentifier(supplied.getExecutionId(), "executionId", 64);
+        ManagedExecutionEntity current = executionMapper.selectForUpdate(id);
+        if (current == null || !java.util.Objects.equals(current.getTenantId(), supplied.getTenantId())
+                || !java.util.Objects.equals(current.getProjectCode(), supplied.getProjectCode())
+                || !java.util.Objects.equals(current.getRequestedByUserId(), supplied.getRequestedByUserId())) {
+            throw conflict("MANAGED_APPROVAL_NOT_FOUND", "Managed execution approval owner was not found");
+        }
+        return current;
+    }
+
+    private void copyApprovalState(ManagedExecutionEntity current, ManagedExecutionEntity target) {
+        if (current == null) throw conflict("MANAGED_APPROVAL_CONFLICT", "Managed execution disappeared during approval");
+        target.setPendingApprovalRequestId(current.getPendingApprovalRequestId());
+        target.setPendingInteractionId(current.getPendingInteractionId());
+        target.setApprovalDecision(current.getApprovalDecision());
+        target.setApprovalDecidedAt(current.getApprovalDecidedAt());
+        target.setApprovalCount(current.getApprovalCount());
+        target.setCommandSequence(current.getCommandSequence());
+        target.setVersion(current.getVersion());
+        target.setUpdatedAt(current.getUpdatedAt());
+    }
+
 
     private Map<String, Object> uiRequest(ManagedExecutionEntity execution,
                                           SanitizedEvent event,
@@ -380,16 +335,6 @@ public class ManagedExecutionApprovalService {
             throw invalid("Managed " + field + " is invalid");
         }
         return normalized;
-    }
-
-    private void writeEvent(String sessionId, String type, Map<String, Object> payload, String operator) {
-        RuntimeInteractionEventEntity event = new RuntimeInteractionEventEntity();
-        event.setSessionId(sessionId);
-        event.setEventType(type);
-        event.setPayloadJson(json(payload));
-        event.setOperatorId(operator);
-        event.setCreateTime(LocalDateTime.now());
-        eventMapper.insert(event);
     }
 
     private String json(Object value) {

@@ -12,6 +12,12 @@ import {
   normalizeUiRequest,
 } from '../normalizeUiRequest'
 
+export const WORKFLOW_DEBUG_UNCONFIRMED_MESSAGE = '执行结果尚未确认，可重试查询原会话。请勿重复发起调试。'
+
+export function isWorkflowSessionInFlight(status?: string): boolean {
+  return status?.toUpperCase() === 'RUNNING' || status?.toUpperCase() === 'RESUMING'
+}
+
 export interface WorkflowDebugStepLike {
   index?: number
   nodeId?: string
@@ -76,9 +82,19 @@ function mapMessage(raw: WorkflowDebugMessageLike): ConversationMessage {
 
 export function adaptWorkflowSessionViewToSnapshot(view: WorkflowDebugSessionViewLike): ConversationSnapshot {
   const snapshot = createEmptySnapshot(view.sessionId)
+  const inFlight = isWorkflowSessionInFlight(view.status)
+  const status = String(view.status || '').toUpperCase()
+  const waiting = status === 'SUSPENDED' || status === 'WAITING' || status === 'WAITING_USER'
   snapshot.messages = (view.messages || []).map(mapMessage)
+  if (!waiting) {
+    for (const message of snapshot.messages) {
+      for (const block of message.blocks) {
+        if (block.type === 'interaction') block.state = 'resolved'
+      }
+    }
+  }
 
-  if (view.uiRequest) {
+  if (view.uiRequest && !inFlight) {
     const ui = normalizeUiRequest(view.uiRequest)
     const lastAssistant = [...snapshot.messages].reverse().find((m) => m.role === 'assistant')
     if (ui && lastAssistant && isCardOnlyUiRequest(ui)) {
@@ -89,7 +105,7 @@ export function adaptWorkflowSessionViewToSnapshot(view: WorkflowDebugSessionVie
         id: createId('blk'),
         type: 'interaction',
         request: ui,
-        state: isBlockingUiRequest(view.uiRequest) ? 'waiting' : 'resolved',
+        state: waiting && isBlockingUiRequest(view.uiRequest) ? 'waiting' : 'resolved',
       })
     } else if (ui && !isTextOnlyUiRequest(ui) && !lastAssistant) {
       snapshot.messages.push({
@@ -100,19 +116,22 @@ export function adaptWorkflowSessionViewToSnapshot(view: WorkflowDebugSessionVie
           id: createId('blk'),
           type: 'interaction',
           request: ui,
-          state: isBlockingUiRequest(view.uiRequest) ? 'waiting' : 'resolved',
+          state: waiting && isBlockingUiRequest(view.uiRequest) ? 'waiting' : 'resolved',
         }],
         createdAt: nowIso(),
       })
     }
   }
 
-  const status = String(view.status || '').toUpperCase()
-  if (status === 'SUSPENDED' || status === 'WAITING' || status === 'WAITING_USER') {
+  if (inFlight) {
+    // This is a detached conversation, not a live stream or a completed Workflow.
+    snapshot.turnStatus = 'failed'
+    snapshot.error = WORKFLOW_DEBUG_UNCONFIRMED_MESSAGE
+  } else if (waiting) {
     snapshot.turnStatus = 'waiting'
   } else if (status === 'FAILED' || status === 'ERROR' || status === 'EXPIRED') {
     snapshot.turnStatus = 'failed'
-    snapshot.error = view.errorMessage ? String(view.errorMessage) : 'Workflow 调试失败'
+    snapshot.error = view.errorMessage || view.answer || 'Workflow 调试失败'
   } else if (status === 'CANCELLED') {
     snapshot.turnStatus = 'cancelled'
   } else {
@@ -203,7 +222,12 @@ export function* adaptWorkflowSessionViewToEvents(
   const completionAnswer = view.answer ? String(view.answer) : visibleAnswer
 
   const status = String(view.status || '').toUpperCase()
-  if (status === 'SUSPENDED' || status === 'WAITING' || status === 'WAITING_USER') {
+  if (isWorkflowSessionInFlight(status)) {
+    yield createEvent('turn.failed', {
+      message: WORKFLOW_DEBUG_UNCONFIRMED_MESSAGE,
+      status,
+    }, { sessionId, traceId })
+  } else if (status === 'SUSPENDED' || status === 'WAITING' || status === 'WAITING_USER') {
     if (visibleAnswer) yield createEvent('message.delta', { text: visibleAnswer }, { sessionId, traceId })
     if (effectiveUiRequest && !isTextOnlyUiRequest(effectiveUiRequest)) {
       yield createEvent('ui.requested', {
@@ -219,7 +243,7 @@ export function* adaptWorkflowSessionViewToEvents(
     }, { sessionId, traceId })
   } else if (status === 'FAILED' || status === 'ERROR' || status === 'EXPIRED') {
     yield createEvent('turn.failed', {
-      message: view.errorMessage || 'Workflow 调试失败',
+      message: view.errorMessage || view.answer || 'Workflow 调试失败',
       error: view.errorMessage,
     }, { sessionId, traceId })
   } else if (status === 'CANCELLED') {

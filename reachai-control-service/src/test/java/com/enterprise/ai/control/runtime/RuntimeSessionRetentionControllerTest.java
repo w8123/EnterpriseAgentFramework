@@ -1,5 +1,7 @@
 package com.enterprise.ai.control.runtime;
 
+import com.enterprise.ai.control.identity.PlatformPrincipal;
+
 import com.enterprise.ai.control.client.runtime.RuntimeSessionRetentionGateway;
 import com.enterprise.ai.control.identity.PlatformAuthenticatedSession;
 import com.enterprise.ai.control.identity.PlatformAuthAuditService;
@@ -172,7 +174,7 @@ class RuntimeSessionRetentionControllerTest {
         PlatformUserEntity user = new PlatformUserEntity();
         user.setId(42L);
         return new PlatformAuthenticatedSession(
-                user, "platform-session", null,
+                PlatformPrincipal.fromUser(user), "platform-session", null,
                 List.of("PLATFORM_ADMIN"), List.of("*"), List.of());
     }
 

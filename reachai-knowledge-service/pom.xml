@@ -15,6 +15,11 @@
     <description>ReachAI Knowledge / Retrieval deployment unit - 知识库、文档 Pipeline、RAG、向量检索、业务索引和历史 OpenAPI/Controller 扫描实现</description>
 
     <dependencies>
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>test</scope>
+        </dependency>
         <!-- 内部公共库 -->
         <dependency>
             <groupId>com.enterprise.ai</groupId>

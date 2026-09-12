@@ -5,7 +5,7 @@ import com.enterprise.ai.runtime.contract.memory.BusinessMemoryReference;
 import com.enterprise.ai.runtime.contract.memory.BusinessMemoryResolution;
 import com.enterprise.ai.runtime.execution.RuntimeBusinessMemoryHydrationPort;
 import com.enterprise.ai.runtime.execution.RuntimeBusinessMemoryHydrationPort.HydrationBatch;
-import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
+import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.beans.factory.annotation.Value;

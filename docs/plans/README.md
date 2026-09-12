@@ -4,6 +4,10 @@
 
 | 文档 | 当前用途 |
 | --- | --- |
+| [architecture-cleanup-closeout-20260912.md](./architecture-cleanup-closeout-20260912.md) | 本轮架构整理交付、必要回归结果，以及按用户要求转入后续的扩展验收清单 |
+| [knowledge-index-execution-reclamation.md](./knowledge-index-execution-reclamation.md) | 索引执行、文件/集合及原件/解析工件生命周期已接入；检索与重解析已校验不可变记录身份；解析临时文件中断与同版本真实 MinIO 回收已验证；开发库历史登记为空；继续部署态与完整服务验收 |
+| [architecture-cleanup-audit-20260905.md](./architecture-cleanup-audit-20260905.md) | 系统整理首轮体检、行为复现、架构债务、实施批次与验证边界 |
+| [architecture-cleanup-acceptance-20260910.md](./architecture-cleanup-acceptance-20260910.md) | 原始 R1–R8 要求的当前实现、验证证据及剩余部署验收对照 |
 | [platform-auth-remediation-implementation-plan.md](./platform-auth-remediation-implementation-plan.md) | 管理端认证、会话、RBAC 与 bootstrap 的剩余数据库/部署/浏览器验收 |
 | [unified-conversation-surfaces-implementation-plan.md](./unified-conversation-surfaces-implementation-plan.md) | Agent、Workflow Studio 与 Embed 共享对话内核的剩余真实流式与浏览器验收 |
 | [前端Glass-Workbench设计系统与UI重构.md](./前端Glass-Workbench设计系统与UI重构.md) | Glass Workbench 设计 Token、共享组件和分阶段 UI 迁移记录 |

@@ -34,17 +34,34 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class RuntimeExecutableDebugSessionServiceTest {
+    private static final com.enterprise.ai.runtime.debug.RuntimeDebugSessionOwner OWNER =
+            new com.enterprise.ai.runtime.debug.RuntimeDebugSessionOwner("default", "42");
 
-    private final RuntimeExecutableDebugSessionMapper mapper = mock(RuntimeExecutableDebugSessionMapper.class);
+    private com.enterprise.ai.runtime.support.RuntimeQueryTestDatabase database;
+    private RuntimeExecutableDebugSessionMapper mapper;
     private final RuntimeWorkflowDebugService workflowDebugService = mock(RuntimeWorkflowDebugService.class);
     private final ObjectMapper objectMapper = JsonMapper.builder().findAndAddModules().build();
-    private final RuntimeExecutableDebugSessionService service =
-            new RuntimeExecutableDebugSessionService(mapper, workflowDebugService, objectMapper);
+    private RuntimeExecutableDebugSessionService service;
+
+    @org.junit.jupiter.api.BeforeEach
+    void capturedDefinitionFixture() throws Exception {
+        database = new com.enterprise.ai.runtime.support.RuntimeQueryTestDatabase(
+                List.of("runtime_executable_debug_session"), RuntimeExecutableDebugSessionMapper.class);
+        mapper = org.mockito.Mockito.spy(database.mapper(RuntimeExecutableDebugSessionMapper.class));
+        service = new RuntimeExecutableDebugSessionService(mapper, workflowDebugService, objectMapper, mock(RuntimeDebugExecutionLifecycle.class));
+        when(workflowDebugService.captureDefinition(any())).thenAnswer(invocation -> {
+            RuntimeWorkflowDebugService.DebugRunRequest request = invocation.getArgument(0);
+            return new RuntimeWorkflowDebugService.DebugDefinition(null, null, null, "GENERAL", null, null,
+                    "GRAPH_SPEC", null, request.graphSpecJson(), null);
+        });
+    }
+
+    @org.junit.jupiter.api.AfterEach
+    void closeDatabase() { if (database != null) database.close(); }
 
     @Test
     void createRequestRejectsRemovedDraftDefinitionField() {
@@ -76,9 +93,9 @@ class RuntimeExecutableDebugSessionServiceTest {
                 Map.of("lastOutput", "answer ok"),
                 null,
                 null);
-        when(workflowDebugService.debugRun(any(), any(), any())).thenReturn(run);
+        when(workflowDebugService.startSessionDebug(any(), any(), any(), any(), any())).thenReturn(run);
 
-        RuntimeExecutableDebugSessionService.SessionView view = service.create(
+        RuntimeExecutableDebugSessionService.SessionView view = service.create(OWNER,
                 new RuntimeExecutableDebugSessionService.CreateRequest(
                         "WORKFLOW_WORKING_COPY",
                         Map.of("graphSpecJson", "{\"schemaVersion\":2,\"entryNodeId\":\"answer\",\"nodes\":[{\"id\":\"answer\",\"type\":\"ANSWER\"}],\"edges\":[],\"exitNodeIds\":[\"answer\"]}"),
@@ -92,8 +109,8 @@ class RuntimeExecutableDebugSessionServiceTest {
         RuntimeExecutableDebugSessionEntity inserted = captor.getValue();
         assertNotNull(inserted.getId());
         assertEquals(inserted.getId(), view.sessionId());
-        assertEquals("run-1", view.runId());
-        assertEquals("trace-1", view.traceId());
+        assertEquals(inserted.getRunId(), view.runId());
+        assertEquals(inserted.getTraceId(), view.traceId());
         assertEquals("WORKFLOW_WORKING_COPY", view.targetType());
         assertEquals("COMPLETED", view.status());
         assertEquals("answer ok", view.answer());
@@ -105,8 +122,17 @@ class RuntimeExecutableDebugSessionServiceTest {
     }
 
     @Test
-    void streamCreateReturnsSseEmitter() {
-        org.springframework.web.servlet.mvc.method.annotation.SseEmitter emitter = service.streamCreate(
+    void streamCreateReturnsSseEmitter() throws Exception {
+        CountDownLatch persisted = new CountDownLatch(1);
+        doAnswer(call -> {
+            RuntimeExecutableDebugSessionEntity row = (RuntimeExecutableDebugSessionEntity) call.callRealMethod();
+            if (row != null && "COMPLETED".equals(row.getStatus())) persisted.countDown();
+            return row;
+        }).when(mapper).selectById(any());
+        when(workflowDebugService.startSessionDebug(any(), any(), any(), any(), any())).thenReturn(
+                new RuntimeWorkflowDebugService.DebugRunResult("unused", "unused", null, "WORKFLOW", true,
+                        "COMPLETED", "ok", null, List.of(), null, List.of(), Map.of(), null, null));
+        org.springframework.web.servlet.mvc.method.annotation.SseEmitter emitter = service.streamCreate(OWNER,
                 new RuntimeExecutableDebugSessionService.CreateRequest(
                         "WORKFLOW_WORKING_COPY",
                         Map.of("graphSpecJson", "{\"schemaVersion\":2,\"entryNodeId\":\"answer\",\"nodes\":[{\"id\":\"answer\",\"type\":\"ANSWER\"}],\"edges\":[],\"exitNodeIds\":[\"answer\"]}"),
@@ -115,13 +141,15 @@ class RuntimeExecutableDebugSessionServiceTest {
                         Map.of()));
 
         assertNotNull(emitter);
+        assertTrue(persisted.await(5, TimeUnit.SECONDS));
     }
 
     @Test
     void submitContinuesWaitingSessionFromCurrentNode() {
         RuntimeExecutableDebugSessionEntity existing = waitingSessionEntity();
-        when(mapper.selectById("session-1")).thenReturn(existing);
-        when(mapper.update(any(), any())).thenReturn(1);
+        existing.setOwnerTenantId(OWNER.tenantId());
+        existing.setOwnerUserId(OWNER.userId());
+        mapper.insert(existing);
         RuntimeWorkflowDebugService.DebugRunResult run = new RuntimeWorkflowDebugService.DebugRunResult(
                 "run-1",
                 "trace-1",
@@ -137,19 +165,23 @@ class RuntimeExecutableDebugSessionServiceTest {
                 Map.of("lastOutput", "{approved=true}"),
                 null,
                 null);
-        when(workflowDebugService.debugRun(any(), any(), any())).thenReturn(run);
+        when(workflowDebugService.resumeSessionDebug(any(), any(), any(), any(), any())).thenReturn(run);
 
-        RuntimeExecutableDebugSessionService.SessionView view = service.submit(
+        RuntimeExecutableDebugSessionService.SessionView view = service.submit(OWNER,
                 "session-1",
                 new RuntimeExecutableDebugSessionService.SubmitRequest(
                         "submit",
                         Map.of("approved", true),
                         null));
 
-        ArgumentCaptor<RuntimeWorkflowDebugService.DebugRunRequest> requestCaptor =
-                ArgumentCaptor.forClass(RuntimeWorkflowDebugService.DebugRunRequest.class);
-        verify(workflowDebugService).debugRun(requestCaptor.capture(), any(), any());
-        assertEquals("confirm", requestCaptor.getValue().debugOptions().get("entryNodeId"));
+        ArgumentCaptor<RuntimeWorkflowDebugService.DebugInput> requestCaptor =
+                ArgumentCaptor.forClass(RuntimeWorkflowDebugService.DebugInput.class);
+        var continuationCaptor = ArgumentCaptor.forClass(RuntimeWorkflowDebugService.DebugContinuation.class);
+        verify(workflowDebugService).resumeSessionDebug(any(), requestCaptor.capture(), continuationCaptor.capture(), any(), any());
+        assertEquals("confirm", continuationCaptor.getValue().entryNodeId());
+        assertEquals("trace-1", continuationCaptor.getValue().run().traceId());
+        assertEquals("run-1", continuationCaptor.getValue().run().runId());
+        assertNull(requestCaptor.getValue().debugOptions().get("entryNodeId"));
         assertNull(requestCaptor.getValue().debugOptions().get("submittedPayload"));
         @SuppressWarnings("unchecked")
         Map<String, Object> resume = (Map<String, Object>) requestCaptor.getValue().inputParams()
@@ -164,7 +196,7 @@ class RuntimeExecutableDebugSessionServiceTest {
         String sqlSegment = String.valueOf(updateCaptor.getAllValues().get(0).getSqlSegment());
         assertTrue(sqlSegment.contains("SUSPENDED") || sqlSegment.toLowerCase().contains("status"),
                 "CAS must constrain status=SUSPENDED revision: " + sqlSegment);
-        verify(mapper, times(2)).update(any(), any());
+        assertEquals(2, mapper.selectById("session-1").getRevision());
         verify(mapper, never()).updateById(existing);
         assertEquals("COMPLETED", view.status());
         assertEquals("{approved=true}", view.answer());
@@ -173,19 +205,16 @@ class RuntimeExecutableDebugSessionServiceTest {
     @Test
     void concurrentSubmitOnlyOneCallsDebugRun() throws Exception {
         RuntimeExecutableDebugSessionEntity existing = waitingSessionEntity();
-        when(mapper.selectById("session-1")).thenReturn(existing);
-        AtomicInteger casWins = new AtomicInteger();
-        when(mapper.update(any(), any())).thenAnswer(invocation -> {
-            casWins.incrementAndGet();
-            return 1;
-        });
-        CountDownLatch started = new CountDownLatch(2);
+        existing.setOwnerTenantId(OWNER.tenantId());
+        existing.setOwnerUserId(OWNER.userId());
+        mapper.insert(existing);
+        CountDownLatch started = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
         AtomicInteger debugRuns = new AtomicInteger();
         RuntimeWorkflowDebugService.DebugRunResult run = new RuntimeWorkflowDebugService.DebugRunResult(
                 "run-1", "trace-1", null, "WORKFLOW", true, "COMPLETED", "done", "confirm",
                 List.of(), null, List.of(), Map.of("lastOutput", "done"), null, null);
-        when(workflowDebugService.debugRun(any(), any(), any())).thenAnswer(invocation -> {
+        when(workflowDebugService.resumeSessionDebug(any(), any(), any(), any(), any())).thenAnswer(invocation -> {
             debugRuns.incrementAndGet();
             started.countDown();
             assertTrue(release.await(3, TimeUnit.SECONDS));
@@ -194,28 +223,16 @@ class RuntimeExecutableDebugSessionServiceTest {
 
         CompletableFuture<Object> first = CompletableFuture.supplyAsync(() -> {
             try {
-                return service.submit("session-1", new RuntimeExecutableDebugSessionService.SubmitRequest(
+                return service.submit(OWNER, "session-1", new RuntimeExecutableDebugSessionService.SubmitRequest(
                         "submit", Map.of("approved", true), null, "wfi_debug1", "idem-a"));
             } catch (RuntimeException ex) {
                 return ex;
             }
         });
-        // second starts after first CAS claimed RESUMING
-        Thread.sleep(50);
-        when(mapper.selectById("session-1")).thenAnswer(invocation -> {
-            RuntimeExecutableDebugSessionEntity latest = waitingSessionEntity();
-            if (casWins.get() > 0) {
-                latest.setStatus("RESUMING");
-                latest.setRevision(1);
-                latest.setIdempotencyKey("idem-a");
-                latest.setSubmittedPayloadJson(
-                        "{\"action\":\"submit\",\"values\":{\"approved\":true},\"interactionId\":\"wfi_debug1\",\"nodeId\":\"confirm\"}");
-            }
-            return latest;
-        });
+        assertTrue(started.await(3, TimeUnit.SECONDS));
         CompletableFuture<Object> second = CompletableFuture.supplyAsync(() -> {
             try {
-                return service.submit("session-1", new RuntimeExecutableDebugSessionService.SubmitRequest(
+                return service.submit(OWNER, "session-1", new RuntimeExecutableDebugSessionService.SubmitRequest(
                         "submit", Map.of("approved", true), null, "wfi_debug1", "idem-b"));
             } catch (RuntimeException ex) {
                 return ex;
@@ -233,52 +250,32 @@ class RuntimeExecutableDebugSessionServiceTest {
 
     @Test
     void cancelDuringDebugResumeCannotBeOverwrittenByLateCompletion() throws Exception {
-        AtomicReference<RuntimeExecutableDebugSessionEntity> stored =
-                new AtomicReference<>(copyEntity(waitingSessionEntity()));
-        when(mapper.selectById("session-1")).thenAnswer(invocation -> copyEntity(stored.get()));
-        AtomicInteger conditionalUpdates = new AtomicInteger();
-        when(mapper.update(any(), any())).thenAnswer(invocation -> {
-            if (conditionalUpdates.getAndIncrement() == 0) {
-                RuntimeExecutableDebugSessionEntity claimed = copyEntity(stored.get());
-                claimed.setStatus("RESUMING");
-                claimed.setRevision(1);
-                claimed.setIdempotencyKey("idem-a");
-                claimed.setSubmittedPayloadJson(
-                        "{\"action\":\"submit\",\"values\":{\"approved\":true},\"interactionId\":\"wfi_debug1\",\"nodeId\":\"confirm\"}");
-                stored.set(claimed);
-                return 1;
-            }
-            return 0;
-        });
-        when(mapper.updateById(any())).thenAnswer(invocation -> {
-            stored.set(copyEntity(invocation.getArgument(0)));
-            return 1;
-        });
+        mapper.insert(waitingSessionEntity());
         CountDownLatch debugStarted = new CountDownLatch(1);
         CountDownLatch releaseDebug = new CountDownLatch(1);
         RuntimeWorkflowDebugService.DebugRunResult run = new RuntimeWorkflowDebugService.DebugRunResult(
                 "run-1", "trace-1", null, "WORKFLOW", true, "COMPLETED", "done", "confirm",
                 List.of(), null, List.of(), Map.of("lastOutput", "done"), null, null);
-        when(workflowDebugService.debugRun(any(), any(), any())).thenAnswer(invocation -> {
+        when(workflowDebugService.resumeSessionDebug(any(), any(), any(), any(), any())).thenAnswer(invocation -> {
             debugStarted.countDown();
             assertTrue(releaseDebug.await(3, TimeUnit.SECONDS));
             return run;
         });
 
         CompletableFuture<RuntimeExecutableDebugSessionService.SessionView> resume =
-                CompletableFuture.supplyAsync(() -> service.submit(
+                CompletableFuture.supplyAsync(() -> service.submit(OWNER,
                         "session-1",
                         new RuntimeExecutableDebugSessionService.SubmitRequest(
                                 "submit", Map.of("approved", true), null, "wfi_debug1", "idem-a")));
         assertTrue(debugStarted.await(3, TimeUnit.SECONDS));
 
-        RuntimeExecutableDebugSessionService.SessionView cancelled = service.cancel("session-1");
+        RuntimeExecutableDebugSessionService.SessionView cancelled = service.cancel(OWNER, "session-1");
         assertEquals("CANCELLED", cancelled.status());
         releaseDebug.countDown();
 
         RuntimeExecutableDebugSessionService.SessionView resumed = resume.get(5, TimeUnit.SECONDS);
         assertEquals("CANCELLED", resumed.status());
-        assertEquals("CANCELLED", service.get("session-1").status());
+        assertEquals("CANCELLED", service.get(OWNER, "session-1").status());
     }
 
     @Test
@@ -287,68 +284,77 @@ class RuntimeExecutableDebugSessionServiceTest {
         existing.setIdempotencyKey("idem-1");
         existing.setSubmittedPayloadJson(
                 "{\"action\":\"submit\",\"values\":{\"approved\":true},\"interactionId\":\"wfi_debug1\",\"nodeId\":\"confirm\"}");
-        when(mapper.selectById("session-1")).thenReturn(existing);
+        existing.setOwnerTenantId(OWNER.tenantId());
+        existing.setOwnerUserId(OWNER.userId());
+        mapper.insert(existing);
 
-        assertThrows(IllegalStateException.class, () -> service.submit(
+        assertThrows(IllegalStateException.class, () -> service.submit(OWNER,
                 "session-1",
                 new RuntimeExecutableDebugSessionService.SubmitRequest(
                         "submit", Map.of("approved", false), null, "wfi_debug1", "idem-1")));
-        verify(workflowDebugService, never()).debugRun(any(), any(), any());
+        verify(workflowDebugService, never()).resumeSessionDebug(any(), any(), any(), any(), any());
     }
 
     @Test
     void duplicateWhileOriginalDebugResumeIsStillRunningDoesNotReportSuccess() {
         RuntimeExecutableDebugSessionEntity existing = waitingSessionEntity();
         existing.setStatus("RESUMING");
+        existing.setExecutionDeadlineAt(java.time.LocalDateTime.now().plusMinutes(15));
         existing.setRevision(1);
         existing.setIdempotencyKey("idem-1");
         existing.setSubmittedPayloadJson(
                 "{\"action\":\"submit\",\"values\":{\"approved\":true},\"interactionId\":\"wfi_debug1\",\"nodeId\":\"confirm\"}");
-        when(mapper.selectById("session-1")).thenReturn(existing);
+        existing.setOwnerTenantId(OWNER.tenantId());
+        existing.setOwnerUserId(OWNER.userId());
+        mapper.insert(existing);
 
-        IllegalStateException error = assertThrows(IllegalStateException.class, () -> service.submit(
+        IllegalStateException error = assertThrows(IllegalStateException.class, () -> service.submit(OWNER,
                 "session-1",
                 new RuntimeExecutableDebugSessionService.SubmitRequest(
                         "submit", Map.of("approved", true), null, "wfi_debug1", "idem-1")));
 
         assertTrue(error.getMessage().contains("in progress"));
-        verify(workflowDebugService, never()).debugRun(any(), any(), any());
+        verify(workflowDebugService, never()).resumeSessionDebug(any(), any(), any(), any(), any());
     }
 
     @Test
     void submitCancelWaitingSessionSetsCancelledWithoutDebugRun() {
         RuntimeExecutableDebugSessionEntity existing = waitingSessionEntity();
         existing.setUiRequestJson("{\"component\":\"confirm\",\"interactionId\":\"ix-1\"}");
-        when(mapper.selectById("session-1")).thenReturn(existing);
+        existing.setOwnerTenantId(OWNER.tenantId());
+        existing.setOwnerUserId(OWNER.userId());
+        mapper.insert(existing);
 
-        RuntimeExecutableDebugSessionService.SessionView view = service.submit(
+        RuntimeExecutableDebugSessionService.SessionView view = service.submit(OWNER,
                 "session-1",
                 new RuntimeExecutableDebugSessionService.SubmitRequest("cancel", Map.of(), null));
 
         assertEquals("CANCELLED", view.status());
         assertNull(view.currentNodeId());
         assertNull(view.uiRequest());
-        verify(workflowDebugService, never()).debugRun(any());
-        verify(mapper).updateById(existing);
-        assertEquals("CANCELLED", existing.getStatus());
-        assertNull(existing.getCurrentNodeId());
+        verify(workflowDebugService, never()).resumeSessionDebug(any(), any(), any(), any(), any());
+        assertEquals("CANCELLED", mapper.selectById("session-1").getStatus());
+        assertEquals("CANCELLED", mapper.selectById("session-1").getStatus());
+        assertNull(mapper.selectById("session-1").getCurrentNodeId());
     }
 
     @Test
     void submitCancelEmitSessionEventsWritesTurnCancelledNotFailed() throws Exception {
         RuntimeExecutableDebugSessionEntity existing = waitingSessionEntity();
         existing.setUiRequestJson("{\"component\":\"confirm\",\"interactionId\":\"ix-1\"}");
-        when(mapper.selectById("session-1")).thenReturn(existing);
+        existing.setOwnerTenantId(OWNER.tenantId());
+        existing.setOwnerUserId(OWNER.userId());
+        mapper.insert(existing);
 
-        RuntimeExecutableDebugSessionService.SessionView view = service.submit(
+        RuntimeExecutableDebugSessionService.SessionView view = service.submit(OWNER,
                 "session-1",
                 new RuntimeExecutableDebugSessionService.SubmitRequest("cancel", Map.of(), null));
 
         assertEquals("CANCELLED", view.status());
         assertNull(view.currentNodeId());
         assertNull(view.uiRequest());
-        verify(workflowDebugService, never()).debugRun(any());
-        verify(mapper).updateById(existing);
+        verify(workflowDebugService, never()).resumeSessionDebug(any(), any(), any(), any(), any());
+        assertEquals("CANCELLED", mapper.selectById("session-1").getStatus());
 
         List<String> eventNames = new ArrayList<>();
         List<Object> payloads = new ArrayList<>();
@@ -373,14 +379,16 @@ class RuntimeExecutableDebugSessionServiceTest {
     void streamSubmitCancelProducesTurnCancelledViaProductionSinkPath() throws Exception {
         RuntimeExecutableDebugSessionEntity existing = waitingSessionEntity();
         existing.setUiRequestJson("{\"component\":\"confirm\",\"interactionId\":\"ix-1\"}");
-        when(mapper.selectById("session-1")).thenReturn(existing);
+        existing.setOwnerTenantId(OWNER.tenantId());
+        existing.setOwnerUserId(OWNER.userId());
+        mapper.insert(existing);
 
         List<String> eventNames = new ArrayList<>();
         AtomicReference<Map<String, Object>> cancelledPayload = new AtomicReference<>();
         CompletableFuture<Void> done = new CompletableFuture<>();
 
         // 模拟 streamSubmitInternal：submit → emitSessionEvents → session.completed
-        RuntimeExecutableDebugSessionService.SessionView view = service.submit(
+        RuntimeExecutableDebugSessionService.SessionView view = service.submit(OWNER,
                 "session-1",
                 new RuntimeExecutableDebugSessionService.SubmitRequest("cancel", Map.of(), null));
         service.emitSessionEvents(view, (eventName, data) -> {
@@ -404,7 +412,7 @@ class RuntimeExecutableDebugSessionServiceTest {
         assertNotNull(cancelledPayload.get());
         assertEquals("session-1", cancelledPayload.get().get("sessionId"));
         assertEquals("CANCELLED", cancelledPayload.get().get("status"));
-        verify(workflowDebugService, never()).debugRun(any());
+        verify(workflowDebugService, never()).resumeSessionDebug(any(), any(), any(), any(), any());
     }
 
     @Test
@@ -504,16 +512,16 @@ class RuntimeExecutableDebugSessionServiceTest {
                 "RUNTIME_GRAPH_CANCELLED",
                 "Workflow execution cancelled");
         doAnswer(invocation -> {
-            RuntimeGraphSpecExecutionEventSink sink = invocation.getArgument(1);
-            RuntimeGraphSpecExecutionCancellation cancellation = invocation.getArgument(2);
+            RuntimeGraphSpecExecutionEventSink sink = invocation.getArgument(3);
+            RuntimeGraphSpecExecutionCancellation cancellation = invocation.getArgument(4);
             sink.onNodeStarted("n1", "USER_INPUT", "one", Map.of("nodeId", "n1"));
             cancellation.cancel();
             sink.onExecutionCancelled(Map.of("currentNodeId", "n1", "code", "RUNTIME_GRAPH_CANCELLED"));
             return cancelledRun;
-        }).when(workflowDebugService).debugRun(any(), any(), any());
+        }).when(workflowDebugService).startSessionDebug(any(), any(), any(), any(), any());
 
         List<String> eventNames = new ArrayList<>();
-        service.runStreamCreate((eventName, data) -> eventNames.add(eventName),
+        service.runStreamCreate(OWNER, (eventName, data) -> eventNames.add(eventName),
                 new RuntimeExecutableDebugSessionService.CreateRequest(
                         "WORKFLOW_WORKING_COPY",
                         Map.of("graphSpecJson", "{\"schemaVersion\":2,\"entryNodeId\":\"n1\",\"nodes\":[{\"id\":\"n1\",\"type\":\"USER_INPUT\"}],\"edges\":[],\"exitNodeIds\":[\"n1\"]}"),
@@ -535,16 +543,16 @@ class RuntimeExecutableDebugSessionServiceTest {
         AtomicInteger streamErrors = new AtomicInteger();
         RuntimeGraphSpecExecutionCancellation cancellation = new RuntimeGraphSpecExecutionCancellation();
         doAnswer(invocation -> {
-            RuntimeGraphSpecExecutionEventSink sink = invocation.getArgument(1);
-            RuntimeGraphSpecExecutionCancellation cancel = invocation.getArgument(2);
+            RuntimeGraphSpecExecutionEventSink sink = invocation.getArgument(3);
+            RuntimeGraphSpecExecutionCancellation cancel = invocation.getArgument(4);
             sink.onNodeStarted("n1", "LLM", "llm", Map.of("nodeId", "n1"));
             cancel.cancel();
             sink.onExecutionCancelled(Map.of("currentNodeId", "n1"));
             throw new IllegalStateException("post-cancel execution noise");
-        }).when(workflowDebugService).debugRun(any(), any(), any());
+        }).when(workflowDebugService).startSessionDebug(any(), any(), any(), any(), any());
 
         try {
-            service.runStreamCreate((eventName, data) -> {
+            service.runStreamCreate(OWNER, (eventName, data) -> {
                 if ("turn.failed".equals(eventName)) {
                     streamErrors.incrementAndGet();
                 }
@@ -580,10 +588,10 @@ class RuntimeExecutableDebugSessionServiceTest {
                 Map.of(),
                 "RUNTIME_GRAPH_LLM_FAILED",
                 "node boom");
-        when(workflowDebugService.debugRun(any(), any(), any())).thenReturn(failedRun);
+        when(workflowDebugService.startSessionDebug(any(), any(), any(), any(), any())).thenReturn(failedRun);
 
         List<String> eventNames = new ArrayList<>();
-        service.runStreamCreate((eventName, data) -> eventNames.add(eventName),
+        service.runStreamCreate(OWNER, (eventName, data) -> eventNames.add(eventName),
                 new RuntimeExecutableDebugSessionService.CreateRequest(
                         "WORKFLOW_WORKING_COPY",
                         Map.of("graphSpecJson", "{\"schemaVersion\":2,\"entryNodeId\":\"n1\",\"nodes\":[{\"id\":\"n1\",\"type\":\"LLM\"}],\"edges\":[],\"exitNodeIds\":[\"n1\"]}"),
@@ -614,6 +622,8 @@ class RuntimeExecutableDebugSessionServiceTest {
     private static RuntimeExecutableDebugSessionEntity waitingSessionEntity() {
         RuntimeExecutableDebugSessionEntity existing = new RuntimeExecutableDebugSessionEntity();
         existing.setId("session-1");
+        existing.setOwnerTenantId(OWNER.tenantId());
+        existing.setOwnerUserId(OWNER.userId());
         existing.setRunId("run-1");
         existing.setTraceId("trace-1");
         existing.setTargetType("WORKFLOW_WORKING_COPY");
@@ -629,7 +639,4 @@ class RuntimeExecutableDebugSessionServiceTest {
         return existing;
     }
 
-    private RuntimeExecutableDebugSessionEntity copyEntity(RuntimeExecutableDebugSessionEntity source) {
-        return objectMapper.convertValue(source, RuntimeExecutableDebugSessionEntity.class);
-    }
 }

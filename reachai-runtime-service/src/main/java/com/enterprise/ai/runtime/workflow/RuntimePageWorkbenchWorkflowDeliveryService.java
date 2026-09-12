@@ -47,8 +47,8 @@ public class RuntimePageWorkbenchWorkflowDeliveryService {
     private final RuntimeWorkflowVersionService workflowVersionService;
     private final RuntimePageAssistantWorkflowAttachmentService attachmentService;
     private final ObjectMapper objectMapper;
+    private final RuntimeWorkflowDraftSubmissionService draftSubmissions;
 
-    @Transactional
     public EngineeringDraftView createDraft(
             String routeProjectCode,
             EngineeringDraftRequest request) {
@@ -111,15 +111,18 @@ public class RuntimePageWorkbenchWorkflowDeliveryService {
                                 RuntimeWorkflowResourceBindingService.ROLE_TARGET)),
                         "Page Workbench task " + taskId);
 
-        ContextView context = workflowDefinitionService.findByKeySlug(keySlug)
-                .map(existing -> replaceExistingDraft(
-                        existing,
-                        projectId,
-                        projectCode,
-                        taskId,
-                        pageKey,
-                        draftRequest))
-                .orElseGet(() -> workflowAiCodingService.createWorkflow(draftRequest));
+        ContextView context = draftSubmissions.apply(
+                new RuntimeWorkflowDraftSubmissionService.Scope(
+                        "PAGE_WORKBENCH", projectId, projectCode, taskId, pageKey),
+                java.util.Arrays.asList(draftRequest, summary, replaceWorkflowId, remainingQuestions),
+                attempt -> {
+                    ContextView applied = attempt.current() == null
+                            ? workflowAiCodingService.createWorkflow(attempt.workflowId(), draftRequest)
+                            : replaceExistingDraft(attempt.current(), projectId, projectCode, taskId,
+                                    pageKey, draftRequest, attempt.baseRevision());
+                    return new RuntimeWorkflowDraftSubmissionService.Applied<>(
+                            applied.workflow().id(), applied.workflow().updatedAt(), applied);
+                }, workflowAiCodingService::context);
         return toDraftView(
                 context,
                 taskId,
@@ -194,7 +197,8 @@ public class RuntimePageWorkbenchWorkflowDeliveryService {
                     version,
                     100,
                     "Delivered from Page Workbench task " + taskId,
-                    defaultText(request.publishedBy(), "ReachAI Page Workbench"));
+                    "system:page-workbench",
+                    workflow.getUpdatedAt().toString());
         }
 
         RuntimePageAssistantWorkflowAttachment attachment =
@@ -263,7 +267,8 @@ public class RuntimePageWorkbenchWorkflowDeliveryService {
             String projectCode,
             String taskId,
             String pageKey,
-            RuntimeWorkflowAiCodingService.CreateRequest draftRequest) {
+            RuntimeWorkflowAiCodingService.CreateRequest draftRequest,
+            String baseRevision) {
         requireOwnedTaskDraft(
                 workflow,
                 projectId,
@@ -275,7 +280,7 @@ public class RuntimePageWorkbenchWorkflowDeliveryService {
                     "task-scoped workflow is no longer a draft");
         }
         requireExactPageBinding(workflow, pageKey);
-        return workflowAiCodingService.replaceDraft(workflow.getId(), draftRequest);
+        return workflowAiCodingService.replaceDraft(workflow.getId(), draftRequest, baseRevision);
     }
 
     private void requireOwnedTaskDraft(

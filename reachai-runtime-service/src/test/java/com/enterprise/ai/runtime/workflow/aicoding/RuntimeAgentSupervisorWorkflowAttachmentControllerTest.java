@@ -1,5 +1,9 @@
 package com.enterprise.ai.runtime.workflow.aicoding;
 
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowAgentAttachmentPort;
+
+import com.enterprise.ai.runtime.internal.RuntimeAgentSupervisorWorkflowAttachmentService;
+
 import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
 
@@ -17,16 +21,16 @@ class RuntimeAgentSupervisorWorkflowAttachmentControllerTest {
                 mock(RuntimeAgentSupervisorWorkflowAttachmentService.class);
         RuntimeAgentSupervisorWorkflowAttachmentController controller =
                 new RuntimeAgentSupervisorWorkflowAttachmentController(service);
-        RuntimeAgentSupervisorWorkflowAttachmentService.AttachRequest request =
-                new RuntimeAgentSupervisorWorkflowAttachmentService.AttachRequest(
+        RuntimeWorkflowAgentAttachmentPort.AttachRequest request =
+                new RuntimeWorkflowAgentAttachmentPort.AttachRequest(
                         "wf-1", null, "orders-page-copilot", "model-1", "Cursor");
-        when(service.attach(7L, request)).thenReturn(new RuntimeAgentSupervisorWorkflowAttachmentService.AttachmentResult(
+        when(service.attach(7L, request)).thenReturn(new RuntimeWorkflowAgentAttachmentPort.AttachmentResult(
                 "workflow-tool-attachment.v1",
                 7L,
                 "orders",
-                new RuntimeAgentSupervisorWorkflowAttachmentService.AgentRef("agent-1", "orders-page-copilot"),
-                new RuntimeAgentSupervisorWorkflowAttachmentService.WorkflowRef("wf-1", "chat-flow", "GENERAL"),
-                new RuntimeAgentSupervisorWorkflowAttachmentService.ActiveConfigRef(21L, 2, "ACTIVE"),
+                new RuntimeWorkflowAgentAttachmentPort.AgentRef("agent-1", "orders-page-copilot"),
+                new RuntimeWorkflowAgentAttachmentPort.WorkflowRef("wf-1", "chat-flow", "GENERAL"),
+                new RuntimeWorkflowAgentAttachmentPort.ActiveConfigRef(21L, 2, "ACTIVE"),
                 "chat_flow",
                 true,
                 false));
@@ -34,8 +38,8 @@ class RuntimeAgentSupervisorWorkflowAttachmentControllerTest {
         ResponseEntity<?> response = controller.attach(7L, request);
 
         assertEquals(200, response.getStatusCode().value());
-        RuntimeAgentSupervisorWorkflowAttachmentService.AttachmentResult body =
-                (RuntimeAgentSupervisorWorkflowAttachmentService.AttachmentResult) response.getBody();
+        RuntimeWorkflowAgentAttachmentPort.AttachmentResult body =
+                (RuntimeWorkflowAgentAttachmentPort.AttachmentResult) response.getBody();
         assertEquals("chat_flow", body.toolName());
         assertEquals("ACTIVE", body.activeConfig().status());
     }
@@ -46,8 +50,8 @@ class RuntimeAgentSupervisorWorkflowAttachmentControllerTest {
                 mock(RuntimeAgentSupervisorWorkflowAttachmentService.class);
         RuntimeAgentSupervisorWorkflowAttachmentController controller =
                 new RuntimeAgentSupervisorWorkflowAttachmentController(service);
-        RuntimeAgentSupervisorWorkflowAttachmentService.AttachRequest request =
-                new RuntimeAgentSupervisorWorkflowAttachmentService.AttachRequest(
+        RuntimeWorkflowAgentAttachmentPort.AttachRequest request =
+                new RuntimeWorkflowAgentAttachmentPort.AttachRequest(
                         "missing", null, null, null, null);
         when(service.attach(7L, request)).thenThrow(new AiCodingAttachmentException(
                 "WORKFLOW_NOT_FOUND", "workflow not found: missing",

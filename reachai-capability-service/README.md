@@ -7,9 +7,9 @@
 本服务拥有：
 
 - 项目 Enrollment、项目凭据验证、实例注册/心跳和 SDK 能力同步；
-- Capability 快照、字段级 diff、review/apply/ignore 与回滚所需状态；
+- Capability 来源观察、内容去重、自动接纳策略、当前候选、项目归属校验、逐项 apply/ignore 与回滚、调用前来源一致性保护；
 - 扫描项目、模块、接口资产、语义文档和 API 图谱快照；
-- Capability Kernel、组合、领域归属，以及 `capability_tool_definition` 运行时调用投影；
+- 内部 Runtime Composition 兼容存储、领域归属，以及 `capability_tool_definition` 运行时调用投影；不将 Kernel 模块/Tool 暴露为公共人工资产模型；
 - 调用候选检索管理和 Runtime Tool/Capability internal execution；
 - API 市场的来源、提供方、条目、不可变版本、Operation、验证证据和项目接入意图。
 
@@ -21,10 +21,10 @@
 
 | 路径族 | 用途 |
 | --- | --- |
-| `/api/registry/projects/**` | 项目、实例、能力快照、diff/review 与 Enrollment 兼容契约 |
+| `/api/registry/projects/**` | 项目、实例、可信来源同步、能力变化与 Enrollment 兼容契约；评审管理路径要求 Control HMAC，不暴露 bulk apply |
 | `/api/scan-projects/**`、`/api/scan-modules/**` | 扫描项目与接口目录 |
 | `/api/semantic-docs/**`、`/api/api-graph/**` | 语义文档与 API 图谱 |
-| `/api/tools/**`、`/api/capabilities/**` | 能力目录、Kernel 与兼容的运行时调用投影 |
+| `GET /api/tools/**` | 能力目录与兼容的运行时调用投影；只读 |
 | `/api/tool-retrieval/**` | 调用候选召回与索引管理 |
 | `/api/domains/**` | 领域定义与资产归属 |
 | `/api/api-market/**` | 外部 API 发现、详情、统计和项目接入 |
@@ -52,7 +52,7 @@ Runtime 通过 Capability internal API 获取/执行能力；不得直接读取 
 | `capability.catalog.semantic` | 语义文档 |
 | `capability.catalog.graph` | API 图谱快照 |
 | `capability.catalog.retrieval` | 调用候选检索 |
-| `agent.capability.catalog` | Capability Kernel 与 Domain |
+| `agent.capability.catalog` | 内部 Composition 兼容存储与 Domain；无公共 Kernel CRUD |
 | `capability.externalapi` | API 市场目录和项目接入 |
 | `capability.internal` | Runtime/Control internal contract |
 

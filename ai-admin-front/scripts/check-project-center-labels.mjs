@@ -149,21 +149,22 @@ if (projectDetail.includes('CapabilityReviewPanel')) {
 }
 if (
   !capabilitySyncDebug.includes('<CapabilityReviewPanel')
-  || !capabilitySyncDebug.includes('title="能力变更评审 / 同步调试台"')
+  || !capabilitySyncDebug.includes('title="能力变更评审"')
+  || !capabilitySyncDebug.includes('title="同步能力快照"')
+  || !capabilitySyncDebug.includes("route.name === 'CapabilitySyncSnapshot'")
 ) {
-  failures.push('capability review and sync debug page should host the capability snapshot and review panel')
+  failures.push('capability review and SDK snapshot diagnostics should stay route-separated in the shared page')
 }
 if (
-  !capabilityReviewPanel.includes('<span>能力同步与变更</span>')
-  || !capabilityReviewPanel.includes('刷新列表')
-  || capabilityReviewPanel.includes('刷新快照')
+  !capabilityReviewPanel.includes('快照与变更决策')
+  || !capabilityReviewPanel.includes('刷新批次')
+  || !capabilityReviewPanel.includes('影响证据边界')
 ) {
-  failures.push('capability review panel should use the aligned snapshot and change-management copy')
+  failures.push('capability review panel should expose the snapshot, decision, and evidence-boundary workflow')
 }
 
 const scanVisibleCopyFiles = [
   'src/views/scan/components/scan-project/ScanProjectAddInterfaceDialog.vue',
-  'src/views/scan/components/scan-project/ScanProjectScanRulesDrawer.vue',
 ]
 
 for (const file of scanVisibleCopyFiles) {

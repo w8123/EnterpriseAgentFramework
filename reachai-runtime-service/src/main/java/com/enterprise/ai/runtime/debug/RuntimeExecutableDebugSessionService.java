@@ -1,6 +1,5 @@
 package com.enterprise.ai.runtime.debug;
 
-import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.enterprise.ai.runtime.api.SseHeartbeatSupport;
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionCancellation;
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionEventSink;
@@ -14,6 +13,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -30,6 +31,7 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 @Service
+@Transactional(propagation = Propagation.NOT_SUPPORTED)
 public class RuntimeExecutableDebugSessionService {
 
     private static final long DEBUG_STREAM_TIMEOUT_MS = 600_000L;
@@ -47,20 +49,20 @@ public class RuntimeExecutableDebugSessionService {
             new TypeReference<>() {
             };
 
-    private final RuntimeExecutableDebugSessionMapper mapper;
+    private final RuntimeDebugSessionStore store;
     private final RuntimeWorkflowDebugService workflowDebugService;
     private final ObjectMapper objectMapper;
     private final SseHeartbeatSupport heartbeatSupport;
     private final long debugStreamHeartbeatIntervalMs;
 
     @Autowired
-    public RuntimeExecutableDebugSessionService(RuntimeExecutableDebugSessionMapper mapper,
+    public RuntimeExecutableDebugSessionService(RuntimeDebugSessionStore store,
                                                  RuntimeWorkflowDebugService workflowDebugService,
                                                 ObjectMapper objectMapper,
                                                 SseHeartbeatSupport heartbeatSupport,
                                                 @Value("${reachai.runtime.debug-stream.heartbeat-interval-ms:8000}")
                                                 long debugStreamHeartbeatIntervalMs) {
-        this.mapper = mapper;
+        this.store = store;
         this.workflowDebugService = workflowDebugService;
         this.objectMapper = objectMapper;
         this.heartbeatSupport = heartbeatSupport == null ? new SseHeartbeatSupport() : heartbeatSupport;
@@ -72,106 +74,139 @@ public class RuntimeExecutableDebugSessionService {
     /** 测试构造：默认 heartbeat 周期与调度器。 */
     public RuntimeExecutableDebugSessionService(RuntimeExecutableDebugSessionMapper mapper,
                                                 RuntimeWorkflowDebugService workflowDebugService,
-                                                ObjectMapper objectMapper) {
-        this(mapper, workflowDebugService, objectMapper, new SseHeartbeatSupport(), DEFAULT_HEARTBEAT_INTERVAL_MS);
+                                                ObjectMapper objectMapper,
+                                                RuntimeDebugExecutionLifecycle executionLifecycle) {
+        this(new RuntimeDebugSessionStore(mapper, objectMapper, executionLifecycle), workflowDebugService, objectMapper, new SseHeartbeatSupport(), DEFAULT_HEARTBEAT_INTERVAL_MS);
     }
 
-    public SessionView create(CreateRequest request) {
-        return create(request, RuntimeGraphSpecExecutionEventSink.NOOP, RuntimeGraphSpecExecutionCancellation.none());
+    public SessionView create(RuntimeDebugSessionOwner owner, CreateRequest request) {
+        return create(owner, request, RuntimeGraphSpecExecutionEventSink.NOOP, RuntimeGraphSpecExecutionCancellation.none());
     }
 
-    public SessionView create(CreateRequest request,
+    public SessionView create(RuntimeDebugSessionOwner owner, CreateRequest request,
                               RuntimeGraphSpecExecutionEventSink eventSink,
                               RuntimeGraphSpecExecutionCancellation cancellation) {
+        return create(owner, request, eventSink, cancellation, admitted -> { });
+    }
+
+    private SessionView create(RuntimeDebugSessionOwner owner, CreateRequest request,
+                               RuntimeGraphSpecExecutionEventSink eventSink,
+                               RuntimeGraphSpecExecutionCancellation cancellation,
+                               java.util.function.Consumer<SessionView> onAdmitted) {
+        java.util.Objects.requireNonNull(owner, "owner");
         if (request == null || request.workingCopyDefinition() == null || request.workingCopyDefinition().isEmpty()) {
             throw new IllegalArgumentException("workingCopyDefinition is required");
         }
-        String sessionId = UUID.randomUUID().toString();
-        String runId = "studio-debug-session-" + sessionId;
-        Map<String, Object> options = new LinkedHashMap<>(request.debugOptions() == null ? Map.of() : request.debugOptions());
-        options.put("runId", runId);
-        options.put("traceId", runId);
-        options.put("sessionId", sessionId);
-
-        RuntimeWorkflowDebugService.DebugRunResult run = workflowDebugService.debugRun(debugRunRequest(
-                request.targetType(),
-                request.workingCopyDefinition(),
-                nullToEmpty(request.message()),
-                request.inputParams() == null ? Map.of() : request.inputParams(),
-                options), eventSink, cancellation);
+        String targetType = requireTargetType(request.targetType());
+        var creationIdentity=RuntimeDebugCreationIdentity.from(owner,request,objectMapper);
+        if(creationIdentity!=null){
+            var existing=store.findCreation(owner,creationIdentity.sessionId(),creationIdentity.requestHash());
+            if(existing!=null){
+                var view=toView(existing);onAdmitted.accept(view);return view;
+            }
+        }
+        var definition = workflowDebugService.captureDefinition(debugRunRequest(request.workingCopyDefinition()));
+        String sessionId = creationIdentity==null ? UUID.randomUUID().toString() : creationIdentity.sessionId();
+        // Creation keys produce 64-character session IDs; Run/Trace have their own 64-character limit.
+        String runId = "studio-debug-session-" + UUID.randomUUID();
+        Map<String, Object> options = executionOptions(request.debugOptions());
 
         List<MessageView> messages = new ArrayList<>();
         if (StringUtils.hasText(request.message())) {
-            messages.add(message("user", request.message(), null, run.traceId(), null));
+            messages.add(message("user", request.message(), null, runId, null));
         }
-        appendRuntimeMessage(messages, run);
-
         LocalDateTime now = LocalDateTime.now();
         RuntimeExecutableDebugSessionEntity entity = new RuntimeExecutableDebugSessionEntity();
         entity.setId(sessionId);
-        entity.setRunId(firstText(run.runId(), runId));
-        entity.setTraceId(firstText(run.traceId(), runId));
-        entity.setTargetType(requireTargetType(request.targetType()));
-        entity.setStatus(debugStatusFromExecution(run.status()));
+        entity.setRunId(runId);
+        entity.setTraceId(runId);
+        entity.setTargetType(targetType);
+        entity.setStatus("RUNNING");
         entity.setRevision(0);
-        entity.setCurrentNodeId(run.currentNodeId());
-        entity.setWorkingCopyDefinitionJson(writeJson(request.workingCopyDefinition()));
+        entity.setCreationRequestHash(creationIdentity==null ? null : creationIdentity.requestHash());
+        entity.setWorkingCopyDefinitionJson(writeJson(definition));
         entity.setDebugOptionsJson(writeJson(options));
-        entity.setStateSnapshotJson(writeJson(run.stateSnapshot()));
+        entity.setStateSnapshotJson(writeJson(request.inputParams() == null ? Map.of() : request.inputParams()));
         entity.setMessagesJson(writeJson(messages));
-        entity.setStepsJson(writeJson(run.steps()));
-        entity.setUiRequestJson(writeJson(run.uiRequest()));
+        entity.setStepsJson("[]");
         entity.setCreateTime(now);
         entity.setUpdateTime(now);
         entity.setExpiresAt(now.plusHours(24));
-        mapper.insert(entity);
-        return toView(entity);
+        if(creationIdentity==null)store.create(owner,entity);
+        else {
+            var admission=store.reserveCreation(owner,entity);
+            if(!admission.created()){
+                var view=toView(admission.session());onAdmitted.accept(view);return view;
+            }
+        }
+
+        RuntimeWorkflowDebugService.DebugRunResult run;
+        try {
+            onAdmitted.accept(toView(entity));
+            run = workflowDebugService.startSessionDebug(definition,
+                    new RuntimeWorkflowDebugService.DebugInput(nullToEmpty(request.message()),
+                            request.inputParams() == null ? Map.of() : request.inputParams(), options),
+                    new RuntimeWorkflowDebugService.DebugRunReference(runId, runId), eventSink, cancellation);
+            if (run == null) throw new IllegalStateException("debug execution returned no result");
+        } catch (RuntimeException failure) {
+            recordExecutionFailure(owner, entity, "RUNNING", 0, cancellation, failure);
+            throw failure;
+        }
+        return completeExecution(owner, entity, run, messages, new ArrayList<>(), options, "RUNNING", 0);
     }
 
-    public SessionView get(String sessionId) {
-        return toView(requireSession(sessionId));
+    public SessionView get(RuntimeDebugSessionOwner owner, String sessionId) {
+        return toView(requireSession(owner, sessionId));
     }
 
-    public SessionView submit(String sessionId, SubmitRequest request) {
-        return submit(sessionId, request,
+    public SessionView getByCreationKey(RuntimeDebugSessionOwner owner, String key) {
+        java.util.Objects.requireNonNull(owner,"owner");
+        return get(owner,RuntimeDebugCreationIdentity.sessionId(owner,key,objectMapper));
+    }
+
+    public SessionView submit(RuntimeDebugSessionOwner owner, String sessionId, SubmitRequest request) {
+        return submit(owner, sessionId, request,
                 RuntimeGraphSpecExecutionEventSink.NOOP, RuntimeGraphSpecExecutionCancellation.none());
     }
 
-    public SessionView submit(String sessionId,
+    public SessionView submit(RuntimeDebugSessionOwner owner, String sessionId,
                               SubmitRequest request,
                               RuntimeGraphSpecExecutionEventSink eventSink,
                               RuntimeGraphSpecExecutionCancellation cancellation) {
-        RuntimeExecutableDebugSessionEntity entity = requireSession(sessionId);
+        RuntimeExecutableDebugSessionEntity entity = requireSession(owner, sessionId);
         String status = normalizeStatus(entity.getStatus());
         Map<String, Object> submitted = request == null || request.values() == null
                 ? new LinkedHashMap<>()
                 : new LinkedHashMap<>(request.values());
         String idempotencyKey = request == null ? null : request.idempotencyKey();
+        boolean repeatingSubmission = StringUtils.hasText(idempotencyKey)
+                && idempotencyKey.equals(entity.getIdempotencyKey());
+        // The execution cursor can advance after submission. Replay belongs to the committed checkpoint.
+        String submittedNodeId = repeatingSubmission
+                ? text(readMap(entity.getSubmittedPayloadJson()).get("nodeId"))
+                : entity.getCurrentNodeId();
         String submittedCanonical = writeJson(canonicalSubmitPayload(
                 firstText(request == null ? null : request.action(), "submit"),
                 submitted,
                 request == null ? null : request.interactionId(),
-                entity.getCurrentNodeId()));
+                submittedNodeId));
 
-        if (!RuntimeDebugSessionStatus.SUSPENDED.name().equals(status)) {
-            if (RuntimeDebugSessionStatus.RESUMING.name().equals(status)) {
-                throw new IllegalStateException("debug submit in progress: " + sessionId);
-            }
-            if (StringUtils.hasText(idempotencyKey)
-                    && idempotencyKey.equals(entity.getIdempotencyKey())
-                    && submittedCanonical.equals(entity.getSubmittedPayloadJson())) {
+        if (RuntimeDebugSessionStatus.RESUMING.name().equals(status)) {
+            throw new IllegalStateException("debug submit in progress: " + sessionId);
+        }
+        // Check the previous receipt before validating a new waiting interaction.
+        if (repeatingSubmission) {
+            if (submittedCanonical.equals(entity.getSubmittedPayloadJson())) {
                 return toView(entity);
             }
-            if (StringUtils.hasText(idempotencyKey)
-                    && idempotencyKey.equals(entity.getIdempotencyKey())
-                    && !submittedCanonical.equals(nullToEmpty(entity.getSubmittedPayloadJson()))) {
-                throw new IllegalStateException("duplicate debug submit with different payload: " + sessionId);
-            }
+            throw new IllegalStateException("duplicate debug submit with different payload: " + sessionId);
+        }
+        if (!RuntimeDebugSessionStatus.SUSPENDED.name().equals(status)) {
             throw new IllegalArgumentException("debug session is not suspended: " + sessionId);
         }
         String action = firstText(request == null ? null : request.action(), "submit");
         if ("cancel".equalsIgnoreCase(action)) {
-            return cancel(sessionId);
+            return cancel(owner, sessionId);
         }
         if (!StringUtils.hasText(entity.getCurrentNodeId())) {
             throw new IllegalArgumentException("debug session has no waiting node: " + sessionId);
@@ -188,33 +223,6 @@ public class RuntimeExecutableDebugSessionService {
         }
         if (!StringUtils.hasText(requestInteractionId) && StringUtils.hasText(waitingInteractionId)) {
             requestInteractionId = waitingInteractionId;
-        }
-
-        if (StringUtils.hasText(idempotencyKey)
-                && idempotencyKey.equals(entity.getIdempotencyKey())
-                && submittedCanonical.equals(entity.getSubmittedPayloadJson())) {
-            return toView(entity);
-        }
-        if (StringUtils.hasText(idempotencyKey)
-                && idempotencyKey.equals(entity.getIdempotencyKey())
-                && StringUtils.hasText(entity.getSubmittedPayloadJson())
-                && !submittedCanonical.equals(entity.getSubmittedPayloadJson())) {
-            throw new IllegalStateException("duplicate debug submit with different payload: " + sessionId);
-        }
-
-        // Atomic CAS: SUSPENDED + revision -> RESUMING
-        if (!claimDebugResuming(entity, idempotencyKey, submittedCanonical)) {
-            RuntimeExecutableDebugSessionEntity latest = requireSession(sessionId);
-            if (RuntimeDebugSessionStatus.RESUMING.name()
-                    .equalsIgnoreCase(normalizeStatus(latest.getStatus()))) {
-                throw new IllegalStateException("debug submit in progress: " + sessionId);
-            }
-            if (StringUtils.hasText(idempotencyKey)
-                    && idempotencyKey.equals(latest.getIdempotencyKey())
-                    && submittedCanonical.equals(latest.getSubmittedPayloadJson())) {
-                return toView(latest);
-            }
-            throw new IllegalStateException("concurrent debug submit rejected: " + sessionId);
         }
 
         Map<String, Object> workingCopy = readMap(entity.getWorkingCopyDefinitionJson());
@@ -242,82 +250,53 @@ public class RuntimeExecutableDebugSessionService {
             stateSnapshot.put("input", request.message());
         }
 
-        Map<String, Object> options = readMap(entity.getDebugOptionsJson());
-        options.put("entryNodeId", entity.getCurrentNodeId());
-        options.put("runId", entity.getRunId());
-        options.put("traceId", entity.getTraceId());
-        options.put("sessionId", entity.getId());
-        options.remove("submittedPayload");
-        options.remove("submitLock");
+        Map<String, Object> options = executionOptions(readMap(entity.getDebugOptionsJson()));
 
+        var definition = restoreSessionDefinition(workingCopy);
+        var continuation = new RuntimeWorkflowDebugService.DebugContinuation(
+                new RuntimeWorkflowDebugService.DebugRunReference(entity.getRunId(), entity.getTraceId()),
+                entity.getCurrentNodeId());
+        List<MessageView> messages = readMessages(entity.getMessagesJson());
+        List<RuntimeWorkflowDebugService.DebugStepResult> steps = readSteps(entity.getStepsJson());
+        // Atomic CAS: SUSPENDED + revision -> RESUMING
+        if (!store.claim(owner, entity, idempotencyKey, submittedCanonical)) {
+            RuntimeExecutableDebugSessionEntity latest = requireSession(owner, sessionId);
+            if (RuntimeDebugSessionStatus.RESUMING.name()
+                    .equalsIgnoreCase(normalizeStatus(latest.getStatus()))) {
+                throw new IllegalStateException("debug submit in progress: " + sessionId);
+            }
+            if (StringUtils.hasText(idempotencyKey)
+                    && idempotencyKey.equals(latest.getIdempotencyKey())
+                    && submittedCanonical.equals(latest.getSubmittedPayloadJson())) {
+                return toView(latest);
+            }
+            throw new IllegalStateException("concurrent debug submit rejected: " + sessionId);
+        }
+
+        int revision = entity.getRevision();
         RuntimeWorkflowDebugService.DebugRunResult run;
         try {
-            run = workflowDebugService.debugRun(debugRunRequest(
-                    entity.getTargetType(),
-                    workingCopy,
-                    request == null ? "" : nullToEmpty(request.message()),
-                    stateSnapshot,
-                    options), eventSink, cancellation);
-        } catch (RuntimeException ex) {
-            rollbackDebugWaiting(entity);
-            throw ex;
+            run = workflowDebugService.resumeSessionDebug(definition,
+                    new RuntimeWorkflowDebugService.DebugInput(request == null ? "" : nullToEmpty(request.message()),
+                            stateSnapshot, options), continuation, eventSink, cancellation);
+            if (run == null) throw new IllegalStateException("debug execution returned no result");
+        } catch (RuntimeException failure) {
+            recordExecutionFailure(owner, entity, "RESUMING", revision, cancellation, failure);
+            throw failure;
         }
-
-        List<MessageView> messages = readMessages(entity.getMessagesJson());
         messages.add(message("user", submitMessage(request, submitted), entity.getCurrentNodeId(), entity.getTraceId(), null));
-        appendRuntimeMessage(messages, run);
-        List<RuntimeWorkflowDebugService.DebugStepResult> steps = readSteps(entity.getStepsJson());
-        steps.addAll(run.steps() == null ? List.of() : run.steps());
-
-        // 校验失败仍 SUSPENDED：保留原 interactionId / currentNodeId
-        String nextStatus = debugStatusFromExecution(run.status());
-        entity.setStatus(nextStatus);
-        entity.setCurrentNodeId(run.currentNodeId());
-        Map<String, Object> stateSnapshotResult = run.stateSnapshot() == null
-                ? new LinkedHashMap<>() : new LinkedHashMap<>(run.stateSnapshot());
-        stateSnapshotResult.remove("submittedPayload");
-        stateSnapshotResult.remove(WorkflowInteractionCodes.RESUME_CONTEXT_KEY);
-        entity.setStateSnapshotJson(writeJson(stateSnapshotResult));
-        entity.setMessagesJson(writeJson(messages));
-        entity.setStepsJson(writeJson(steps));
-        entity.setUiRequestJson(writeJson(run.uiRequest()));
-        entity.setDebugOptionsJson(writeJson(options));
-        entity.setResultJson(writeJson(Map.of(
-                "code", firstText(run.errorCode(), nextStatus),
-                "answer", nullToEmpty(run.answer()),
-                "status", nextStatus)));
-        if (StringUtils.hasText(idempotencyKey)) {
-            entity.setIdempotencyKey(idempotencyKey);
-        }
-        entity.setSubmittedPayloadJson(submittedCanonical);
-        int resumingRevision = entity.getRevision() == null ? 0 : entity.getRevision();
-        entity.setRevision(resumingRevision + 1);
-        entity.setUpdateTime(LocalDateTime.now());
-        if (!persistDebugResumeResult(entity, resumingRevision)) {
-            RuntimeExecutableDebugSessionEntity latest = requireSession(sessionId);
-            RuntimeDebugSessionStatus latestStatus = RuntimeDebugSessionStatus.parse(normalizeStatus(latest.getStatus()));
-            if (latestStatus == RuntimeDebugSessionStatus.RESUMING) {
-                throw new IllegalStateException("debug resume result could not be persisted: " + sessionId);
-            }
-            return toView(latest);
-        }
-        return toView(entity);
+        return completeExecution(owner, entity, run, messages, steps, options, "RESUMING", revision);
     }
 
-    public SessionView cancel(String sessionId) {
-        RuntimeExecutableDebugSessionEntity entity = requireSession(sessionId);
-        entity.setStatus("CANCELLED");
-        entity.setCurrentNodeId(null);
-        entity.setUiRequestJson(writeJson(null));
-        entity.setUpdateTime(LocalDateTime.now());
+    public SessionView cancel(RuntimeDebugSessionOwner owner, String sessionId) {
+        RuntimeExecutableDebugSessionEntity entity = requireSession(owner, sessionId);
         List<MessageView> messages = readMessages(entity.getMessagesJson());
         messages.add(message("system", "debug session cancelled", null, entity.getTraceId(), null));
-        entity.setMessagesJson(writeJson(messages));
-        mapper.updateById(entity);
-        return toView(entity);
+        return toView(store.cancel(owner, entity, writeJson(messages)));
     }
 
-    public SseEmitter streamCreate(CreateRequest request) {
+    public SseEmitter streamCreate(RuntimeDebugSessionOwner owner, CreateRequest request) {
+        java.util.Objects.requireNonNull(owner, "owner");
         SseEmitter emitter = new SseEmitter(DEBUG_STREAM_TIMEOUT_MS);
         RuntimeGraphSpecExecutionCancellation cancellation = new RuntimeGraphSpecExecutionCancellation();
         ScheduledFuture<?> heartbeat = heartbeatSupport.start(
@@ -338,7 +317,7 @@ public class RuntimeExecutableDebugSessionService {
         emitter.onError(error -> stopHeartbeatAndCancel.run());
         CompletableFuture.runAsync(() -> {
             try {
-                streamCreateInternal(emitter, request, cancellation, completed);
+                streamCreateInternal(owner, emitter, request, cancellation, completed);
             } finally {
                 heartbeatSupport.stop(heartbeat);
             }
@@ -346,7 +325,8 @@ public class RuntimeExecutableDebugSessionService {
         return emitter;
     }
 
-    public SseEmitter streamSubmit(String sessionId, SubmitRequest request) {
+    public SseEmitter streamSubmit(RuntimeDebugSessionOwner owner, String sessionId, SubmitRequest request) {
+        requireSession(owner, sessionId);
         SseEmitter emitter = new SseEmitter(DEBUG_STREAM_TIMEOUT_MS);
         RuntimeGraphSpecExecutionCancellation cancellation = new RuntimeGraphSpecExecutionCancellation();
         ScheduledFuture<?> heartbeat = heartbeatSupport.start(
@@ -367,7 +347,7 @@ public class RuntimeExecutableDebugSessionService {
         emitter.onError(error -> stopHeartbeatAndCancel.run());
         CompletableFuture.runAsync(() -> {
             try {
-                streamSubmitInternal(emitter, sessionId, request, cancellation, completed);
+                streamSubmitInternal(owner, emitter, sessionId, request, cancellation, completed);
             } finally {
                 heartbeatSupport.stop(heartbeat);
             }
@@ -375,12 +355,12 @@ public class RuntimeExecutableDebugSessionService {
         return emitter;
     }
 
-    private void streamCreateInternal(SseEmitter emitter,
+    private void streamCreateInternal(RuntimeDebugSessionOwner owner, SseEmitter emitter,
                                       CreateRequest request,
                                       RuntimeGraphSpecExecutionCancellation cancellation,
                                       AtomicBoolean completed) {
         try {
-            runStreamCreate(emitterSink(emitter), request, cancellation);
+            runStreamCreate(owner, emitterSink(emitter), request, cancellation);
             emitter.complete();
         } catch (Exception ex) {
             // 仅「未取消且未完成」的真实异常才能包装为 stream error；
@@ -391,13 +371,13 @@ public class RuntimeExecutableDebugSessionService {
         }
     }
 
-    private void streamSubmitInternal(SseEmitter emitter,
+    private void streamSubmitInternal(RuntimeDebugSessionOwner owner, SseEmitter emitter,
                                       String sessionId,
                                       SubmitRequest request,
                                       RuntimeGraphSpecExecutionCancellation cancellation,
                                       AtomicBoolean completed) {
         try {
-            runStreamSubmit(emitterSink(emitter), sessionId, request, cancellation);
+            runStreamSubmit(owner, emitterSink(emitter), sessionId, request, cancellation);
             emitter.complete();
         } catch (Exception ex) {
             if (shouldCompleteStreamError(cancellation.isCancelled(), completed.get())) {
@@ -410,13 +390,20 @@ public class RuntimeExecutableDebugSessionService {
      * 生产路径核心：create 流业务事件序列（不含 emitter.complete）。
      * 包可见供单测直接断言唯一业务终态，不经旁路辅助函数。
      */
-    void runStreamCreate(DebugSessionSseSink rawSink,
+    void runStreamCreate(RuntimeDebugSessionOwner owner, DebugSessionSseSink rawSink,
                          CreateRequest request,
                          RuntimeGraphSpecExecutionCancellation cancellation) throws Exception {
         AtomicBoolean businessTerminalSent = new AtomicBoolean(false);
         DebugSessionSseSink sink = onceBusinessTerminalSink(rawSink, businessTerminalSent);
         sink.send("turn.started", Map.of("phase", "create"));
-        SessionView view = create(request, liveExecutionSink(sink), cancellation);
+        SessionView view = create(owner, request, liveExecutionSink(sink), cancellation, admitted -> {
+            try {
+                sink.send("session.created", admitted);
+            } catch (IOException | RuntimeException failure) {
+                cancellation.cancel();
+                throw new IllegalStateException("Failed to deliver debug session admission", failure);
+            }
+        });
         // 节点事件已在执行中实时发出；此处只补尚未发出的业务终态，禁止按 steps 重放
         emitTerminalSessionEvents(view, sink);
         // session.completed 仅为流收尾信封，不是业务成功终态
@@ -426,7 +413,7 @@ public class RuntimeExecutableDebugSessionService {
     /**
      * 生产路径核心：submit 流业务事件序列（不含 emitter.complete）。
      */
-    void runStreamSubmit(DebugSessionSseSink rawSink,
+    void runStreamSubmit(RuntimeDebugSessionOwner owner, DebugSessionSseSink rawSink,
                          String sessionId,
                          SubmitRequest request,
                          RuntimeGraphSpecExecutionCancellation cancellation) throws Exception {
@@ -436,9 +423,9 @@ public class RuntimeExecutableDebugSessionService {
         String action = firstText(request == null ? null : request.action(), "submit");
         SessionView view;
         if ("cancel".equalsIgnoreCase(action)) {
-            view = submit(sessionId, request);
+            view = submit(owner, sessionId, request);
         } else {
-            view = submit(sessionId, request, liveExecutionSink(sink), cancellation);
+            view = submit(owner, sessionId, request, liveExecutionSink(sink), cancellation);
         }
         emitTerminalSessionEvents(view, sink);
         rawSink.send("session.completed", view);
@@ -652,11 +639,15 @@ public class RuntimeExecutableDebugSessionService {
         }
     }
 
-    private RuntimeWorkflowDebugService.DebugRunRequest debugRunRequest(String targetType,
-                                                                       Map<String, Object> workingCopy,
-                                                                       String message,
-                                                                       Map<String, Object> inputParams,
-                                                                       Map<String, Object> debugOptions) {
+    private Map<String, Object> executionOptions(Map<String, Object> supplied) {
+        Map<String, Object> options = new LinkedHashMap<>(supplied == null ? Map.of() : supplied);
+        for (String reserved : List.of("runId", "traceId", "sessionId", "entryNodeId", "submittedPayload", "submitLock")) {
+            options.remove(reserved);
+        }
+        return options;
+    }
+
+    private RuntimeWorkflowDebugService.DebugRunRequest debugRunRequest(Map<String, Object> workingCopy) {
         return new RuntimeWorkflowDebugService.DebugRunRequest(
                 text(workingCopy.get("workflowId")),
                 text(workingCopy.get("workflowKeySlug")),
@@ -667,9 +658,17 @@ public class RuntimeExecutableDebugSessionService {
                 text(workingCopy.get("modelInstanceId")),
                 graphSpecJson(workingCopy),
                 text(workingCopy.get("canvasJson")),
-                message,
-                inputParams,
-                debugOptions);
+                null, Map.of(), Map.of());
+    }
+
+    /** Only the persisted server snapshot supplies projectId; create requests cannot set it. */
+    private RuntimeWorkflowDebugService.DebugDefinition restoreSessionDefinition(Map<String, Object> workingCopy) {
+        var stored = debugRunRequest(workingCopy);
+        Object projectId = workingCopy.get("projectId");
+        return new RuntimeWorkflowDebugService.DebugDefinition(stored.workflowId(), stored.workflowKeySlug(),
+                stored.workflowName(), stored.workflowKind(), projectId == null ? null : Long.valueOf(projectId.toString()),
+                stored.projectCode(), stored.executionEngine(), stored.modelInstanceId(),
+                stored.graphSpecJson(), stored.canvasJson());
     }
 
     private String graphSpecJson(Map<String, Object> workingCopy) {
@@ -710,6 +709,11 @@ public class RuntimeExecutableDebugSessionService {
     private SessionView toView(RuntimeExecutableDebugSessionEntity entity) {
         List<MessageView> messages = readMessages(entity.getMessagesJson());
         String status = normalizeStatus(entity.getStatus());
+        Map<String, Object> definition = readMap(entity.getWorkingCopyDefinitionJson());
+        String projectId = text(definition.get("projectId"));
+        String answer = ("FAILED".equals(status) || "EXPIRED".equals(status))
+                ? firstText(text(readMap(entity.getResultJson()).get("answer")), lastAssistantContent(messages))
+                : lastAssistantContent(messages);
         return new SessionView(
                 entity.getId(),
                 entity.getRunId(),
@@ -718,88 +722,71 @@ public class RuntimeExecutableDebugSessionService {
                 statusIsSuccessful(status),
                 status,
                 entity.getCurrentNodeId(),
-                lastAssistantContent(messages),
+                answer,
                 messages,
                 readSteps(entity.getStepsJson()),
                 readMap(entity.getStateSnapshotJson()),
                 readObject(entity.getUiRequestJson()),
                 entity.getCreateTime(),
                 entity.getUpdateTime(),
-                entity.getExpiresAt());
+                entity.getExpiresAt(),
+                projectId == null ? null : Long.valueOf(projectId), text(definition.get("projectCode")));
     }
 
-    private RuntimeExecutableDebugSessionEntity requireSession(String sessionId) {
-        if (!StringUtils.hasText(sessionId)) {
-            throw new IllegalArgumentException("sessionId is required");
-        }
-        RuntimeExecutableDebugSessionEntity entity = mapper.selectById(sessionId.trim());
-        if (entity == null) {
-            throw new IllegalArgumentException("debug session not found: " + sessionId);
-        }
-        return entity;
+    private RuntimeExecutableDebugSessionEntity requireSession(RuntimeDebugSessionOwner owner, String sessionId) {
+        return store.requireOwned(owner, sessionId);
     }
 
-    private boolean claimDebugResuming(RuntimeExecutableDebugSessionEntity entity,
-                                       String idempotencyKey,
-                                       String submittedCanonical) {
-        RuntimeExecutableDebugSessionEntity latest = requireSession(entity.getId());
-        int revision = latest.getRevision() == null ? 0 : latest.getRevision();
-        UpdateWrapper<RuntimeExecutableDebugSessionEntity> update = new UpdateWrapper<>();
-        update.eq("id", latest.getId())
-                .eq("status", RuntimeDebugSessionStatus.SUSPENDED.name())
-                .eq("revision", revision)
-                .set("status", RuntimeDebugSessionStatus.RESUMING.name())
-                .set("revision", revision + 1)
-                .set("update_time", LocalDateTime.now());
-        if (StringUtils.hasText(idempotencyKey)) {
-            update.set("idempotency_key", idempotencyKey);
+    private SessionView completeExecution(RuntimeDebugSessionOwner owner, RuntimeExecutableDebugSessionEntity entity,
+                                          RuntimeWorkflowDebugService.DebugRunResult run,
+                                          List<MessageView> messages,
+                                          List<RuntimeWorkflowDebugService.DebugStepResult> steps,
+                                          Map<String, Object> options, String expectedStatus, int revision) {
+        appendRuntimeMessage(messages, run);
+        steps.addAll(run.steps() == null ? List.of() : run.steps());
+        String nextStatus = debugStatusFromExecution(run.status());
+        Map<String, Object> state = new LinkedHashMap<>(run.stateSnapshot() == null ? Map.of() : run.stateSnapshot());
+        state.remove("submittedPayload");
+        state.remove(WorkflowInteractionCodes.RESUME_CONTEXT_KEY);
+        entity.setStatus(nextStatus);
+        entity.setCurrentNodeId(run.currentNodeId());
+        entity.setStateSnapshotJson(writeJson(state));
+        entity.setMessagesJson(writeJson(messages));
+        entity.setStepsJson(writeJson(steps));
+        entity.setUiRequestJson(writeJson(run.uiRequest()));
+        entity.setDebugOptionsJson(writeJson(options));
+        entity.setResultJson(writeJson(Map.of("code", firstText(run.errorCode(), nextStatus),
+                "answer", nullToEmpty(run.answer()), "status", nextStatus)));
+        entity.setUpdateTime(LocalDateTime.now());
+        try {
+            store.stageCompletion(owner, entity, expectedStatus, revision);
+            return toView(requireSession(owner, entity.getId()));
+        } catch (RuntimeException pending) {
+            throw new IllegalStateException("DEBUG_SESSION_COMPLETION_PENDING: sessionId=" + entity.getId()
+                    + "; recover this session without repeating execution", pending);
         }
-        if (StringUtils.hasText(submittedCanonical)) {
-            update.set("submitted_payload_json", submittedCanonical);
-        }
-        int rows = mapper.update(null, update);
-        if (rows != 1) {
-            return false;
-        }
-        entity.setStatus(RuntimeDebugSessionStatus.RESUMING.name());
-        entity.setRevision(revision + 1);
-        if (StringUtils.hasText(idempotencyKey)) {
-            entity.setIdempotencyKey(idempotencyKey);
-        }
-        entity.setSubmittedPayloadJson(submittedCanonical);
-        return true;
     }
 
-    private void rollbackDebugWaiting(RuntimeExecutableDebugSessionEntity entity) {
-        UpdateWrapper<RuntimeExecutableDebugSessionEntity> update = new UpdateWrapper<>();
-        update.eq("id", entity.getId())
-                .eq("status", RuntimeDebugSessionStatus.RESUMING.name())
-                .set("status", RuntimeDebugSessionStatus.SUSPENDED.name())
-                .set("revision", (entity.getRevision() == null ? 0 : entity.getRevision()) + 1)
-                .set("idempotency_key", null)
-                .set("update_time", LocalDateTime.now());
-        mapper.update(null, update);
-        entity.setStatus(RuntimeDebugSessionStatus.SUSPENDED.name());
-    }
-
-    private boolean persistDebugResumeResult(RuntimeExecutableDebugSessionEntity entity, int resumingRevision) {
-        UpdateWrapper<RuntimeExecutableDebugSessionEntity> update = new UpdateWrapper<>();
-        update.eq("id", entity.getId())
-                .eq("status", RuntimeDebugSessionStatus.RESUMING.name())
-                .eq("revision", resumingRevision)
-                .set("status", entity.getStatus())
-                .set("revision", entity.getRevision())
-                .set("current_node_id", entity.getCurrentNodeId())
-                .set("state_snapshot_json", entity.getStateSnapshotJson())
-                .set("messages_json", entity.getMessagesJson())
-                .set("steps_json", entity.getStepsJson())
-                .set("ui_request_json", entity.getUiRequestJson())
-                .set("debug_options_json", entity.getDebugOptionsJson())
-                .set("result_json", entity.getResultJson())
-                .set("idempotency_key", entity.getIdempotencyKey())
-                .set("submitted_payload_json", entity.getSubmittedPayloadJson())
-                .set("update_time", entity.getUpdateTime());
-        return mapper.update(null, update) == 1;
+    private void recordExecutionFailure(RuntimeDebugSessionOwner owner, RuntimeExecutableDebugSessionEntity entity, String expectedStatus, int revision,
+                                         RuntimeGraphSpecExecutionCancellation cancellation, RuntimeException failure) {
+        // Execution may have produced side effects before throwing. Never reopen this checkpoint for another attempt.
+        try {
+            boolean cancelled = cancellation != null && cancellation.isCancelled();
+            String status = cancelled ? "CANCELLED" : "FAILED";
+            String code = cancelled ? "RUNTIME_GRAPH_CANCELLED" : "DEBUG_EXECUTION_OUTCOME_UNKNOWN";
+            String summary = cancelled ? "Debug execution cancelled" : "Debug execution interrupted; outcome is unknown";
+            var messages = readMessages(entity.getMessagesJson());
+            messages.add(message("system", summary, entity.getCurrentNodeId(), entity.getTraceId(), null));
+            entity.setStatus(status);
+            entity.setUiRequestJson(null);
+            entity.setMessagesJson(writeJson(messages));
+            entity.setResultJson(writeJson(Map.of("code", code, "answer", summary, "status", status)));
+            entity.setUpdateTime(LocalDateTime.now());
+            store.stageCompletion(owner, entity, expectedStatus, revision);
+            requireSession(owner, entity.getId());
+        } catch (RuntimeException persistenceFailure) {
+            failure.addSuppressed(persistenceFailure);
+        }
     }
 
     private Map<String, Object> canonicalSubmitPayload(String action,
@@ -949,7 +936,12 @@ public class RuntimeExecutableDebugSessionService {
                                 Map<String, Object> workingCopyDefinition,
                                 String message,
                                 Map<String, Object> inputParams,
-                                Map<String, Object> debugOptions) {
+                                Map<String, Object> debugOptions,
+                                String idempotencyKey) {
+        public CreateRequest(String targetType, Map<String, Object> workingCopyDefinition,
+                             String message, Map<String, Object> inputParams, Map<String, Object> debugOptions) {
+            this(targetType, workingCopyDefinition, message, inputParams, debugOptions, null);
+        }
     }
 
     public record SubmitRequest(String action,
@@ -985,6 +977,8 @@ public class RuntimeExecutableDebugSessionService {
                               Object uiRequest,
                               LocalDateTime createdAt,
                               LocalDateTime updatedAt,
-                              LocalDateTime expiresAt) {
+                              LocalDateTime expiresAt,
+                              Long projectId,
+                              String projectCode) {
     }
 }

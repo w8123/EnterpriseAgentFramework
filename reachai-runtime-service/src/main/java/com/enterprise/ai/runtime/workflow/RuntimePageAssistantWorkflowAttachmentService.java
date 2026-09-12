@@ -1,8 +1,8 @@
 package com.enterprise.ai.runtime.workflow;
 
-import com.enterprise.ai.runtime.workflow.aicoding.RuntimeAgentSupervisorWorkflowAttachmentService;
-import com.enterprise.ai.runtime.workflow.aicoding.RuntimeAgentSupervisorWorkflowAttachmentService.AttachmentResult;
-import com.enterprise.ai.runtime.workflow.aicoding.RuntimeAgentSupervisorWorkflowAttachmentService.PageAssistantAttachRequest;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowAgentAttachmentPort;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowAgentAttachmentPort.AttachmentResult;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowAgentAttachmentPort.PageAssistantAttachRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -15,7 +15,7 @@ import org.springframework.util.StringUtils;
 @RequiredArgsConstructor
 public class RuntimePageAssistantWorkflowAttachmentService {
 
-    private final RuntimeAgentSupervisorWorkflowAttachmentService attachmentService;
+    private final RuntimeWorkflowAgentAttachmentPort attachmentService;
 
     @Transactional
     public RuntimePageAssistantWorkflowAttachment attachPublishedPageWorkflow(

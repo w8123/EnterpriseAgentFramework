@@ -1,5 +1,7 @@
 package com.enterprise.ai.control.aiassist;
 
+import com.enterprise.ai.control.identity.ControlAiCodingAccessGuard;
+
 import com.enterprise.ai.control.client.capability.CapabilityProjectOnboardingClient;
 import com.enterprise.ai.control.client.runtime.RuntimeProxyClient;
 import org.junit.jupiter.api.Test;

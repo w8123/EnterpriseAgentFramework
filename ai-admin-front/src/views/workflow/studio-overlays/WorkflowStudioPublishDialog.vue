@@ -1,5 +1,5 @@
 <template>
-  <el-dialog
+  <AppDialog
     v-model="open"
     title="发布 Workflow 版本"
     width="640px"
@@ -62,18 +62,15 @@
         <li v-for="item in publishWarnings" :key="item">{{ item }}</li>
       </ul>
     </el-alert>
-    <el-form :model="form" label-width="120px">
+    <el-form :model="form" label-width="120px" :disabled="publishing" novalidate>
       <el-form-item label="版本号" required>
         <el-input v-model="form.version" placeholder="v1.0.0" />
       </el-form-item>
-      <el-form-item label="灰度比例">
-        <el-slider v-model="form.rolloutPercent" :min="0" :max="100" show-input />
+      <el-form-item label="生效方式">
+        <span>全量发布</span>
       </el-form-item>
       <el-form-item label="发布说明">
-        <el-input v-model="form.note" type="textarea" :rows="3" />
-      </el-form-item>
-      <el-form-item label="发布者">
-        <el-input v-model="form.publishedBy" placeholder="运营账号" />
+        <el-input v-model="form.note" type="textarea" :rows="3" resize="none" />
       </el-form-item>
     </el-form>
     <template #footer>
@@ -87,10 +84,11 @@
         确认发布
       </el-button>
     </template>
-  </el-dialog>
+  </AppDialog>
 </template>
 
 <script setup lang="ts">
+import AppDialog from '@/components/common/AppDialog.vue'
 import type {
   WorkflowPublishRequest,
   WorkflowReleaseValidationItem,

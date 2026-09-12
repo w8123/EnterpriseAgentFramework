@@ -1,5 +1,7 @@
 package com.enterprise.ai.control.governance;
 
+import com.enterprise.ai.control.identity.PlatformPrincipal;
+
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.enterprise.ai.control.identity.PlatformAuthAuditService;
 import com.enterprise.ai.control.identity.PlatformAuthenticatedSession;
@@ -233,7 +235,7 @@ class ControlGovernanceRoutesTest {
         user.setId(7L);
         user.setUsername("admin");
         PlatformAuthenticatedSession session = new PlatformAuthenticatedSession(
-                user, "session-1", LocalDateTime.now().plusHours(1),
+                PlatformPrincipal.fromUser(user), "session-1", LocalDateTime.now().plusHours(1),
                 List.of("admin"), permissions, List.of());
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.setAttribute(PlatformConsoleAuthInterceptor.SESSION_REQUEST_ATTRIBUTE, session);

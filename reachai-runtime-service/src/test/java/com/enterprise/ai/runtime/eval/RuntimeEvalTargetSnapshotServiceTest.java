@@ -1,6 +1,6 @@
 package com.enterprise.ai.runtime.eval;
 
-import com.enterprise.ai.runtime.agent.RuntimeAgentConfigVersionEntity;
+import com.enterprise.ai.runtime.agent.RuntimeAgentConfigSnapshot;
 import com.enterprise.ai.runtime.agent.RuntimeAgentExecutionContext;
 import com.enterprise.ai.runtime.agent.RuntimeAgentExecutionContextResolver;
 import com.enterprise.ai.runtime.agent.RuntimeAgentExecutionView;
@@ -21,6 +21,42 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class RuntimeEvalTargetSnapshotServiceTest {
+
+    @Test
+    void replayPreservesPublishedDefaultsForEachPinnedVersionOfTheSameWorkflow() {
+        var resolver = mock(RuntimeAgentExecutionContextResolver.class);
+        var mapper = mock(RuntimeEvalTargetSnapshotMapper.class);
+        var service = new RuntimeEvalTargetSnapshotService(resolver, mapper, new ObjectMapper());
+        var empty = context("{}");
+        var first = tool(9L); var second = tool(10L);
+        var workflow = com.enterprise.ai.runtime.workflow.RuntimeWorkflowExecutionView.builder()
+                .id("w1").name("Orders").status("ACTIVE").defaultModelInstanceId("unpublished-model").build();
+        var targets = java.util.stream.Stream.of(first, second).map(tool -> {
+            var version = com.enterprise.ai.runtime.workflow.RuntimeWorkflowPublishedVersionView.builder()
+                    .id(tool.getWorkflowVersionId()).workflowId("w1").version("v" + tool.getWorkflowVersionId())
+                    .status("RETIRED").graphSpecSnapshotJson("{\"nodes\":[]}")
+                    .snapshotJson("{\"id\":\"w1\",\"defaultModelInstanceId\":\"published-" + tool.getWorkflowVersionId() + "\"}").build();
+            return new com.enterprise.ai.runtime.agent.RuntimeResolvedWorkflowTarget(tool, workflow, version);
+        }).toList();
+        var resolved = new RuntimeAgentExecutionContext(empty.agent(), empty.config(), List.of(first, second), List.of(), targets, empty.timings());
+        when(resolver.resolveForEvaluation("agent-1", 12L)).thenReturn(Optional.of(resolved));
+        doAnswer(call -> { ((RuntimeEvalTargetSnapshotEntity) call.getArgument(0)).setId(100L); return 1; }).when(mapper).insert(any());
+        var captured = service.captureAgent("agent-1", 12L, "tenant-a", "tester");
+        when(mapper.selectById(100L)).thenReturn(captured.snapshot());
+        var replay = service.loadAgentSnapshot(100L).executionContext();
+        assertEquals(java.util.Map.of(9L, "published-9", 10L, "published-10"), replay.resolvedTargets().stream()
+                .collect(java.util.stream.Collectors.toMap(target -> target.version().getId(), target ->
+                        com.enterprise.ai.runtime.workflow.RuntimePublishedWorkflowSnapshot.read(target.version()).defaultModelInstanceId())));
+    }
+
+    private com.enterprise.ai.runtime.agent.RuntimeAgentWorkflowToolSnapshot tool(Long versionId) {
+        com.enterprise.ai.runtime.agent.RuntimeAgentWorkflowToolSnapshot tool = com.enterprise.ai.runtime.agent.RuntimeAgentWorkflowToolSnapshot.builder()
+                .workflowId("w1")
+                .workflowVersionId(versionId)
+                .toolName("orders_" + versionId)
+                .enabled(true)
+                .build(); return tool;
+    }
 
     @Test
     void capturesExactDraftConfigAndNormalizesEmbeddedJsonBeforeFingerprinting() {
@@ -72,15 +108,16 @@ class RuntimeEvalTargetSnapshotServiceTest {
         RuntimeAgentExecutionView agent = new RuntimeAgentExecutionView(
                 "agent-1", 7L, "orders", "orders-agent", "Orders Agent", "query orders",
                 "PROJECT", "[\"orders:user\"]", true, 11L, null, null);
-        RuntimeAgentConfigVersionEntity config = new RuntimeAgentConfigVersionEntity();
-        config.setId(12L);
-        config.setAgentId("agent-1");
-        config.setVersionNo(2);
-        config.setStatus("DRAFT");
-        config.setRuntimeType("AGENTSCOPE");
-        config.setPolicyProfile("STANDARD");
-        config.setToolCatalogMode("ALLOW_LIST");
-        config.setConfigJson(configJson);
+        RuntimeAgentConfigSnapshot config = RuntimeAgentConfigSnapshot.builder()
+                .id(12L)
+                .agentId("agent-1")
+                .versionNo(2)
+                .status("DRAFT")
+                .runtimeType("AGENTSCOPE")
+                .policyProfile("STANDARD")
+                .toolCatalogMode("ALLOW_LIST")
+                .configJson(configJson)
+                .build();
         return new RuntimeAgentExecutionContext(
                 agent, config, List.of(), List.of(), List.of(), List.of(),
                 new RuntimeAgentExecutionContext.ResolveTimings(0, 0, 0, 0, 0));

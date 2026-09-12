@@ -1,5 +1,7 @@
 package com.enterprise.ai.control.context;
 
+import com.enterprise.ai.control.identity.PlatformPrincipal;
+
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.enterprise.ai.control.identity.PlatformAuthenticatedSession;
@@ -68,10 +70,10 @@ class PersonalMemoryIdentityResolverTest {
         mapping.setRuntimeUserId("canonical-user-7");
         when(mapper.selectList(any(Wrapper.class))).thenReturn(List.of(mapping));
         PersonalMemoryIdentityResolver resolver = new PersonalMemoryIdentityResolver(mapper, "default");
-        PlatformUserEntity user = userSession(7L).user();
+        PlatformPrincipal user = userSession(7L).user();
 
         PersonalMemoryIdentityResolver.PersonalMemoryPrincipal principal =
-                resolver.resolveAttestedPlatformUser(user, null, "default");
+                resolver.resolveAttestedPlatformPrincipal(user, null, "default");
 
         assertEquals("default", principal.tenantId());
         assertEquals("canonical-user-7", principal.runtimeUserId());
@@ -109,7 +111,7 @@ class PersonalMemoryIdentityResolverTest {
         PlatformUserEntity user = new PlatformUserEntity();
         user.setId(id);
         user.setUsername("user-" + id);
-        return new PlatformAuthenticatedSession(user, "platform-session", LocalDateTime.now().plusHours(1),
+        return new PlatformAuthenticatedSession(PlatformPrincipal.fromUser(user), "platform-session", LocalDateTime.now().plusHours(1),
                 List.of(), List.of(), List.of());
     }
 }

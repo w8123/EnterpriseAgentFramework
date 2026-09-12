@@ -27,12 +27,12 @@ class CapabilityCompatibilityProxyControllerTest {
     void keepsCapabilityRouteFamiliesAheadOfLegacyAgentFallback() throws Exception {
         var method = CapabilityCompatibilityProxyController.class
                 .getDeclaredMethod("proxy", RequestEntity.class, HttpServletRequest.class);
+        var retiredCapabilities = CapabilityCompatibilityProxyController.class
+                .getDeclaredMethod("retiredCapabilities");
         var registryMethod = CapabilityCompatibilityProxyController.class
                 .getDeclaredMethod("proxyRegistry", RequestEntity.class, HttpServletRequest.class);
 
         assertArrayEquals(new String[] {
-                "/api/capabilities",
-                "/api/capabilities/{*path}",
                 "/api/api-market",
                 "/api/api-market/{*path}",
                 "/api/tools",
@@ -50,8 +50,29 @@ class CapabilityCompatibilityProxyControllerTest {
                 "/api/domains",
                 "/api/domains/{*path}"
         }, method.getAnnotation(org.springframework.web.bind.annotation.RequestMapping.class).path());
+        assertArrayEquals(new String[] {
+                "/api/capabilities",
+                "/api/capabilities/{*path}"
+        }, retiredCapabilities.getAnnotation(org.springframework.web.bind.annotation.RequestMapping.class).path());
         assertArrayEquals(new String[] {"/api/registry/{*path}"},
                 registryMethod.getAnnotation(org.springframework.web.bind.annotation.RequestMapping.class).path());
+    }
+
+    @Test
+    void retiresPublicCapabilityKernelWithoutProxying() {
+        RestTemplate restTemplate = new RestTemplate();
+        MockRestServiceServer server = MockRestServiceServer.createServer(restTemplate);
+        CapabilityCompatibilityProxyController controller =
+                new CapabilityCompatibilityProxyController(restTemplate, "http://capability:18605");
+
+        ResponseEntity<byte[]> response = controller.retiredCapabilities();
+
+        assertEquals(HttpStatus.GONE, response.getStatusCode());
+        assertEquals(MediaType.APPLICATION_JSON, response.getHeaders().getContentType());
+        assertEquals("{\"code\":\"CAPABILITY_KERNEL_ROUTE_RETIRED\","
+                        + "\"message\":\"The public /api/capabilities product entry has been retired\"}",
+                new String(response.getBody(), StandardCharsets.UTF_8));
+        server.verify();
     }
 
     @Test
@@ -83,6 +104,47 @@ class CapabilityCompatibilityProxyControllerTest {
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals(MediaType.APPLICATION_JSON, response.getHeaders().getContentType());
         assertArrayEquals(responseBody, response.getBody());
+        server.verify();
+    }
+
+    @Test
+    void rejectsRetiredRegistryManagementRoutesBeforeProxying() {
+        RestTemplate restTemplate = new RestTemplate();
+        MockRestServiceServer server = MockRestServiceServer.createServer(restTemplate);
+        CapabilityCompatibilityProxyController controller =
+                new CapabilityCompatibilityProxyController(restTemplate, "http://capability:18605");
+        RequestEntity<byte[]> requestEntity = RequestEntity
+                .method(HttpMethod.POST, URI.create("/api/registry/capability-diff-items/12/review"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .body("{\"action\":\"APPLY\"}".getBytes(StandardCharsets.UTF_8));
+        MockHttpServletRequest servletRequest = new MockHttpServletRequest(
+                "POST", "/api/registry/capability-diff-items/12/review");
+
+        ResponseEntity<byte[]> response = controller.proxyRegistry(requestEntity, servletRequest);
+
+        assertEquals(HttpStatus.GONE, response.getStatusCode());
+        assertEquals(MediaType.APPLICATION_JSON, response.getHeaders().getContentType());
+        server.verify();
+    }
+
+    @Test
+    void rejectsProjectScopedRegistryManagementRoutesBeforeProxying() {
+        RestTemplate restTemplate = new RestTemplate();
+        MockRestServiceServer server = MockRestServiceServer.createServer(restTemplate);
+        CapabilityCompatibilityProxyController controller =
+                new CapabilityCompatibilityProxyController(restTemplate, "http://capability:18605");
+        RequestEntity<byte[]> requestEntity = RequestEntity
+                .method(HttpMethod.POST,
+                        URI.create("/api/registry/projects/orders/capability-diff-items/12/review"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .body("{\"action\":\"APPLY\"}".getBytes(StandardCharsets.UTF_8));
+        MockHttpServletRequest servletRequest = new MockHttpServletRequest(
+                "POST", "/api/registry/projects/orders/capability-diff-items/12/review");
+
+        ResponseEntity<byte[]> response = controller.proxyRegistry(requestEntity, servletRequest);
+
+        assertEquals(HttpStatus.GONE, response.getStatusCode());
+        assertEquals(MediaType.APPLICATION_JSON, response.getHeaders().getContentType());
         server.verify();
     }
 }

@@ -1,7 +1,7 @@
 package com.enterprise.ai.runtime.execution;
 
 import com.enterprise.ai.runtime.client.capability.RuntimeCapabilityCatalogClient;
-import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
+import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;

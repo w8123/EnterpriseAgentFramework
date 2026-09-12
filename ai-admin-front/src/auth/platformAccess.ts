@@ -1,6 +1,8 @@
 import type { PlatformPermissionGrant } from '@/utils/platformAuth'
 
 export const PLATFORM_PERMISSION_ALL = '*'
+export const PLATFORM_PERMISSION_READ = 'platform:read'
+export const PLATFORM_PERMISSION_WRITE = 'platform:write'
 export const PLATFORM_PERMISSION_ADMIN = 'platform:admin'
 export const PLATFORM_PERMISSION_BUILD_WORKSPACE = 'workspace:build:access'
 export const PLATFORM_PERMISSION_OPERATE_WORKSPACE = 'workspace:operate:access'

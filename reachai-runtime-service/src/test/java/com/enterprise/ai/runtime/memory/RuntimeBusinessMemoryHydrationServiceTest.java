@@ -3,7 +3,7 @@ package com.enterprise.ai.runtime.memory;
 import com.enterprise.ai.runtime.execution.RuntimeBusinessMemoryHydrationPort;
 import com.enterprise.ai.runtime.client.capability.RuntimeCapabilityCatalogClient;
 import com.enterprise.ai.runtime.contract.memory.BusinessMemoryResolution;
-import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
+import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;

@@ -208,7 +208,7 @@
       </el-tabs>
     </el-card>
 
-    <el-dialog v-model="directImportVisible" title="检查公共 GitHub Skill" width="min(620px, 92vw)">
+    <AppDialog v-model="directImportVisible" title="检查公共 GitHub Skill" width="min(620px, 92vw)">
       <p class="dialog-intro">支持仓库、tree 目录或具体 SKILL.md 链接。ReachAI 只接受 HTTPS 公共 GitHub，并在服务端校验 DNS、重定向与大小边界。</p>
       <el-input
         v-model="directSourceUrl"
@@ -220,9 +220,9 @@
         <el-button @click="directImportVisible = false">取消</el-button>
         <el-button type="primary" :disabled="!directSourceUrl.trim()" @click="submitDirectProbe">解析并检查</el-button>
       </template>
-    </el-dialog>
+    </AppDialog>
 
-    <el-drawer v-model="probeVisible" size="min(920px, 96vw)" destroy-on-close>
+    <AppDrawer title="检查外部 Skill" v-model="probeVisible" size="min(920px, 96vw)" destroy-on-close>
       <template #header>
         <div class="drawer-heading">
           <div>
@@ -378,11 +378,13 @@
           </div>
         </div>
       </template>
-    </el-drawer>
+    </AppDrawer>
   </WorkbenchPage>
 </template>
 
 <script setup lang="ts">
+import AppDialog from '@/components/common/AppDialog.vue'
+import AppDrawer from '@/components/common/AppDrawer.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { Collection, Link, Search } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'

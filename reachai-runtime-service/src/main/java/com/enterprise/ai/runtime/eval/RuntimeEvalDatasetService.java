@@ -1,8 +1,7 @@
 package com.enterprise.ai.runtime.eval;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.enterprise.ai.runtime.agent.RuntimeAgentEntity;
-import com.enterprise.ai.runtime.agent.RuntimeAgentMapper;
+import com.enterprise.ai.runtime.agent.RuntimeAgentIdentityQuery;
 import com.enterprise.ai.runtime.runops.RuntimeRunOpsQueryService;
 import com.enterprise.ai.runtime.runops.RuntimeRunOpsViews.RuntimeRunOpsDetailView;
 import lombok.RequiredArgsConstructor;
@@ -28,7 +27,7 @@ public class RuntimeEvalDatasetService {
     private final RuntimeEvalDatasetMapper datasetMapper;
     private final RuntimeEvalDatasetVersionMapper versionMapper;
     private final RuntimeEvalDatasetItemMapper itemMapper;
-    private final RuntimeAgentMapper agentMapper;
+    private final RuntimeAgentIdentityQuery agentIdentities;
     private final RuntimeRunOpsQueryService runOpsQueryService;
     private final RuntimeEvalJsonSupport json;
 
@@ -75,18 +74,13 @@ public class RuntimeEvalDatasetService {
             throw new IllegalArgumentException("Eval dataset targetType currently supports AGENT only");
         }
         String requestedTargetId = requiredText(request, "targetId", "agentId");
-        RuntimeAgentEntity agent = agentMapper.selectOne(Wrappers.<RuntimeAgentEntity>lambdaQuery()
-                .and(value -> value.eq(RuntimeAgentEntity::getId, requestedTargetId)
-                        .or().eq(RuntimeAgentEntity::getKeySlug, requestedTargetId))
-                .last("LIMIT 1"));
-        if (agent == null) {
-            throw new IllegalArgumentException("Eval dataset Agent target not found: " + requestedTargetId);
-        }
+        var agent = agentIdentities.find(requestedTargetId).orElseThrow(() ->
+                new IllegalArgumentException("Eval dataset Agent target not found: " + requestedTargetId));
         RuntimeEvalDatasetEntity dataset = new RuntimeEvalDatasetEntity();
         dataset.setTenantId(normalizedTenant(text(request, "tenantId")));
-        dataset.setProjectCode(agent.getProjectCode());
+        dataset.setProjectCode(agent.projectCode());
         dataset.setTargetType(targetType);
-        dataset.setTargetId(agent.getId());
+        dataset.setTargetId(agent.id());
         dataset.setName(requiredText(request, "name"));
         dataset.setDescription(text(request, "description"));
         dataset.setSource(upper(defaultText(request, "source", "MANUAL")));
@@ -395,11 +389,8 @@ public class RuntimeEvalDatasetService {
     private String canonicalAgentId(String value) {
         if (!StringUtils.hasText(value)) return null;
         String lookup = value.trim();
-        RuntimeAgentEntity agent = agentMapper.selectOne(Wrappers.<RuntimeAgentEntity>lambdaQuery()
-                .and(query -> query.eq(RuntimeAgentEntity::getId, lookup)
-                        .or().eq(RuntimeAgentEntity::getKeySlug, lookup))
-                .last("LIMIT 1"));
-        return agent == null || !StringUtils.hasText(agent.getId()) ? lookup : agent.getId();
+        return agentIdentities.find(lookup).map(agent -> agent.id())
+                .filter(StringUtils::hasText).orElse(lookup);
     }
 
     private String upper(String value) {

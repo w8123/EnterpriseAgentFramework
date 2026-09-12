@@ -1,5 +1,9 @@
 package com.enterprise.ai.control.agentskill;
 
+import com.enterprise.ai.control.identity.PlatformPrincipal;
+
+import com.enterprise.ai.control.config.web.AgentSkillExceptionHandler;
+
 import com.enterprise.ai.control.agentskill.AgentSkillContracts.ImportCommand;
 import com.enterprise.ai.control.agentskill.AgentSkillContracts.ImportResult;
 import com.enterprise.ai.control.agentskill.AgentSkillContracts.SkillDetail;
@@ -263,7 +267,7 @@ class AgentSkillControllerTest {
         user.setId(userId);
         user.setUsername("user-" + userId);
         return new PlatformAuthenticatedSession(
-                user,
+                PlatformPrincipal.fromUser(user),
                 "session",
                 LocalDateTime.now().plusHours(1),
                 List.of(),

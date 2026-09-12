@@ -3,7 +3,7 @@ package com.enterprise.ai.runtime.api;
 import com.enterprise.ai.runtime.route.RuntimeRouteEvaluationService;
 import com.enterprise.ai.runtime.route.RuntimeRouteEvaluationView;
 import com.enterprise.ai.runtime.execution.RuntimeAgentExecutionCancellation;
-import com.enterprise.ai.runtime.execution.RuntimeAgentExecutionService;
+import com.enterprise.ai.runtime.supervisor.RuntimeAgentExecutionService;
 import com.enterprise.ai.runtime.runops.RuntimeRunOpsQueryService;
 import com.enterprise.ai.runtime.runops.RuntimeRunOpsReplayService;
 import com.enterprise.ai.runtime.runops.RuntimeRunOpsViews.RuntimeRunOpsComparisonView;
@@ -19,7 +19,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
-
 import java.io.IOException;
 import java.lang.reflect.Method;
 import java.time.LocalDateTime;
@@ -30,7 +29,6 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
-
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -363,9 +361,11 @@ class RuntimePublicControllerTest {
     }
 
     @Test
-    void delegatesRecentTraceListToRuntimeTraceQueryService() {
-        RuntimeTraceQueryService traceQueryService = mock(RuntimeTraceQueryService.class);
-        RuntimePublicController controller = controller(traceQueryService);
+    void delegatesRecentTraceListToOwningRunOpsQueryService() {
+        RuntimeRunOpsQueryService runOpsQueryService = mock(RuntimeRunOpsQueryService.class);
+        RuntimePublicController controller = new RuntimePublicController(
+                mock(RuntimeTraceQueryService.class), mock(RuntimeAgentExecutionService.class),
+                mock(RuntimeRouteEvaluationService.class), runOpsQueryService, mock(RuntimeRunOpsReplayService.class));
         List<com.enterprise.ai.runtime.trace.RuntimeTraceSummaryView> summaries = List.of(
                 new com.enterprise.ai.runtime.trace.RuntimeTraceSummaryView(
                         "trace-1",
@@ -379,13 +379,13 @@ class RuntimePublicControllerTest {
                         LocalDateTime.parse("2026-06-29T12:00:03")
                 )
         );
-        when(traceQueryService.listRecentTraces("user-1", 10, 7)).thenReturn(summaries);
+        when(runOpsQueryService.listRecentTraces("user-1", 10, 7)).thenReturn(summaries);
 
         ResponseEntity<?> response = controller.listRecentTraces("user-1", 7, 10);
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals(summaries, response.getBody());
-        verify(traceQueryService).listRecentTraces("user-1", 10, 7);
+        verify(runOpsQueryService).listRecentTraces("user-1", 10, 7);
     }
 
     @Test

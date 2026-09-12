@@ -19,22 +19,49 @@ body,
 }
 
 // ── 全局滚动条 ──
+:root,
+body,
+body * {
+  scrollbar-color: color-mix(in srgb, var(--text-muted) 52%, transparent) transparent;
+  scrollbar-width: thin;
+}
+
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 3px;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-muted) 44%, transparent);
+  background-clip: padding-box;
 
   &:hover {
-    background: rgba(255, 255, 255, 0.2);
+    background: color-mix(in srgb, var(--brand-primary) 58%, transparent);
+    background-clip: padding-box;
+  }
+
+  &:active {
+    background: color-mix(in srgb, var(--brand-active) 72%, transparent);
+    background-clip: padding-box;
   }
 }
 
 ::-webkit-scrollbar-track {
   background: transparent;
+}
+
+::-webkit-scrollbar-button {
+  display: none;
+}
+
+@media (forced-colors: active) {
+  :root,
+  body,
+  body * {
+    scrollbar-color: auto;
+  }
 }
 
 // ── 页面容器 ──

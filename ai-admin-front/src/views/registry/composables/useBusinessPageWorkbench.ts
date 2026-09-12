@@ -20,7 +20,6 @@ import type {
   AiCodingHandoffPackage,
   AiCodingManagedExecutionDetail,
   AiCodingTask,
-  AiCodingTaskDetail,
   AiCodingTaskTarget,
 } from '@/types/aiCodingTask'
 import type {

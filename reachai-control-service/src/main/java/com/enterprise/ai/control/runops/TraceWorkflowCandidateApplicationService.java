@@ -1,14 +1,10 @@
 package com.enterprise.ai.control.runops;
 
-import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.enterprise.ai.control.aicoding.application.AiCodingTaskApplicationService;
+import com.enterprise.ai.control.aicoding.application.port.AiCodingReusableTaskQuery;
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.CreateTaskCommand;
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskTargetCommand;
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskView;
-import com.enterprise.ai.control.aicoding.persistence.AiCodingTaskEntity;
-import com.enterprise.ai.control.aicoding.persistence.AiCodingTaskMapper;
-import com.enterprise.ai.control.aicoding.persistence.AiCodingTaskTargetEntity;
-import com.enterprise.ai.control.aicoding.persistence.AiCodingTaskTargetMapper;
 import com.enterprise.ai.control.client.capability.CapabilityProjectOnboardingClient;
 import com.enterprise.ai.control.runops.TraceWorkflowCandidateEligibility.EligibilityView;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -20,21 +16,15 @@ import org.springframework.util.StringUtils;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
 public class TraceWorkflowCandidateApplicationService {
 
-    private static final Set<String> REUSABLE_STATUSES = Set.of(
-            "READY", "RUNNING", "WAITING_USER", "RESULT_SUBMITTED",
-            "RESULT_APPLIED", "ACCEPTANCE_READY");
-
     private final TraceWorkflowCandidateEligibility eligibilityService;
     private final CapabilityProjectOnboardingClient capabilityClient;
     private final AiCodingTaskApplicationService taskService;
-    private final AiCodingTaskMapper taskMapper;
-    private final AiCodingTaskTargetMapper targetMapper;
+    private final AiCodingReusableTaskQuery reusableTasks;
     private final ObjectMapper objectMapper;
 
     public EligibilityView eligibility(String traceId) {
@@ -116,26 +106,9 @@ public class TraceWorkflowCandidateApplicationService {
     }
 
     private TaskView findReusable(String traceId, String executorProvider) {
-        List<AiCodingTaskTargetEntity> targets = targetMapper.selectList(
-                Wrappers.<AiCodingTaskTargetEntity>lambdaQuery()
-                        .eq(AiCodingTaskTargetEntity::getTargetType,
-                                TraceWorkflowCandidateEligibility.PRIMARY_TARGET_TYPE)
-                        .eq(AiCodingTaskTargetEntity::getTargetKey, traceId)
-                        .eq(AiCodingTaskTargetEntity::getTargetRole, "PRIMARY")
-                        .orderByDesc(AiCodingTaskTargetEntity::getCreatedAt));
-        for (AiCodingTaskTargetEntity target : targets) {
-            AiCodingTaskEntity task = taskMapper.selectById(target.getTaskId());
-            if (task == null
-                    || !TraceWorkflowCandidateTaskProvider.TASK_KIND.equals(
-                    task.getTaskKind())
-                    || !executorProvider.equalsIgnoreCase(
-                    task.getExecutorProvider())
-                    || !REUSABLE_STATUSES.contains(task.getExecutionStatus())) {
-                continue;
-            }
-            return taskService.task(task.getTaskId());
-        }
-        return null;
+        return reusableTasks.latestForPrimaryTarget(TraceWorkflowCandidateTaskProvider.TASK_KIND,
+                        executorProvider, TraceWorkflowCandidateEligibility.PRIMARY_TARGET_TYPE, traceId)
+                .map(taskService::task).orElse(null);
     }
 
     private static Long projectId(Map<String, Object> project) {

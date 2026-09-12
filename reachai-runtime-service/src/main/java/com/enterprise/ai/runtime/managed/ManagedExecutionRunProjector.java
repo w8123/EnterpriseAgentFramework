@@ -1,13 +1,12 @@
 package com.enterprise.ai.runtime.managed;
 
-import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.enterprise.ai.runtime.runops.RuntimeRunEntity;
-import com.enterprise.ai.runtime.runops.RuntimeRunMapper;
+import com.enterprise.ai.runtime.runops.RuntimeManagedRunProjectionWriter;
 import com.enterprise.ai.runtime.runops.RuntimeRunStatus;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
-import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -19,75 +18,31 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class ManagedExecutionRunProjector {
 
-    private final RuntimeRunMapper runMapper;
+    private final ManagedExecutionMapper executions;
+    private final RuntimeManagedRunProjectionWriter writer;
     private final ObjectMapper objectMapper;
 
-    public void sync(ManagedExecutionEntity execution) {
-        if (execution == null || execution.getExecutionId() == null) return;
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void sync(String executionId) {
+        if (executionId == null || executionId.isBlank()) return;
+        ManagedExecutionEntity execution = executions.selectForUpdate(executionId.trim());
+        if (execution == null) throw new IllegalStateException("Managed Execution is missing during Run projection");
         Projection projection = projection(execution);
-        RuntimeRunEntity existing = runMapper.selectOne(
-                Wrappers.<RuntimeRunEntity>lambdaQuery()
-                        .eq(RuntimeRunEntity::getTraceId, execution.getExecutionId()));
-        if (existing == null) {
-            try {
-                runMapper.insert(toEntity(execution, projection));
-                return;
-            } catch (DuplicateKeyException raced) {
-                // Another transaction inserted the same trace; apply the current projection below.
-            }
-        }
-        LocalDateTime updatedAt = execution.getUpdatedAt() == null
-                ? LocalDateTime.now() : execution.getUpdatedAt();
-        runMapper.updateManagedExecutionProjection(
-                execution.getExecutionId(),
-                projection.status(),
-                projection.suspensionReason(),
-                projection.outputSummary(),
-                projection.errorCode(),
-                projection.errorMessage(),
-                projection.latencyMs(),
-                execution.getApprovalCount() == null ? 0 : execution.getApprovalCount(),
-                metadata(execution),
-                projection.endedAt(),
-                updatedAt);
-    }
-
-    private RuntimeRunEntity toEntity(ManagedExecutionEntity execution, Projection projection) {
-        LocalDateTime createdAt = execution.getCreatedAt() == null
-                ? LocalDateTime.now() : execution.getCreatedAt();
-        RuntimeRunEntity run = new RuntimeRunEntity();
-        run.setTraceId(execution.getExecutionId());
-        run.setRunType("MANAGED_EXECUTION");
-        run.setEntryType(execution.getSourceType());
-        run.setStatus(projection.status());
-        run.setSuspensionReason(projection.suspensionReason());
-        run.setProjectCode(execution.getProjectCode());
-        run.setTenantId(execution.getTenantId());
-        run.setUserId(execution.getRequestedByUserId());
-        run.setExternalUserId(execution.getRequestedByUserId());
-        run.setGlobalUserId(execution.getRequestedByUserId());
-        run.setRuntimeType("CODEX_HARNESS");
-        run.setInputSummary(json(Map.of(
-                "objectiveSha256", execution.getObjectiveSha256(),
-                "sourceType", execution.getSourceType())));
-        run.setOutputSummary(projection.outputSummary());
-        run.setErrorCode(projection.errorCode());
-        run.setErrorMessage(projection.errorMessage());
-        run.setLatencyMs(projection.latencyMs());
-        run.setTokenCost(0);
-        run.setPlanCount(0);
-        run.setReplanCount(0);
-        run.setWorkflowCallCount(0);
-        run.setToolCallCount(0);
-        run.setGuardDenyCount(0);
-        run.setApprovalCount(execution.getApprovalCount() == null ? 0 : execution.getApprovalCount());
-        run.setSnapshotJson(snapshot(execution));
-        run.setMetadataJson(metadata(execution));
-        run.setStartedAt(createdAt);
-        run.setEndedAt(projection.endedAt());
-        run.setCreatedAt(createdAt);
-        run.setUpdatedAt(execution.getUpdatedAt() == null ? createdAt : execution.getUpdatedAt());
-        return run;
+        LocalDateTime createdAt = execution.getCreatedAt() == null ? LocalDateTime.now() : execution.getCreatedAt();
+        writer.sync(RuntimeManagedRunProjectionWriter.Projection.builder()
+                .executionId(execution.getExecutionId()).sourceType(execution.getSourceType())
+                .projectCode(execution.getProjectCode()).tenantId(execution.getTenantId())
+                .requestedByUserId(execution.getRequestedByUserId())
+                .status(projection.status()).suspensionReason(projection.suspensionReason())
+                .inputSummary(json(Map.of("objectiveSha256", execution.getObjectiveSha256(),
+                        "sourceType", execution.getSourceType())))
+                .outputSummary(projection.outputSummary()).errorCode(projection.errorCode())
+                .errorMessage(projection.errorMessage()).latencyMs(projection.latencyMs())
+                .approvalCount(execution.getApprovalCount() == null ? 0 : execution.getApprovalCount())
+                .snapshotJson(snapshot(execution)).metadataJson(metadata(execution))
+                .createdAt(createdAt).endedAt(projection.endedAt())
+                .updatedAt(execution.getUpdatedAt() == null ? createdAt : execution.getUpdatedAt())
+                .build());
     }
 
     private Projection projection(ManagedExecutionEntity execution) {

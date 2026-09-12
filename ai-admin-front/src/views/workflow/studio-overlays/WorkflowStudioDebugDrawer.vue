@@ -1,5 +1,5 @@
 <template>
-  <el-drawer
+  <AppDrawer title="工作流调试台（当前工作副本）"
     v-model="open"
     class="studio-debug-drawer"
     modal-class="studio-debug-drawer-overlay"
@@ -140,6 +140,7 @@
             :resolve-thinking-presentation="resolveWorkflowThinkingPresentation"
             hide-composer
             @stop="$emit('cancel-session')"
+            @retry="$emit('restore-session')"
             @interaction-submit="handleInteractionSubmit"
             @interaction-cancel="$emit('interaction-cancel', $event)"
           >
@@ -158,7 +159,7 @@
                     :disabled="conversationBusy"
                   />
                   <div class="debug-actions">
-                    <el-tooltip content="运行当前工作副本" placement="top">
+                    <el-tooltip content="运行当前工作副本" placement="top" :trigger-keys="[]">
                       <el-button
                         type="primary"
                         circle
@@ -186,7 +187,7 @@
                     :disabled="conversationBusy"
                   />
                   <div class="debug-actions">
-                    <el-tooltip content="运行当前工作副本" placement="top">
+                    <el-tooltip content="运行当前工作副本" placement="top" :trigger-keys="[]">
                       <el-button
                         type="primary"
                         circle
@@ -286,10 +287,11 @@
         </div>
       </div>
     </div>
-  </el-drawer>
+  </AppDrawer>
 </template>
 
 <script setup lang="ts">
+import AppDrawer from '@/components/common/AppDrawer.vue'
 import { Operation } from '@element-plus/icons-vue'
 import type { ChatResponse } from '@/types/chat'
 import type { RunSummary } from '@/types/runops'
@@ -310,12 +312,12 @@ import {
   type ConversationSnapshot,
   type UiRequestV1,
 } from '@/conversation'
-import type { WorkflowNodeTraceState } from '@/views/workflow/composables/useWorkflowStudioCanvasActions'
+import type { WorkflowNodeTraceState } from '@/views/workflow/composables/workflowStudioTrace'
 import {
   debugStepStatus,
   formatElapsed,
   stringifyDebugPayload,
-} from '@/views/workflow/composables/useWorkflowStudioDebugRun'
+} from '@/views/workflow/composables/workflowStudioTrace'
 
 interface DebugMetricItem {
   label: string
@@ -358,6 +360,7 @@ const emit = defineEmits<{
   (event: 'open-runops', traceId: string): void
   (event: 'open-node-trace', nodeId: string): void
   (event: 'cancel-session'): void
+  (event: 'restore-session'): void
   (event: 'interaction-submit', interactionId: string, action: string, values: Record<string, unknown>): void
   (event: 'interaction-cancel', interactionId: string): void
   (event: 'run-working-copy'): void

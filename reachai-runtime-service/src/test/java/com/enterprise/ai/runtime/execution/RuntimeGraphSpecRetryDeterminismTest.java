@@ -4,7 +4,7 @@ import com.enterprise.ai.runtime.client.capability.RuntimeCapabilityCatalogClien
 import com.enterprise.ai.runtime.client.control.RuntimeControlCatalogClient;
 import com.enterprise.ai.runtime.client.knowledge.RuntimeKnowledgeRetrievalClient;
 import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient;
-import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
+import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 

@@ -15,7 +15,7 @@ public interface RuntimeAutomationMapper extends BaseMapper<RuntimeAutomationEnt
             SET name = #{name}, description = #{description}, project_id = #{projectId},
                 project_code = #{projectCode}, current_version_id = #{versionId},
                 status = #{status}, next_fire_at = #{nextFireAt}, revision = revision + 1,
-                updated_by = #{actor}, updated_at = NOW(6)
+                updated_by = #{actor}, updated_at = UTC_TIMESTAMP(6)
             WHERE id = #{id} AND revision = #{expectedRevision} AND status <> 'ARCHIVED'
             """)
     int updateVersion(@Param("id") Long id,
@@ -32,7 +32,7 @@ public interface RuntimeAutomationMapper extends BaseMapper<RuntimeAutomationEnt
     @Update("""
             UPDATE runtime_automation
             SET status = #{nextStatus}, next_fire_at = #{nextFireAt}, revision = revision + 1,
-                updated_by = #{actor}, updated_at = NOW(6)
+                updated_by = #{actor}, updated_at = UTC_TIMESTAMP(6)
             WHERE id = #{id} AND revision = #{expectedRevision} AND status <> 'ARCHIVED'
             """)
     int transition(@Param("id") Long id,
@@ -43,7 +43,7 @@ public interface RuntimeAutomationMapper extends BaseMapper<RuntimeAutomationEnt
 
     @Update("""
             UPDATE runtime_automation
-            SET next_fire_at = #{nextFireAt}, last_fire_at = #{lastFireAt}, updated_at = NOW(6)
+            SET next_fire_at = #{nextFireAt}, last_fire_at = #{lastFireAt}, updated_at = UTC_TIMESTAMP(6)
             WHERE id = #{id}
             """)
     int updateFireTimes(@Param("id") Long id,
@@ -53,7 +53,7 @@ public interface RuntimeAutomationMapper extends BaseMapper<RuntimeAutomationEnt
     @Update("""
             UPDATE runtime_automation
             SET status = 'COMPLETED', next_fire_at = NULL, last_fire_at = #{lastFireAt},
-                revision = revision + 1, updated_by = 'AUTOMATION_ENGINE', updated_at = NOW(6)
+                revision = revision + 1, updated_by = 'AUTOMATION_ENGINE', updated_at = UTC_TIMESTAMP(6)
             WHERE id = #{id} AND current_version_id = #{versionId} AND status = 'ACTIVE'
             """)
     int completeOnce(@Param("id") Long id,

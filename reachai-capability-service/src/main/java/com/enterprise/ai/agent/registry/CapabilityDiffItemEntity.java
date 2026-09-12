@@ -39,6 +39,10 @@ public class CapabilityDiffItemEntity {
     /** 被 Agent / Tool / ACL / MCP / A2A 等引用的影响分析 JSON。 */
     private String impactJson;
 
+    private String candidateHash;
+
+    private String intakeMode;
+
     /**
      * 执行评审前的能力目录状态。仅保存可被 SDK apply 改写的扫描目录与运行时调用投影字段，
      * 用于把回滚落实到真实执行资产，而不是只回写 review_status。

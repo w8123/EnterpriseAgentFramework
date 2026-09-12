@@ -176,7 +176,7 @@ class ReachAiRegistryClientTest {
         assertEquals("POST", sync.method);
         assertEquals("https://reachai.example.com/api/registry/projects/demo/capabilities/sync", sync.url);
         assertEquals("SDK", sync.body.get("source"));
-        assertEquals(Boolean.TRUE, sync.body.get("apply"));
+        assertEquals(Boolean.FALSE, sync.body.get("apply"));
         assertEquals(1, ((List<?>) sync.body.get("capabilities")).size());
     }
 

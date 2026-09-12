@@ -13,6 +13,7 @@ export interface UseWorkflowStudioHistoryDeps {
   visualDirty: Ref<boolean>
   editGeneration: Ref<number>
   stripTransientNodeClasses: (node: CanvasNode) => CanvasNode
+  serializeWorkflowEdge: (edge: CanvasEdge) => CanvasEdge
   decorateWorkflowNode: (node: CanvasNode) => CanvasNode
   decorateWorkflowEdge: (edge: CanvasEdge) => CanvasEdge
   syncJsonFromCanvas: () => void
@@ -31,6 +32,7 @@ export function useWorkflowStudioHistory({
   visualDirty,
   editGeneration,
   stripTransientNodeClasses,
+  serializeWorkflowEdge,
   decorateWorkflowNode,
   decorateWorkflowEdge,
   syncJsonFromCanvas,
@@ -42,7 +44,7 @@ export function useWorkflowStudioHistory({
   function currentSnapshotText() {
     return JSON.stringify({
       nodes: nodes.value.map(stripTransientNodeClasses),
-      edges: edges.value.map(decorateWorkflowEdge),
+      edges: edges.value.map(serializeWorkflowEdge),
     })
   }
 

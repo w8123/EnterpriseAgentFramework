@@ -83,7 +83,7 @@ writeMinimalServices(forbiddenRoot)
 writeFile(forbiddenRoot, 'reachai-control-service/src/main/java/com/enterprise/ai/control/BadControl.java', `
 package com.enterprise.ai.control;
 
-import com.enterprise.ai.runtime.execution.RuntimeAgentExecutionService;
+import com.enterprise.ai.runtime.supervisor.RuntimeAgentExecutionService;
 
 class BadControl {
     private RuntimeAgentExecutionService service;

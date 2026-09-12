@@ -1,5 +1,7 @@
 package com.enterprise.ai.runtime.workflow.aicoding;
 
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowAgentAttachmentPort;
+
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -11,12 +13,12 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 public class RuntimeAgentSupervisorWorkflowAttachmentController {
 
-    private final RuntimeAgentSupervisorWorkflowAttachmentService attachmentService;
+    private final RuntimeWorkflowAgentAttachmentPort attachmentService;
 
     @PostMapping("/internal/runtime/projects/{projectId}/agent-supervisor/workflow-tools/attach")
     public ResponseEntity<?> attach(
             @PathVariable("projectId") Long projectId,
-            @RequestBody RuntimeAgentSupervisorWorkflowAttachmentService.AttachRequest request) {
+            @RequestBody RuntimeWorkflowAgentAttachmentPort.AttachRequest request) {
         try {
             return ResponseEntity.ok(attachmentService.attach(projectId, request));
         } catch (AiCodingAttachmentException ex) {

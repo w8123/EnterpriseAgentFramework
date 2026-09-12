@@ -1,7 +1,7 @@
 package com.enterprise.ai.runtime.execution.kernel;
 
-import com.enterprise.ai.runtime.eval.RuntimeEvalExecutionContext;
-import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
+import com.enterprise.ai.runtime.execution.policy.RuntimeEvalExecutionContext;
+import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
 
 import java.util.Map;
 

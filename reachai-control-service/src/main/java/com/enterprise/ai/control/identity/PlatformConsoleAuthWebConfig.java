@@ -15,9 +15,12 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 public class PlatformConsoleAuthWebConfig implements WebMvcConfigurer {
 
     private final PlatformConsoleAuthInterceptor interceptor;
+    private final PlatformOptionalSessionAuthInterceptor optionalSessionInterceptor;
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
+        registry.addInterceptor(optionalSessionInterceptor)
+                .addPathPatterns(PlatformConsoleRoutePolicy.OPTIONAL_SESSION_PATH_PATTERNS.toArray(new String[0]));
         registry.addInterceptor(interceptor)
                 .addPathPatterns(PlatformConsoleRoutePolicy.PROTECTED_PATH_PATTERNS.toArray(new String[0]))
                 // /api/workflows/** is a console namespace, but its narrower

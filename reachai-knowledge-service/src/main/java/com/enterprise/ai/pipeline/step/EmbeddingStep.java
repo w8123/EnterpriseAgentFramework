@@ -1,6 +1,5 @@
 package com.enterprise.ai.pipeline.step;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.enterprise.ai.domain.entity.KnowledgeBase;
 import com.enterprise.ai.embedding.EmbeddingService;
 import com.enterprise.ai.pipeline.PipelineContext;
@@ -12,6 +11,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.Objects;
+import static com.enterprise.ai.domain.KnowledgeBaseSettings.requireVectorCollectionName;
 
 /**
  * 步骤五：文本向量化 — 对所有 chunk 进行批量 Embedding。
@@ -37,8 +38,12 @@ public class EmbeddingStep implements PipelineStep {
             throw new PipelineException(getName(), context.getFileId(), "chunks 为空，无法向量化");
         }
 
-        KnowledgeBase kb = knowledgeBaseRepository.selectOne(
-                new LambdaQueryWrapper<KnowledgeBase>().eq(KnowledgeBase::getCode, context.getKnowledgeBaseCode()));
+        KnowledgeBase kb = context.getKnowledgeBaseId() == null ? null
+                : knowledgeBaseRepository.selectById(context.getKnowledgeBaseId());
+        if (kb == null || !Objects.equals(kb.getCode(), context.getKnowledgeBaseCode())
+                || !Objects.equals(requireVectorCollectionName(kb), context.getVectorCollectionName())) {
+            throw new PipelineException(getName(), context.getFileId(), "导入知识库身份已失效");
+        }
         if (kb == null || kb.getEmbeddingModelInstanceId() == null || kb.getEmbeddingModelInstanceId().isBlank()) {
             throw new PipelineException(getName(), context.getFileId(), "embeddingModelInstanceId is required");
         }

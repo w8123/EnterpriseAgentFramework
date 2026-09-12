@@ -5,6 +5,8 @@
 
 ## Rules
 
+Knowledge 独占文件及授权的 `record_generation`、导入任务的 `replace_file_generation` 和索引执行的 `target_file_generation`。记录身份在创建时生成，长期任务与检索快照通过 owning service 读取并校验；其他服务不直接写入或推断这些字段。开发库执行记录见 [文件与授权记录身份升级](../../output/tasks/architecture-audit-20260905/knowledge-record-generation-database-notes.md)。
+
 - One shared MySQL database is allowed in this phase, but each table still has one owner service.
 - New code must not directly write another service's owned table.
 - Application code access is the source of truth for boundary violations: `@TableName`, MyBatis annotation SQL, MyBatis XML SQL, and JdbcTemplate SQL are checked.
@@ -104,6 +106,9 @@ These rows remain in the ownership matrix because the current baseline still rec
 | `capability_project_external_api_operation` | `reachai-capability-service` | - | 项目接入选中的 Operation 集合 |
 | `runtime_workflow` | `reachai-runtime-service` | - | Workflow runtime definition |
 | `runtime_workflow_version` | `reachai-runtime-service` | - | Workflow release snapshot |
+| `runtime_workflow_release_event` | `reachai-runtime-service` | - | Append-only Workflow publication and rollback history |
+| `runtime_workflow_draft_submission` | `reachai-runtime-service` | - | Workflow task draft submission fingerprints and last applied revisions; no raw request or credentials |
+| `runtime_workflow_capability_reference` | `reachai-runtime-service` | - | Transactional Workflow reverse references and index coverage |
 | `runtime_workflow_resource_binding` | `reachai-runtime-service` | - | Workflow to PAGE and other stable resource bindings |
 | `capability_api_graph_edge` | `reachai-capability-service` | - | Capability API graph edge |
 | `capability_api_graph_layout` | `reachai-capability-service` | - | Capability API graph layout |
@@ -115,7 +120,9 @@ These rows remain in the ownership matrix because the current baseline still rec
 | `capability_diff_item` | `reachai-capability-service` | - | Capability diff item |
 | `capability_module` | `reachai-capability-service` | - | Capability module catalog |
 | `capability_snapshot` | `reachai-capability-service` | - | Capability snapshot |
+| `capability_source_state` | `reachai-capability-service` | - | Latest verified source contract and catalog consistency |
 | `capability_sync_log` | `reachai-capability-service` | - | Capability sync log |
+| `capability_sync_receipt` | `reachai-capability-service` | - | Project-scoped sync identity and snapshot binding |
 | `knowledge_chunk` | `reachai-knowledge-service` | - | Knowledge knowledge_chunk storage |
 | `capability_composition_definition` | `reachai-capability-service` | - | Capability composition definition |
 | `control_context_audit_event` | `reachai-control-service` | - | Control context governance audit |
@@ -153,14 +160,17 @@ These rows remain in the ownership matrix because the current baseline still rec
 | `control_project_page_resource` | `reachai-control-service` | - | Page routes, components, APIs, permissions, config and test locations |
 | `runtime_executable_debug_session` | `reachai-runtime-service` | - | Runtime executable debug session |
 | `knowledge_file_info` | `reachai-knowledge-service` | - | Knowledge file metadata |
-| `knowledge_document_import_job` | `reachai-knowledge-service` | - | Durable source document, parser artifact and import-job state; only Knowledge workers claim or mutate it |
+| `knowledge_document_import_job` | `reachai-knowledge-service` | - | Durable source/artifact and job state, server-captured replacement file identity, global active-file reservation and transactional cancellation; Knowledge owns all mutations |
+| `knowledge_document_index_execution` | `reachai-knowledge-service` | - | Immutable vector manifests, operation/target snapshots, publication deadlines and exact replaced/deleted-file vector retirement progress |
+| `knowledge_collection_lifecycle` | `reachai-knowledge-service` | - | Single creation intent, metadata publication and durable retirement of immutable physical collections; unknown creation outcomes remain reclaimable |
+| `knowledge_document_artifact_lifecycle` | `reachai-knowledge-service` | - | Immutable object writes, reference publication and durable reclamation scoped to the owning storage backend |
 | `runtime_guard_decision_log` | `reachai-runtime-service` | - | Runtime guard decision log |
 | `capability_interaction_definition` | `reachai-capability-service` | - | Capability interaction definition |
 | `runtime_interaction_event` | `reachai-runtime-service` | - | Runtime interaction event |
 | `runtime_interaction_session` | `reachai-runtime-service` | - | Runtime interaction session |
 | `knowledge_base` | `reachai-knowledge-service` | - | Knowledge base |
 | `knowledge_hit_log` | `reachai-knowledge-service` | - | Knowledge retrieval hit log |
-| `knowledge_question` | `reachai-knowledge-service` | - | Knowledge question curation |
+| `knowledge_question` | `reachai-knowledge-service` | - | Knowledge question curation; file retirement unlinks chunk references while retaining question text |
 | `knowledge_tag` | `reachai-knowledge-service` | - | Knowledge tag |
 | `control_market_item` | `reachai-control-service` | - | Control marketplace item |
 | `control_agent_skill` | `reachai-control-service` | - | Scope-keyed standard Agent Skill installation identity plus enforced PRIVATE owner / PROJECT scope / SHARED / PUBLIC visibility |
@@ -187,7 +197,7 @@ These rows remain in the ownership matrix because the current baseline still rec
 | `capability_internal_auth_nonce` | `reachai-capability-service` | - | Control-to-Capability internal HMAC replay ledger |
 | `capability_registry_request_nonce` | `reachai-capability-service` | - | Body-bound project credential request replay ledger |
 | `capability_scan_module` | `reachai-capability-service` | - | Capability scan module |
-| `capability_scan_project` | `reachai-capability-service` | - | Capability scan project |
+| `capability_scan_project` | `reachai-capability-service` | - | Capability project identity; non-null project_code is unique across registration and catalog writes |
 | `capability_scan_project_tool` | `reachai-capability-service` | - | Capability scan project tool |
 | `capability_semantic_doc` | `reachai-capability-service` | - | Capability semantic document |
 | `control_tool_acl` | `reachai-control-service` | - | Control tool ACL |
@@ -195,4 +205,4 @@ These rows remain in the ownership matrix because the current baseline still rec
 | `runtime_tool_call_log` | `reachai-runtime-service` | - | Runtime Tool call audit |
 | `capability_tool_definition` | `reachai-capability-service` | - | Runtime Tool projection for governed Capability/API execution; not a product asset |
 | `capability_tool_retrieval_setting` | `reachai-capability-service` | - | Capability tool retrieval setting |
-| `knowledge_user_file_permission` | `reachai-knowledge-service` | - | Knowledge file permission |
+| `knowledge_user_file_permission` | `reachai-knowledge-service` | - | Knowledge file permission; file retirement revokes grants in the same transaction, subsequent reads use current database rows |

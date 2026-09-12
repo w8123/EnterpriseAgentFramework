@@ -1,8 +1,6 @@
 package com.enterprise.ai.runtime.trace;
 
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
-import com.enterprise.ai.runtime.runops.RuntimeRunEntity;
-import com.enterprise.ai.runtime.runops.RuntimeRunMapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
@@ -15,6 +13,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 class RuntimeTraceQueryServiceTest {
 
@@ -23,7 +22,7 @@ class RuntimeTraceQueryServiceTest {
         RuntimeToolCallLogMapper toolLogMapper = mock(RuntimeToolCallLogMapper.class);
         RuntimeTraceSpanMapper spanMapper = mock(RuntimeTraceSpanMapper.class);
         RuntimeTraceQueryService service = new RuntimeTraceQueryService(
-                toolLogMapper, spanMapper, mock(RuntimeRunMapper.class), new ObjectMapper());
+                toolLogMapper, spanMapper, new ObjectMapper());
         when(toolLogMapper.selectList(org.mockito.ArgumentMatchers.<Wrapper<RuntimeToolCallLogEntity>>any())).thenReturn(List.of(toolLog(
                 20L,
                 "trace-1",
@@ -64,7 +63,7 @@ class RuntimeTraceQueryServiceTest {
         RuntimeToolCallLogMapper toolLogMapper = mock(RuntimeToolCallLogMapper.class);
         RuntimeTraceSpanMapper spanMapper = mock(RuntimeTraceSpanMapper.class);
         RuntimeTraceQueryService service = new RuntimeTraceQueryService(
-                toolLogMapper, spanMapper, mock(RuntimeRunMapper.class), new ObjectMapper());
+                toolLogMapper, spanMapper, new ObjectMapper());
         when(toolLogMapper.selectList(org.mockito.ArgumentMatchers.<Wrapper<RuntimeToolCallLogEntity>>any())).thenReturn(List.of());
         when(spanMapper.selectList(org.mockito.ArgumentMatchers.<Wrapper<RuntimeTraceSpanEntity>>any())).thenReturn(List.of());
 
@@ -74,49 +73,18 @@ class RuntimeTraceQueryServiceTest {
     }
 
     @Test
-    void listsRecentTracesFromRootRunsWithMostRecentFirst() {
-        RuntimeToolCallLogMapper toolLogMapper = mock(RuntimeToolCallLogMapper.class);
-        RuntimeTraceSpanMapper spanMapper = mock(RuntimeTraceSpanMapper.class);
-        RuntimeRunMapper runMapper = mock(RuntimeRunMapper.class);
-        RuntimeTraceQueryService service = new RuntimeTraceQueryService(
-                toolLogMapper, spanMapper, runMapper, new ObjectMapper());
-        when(runMapper.selectList(org.mockito.ArgumentMatchers.<Wrapper<RuntimeRunEntity>>any())).thenReturn(List.of(
-                run(2L, "trace-b", "COMPLETED", 1,
-                        LocalDateTime.parse("2026-06-29T12:02:00"), LocalDateTime.parse("2026-06-29T12:02:00")),
-                run(1L, "trace-a", "FAILED", 2,
-                        LocalDateTime.parse("2026-06-29T12:00:00"), LocalDateTime.parse("2026-06-29T12:01:00"))));
+    void spanOnlyQuerySkipsToolCallContentAndBlankIdsSkipAllPersistence() {
+        RuntimeToolCallLogMapper tools = mock(RuntimeToolCallLogMapper.class);
+        RuntimeTraceSpanMapper spans = mock(RuntimeTraceSpanMapper.class);
+        RuntimeTraceQueryService service = new RuntimeTraceQueryService(tools, spans, new ObjectMapper());
 
-        List<RuntimeTraceSummaryView> summaries = service.listRecentTraces("user-1", 20, 7);
-
-        assertEquals(2, summaries.size());
-        assertEquals("trace-b", summaries.get(0).traceId());
-        assertEquals(1, summaries.get(0).callCount());
-        assertEquals(1L, summaries.get(0).successCount());
-        assertEquals("trace-a", summaries.get(1).traceId());
-        assertEquals(2, summaries.get(1).callCount());
-        assertEquals(0L, summaries.get(1).successCount());
-        assertEquals(LocalDateTime.parse("2026-06-29T12:00:00"), summaries.get(1).startedAt());
-        assertEquals(LocalDateTime.parse("2026-06-29T12:01:00"), summaries.get(1).endedAt());
-    }
-
-    private RuntimeRunEntity run(Long id,
-                                 String traceId,
-                                 String status,
-                                 int toolCallCount,
-                                 LocalDateTime startedAt,
-                                 LocalDateTime endedAt) {
-        RuntimeRunEntity run = new RuntimeRunEntity();
-        run.setId(id);
-        run.setTraceId(traceId);
-        run.setStatus(status);
-        run.setSessionId("session-1");
-        run.setUserId("user-1");
-        run.setAgentName("Order Agent");
-        run.setEntryType("API");
-        run.setToolCallCount(toolCallCount);
-        run.setStartedAt(startedAt);
-        run.setEndedAt(endedAt);
-        return run;
+        assertTrue(service.findSpans(" ").isEmpty());
+        assertTrue(service.findSpans(null).isEmpty());
+        verifyNoInteractions(spans, tools);
+        when(spans.selectList(org.mockito.ArgumentMatchers.<Wrapper<RuntimeTraceSpanEntity>>any()))
+                .thenReturn(List.of());
+        assertTrue(service.findSpans("trace-1").isEmpty());
+        verifyNoInteractions(tools);
     }
 
     private RuntimeToolCallLogEntity toolLog(Long id,

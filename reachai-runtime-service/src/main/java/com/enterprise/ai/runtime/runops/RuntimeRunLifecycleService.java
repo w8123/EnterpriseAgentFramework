@@ -1,16 +1,10 @@
 package com.enterprise.ai.runtime.runops;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.enterprise.ai.runtime.agent.RuntimeAgentConfigVersionEntity;
-import com.enterprise.ai.runtime.agent.RuntimeAgentSkillBindingEntity;
-import com.enterprise.ai.runtime.agent.RuntimeAgentView;
-import com.enterprise.ai.runtime.agent.RuntimeAgentWorkflowToolEntity;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.enterprise.ai.runtime.execution.RuntimeAgentRunLifecyclePort;
-import com.enterprise.ai.runtime.execution.trace.WorkflowTraceSanitizer;
-import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
-import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionEntity;
-import com.enterprise.ai.runtime.workflow.RuntimeWorkflowVersionEntity;
-import com.enterprise.ai.runtime.workflow.WorkflowSemanticValues;
+import com.enterprise.ai.runtime.trace.WorkflowTraceSanitizer;
+import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -29,8 +23,25 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class RuntimeRunLifecycleService implements RuntimeAgentRunLifecyclePort {
 
+    private static final List<String> OPEN_STATUSES = List.of("RUNNING", "SUSPENDED");
     private final RuntimeRunMapper runMapper;
     private final ObjectMapper objectMapper;
+
+    /** Lease recovery closes only the abandoned Automation run, never a completed business result. */
+    public int failAbandonedAutomation(String traceId, String code, String message, LocalDateTime endedAt) {
+        if (!StringUtils.hasText(traceId)) return 0;
+        if (!StringUtils.hasText(code) || endedAt == null) throw new IllegalArgumentException("Recovery requires code and time");
+        return runMapper.update(null, Wrappers.<RuntimeRunEntity>lambdaUpdate()
+                .eq(RuntimeRunEntity::getTraceId, traceId.trim())
+                .eq(RuntimeRunEntity::getEntryType, "AUTOMATION")
+                .eq(RuntimeRunEntity::getStatus, "RUNNING")
+                .isNull(RuntimeRunEntity::getEndedAt)
+                .set(RuntimeRunEntity::getStatus, "FAILED")
+                .set(RuntimeRunEntity::getErrorCode, code)
+                .set(RuntimeRunEntity::getErrorMessage, message)
+                .set(RuntimeRunEntity::getEndedAt, endedAt)
+                .set(RuntimeRunEntity::getUpdatedAt, endedAt));
+    }
 
     /**
      * Closes the durable root run when its pending interaction expires.
@@ -40,81 +51,113 @@ public class RuntimeRunLifecycleService implements RuntimeAgentRunLifecyclePort 
     public int expireWaitingInteraction(String traceId,
                                         String interactionId,
                                         LocalDateTime expiredAt) {
+        return timeoutWaitingInteraction(traceId, "RUNTIME_INTERACTION_EXPIRED",
+                "Interaction expired: " + interactionId, expiredAt, "Interaction expired before user response");
+    }
+
+    public int timeoutWaitingInteraction(String traceId, String code, String message, LocalDateTime expiredAt) {
+        return timeoutWaitingInteraction(traceId, code, message, expiredAt, message);
+    }
+
+    private int timeoutWaitingInteraction(String traceId, String code, String message,
+                                          LocalDateTime expiredAt, String output) {
+        return timeoutInteraction(traceId, code, message, expiredAt, output, List.of(RuntimeRunStatus.SUSPENDED.name()));
+    }
+
+    /** Called only after the interaction owner fences a resume whose result is now unknown. */
+    public int timeoutResumingInteraction(String traceId, String code, String message, LocalDateTime expiredAt) {
+        return timeoutInteraction(traceId, code, message, expiredAt, message, OPEN_STATUSES);
+    }
+
+    /** The Studio session owner has fenced this attempt; other entry types and terminal runs are untouched. */
+    public int timeoutDebugExecution(String traceId, String code, String message, LocalDateTime expiredAt) {
+        return timeoutRun(traceId, code, message, expiredAt, message, OPEN_STATUSES, true);
+    }
+
+    private int timeoutInteraction(String traceId, String code, String message, LocalDateTime expiredAt,
+                                   String output, List<String> openStatuses) {
+        return timeoutRun(traceId, code, message, expiredAt, output, openStatuses, false);
+    }
+
+    private int timeoutRun(String traceId, String code, String message, LocalDateTime expiredAt,
+                           String output, List<String> openStatuses, boolean studioOnly) {
         if (!StringUtils.hasText(traceId)) {
             return 0;
         }
+        if (!StringUtils.hasText(code)) throw new IllegalArgumentException("Interaction timeout requires a code");
         LocalDateTime endedAt = expiredAt == null ? LocalDateTime.now() : expiredAt;
-        return runMapper.update(null, Wrappers.<RuntimeRunEntity>lambdaUpdate()
+        var update = Wrappers.<RuntimeRunEntity>lambdaUpdate()
                 .eq(RuntimeRunEntity::getTraceId, traceId.trim())
-                .eq(RuntimeRunEntity::getStatus, RuntimeRunStatus.SUSPENDED.name())
+                .eq(studioOnly, RuntimeRunEntity::getRunType, "WORKFLOW")
+                .eq(studioOnly, RuntimeRunEntity::getEntryType, "WORKFLOW_STUDIO")
+                .in(RuntimeRunEntity::getStatus, openStatuses)
                 .isNull(RuntimeRunEntity::getEndedAt)
                 .set(RuntimeRunEntity::getStatus, RuntimeRunStatus.TIMED_OUT.name())
                 .set(RuntimeRunEntity::getSuspensionReason, null)
-                .set(RuntimeRunEntity::getOutputSummary, "Interaction expired before user response")
-                .set(RuntimeRunEntity::getErrorCode, "RUNTIME_INTERACTION_EXPIRED")
-                .set(RuntimeRunEntity::getErrorMessage, "Interaction expired: " + interactionId)
+                .set(RuntimeRunEntity::getOutputSummary, output)
+                .set(RuntimeRunEntity::getErrorCode, code)
+                .set(RuntimeRunEntity::getErrorMessage, message)
                 .set(RuntimeRunEntity::getEndedAt, endedAt)
-                .set(RuntimeRunEntity::getUpdatedAt, endedAt));
+                .set(RuntimeRunEntity::getUpdatedAt, endedAt);
+        return runMapper.update(null, update);
     }
 
     public void beginAgent(String traceId,
                            String rootSpanId,
                            LocalDateTime startedAt,
-                           RuntimeAgentView agent,
-                           RuntimeAgentConfigVersionEntity config,
-                           List<RuntimeAgentWorkflowToolEntity> workflowTools,
+                           AgentTarget agent,
+                           RuntimeRunSnapshots.AgentConfiguration config,
                            Map<String, Object> input) {
-        beginAgent(traceId, rootSpanId, startedAt, agent, config, workflowTools, input, null);
+        beginAgent(traceId, rootSpanId, startedAt, agent, config, input, null);
     }
 
     public void beginAgent(String traceId,
                            String rootSpanId,
                            LocalDateTime startedAt,
-                           RuntimeAgentView agent,
-                           RuntimeAgentConfigVersionEntity config,
-                           List<RuntimeAgentWorkflowToolEntity> workflowTools,
+                           AgentTarget agent,
+                           RuntimeRunSnapshots.AgentConfiguration config,
                            Map<String, Object> input,
                            WorkflowExecutionIdentity identity) {
         RuntimeRunEntity run = baseRun(traceId, input, startedAt, identity);
         run.setRunType("AGENT");
         run.setStatus(RuntimeRunStatus.RUNNING.name());
         run.setProjectId(agent.projectId());
-        run.setProjectCode(firstText(input.get("projectCode"), agent.projectCode()));
+        run.setProjectCode(agent.projectCode());
+        run.setAppId(firstText(run.getAppId(), agent.projectCode()));
         run.setAgentId(agent.id());
         run.setAgentKeySlug(agent.keySlug());
         run.setAgentName(agent.name());
-        run.setAgentConfigVersionId(config.getId());
-        run.setAgentConfigVersion(config.getVersionNo());
-        run.setRuntimeType(config.getRuntimeType());
+        run.setAgentConfigVersionId(config.versionId());
+        run.setAgentConfigVersion(config.versionNo());
+        run.setRuntimeType(config.runtimeType());
         run.setRootSpanId(rootSpanId);
         Map<String, Object> snapshot = new LinkedHashMap<>();
         snapshot.put("agentId", agent.id());
         snapshot.put("agentKeySlug", agent.keySlug());
-        snapshot.put("agentConfigVersionId", config.getId());
-        snapshot.put("agentConfigVersion", config.getVersionNo());
-        snapshot.put("runtimeType", config.getRuntimeType());
-        snapshot.put("workflowToolCount", workflowTools == null ? 0 : workflowTools.size());
-        snapshot.put("workflowToolNames", workflowTools == null ? List.of() : workflowTools.stream()
-                .map(RuntimeAgentWorkflowToolEntity::getToolName)
-                .filter(StringUtils::hasText)
-                .toList());
+        snapshot.put("agentConfigVersionId", config.versionId());
+        snapshot.put("agentConfigVersion", config.versionNo());
+        snapshot.put("runtimeType", config.runtimeType());
+        snapshot.put("workflowToolCount", config.workflowToolCount());
+        snapshot.put("workflowToolNames", config.workflowToolNames());
         run.setSnapshotJson(json(snapshot));
         insert(run, "begin Agent run");
     }
 
     public void rejectAgent(String traceId,
-                            RuntimeAgentView agent,
+                            AgentTarget agent,
                             Map<String, Object> input,
                             String code,
-                            String message) {
+                            String message,
+                            WorkflowExecutionIdentity identity) {
         LocalDateTime now = LocalDateTime.now();
-        RuntimeRunEntity run = baseRun(traceId, input, now, null);
+        RuntimeRunEntity run = baseRun(traceId, input, now, identity);
         run.setRunType("AGENT");
         run.setStatus(status(false, code));
         run.setSuspensionReason(suspensionReason(code));
         if (agent != null) {
             run.setProjectId(agent.projectId());
-            run.setProjectCode(firstText(input.get("projectCode"), agent.projectCode()));
+            run.setProjectCode(agent.projectCode());
+            run.setAppId(firstText(run.getAppId(), agent.projectCode()));
             run.setAgentId(agent.id());
             run.setAgentKeySlug(agent.keySlug());
             run.setAgentName(agent.name());
@@ -140,18 +183,22 @@ public class RuntimeRunLifecycleService implements RuntimeAgentRunLifecyclePort 
                 return;
             }
             LocalDateTime now = LocalDateTime.now();
-            run.setStatus(RuntimeRunStatus.RUNNING.name());
-            run.setSuspensionReason(null);
-            run.setEndedAt(null);
-            run.setErrorCode(null);
-            run.setErrorMessage(null);
-            run.setUpdatedAt(now);
-            runMapper.updateById(run);
+            runMapper.update(null, Wrappers.<RuntimeRunEntity>lambdaUpdate()
+                    .eq(RuntimeRunEntity::getId, run.getId())
+                    .eq(RuntimeRunEntity::getTraceId, run.getTraceId())
+                    .eq(RuntimeRunEntity::getRunType, "AGENT")
+                    .eq(RuntimeRunEntity::getStatus, run.getStatus())
+                    .set(RuntimeRunEntity::getStatus, RuntimeRunStatus.RUNNING.name())
+                    .set(RuntimeRunEntity::getSuspensionReason, null)
+                    .set(RuntimeRunEntity::getEndedAt, null)
+                    .set(RuntimeRunEntity::getErrorCode, null)
+                    .set(RuntimeRunEntity::getErrorMessage, null)
+                    .set(RuntimeRunEntity::getUpdatedAt, now));
         }, "resume Agent run");
     }
 
     /** Persists the exact Skill versions alongside the Agent config snapshot. */
-    public void recordSkillBindings(String traceId, List<RuntimeAgentSkillBindingEntity> bindings) {
+    public void recordSkillBindings(String traceId, List<RuntimeRunSnapshots.SkillBinding> bindings) {
         if (!StringUtils.hasText(traceId)) return;
         safe(() -> {
             RuntimeRunEntity run = find(traceId);
@@ -159,30 +206,16 @@ public class RuntimeRunLifecycleService implements RuntimeAgentRunLifecyclePort 
             Map<String, Object> snapshot = jsonMap(run.getSnapshotJson());
             List<Map<String, Object>> versions = bindings == null ? List.of() : bindings.stream()
                     .filter(java.util.Objects::nonNull)
-                    .map(skill -> {
-                        Map<String, Object> value = new LinkedHashMap<>();
-                        value.put("skillId", skill.getSkillId());
-                        value.put("skillVersionId", skill.getSkillVersionId());
-                        value.put("publisher", skill.getPublisher());
-                        value.put("name", skill.getStandardName());
-                        if (StringUtils.hasText(skill.getVisibility())) {
-                            value.put("visibility", skill.getVisibility());
-                        }
-                        if (StringUtils.hasText(skill.getProjectCode())) {
-                            value.put("projectCode", skill.getProjectCode());
-                        }
-                        value.put("version", skill.getVersion());
-                        value.put("sourceSha256", skill.getSourceSha256());
-                        value.put("activationMode", skill.getActivationMode());
-                        value.put("scriptPolicy", skill.getScriptPolicy());
-                        return Map.copyOf(value);
-                    })
+                    .map(RuntimeRunSnapshots.SkillBinding::runMetadata)
                     .toList();
             snapshot.put("skillBindingCount", versions.size());
             snapshot.put("skillBindings", versions);
-            run.setSnapshotJson(json(snapshot));
-            run.setUpdatedAt(LocalDateTime.now());
-            runMapper.updateById(run);
+            runMapper.update(null, Wrappers.<RuntimeRunEntity>lambdaUpdate()
+                    .eq(RuntimeRunEntity::getId, run.getId())
+                    .eq(RuntimeRunEntity::getTraceId, traceId.trim())
+                    .eq(RuntimeRunEntity::getRunType, "AGENT")
+                    .set(RuntimeRunEntity::getSnapshotJson, json(snapshot))
+                    .set(RuntimeRunEntity::getUpdatedAt, LocalDateTime.now()));
         }, "record Agent Skill binding snapshot");
     }
 
@@ -221,7 +254,6 @@ public class RuntimeRunLifecycleService implements RuntimeAgentRunLifecyclePort 
             LocalDateTime ended = endedAt == null ? LocalDateTime.now() : endedAt;
             String resolvedStatus = status(success, code);
             boolean suspended = isSuspendedStatus(resolvedStatus);
-            String resolvedSuspensionReason = suspended ? suspensionReason(code) : null;
             String safeAnswer = WorkflowTraceSanitizer.sanitizeAnswer(answer);
             String sessionId = text(metadata == null ? null : metadata.get("sessionId"));
             RuntimeRunFinishCounts counts = resolveFinishCounts(traceId, metadata);
@@ -230,34 +262,28 @@ public class RuntimeRunLifecycleService implements RuntimeAgentRunLifecyclePort 
                     : (latencyMs != null
                     ? latencyMs
                     : (startedAtHint == null ? null : toInt(ChronoUnit.MILLIS.between(startedAtHint, ended))));
-            String trustedUserId = identity != null && identity.userTrusted() && StringUtils.hasText(identity.userId())
-                    ? identity.userId().trim()
-                    : null;
-            // token_cost is NOT NULL — never write null through LambdaUpdateWrapper.set.
+            // Missing measurements on a continuation are not zero totals.
+            boolean tokenReported = hasReportedTokenCost(metadata);
             int tokenCost = resolveTokenCost(metadata);
-            // Conditional update by traceId — no full-entity reload before finish.
-            int updated = runMapper.update(null, Wrappers.<RuntimeRunEntity>lambdaUpdate()
-                    .eq(RuntimeRunEntity::getTraceId, traceId.trim())
-                    .set(RuntimeRunEntity::getStatus, resolvedStatus)
-                    .set(RuntimeRunEntity::getSuspensionReason, resolvedSuspensionReason)
+            Map<String, Object> safeMetadata = new LinkedHashMap<>(WorkflowTraceSanitizer.sanitizeRunMetadata(
+                    jsonMap(counts.getMetadataJson())));
+            safeMetadata.putAll(WorkflowTraceSanitizer.sanitizeRunMetadata(metadata));
+            if (tokenReported) safeMetadata.put("tokenCost", tokenCost);
+            // The execution port also completes standalone Workflow interaction resumes.
+            // Only open roots may transition; no full-entity reload before Agent finish.
+            // Entry attribution is immutable: completion must not clear or replace its original user.
+            int updated = runMapper.update(null, completionUpdate(traceId, resolvedStatus, code,
+                    safeAnswer, safeAnswer, ended, resolvedLatency)
+                    .in(RuntimeRunEntity::getRunType, List.of("AGENT", "WORKFLOW"))
                     .set(StringUtils.hasText(sessionId), RuntimeRunEntity::getSessionId, sessionId)
-                    .set(RuntimeRunEntity::getUserId, trustedUserId)
-                    .set(RuntimeRunEntity::getExternalUserId, trustedUserId)
-                    .set(RuntimeRunEntity::getGlobalUserId, trustedUserId)
-                    .set(RuntimeRunEntity::getOutputSummary, safeAnswer)
-                    .set(RuntimeRunEntity::getErrorCode, success || suspended ? null : code)
-                    .set(RuntimeRunEntity::getErrorMessage, success || suspended ? null : safeAnswer)
-                    .set(RuntimeRunEntity::getLatencyMs, resolvedLatency)
-                    .set(RuntimeRunEntity::getTokenCost, tokenCost)
-                    .set(RuntimeRunEntity::getPlanCount, intValue(metadata, "planCount"))
-                    .set(RuntimeRunEntity::getReplanCount, intValue(metadata, "replanCount"))
-                    .set(RuntimeRunEntity::getWorkflowCallCount, intValue(metadata, "workflowCallCount"))
+                    .set(tokenReported, RuntimeRunEntity::getTokenCost, tokenCost)
+                    .set(reported(metadata, "planCount"), RuntimeRunEntity::getPlanCount, intValue(metadata, "planCount"))
+                    .set(reported(metadata, "replanCount"), RuntimeRunEntity::getReplanCount, intValue(metadata, "replanCount"))
+                    .set(reported(metadata, "workflowCallCount"), RuntimeRunEntity::getWorkflowCallCount, intValue(metadata, "workflowCallCount"))
                     .set(RuntimeRunEntity::getToolCallCount, counts.toolCallCountInt())
                     .set(RuntimeRunEntity::getGuardDenyCount, counts.guardDenyCountInt())
                     .set(RuntimeRunEntity::getApprovalCount, counts.approvalCountInt())
-                    .set(RuntimeRunEntity::getMetadataJson, json(WorkflowTraceSanitizer.sanitizeRunMetadata(metadata)))
-                    .set(RuntimeRunEntity::getEndedAt, suspended ? null : ended)
-                    .set(RuntimeRunEntity::getUpdatedAt, ended));
+                    .set(!safeMetadata.isEmpty(), RuntimeRunEntity::getMetadataJson, json(safeMetadata)));
             if (updated <= 0) {
                 log.warn("Cannot finish Agent run: no runtime_run row matched traceId={}", traceId);
             }
@@ -291,6 +317,36 @@ public class RuntimeRunLifecycleService implements RuntimeAgentRunLifecyclePort 
         }
         long total = tokenValueStatic(metadata);
         return total <= 0 ? 0 : (int) Math.min(Integer.MAX_VALUE, total);
+    }
+
+    /** Distinguishes an explicitly measured zero from a completion with no model usage. */
+    public static boolean hasReportedTokenCost(Map<String, Object> metadata) {
+        if (metadata == null) return false;
+        Object explicit = metadata.get("tokenCost");
+        if (explicit instanceof Number) return true;
+        if (explicit != null) {
+            try { Integer.parseInt(String.valueOf(explicit).trim()); return true; }
+            catch (NumberFormatException ignored) { /* Fall through to supported usage trees. */ }
+        }
+        return preferCanonicalUsageTotal(metadata) != null || hasTokenMetric(metadata);
+    }
+
+    private static boolean hasTokenMetric(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            for (var entry : map.entrySet()) {
+                String key = String.valueOf(entry.getKey());
+                if (entry.getValue() instanceof Number && isTokenKey(key)) return true;
+                if (!"tokenCost".equals(key) && !"supervisor.modelRounds".equals(key)
+                        && !"modelRounds".equals(key) && hasTokenMetric(entry.getValue())) return true;
+            }
+        } else if (value instanceof Iterable<?> values) {
+            for (Object child : values) if (hasTokenMetric(child)) return true;
+        }
+        return false;
+    }
+
+    private static boolean reported(Map<String, Object> metadata, String key) {
+        return metadata != null && metadata.get(key) != null;
     }
 
     /**
@@ -396,28 +452,24 @@ public class RuntimeRunLifecycleService implements RuntimeAgentRunLifecyclePort 
     public void beginWorkflow(String traceId,
                               String rootSpanId,
                               String entryType,
-                              String workflowId,
-                              String workflowKeySlug,
-                              String workflowName,
-                              String projectCode,
-                              String executionEngine,
-                              String graphSpecJson,
+                              RuntimeRunSnapshots.Workflow workflow,
                               Map<String, Object> input) {
         LocalDateTime now = LocalDateTime.now();
         Map<String, Object> normalized = input == null ? new LinkedHashMap<>() : new LinkedHashMap<>(input);
         normalized.put("entryType", firstText(entryType, "WORKFLOW_STUDIO"));
-        normalized.putIfAbsent("projectCode", projectCode);
         RuntimeRunEntity run = baseRun(traceId, normalized, now, null);
+        run.setProjectId(workflow.projectId());
+        run.setProjectCode(trim(workflow.projectCode()));
+        run.setAppId(firstText(run.getAppId(), workflow.projectCode()));
         run.setRunType("WORKFLOW");
         run.setStatus(RuntimeRunStatus.RUNNING.name());
-        run.setWorkflowId(trim(workflowId));
-        run.setWorkflowKeySlug(trim(workflowKeySlug));
-        run.setWorkflowName(trim(workflowName));
-        run.setRuntimeType(WorkflowSemanticValues.normalizeExecutionEngine(
-                firstText(executionEngine, WorkflowSemanticValues.ENGINE_GRAPH_SPEC)));
+        run.setWorkflowId(trim(workflow.workflowId()));
+        run.setWorkflowKeySlug(trim(workflow.keySlug()));
+        run.setWorkflowName(trim(workflow.name()));
+        run.setRuntimeType(workflow.executionEngine());
         run.setRootSpanId(rootSpanId);
-        Map<String, Object> snapshot = new LinkedHashMap<>(WorkflowTraceSanitizer.sanitizeWorkflowSnapshot(graphSpecJson));
-        snapshot.put("workflowId", trim(workflowId));
+        Map<String, Object> snapshot = new LinkedHashMap<>(WorkflowTraceSanitizer.sanitizeWorkflowSnapshot(workflow.graphSpecJson()));
+        snapshot.put("workflowId", trim(workflow.workflowId()));
         run.setSnapshotJson(json(snapshot));
         insert(run, "begin Workflow run");
     }
@@ -426,33 +478,31 @@ public class RuntimeRunLifecycleService implements RuntimeAgentRunLifecyclePort 
     public void beginPublishedWorkflow(String traceId,
                                        String rootSpanId,
                                        String entryType,
-                                       RuntimeWorkflowDefinitionEntity workflow,
-                                       RuntimeWorkflowVersionEntity version,
+                                       RuntimeRunSnapshots.PublishedWorkflow workflow,
                                        Map<String, Object> input,
                                        WorkflowExecutionIdentity identity) {
         LocalDateTime now = LocalDateTime.now();
         Map<String, Object> normalized = input == null ? new LinkedHashMap<>() : new LinkedHashMap<>(input);
         normalized.put("entryType", firstText(entryType, "API"));
-        normalized.putIfAbsent("projectCode", workflow.getProjectCode());
         RuntimeRunEntity run = baseRun(traceId, normalized, now, identity);
         run.setRunType("WORKFLOW");
         run.setStatus(RuntimeRunStatus.RUNNING.name());
-        run.setProjectId(workflow.getProjectId());
-        run.setProjectCode(firstText(normalized.get("projectCode"), workflow.getProjectCode()));
-        run.setWorkflowId(trim(workflow.getId()));
-        run.setWorkflowKeySlug(trim(workflow.getKeySlug()));
-        run.setWorkflowName(trim(workflow.getName()));
-        run.setWorkflowVersionId(version.getId());
-        run.setWorkflowVersion(version.getVersion());
-        run.setRuntimeType(WorkflowSemanticValues.normalizeExecutionEngine(
-                firstText(workflow.getExecutionEngine(), WorkflowSemanticValues.ENGINE_GRAPH_SPEC)));
+        run.setProjectId(workflow.projectId());
+        run.setProjectCode(workflow.projectCode());
+        run.setAppId(firstText(run.getAppId(), workflow.projectCode()));
+        run.setWorkflowId(trim(workflow.workflowId()));
+        run.setWorkflowKeySlug(trim(workflow.keySlug()));
+        run.setWorkflowName(trim(workflow.name()));
+        run.setWorkflowVersionId(workflow.versionId());
+        run.setWorkflowVersion(workflow.version());
+        run.setRuntimeType(workflow.executionEngine());
         run.setRootSpanId(rootSpanId);
         Map<String, Object> snapshot = new LinkedHashMap<>(
-                WorkflowTraceSanitizer.sanitizeWorkflowSnapshot(version.getGraphSpecSnapshotJson()));
-        snapshot.put("workflowId", trim(workflow.getId()));
-        snapshot.put("workflowKeySlug", trim(workflow.getKeySlug()));
-        snapshot.put("workflowVersionId", version.getId());
-        snapshot.put("workflowVersion", version.getVersion());
+                WorkflowTraceSanitizer.sanitizeWorkflowSnapshot(workflow.graphSpecJson()));
+        snapshot.put("workflowId", trim(workflow.workflowId()));
+        snapshot.put("workflowKeySlug", trim(workflow.keySlug()));
+        snapshot.put("workflowVersionId", workflow.versionId());
+        snapshot.put("workflowVersion", workflow.version());
         run.setSnapshotJson(json(snapshot));
         insert(run, "begin published Workflow run");
     }
@@ -507,11 +557,6 @@ public class RuntimeRunLifecycleService implements RuntimeAgentRunLifecyclePort 
             RuntimeRunEntity run = find(traceId);
             if (run == null) return;
             LocalDateTime ended = LocalDateTime.now();
-            run.setStatus(status(success, code));
-            run.setOutputSummary(hasOutput ? "[omitted]" : "");
-            run.setErrorCode(success ? null : trim(code));
-            run.setErrorMessage(success ? null : WorkflowTraceSanitizer.sanitizeRejectionSummary(code));
-            run.setLatencyMs(toInt(ChronoUnit.MILLIS.between(run.getStartedAt(), ended)));
             Map<String, Object> safeMetadata = new LinkedHashMap<>();
             copyScalar(safeMetadata, metadata, "sourceKind");
             copyScalar(safeMetadata, metadata, "toolName");
@@ -519,10 +564,13 @@ public class RuntimeRunLifecycleService implements RuntimeAgentRunLifecyclePort 
             copyScalar(safeMetadata, metadata, "revisionNo");
             copyScalar(safeMetadata, metadata, "environment");
             copyScalar(safeMetadata, metadata, "nodeCount");
-            run.setMetadataJson(json(safeMetadata));
-            run.setEndedAt(ended);
-            run.setUpdatedAt(ended);
-            runMapper.updateById(run);
+            runMapper.update(null, completionUpdate(traceId, status(success, code), trim(code),
+                    hasOutput ? "[omitted]" : "", WorkflowTraceSanitizer.sanitizeRejectionSummary(code),
+                    ended, elapsed(run, ended))
+                    .eq(RuntimeRunEntity::getId, run.getId())
+                    .eq(RuntimeRunEntity::getRunType, "MCP")
+                    .eq(RuntimeRunEntity::getStatus, run.getStatus())
+                    .set(RuntimeRunEntity::getMetadataJson, json(safeMetadata)));
         }, "finish MCP run");
     }
 
@@ -537,23 +585,41 @@ public class RuntimeRunLifecycleService implements RuntimeAgentRunLifecyclePort 
             if (run == null) return;
             LocalDateTime ended = LocalDateTime.now();
             String resolvedStatus = status(success, code);
-            boolean suspended = isSuspendedStatus(resolvedStatus);
-            run.setStatus(resolvedStatus);
-            run.setSuspensionReason(suspended ? suspensionReason(code) : null);
             String safeAnswer = WorkflowTraceSanitizer.sanitizeAnswer(answer);
-            run.setOutputSummary(safeAnswer);
-            run.setErrorCode(success || suspended ? null : code);
-            run.setErrorMessage(success || suspended ? null : safeAnswer);
-            run.setLatencyMs(suspended ? null : toInt(ChronoUnit.MILLIS.between(run.getStartedAt(), ended)));
-            run.setTokenCost(resolveTokenCost(metadata));
             Map<String, Object> meta = new LinkedHashMap<>(
                     WorkflowTraceSanitizer.sanitizeRunMetadata(metadata));
             meta.putIfAbsent("nodeCount", nodeCount);
-            run.setMetadataJson(json(meta));
-            run.setEndedAt(suspended ? null : ended);
-            run.setUpdatedAt(ended);
-            runMapper.updateById(run);
+            runMapper.update(null, completionUpdate(traceId, resolvedStatus, code,
+                    safeAnswer, safeAnswer, ended, elapsed(run, ended))
+                    .eq(RuntimeRunEntity::getId, run.getId())
+                    .eq(RuntimeRunEntity::getRunType, "WORKFLOW")
+                    .eq(RuntimeRunEntity::getStatus, run.getStatus())
+                    .set(RuntimeRunEntity::getTokenCost, resolveTokenCost(metadata))
+                    .set(RuntimeRunEntity::getMetadataJson, json(meta)));
         }, "finish Workflow run");
+    }
+
+    /** Shared lifecycle writes must clear SQL NULLs and never replace an already terminal outcome. */
+    private LambdaUpdateWrapper<RuntimeRunEntity> completionUpdate(
+            String traceId, String resolvedStatus, String code, String outputSummary, String errorSummary,
+            LocalDateTime endedAt, Integer latencyMs) {
+        boolean suspended = isSuspendedStatus(resolvedStatus);
+        boolean clearError = suspended || RuntimeRunStatus.COMPLETED.name().equals(resolvedStatus);
+        return Wrappers.<RuntimeRunEntity>lambdaUpdate()
+                .eq(RuntimeRunEntity::getTraceId, traceId.trim())
+                .in(RuntimeRunEntity::getStatus, OPEN_STATUSES)
+                .set(RuntimeRunEntity::getStatus, resolvedStatus)
+                .set(RuntimeRunEntity::getSuspensionReason, suspended ? suspensionReason(code) : null)
+                .set(RuntimeRunEntity::getOutputSummary, outputSummary)
+                .set(RuntimeRunEntity::getErrorCode, clearError ? null : code)
+                .set(RuntimeRunEntity::getErrorMessage, clearError ? null : errorSummary)
+                .set(RuntimeRunEntity::getLatencyMs, suspended ? null : latencyMs)
+                .set(RuntimeRunEntity::getEndedAt, suspended ? null : endedAt)
+                .set(RuntimeRunEntity::getUpdatedAt, endedAt);
+    }
+
+    private int elapsed(RuntimeRunEntity run, LocalDateTime endedAt) {
+        return run.getStartedAt() == null ? 0 : toInt(ChronoUnit.MILLIS.between(run.getStartedAt(), endedAt));
     }
 
     private RuntimeRunEntity baseRun(String traceId, Map<String, Object> input, LocalDateTime startedAt,
@@ -563,9 +629,9 @@ public class RuntimeRunLifecycleService implements RuntimeAgentRunLifecyclePort 
         RuntimeRunEntity run = new RuntimeRunEntity();
         run.setTraceId(traceId);
         run.setEntryType(entryType(body));
-        run.setProjectCode(text(body.get("projectCode")));
-        run.setTenantId(text(body.get("tenantId")));
-        run.setAppId(firstText(body.get("appId"), body.get("projectCode")));
+        // Target ownership is supplied explicitly by each entry; business input never assigns scope.
+        run.setTenantId(identity != null && identity.projectTrusted() ? identity.tenantId() : null);
+        run.setAppId(text(body.get("appId")));
         run.setSessionId(text(body.get("sessionId")));
         applyTrustedUser(run, identity);
         run.setPageInstanceId(text(body.get("pageInstanceId")));
@@ -643,10 +709,12 @@ public class RuntimeRunLifecycleService implements RuntimeAgentRunLifecyclePort 
      * Never runs three independent COUNT queries.
      */
     private RuntimeRunFinishCounts resolveFinishCounts(String traceId, Map<String, Object> metadata) {
-        boolean hasTool = metadata != null && metadata.containsKey("toolCallCount");
-        boolean hasDeny = metadata != null && metadata.containsKey("guardDenyCount");
-        boolean hasApproval = metadata != null && metadata.containsKey("approvalCount");
-        if (hasTool && hasDeny && hasApproval) {
+        boolean hasTool = reported(metadata, "toolCallCount");
+        boolean hasDeny = reported(metadata, "guardDenyCount");
+        boolean hasApproval = reported(metadata, "approvalCount");
+        if (hasTool && hasDeny && hasApproval && reported(metadata, "planCount")
+                && reported(metadata, "replanCount") && reported(metadata, "workflowCallCount")
+                && hasReportedTokenCost(metadata)) {
             RuntimeRunFinishCounts counts = new RuntimeRunFinishCounts();
             counts.setToolCallCount((long) intValue(metadata, "toolCallCount"));
             counts.setGuardDenyCount((long) intValue(metadata, "guardDenyCount"));
@@ -654,7 +722,11 @@ public class RuntimeRunLifecycleService implements RuntimeAgentRunLifecyclePort 
             return counts;
         }
         RuntimeRunFinishCounts counts = runMapper.selectFinishCounts(traceId.trim());
-        return counts == null ? RuntimeRunFinishCounts.zeros() : counts;
+        if (counts == null) counts = RuntimeRunFinishCounts.zeros();
+        if (hasTool) counts.setToolCallCount((long) intValue(metadata, "toolCallCount"));
+        if (hasDeny) counts.setGuardDenyCount((long) intValue(metadata, "guardDenyCount"));
+        if (hasApproval) counts.setApprovalCount((long) intValue(metadata, "approvalCount"));
+        return counts;
     }
 
     @SuppressWarnings("unchecked")
@@ -770,7 +842,4 @@ public class RuntimeRunLifecycleService implements RuntimeAgentRunLifecyclePort 
         return null;
     }
 
-    private String limit(String value, int max) {
-        return value == null || value.length() <= max ? value : value.substring(0, max);
-    }
 }

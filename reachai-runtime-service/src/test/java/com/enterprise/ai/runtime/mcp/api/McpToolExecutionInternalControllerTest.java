@@ -2,7 +2,7 @@ package com.enterprise.ai.runtime.mcp.api;
 
 import com.enterprise.ai.common.internalauth.InternalServiceAuthHeaders;
 import com.enterprise.ai.common.internalauth.InternalServiceHmac;
-import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
+import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
 import com.enterprise.ai.runtime.internalauth.InMemoryInternalAuthNonceStore;
 import com.enterprise.ai.runtime.internalauth.InternalServiceAuthFilter;
 import com.enterprise.ai.runtime.internalauth.InternalServiceAuthProperties;
@@ -94,6 +94,42 @@ class McpToolExecutionInternalControllerTest {
                 "projectId", 8, "projectCode", "orders"));
         byte[] wrongPrincipalBody = body(wrongPrincipal);
         mockMvc.perform(signed(wrongPrincipalBody, wrongPrincipalBody,
+                        InternalServiceAuthHeaders.IDENTITY_SOURCE_MCP_REMOTE_CLIENT))
+                .andExpect(status().isUnauthorized());
+        verify(service, never()).execute(any(), any());
+    }
+
+    @Test
+    void forwardsThePublishedCapabilityContractFromTheSignedHttpBody() throws Exception {
+        String publishedHash = "a".repeat(64);
+        when(service.execute(any(), any())).thenReturn(new ExecutionOutcome(
+                true, "OK", Map.of("data", Map.of("orderId", 42)), "77", "mcp_trace", null));
+        Map<String, Object> request = request("orders.lookup");
+        request.put("capabilityContractHash", publishedHash);
+        request.put("arguments", Map.of("id", 42, "capabilityContractHash", "b".repeat(64)));
+        byte[] payload = body(request);
+
+        mockMvc.perform(signed(payload, payload,
+                        InternalServiceAuthHeaders.IDENTITY_SOURCE_MCP_REMOTE_CLIENT))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true));
+
+        ArgumentCaptor<RuntimeMcpToolExecutionService.ExecutionRequest> command =
+                ArgumentCaptor.forClass(RuntimeMcpToolExecutionService.ExecutionRequest.class);
+        verify(service).execute(command.capture(), any());
+        assertEquals("CAPABILITY", command.getValue().sourceKind());
+        assertEquals(publishedHash, command.getValue().capabilityContractHash(),
+                "the published contract must survive HTTP binding and must not come from tool arguments");
+    }
+
+    @Test
+    void rejectsChangingThePublishedCapabilityContractAfterSigning() throws Exception {
+        Map<String, Object> request = request("orders.lookup");
+        request.put("capabilityContractHash", "a".repeat(64));
+        byte[] original = body(request);
+        request.put("capabilityContractHash", "b".repeat(64));
+
+        mockMvc.perform(signed(original, body(request),
                         InternalServiceAuthHeaders.IDENTITY_SOURCE_MCP_REMOTE_CLIENT))
                 .andExpect(status().isUnauthorized());
         verify(service, never()).execute(any(), any());

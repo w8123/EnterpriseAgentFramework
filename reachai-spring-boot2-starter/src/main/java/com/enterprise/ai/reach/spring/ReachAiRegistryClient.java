@@ -121,7 +121,9 @@ public class ReachAiRegistryClient {
         Map<String, Object> body = new LinkedHashMap<String, Object>();
         body.put("syncId", UUID.randomUUID().toString());
         body.put("source", StringUtils.hasText(source) ? source.trim() : DEFAULT_SYNC_SOURCE);
-        body.put("apply", Boolean.TRUE);
+        // SDK reports source truth. Server policy owns automatic admission and exceptions;
+        // this compatibility flag never grants permission to bypass that policy.
+        body.put("apply", Boolean.FALSE);
         body.put("capabilities", capabilityRegistrations(capabilities));
         return post("/api/registry/projects/{projectCode}/capabilities/sync", body);
     }
@@ -214,7 +216,8 @@ public class ReachAiRegistryClient {
         return body;
     }
 
-    private void registerProject() {
+    private synchronized void registerProject() {
+        credentialStore.prepareForRegistration();
         Map<String, Object> body = new LinkedHashMap<String, Object>();
         body.put("projectCode", properties.getProject().getCode());
         body.put("name", defaultString(properties.getProject().getName(), properties.getProject().getCode()));

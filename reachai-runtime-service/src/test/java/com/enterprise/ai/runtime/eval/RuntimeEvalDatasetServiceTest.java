@@ -1,6 +1,6 @@
 package com.enterprise.ai.runtime.eval;
 
-import com.enterprise.ai.runtime.agent.RuntimeAgentMapper;
+import com.enterprise.ai.runtime.agent.RuntimeAgentIdentityQuery;
 import com.enterprise.ai.runtime.runops.RuntimeRunOpsQueryService;
 import com.enterprise.ai.runtime.runops.RuntimeRunOpsViews.RuntimeRunOpsDetailView;
 import com.enterprise.ai.runtime.runops.RuntimeRunOpsViews.RuntimeRunOpsSummaryView;
@@ -33,7 +33,7 @@ class RuntimeEvalDatasetServiceTest {
                 datasetMapper,
                 versionMapper,
                 itemMapper,
-                mock(RuntimeAgentMapper.class),
+                mock(RuntimeAgentIdentityQuery.class),
                 mock(RuntimeRunOpsQueryService.class),
                 json);
 
@@ -121,7 +121,7 @@ class RuntimeEvalDatasetServiceTest {
                 datasetMapper,
                 mock(RuntimeEvalDatasetVersionMapper.class),
                 mock(RuntimeEvalDatasetItemMapper.class),
-                mock(RuntimeAgentMapper.class),
+                mock(RuntimeAgentIdentityQuery.class),
                 runOps,
                 new RuntimeEvalJsonSupport(new ObjectMapper()));
         RuntimeEvalDatasetEntity dataset = new RuntimeEvalDatasetEntity();

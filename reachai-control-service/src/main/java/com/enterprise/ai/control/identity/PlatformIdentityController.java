@@ -256,7 +256,7 @@ public class PlatformIdentityController {
     }
 
     private PlatformUserProfile toProfile(PlatformAuthenticatedSession session) {
-        PlatformUserEntity user = session.user();
+        PlatformPrincipal user = session.user();
         return new PlatformUserProfile(
                 user.getId(),
                 user.getUsername(),

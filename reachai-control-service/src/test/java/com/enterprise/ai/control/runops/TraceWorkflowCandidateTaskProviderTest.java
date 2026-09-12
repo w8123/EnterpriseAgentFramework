@@ -6,15 +6,19 @@ import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.ArtifactRepo
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskDescriptor;
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskTargetView;
 import com.enterprise.ai.control.aicoding.provider.AiCodingContractResourceLoader;
+import com.enterprise.ai.control.aicoding.provider.AiCodingArtifactApplicationUnconfirmedException;
 import com.enterprise.ai.control.client.runtime.RuntimeProxyClient;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.http.ResponseEntity;
 
 import java.util.List;
 import java.util.Map;
+import java.util.LinkedHashMap;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.HexFormat;
@@ -134,6 +138,71 @@ class TraceWorkflowCandidateTaskProviderTest {
                 result.domainResult().path("workflowCandidate")
                         .path("workflowUpdatedAt").asText());
         verify(runtimeClient).createTraceWorkflowCandidateDraft(any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"EMPTY_CREATE", "MISSING_ID", "EMPTY_VALIDATION", "MISSING_VALID", "EMPTY_READBACK",
+            "WRONG_READBACK_ID", "MISSING_GRAPH", "MISSING_REVISION"})
+    void incompleteRemoteApplicationEvidenceMustRemainRetryable(String fault) throws Exception {
+        JsonNode content = candidate("orders.read", "TOOL");
+        when(runtimeClient.validateWorkflowRuntime(any())).thenReturn(ResponseEntity.ok(Map.of("valid", true)));
+        when(runtimeClient.createTraceWorkflowCandidateDraft(any())).thenReturn(ResponseEntity.ok(
+                fault.equals("EMPTY_CREATE") ? null : Map.of("workflow",
+                        fault.equals("MISSING_ID") ? Map.of("status", "DRAFT") : Map.of("id", "wf-draft"))));
+        when(runtimeClient.validateWorkflowAiCoding(eq("wf-draft"), any())).thenReturn(
+                ResponseEntity.ok(fault.equals("EMPTY_VALIDATION") ? null
+                        : fault.equals("MISSING_VALID") ? Map.of("errors", List.of()) : Map.of("valid", true)));
+        var saved = new LinkedHashMap<String, Object>();
+        saved.put("id", fault.equals("WRONG_READBACK_ID") ? "another-workflow" : "wf-draft");
+        if (!fault.equals("MISSING_GRAPH")) saved.put("graphSpecJson", content.path("workflow").path("graphSpec").toString());
+        if (!fault.equals("MISSING_REVISION")) saved.put("updatedAt", "2026-09-09T10:00:00");
+        when(runtimeClient.getWorkflow("wf-draft")).thenReturn(ResponseEntity.ok(fault.equals("EMPTY_READBACK") ? null : saved));
+        assertThrows(AiCodingArtifactApplicationUnconfirmedException.class,
+                () -> provider.applyArtifact(task(objectMapper.createObjectNode()), artifact(content)));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void confirmedValidationFailureRemainsADomainRejection(boolean afterCreation) throws Exception {
+        JsonNode content = candidate("orders.read", "TOOL");
+        when(runtimeClient.validateWorkflowRuntime(any())).thenReturn(ResponseEntity.ok(Map.of("valid", afterCreation)));
+        when(runtimeClient.createTraceWorkflowCandidateDraft(any()))
+                .thenReturn(ResponseEntity.ok(Map.of("workflow", Map.of("id", "wf-draft"))));
+        when(runtimeClient.validateWorkflowAiCoding(eq("wf-draft"), any()))
+                .thenReturn(ResponseEntity.ok(Map.of("valid", false)));
+        if (afterCreation) {
+            assertThrows(IllegalStateException.class,
+                    () -> provider.applyArtifact(task(objectMapper.createObjectNode()), artifact(content)));
+        } else {
+            assertFalse(provider.applyArtifact(task(objectMapper.createObjectNode()), artifact(content)).applied());
+            org.mockito.Mockito.verify(runtimeClient, org.mockito.Mockito.never()).createTraceWorkflowCandidateDraft(any());
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"VERSIONS_NULL_RESPONSE", "VERSIONS_EMPTY_BODY", "VERSIONS_OBJECT",
+            "PREFLIGHT_MISSING_VALID", "PREFLIGHT_STRING_VALID"})
+    void incompletePreconditionsRemainUnconfirmedAndNeverCreateADraft(String fault) throws Exception {
+        when(runtimeClient.validateWorkflowRuntime(any())).thenReturn(ResponseEntity.ok(
+                fault.equals("PREFLIGHT_MISSING_VALID") ? Map.of("errors", List.of())
+                        : fault.equals("PREFLIGHT_STRING_VALID") ? Map.of("valid", "true") : Map.of("valid", true)));
+        if (fault.startsWith("VERSIONS_")) {
+            when(runtimeClient.listWorkflowVersions("wf-source")).thenReturn(fault.equals("VERSIONS_NULL_RESPONSE")
+                    ? null : ResponseEntity.ok(fault.equals("VERSIONS_EMPTY_BODY") ? null : Map.of("message", "unavailable")));
+        }
+        JsonNode content = candidate("orders.read", "TOOL");
+        assertThrows(AiCodingArtifactApplicationUnconfirmedException.class,
+                () -> provider.applyArtifact(task(objectMapper.createObjectNode()), artifact(content)));
+        org.mockito.Mockito.verify(runtimeClient, org.mockito.Mockito.never()).createTraceWorkflowCandidateDraft(any());
+    }
+
+    @Test
+    void confirmedMissingSourceVersionRemainsADomainRejection() throws Exception {
+        when(runtimeClient.listWorkflowVersions("wf-source")).thenReturn(ResponseEntity.ok(List.of()));
+        JsonNode content = candidate("orders.read", "TOOL");
+        assertThrows(IllegalArgumentException.class,
+                () -> provider.applyArtifact(task(objectMapper.createObjectNode()), artifact(content)));
+        org.mockito.Mockito.verify(runtimeClient, org.mockito.Mockito.never()).createTraceWorkflowCandidateDraft(any());
     }
 
     @Test

@@ -8,7 +8,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.util.List;
@@ -23,11 +22,10 @@ public class RuntimeTraceWorkflowCandidateDraftService {
     private static final String SOURCE = "RUNOPS_TRACE_CANDIDATE";
 
     private final RuntimeWorkflowAiCodingService workflowAiCodingService;
-    private final RuntimeWorkflowDefinitionService workflowDefinitionService;
     private final RuntimeWorkflowReleaseValidationService validationService;
     private final ObjectMapper objectMapper;
+    private final RuntimeWorkflowDraftSubmissionService draftSubmissions;
 
-    @Transactional
     public ContextView createOrReplace(DraftRequest request) {
         if (request == null) {
             throw new IllegalArgumentException(
@@ -45,25 +43,6 @@ public class RuntimeTraceWorkflowCandidateDraftService {
         String keySlug = requireText(request.keySlug(), "keySlug");
         GraphSpec graphSpec = Objects.requireNonNull(
                 request.graphSpec(), "graphSpec is required");
-
-        RuntimeWorkflowDefinitionEntity validationWorkflow =
-                new RuntimeWorkflowDefinitionEntity();
-        validationWorkflow.setProjectId(request.projectId());
-        validationWorkflow.setProjectCode(projectCode);
-        validationWorkflow.setWorkflowKind(request.workflowKind());
-        validationWorkflow.setExecutionEngine("GRAPH_SPEC");
-        validationWorkflow.setDefaultModelInstanceId(
-                request.defaultModelInstanceId());
-        RuntimeWorkflowReleaseValidationResult validation =
-                validationService.validateProposed(
-                        validationWorkflow, graphSpec);
-        if (!validation.valid()) {
-            String code = validation.errors().isEmpty()
-                    ? "UNKNOWN"
-                    : validation.errors().get(0).code();
-            throw new IllegalArgumentException(
-                    "trace Workflow candidate validation failed: " + code);
-        }
 
         Map<String, Object> metadata = Map.of(
                 "source", SOURCE,
@@ -88,11 +67,33 @@ public class RuntimeTraceWorkflowCandidateDraftService {
                 metadata,
                 List.of(),
                 "RunOps trace candidate task " + taskId);
-        return workflowDefinitionService.findByKeySlug(keySlug)
-                .map(existing -> replaceExisting(
-                        existing, request, create, taskId, traceId,
-                        sourceWorkflowId))
-                .orElseGet(() -> workflowAiCodingService.createWorkflow(create));
+        return draftSubmissions.apply(
+                new RuntimeWorkflowDraftSubmissionService.Scope(
+                        SOURCE, request.projectId(), projectCode, taskId, traceId),
+                create,
+                attempt -> {
+                    validate(request, projectCode, graphSpec);
+                    ContextView applied = attempt.current() == null
+                            ? workflowAiCodingService.createWorkflow(attempt.workflowId(), create)
+                            : replaceExisting(attempt.current(), request, create, taskId, traceId,
+                                    sourceWorkflowId, attempt.baseRevision());
+                    return new RuntimeWorkflowDraftSubmissionService.Applied<>(
+                            applied.workflow().id(), applied.workflow().updatedAt(), applied);
+                }, workflowAiCodingService::context);
+    }
+
+    private void validate(DraftRequest request, String projectCode, GraphSpec graphSpec) {
+        RuntimeWorkflowDefinitionEntity workflow = new RuntimeWorkflowDefinitionEntity();
+        workflow.setProjectId(request.projectId());
+        workflow.setProjectCode(projectCode);
+        workflow.setWorkflowKind(request.workflowKind());
+        workflow.setExecutionEngine("GRAPH_SPEC");
+        workflow.setDefaultModelInstanceId(request.defaultModelInstanceId());
+        RuntimeWorkflowReleaseValidationResult validation = validationService.validateProposed(workflow, graphSpec);
+        if (!validation.valid()) {
+            String code = validation.errors().isEmpty() ? "UNKNOWN" : validation.errors().get(0).code();
+            throw new IllegalArgumentException("trace Workflow candidate validation failed: " + code);
+        }
     }
 
     private ContextView replaceExisting(
@@ -101,13 +102,14 @@ public class RuntimeTraceWorkflowCandidateDraftService {
             CreateRequest create,
             String taskId,
             String traceId,
-            String sourceWorkflowId) {
+            String sourceWorkflowId,
+            String baseRevision) {
         if (!"DRAFT".equalsIgnoreCase(existing.getStatus())) {
             throw new IllegalArgumentException(
                     "task-scoped Workflow is no longer a draft");
         }
         if (!Objects.equals(request.projectId(), existing.getProjectId())
-                || !request.projectCode().equalsIgnoreCase(
+                || !create.projectCode().equalsIgnoreCase(
                 existing.getProjectCode())) {
             throw new IllegalArgumentException(
                     "existing Workflow does not belong to the selected project");
@@ -123,7 +125,7 @@ public class RuntimeTraceWorkflowCandidateDraftService {
             throw new IllegalArgumentException(
                     "existing Workflow is not owned by this trace candidate task");
         }
-        return workflowAiCodingService.replaceDraft(existing.getId(), create);
+        return workflowAiCodingService.replaceDraft(existing.getId(), create, baseRevision);
     }
 
     private JsonNode readMetadata(String value) {

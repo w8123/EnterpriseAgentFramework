@@ -1,36 +1,30 @@
 package com.enterprise.ai.runtime.automation;
 
-import com.enterprise.ai.runtime.agent.RuntimeAgentConfigVersionEntity;
-import com.enterprise.ai.runtime.agent.RuntimeAgentConfigVersionMapper;
-import com.enterprise.ai.runtime.agent.RuntimeAgentEntity;
-import com.enterprise.ai.runtime.agent.RuntimeAgentMapper;
+import com.enterprise.ai.runtime.execution.RuntimeAgentExecutionEventSink;
+import com.enterprise.ai.runtime.agent.RuntimeAgentPublishedConfigQuery;
 import com.enterprise.ai.runtime.execution.RuntimeAgentExecutionCancellation;
-import com.enterprise.ai.runtime.execution.RuntimeAgentExecutionService;
+import com.enterprise.ai.runtime.supervisor.RuntimeAgentExecutionService;
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionCancellation;
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionEventSink;
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionResult;
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutor;
-import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
-import com.enterprise.ai.runtime.execution.trace.WorkflowTraceSanitizer;
+import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
 import com.enterprise.ai.runtime.runops.RuntimeRunLifecycleService;
-import com.enterprise.ai.runtime.execution.SupervisorRuntimeAdapter;
-import com.enterprise.ai.runtime.trace.RuntimeTraceSpanEntity;
-import com.enterprise.ai.runtime.trace.RuntimeTraceSpanMapper;
-import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionEntity;
-import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionMapper;
-import com.enterprise.ai.runtime.workflow.RuntimeWorkflowVersionEntity;
-import com.enterprise.ai.runtime.workflow.RuntimeWorkflowVersionMapper;
+import com.enterprise.ai.runtime.runops.RuntimeRunSnapshots;
+import com.enterprise.ai.runtime.trace.RuntimeTraceRootService;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowExecutionQuery;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowExecutionView;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowPublishedVersionView;
+import com.enterprise.ai.runtime.workflow.RuntimePublishedWorkflowSnapshot;
+import com.enterprise.ai.runtime.workflow.WorkflowSemanticValues;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
-
 import java.time.LocalDateTime;
-import java.time.temporal.ChronoUnit;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -42,14 +36,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @ConditionalOnProperty(name = "reachai.runtime.automation.enabled", havingValue = "true")
 final class RuntimeAutomationTargetExecutor {
 
-    private final RuntimeAgentMapper agentMapper;
-    private final RuntimeAgentConfigVersionMapper agentVersionMapper;
+    private final RuntimeAgentPublishedConfigQuery agentTargets;
     private final RuntimeAgentExecutionService agentExecutionService;
-    private final RuntimeWorkflowDefinitionMapper workflowMapper;
-    private final RuntimeWorkflowVersionMapper workflowVersionMapper;
+    private final RuntimeWorkflowExecutionQuery workflowTargets;
     private final RuntimeGraphSpecExecutor graphSpecExecutor;
     private final RuntimeRunLifecycleService runLifecycleService;
-    private final RuntimeTraceSpanMapper traceSpanMapper;
+    private final RuntimeTraceRootService rootSpans;
     private final RuntimeAutomationInteractionTerminationService interactionTerminationService;
     private final RuntimeAutomationJsonSupport json;
     private final ScheduledExecutorService runtimeAutomationTimeoutScheduler;
@@ -71,10 +63,10 @@ final class RuntimeAutomationTargetExecutor {
                                           String traceId,
                                           Map<String, Object> input,
                                           WorkflowExecutionIdentity identity) {
-        RuntimeAgentEntity agent = agentMapper.selectById(version.getTargetId());
-        RuntimeAgentConfigVersionEntity config = agentVersionMapper.selectById(version.getTargetVersionId());
-        if (agent == null || config == null || !agent.getId().equals(config.getAgentId())
-                || !Set.of("ACTIVE", "ARCHIVED").contains(RuntimeAutomationTypes.upper(config.getStatus()))) {
+        RuntimeAgentPublishedConfigQuery.Target target;
+        try {
+            target = agentTargets.resolve(version.getTargetId(), version.getTargetVersionId());
+        } catch (RuntimeAgentPublishedConfigQuery.LookupFailure unavailable) {
             return ExecutionOutcome.failure(traceId, "AUTOMATION_TARGET_VERSION_UNAVAILABLE",
                     "Pinned Agent version is unavailable", false);
         }
@@ -86,8 +78,8 @@ final class RuntimeAutomationTargetExecutor {
         });
         try {
             Map<String, Object> response = agentExecutionService.executePublishedConfig(
-                    agent.getId(), config.getId(), input, true,
-                    SupervisorRuntimeAdapter.SupervisorEventSink.NOOP, cancellation, identity);
+                    target.agentId(), target.versionId(), input, true,
+                    RuntimeAgentExecutionEventSink.NOOP, cancellation, identity);
             Map<String, Object> metadata = map(response.get("metadata"));
             String code = firstText(text(response.get("code")), text(metadata.get("code")));
             String answer = text(response.get("answer"));
@@ -132,13 +124,21 @@ final class RuntimeAutomationTargetExecutor {
                                              String traceId,
                                              Map<String, Object> input,
                                              WorkflowExecutionIdentity identity) {
-        RuntimeWorkflowDefinitionEntity workflow = workflowMapper.selectById(version.getTargetId());
-        RuntimeWorkflowVersionEntity published = workflowVersionMapper.selectById(version.getTargetVersionId());
-        if (workflow == null || published == null || !workflow.getId().equals(published.getWorkflowId())
-                || !Set.of("ACTIVE", "RETIRED").contains(RuntimeAutomationTypes.upper(published.getStatus()))
-                || !StringUtils.hasText(published.getGraphSpecSnapshotJson())) {
+        RuntimeWorkflowExecutionQuery.Target target;
+        try {
+            target = workflowTargets.resolveOne(version.getTargetId(), version.getTargetVersionId());
+        } catch (RuntimeWorkflowExecutionQuery.LookupFailure unavailable) {
             return ExecutionOutcome.failure(traceId, "AUTOMATION_TARGET_VERSION_UNAVAILABLE",
                     "Pinned Workflow version is unavailable", false);
+        }
+        RuntimeWorkflowExecutionView workflow = target.workflow();
+        RuntimeWorkflowPublishedVersionView published = target.version();
+        RuntimePublishedWorkflowSnapshot snapshot;
+        try {
+            snapshot = RuntimePublishedWorkflowSnapshot.read(published);
+        } catch (IllegalArgumentException invalid) {
+            return ExecutionOutcome.failure(traceId, "AUTOMATION_WORKFLOW_SNAPSHOT_INVALID",
+                    invalid.getMessage(), false);
         }
         RuntimeGraphSpecExecutionCancellation cancellation = RuntimeGraphSpecExecutionCancellation.none();
         AtomicBoolean timedOut = new AtomicBoolean();
@@ -149,7 +149,7 @@ final class RuntimeAutomationTargetExecutor {
         WorkflowTrace trace = beginWorkflowTrace(traceId, workflow, published, input, identity);
         try {
             RuntimeGraphSpecExecutionResult result = graphSpecExecutor.execute(
-                    published.getGraphSpecSnapshotJson(), input,
+                    snapshot.graphSpecJson(), snapshot.executionInput(input),
                     RuntimeGraphSpecExecutionEventSink.NOOP, cancellation, identity);
             if (timedOut.get()) {
                 finishWorkflowTrace(trace, new RuntimeGraphSpecExecutionResult(
@@ -196,51 +196,40 @@ final class RuntimeAutomationTargetExecutor {
     }
 
     private WorkflowTrace beginWorkflowTrace(String traceId,
-                                             RuntimeWorkflowDefinitionEntity workflow,
-                                             RuntimeWorkflowVersionEntity version,
+                                             RuntimeWorkflowExecutionView workflow,
+                                             RuntimeWorkflowPublishedVersionView version,
                                              Map<String, Object> input,
                                              WorkflowExecutionIdentity identity) {
+        String executionEngine = WorkflowSemanticValues.normalizeExecutionEngine(
+                StringUtils.hasText(workflow.getExecutionEngine())
+                        ? workflow.getExecutionEngine() : WorkflowSemanticValues.ENGINE_GRAPH_SPEC);
         String spanId = "span_" + UUID.randomUUID().toString().replace("-", "").substring(0, 20);
         LocalDateTime now = LocalDateTime.now(java.time.Clock.systemUTC());
-        RuntimeTraceSpanEntity root = new RuntimeTraceSpanEntity();
-        root.setTraceId(traceId);
-        root.setSpanId(spanId);
-        root.setSpanType("WORKFLOW");
-        root.setRuntimeType(workflow.getExecutionEngine());
-        root.setAgentId(workflow.getId());
-        root.setAgentName(workflow.getName());
-        root.setNodeId(workflow.getId());
-        root.setProjectCode(workflow.getProjectCode());
-        root.setTenantId(identity.tenantId());
-        root.setStatus("RUNNING");
-        root.setInputSummary(json.write(WorkflowTraceSanitizer.sanitizeInputSummary(input)));
-        root.setMetadataJson(json.write(Map.of(
+        var root = rootSpans.start(RuntimeTraceRootService.Start.builder()
+                .traceId(traceId).spanId(spanId).spanType("WORKFLOW").runtimeType(executionEngine)
+                .agentId(workflow.getId()).agentName(workflow.getName()).nodeId(workflow.getId())
+                .projectCode(workflow.getProjectCode()).tenantId(identity.tenantId()).input(input)
+                .metadataJson(json.write(Map.of(
                 "sourceType", "AUTOMATION",
                 "workflowId", workflow.getId(),
                 "workflowVersionId", version.getId(),
-                "workflowVersion", version.getVersion())));
-        root.setStartedAt(now);
-        root.setCreatedAt(now);
-        traceSpanMapper.insert(root);
+                "workflowVersion", version.getVersion())))
+                .startedAt(now).build());
         runLifecycleService.beginPublishedWorkflow(
-                traceId, spanId, "AUTOMATION", workflow, version, input, identity);
-        return new WorkflowTrace(root.getId(), traceId, now);
+                traceId, spanId, "AUTOMATION", new RuntimeRunSnapshots.PublishedWorkflow(
+                        workflow.getId(), workflow.getKeySlug(), workflow.getName(), workflow.getProjectId(),
+                        workflow.getProjectCode(), executionEngine, version.getId(), version.getVersion(),
+                        version.getGraphSpecSnapshotJson()), input, identity);
+        return new WorkflowTrace(root.id(), traceId, spanId, now);
     }
 
     private void finishWorkflowTrace(WorkflowTrace trace, RuntimeGraphSpecExecutionResult result) {
         LocalDateTime ended = LocalDateTime.now(java.time.Clock.systemUTC());
-        RuntimeTraceSpanEntity root = traceSpanMapper.selectById(trace.rootId());
-        if (root != null) {
-            boolean waiting = result.isWaitingUser();
-            root.setStatus(waiting ? "WAITING_USER" : (result.success() ? "SUCCESS" : "ERROR"));
-            root.setOutputSummary(json.limit(WorkflowTraceSanitizer.sanitizeAnswer(result.answer()), 4000));
-            root.setErrorCode(result.success() || waiting ? null : result.code());
-            root.setErrorMessage(result.success() || waiting ? null : json.limit(result.answer(), 2000));
-            root.setLatencyMs(waiting ? null : (int) Math.min(Integer.MAX_VALUE,
-                    Math.max(0, ChronoUnit.MILLIS.between(trace.startedAt(), ended))));
-            root.setEndedAt(waiting ? null : ended);
-            traceSpanMapper.updateById(root);
-        }
+        boolean waiting = result.isWaitingUser();
+        String status = waiting ? "WAITING_USER" : (result.success() ? "SUCCESS" : "ERROR");
+        if (!rootSpans.finish(new RuntimeTraceRootService.Handle(
+                trace.rootId(), trace.traceId(), trace.rootSpanId(), trace.startedAt()),
+                new RuntimeTraceRootService.Completion(status, result.code(), result.answer(), ended, null))) return;
         runLifecycleService.finishWorkflow(trace.traceId(), result.success(), result.code(), result.answer(),
                 result.steps() == null ? 0 : result.steps().size(), result.metadata());
     }
@@ -306,6 +295,6 @@ final class RuntimeAutomationTargetExecutor {
         }
     }
 
-    private record WorkflowTrace(Long rootId, String traceId, LocalDateTime startedAt) {
+    private record WorkflowTrace(Long rootId, String traceId, String rootSpanId, LocalDateTime startedAt) {
     }
 }

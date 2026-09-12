@@ -99,6 +99,15 @@ class ControlAiAssistSkillControllerTest {
         assertZipContains(source.packageBytes("workflow-ai-coding"), "workflow-ai-coding/SKILL.md");
     }
 
+    @Test
+    void packagesAgentAiCodingSkillFromTheCanonicalClasspathTree() throws IOException {
+        byte[] body = source.packageBytes("agent-ai-coding");
+        assertZipContains(body, "agent-ai-coding/SKILL.md");
+        String skill = utf8(body, "agent-ai-coding/SKILL.md");
+        assertTrue(skill.contains("/agent-skills/bindable"));
+        assertTrue(skill.contains("scriptPolicy=DENY"));
+    }
+
     private static String utf8(byte[] zip, String path) throws IOException {
         return new String(readZipEntry(zip, path), StandardCharsets.UTF_8);
     }

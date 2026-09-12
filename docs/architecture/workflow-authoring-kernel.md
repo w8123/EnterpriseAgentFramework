@@ -49,7 +49,7 @@ Studio、发布校验和网页 AI 编排共同消费 `RuntimeWorkflowNodeCapabil
 - `STABLE` / `BETA` / `PLANNED` 描述产品成熟度，而不是前端本地白名单。
 - `runtimeExecutable` 来自 `RuntimeGraphSpecExecutor` 的真实 Handler 集合。
 - 网页 AI 编排的 prompt `nodeTypes` 只包含 `aiAuthoringEnabled=true` 的目录；发布校验区分 unknown、runtime unsupported、not publishable 与 BETA warning。
-- 第一阶段已开放 AI 编排的节点包括：既有 STABLE 核心节点，以及 `VARIABLE_ASSIGN` / `TEMPLATE` / `VARIABLE_AGGREGATOR`（STABLE）与 `KNOWLEDGE_RETRIEVAL` / `HTTP_REQUEST`（BETA）。`INTERACTION` 仍保持 `aiAuthoringEnabled=false`（E2E_PENDING）。
+- 第一阶段已开放 AI 编排的节点包括：既有 STABLE 核心节点，以及 `VARIABLE_ASSIGN` / `TEMPLATE` / `VARIABLE_AGGREGATOR`（STABLE）与 `KNOWLEDGE_RETRIEVAL` / `HTTP_REQUEST`（BETA）。`INTERACTION` 的 AI 编排仅开放 `PRESENT_OUTPUT` 展示变体，阻塞交互仍受端到端验收门槛限制；以 `RuntimeWorkflowNodeCapabilityRegistry` 的变体级规则为准。
 - AI Proposal `systemPrompt` 的 authorable/closed 列表必须来自 Registry，禁止硬编码 “Knowledge/HTTP forbidden”。HTTP Proposal 走独立 `normalizeHttpConfig`；Knowledge Proposal 过滤空 codes 且不暴露 Workflow `directReturn*`。状态：CODE_READY / E2E_PENDING / PRODUCTION_PENDING。
 - 外部 AI Coding 暂未作为本阶段验收范围，但仍受共享 mutation 内核约束。
 

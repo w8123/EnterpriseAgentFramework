@@ -1,7 +1,7 @@
 package com.enterprise.ai.runtime.memory;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.enterprise.ai.runtime.supervisor.RuntimeContextEngineeringProperties;
+import com.enterprise.ai.runtime.configuration.RuntimeContextEngineeringProperties;
 import io.agentscope.core.agent.RuntimeContext;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DuplicateKeyException;

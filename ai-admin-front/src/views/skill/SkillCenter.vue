@@ -139,7 +139,7 @@
       </template>
     </DataTableShell>
 
-    <el-drawer v-model="detailVisible" size="min(760px, 92vw)" destroy-on-close>
+    <AppDrawer title="Skill 详情" v-model="detailVisible" size="min(760px, 92vw)" destroy-on-close>
       <template #header>
         <div v-if="detail" class="drawer-heading">
           <div>
@@ -307,9 +307,9 @@
           </el-tabs>
         </section>
       </div>
-    </el-drawer>
+    </AppDrawer>
 
-    <el-dialog
+    <AppDialog
       v-model="importVisible"
       title="导入标准 Agent Skill 包"
       width="min(720px, 94vw)"
@@ -417,9 +417,9 @@
         <el-button @click="importVisible = false">取消</el-button>
         <el-button type="primary" :loading="importing" :disabled="!canSubmitImport" @click="submitImport">校验并导入所选 Skill</el-button>
       </template>
-    </el-dialog>
+    </AppDialog>
 
-    <el-dialog v-model="reviewVisible" :title="reviewDecision === 'APPROVE' ? '评审通过' : '驳回版本'" width="480px">
+    <AppDialog v-model="reviewVisible" :title="reviewDecision === 'APPROVE' ? '评审通过' : '驳回版本'" width="480px">
       <el-form label-position="top">
         <el-form-item label="评审说明">
           <el-input v-model="reviewComment" type="textarea" :rows="4" maxlength="2000" show-word-limit placeholder="记录风险判断、兼容性结论或驳回原因" />
@@ -431,11 +431,13 @@
           确认{{ reviewDecision === 'APPROVE' ? '通过' : '驳回' }}
         </el-button>
       </template>
-    </el-dialog>
+    </AppDialog>
   </WorkbenchPage>
 </template>
 
 <script setup lang="ts">
+import AppDialog from '@/components/common/AppDialog.vue'
+import AppDrawer from '@/components/common/AppDrawer.vue'
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { Compass, Download, Lock, MoreFilled, Search, Upload } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'

@@ -30,19 +30,17 @@ public class CapabilityToolExecutionService {
     private final ToolDefinitionMapper toolDefinitionMapper;
     private final CapabilityHttpToolInvoker invoker;
     private final RegistrySecurityService registrySecurityService;
+    private final CapabilitySourceContractGuard sourceContractGuard;
 
     @Autowired
     public CapabilityToolExecutionService(ToolDefinitionMapper toolDefinitionMapper,
                                           CapabilityHttpToolInvoker invoker,
-                                          RegistrySecurityService registrySecurityService) {
+                                          RegistrySecurityService registrySecurityService,
+                                          CapabilitySourceContractGuard sourceContractGuard) {
         this.toolDefinitionMapper = toolDefinitionMapper;
         this.invoker = invoker;
         this.registrySecurityService = registrySecurityService;
-    }
-
-    CapabilityToolExecutionService(ToolDefinitionMapper toolDefinitionMapper,
-                                   CapabilityHttpToolInvoker invoker) {
-        this(toolDefinitionMapper, invoker, null);
+        this.sourceContractGuard = sourceContractGuard;
     }
 
     public Map<String, Object> execute(String qualifiedName, Map<String, Object> request) {
@@ -52,6 +50,7 @@ public class CapabilityToolExecutionService {
         }
         validateEvaluationPolicy(tool, request);
         validateExecutionConstraints(tool, request);
+        sourceContractGuard.validate(tool, mapValue(request == null ? null : request.get("constraints")));
         Map<String, Object> input = mapValue(request == null ? null : request.get("input"));
         input = input == null ? Map.of() : input;
         String method = StringUtils.hasText(tool.getHttpMethod()) ? tool.getHttpMethod().trim().toUpperCase() : "POST";
@@ -97,6 +96,9 @@ public class CapabilityToolExecutionService {
             url = appendQuery(url, input);
         }
         ToolDefinitionEntity linkedTool = linkedToolForInvocation(tool, method, buildUrl(tool));
+        if (linkedTool != null) {
+            sourceContractGuard.validate(linkedTool, mapValue(request == null ? null : request.get("constraints")));
+        }
         Map<String, Object> metadata = linkedTool == null
                 ? new LinkedHashMap<>()
                 : invocationMetadata(linkedTool, request);
@@ -188,7 +190,8 @@ public class CapabilityToolExecutionService {
                                                           String scanMethod,
                                                           String scanUrl) {
         if (scanTool.getGlobalToolDefinitionId() == null) {
-            if (normalizedText(scanTool.getSourceLocation()).startsWith("sdk:")) {
+            if (StringUtils.hasText(scanTool.getSourceQualifiedName())
+                    || normalizedText(scanTool.getSourceLocation()).startsWith("sdk:")) {
                 throw new IllegalStateException(
                         "SDK Tool is not linked to the signed Tool catalog; synchronize it before testing: "
                                 + scanTool.getId());
@@ -202,6 +205,9 @@ public class CapabilityToolExecutionService {
         }
 
         List<String> mismatches = new java.util.ArrayList<>();
+        if (!Objects.equals(scanTool.getSourceQualifiedName(), linkedTool.getSourceQualifiedName())) {
+            mismatches.add("sourceQualifiedName");
+        }
         if (!Boolean.TRUE.equals(linkedTool.getEnabled())) {
             mismatches.add("enabled");
         }

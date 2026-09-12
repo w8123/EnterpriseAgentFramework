@@ -1,48 +1,32 @@
 package com.enterprise.ai.runtime.route;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.enterprise.ai.runtime.trace.RuntimeToolCallLogEntity;
-import com.enterprise.ai.runtime.trace.RuntimeToolCallLogMapper;
+import com.enterprise.ai.runtime.trace.RuntimeToolUsageStatisticsQuery;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
-import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
-import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
 public class RuntimeRouteEvaluationService {
 
-    private final RuntimeToolCallLogMapper toolLogMapper;
+    private final RuntimeToolUsageStatisticsQuery usageStatistics;
 
     public RuntimeRouteEvaluationView evaluate(int days) {
         int safeDays = Math.max(1, Math.min(days, 90));
         LocalDateTime from = LocalDateTime.now().minusDays(safeDays);
-        List<RuntimeToolCallLogEntity> logs = toolLogMapper.selectList(new LambdaQueryWrapper<RuntimeToolCallLogEntity>()
-                .ge(RuntimeToolCallLogEntity::getCreateTime, from));
-        long traceCount = logs.stream()
-                .map(RuntimeToolCallLogEntity::getTraceId)
-                .filter(StringUtils::hasText)
-                .distinct()
-                .count();
-        long retrievalTraceCount = logs.stream()
-                .filter(log -> StringUtils.hasText(log.getRetrievalTraceJson()))
-                .map(RuntimeToolCallLogEntity::getTraceId)
-                .filter(StringUtils::hasText)
-                .distinct()
-                .count();
-        Map<String, Long> intentCounts = countBy(logs, RuntimeToolCallLogEntity::getIntentType);
-        Map<String, Long> agentCounts = countBy(logs, RuntimeToolCallLogEntity::getAgentName);
+        var evidence = usageStatistics.summarizeSince(from);
+        long traceCount = evidence.traceCount();
+        long retrievalTraceCount = evidence.retrievalTraceCount();
+        Map<String, Long> intentCounts = evidence.intentCounts();
+        Map<String, Long> agentCounts = evidence.agentCounts();
         boolean intentClassifierReady = traceCount >= 1_000 && intentCounts.size() >= 2;
         boolean domainClassifierReady = traceCount >= 500 && agentCounts.size() >= 3 && retrievalTraceCount > traceCount / 3;
 
         return new RuntimeRouteEvaluationView(
                 safeDays,
-                logs.size(),
+                evidence.logCount(),
                 traceCount,
                 retrievalTraceCount,
                 intentCounts,
@@ -51,14 +35,6 @@ public class RuntimeRouteEvaluationService {
                 domainClassifierReady,
                 recommendation(traceCount, retrievalTraceCount, intentCounts, agentCounts,
                         intentClassifierReady, domainClassifierReady));
-    }
-
-    private Map<String, Long> countBy(List<RuntimeToolCallLogEntity> logs,
-                                     java.util.function.Function<RuntimeToolCallLogEntity, String> getter) {
-        return logs.stream()
-                .map(getter)
-                .filter(StringUtils::hasText)
-                .collect(Collectors.groupingBy(value -> value, LinkedHashMap::new, Collectors.counting()));
     }
 
     private String recommendation(long traceCount,

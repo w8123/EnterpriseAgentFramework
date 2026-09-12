@@ -11,11 +11,13 @@ import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinition
 import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionMapper;
 import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionParameter;
 import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionUpsertRequest;
+import com.enterprise.ai.capability.catalog.CapabilitySourceOwnership;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
@@ -54,6 +56,8 @@ public class CapabilityToolCatalogService {
             String term = keyword.trim();
             wrapper.and(q -> q.like(ToolDefinitionEntity::getName, term)
                     .or()
+                    .like(ToolDefinitionEntity::getQualifiedName, term)
+                    .or()
                     .like(ToolDefinitionEntity::getTitle, term)
                     .or()
                     .like(ToolDefinitionEntity::getDescription, term));
@@ -73,12 +77,16 @@ public class CapabilityToolCatalogService {
     }
 
     public Optional<ToolDefinitionEntity> findByName(String name) {
+        return findByName(name, false);
+    }
+
+    private Optional<ToolDefinitionEntity> findByName(String name, boolean forUpdate) {
         if (!StringUtils.hasText(name)) {
             return Optional.empty();
         }
         return Optional.ofNullable(toolMapper.selectOne(new LambdaQueryWrapper<ToolDefinitionEntity>()
                 .eq(ToolDefinitionEntity::getName, name.trim())
-                .last("limit 1")));
+                .last(forUpdate ? "limit 1 for update" : "limit 1")));
     }
 
     public ToolDefinitionEntity create(ToolDefinitionUpsertRequest request) {
@@ -93,10 +101,12 @@ public class CapabilityToolCatalogService {
         return entity;
     }
 
+    @Transactional
     public ToolDefinitionEntity update(String name, ToolDefinitionUpsertRequest request) {
         validateRequest(request, true);
-        ToolDefinitionEntity existing = findByName(name)
+        ToolDefinitionEntity existing = findByName(name, true)
                 .orElseThrow(() -> new IllegalArgumentException("tool does not exist: " + name));
+        CapabilitySourceOwnership.requireCatalogWritable(existing);
         String storedSource = existing.getSource();
         ToolDefinitionEntity updated = applyRequest(existing, request, true);
         updated.setSource(storedSource);
@@ -105,20 +115,24 @@ public class CapabilityToolCatalogService {
         return updated;
     }
 
+    @Transactional
     public boolean delete(String name) {
-        ToolDefinitionEntity existing = findByName(name).orElse(null);
+        ToolDefinitionEntity existing = findByName(name, true).orElse(null);
         if (existing == null) {
             return false;
         }
+        CapabilitySourceOwnership.requireCatalogWritable(existing);
         if (SOURCE_CODE.equalsIgnoreCase(existing.getSource())) {
             throw new IllegalArgumentException("code-owned tool cannot be deleted");
         }
         return toolMapper.deleteById(existing.getId()) > 0;
     }
 
+    @Transactional
     public ToolDefinitionEntity toggle(String name, boolean enabled) {
-        ToolDefinitionEntity existing = findByName(name)
+        ToolDefinitionEntity existing = findByName(name, true)
                 .orElseThrow(() -> new IllegalArgumentException("tool does not exist: " + name));
+        CapabilitySourceOwnership.requireCatalogWritable(existing);
         existing.setEnabled(enabled);
         existing.setUpdateTime(LocalDateTime.now());
         toolMapper.updateById(existing);
@@ -251,14 +265,14 @@ public class CapabilityToolCatalogService {
 
     public boolean isSdkBackedTool(ToolDefinitionEntity entity) {
         return entity != null
-                && StringUtils.hasText(entity.getProjectCode())
-                && StringUtils.hasText(entity.getSourceLocation())
-                && entity.getSourceLocation().startsWith("sdk:" + entity.getProjectCode() + ":");
+                && (StringUtils.hasText(entity.getSourceQualifiedName())
+                || CapabilitySourceOwnership.isSdkLocation(entity.getSourceLocation()));
     }
 
     private ToolDefinitionEntity applyRequest(ToolDefinitionEntity entity,
                                               ToolDefinitionUpsertRequest request,
                                               boolean updating) {
+        CapabilitySourceOwnership.requireUnmanagedLocation(request.sourceLocation());
         if (!updating) {
             entity.setName(request.name().trim());
         }
@@ -323,10 +337,6 @@ public class CapabilityToolCatalogService {
             return projectCode.trim() + ":" + name.trim();
         }
         return null;
-    }
-
-    private String defaultString(String value, String fallback) {
-        return StringUtils.hasText(value) ? value.trim() : fallback;
     }
 
     private String trimToNull(String value) {

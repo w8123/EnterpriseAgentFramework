@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ArrowRight, Connection, Promotion, Refresh } from '@element-plus/icons-vue'
 import { getMcpHubOverview } from '@/api/mcp'
-import mcpInterconnectionOnboardingIllustration from '@/assets/illustrations/mcp-interconnection-onboarding.webp'
+import mcpInterconnectionOnboardingIllustration from '@/assets/illustrations/mcp-interconnection-onboarding-flat.webp'
 import type { McpHubOverview } from '@/types/mcp'
 
 const router = useRouter()

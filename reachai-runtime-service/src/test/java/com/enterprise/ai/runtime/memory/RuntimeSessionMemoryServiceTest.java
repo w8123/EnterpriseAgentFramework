@@ -2,7 +2,7 @@ package com.enterprise.ai.runtime.memory;
 
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.enterprise.ai.runtime.agent.RuntimeAgentView;
-import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
+import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
 import io.agentscope.core.message.Msg;
 import io.agentscope.core.message.MsgRole;
 import io.agentscope.core.state.AgentState;

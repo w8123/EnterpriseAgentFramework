@@ -292,8 +292,6 @@ function milestoneClass(step: number) {
   return ''
 }
 
-const journeyUnavailable = computed(() => props.journey?.status === 'UNAVAILABLE')
-
 const flowNavNodes = computed<FlowNavNode[]>(() => {
   const journey = props.journey
   const unavailable = journey?.status === 'UNAVAILABLE'

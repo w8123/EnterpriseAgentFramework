@@ -96,21 +96,39 @@ if (import.meta.env.DEV) {
     </div>
 
     <div class="app-page-header__main">
-      <p v-if="props.eyebrow && !props.collapsed" class="app-page-header__eyebrow">
+      <p
+        v-if="props.eyebrow"
+        class="app-page-header__eyebrow"
+        :aria-hidden="props.collapsed"
+      >
         {{ props.eyebrow }}
       </p>
 
       <div class="app-page-header__title-row">
         <h1 :id="titleId" class="app-page-header__title">{{ props.title }}</h1>
-        <div v-if="$slots.tags && !props.collapsed" class="app-page-header__tags">
+        <div
+          v-if="$slots.tags"
+          class="app-page-header__tags"
+          :aria-hidden="props.collapsed"
+          :inert="props.collapsed"
+        >
           <slot name="tags" />
         </div>
       </div>
 
-      <p v-if="props.description && !props.collapsed" class="app-page-header__description">
+      <p
+        v-if="props.description"
+        class="app-page-header__description"
+        :aria-hidden="props.collapsed"
+      >
         {{ props.description }}
       </p>
-      <div v-if="$slots.meta && !props.collapsed" class="app-page-header__meta">
+      <div
+        v-if="$slots.meta"
+        class="app-page-header__meta"
+        :aria-hidden="props.collapsed"
+        :inert="props.collapsed"
+      >
         <slot name="meta" />
       </div>
     </div>
@@ -141,6 +159,9 @@ if (import.meta.env.DEV) {
   width: 100%;
   min-width: 0;
   height: var(--layout-page-header-height-standard);
+  // Progressive enhancement for responsive layouts whose expanded height is auto.
+  // Unsupported browsers keep the fixed-height transition used on wider screens.
+  interpolate-size: allow-keywords;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--section-gap);
@@ -149,6 +170,10 @@ if (import.meta.env.DEV) {
   border-radius: var(--radius-xl);
   color: var(--text-primary);
   background: var(--surface-glass-panel);
+  transition:
+    height var(--motion-duration-normal) var(--motion-easing-standard),
+    min-height var(--motion-duration-normal) var(--motion-easing-standard),
+    padding var(--motion-duration-normal) var(--motion-easing-standard);
 }
 
 .app-page-header::before,
@@ -327,11 +352,20 @@ if (import.meta.env.DEV) {
 }
 
 .app-page-header__eyebrow {
+  max-height: 1.5rem;
   margin-bottom: 6px;
+  overflow: hidden;
   color: var(--page-header-domain-tone);
   font-size: 0.75rem;
   font-weight: 800;
   letter-spacing: 0.06em;
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    max-height var(--motion-duration-normal) var(--motion-easing-standard),
+    margin var(--motion-duration-normal) var(--motion-easing-standard),
+    opacity var(--motion-duration-fast) ease,
+    transform var(--motion-duration-normal) var(--motion-easing-standard);
   text-transform: uppercase;
 }
 
@@ -375,6 +409,19 @@ if (import.meta.env.DEV) {
   gap: var(--layout-page-header-tag-gap);
 }
 
+.app-page-header__tags {
+  max-width: min(44rem, 52vw);
+  max-height: 4rem;
+  overflow: hidden;
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    max-width var(--motion-duration-normal) var(--motion-easing-standard),
+    max-height var(--motion-duration-normal) var(--motion-easing-standard),
+    opacity var(--motion-duration-fast) ease,
+    transform var(--motion-duration-normal) var(--motion-easing-standard);
+}
+
 .app-page-header__tags :deep(.el-tag) {
   min-height: 24px;
   padding-inline: 11px;
@@ -388,19 +435,52 @@ if (import.meta.env.DEV) {
 .app-page-header__description {
   display: -webkit-box;
   max-width: 72ch;
+  max-height: 3rem;
   margin-top: 5px;
   overflow: hidden;
   color: var(--text-secondary);
   font-size: 0.875rem;
   line-height: 1.5;
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    max-height var(--motion-duration-normal) var(--motion-easing-standard),
+    margin var(--motion-duration-normal) var(--motion-easing-standard),
+    opacity var(--motion-duration-fast) ease,
+    transform var(--motion-duration-normal) var(--motion-easing-standard);
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
 
 .app-page-header__meta {
+  max-height: 4rem;
   margin-top: 8px;
+  overflow: hidden;
   color: var(--text-muted);
   font-size: 0.8125rem;
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    max-height var(--motion-duration-normal) var(--motion-easing-standard),
+    margin var(--motion-duration-normal) var(--motion-easing-standard),
+    opacity var(--motion-duration-fast) ease,
+    transform var(--motion-duration-normal) var(--motion-easing-standard);
+}
+
+.app-page-header.is-collapsed .app-page-header__eyebrow,
+.app-page-header.is-collapsed .app-page-header__tags,
+.app-page-header.is-collapsed .app-page-header__description,
+.app-page-header.is-collapsed .app-page-header__meta {
+  max-height: 0;
+  margin-top: 0;
+  margin-bottom: 0;
+  opacity: 0;
+  transform: translateY(-6px);
+  pointer-events: none;
+}
+
+.app-page-header.is-collapsed .app-page-header__tags {
+  max-width: 0;
 }
 
 .app-page-header__trailing {
@@ -546,7 +626,11 @@ if (import.meta.env.DEV) {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .app-page-header {
+  .app-page-header,
+  .app-page-header__eyebrow,
+  .app-page-header__tags,
+  .app-page-header__description,
+  .app-page-header__meta {
     transition: none;
   }
 }

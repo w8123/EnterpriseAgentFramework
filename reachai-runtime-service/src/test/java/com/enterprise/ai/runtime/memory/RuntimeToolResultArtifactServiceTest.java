@@ -2,7 +2,7 @@ package com.enterprise.ai.runtime.memory;
 
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
-import com.enterprise.ai.runtime.supervisor.RuntimeContextEngineeringProperties;
+import com.enterprise.ai.runtime.configuration.RuntimeContextEngineeringProperties;
 import io.agentscope.core.agent.RuntimeContext;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeAll;

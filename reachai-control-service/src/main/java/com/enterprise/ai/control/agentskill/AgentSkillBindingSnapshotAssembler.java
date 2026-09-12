@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Consumer;
 
 /**
  * Replaces browser-supplied Skill metadata with catalog-authoritative published
@@ -52,6 +53,36 @@ public class AgentSkillBindingSnapshotAssembler {
         PlatformAuthenticatedSession session = requireSession(request);
         accessPolicy.requireAgentBindScope(session, BIND_PERMISSION, agentProjectCode);
 
+        return assembleSelections(source, agentProjectCode, descriptor -> {
+            accessPolicy.requireAccess(session, BIND_PERMISSION, descriptor.skill());
+            accessPolicy.requireAgentProject(descriptor.skill(), agentProjectCode);
+        }, session);
+    }
+
+    /**
+     * Catalog attestation for project-key AI Coding calls. This deliberately
+     * has no HttpServletRequest overload: a project credential is not a human
+     * console session and cannot inherit owner or script-approval permissions.
+     */
+    public Map<String, Object> assembleForAiCodingProject(
+            Map<String, Object> draft,
+            String agentProjectCode) {
+        Map<String, Object> source = draft == null ? Map.of() : draft;
+        if (!source.containsKey("skills")) {
+            return source;
+        }
+        return assembleSelections(source, agentProjectCode,
+                descriptor -> accessPolicy.requireProjectCredentialBind(
+                        descriptor.skill(), agentProjectCode),
+                null);
+    }
+
+    private Map<String, Object> assembleSelections(
+            Map<String, Object> source,
+            String agentProjectCode,
+            Consumer<BindingDescriptor> accessCheck,
+            PlatformAuthenticatedSession session) {
+
         Object raw = source.get("skills");
         if (raw != null && !(raw instanceof List<?>)) {
             throw new AgentSkillException("SKILL_BINDING_INVALID", HttpStatus.BAD_REQUEST,
@@ -70,8 +101,7 @@ public class AgentSkillBindingSnapshotAssembler {
             Selection selection = selection(value);
             BindingDescriptor descriptor = catalogService.publishedBindingDescriptor(
                     selection.skillId(), selection.skillVersionId());
-            accessPolicy.requireAccess(session, BIND_PERMISSION, descriptor.skill());
-            accessPolicy.requireAgentProject(descriptor.skill(), agentProjectCode);
+            accessCheck.accept(descriptor);
             VersionView version = descriptor.version();
             String identity = descriptor.skill().publisher() + "/" + descriptor.skill().name();
             if (identities.putIfAbsent(identity, true) != null) {
@@ -88,6 +118,10 @@ public class AgentSkillBindingSnapshotAssembler {
             if (!Set.of("DENY", "SANDBOX_REVIEWED").contains(scriptPolicy)) {
                 throw new AgentSkillException("SKILL_BINDING_INVALID", HttpStatus.BAD_REQUEST,
                         "Skill scriptPolicy must be DENY or SANDBOX_REVIEWED");
+            }
+            if (session == null && "SANDBOX_REVIEWED".equals(scriptPolicy)) {
+                throw AgentSkillException.forbidden(
+                        "AI Coding project credentials cannot approve Skill script execution");
             }
             if (version.hasScripts() && "SANDBOX_REVIEWED".equals(scriptPolicy)) {
                 authorizationService.requireGlobalPermission(session, SCRIPT_APPROVE_PERMISSION);

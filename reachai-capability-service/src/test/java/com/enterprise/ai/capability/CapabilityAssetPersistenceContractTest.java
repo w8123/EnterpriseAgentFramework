@@ -9,12 +9,10 @@ import com.enterprise.ai.agent.capability.InteractionDefinitionEntity;
 import com.enterprise.ai.agent.capability.InteractionDefinitionMapper;
 import com.enterprise.ai.agent.capability.ToolAssetEntity;
 import com.enterprise.ai.agent.capability.ToolAssetMapper;
-import com.enterprise.ai.agent.capability.catalog.controller.CapabilityKernelController;
 import org.junit.jupiter.api.Test;
-import org.springframework.web.bind.annotation.RequestMapping;
 
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class CapabilityAssetPersistenceContractTest {
@@ -37,9 +35,8 @@ class CapabilityAssetPersistenceContractTest {
     }
 
     @Test
-    void capabilityKernelControllerOwnsCapabilitiesRouteLocally() {
-        RequestMapping mapping = CapabilityKernelController.class.getAnnotation(RequestMapping.class);
-
-        assertArrayEquals(new String[] {"/api/capabilities"}, mapping.value());
+    void capabilityAssetPersistenceRemainsInternalWithoutPublicCrudController() {
+        assertThrows(ClassNotFoundException.class, () -> Class.forName(
+                "com.enterprise.ai.agent.capability.catalog.controller.CapabilityKernelController"));
     }
 }

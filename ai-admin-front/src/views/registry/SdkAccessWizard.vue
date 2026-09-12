@@ -285,32 +285,33 @@
               任务详情
             </el-button>
           </div>
-          <button
-            v-for="(item, index) in aiDisplaySteps"
-            :key="item.stepKey"
-            class="progress-step ai-progress-step"
-            :class="{
-              active: item.status === 'RUNNING' || (index === 0 && item.status === 'TODO'),
-              done: item.status === 'PASS',
-              warn: item.status === 'WARN',
-              fail: item.status === 'FAIL',
-              skipped: item.status === 'SKIPPED',
-            }"
-            type="button"
-            tabindex="-1"
-          >
-            <span class="step-index">
-              <el-icon v-if="item.status === 'PASS'"><Check /></el-icon>
-              <span v-else class="step-dot" />
-            </span>
-            <span class="step-copy">
-              <span class="step-title-line">
-                <span class="step-number">{{ index + 1 }}</span>
-                <strong>{{ item.title }}</strong>
+          <div class="ai-progress-steps" role="list" aria-label="AI 接入步骤状态">
+            <div
+              v-for="(item, index) in aiDisplaySteps"
+              :key="item.stepKey"
+              class="progress-step ai-progress-step"
+              :class="{
+                active: item.status === 'RUNNING' || (index === 0 && item.status === 'TODO'),
+                done: item.status === 'PASS',
+                warn: item.status === 'WARN',
+                fail: item.status === 'FAIL',
+                skipped: item.status === 'SKIPPED',
+              }"
+              role="listitem"
+            >
+              <span class="step-index">
+                <el-icon v-if="item.status === 'PASS'"><Check /></el-icon>
+                <span v-else class="step-dot" />
               </span>
-              <small>{{ accessStatusLabel(item.status) }}</small>
-            </span>
-          </button>
+              <span class="step-copy">
+                <span class="step-title-line">
+                  <span class="step-number">{{ index + 1 }}</span>
+                  <strong>{{ item.title }}</strong>
+                </span>
+                <small>{{ accessStatusLabel(item.status) }}</small>
+              </span>
+            </div>
+          </div>
         </aside>
 
         <section class="ai-coding-main">

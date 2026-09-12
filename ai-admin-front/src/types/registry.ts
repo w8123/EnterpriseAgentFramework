@@ -124,7 +124,16 @@ export interface CapabilityDiffReviewItem {
   existingToolId?: number | null
   fieldDiffJson?: string
   impactJson?: string
-  reviewStatus: 'PENDING' | 'APPLIED' | 'IGNORED' | 'ROLLED_BACK'
+  reviewStatus: 'PENDING' | 'APPLIED' | 'AUTO_APPLIED' | 'UNCHANGED' | 'IGNORED' | 'ROLLED_BACK' | 'SUPERSEDED' | 'DIAGNOSTIC'
   reviewNote?: string
   rollbackAvailable?: boolean
+}
+
+export interface CapabilityChangePage {
+  records: CapabilityDiffReviewItem[]
+  total: number
+  current: number
+  size: number
+  pending: number
+  automated: number
 }

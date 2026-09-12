@@ -1,8 +1,7 @@
 package com.enterprise.ai.runtime.api;
 
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDebugService;
-import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionService;
-import com.enterprise.ai.runtime.workflow.RuntimeWorkflowReleaseValidationService;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowManagementService;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowRevisionConflictException;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowRevisionFormatException;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowKeySlugConflictException;
@@ -29,11 +28,10 @@ class RuntimeWorkflowRevisionExceptionHandlerTest {
 
     @Test
     void returnsClearConflictWhenWorkflowKeyAlreadyExists() throws Exception {
-        RuntimeWorkflowDefinitionService workflowService = mock(RuntimeWorkflowDefinitionService.class);
+        RuntimeWorkflowManagementService workflowService = mock(RuntimeWorkflowManagementService.class);
         when(workflowService.create(any())).thenThrow(new RuntimeWorkflowKeySlugConflictException("1111"));
         RuntimeWorkflowPublicController controller = new RuntimeWorkflowPublicController(
                 workflowService,
-                mock(RuntimeWorkflowReleaseValidationService.class),
                 mock(RuntimeWorkflowStudioService.class),
                 mock(RuntimeWorkflowDebugService.class),
                 mock(RuntimeWorkflowProposalGenerationService.class),
@@ -87,8 +85,7 @@ class RuntimeWorkflowRevisionExceptionHandlerTest {
 
     private MockMvc mockMvc(RuntimeWorkflowStudioService studioService) {
         RuntimeWorkflowPublicController controller = new RuntimeWorkflowPublicController(
-                mock(RuntimeWorkflowDefinitionService.class),
-                mock(RuntimeWorkflowReleaseValidationService.class),
+                mock(RuntimeWorkflowManagementService.class),
                 studioService,
                 mock(RuntimeWorkflowDebugService.class),
                 mock(RuntimeWorkflowProposalGenerationService.class),

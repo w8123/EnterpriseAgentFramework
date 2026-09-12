@@ -12,6 +12,12 @@ public final class AiCodingTaskModels {
     private AiCodingTaskModels() {
     }
 
+    public record LatestAppliedTaskArtifact(
+            String latestTaskId,
+            String latestExecutionStatus,
+            JsonNode applicationResult) {
+    }
+
     public record TaskTargetCommand(
             String targetType,
             String targetKey,

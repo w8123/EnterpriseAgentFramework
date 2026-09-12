@@ -1,8 +1,6 @@
 package com.enterprise.ai.runtime.execution;
 
-import com.enterprise.ai.runtime.execution.SupervisorRuntimeAdapter.PolicyApprovalGrant;
-import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
-
+import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
 import java.util.Map;
 
 /** Execution-owned port for resuming a durable Supervisor approval interaction. */
@@ -19,10 +17,18 @@ public interface RuntimeSupervisorApprovalPort {
                                        Map<String, Object> submittedPayload,
                                        Map<String, Object> result);
 
+    record PolicyApprovalGrant(String interactionId,
+                               String permissionKey,
+                               String toolName,
+                               Map<String, Object> approvedArgs,
+                               String approvedBy) {
+    }
+
     interface ResumeDecision {
         boolean approved();
         boolean rejected();
         String agentId();
+        Long agentConfigVersionId();
         Map<String, Object> originalInput();
         PolicyApprovalGrant grant();
         String message();

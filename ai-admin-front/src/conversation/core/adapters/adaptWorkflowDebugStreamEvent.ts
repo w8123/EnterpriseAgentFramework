@@ -21,6 +21,11 @@ export function adaptWorkflowDebugStreamEvent(
     || (record?.traceId ? String(record.traceId) : undefined)
 
   switch (eventName) {
+    case 'session.created':
+      return record?.sessionId
+        ? createEvent('session.created', record, { sessionId: String(record.sessionId), traceId })
+        : null
+
     case 'runtime.execution.v1':
       return createEvent('debug.workflow.runtime.event', record || {}, {
         sessionId,

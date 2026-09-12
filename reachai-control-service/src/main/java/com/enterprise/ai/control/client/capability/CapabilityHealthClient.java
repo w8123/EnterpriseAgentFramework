@@ -8,7 +8,7 @@ import java.util.Map;
 @FeignClient(
         name = "reachai-capability-health",
         url = "${services.capability-service.url:http://localhost:18605}",
-        configuration = com.enterprise.ai.control.internal.InternalHealthFeignConfig.class
+        configuration = com.enterprise.ai.control.client.health.InternalHealthFeignConfig.class
 )
 public interface CapabilityHealthClient {
 

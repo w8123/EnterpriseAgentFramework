@@ -63,7 +63,7 @@ final class RuntimeAutomationWorker {
             fixedDelayString = "${reachai.runtime.automation.worker-poll-delay-ms:1000}")
     void poll() {
         try {
-            occurrenceMapper.markExpiredExhausted();
+            persistence.recoverExpiredExecutions();
             int capacity = Math.max(0, Math.max(1, Math.min(32, concurrency)) - active.size());
             for (int i = 0; i < capacity; i++) {
                 Claimed claimed = claim();
@@ -168,6 +168,7 @@ final class RuntimeAutomationWorker {
             attempt = persistence.start(occurrence, claimed.token(), workerId, traceId);
             Map<String, Object> input = new LinkedHashMap<>(json.readMap(occurrence.getInputSnapshotJson()));
             input.put("traceId", traceId);
+            input.put("supervisorTraceId", traceId);
             input.put("entryType", "AUTOMATION");
             input.put("tenantId", automation.getTenantId());
             input.put("projectCode", automation.getProjectCode());

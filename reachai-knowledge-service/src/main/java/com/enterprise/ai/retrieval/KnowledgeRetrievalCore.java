@@ -11,7 +11,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Formal production Knowledge retrieval entry for Runtime and admin reuse.
+ * User-authorized Knowledge retrieval entry for Runtime, RAG and duplicate search.
+ * Administrative inspection shares the engine through its separately authorized catalog entry.
  * Runtime Internal API must call this Core — not {@code retrievalTest} / RetrievalTestRequest.
  */
 @Service
@@ -19,10 +20,30 @@ import java.util.Map;
 public class KnowledgeRetrievalCore {
 
     private final KnowledgeRetrievalEngine engine;
+    private final KnowledgeRetrievalAuthorization authorization;
 
     public KnowledgeRetrievalCoreResponse retrieve(KnowledgeRetrievalCoreRequest request) {
-        RetrievalTestResponse response = engine.execute(toInternal(request));
-        return toCore(response);
+        if (request == null) throw new IllegalArgumentException("检索请求不能为空");
+        var snapshot = authorization.capture(request.getUserId());
+        if (snapshot.grants().isEmpty()) {
+            return KnowledgeRetrievalCoreResponse.builder().query(request.getQuery()).searchMode(request.getSearchMode())
+                    .totalResults(0).costMs(0L).directReturn(false).items(List.of()).diagnostics(Map.of())
+                    .accessSnapshot(snapshot).build();
+        }
+        var internal = toInternal(request);
+        internal.setAccessSnapshot(snapshot);
+        internal.setAccessibleFileIds(request.getAccessibleFileIds() == null ? snapshot.fileIds()
+                : snapshot.fileIds().stream().filter(request.getAccessibleFileIds()::contains).toList());
+        internal.setFileIdFilterExpression(authorization.filter(snapshot));
+        RetrievalTestResponse response = engine.execute(internal);
+        var result = toCore(response);
+        result.setAccessSnapshot(snapshot);
+        return result;
+    }
+
+    /** RAG uses the same content-release check immediately before and after its model call. */
+    public boolean isCurrent(KnowledgeRetrievalCoreResponse response) {
+        return response != null && authorization.isCurrent(response.getAccessSnapshot(), response.getItems());
     }
 
     private static RetrievalTestRequest toInternal(KnowledgeRetrievalCoreRequest request) {

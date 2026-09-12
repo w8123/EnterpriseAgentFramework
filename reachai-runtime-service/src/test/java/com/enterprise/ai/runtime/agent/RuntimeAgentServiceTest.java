@@ -18,6 +18,13 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class RuntimeAgentServiceTest {
+    @org.junit.jupiter.api.BeforeAll
+    static void initializeAgentSqlMetadata() {
+        com.baomidou.mybatisplus.core.metadata.TableInfoHelper.initTableInfo(
+                new org.apache.ibatis.builder.MapperBuilderAssistant(
+                        new com.baomidou.mybatisplus.core.MybatisConfiguration(), "agent-identity-test"),
+                RuntimeAgentEntity.class);
+    }
 
     @Test
     void createNormalizesDefaultsAndWritesRuntimeAgentTable() {
@@ -70,7 +77,7 @@ class RuntimeAgentServiceTest {
 
         assertEquals("Orders Agent v2", updated.name());
         assertEquals(false, existing.getEnabled());
-        verify(mapper).updateById(existing);
+        verify(mapper).update(org.mockito.ArgumentMatchers.isNull(), any(com.baomidou.mybatisplus.core.conditions.Wrapper.class));
         verify(configService, never()).saveDraft(org.mockito.ArgumentMatchers.eq("agent-1"), any());
     }
 
@@ -98,8 +105,7 @@ class RuntimeAgentServiceTest {
         RuntimeAgentMapper mapper = mock(RuntimeAgentMapper.class);
         RuntimeAgentConfigService configService = mock(RuntimeAgentConfigService.class);
         RuntimeAgentEntity existing = entity("agent-1");
-        when(mapper.selectById("orders-agent")).thenReturn(null);
-        when(mapper.selectOne(any())).thenReturn(existing);
+        when(mapper.selectByIdOrKeySlug("orders-agent")).thenReturn(existing);
         when(configService.resolveDisplayConfig("agent-1")).thenReturn(Optional.empty());
         RuntimeAgentService service = new RuntimeAgentService(mapper, configService);
 
@@ -107,8 +113,8 @@ class RuntimeAgentServiceTest {
 
         assertTrue(found.isPresent());
         assertEquals("agent-1", found.get().id());
-        verify(mapper).selectById("orders-agent");
-        verify(mapper).selectOne(any());
+        verify(mapper).selectByIdOrKeySlug("orders-agent");
+        verify(mapper, never()).selectById(any());
         verify(configService).resolveDisplayConfig("agent-1");
     }
 

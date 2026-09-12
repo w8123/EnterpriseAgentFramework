@@ -887,7 +887,6 @@ import type {
   ContextMemoryCandidateUpdateRequest,
   ContextNamespace,
   ContextNamespaceRequest,
-  ContextNamespaceType,
   ContextOpsSummary,
   ContextRetrievalMode,
   ContextLifecycleRunResult,

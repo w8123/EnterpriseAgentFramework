@@ -483,6 +483,7 @@ public class ManagedExecutionService {
         requireTenant(entity, tenantId);
         ManagedExecutionViews.ApprovalDecisionView decision =
                 approvalService.resolve(entity, actorUserId, interactionId, request);
+        if (decision.idempotentReplay()) return decision;
         appendOutbox(entity, "MANAGED_EXECUTION_APPROVAL_DECIDED", Map.of(
                 "status", entity.getStatus(),
                 "interactionId", decision.interactionId(),
@@ -861,7 +862,7 @@ public class ManagedExecutionService {
         if (ManagedExecutionStatus.parse(execution.getStatus()).terminal()) {
             approvalService.onExecutionTerminal(execution);
         }
-        runProjector.sync(execution);
+        runProjector.sync(execution.getExecutionId());
         ManagedExecutionOutboxEntity outbox = new ManagedExecutionOutboxEntity();
         outbox.setEventId("mout_" + UUID.randomUUID().toString().replace("-", ""));
         outbox.setExecutionId(execution.getExecutionId());

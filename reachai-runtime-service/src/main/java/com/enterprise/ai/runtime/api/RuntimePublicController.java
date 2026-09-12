@@ -3,7 +3,7 @@ package com.enterprise.ai.runtime.api;
 import com.enterprise.ai.runtime.route.RuntimeRouteEvaluationService;
 import com.enterprise.ai.runtime.route.RuntimeRouteEvaluationView;
 import com.enterprise.ai.runtime.execution.RuntimeAgentExecutionCancellation;
-import com.enterprise.ai.runtime.execution.RuntimeAgentExecutionService;
+import com.enterprise.ai.runtime.supervisor.RuntimeAgentExecutionService;
 import com.enterprise.ai.runtime.runops.RuntimeRunOpsQueryService;
 import com.enterprise.ai.runtime.runops.RuntimeRunOpsReplayService;
 import com.enterprise.ai.runtime.runops.RuntimeRunOpsViews.RuntimeRunOpsComparisonView;
@@ -28,7 +28,6 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
-
 import java.io.IOException;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -158,7 +157,7 @@ public class RuntimePublicController {
             @RequestParam(required = false) String userId,
             @RequestParam(defaultValue = "30") int days,
             @RequestParam(defaultValue = "20") int limit) {
-        return ResponseEntity.ok(traceQueryService.listRecentTraces(userId, limit, days));
+        return ResponseEntity.ok(runOpsQueryService.listRecentTraces(userId, limit, days));
     }
 
     @GetMapping("/api/runops/traces/{traceId}")

@@ -21,6 +21,7 @@ describe('useWorkflowStudioPersistence', () => {
     validation.setPanelValidation('assign_1', { valid: false, message: 'JSON 无效' })
     const studio = ref({
       workflowId: 'wf-1',
+      revision: '2026-09-06T10:00:00',
       name: 'Demo',
       graphSpecJson: '{"nodes":[],"edges":[]}',
       canvasJson: '{"nodes":[],"edges":[]}',
@@ -61,5 +62,10 @@ describe('useWorkflowStudioPersistence', () => {
     saveWorkflowWorkingCopy.mockResolvedValue({ data: { workflowId: 'wf-1' } })
     expect(await actions.saveStudio()).not.toBeNull()
     expect(saveWorkflowWorkingCopy).toHaveBeenCalledTimes(1)
+    expect(saveWorkflowWorkingCopy).toHaveBeenCalledWith('wf-1', expect.objectContaining({ baseRevision: '2026-09-06T10:00:00' }))
+    saveWorkflowWorkingCopy.mockClear()
+    studio.value.revision = null
+    expect(await actions.saveStudio()).toBeNull()
+    expect(saveWorkflowWorkingCopy).not.toHaveBeenCalled()
   })
 })

@@ -145,6 +145,8 @@ describe('Dashboard 智能体运营中心', () => {
     expect(text).toContain('50.0%')
     expect(wrapper.findAll('.ops-metric')).toHaveLength(6)
     expect(wrapper.findAll('.ops-metric__signal')).toHaveLength(0)
+    expect(wrapper.get('.ops-scope-chip').element.tagName).toBe('SPAN')
+    expect(wrapper.find('.ops-filter-button').exists()).toBe(false)
     expect(mocks.getRecentRunOps).toHaveBeenCalledWith({ days: 1, limit: 100 })
     expect(text).not.toContain('38.6M')
     expect(text).not.toContain('高频问题')

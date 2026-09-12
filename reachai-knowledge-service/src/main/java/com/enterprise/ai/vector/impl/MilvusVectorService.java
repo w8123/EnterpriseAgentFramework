@@ -33,10 +33,20 @@ public class MilvusVectorService implements VectorService {
 
     @Override
     public void ensureCollection(String collectionName, int dimension) {
-        R<Boolean> hasCollection = milvusClient.hasCollection(
-                HasCollectionParam.newBuilder().withCollectionName(collectionName).build());
-        if (hasCollection.getData() != null && hasCollection.getData()) {
-            log.debug("Collection {} already exists", collectionName);
+        if (collectionExists(collectionName)) {
+            R<io.milvus.grpc.DescribeIndexResponse> indexes = milvusClient.describeIndex(
+                    io.milvus.param.index.DescribeIndexParam.newBuilder().withCollectionName(collectionName).build());
+            // Newer servers use IndexNotFound (700); SDK 2.4 also exposes the legacy enum code.
+            boolean missing = indexes != null && (Objects.equals(indexes.getStatus(), 700)
+                    || Objects.equals(indexes.getStatus(), io.milvus.grpc.ErrorCode.IndexNotExist.getNumber()));
+            if (!missing) {
+                requireSuccess(indexes, "describe index");
+                if (indexes.getData() == null) throw new IllegalStateException("Milvus describe index returned no data");
+                missing = indexes.getData().getIndexDescriptionsList().stream()
+                        .noneMatch(index -> "vector".equals(index.getFieldName()));
+            }
+            if (missing) createVectorIndex(collectionName);
+            loadCollection(collectionName);
             return;
         }
 
@@ -78,23 +88,29 @@ public class MilvusVectorService implements VectorService {
                 .withSchema(schema)
                 .build();
 
-        R<RpcStatus> createResult = milvusClient.createCollection(createParam);
-        if (createResult.getException() != null) {
-            throw new RuntimeException("Failed to create collection: " + collectionName, createResult.getException());
-        }
+        R<RpcStatus> createResult = milvusClient.withRetry(io.milvus.param.RetryParam.newBuilder()
+                .withMaxRetryTimes(1).build()).createCollection(createParam);
+        requireSuccess(createResult, "create collection");
 
-        milvusClient.createIndex(CreateIndexParam.newBuilder()
+        createVectorIndex(collectionName);
+        loadCollection(collectionName);
+
+        log.info("Collection {} created and loaded", collectionName);
+    }
+
+    private void createVectorIndex(String collectionName) {
+        requireSuccess(milvusClient.createIndex(CreateIndexParam.newBuilder()
                 .withCollectionName(collectionName)
                 .withFieldName("vector")
                 .withIndexType(IndexType.IVF_FLAT)
                 .withMetricType(MetricType.COSINE)
                 .withExtraParam("{\"nlist\":1024}")
-                .build());
+                .build()), "create index");
+    }
 
-        milvusClient.loadCollection(
-                LoadCollectionParam.newBuilder().withCollectionName(collectionName).build());
-
-        log.info("Collection {} created and loaded", collectionName);
+    private void loadCollection(String collectionName) {
+        requireSuccess(milvusClient.loadCollection(
+                LoadCollectionParam.newBuilder().withCollectionName(collectionName).build()), "load collection");
     }
 
     @Override
@@ -111,10 +127,11 @@ public class MilvusVectorService implements VectorService {
                 .withFields(fields)
                 .build();
 
-        R<MutationResult> result = milvusClient.upsert(upsertParam);
-        if (result.getException() != null) {
-            throw new RuntimeException("Milvus upsert failed", result.getException());
-        }
+        // A transport retry could leave an earlier RPC in flight after a later RPC succeeds.
+        // The execution journal may acknowledge completion only for a single write request.
+        R<MutationResult> result = milvusClient.withRetry(io.milvus.param.RetryParam.newBuilder()
+                .withMaxRetryTimes(1).build()).upsert(upsertParam);
+        requireSuccess(result, "upsert");
         log.info("Upserted {} vectors into {}", ids.size(), collectionName);
     }
 
@@ -136,9 +153,7 @@ public class MilvusVectorService implements VectorService {
         }
 
         R<SearchResults> response = milvusClient.search(builder.build());
-        if (response.getException() != null) {
-            throw new RuntimeException("Milvus search failed", response.getException());
-        }
+        requireSuccess(response, "search");
 
         SearchResultsWrapper wrapper = new SearchResultsWrapper(response.getData().getResults());
         List<VectorSearchResult> results = new ArrayList<>();
@@ -165,35 +180,41 @@ public class MilvusVectorService implements VectorService {
     }
 
     @Override
-    public void deleteByFileId(String collectionName, String fileId) {
-        String expr = "file_id == \"" + fileId + "\"";
-        R<MutationResult> result = milvusClient.delete(DeleteParam.newBuilder()
-                .withCollectionName(collectionName)
-                .withExpr(expr)
-                .build());
-        if (result.getException() != null) {
-            throw new RuntimeException("Milvus delete failed", result.getException());
-        }
-        log.info("Deleted vectors with file_id={} from {}", fileId, collectionName);
-    }
-
-    @Override
     public void deleteById(String collectionName, String id) {
-        String expr = "id == \"" + id + "\"";
+        if (id == null || id.isBlank()) throw new IllegalArgumentException("Vector identity is required");
+        String expr = "id == \"" + new String(com.fasterxml.jackson.core.io.JsonStringEncoder.getInstance().quoteAsString(id)) + "\"";
         R<MutationResult> result = milvusClient.delete(DeleteParam.newBuilder()
                 .withCollectionName(collectionName)
                 .withExpr(expr)
                 .build());
-        if (result.getException() != null) {
-            throw new RuntimeException("Milvus delete by id failed", result.getException());
-        }
+        // A retired collection may already have been dropped. A successful existence read is
+        // required before treating a failed delete as absence; authentication/transport errors propagate.
+        if (result != null && !Objects.equals(result.getStatus(), R.Status.Success.getCode()) && !collectionExists(collectionName)) return;
+        requireSuccess(result, "delete by id");
         log.info("Deleted vector id={} from {}", id, collectionName);
     }
 
     @Override
     public void dropCollection(String collectionName) {
-        milvusClient.dropCollection(
-                DropCollectionParam.newBuilder().withCollectionName(collectionName).build());
+        if (!collectionExists(collectionName)) return;
+        requireSuccess(milvusClient.withRetry(io.milvus.param.RetryParam.newBuilder().withMaxRetryTimes(1).build()).dropCollection(
+                DropCollectionParam.newBuilder().withCollectionName(collectionName).build()), "drop collection");
         log.info("Dropped collection {}", collectionName);
+    }
+
+    private boolean collectionExists(String collectionName) {
+        R<Boolean> result = milvusClient.hasCollection(HasCollectionParam.newBuilder().withCollectionName(collectionName).build());
+        requireSuccess(result, "check collection");
+        if (result.getData() == null) throw new IllegalStateException("Milvus collection existence returned no result");
+        return result.getData();
+    }
+
+    private static void requireSuccess(R<?> result, String operation) {
+        if (result == null || result.getException() != null
+                || !Objects.equals(result.getStatus(), R.Status.Success.getCode())) {
+            throw new IllegalStateException("Milvus " + operation + " failed (status="
+                    + (result == null ? "missing" : result.getStatus()) + ")",
+                    result == null ? null : result.getException());
+        }
     }
 }

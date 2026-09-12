@@ -1,16 +1,17 @@
 package com.enterprise.ai.runtime.eval;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.enterprise.ai.runtime.a2a.RuntimeA2aRemoteAgentBindingEntity;
-import com.enterprise.ai.runtime.agent.RuntimeAgentConfigVersionEntity;
+import com.enterprise.ai.runtime.agent.RuntimeAgentRemoteBindingView;
+import com.enterprise.ai.runtime.agent.RuntimeAgentConfigSnapshot;
 import com.enterprise.ai.runtime.agent.RuntimeAgentExecutionContext;
 import com.enterprise.ai.runtime.agent.RuntimeAgentExecutionContextResolver;
 import com.enterprise.ai.runtime.agent.RuntimeAgentExecutionView;
-import com.enterprise.ai.runtime.agent.RuntimeAgentSkillBindingEntity;
-import com.enterprise.ai.runtime.agent.RuntimeAgentWorkflowToolEntity;
+import com.enterprise.ai.runtime.agent.RuntimeAgentSkillBindingSnapshot;
+import com.enterprise.ai.runtime.agent.RuntimeAgentWorkflowToolSnapshot;
 import com.enterprise.ai.runtime.agent.RuntimeResolvedWorkflowTarget;
-import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionEntity;
-import com.enterprise.ai.runtime.workflow.RuntimeWorkflowVersionEntity;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowExecutionView;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowPublishedVersionView;
+import com.enterprise.ai.runtime.workflow.RuntimePublishedWorkflowSnapshot;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -40,7 +41,7 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class RuntimeEvalTargetSnapshotService {
 
-    public static final int SNAPSHOT_SCHEMA_VERSION = 1;
+    public static final int SNAPSHOT_SCHEMA_VERSION = 2;
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() { };
 
     private final RuntimeAgentExecutionContextResolver executionContextResolver;
@@ -57,7 +58,7 @@ public class RuntimeEvalTargetSnapshotService {
         if (resolved.isEmpty()) {
             throw new IllegalArgumentException("Eval target Agent not found: " + agentId);
         }
-        RuntimeAgentExecutionContext context = freeze(resolved.get());
+        RuntimeAgentExecutionContext context = resolved.get();
         if (context.config() == null) {
             throw new IllegalArgumentException("Eval target Agent config not found: " + configVersionId);
         }
@@ -171,7 +172,7 @@ public class RuntimeEvalTargetSnapshotService {
                 "activeConfigVersionId", agent.activeConfigVersionId());
     }
 
-    private Map<String, Object> configSnapshot(RuntimeAgentConfigVersionEntity config) {
+    private Map<String, Object> configSnapshot(RuntimeAgentConfigSnapshot config) {
         return ordered(
                 "id", config.getId(),
                 "agentId", config.getAgentId(),
@@ -193,21 +194,22 @@ public class RuntimeEvalTargetSnapshotService {
     }
 
     private List<Map<String, Object>> workflowSnapshots(RuntimeAgentExecutionContext context) {
-        Map<String, RuntimeResolvedWorkflowTarget> targets = new LinkedHashMap<>();
+        Map<WorkflowBindingKey, RuntimeResolvedWorkflowTarget> targets = new LinkedHashMap<>();
         for (RuntimeResolvedWorkflowTarget target : safeList(context.resolvedTargets())) {
-            targets.put(target.tool().getWorkflowId(), target);
+            targets.put(WorkflowBindingKey.of(target.tool()), target);
         }
-        List<RuntimeAgentWorkflowToolEntity> tools = new ArrayList<>(safeList(context.tools()));
+        List<RuntimeAgentWorkflowToolSnapshot> tools = new ArrayList<>(safeList(context.tools()));
         tools.sort(Comparator.comparing(
-                        (RuntimeAgentWorkflowToolEntity value) -> value.getPriority() == null
+                        (RuntimeAgentWorkflowToolSnapshot value) -> value.getPriority() == null
                                 ? Integer.MAX_VALUE : value.getPriority())
                 .thenComparing(value -> firstText(value.getToolName(), "")));
         List<Map<String, Object>> snapshots = new ArrayList<>();
-        for (RuntimeAgentWorkflowToolEntity tool : tools) {
-            RuntimeResolvedWorkflowTarget target = targets.get(tool.getWorkflowId());
+        for (RuntimeAgentWorkflowToolSnapshot tool : tools) {
+            RuntimeResolvedWorkflowTarget target = targets.get(WorkflowBindingKey.of(tool));
             if (target == null) {
                 throw new IllegalStateException("Eval target Workflow resolution is missing: " + tool.getWorkflowId());
             }
+            RuntimePublishedWorkflowSnapshot.read(target.version());
             snapshots.add(ordered(
                     "binding", workflowBindingSnapshot(tool),
                     "workflow", workflowDefinitionSnapshot(target.workflow()),
@@ -216,7 +218,13 @@ public class RuntimeEvalTargetSnapshotService {
         return List.copyOf(snapshots);
     }
 
-    private Map<String, Object> workflowBindingSnapshot(RuntimeAgentWorkflowToolEntity tool) {
+    private record WorkflowBindingKey(String workflowId, Long versionId, String toolName) {
+        static WorkflowBindingKey of(RuntimeAgentWorkflowToolSnapshot tool) {
+            return new WorkflowBindingKey(tool.getWorkflowId(), tool.getWorkflowVersionId(), tool.getToolName());
+        }
+    }
+
+    private Map<String, Object> workflowBindingSnapshot(RuntimeAgentWorkflowToolSnapshot tool) {
         return ordered(
                 "workflowId", tool.getWorkflowId(),
                 "workflowVersionId", tool.getWorkflowVersionId(),
@@ -231,7 +239,7 @@ public class RuntimeEvalTargetSnapshotService {
                 "priority", tool.getPriority());
     }
 
-    private Map<String, Object> workflowDefinitionSnapshot(RuntimeWorkflowDefinitionEntity workflow) {
+    private Map<String, Object> workflowDefinitionSnapshot(RuntimeWorkflowExecutionView workflow) {
         return ordered(
                 "id", workflow.getId(),
                 "projectId", workflow.getProjectId(),
@@ -249,19 +257,20 @@ public class RuntimeEvalTargetSnapshotService {
                 "status", normalized(workflow.getStatus()));
     }
 
-    private Map<String, Object> workflowVersionSnapshot(RuntimeWorkflowVersionEntity version) {
+    private Map<String, Object> workflowVersionSnapshot(RuntimeWorkflowPublishedVersionView version) {
         return ordered(
                 "id", version.getId(),
                 "workflowId", version.getWorkflowId(),
                 "version", version.getVersion(),
                 "status", normalized(version.getStatus()),
-                "graphSpec", jsonValue(version.getGraphSpecSnapshotJson()));
+                "graphSpec", jsonValue(version.getGraphSpecSnapshotJson()),
+                "snapshot", jsonValue(version.getSnapshotJson()));
     }
 
-    private List<Map<String, Object>> skillSnapshots(List<RuntimeAgentSkillBindingEntity> values) {
-        List<RuntimeAgentSkillBindingEntity> skills = new ArrayList<>(safeList(values));
+    private List<Map<String, Object>> skillSnapshots(List<RuntimeAgentSkillBindingSnapshot> values) {
+        List<RuntimeAgentSkillBindingSnapshot> skills = new ArrayList<>(safeList(values));
         skills.sort(Comparator.comparing(
-                        (RuntimeAgentSkillBindingEntity value) -> value.getPriority() == null
+                        (RuntimeAgentSkillBindingSnapshot value) -> value.getPriority() == null
                                 ? Integer.MAX_VALUE : value.getPriority())
                 .thenComparing(value -> firstText(value.getPublisher(), ""))
                 .thenComparing(value -> firstText(value.getStandardName(), "")));
@@ -287,10 +296,10 @@ public class RuntimeEvalTargetSnapshotService {
                 "priority", skill.getPriority())).toList();
     }
 
-    private List<Map<String, Object>> remoteAgentSnapshots(List<RuntimeA2aRemoteAgentBindingEntity> values) {
-        List<RuntimeA2aRemoteAgentBindingEntity> bindings = new ArrayList<>(safeList(values));
+    private List<Map<String, Object>> remoteAgentSnapshots(List<RuntimeAgentRemoteBindingView> values) {
+        List<RuntimeAgentRemoteBindingView> bindings = new ArrayList<>(safeList(values));
         bindings.sort(Comparator.comparing(
-                        (RuntimeA2aRemoteAgentBindingEntity value) -> value.getPriority() == null
+                        (RuntimeAgentRemoteBindingView value) -> value.getPriority() == null
                                 ? Integer.MAX_VALUE : value.getPriority())
                 .thenComparing(value -> firstText(value.getToolName(), "")));
         return bindings.stream().map(binding -> ordered(
@@ -448,123 +457,127 @@ public class RuntimeEvalTargetSnapshotService {
                 longValue(agentMap.get("activeConfigVersionId")),
                 null,
                 null);
-        RuntimeAgentConfigVersionEntity config = new RuntimeAgentConfigVersionEntity();
-        config.setId(requiredLong(configMap, "id"));
-        config.setAgentId(requiredText(configMap, "agentId"));
-        config.setVersionNo(integerValue(configMap.get("versionNo")));
-        config.setStatus(requiredText(configMap, "sourceStatus"));
-        config.setRuntimeType(requiredText(configMap, "runtimeType"));
-        config.setSystemPrompt(text(configMap.get("systemPrompt")));
-        config.setModelInstanceId(text(configMap.get("modelInstanceId")));
-        config.setMaxPlanSteps(integerValue(configMap.get("maxPlanSteps")));
-        config.setMaxWorkflowCalls(integerValue(configMap.get("maxWorkflowCalls")));
-        config.setMaxReplans(integerValue(configMap.get("maxReplans")));
-        config.setTotalTimeoutMs(integerValue(configMap.get("totalTimeoutMs")));
-        config.setWorkflowTimeoutMs(integerValue(configMap.get("workflowTimeoutMs")));
-        config.setPageBridgeTimeoutMs(integerValue(configMap.get("pageBridgeTimeoutMs")));
-        config.setParallelReadOnly(booleanValue(configMap.get("parallelReadOnly")));
-        config.setPolicyProfile(text(configMap.get("policyProfile")));
-        config.setToolCatalogMode(text(configMap.get("toolCatalogMode")));
-        config.setConfigJson(jsonString(configMap.get("config")));
+        RuntimeAgentConfigSnapshot config = RuntimeAgentConfigSnapshot.builder()
+                .id(requiredLong(configMap, "id"))
+                .agentId(requiredText(configMap, "agentId"))
+                .versionNo(integerValue(configMap.get("versionNo")))
+                .status(requiredText(configMap, "sourceStatus"))
+                .runtimeType(requiredText(configMap, "runtimeType"))
+                .systemPrompt(text(configMap.get("systemPrompt")))
+                .modelInstanceId(text(configMap.get("modelInstanceId")))
+                .maxPlanSteps(integerValue(configMap.get("maxPlanSteps")))
+                .maxWorkflowCalls(integerValue(configMap.get("maxWorkflowCalls")))
+                .maxReplans(integerValue(configMap.get("maxReplans")))
+                .totalTimeoutMs(integerValue(configMap.get("totalTimeoutMs")))
+                .workflowTimeoutMs(integerValue(configMap.get("workflowTimeoutMs")))
+                .pageBridgeTimeoutMs(integerValue(configMap.get("pageBridgeTimeoutMs")))
+                .parallelReadOnly(booleanValue(configMap.get("parallelReadOnly")))
+                .policyProfile(text(configMap.get("policyProfile")))
+                .toolCatalogMode(text(configMap.get("toolCatalogMode")))
+                .configJson(jsonString(configMap.get("config")))
+                .build();
 
-        List<RuntimeAgentWorkflowToolEntity> tools = new ArrayList<>();
+        List<RuntimeAgentWorkflowToolSnapshot> tools = new ArrayList<>();
         List<RuntimeResolvedWorkflowTarget> targets = new ArrayList<>();
         for (Object raw : listValue(root.get("workflowTools"))) {
             Map<String, Object> item = mapValue(raw);
             Map<String, Object> bindingMap = mapValue(item.get("binding"));
-            RuntimeAgentWorkflowToolEntity tool = new RuntimeAgentWorkflowToolEntity();
-            tool.setAgentId(agent.id());
-            tool.setAgentConfigVersionId(config.getId());
-            tool.setWorkflowId(requiredText(bindingMap, "workflowId"));
-            tool.setWorkflowVersionId(requiredLong(bindingMap, "workflowVersionId"));
-            tool.setToolName(requiredText(bindingMap, "toolName"));
-            tool.setDescriptionOverride(text(bindingMap.get("descriptionOverride")));
-            tool.setInputSchemaOverrideJson(jsonString(bindingMap.get("inputSchemaOverride")));
-            tool.setOutputSchemaOverrideJson(jsonString(bindingMap.get("outputSchemaOverride")));
-            tool.setRiskLevel(text(bindingMap.get("riskLevel")));
-            tool.setPermissionKey(text(bindingMap.get("permissionKey")));
-            tool.setReadOnly(booleanValue(bindingMap.get("readOnly")));
-            tool.setEnabled(booleanValue(bindingMap.get("enabled")));
-            tool.setPriority(integerValue(bindingMap.get("priority")));
+            RuntimeAgentWorkflowToolSnapshot tool = RuntimeAgentWorkflowToolSnapshot.builder()
+                    .agentId(agent.id())
+                    .agentConfigVersionId(config.getId())
+                    .workflowId(requiredText(bindingMap, "workflowId"))
+                    .workflowVersionId(requiredLong(bindingMap, "workflowVersionId"))
+                    .toolName(requiredText(bindingMap, "toolName"))
+                    .descriptionOverride(text(bindingMap.get("descriptionOverride")))
+                    .inputSchemaOverrideJson(jsonString(bindingMap.get("inputSchemaOverride")))
+                    .outputSchemaOverrideJson(jsonString(bindingMap.get("outputSchemaOverride")))
+                    .riskLevel(text(bindingMap.get("riskLevel")))
+                    .permissionKey(text(bindingMap.get("permissionKey")))
+                    .readOnly(booleanValue(bindingMap.get("readOnly")))
+                    .enabled(booleanValue(bindingMap.get("enabled")))
+                    .priority(integerValue(bindingMap.get("priority")))
+                    .build();
 
             Map<String, Object> workflowMap = mapValue(item.get("workflow"));
-            RuntimeWorkflowDefinitionEntity workflow = new RuntimeWorkflowDefinitionEntity();
-            workflow.setId(requiredText(workflowMap, "id"));
-            workflow.setProjectId(longValue(workflowMap.get("projectId")));
-            workflow.setProjectCode(text(workflowMap.get("projectCode")));
-            workflow.setKeySlug(text(workflowMap.get("keySlug")));
-            workflow.setName(text(workflowMap.get("name")));
-            workflow.setDescription(text(workflowMap.get("description")));
-            workflow.setWorkflowKind(text(workflowMap.get("workflowKind")));
-            workflow.setExecutionEngine(text(workflowMap.get("executionEngine")));
-            workflow.setInputSchemaJson(jsonString(workflowMap.get("inputSchema")));
-            workflow.setOutputSchemaJson(jsonString(workflowMap.get("outputSchema")));
-            workflow.setDefaultModelInstanceId(text(workflowMap.get("defaultModelInstanceId")));
-            workflow.setDefaultResourceConfigJson(jsonString(workflowMap.get("defaultResourceConfig")));
-            workflow.setDefinitionAuthority(text(workflowMap.get("definitionAuthority")));
-            workflow.setStatus(requiredText(workflowMap, "status"));
+            var workflow = RuntimeWorkflowExecutionView.builder();
+            workflow.id(requiredText(workflowMap, "id"));
+            workflow.projectId(longValue(workflowMap.get("projectId")));
+            workflow.projectCode(text(workflowMap.get("projectCode")));
+            workflow.keySlug(text(workflowMap.get("keySlug")));
+            workflow.name(text(workflowMap.get("name")));
+            workflow.description(text(workflowMap.get("description")));
+            workflow.workflowKind(text(workflowMap.get("workflowKind")));
+            workflow.executionEngine(text(workflowMap.get("executionEngine")));
+            workflow.inputSchemaJson(jsonString(workflowMap.get("inputSchema")));
+            workflow.outputSchemaJson(jsonString(workflowMap.get("outputSchema")));
+            workflow.defaultModelInstanceId(text(workflowMap.get("defaultModelInstanceId")));
+            workflow.defaultResourceConfigJson(jsonString(workflowMap.get("defaultResourceConfig")));
+            workflow.definitionAuthority(text(workflowMap.get("definitionAuthority")));
+            workflow.status(requiredText(workflowMap, "status"));
 
             Map<String, Object> versionMap = mapValue(item.get("version"));
-            RuntimeWorkflowVersionEntity version = new RuntimeWorkflowVersionEntity();
-            version.setId(requiredLong(versionMap, "id"));
-            version.setWorkflowId(requiredText(versionMap, "workflowId"));
-            version.setVersion(text(versionMap.get("version")));
-            version.setStatus(text(versionMap.get("status")));
-            version.setGraphSpecSnapshotJson(requiredJson(versionMap, "graphSpec"));
+            var version = RuntimeWorkflowPublishedVersionView.builder();
+            version.id(requiredLong(versionMap, "id"));
+            version.workflowId(requiredText(versionMap, "workflowId"));
+            version.version(text(versionMap.get("version")));
+            version.status(text(versionMap.get("status")));
+            version.graphSpecSnapshotJson(requiredJson(versionMap, "graphSpec"));
+            version.snapshotJson(requiredJson(versionMap, "snapshot"));
 
             tools.add(tool);
-            targets.add(new RuntimeResolvedWorkflowTarget(tool, workflow, version));
+            targets.add(new RuntimeResolvedWorkflowTarget(tool, workflow.build(), version.build()));
         }
 
-        List<RuntimeAgentSkillBindingEntity> skills = new ArrayList<>();
+        List<RuntimeAgentSkillBindingSnapshot> skills = new ArrayList<>();
         for (Object raw : listValue(root.get("skills"))) {
             Map<String, Object> value = mapValue(raw);
-            RuntimeAgentSkillBindingEntity skill = new RuntimeAgentSkillBindingEntity();
-            skill.setAgentId(agent.id());
-            skill.setAgentConfigVersionId(config.getId());
-            skill.setSkillId(longValue(value.get("skillId")));
-            skill.setSkillVersionId(longValue(value.get("skillVersionId")));
-            skill.setPublisher(text(value.get("publisher")));
-            skill.setStandardName(text(value.get("standardName")));
-            skill.setDisplayName(text(value.get("displayName")));
-            skill.setVisibility(text(value.get("visibility")));
-            skill.setProjectCode(text(value.get("projectCode")));
-            skill.setVersion(text(value.get("version")));
-            skill.setSourceSha256(text(value.get("sourceSha256")));
-            skill.setContentTreeSha256(text(value.get("contentTreeSha256")));
-            skill.setSourceRoot(text(value.get("sourceRoot")));
-            skill.setPackageManifestJson(jsonString(value.get("packageManifest")));
-            skill.setRiskReportJson(jsonString(value.get("riskReport")));
-            skill.setHasScripts(booleanValue(value.get("hasScripts")));
-            skill.setActivationMode(text(value.get("activationMode")));
-            skill.setScriptPolicy(text(value.get("scriptPolicy")));
-            skill.setRequired(booleanValue(value.get("required")));
-            skill.setEnabled(booleanValue(value.get("enabled")));
-            skill.setPriority(integerValue(value.get("priority")));
+            RuntimeAgentSkillBindingSnapshot skill = RuntimeAgentSkillBindingSnapshot.builder()
+                    .agentId(agent.id())
+                    .agentConfigVersionId(config.getId())
+                    .skillId(longValue(value.get("skillId")))
+                    .skillVersionId(longValue(value.get("skillVersionId")))
+                    .publisher(text(value.get("publisher")))
+                    .standardName(text(value.get("standardName")))
+                    .displayName(text(value.get("displayName")))
+                    .visibility(text(value.get("visibility")))
+                    .projectCode(text(value.get("projectCode")))
+                    .version(text(value.get("version")))
+                    .sourceSha256(text(value.get("sourceSha256")))
+                    .contentTreeSha256(text(value.get("contentTreeSha256")))
+                    .sourceRoot(text(value.get("sourceRoot")))
+                    .packageManifestJson(jsonString(value.get("packageManifest")))
+                    .riskReportJson(jsonString(value.get("riskReport")))
+                    .hasScripts(booleanValue(value.get("hasScripts")))
+                    .activationMode(text(value.get("activationMode")))
+                    .scriptPolicy(text(value.get("scriptPolicy")))
+                    .required(booleanValue(value.get("required")))
+                    .enabled(booleanValue(value.get("enabled")))
+                    .priority(integerValue(value.get("priority")))
+                    .build();
             skills.add(skill);
         }
 
-        List<RuntimeA2aRemoteAgentBindingEntity> remoteAgents = new ArrayList<>();
+        List<RuntimeAgentRemoteBindingView> remoteAgents = new ArrayList<>();
         for (Object raw : listValue(root.get("remoteAgents"))) {
             Map<String, Object> value = mapValue(raw);
-            RuntimeA2aRemoteAgentBindingEntity binding = new RuntimeA2aRemoteAgentBindingEntity();
-            binding.setAgentId(agent.id());
-            binding.setAgentConfigVersionId(config.getId());
-            binding.setPrincipalId(longValue(value.get("principalId")));
-            binding.setRemoteAgentId(longValue(value.get("remoteAgentId")));
-            binding.setRemoteAgentRevisionId(longValue(value.get("remoteAgentRevisionId")));
-            binding.setRemoteAgentKeySnapshot(text(value.get("remoteAgentKey")));
-            binding.setToolName(text(value.get("toolName")));
-            binding.setDescriptionSnapshot(text(value.get("description")));
-            binding.setAllowedSkillIdsJson(jsonString(value.get("allowedSkillIds")));
-            binding.setInputModesJson(jsonString(value.get("inputModes")));
-            binding.setOutputModesJson(jsonString(value.get("outputModes")));
-            binding.setRiskLevel(text(value.get("riskLevel")));
-            binding.setPermissionKey(text(value.get("permissionKey")));
-            binding.setTimeoutMs(longValue(value.get("timeoutMs")));
-            binding.setPriority(integerValue(value.get("priority")));
-            binding.setEnabled(booleanValue(value.get("enabled")));
-            remoteAgents.add(binding);
+            var binding = RuntimeAgentRemoteBindingView.builder();
+            binding.agentId(agent.id());
+            binding.agentConfigVersionId(config.getId());
+            binding.principalId(longValue(value.get("principalId")));
+            binding.remoteAgentId(longValue(value.get("remoteAgentId")));
+            binding.remoteAgentRevisionId(longValue(value.get("remoteAgentRevisionId")));
+            binding.remoteAgentKeySnapshot(text(value.get("remoteAgentKey")));
+            binding.toolName(text(value.get("toolName")));
+            binding.descriptionSnapshot(text(value.get("description")));
+            binding.allowedSkillIdsJson(jsonString(value.get("allowedSkillIds")));
+            binding.inputModesJson(jsonString(value.get("inputModes")));
+            binding.outputModesJson(jsonString(value.get("outputModes")));
+            binding.riskLevel(text(value.get("riskLevel")));
+            binding.permissionKey(text(value.get("permissionKey")));
+            binding.timeoutMs(longValue(value.get("timeoutMs")));
+            binding.priority(integerValue(value.get("priority")));
+            binding.enabled(booleanValue(value.get("enabled")));
+            remoteAgents.add(binding.build());
         }
 
         return new RuntimeAgentExecutionContext(
@@ -587,17 +600,6 @@ public class RuntimeEvalTargetSnapshotService {
         fields.sort(String::compareTo);
         fields.forEach(field -> sorted.set(field, sortNode(node.get(field))));
         return sorted;
-    }
-
-    private RuntimeAgentExecutionContext freeze(RuntimeAgentExecutionContext context) {
-        return new RuntimeAgentExecutionContext(
-                context.agent(),
-                context.config(),
-                List.copyOf(safeList(context.tools())),
-                List.copyOf(safeList(context.skills())),
-                List.copyOf(safeList(context.remoteAgents())),
-                List.copyOf(safeList(context.resolvedTargets())),
-                context.timings());
     }
 
     private String sha256(String value) {

@@ -1,5 +1,7 @@
 package com.enterprise.ai.control.runtime;
 
+import com.enterprise.ai.control.identity.PlatformPrincipal;
+
 import com.enterprise.ai.control.client.runtime.RuntimeProxyClient;
 import com.enterprise.ai.control.context.PersonalMemoryIdentityResolver;
 import com.enterprise.ai.control.identity.PlatformBearerAuthService;
@@ -497,7 +499,7 @@ class ControlRuntimePublicControllerTest {
         PlatformUserEntity user = new PlatformUserEntity();
         user.setId(42L);
         user.setStatus("ACTIVE");
-        when(bearerAuthService.resolveBearerUser("Bearer tok")).thenReturn(Optional.of(user));
+        when(bearerAuthService.resolveBearerPrincipal("Bearer tok")).thenReturn(Optional.of(PlatformPrincipal.fromUser(user)));
         when(gateway.executeTrusted(any(), eq("AGENT"), eq("42")))
                 .thenReturn(ResponseEntity.ok(Map.of("success", true, "answer", "ok")));
         ControlRuntimePublicController controller = new ControlRuntimePublicController(
@@ -521,8 +523,8 @@ class ControlRuntimePublicControllerTest {
         PlatformUserEntity user = new PlatformUserEntity();
         user.setId(42L);
         user.setUsername("mapped-user");
-        when(bearerAuthService.resolveBearerUser("Bearer tok")).thenReturn(Optional.of(user));
-        when(identityResolver.resolveAttestedPlatformUser(user, null, "default"))
+        when(bearerAuthService.resolveBearerPrincipal("Bearer tok")).thenReturn(Optional.of(PlatformPrincipal.fromUser(user)));
+        when(identityResolver.resolveAttestedPlatformPrincipal(PlatformPrincipal.fromUser(user), null, "default"))
                 .thenReturn(new PersonalMemoryIdentityResolver.PersonalMemoryPrincipal(
                         "default", "runtime-user-42", 42L, "mapped-user", null));
         when(gateway.executeTrusted(any(), eq("AGENT"), eq("runtime-user-42")))
@@ -541,7 +543,7 @@ class ControlRuntimePublicControllerTest {
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals(HttpStatus.NO_CONTENT, cleared.getStatusCode());
-        verify(identityResolver, times(3)).resolveAttestedPlatformUser(user, null, "default");
+        verify(identityResolver, times(3)).resolveAttestedPlatformPrincipal(PlatformPrincipal.fromUser(user), null, "default");
         verify(gateway).executeTrusted(any(), eq("AGENT"), eq("runtime-user-42"));
         verify(gateway).streamTrusted(any(), eq("AGENT"), eq("runtime-user-42"), eq(output), any());
         verify(gateway).clearTrusted("s1", "AGENT", "default", "runtime-user-42");
@@ -556,7 +558,7 @@ class ControlRuntimePublicControllerTest {
         PlatformUserEntity user = new PlatformUserEntity();
         user.setId(42L);
         user.setStatus("ACTIVE");
-        when(bearerAuthService.resolveBearerUser("Bearer tok")).thenReturn(Optional.of(user));
+        when(bearerAuthService.resolveBearerPrincipal("Bearer tok")).thenReturn(Optional.of(PlatformPrincipal.fromUser(user)));
         ControlRuntimePublicController controller = new ControlRuntimePublicController(
                 runtimeProxyClient, null, streamProxy, gateway, bearerAuthService);
         Map<String, Object> request = Map.of("agentId", "a1", "message", "hello");
@@ -571,18 +573,22 @@ class ControlRuntimePublicControllerTest {
     @Test
     void relaysDebugSessionStreamsWithoutFeignBuffering() throws Exception {
         RuntimeProxyClient runtimeProxyClient = mock(RuntimeProxyClient.class);
-        RuntimeAgentStreamProxy streamProxy = mock(RuntimeAgentStreamProxy.class);
-        ControlRuntimePublicController controller = new ControlRuntimePublicController(
-                runtimeProxyClient, null, streamProxy);
+        RuntimeDebugSessionGateway gateway = mock(RuntimeDebugSessionGateway.class);
+        ControlRuntimePublicController controller = new ControlRuntimePublicController(runtimeProxyClient);
+        controller.setDebugSessionGateway(gateway);
         Map<String, Object> request = Map.of("targetType", "WORKFLOW_DRAFT");
+        when(gateway.streamCreate(request)).thenReturn(ResponseEntity.ok(output -> output.write("create".getBytes(java.nio.charset.StandardCharsets.UTF_8))));
+        when(gateway.streamSubmit("session-1", request)).thenReturn(ResponseEntity.ok(output -> output.write("submit".getBytes(java.nio.charset.StandardCharsets.UTF_8))));
         ByteArrayOutputStream createOutput = new ByteArrayOutputStream();
         ByteArrayOutputStream submitOutput = new ByteArrayOutputStream();
 
         controller.createRuntimeDebugSessionStream(request).getBody().writeTo(createOutput);
         controller.submitRuntimeDebugSessionStream("session-1", request).getBody().writeTo(submitOutput);
 
-        verify(streamProxy).stream(RuntimeAgentStreamProxy.DEBUG_SESSION_STREAM, request, createOutput);
-        verify(streamProxy).streamDebugSubmit("session-1", request, submitOutput);
+        assertEquals("create", createOutput.toString(java.nio.charset.StandardCharsets.UTF_8));
+        assertEquals("submit", submitOutput.toString(java.nio.charset.StandardCharsets.UTF_8));
+        verify(gateway).streamCreate(request);
+        verify(gateway).streamSubmit("session-1", request);
     }
 
     @Test
@@ -592,7 +598,7 @@ class ControlRuntimePublicControllerTest {
         PlatformBearerAuthService bearerAuthService = mock(PlatformBearerAuthService.class);
         PlatformUserEntity user = new PlatformUserEntity();
         user.setId(42L);
-        when(bearerAuthService.resolveBearerUser("Bearer tok")).thenReturn(Optional.of(user));
+        when(bearerAuthService.resolveBearerPrincipal("Bearer tok")).thenReturn(Optional.of(PlatformPrincipal.fromUser(user)));
         ControlRuntimePublicController controller = new ControlRuntimePublicController(
                 runtimeProxyClient, null, null, gateway, bearerAuthService);
         ResponseEntity<Void> cleared = ResponseEntity.noContent().build();
@@ -607,7 +613,7 @@ class ControlRuntimePublicControllerTest {
         RuntimeProxyClient runtimeProxyClient = mock(RuntimeProxyClient.class);
         RuntimeTrustedAgentExecutionGateway gateway = mock(RuntimeTrustedAgentExecutionGateway.class);
         PlatformBearerAuthService bearerAuthService = mock(PlatformBearerAuthService.class);
-        when(bearerAuthService.resolveBearerUser(null)).thenReturn(Optional.empty());
+        when(bearerAuthService.resolveBearerPrincipal(null)).thenReturn(Optional.empty());
         ControlRuntimePublicController controller = new ControlRuntimePublicController(
                 runtimeProxyClient, null, null, gateway, bearerAuthService);
 
@@ -801,8 +807,8 @@ class ControlRuntimePublicControllerTest {
     @Test
     void delegatesWorkflowAiCodingToRuntimeService() {
         RuntimeProxyClient runtimeProxyClient = mock(RuntimeProxyClient.class);
-        com.enterprise.ai.control.aiassist.ControlAiCodingAccessGuard aiCodingAccessGuard =
-                mock(com.enterprise.ai.control.aiassist.ControlAiCodingAccessGuard.class);
+        com.enterprise.ai.control.identity.ControlAiCodingAccessGuard aiCodingAccessGuard =
+                mock(com.enterprise.ai.control.identity.ControlAiCodingAccessGuard.class);
         ControlRuntimePublicController controller = new ControlRuntimePublicController(runtimeProxyClient, aiCodingAccessGuard);
         Map<String, Object> request = Map.of("projectId", 7L, "instruction", "add guard");
         ResponseEntity<Object> pending = ResponseEntity.status(HttpStatus.NOT_IMPLEMENTED)
@@ -854,6 +860,8 @@ class ControlRuntimePublicControllerTest {
     void delegatesWorkflowVersionOperationsToRuntimeService() {
         RuntimeProxyClient runtimeProxyClient = mock(RuntimeProxyClient.class);
         ControlRuntimePublicController controller = new ControlRuntimePublicController(runtimeProxyClient);
+        RuntimeWorkflowReleaseGateway releaseGateway = mock(RuntimeWorkflowReleaseGateway.class);
+        controller.setWorkflowReleaseGateway(releaseGateway);
         Map<String, Object> request = Map.of("version", "v1.0.0");
         Map<String, Object> rollbackRequest = Map.of("operator", "bob");
         ResponseEntity<Object> versions = ResponseEntity.ok(java.util.List.of(Map.of("version", "v1.0.0")));
@@ -861,18 +869,18 @@ class ControlRuntimePublicControllerTest {
         ResponseEntity<Object> validation = ResponseEntity.ok(Map.of("valid", true));
         ResponseEntity<Object> rolled = ResponseEntity.ok(Map.of("id", 1L));
         when(runtimeProxyClient.listWorkflowVersions("wf-1")).thenReturn(versions);
-        when(runtimeProxyClient.publishWorkflowVersion("wf-1", request)).thenReturn(published);
+        when(releaseGateway.publish("wf-1", request, null)).thenReturn(published);
         when(runtimeProxyClient.validateWorkflowVersion("wf-1")).thenReturn(validation);
-        when(runtimeProxyClient.rollbackWorkflowVersion("wf-1", 1L, rollbackRequest)).thenReturn(rolled);
+        when(releaseGateway.rollback("wf-1", 1L, rollbackRequest, null)).thenReturn(rolled);
 
         assertEquals(versions, controller.listWorkflowVersions("wf-1"));
         assertEquals(published, controller.publishWorkflowVersion("wf-1", request));
         assertEquals(validation, controller.validateWorkflowVersion("wf-1"));
         assertEquals(rolled, controller.rollbackWorkflowVersion("wf-1", 1L, rollbackRequest));
         verify(runtimeProxyClient).listWorkflowVersions("wf-1");
-        verify(runtimeProxyClient).publishWorkflowVersion("wf-1", request);
+        verify(releaseGateway).publish("wf-1", request, null);
         verify(runtimeProxyClient).validateWorkflowVersion("wf-1");
-        verify(runtimeProxyClient).rollbackWorkflowVersion("wf-1", 1L, rollbackRequest);
+        verify(releaseGateway).rollback("wf-1", 1L, rollbackRequest, null);
     }
 
     @Test
@@ -994,22 +1002,24 @@ class ControlRuntimePublicControllerTest {
     void delegatesRuntimeDebugSessionsToRuntimeService() {
         RuntimeProxyClient runtimeProxyClient = mock(RuntimeProxyClient.class);
         ControlRuntimePublicController controller = new ControlRuntimePublicController(runtimeProxyClient);
+        RuntimeDebugSessionGateway gateway = mock(RuntimeDebugSessionGateway.class);
+        controller.setDebugSessionGateway(gateway);
         Map<String, Object> request = Map.of("targetType", "WORKFLOW_DRAFT");
         ResponseEntity<Object> pending = ResponseEntity.status(HttpStatus.NOT_IMPLEMENTED)
                 .body(Map.of("code", "RUNTIME_DEBUG_SESSION_PENDING"));
-        when(runtimeProxyClient.createRuntimeDebugSession(request)).thenReturn(pending);
-        when(runtimeProxyClient.getRuntimeDebugSession("s1")).thenReturn(pending);
-        when(runtimeProxyClient.submitRuntimeDebugSession("s1", request)).thenReturn(pending);
-        when(runtimeProxyClient.cancelRuntimeDebugSession("s1")).thenReturn(pending);
+        when(gateway.create(request)).thenReturn(pending);
+        when(gateway.get("s1")).thenReturn(pending);
+        when(gateway.submit("s1", request)).thenReturn(pending);
+        when(gateway.cancel("s1")).thenReturn(pending);
 
         assertEquals(pending, controller.createRuntimeDebugSession(request));
         assertEquals(pending, controller.getRuntimeDebugSession("s1"));
         assertEquals(pending, controller.submitRuntimeDebugSession("s1", request));
         assertEquals(pending, controller.cancelRuntimeDebugSession("s1"));
-        verify(runtimeProxyClient).createRuntimeDebugSession(request);
-        verify(runtimeProxyClient).getRuntimeDebugSession("s1");
-        verify(runtimeProxyClient).submitRuntimeDebugSession("s1", request);
-        verify(runtimeProxyClient).cancelRuntimeDebugSession("s1");
+        verify(gateway).create(request);
+        verify(gateway).get("s1");
+        verify(gateway).submit("s1", request);
+        verify(gateway).cancel("s1");
     }
 
     @Test

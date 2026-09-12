@@ -1,13 +1,15 @@
 package com.enterprise.ai.runtime.execution;
 
-import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.enterprise.ai.runtime.client.capability.RuntimeCapabilityCatalogClient;
 import com.enterprise.ai.runtime.execution.checkpoint.WorkflowCheckpointCodec;
 import com.enterprise.ai.runtime.execution.checkpoint.WorkflowCheckpointException;
 import com.enterprise.ai.runtime.execution.interaction.WorkflowInteractionCodes;
-import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
+import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -20,6 +22,7 @@ import java.util.Map;
  * Prefer snapshot on the session; compositionQualifiedName is legacy fallback only.
  */
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class RuntimeInteractionResumeService {
 
@@ -30,20 +33,19 @@ public class RuntimeInteractionResumeService {
     private static final String EXPIRED = "EXPIRED";
     private static final String FAILED = "FAILED";
 
-    private final RuntimeInteractionSessionMapper sessionMapper;
     private final RuntimeWorkflowInteractionSessionService sessionService;
     private final RuntimeCapabilityCatalogClient capabilityClient;
     private final RuntimeGraphSpecExecutor graphSpecExecutor;
     private final ObjectMapper objectMapper;
     private final RuntimeInteractionExpiryProcessor expiryProcessor;
 
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public Map<String, Object> resume(String sessionId, Map<String, Object> request) {
         return resume(sessionId, request, null);
     }
 
-    public Map<String, Object> resume(String sessionId,
-                                      Map<String, Object> request,
-                                      Ownership ownership) {
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public Map<String, Object> resume(String sessionId, Map<String, Object> request, Ownership ownership) {
         if (!StringUtils.hasText(sessionId)) {
             return failure("RUNTIME_INTERACTION_SESSION_REQUIRED", "Interaction sessionId is required", sessionId);
         }
@@ -53,322 +55,183 @@ public class RuntimeInteractionResumeService {
         } catch (IllegalArgumentException ex) {
             return failure("RUNTIME_INTERACTION_NOT_FOUND", ex.getMessage(), sessionId.trim());
         }
-
-        if (requiresOwnership(session)) {
-            if (ownership == null || !ownershipMatches(session, ownership)) {
-                return failure("RUNTIME_INTERACTION_FORBIDDEN",
-                        "interaction does not belong to the current session/user", session.getId());
-            }
-        } else if (ownership != null && !ownershipMatches(session, ownership)) {
+        if ((requiresOwnership(session) || ownership != null) && !ownershipMatches(session, ownership)) {
             return failure("RUNTIME_INTERACTION_FORBIDDEN",
                     "interaction does not belong to the current session/user", session.getId());
         }
-
+        session = reconcileOverdueResume(session);
+        Map<String, Object> values = submittedPayload(request);
+        Object uiAction = request != null && request.get("uiSubmit") instanceof Map<?, ?> ui ? ui.get("action") : null;
+        String action = firstText(text(request == null ? null : request.get("action")), text(uiAction),
+                text(values.get("action")), "submit").toLowerCase(java.util.Locale.ROOT);
+        String idempotencyKey = firstText(text(request == null ? null : request.get("idempotencyKey")),
+                text(request == null ? null : request.get("idempotency_key")));
+        String operatorId = firstText(ownershipUser(ownership), text(request == null ? null : request.get("operatorId")));
+        Map<String, Object> submission = Map.of("submissionSchemaVersion", 1, "action", action, "values", values);
+        boolean sameKey = idempotencyKey != null && idempotencyKey.equals(session.getIdempotencyKey());
+        if (sameKey && !payloadMatches(session.getSubmittedPayloadJson(), action, values)) {
+            return conflict(session, "duplicate submit changed its action or values for the same idempotency key");
+        }
+        if (!WAITING_USER.equals(session.getStatus())) {
+            if (isUnknownOutcome(session)) return replayResult(session);
+            if (sameKey) return replayResult(session);
+            if (RESUMING.equals(session.getStatus())) {
+                return conflict(session, "another interaction submission is still being processed");
+            }
+            if (EXPIRED.equals(session.getStatus())) {
+                return failure("RUNTIME_INTERACTION_EXPIRED", "interaction session expired", session.getId());
+            }
+            if (CANCELLED.equals(session.getStatus())) {
+                return failure("RUNTIME_INTERACTION_CANCELLED", "interaction session cancelled", session.getId());
+            }
+            return failure("RUNTIME_INTERACTION_NOT_WAITING", "interaction session is not waiting", session.getId());
+        }
         if (session.getExpiresAt() != null && !session.getExpiresAt().isAfter(LocalDateTime.now())) {
             if (!expiryProcessor.expireOne(session, LocalDateTime.now())) {
-                return failure("RUNTIME_INTERACTION_CONFLICT",
-                        "interaction session changed while expiry was being reconciled", session.getId());
+                return conflict(session, "interaction session changed while expiry was being reconciled");
             }
-            return failure("RUNTIME_INTERACTION_EXPIRED", "interaction session expired: " + session.getId(),
-                    session.getId());
+            return failure("RUNTIME_INTERACTION_EXPIRED", "interaction session expired", session.getId());
         }
-
-        if (CANCELLED.equalsIgnoreCase(text(session.getStatus()))) {
-            return failure("RUNTIME_INTERACTION_CANCELLED", "interaction session cancelled: " + session.getId(),
-                    session.getId());
-        }
-
-        Map<String, Object> submittedPayload = submittedPayload(request);
-        String action = firstText(text(request == null ? null : request.get("action")),
-                text(submittedPayload.get("action")), "submit");
-        String idempotencyKey = firstText(
-                text(request == null ? null : request.get("idempotencyKey")),
-                text(request == null ? null : request.get("idempotency_key")));
-        String operatorId = firstText(ownershipUser(ownership),
-                text(request == null ? null : request.get("operatorId")));
-
-        if ("cancel".equalsIgnoreCase(action)) {
-            if (!claimResuming(session, idempotencyKey, submittedPayload, operatorId)) {
-                return conflictOrReplay(session, idempotencyKey, submittedPayload);
+        if (!sessionService.claimResume(session, idempotencyKey, submission, operatorId)) {
+            RuntimeInteractionSessionEntity latest = sessionService.requireById(session.getId());
+            if (idempotencyKey != null && idempotencyKey.equals(latest.getIdempotencyKey())
+                    && payloadMatches(latest.getSubmittedPayloadJson(), action, values)) {
+                return replayResult(latest);
             }
-            markStatus(session, CANCELLED, submittedPayload, Map.of("cancelled", true), idempotencyKey);
-            sessionService.writeEvent(session.getId(), CANCELLED, Map.of("action", "cancel"), operatorId);
-            Map<String, Object> body = new LinkedHashMap<>();
-            body.put("success", true);
-            body.put("code", "RUNTIME_GRAPH_CANCELLED");
-            body.put("answer", "Interaction cancelled");
-            body.put("interactionSessionId", session.getId());
-            body.put("interactionId", session.getId());
-            body.put("status", CANCELLED);
-            putIdentity(body, session);
-            return body;
+            return conflict(latest, "concurrent submit rejected; interaction state changed");
         }
-
-        if (!WAITING_USER.equalsIgnoreCase(text(session.getStatus()))) {
-            if (idempotencyKey != null && idempotencyKey.equals(session.getIdempotencyKey())
-                    && payloadMatches(session.getSubmittedPayloadJson(), submittedPayload)) {
-                return replayResult(session);
-            }
-            return failure("RUNTIME_INTERACTION_NOT_WAITING",
-                    "interaction session is not waiting: " + sessionId.trim(), sessionId.trim());
-        }
-
-        if (StringUtils.hasText(idempotencyKey)
-                && idempotencyKey.equals(session.getIdempotencyKey())
-                && payloadMatches(session.getSubmittedPayloadJson(), submittedPayload)) {
-            return replayResult(session);
-        }
-        if (StringUtils.hasText(session.getIdempotencyKey())
-                && StringUtils.hasText(idempotencyKey)
-                && !idempotencyKey.equals(session.getIdempotencyKey())) {
-            // allow new key only while waiting; different key with different payload is a new attempt
-        } else if (StringUtils.hasText(session.getIdempotencyKey())
-                && payloadMatches(session.getSubmittedPayloadJson(), submittedPayload) == false
-                && StringUtils.hasText(idempotencyKey)
-                && idempotencyKey.equals(session.getIdempotencyKey())) {
-            return failure("RUNTIME_INTERACTION_CONFLICT",
-                    "duplicate submit with different payload for the same idempotency key",
-                    session.getId());
-        }
-
-        if (!claimResuming(session, idempotencyKey, submittedPayload, operatorId)) {
-            return conflictOrReplay(session, idempotencyKey, submittedPayload);
-        }
-
-        String graphSpecJson = resolveGraphSpecJson(session);
-        if (!StringUtils.hasText(graphSpecJson)) {
-            markStatus(session, FAILED, submittedPayload, Map.of("error", "GRAPH_MISSING"), idempotencyKey);
-            return failure("RUNTIME_INTERACTION_GRAPH_MISSING",
-                    "Interaction GraphSpec snapshot is missing: " + session.getId(), session.getId());
-        }
-
-        WorkflowCheckpointCodec.DecodedCheckpoint decodedCheckpoint;
-        Map<String, Object> resumeCheckpoint;
+        // The owner transaction has committed; only now can this request execute a Workflow.
+        session.setStatus(RESUMING);
+        session.setRevision((session.getRevision() == null ? 0 : session.getRevision()) + 1);
+        session.setIdempotencyKey(idempotencyKey);
+        session.setSubmittedPayloadJson(sessionService.writeJson(submission));
         try {
-            decodedCheckpoint = sessionService.decodeCheckpoint(session, graphSpecJson);
-            resumeCheckpoint = new LinkedHashMap<>(decodedCheckpoint.state());
-        } catch (WorkflowCheckpointException checkpointFailure) {
-            markStatus(session, FAILED, submittedPayload, Map.of(
-                    "code", checkpointFailure.code()), idempotencyKey);
-            sessionService.writeEvent(session.getId(), "CHECKPOINT_REJECTED", Map.of(
-                    "code", checkpointFailure.code()), operatorId);
-            return failure(checkpointFailure.code(), checkpointFailure.getMessage(), session.getId());
+            return resumeClaimed(session, action, values, idempotencyKey, operatorId);
+        } catch (RuntimeWorkflowInteractionSessionService.ResumeConflictException conflict) {
+            RuntimeInteractionSessionEntity latest = reconcileOverdueResume(sessionService.requireById(session.getId()));
+            if (isUnknownOutcome(latest)) return replayResult(latest);
+            return conflict(session, "interaction changed before the resume result could be committed");
         }
-        resumeCheckpoint.putAll(safeMap(request == null ? null : request.get("context")));
-        resumeCheckpoint.put("runId", firstText(session.getRunId(), text(resumeCheckpoint.get("runId"))));
-        resumeCheckpoint.put("traceId", firstText(session.getTraceId(), text(resumeCheckpoint.get("traceId"))));
-        resumeCheckpoint.put("workflowId", firstText(session.getWorkflowId(), text(resumeCheckpoint.get("workflowId"))));
-        if (session.getWorkflowVersionId() != null) {
-            resumeCheckpoint.put("workflowVersionId", session.getWorkflowVersionId());
+    }
+
+    private Map<String, Object> resumeClaimed(RuntimeInteractionSessionEntity session,
+                                              String action, Map<String, Object> values, String idempotencyKey,
+                                              String operatorId) {
+        if ("cancel".equals(action)) {
+            Map<String, Object> response = failure("RUNTIME_GRAPH_CANCELLED", "Interaction cancelled", session.getId());
+            response.put("success", true);
+            response.put("waiting", false);
+            response.put("status", CANCELLED);
+            putIdentity(response, session);
+            return finish(session, CANCELLED, response, operatorId, CANCELLED);
         }
-        resumeCheckpoint.put(WorkflowInteractionCodes.PENDING_INTERACTION_ID_KEY, session.getId());
-        resumeCheckpoint.put(WorkflowInteractionCodes.PENDING_INTERACTION_NODE_KEY, session.getNodeId());
-        resumeCheckpoint.put(WorkflowInteractionCodes.RESUME_CONTEXT_KEY, Map.of(
-                "interactionId", session.getId(),
-                "nodeId", session.getNodeId(),
-                "action", action,
-                "values", submittedPayload,
+        String graphSpecJson;
+        try {
+            graphSpecJson = resolveGraphSpecJson(session);
+        } catch (IllegalArgumentException invalidGraph) {
+            return failClaimed(session, "RUNTIME_INTERACTION_GRAPH_INVALID", "Interaction GraphSpec snapshot is invalid", operatorId);
+        }
+        if (!StringUtils.hasText(graphSpecJson)) {
+            return failClaimed(session, "RUNTIME_INTERACTION_GRAPH_MISSING", "Interaction GraphSpec snapshot is missing", operatorId);
+        }
+        WorkflowCheckpointCodec.DecodedCheckpoint decoded;
+        try {
+            decoded = sessionService.decodeCheckpoint(session, graphSpecJson);
+        } catch (WorkflowCheckpointException rejected) {
+            return failClaimed(session, rejected.code(), rejected.getMessage(), operatorId, "CHECKPOINT_REJECTED");
+        }
+        Map<String, Object> checkpoint = new LinkedHashMap<>(decoded.state());
+        // Resume state belongs to the persisted checkpoint; submitted values enter through the interaction node.
+        checkpoint.put("runId", firstText(session.getRunId(), text(checkpoint.get("runId"))));
+        checkpoint.put("traceId", firstText(session.getTraceId(), text(checkpoint.get("traceId"))));
+        checkpoint.put("workflowId", firstText(session.getWorkflowId(), text(checkpoint.get("workflowId"))));
+        if (session.getWorkflowVersionId() != null) checkpoint.put("workflowVersionId", session.getWorkflowVersionId());
+        checkpoint.put(WorkflowInteractionCodes.PENDING_INTERACTION_ID_KEY, session.getId());
+        checkpoint.put(WorkflowInteractionCodes.PENDING_INTERACTION_NODE_KEY, session.getNodeId());
+        checkpoint.put(WorkflowInteractionCodes.RESUME_CONTEXT_KEY, Map.of("interactionId", session.getId(),
+                "nodeId", session.getNodeId(), "action", action, "values", values,
                 "idempotencyKey", idempotencyKey == null ? "" : idempotencyKey));
-        // Never leave global submittedPayload for the next INTERACTION.
-        resumeCheckpoint.remove("submittedPayload");
-
-        WorkflowExecutionIdentity executionIdentity = requiresOwnership(session)
-                ? WorkflowExecutionIdentity.fromAgent(
-                        session.getTenantId(), null, session.getAppId(), session.getUserId())
+        checkpoint.remove("submittedPayload");
+        WorkflowExecutionIdentity identity = requiresOwnership(session)
+                ? WorkflowExecutionIdentity.fromAgent(session.getTenantId(), null, session.getAppId(), session.getUserId())
                 : WorkflowExecutionIdentity.untrustedComposition();
-        RuntimeGraphSpecExecutionResult result = graphSpecExecutor.executeFromCheckpoint(
-                graphSpecJson,
-                resumeCheckpoint,
-                session.getNodeId(),
-                decodedCheckpoint.schemaVersion(),
-                decodedCheckpoint.engineVersion(),
-                executionIdentity);
-        Map<String, Object> nextResumeCheckpoint = result.resumeCheckpoint() == null || result.resumeCheckpoint().isEmpty()
-                ? resumeCheckpoint
-                : new LinkedHashMap<>(result.resumeCheckpoint());
-        nextResumeCheckpoint.remove("submittedPayload");
-        nextResumeCheckpoint.remove(WorkflowInteractionCodes.RESUME_CONTEXT_KEY);
-
+        RuntimeGraphSpecExecutionResult result;
+        try {
+            result = graphSpecExecutor.executeFromCheckpoint(graphSpecJson, checkpoint, session.getNodeId(),
+                    decoded.schemaVersion(), decoded.engineVersion(), identity);
+        } catch (RuntimeException executionFailure) {
+            log.warn("Workflow interaction execution failed: interactionId={}, type={}",
+                    session.getId(), executionFailure.getClass().getName());
+            return failClaimed(session, "RUNTIME_INTERACTION_EXECUTION_FAILED", "Workflow interaction execution failed", operatorId);
+        }
+        if (result == null) {
+            return failClaimed(session, "RUNTIME_INTERACTION_EXECUTION_FAILED", "Workflow interaction returned no result", operatorId);
+        }
         if (result.isWaitingUser()) {
+            Map<String, Object> nextCheckpoint = new LinkedHashMap<>(result.resumeCheckpoint().isEmpty()
+                    ? checkpoint : result.resumeCheckpoint());
+            nextCheckpoint.remove("submittedPayload");
+            nextCheckpoint.remove(WorkflowInteractionCodes.RESUME_CONTEXT_KEY);
             Object uiRequest = result.uiRequest();
-            boolean sameInteraction = session.getId().equals(result.interactionId())
-                    && session.getNodeId() != null
-                    && session.getNodeId().equals(result.nodeId());
-            if (sameInteraction) {
-                // 校验失败：回滚 WAITING_USER，不消费幂等键，不新建 session
-                rollbackToWaiting(session, nextResumeCheckpoint, uiRequest, operatorId, graphSpecJson);
-                Map<String, Object> body = successBody(result, session, WAITING_USER, uiRequest);
-                body.put("success", false);
-                body.put("validationFailed", true);
-                return body;
+            if (session.getId().equals(result.interactionId()) && session.getNodeId().equals(result.nodeId())) {
+                sessionService.returnToWaiting(session, nextCheckpoint, uiRequest, operatorId, graphSpecJson);
+                Map<String, Object> response = successBody(result, session, WAITING_USER, uiRequest);
+                response.put("success", false);
+                response.put("validationFailed", true);
+                return response;
             }
-
-            String nextInteractionId = firstText(result.interactionId(),
-                    WorkflowInteractionCodes.ID_PREFIX + java.util.UUID.randomUUID().toString().replace("-", ""));
-            RuntimeInteractionSessionEntity next = sessionService.completeAndCreateNext(
-                    session,
-                    submittedPayload,
-                    Map.of("nextInteractionId", nextInteractionId, "code", result.code()),
-                    idempotencyKey,
-                    operatorId,
-                    new RuntimeWorkflowInteractionSessionService.CreateRequest(
-                            nextInteractionId,
-                            session.getSourceType(),
-                            session.getRunId(),
-                            session.getTraceId(),
-                            session.getWorkflowId(),
-                            session.getWorkflowVersionId(),
-                            session.getCompositionQualifiedName(),
-                            graphSpecJson,
-                            result.nodeId(),
-                            interactionType(result),
-                            nextResumeCheckpoint,
-                            uiRequest,
-                            sessionService.readMap(session.getContinuationJson()),
-                            session.getAppId(),
-                            session.getTenantId(),
-                            session.getSessionId(),
-                            session.getUserId(),
-                            ttlSeconds(uiRequest)));
-            return successBody(result, next, next.getStatus(), uiRequest);
+            String nextId = firstText(result.interactionId(), WorkflowInteractionCodes.ID_PREFIX
+                    + java.util.UUID.randomUUID().toString().replace("-", ""));
+            Map<String, Object> response = successBody(result, session, WAITING_USER, uiRequest);
+            response.put("interactionSessionId", nextId);
+            response.put("interactionId", nextId);
+            sessionService.completeAndCreateNext(session, response, operatorId,
+                    new RuntimeWorkflowInteractionSessionService.CreateRequest(nextId, session.getSourceType(),
+                            session.getRunId(), session.getTraceId(), session.getWorkflowId(), session.getWorkflowVersionId(),
+                            session.getCompositionQualifiedName(), graphSpecJson, result.nodeId(), interactionType(result),
+                            nextCheckpoint, uiRequest, sessionService.readMap(session.getContinuationJson()),
+                            session.getAppId(), session.getTenantId(), session.getSessionId(), session.getUserId(), ttlSeconds(uiRequest)));
+            return response;
         }
-
-        if ("RUNTIME_GRAPH_CANCELLED".equals(result.code())) {
-            markStatus(session, CANCELLED, submittedPayload, Map.of("code", result.code()), idempotencyKey);
-            sessionService.writeEvent(session.getId(), CANCELLED, Map.of("code", result.code()), operatorId);
-            return successBody(result, session, CANCELLED, null);
+        String status = "RUNTIME_GRAPH_CANCELLED".equals(result.code()) ? CANCELLED : result.success() ? COMPLETED : FAILED;
+        Map<String, Object> response = successBody(result, session, status, result.uiRequest());
+        if (COMPLETED.equals(status)) {
+            Map<String, Object> continuation = sessionService.readMap(session.getContinuationJson());
+            if (!continuation.isEmpty()) response.put("continuation", continuation);
+            return finish(session, status, response, operatorId, "RESUMED", COMPLETED);
         }
-
-        if (!result.success()) {
-            // Validation-style waiting is already handled above; other failures mark FAILED.
-            // If executor returned WAITING again via validation, isWaitingUser covers it.
-            markStatus(session, FAILED, submittedPayload, Map.of(
-                    "code", result.code(),
-                    "answer", nullToEmpty(result.answer())), idempotencyKey);
-            sessionService.writeEvent(session.getId(), FAILED, Map.of("code", result.code()), operatorId);
-            return successBody(result, session, FAILED, null);
-        }
-
-        // Validation failures that remain waiting: if code is WAITING we already branched.
-        // Soft reject completion (success with reject route, no next node) -> COMPLETED.
-        markStatus(session, COMPLETED, submittedPayload, Map.of(
-                "code", result.code(),
-                "answer", nullToEmpty(result.answer())), idempotencyKey);
-        sessionService.writeEvent(session.getId(), "RESUMED", Map.of("code", result.code()), operatorId);
-        sessionService.writeEvent(session.getId(), COMPLETED, Map.of("code", result.code()), operatorId);
-        Map<String, Object> completed = successBody(result, session, COMPLETED, result.uiRequest());
-        Map<String, Object> continuation = sessionService.readMap(session.getContinuationJson());
-        if (continuation != null && !continuation.isEmpty()) {
-            completed.put("continuation", continuation);
-        }
-        return completed;
+        return finish(session, status, response, operatorId, status);
     }
 
-    private boolean claimResuming(RuntimeInteractionSessionEntity session,
-                                  String idempotencyKey,
-                                  Map<String, Object> submittedPayload,
-                                  String operatorId) {
-        int revision = session.getRevision() == null ? 0 : session.getRevision();
-        UpdateWrapper<RuntimeInteractionSessionEntity> update = new UpdateWrapper<>();
-        update.eq("id", session.getId())
-                .eq("status", WAITING_USER)
-                .eq("revision", revision)
-                .set("status", RESUMING)
-                .set("revision", revision + 1)
-                .set("submitted_payload_json", sessionService.writeJson(submittedPayload))
-                .set("update_time", LocalDateTime.now());
-        if (StringUtils.hasText(idempotencyKey)) {
-            update.set("idempotency_key", idempotencyKey);
-        }
-        int rows = sessionMapper.update(null, update);
-        if (rows == 1) {
-            session.setStatus(RESUMING);
-            session.setRevision(revision + 1);
-            if (StringUtils.hasText(idempotencyKey)) {
-                session.setIdempotencyKey(idempotencyKey);
-            }
-            session.setSubmittedPayloadJson(sessionService.writeJson(submittedPayload));
-            sessionService.writeEvent(session.getId(), "SUBMITTED", Map.of(
-                    "keys", submittedPayload.keySet()), operatorId);
-            return true;
-        }
-        return false;
+    private Map<String, Object> failClaimed(RuntimeInteractionSessionEntity session, String code, String answer,
+                                            String operatorId, String... additionalEvents) {
+        Map<String, Object> response = failure(code, answer, session.getId());
+        response.put("status", FAILED);
+        response.put("waiting", false);
+        putIdentity(response, session);
+        java.util.List<String> events = new java.util.ArrayList<>(java.util.List.of(additionalEvents));
+        events.add(FAILED);
+        return finish(session, FAILED, response, operatorId, events.toArray(String[]::new));
     }
 
-    private Map<String, Object> conflictOrReplay(RuntimeInteractionSessionEntity session,
-                                                 String idempotencyKey,
-                                                 Map<String, Object> submittedPayload) {
-        RuntimeInteractionSessionEntity latest = sessionService.requireById(session.getId());
-        if (StringUtils.hasText(idempotencyKey)
-                && idempotencyKey.equals(latest.getIdempotencyKey())
-                && payloadMatches(latest.getSubmittedPayloadJson(), submittedPayload)) {
-            return replayResult(latest);
-        }
-        if (StringUtils.hasText(idempotencyKey)
-                && idempotencyKey.equals(latest.getIdempotencyKey())
-                && !payloadMatches(latest.getSubmittedPayloadJson(), submittedPayload)) {
-            return failure("RUNTIME_INTERACTION_CONFLICT",
-                    "duplicate submit with different payload for the same idempotency key",
-                    latest.getId());
-        }
-        return failure("RUNTIME_INTERACTION_CONFLICT",
-                "concurrent submit rejected; another request holds the resume lock",
-                latest.getId());
+    private Map<String, Object> finish(RuntimeInteractionSessionEntity session, String status,
+                                       Map<String, Object> response, String operatorId, String... events) {
+        sessionService.finishResume(session, status, response, operatorId, events);
+        return response;
     }
 
-    private void rollbackToWaiting(RuntimeInteractionSessionEntity session,
-                                   Map<String, Object> resumeCheckpoint,
-                                   Object uiRequest,
-                                   String operatorId,
-                                   String graphSpecJson) {
-        WorkflowCheckpointCodec.EncodedCheckpoint encoded = sessionService.encodeCheckpoint(
-                resumeCheckpoint, graphSpecJson, session.getNodeId());
-        UpdateWrapper<RuntimeInteractionSessionEntity> update = new UpdateWrapper<>();
-        update.eq("id", session.getId())
-                .eq("status", RESUMING)
-                .set("status", WAITING_USER)
-                .set("revision", (session.getRevision() == null ? 0 : session.getRevision()) + 1)
-                .set("idempotency_key", null)
-                .set("resume_checkpoint_json", encoded.json())
-                .set("checkpoint_schema_version", encoded.schemaVersion())
-                .set("execution_engine_version", encoded.engineVersion())
-                .set("checkpoint_digest", encoded.digest())
-                .set("checkpoint_size_bytes", encoded.sizeBytes())
-                .set("ui_request_json", sessionService.writeJson(uiRequest))
-                .set("update_time", LocalDateTime.now());
-        sessionMapper.update(null, update);
-        session.setStatus(WAITING_USER);
-        sessionService.writeEvent(session.getId(), "REQUESTED", Map.of(
-                "reason", "validation_failed",
-                "interactionId", session.getId()), operatorId);
-    }
-
-    private void markStatus(RuntimeInteractionSessionEntity session,
-                            String status,
-                            Map<String, Object> submittedPayload,
-                            Map<String, Object> result,
-                            String idempotencyKey) {
-        RuntimeInteractionSessionEntity update = new RuntimeInteractionSessionEntity();
-        update.setId(session.getId());
-        update.setStatus(status);
-        update.setRevision((session.getRevision() == null ? 0 : session.getRevision()) + 1);
-        if (submittedPayload != null) {
-            update.setSubmittedPayloadJson(sessionService.writeJson(submittedPayload));
-        }
-        if (result != null) {
-            update.setResultJson(sessionService.writeJson(result));
-        }
-        if (StringUtils.hasText(idempotencyKey)) {
-            update.setIdempotencyKey(idempotencyKey);
-        }
-        // Persist latest context when still resumable next interaction was created separately.
-        update.setUpdateTime(LocalDateTime.now());
-        sessionMapper.updateById(update);
-        session.setStatus(status);
+    private Map<String, Object> conflict(RuntimeInteractionSessionEntity session, String answer) {
+        Map<String, Object> response = failure("RUNTIME_INTERACTION_CONFLICT", answer, session.getId());
+        putIdentity(response, session);
+        return response;
     }
 
     private String resolveGraphSpecJson(RuntimeInteractionSessionEntity session) {
         if (StringUtils.hasText(session.getGraphSpecSnapshotJson())) {
+            if (session.getWorkflowVersionId() != null) {
+                return com.enterprise.ai.agent.graph.GraphSpecToolContract.requirePublishedPins(
+                        session.getGraphSpecSnapshotJson(), objectMapper);
+            }
             return session.getGraphSpecSnapshotJson();
         }
         // Legacy composition path only.
@@ -455,33 +318,53 @@ public class RuntimeInteractionResumeService {
     }
 
     private Map<String, Object> replayResult(RuntimeInteractionSessionEntity session) {
-        if (RESUMING.equalsIgnoreCase(text(session.getStatus()))) {
-            Map<String, Object> inProgress = failure(
-                    "RUNTIME_INTERACTION_CONFLICT",
-                    "identical interaction submit is still being processed",
-                    session.getId());
-            inProgress.put("status", RESUMING);
-            inProgress.put("idempotentReplay", true);
-            inProgress.put("retryable", true);
-            putIdentity(inProgress, session);
-            return inProgress;
+        session = reconcileOverdueResume(session);
+        if (RESUMING.equals(session.getStatus())) {
+            Map<String, Object> response = conflict(session, "identical interaction submit is still being processed");
+            response.put("status", RESUMING);
+            response.put("idempotentReplay", true);
+            response.put("retryable", true);
+            return response;
         }
+        Map<String, Object> stored = sessionService.readMap(session.getResultJson());
+        Map<String, Object> response;
+        if (Integer.valueOf(1).equals(stored.get("resumeResultSchemaVersion"))
+                && stored.get("response") instanceof Map<?, ?> saved) {
+            response = safeMap(saved);
+            // Replaying a Workflow receipt must not dispatch its Supervisor continuation again.
+            response.remove("continuation");
+        } else {
+            response = new LinkedHashMap<>();
+            boolean success = COMPLETED.equals(session.getStatus()) || CANCELLED.equals(session.getStatus());
+            response.put("success", success);
+            response.put("code", firstText(text(stored.get("code")), success ? "RUNTIME_GRAPH_EXECUTED" : "RUNTIME_GRAPH_FAILED"));
+            response.put("answer", firstText(text(stored.get("answer")), "idempotent replay"));
+            response.put("interactionSessionId", session.getId());
+            response.put("interactionId", session.getId());
+            response.put("status", session.getStatus());
+            response.put("waiting", false);
+            putIdentity(response, session);
+        }
+        response.put("idempotentReplay", true);
+        return response;
+    }
+
+    private RuntimeInteractionSessionEntity reconcileOverdueResume(RuntimeInteractionSessionEntity session) {
+        LocalDateTime now = LocalDateTime.now();
+        if (RESUMING.equals(session.getStatus()) && session.getResumeDeadlineAt() != null
+                && !session.getResumeDeadlineAt().isAfter(now)) {
+            expiryProcessor.expireOne(session, now);
+            return sessionService.requireById(session.getId());
+        }
+        return session;
+    }
+
+    private boolean isUnknownOutcome(RuntimeInteractionSessionEntity session) {
+        if (!EXPIRED.equals(session.getStatus())) return false;
         Map<String, Object> result = sessionService.readMap(session.getResultJson());
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("success", true);
-        body.put("code", firstText(text(result.get("code")), "RUNTIME_GRAPH_EXECUTED"));
-        body.put("answer", firstText(text(result.get("answer")), "idempotent replay"));
-        body.put("interactionSessionId", session.getId());
-        body.put("interactionId", session.getId());
-        body.put("status", session.getStatus());
-        body.put("idempotentReplay", true);
-        putIdentity(body, session);
-        Map<String, Object> ui = sessionService.readMap(session.getUiRequestJson());
-        if (!ui.isEmpty() && WAITING_USER.equalsIgnoreCase(session.getStatus())) {
-            body.put("uiRequest", ui);
-            body.put("waiting", true);
-        }
-        return body;
+        return Integer.valueOf(1).equals(result.get("resumeResultSchemaVersion"))
+                && result.get("response") instanceof Map<?, ?> saved
+                && WorkflowInteractionCodes.RESUME_TIMEOUT.equals(saved.get("code"));
     }
 
     private boolean ownershipMatches(RuntimeInteractionSessionEntity session, Ownership ownership) {
@@ -489,7 +372,8 @@ public class RuntimeInteractionResumeService {
             return !requiresOwnership(session);
         }
         if (requiresOwnership(session)) {
-            if (!StringUtils.hasText(session.getSessionId())
+            if (ownership.trustedIdentity() == null || !ownership.trustedIdentity().canResolveUserAcl()
+                    || !StringUtils.hasText(session.getSessionId())
                     || !StringUtils.hasText(session.getAppId())
                     || !StringUtils.hasText(session.getUserId())) {
                 return false;
@@ -497,8 +381,8 @@ public class RuntimeInteractionResumeService {
             return eq(session.getSessionId(), ownership.sessionId())
                     && eq(session.getAppId(), ownership.appId())
                     && eq(session.getUserId(), ownership.userId())
-                    && (!StringUtils.hasText(session.getTenantId())
-                    || eq(session.getTenantId(), ownership.tenantId()));
+                    && firstText(session.getTenantId(), "default")
+                            .equals(firstText(ownership.tenantId(), "default"));
         }
         if (StringUtils.hasText(session.getSessionId()) && !eq(session.getSessionId(), ownership.sessionId())) {
             return false;
@@ -519,9 +403,14 @@ public class RuntimeInteractionResumeService {
         return StringUtils.hasText(actual) && expected.equals(actual);
     }
 
-    private boolean payloadMatches(String storedJson, Map<String, Object> submittedPayload) {
+    private boolean payloadMatches(String storedJson, String action, Map<String, Object> values) {
         Map<String, Object> stored = sessionService.readMap(storedJson);
-        return stored.equals(submittedPayload == null ? Map.of() : submittedPayload);
+        Map<String, Object> normalized = sessionService.readMap(sessionService.writeJson(values));
+        if (Integer.valueOf(1).equals(stored.get("submissionSchemaVersion"))) {
+            return action.equals(stored.get("action")) && normalized.equals(stored.get("values"));
+        }
+        // Older Workflow attempts stored only values; they represented the default submit action.
+        return "submit".equals(action) && stored.equals(normalized);
     }
 
     private Map<String, Object> submittedPayload(Map<String, Object> request) {
@@ -532,20 +421,13 @@ public class RuntimeInteractionResumeService {
         if (uiSubmit instanceof Map<?, ?> uiMap) {
             Object values = uiMap.get("values");
             if (values instanceof Map<?, ?> valueMap) {
-                Map<String, Object> mapped = safeMap(valueMap);
-                Object action = uiMap.get("action");
-                if (action != null) {
-                    mapped = new LinkedHashMap<>(mapped);
-                    mapped.putIfAbsent("action", action);
-                }
-                return mapped;
+                return safeMap(valueMap);
             }
         }
         Object raw = firstPresent(request.get("values"),
                 firstPresent(request.get("submittedPayload"), request.get("payload")));
-        Map<String, Object> map = safeMap(raw);
-        if (!map.isEmpty()) {
-            return map;
+        if (raw instanceof Map<?, ?> map) {
+            return safeMap(map);
         }
         Map<String, Object> fallback = new LinkedHashMap<>(request);
         fallback.remove("operatorId");
@@ -558,6 +440,8 @@ public class RuntimeInteractionResumeService {
         fallback.remove("appId");
         fallback.remove("tenantId");
         fallback.remove("userId");
+        for (String key : java.util.List.of("action", "traceId", "runId", "agentId", "projectCode", "metadata",
+                "externalUserId", "globalUserId", "__memoryTurnId", "__memoryUserMessage")) fallback.remove(key);
         return fallback;
     }
 
@@ -619,10 +503,6 @@ public class RuntimeInteractionResumeService {
         return null;
     }
 
-    private static String nullToEmpty(String value) {
-        return value == null ? "" : value;
-    }
-
     private String text(Object value) {
         if (value == null) {
             return null;
@@ -631,6 +511,14 @@ public class RuntimeInteractionResumeService {
         return StringUtils.hasText(text) ? text.trim() : null;
     }
 
-    public record Ownership(String appId, String tenantId, String sessionId, String userId) {
+    /** User and tenant come only from the attested execution identity, never the submit body. */
+    public record Ownership(String appId, String sessionId, WorkflowExecutionIdentity trustedIdentity) {
+        public String tenantId() {
+            return trustedIdentity == null ? null : trustedIdentity.tenantId();
+        }
+
+        public String userId() {
+            return trustedIdentity != null && trustedIdentity.canResolveUserAcl() ? trustedIdentity.userId() : null;
+        }
     }
 }

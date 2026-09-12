@@ -8,4 +8,8 @@ public interface RuntimeInteractionExpiryTracePort {
     void expireWaitingInteraction(String traceId,
                                   String interactionId,
                                   LocalDateTime expiredAt);
+
+    void expireResumingInteraction(String traceId, String interactionId, LocalDateTime expiredAt);
+
+    void expireSupervisorApprovalResume(String traceId, String interactionId, LocalDateTime expiredAt);
 }

@@ -1,5 +1,8 @@
 package com.enterprise.ai.runtime.automation;
 
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.enterprise.ai.runtime.runops.RuntimeRunLifecycleService;
+import com.enterprise.ai.runtime.trace.RuntimeTraceSpanTerminationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -7,6 +10,8 @@ import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 import java.util.Map;
+import java.util.List;
+import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
@@ -16,6 +21,68 @@ class RuntimeAutomationExecutionPersistenceService {
     private final RuntimeAutomationAttemptMapper attemptMapper;
     private final RuntimeAutomationEventMapper eventMapper;
     private final RuntimeAutomationJsonSupport json;
+    private final RuntimeAutomationExecutionSlotMapper slots;
+    private final RuntimeRunLifecycleService runs;
+    private final RuntimeTraceSpanTerminationService spans;
+    private final RuntimeAutomationMapper automations;
+
+    @Transactional
+    void recoverExpiredExecutions() {
+        for (Long id : occurrenceMapper.findRecoveryCandidateIds()) {
+            RuntimeAutomationOccurrenceEntity occurrence = occurrenceMapper.lockExpiredById(id);
+            if (occurrence == null) continue;
+            closeAbandonedAttempts(occurrence, true);
+            RuntimeAutomationEntity automation = automations.selectById(occurrence.getAutomationId());
+            String next = automation == null || "ARCHIVED".equals(automation.getStatus())
+                    ? "CANCELLED" : exhausted(occurrence) ? "DEAD" : "RETRY";
+            if (occurrenceMapper.releaseExpired(id, occurrence.getLeaseToken(), next) != 1) {
+                throw new StaleAutomationLeaseException(id);
+            }
+            slots.releaseLease(occurrence.getAutomationId(), id, occurrence.getLeaseToken());
+            event(occurrence, "AUTOMATION_OCCURRENCE_" + next, Map.of("reason", "AUTOMATION_LEASE_EXPIRED"));
+        }
+    }
+
+    private void closeAbandonedAttempts(RuntimeAutomationOccurrenceEntity occurrence, boolean currentLeaseExpired) {
+        List<RuntimeAutomationAttemptEntity> abandoned = attemptMapper.selectList(
+                Wrappers.<RuntimeAutomationAttemptEntity>lambdaQuery()
+                        .eq(RuntimeAutomationAttemptEntity::getOccurrenceId, occurrence.getId())
+                        .eq(RuntimeAutomationAttemptEntity::getStatus, "RUNNING")
+                        .last("FOR UPDATE"));
+        for (RuntimeAutomationAttemptEntity attempt : abandoned) {
+            boolean sameLease = Objects.equals(occurrence.getLeaseToken(), attempt.getLeaseToken());
+            if (open(occurrence) && sameLease && !currentLeaseExpired) continue;
+            String status = exhausted(occurrence) && sameLease ? "DEAD" : "FAILED";
+            String code = "AUTOMATION_LEASE_EXPIRED", message = "Execution lease expired before a terminal result";
+            attempt.setStatus(status);
+            attempt.setErrorCode(code);
+            attempt.setErrorMessage(message);
+            attempt.setEndedAt(now());
+            attemptMapper.updateById(attempt);
+            LocalDateTime traceEndedAt = LocalDateTime.now();
+            if (runs.failAbandonedAutomation(attempt.getTraceId(), code, message, traceEndedAt) == 1) {
+                spans.failRunning(attempt.getTraceId(), code, message, traceEndedAt);
+            }
+            slots.releaseLease(occurrence.getAutomationId(), occurrence.getId(), attempt.getLeaseToken());
+            event(occurrence, "AUTOMATION_ATTEMPT_ABANDONED", Map.of(
+                    "attemptNo", attempt.getAttemptNo(), "reason", code));
+        }
+    }
+
+    private boolean open(RuntimeAutomationOccurrenceEntity occurrence) {
+        return "LEASED".equals(occurrence.getStatus()) || "RUNNING".equals(occurrence.getStatus());
+    }
+
+    private boolean exhausted(RuntimeAutomationOccurrenceEntity occurrence) {
+        return occurrence.getAttemptCount() >= occurrence.getMaxAttempts();
+    }
+
+    private void lockOwnedLease(Long id, String token) {
+        RuntimeAutomationOccurrenceEntity current = occurrenceMapper.lockById(id);
+        if (current == null || !open(current) || !Objects.equals(current.getLeaseToken(), token)) {
+            throw new StaleAutomationLeaseException(id);
+        }
+    }
 
     @Transactional
     RuntimeAutomationAttemptEntity start(RuntimeAutomationOccurrenceEntity occurrence,
@@ -25,6 +92,7 @@ class RuntimeAutomationExecutionPersistenceService {
         if (occurrenceMapper.markRunning(occurrence.getId(), token, traceId) != 1) {
             throw new StaleAutomationLeaseException(occurrence.getId());
         }
+        closeAbandonedAttempts(occurrenceMapper.selectById(occurrence.getId()), false);
         RuntimeAutomationAttemptEntity attempt = new RuntimeAutomationAttemptEntity();
         attempt.setOccurrenceId(occurrence.getId());
         attempt.setAttemptNo(occurrence.getAttemptCount());
@@ -45,6 +113,7 @@ class RuntimeAutomationExecutionPersistenceService {
                   RuntimeAutomationAttemptEntity attempt,
                   String token,
                   RuntimeAutomationTargetExecutor.ExecutionOutcome outcome) {
+        lockOwnedLease(occurrence.getId(), token);
         attempt.setStatus("SUCCEEDED");
         attempt.setResultSummary(json.limit(outcome.message(), 4000));
         attempt.setEndedAt(now());
@@ -62,6 +131,7 @@ class RuntimeAutomationExecutionPersistenceService {
               RuntimeAutomationAttemptEntity attempt,
               String token,
               RuntimeAutomationTargetExecutor.ExecutionOutcome outcome) {
+        lockOwnedLease(occurrence.getId(), token);
         String interactionId = interactionId(outcome.metadata());
         if (StringUtils.hasText(interactionId)) {
             occurrenceMapper.recordInteraction(occurrence.getId(), token, interactionId);

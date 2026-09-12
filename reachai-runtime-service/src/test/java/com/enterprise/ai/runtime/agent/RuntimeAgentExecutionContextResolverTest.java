@@ -5,6 +5,9 @@ import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionMapper;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowVersionEntity;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowVersionMapper;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.List;
 
@@ -29,11 +32,11 @@ class RuntimeAgentExecutionContextResolverTest {
         RuntimeWorkflowDefinitionMapper workflowMapper = mock(RuntimeWorkflowDefinitionMapper.class);
         RuntimeWorkflowVersionMapper versionMapper = mock(RuntimeWorkflowVersionMapper.class);
         RuntimeAgentExecutionContextResolver resolver = new RuntimeAgentExecutionContextResolver(
-                agentMapper, configMapper, toolMapper, skillBindingMapper, workflowMapper, versionMapper);
+                new RuntimeAgentIdentityReader(agentMapper), configMapper, toolMapper, skillBindingMapper, new com.enterprise.ai.runtime.workflow.RuntimeWorkflowExecutionReader(workflowMapper, versionMapper), mock(com.enterprise.ai.runtime.agent.RuntimeAgentRemoteBindingQuery.class));
         RuntimeAgentEntity agent = agent("agent-1", "orders-agent", 11L);
         RuntimeAgentConfigVersionEntity config = config("agent-1", 11L);
 
-        when(agentMapper.selectOne(any())).thenReturn(agent);
+        when(agentMapper.selectByIdOrKeySlug(any())).thenReturn(agent);
         when(configMapper.selectById(11L)).thenReturn(config);
         when(toolMapper.selectList(any())).thenReturn(List.of());
         RuntimeAgentSkillBindingEntity skill = new RuntimeAgentSkillBindingEntity();
@@ -49,7 +52,7 @@ class RuntimeAgentExecutionContextResolverTest {
         assertEquals("agent-1", context.agentView().id());
         assertEquals(11L, context.config().getId());
         assertEquals(1, context.skills().size());
-        verify(agentMapper, times(1)).selectOne(any());
+        verify(agentMapper, times(1)).selectByIdOrKeySlug(any());
         verify(agentMapper, never()).selectById(any());
         verify(configMapper, never()).selectOne(any());
         verify(workflowMapper, never()).selectBatchIds(any());
@@ -65,7 +68,7 @@ class RuntimeAgentExecutionContextResolverTest {
         RuntimeWorkflowDefinitionMapper workflowMapper = mock(RuntimeWorkflowDefinitionMapper.class);
         RuntimeWorkflowVersionMapper versionMapper = mock(RuntimeWorkflowVersionMapper.class);
         RuntimeAgentExecutionContextResolver resolver = new RuntimeAgentExecutionContextResolver(
-                agentMapper, configMapper, toolMapper, skillBindingMapper, workflowMapper, versionMapper);
+                new RuntimeAgentIdentityReader(agentMapper), configMapper, toolMapper, skillBindingMapper, new com.enterprise.ai.runtime.workflow.RuntimeWorkflowExecutionReader(workflowMapper, versionMapper), mock(com.enterprise.ai.runtime.agent.RuntimeAgentRemoteBindingQuery.class));
         RuntimeAgentEntity agent = agent("agent-1", "orders-agent", 11L);
         RuntimeAgentConfigVersionEntity config = config("agent-1", 11L);
         RuntimeAgentWorkflowToolEntity tool = new RuntimeAgentWorkflowToolEntity();
@@ -80,10 +83,11 @@ class RuntimeAgentExecutionContextResolverTest {
         workflow.setStatus("ACTIVE");
         RuntimeWorkflowVersionEntity version = new RuntimeWorkflowVersionEntity();
         version.setId(21L);
+        version.setStatus("ACTIVE");
         version.setWorkflowId("wf-orders");
         version.setGraphSpecSnapshotJson("{\"nodes\":[]}");
 
-        when(agentMapper.selectOne(any())).thenReturn(agent);
+        when(agentMapper.selectByIdOrKeySlug(any())).thenReturn(agent);
         when(configMapper.selectById(11L)).thenReturn(config);
         when(toolMapper.selectList(any())).thenReturn(List.of(tool));
         when(workflowMapper.selectBatchIds(any())).thenReturn(List.of(workflow));
@@ -93,7 +97,7 @@ class RuntimeAgentExecutionContextResolverTest {
 
         assertTrue(context.config() != null);
         assertEquals(1, context.resolvedTargets().size());
-        verify(agentMapper, times(1)).selectOne(any());
+        verify(agentMapper, times(1)).selectByIdOrKeySlug(any());
         verify(agentMapper, never()).selectById(any());
         verify(workflowMapper, times(1)).selectBatchIds(any());
         verify(versionMapper, times(1)).selectBatchIds(any());
@@ -108,11 +112,11 @@ class RuntimeAgentExecutionContextResolverTest {
         RuntimeWorkflowDefinitionMapper workflowMapper = mock(RuntimeWorkflowDefinitionMapper.class);
         RuntimeWorkflowVersionMapper versionMapper = mock(RuntimeWorkflowVersionMapper.class);
         RuntimeAgentExecutionContextResolver resolver = new RuntimeAgentExecutionContextResolver(
-                agentMapper, configMapper, toolMapper, skillBindingMapper, workflowMapper, versionMapper);
+                new RuntimeAgentIdentityReader(agentMapper), configMapper, toolMapper, skillBindingMapper, new com.enterprise.ai.runtime.workflow.RuntimeWorkflowExecutionReader(workflowMapper, versionMapper), mock(com.enterprise.ai.runtime.agent.RuntimeAgentRemoteBindingQuery.class));
         RuntimeAgentEntity agent = agent("agent-1", "orders-agent", 11L);
         RuntimeAgentConfigVersionEntity draft = config("agent-1", 12L);
         draft.setStatus("DRAFT");
-        when(agentMapper.selectOne(any())).thenReturn(agent);
+        when(agentMapper.selectByIdOrKeySlug(any())).thenReturn(agent);
         when(configMapper.selectById(12L)).thenReturn(draft);
         when(toolMapper.selectList(any())).thenReturn(List.of());
         when(skillBindingMapper.selectList(any())).thenReturn(List.of());
@@ -137,6 +141,43 @@ class RuntimeAgentExecutionContextResolverTest {
         agent.setEnabled(true);
         agent.setActiveConfigVersionId(activeConfigVersionId);
         return agent;
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {"DELETED"})
+    void incompleteOrUnknownConfigStatusIsNotAPublishedVersion(String status) {
+        var agents = mock(RuntimeAgentMapper.class);
+        var configs = mock(RuntimeAgentConfigVersionMapper.class);
+        var resolver = new RuntimeAgentExecutionContextResolver(new RuntimeAgentIdentityReader(agents), configs,
+                mock(RuntimeAgentWorkflowToolMapper.class), mock(RuntimeAgentSkillBindingMapper.class),
+                mock(com.enterprise.ai.runtime.workflow.RuntimeWorkflowExecutionQuery.class),
+                mock(RuntimeAgentRemoteBindingQuery.class));
+        var invalid = config("agent-1", 12L);
+        invalid.setStatus(status);
+        when(agents.selectByIdOrKeySlug(any())).thenReturn(agent("agent-1", "orders-agent", 11L));
+        when(configs.selectById(12L)).thenReturn(invalid);
+
+        assertNull(resolver.resolvePublished("agent-1", 12L).orElseThrow().config());
+        assertNull(resolver.resolveForEvaluation("agent-1", 12L).orElseThrow().config());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"ACTIVE", "ARCHIVED"})
+    void publishedExecutionKeepsAnExactKnownVersion(String status) {
+        var agents = mock(RuntimeAgentMapper.class);
+        var configs = mock(RuntimeAgentConfigVersionMapper.class);
+        var resolver = new RuntimeAgentExecutionContextResolver(new RuntimeAgentIdentityReader(agents), configs,
+                mock(RuntimeAgentWorkflowToolMapper.class), mock(RuntimeAgentSkillBindingMapper.class),
+                mock(com.enterprise.ai.runtime.workflow.RuntimeWorkflowExecutionQuery.class),
+                mock(RuntimeAgentRemoteBindingQuery.class));
+        var pinned = config("agent-1", 12L);
+        pinned.setStatus(status);
+        when(agents.selectByIdOrKeySlug(any())).thenReturn(agent("agent-1", "orders-agent", 11L));
+        when(configs.selectById(12L)).thenReturn(pinned);
+
+        assertEquals(12L, resolver.resolvePublished("agent-1", 12L).orElseThrow().config().getId());
+        verify(configs, never()).selectById(11L);
     }
 
     private RuntimeAgentConfigVersionEntity config(String agentId, Long id) {

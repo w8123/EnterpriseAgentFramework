@@ -1,6 +1,7 @@
 package com.enterprise.ai.control.runtime;
 
 import com.enterprise.ai.control.client.runtime.RuntimeProxyClient;
+import com.enterprise.ai.common.exception.GlobalExceptionHandler;
 import feign.FeignException;
 import feign.Request;
 import feign.RetryableException;
@@ -17,6 +18,8 @@ import java.util.Map;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -24,6 +27,36 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 class RuntimeProxyExceptionHandlerTest {
+
+    @Test
+    void preservesEmptyNotFoundAfterAgentDeletion() throws Exception {
+        RuntimeProxyClient runtimeClient = mock(RuntimeProxyClient.class);
+        when(runtimeClient.getAgent("deleted-agent")).thenThrow(new FeignException.NotFound(
+                "upstream-private-address", Request.create(Request.HttpMethod.GET,
+                "/api/agents/deleted-agent", Map.of(), null, StandardCharsets.UTF_8, null),
+                new byte[0], Map.of()));
+
+        mockMvc(runtimeClient).perform(get("/api/agents/deleted-agent"))
+                .andExpect(status().isNotFound())
+                .andExpect(content().string(""));
+    }
+
+    @Test
+    void preservesStructuredNotFoundForRepeatedAgentDeletion() throws Exception {
+        RuntimeProxyClient runtimeClient = mock(RuntimeProxyClient.class);
+        byte[] body = "{\"code\":\"AGENT_NOT_FOUND\"}".getBytes(StandardCharsets.UTF_8);
+        when(runtimeClient.deleteAgent("deleted-agent")).thenThrow(new FeignException.NotFound(
+                "upstream-private-address", Request.create(Request.HttpMethod.DELETE,
+                "/api/agents/deleted-agent", Map.of(), null, StandardCharsets.UTF_8, null), body,
+                Map.of(HttpHeaders.CONTENT_TYPE, List.of(MediaType.APPLICATION_JSON_VALUE),
+                        HttpHeaders.CONNECTION, List.of("close"), HttpHeaders.CONTENT_LENGTH, List.of("999"))));
+
+        mockMvc(runtimeClient).perform(delete("/api/agents/deleted-agent"))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.code").value("AGENT_NOT_FOUND"))
+                .andExpect(header().doesNotExist(HttpHeaders.CONNECTION));
+    }
 
     @Test
     void preservesRuntimeConflictForWorkflowWorkingCopySave() throws Exception {
@@ -93,7 +126,7 @@ class RuntimeProxyExceptionHandlerTest {
     private static MockMvc mockMvc(RuntimeProxyClient runtimeClient) {
         return MockMvcBuilders
                 .standaloneSetup(new ControlRuntimePublicController(runtimeClient))
-                .setControllerAdvice(new RuntimeProxyExceptionHandler())
+                .setControllerAdvice(new GlobalExceptionHandler(), new RuntimeProxyExceptionHandler())
                 .build();
     }
 

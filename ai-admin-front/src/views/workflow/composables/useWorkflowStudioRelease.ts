@@ -232,12 +232,15 @@ export function useWorkflowStudioRelease({
         ElMessage.warning('发布已取消：确认期间草稿发生变化，请重新校验')
         return
       }
+      const baseRevision = saved.revision || saved.updatedAt
+      if (!baseRevision) {
+        throw new Error('未能读取草稿修订，请重新加载后再发布')
+      }
       await publishWorkflowVersion(publishingWorkflowId, {
         version: publishForm.version.trim(),
-        rolloutPercent: publishForm.rolloutPercent ?? 100,
+        rolloutPercent: 100,
         note: publishForm.note,
-        publishedBy: publishForm.publishedBy,
-        baseRevision: saved.revision || saved.updatedAt || null,
+        baseRevision,
       })
       let pageAssistantSynced = false
       if (syncPublishedPageAssistant) {
@@ -248,7 +251,7 @@ export function useWorkflowStudioRelease({
         }
       }
       ElMessage.success(
-        `已发布 Workflow ${publishForm.version}（灰度 ${publishForm.rolloutPercent ?? 100}%）`
+        `已发布 Workflow ${publishForm.version}`
         + (pageAssistantSynced ? '，已同步页面副驾驶' : ''),
       )
       publishDialogOpen.value = false
@@ -260,17 +263,20 @@ export function useWorkflowStudioRelease({
     } catch (err) {
       const error = err as { response?: { status?: number; data?: { message?: string } }; message?: string }
       if (error.response?.status === 409) {
+        if (!isCurrentPublishingWorkingCopy()) return
+        const conflictedStudio = studio.value
         releaseValidationReady.value = false
         void ElMessageBox.confirm(
           '保存后服务器草稿又被其他编辑更新，本次未发布任何版本。加载最新草稿后请重新校验并发布。',
           '发布已取消：草稿版本冲突',
           {
             type: 'warning',
+            autofocus: false,
             confirmButtonText: '加载最新草稿',
             cancelButtonText: '保留当前页面',
           },
         ).then(() => {
-          void loadStudio()
+          if (isCurrentPublishingWorkingCopy() && studio.value === conflictedStudio) void loadStudio()
         }).catch(() => undefined)
       } else {
         ElMessage.error('发布 Workflow 失败：' + (error.response?.data?.message || error.message || '服务请求失败'))

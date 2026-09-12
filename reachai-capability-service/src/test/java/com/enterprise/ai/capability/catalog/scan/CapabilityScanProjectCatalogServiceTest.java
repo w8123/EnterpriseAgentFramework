@@ -93,7 +93,7 @@ class CapabilityScanProjectCatalogServiceTest {
         credential.setProjectCode("orders");
         credential.setStatus("ACTIVE");
         when(scanProjectMapper.selectById(7L)).thenReturn(project);
-        when(registryCredentialMapper.selectOne(any())).thenReturn(credential);
+        when(registrySecurityService.findPrimaryActiveCredential(any())).thenReturn(java.util.Optional.of(credential));
         when(projectInstanceMapper.selectOne(any())).thenReturn(null);
 
         CapabilityScanProjectCatalogService.SdkAccessCheckResponse response = service.sdkAccessCheck(7L);
@@ -127,7 +127,7 @@ class CapabilityScanProjectCatalogServiceTest {
     void readinessFactsAndRuntimeReadyRequireOnlineStatusWithFreshHeartbeat() {
         ScanProjectEntity project = seededProject();
         when(scanProjectMapper.selectById(7L)).thenReturn(project);
-        when(registryCredentialMapper.selectOne(any())).thenReturn(activeCredential());
+        when(registrySecurityService.findPrimaryActiveCredential(any())).thenReturn(java.util.Optional.of(activeCredential()));
 
         when(projectInstanceMapper.selectOne(any())).thenReturn(instance("ONLINE", LocalDateTime.now().minusMinutes(1)));
         Map<String, Object> onlineFacts = service.readinessFacts(7L);
@@ -622,7 +622,7 @@ class CapabilityScanProjectCatalogServiceTest {
         callbackSnapshot.setSource("SDK_CALLBACK");
         callbackSnapshot.setCreatedAt(LocalDateTime.of(2026, 7, 27, 9, 30));
         when(scanProjectMapper.selectById(7L)).thenReturn(project);
-        when(registryCredentialMapper.selectOne(any())).thenReturn(activeCredential());
+        when(registrySecurityService.findPrimaryActiveCredential(any())).thenReturn(java.util.Optional.of(activeCredential()));
         when(projectInstanceMapper.selectOne(any())).thenReturn(instance(
                 "ONLINE", LocalDateTime.now().minusMinutes(1)));
         when(capabilitySnapshotMapper.selectOne(any())).thenReturn(callbackSnapshot);
@@ -665,7 +665,7 @@ class CapabilityScanProjectCatalogServiceTest {
         callbackSnapshot.setCreatedAt(LocalDateTime.of(2026, 7, 27, 9, 30));
         callbackSnapshot.setPayloadJson(callbackPayload("http://localhost:9090", "/orders-api"));
         when(scanProjectMapper.selectById(7L)).thenReturn(project);
-        when(registryCredentialMapper.selectOne(any())).thenReturn(activeCredential());
+        when(registrySecurityService.findPrimaryActiveCredential(any())).thenReturn(java.util.Optional.of(activeCredential()));
         when(projectInstanceMapper.selectOne(any())).thenReturn(instance(
                 "ONLINE", LocalDateTime.now().minusMinutes(1)));
         when(capabilitySnapshotMapper.selectOne(any())).thenReturn(callbackSnapshot);
@@ -697,7 +697,7 @@ class CapabilityScanProjectCatalogServiceTest {
         callbackSnapshot.setCreatedAt(LocalDateTime.of(2026, 7, 27, 9, 30));
         callbackSnapshot.setPayloadJson(callbackPayload("http://localhost:8080/", "/orders-api"));
         when(scanProjectMapper.selectById(7L)).thenReturn(project);
-        when(registryCredentialMapper.selectOne(any())).thenReturn(activeCredential());
+        when(registrySecurityService.findPrimaryActiveCredential(any())).thenReturn(java.util.Optional.of(activeCredential()));
         when(projectInstanceMapper.selectOne(any())).thenReturn(instance(
                 "ONLINE", LocalDateTime.now().minusMinutes(1)));
         when(capabilitySnapshotMapper.selectOne(any())).thenReturn(callbackSnapshot);
@@ -734,7 +734,7 @@ class CapabilityScanProjectCatalogServiceTest {
     }
 
     @Test
-    void promotesSdkCapabilityWithDeclaredQualifiedNameAndReadRisk() {
+    void legacyPromotionCannotCreateAnSdkProjectionOutsideSourceGovernance() {
         ScanProjectEntity project = project();
         ScanProjectToolEntity scanTool = tool(11L, "POST", "/reachai/capabilities/qmssmp.team.search/invoke",
                 "查询班组信息", null, null);
@@ -743,21 +743,56 @@ class CapabilityScanProjectCatalogServiceTest {
         scanTool.setTitle("查询班组信息");
         scanTool.setSourceLocation("sdk:orders:qmssmp.team.search");
         scanTool.setCapabilityMetadataJson("{\"sideEffect\":\"READ\"}");
-        AtomicReference<ToolDefinitionEntity> inserted = new AtomicReference<>();
         when(scanProjectMapper.selectById(7L)).thenReturn(project);
         when(scanProjectToolMapper.selectOne(any())).thenReturn(scanTool);
-        when(toolDefinitionMapper.insert(any())).thenAnswer(invocation -> {
-            ToolDefinitionEntity entity = invocation.getArgument(0);
-            entity.setId(502L);
-            inserted.set(entity);
-            return 1;
-        });
+        assertTrue(assertThrows(IllegalArgumentException.class,
+                () -> service.promoteTool(7L, 11L)).getMessage().startsWith("CAPABILITY_SOURCE_OWNED:"));
+        org.mockito.Mockito.verifyNoInteractions(toolDefinitionMapper);
+    }
 
-        service.promoteTool(7L, 11L);
+    @Test
+    void everyLegacyMutationRejectsSourceOwnedRowsEvenWithoutDisplayLocation() {
+        ScanProjectToolEntity row = tool(11L, "POST", "/orders", "Orders", null, 501L);
+        row.setProjectId(7L);
+        row.setModuleId(3L);
+        row.setSourceQualifiedName("orders:query");
+        row.setSourceLocation(null);
+        when(scanProjectMapper.selectById(7L)).thenReturn(project());
+        when(scanProjectToolMapper.selectOne(any())).thenReturn(row);
+        when(scanProjectToolMapper.selectList(any())).thenReturn(List.of(row));
+        List<Runnable> commands = List.of(
+                () -> service.toggleTool(7L, 11L, false),
+                () -> service.rescanSingleTool(7L, 11L),
+                () -> service.promoteTool(7L, 11L),
+                () -> service.pushToolToGlobal(7L, 11L),
+                () -> service.unpromoteTool(7L, 11L),
+                () -> service.promoteModuleTools(7L, 3L),
+                () -> service.updateTool(7L, 11L,
+                        new CapabilityScanProjectCatalogService.ScanProjectToolUpsertRequest(
+                                "renamed", "Title", "Description", List.of(), "scanner", null,
+                                "POST", "https://orders.example", null, "/changed", null, null, true)));
+        for (Runnable command : commands) {
+            assertTrue(assertThrows(IllegalArgumentException.class, command::run)
+                    .getMessage().startsWith("CAPABILITY_SOURCE_OWNED:"));
+        }
+        org.mockito.Mockito.verifyNoInteractions(toolDefinitionMapper, scannerClient);
+        verify(scanProjectToolMapper, org.mockito.Mockito.never()).updateById(any());
+        assertEquals("/orders", row.getEndpointPath());
+    }
 
-        assertEquals("orders:qmssmp.team.search", inserted.get().getQualifiedName());
-        assertEquals("查询班组信息", inserted.get().getTitle());
-        assertEquals("READ_ONLY", inserted.get().getSideEffect());
+    @Test
+    void anUnmanagedScanRowCannotOverwriteOrDeleteASourceOwnedProjection() {
+        ScanProjectToolEntity row = tool(11L, "POST", "/orders", "Orders", null, 501L);
+        ToolDefinitionEntity projection = globalTool(501L, row);
+        projection.setSourceQualifiedName("orders:query");
+        when(scanProjectMapper.selectById(7L)).thenReturn(project());
+        when(scanProjectToolMapper.selectOne(any())).thenReturn(row);
+        when(toolDefinitionMapper.selectById(501L)).thenReturn(projection);
+        when(toolDefinitionMapper.selectOne(any())).thenReturn(projection);
+        assertThrows(IllegalArgumentException.class, () -> service.pushToolToGlobal(7L, 11L));
+        assertThrows(IllegalArgumentException.class, () -> service.unpromoteTool(7L, 11L));
+        verify(toolDefinitionMapper, org.mockito.Mockito.never()).updateById(any());
+        verify(toolDefinitionMapper, org.mockito.Mockito.never()).deleteById(501L);
     }
 
     @Test

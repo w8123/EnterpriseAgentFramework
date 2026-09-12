@@ -28,6 +28,7 @@
 | [workflow-interaction-runtime.md](./workflow-interaction-runtime.md) | GraphSpec 原生暂停、恢复、交互和运行状态 |
 | [runtime-context-engineering.md](./runtime-context-engineering.md) | 会话压缩、Tool 结果卸载、超限恢复和灰度边界 |
 | [runops-trace-workflow-candidate.md](./runops-trace-workflow-candidate.md) | 从成功 Trace 生成受约束 Workflow 候选的闭环 |
+| [runtime-audit-attribution.md](./runtime-audit-attribution.md) | 根运行与 Trace 的项目、租户、用户归属及恢复和完成规则 |
 | [agent-skill-market.md](./agent-skill-market.md) | 外部 Agent Skill 发现、GitHub 不可变引入、来源信任与供应链边界 |
 | [agent-skill-center.md](./agent-skill-center.md) | 标准 Agent Skill 包、评审、精确绑定、Runtime 载入和 Host 边界 |
 | [managed-executor.md](./managed-executor.md) | 服务端 Codex harness、Runtime 控制面、AgentScope 异步委托、沙箱与证据边界 |
@@ -39,9 +40,11 @@
 | --- | --- |
 | [ai-coding-task-protocol-v1.md](./ai-coding-task-protocol-v1.md) | 外部 AI Coding 任务交接、状态、凭证、Artifact 和验收协议 |
 | [business-page-workbench.md](./business-page-workbench.md) | 页面地图、改造分析、任务交付、资源绑定和发布查询 |
+| [capability-change-governance.md](./capability-change-governance.md) | 能力来源观察、自动接纳、契约漂移保护与调用投影归属 |
 | [api-market.md](./api-market.md) | 外部 API 目录、版本、Operation、项目接入和来源治理 |
 | [model-center-v2.md](./model-center-v2.md) | 模型模板/实例、稳定 ID、测试、归档和凭据边界 |
 | [docling-document-ingestion.md](./docling-document-ingestion.md) | 文档解析路由、导入任务、原件工件和部署安全 |
+| [knowledge-base-lifecycle.md](./knowledge-base-lifecycle.md) | 知识库创建、删除、目录编辑和配置更新的职责与并发边界 |
 | [personal-agent-memory.md](./personal-agent-memory.md) | 会话、个人、业务记忆及检索投影、遗忘与生产治理 |
 
 ## 开放协议

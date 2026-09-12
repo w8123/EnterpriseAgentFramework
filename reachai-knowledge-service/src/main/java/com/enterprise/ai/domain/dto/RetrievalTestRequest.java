@@ -49,4 +49,8 @@ public class RetrievalTestRequest {
 
     /** Optional Milvus filter expression built from accessibleFileIds. */
     private String fileIdFilterExpression;
+
+    /** Set only by the production retrieval core, never accepted from an HTTP request. */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private com.enterprise.ai.security.FileAccessSnapshot accessSnapshot;
 }

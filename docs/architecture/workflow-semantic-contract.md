@@ -32,6 +32,38 @@ Workflow 的业务形态、执行引擎、定义权威和创建入口是四个�
 
 数据库字段固定为 `workflow_kind / execution_engine / definition_authority / creation_channel`。API 和前端不得再使用 `workflowType / runtimeType / managedBy` 表达 Workflow 元数据。
 
+### 2.1 SDK 图同步的定义归属
+
+Registry 保留 `/api/registry/projects/{projectCode}/agent-graphs/sync` 的请求与响应协议，在数据库写事务之外解析 Capability 项目，再向 Workflow 所有的 [RuntimeSdkWorkflowSyncService](../../reachai-runtime-service/src/main/java/com/enterprise/ai/runtime/workflow/RuntimeSdkWorkflowSyncService.java) 传入不可变的序列化图命令。Registry 不读取或构造 Workflow Entity。GraphSpec 校验、模型默认值、Canvas 布局、来源与草稿字段都由 Workflow 维护。
+
+稳定 keySlug 继续由项目编码和 SDK graphCode 组合并规范化。找到相同 keySlug 只表示有候选定义；更新必须同时匹配项目 ID／编码、SDK 定义权威、SDK_SYNC 创建渠道及 `extra.sdkGraph` 中的 source／projectCode／graphCode。缺失或损坏的来源证据、规范化后的异源碰撞和人工／系统定义都拒绝覆盖；不猜测旧记录归属，也不自动改名。相同请求内的重复或碰撞编码在写入前拒绝。
+
+预览和实际同步共用草稿校验与来源规则；预览只返回 WOULD_CREATE／WOULD_UPDATE，不写草稿、修订或引用索引。预览不是发布校验，也不预留 keySlug。实际同步按 keySlug 固定顺序锁定已有 Workflow，再重新检查来源，响应仍按原请求顺序返回。所有草稿更新与引用索引属于同一批事务；唯一键竞争明确返回冲突，后续失败回滚整批，不返回部分成功。
+
+SDK 维护当前工作副本，保持已有定义的生命周期状态、未由 SDK 声明的运行默认设置及已发布版本快照。更新使用锁定后读取的当前修订，不能把并发发布后的 ACTIVE 改回早先读到的 DRAFT。`extra_json` 保留当前顶层其他键，只替换 SDK 同步信息；旧 `previousExtraJson` 递归包装不再保留或继续嵌套，其中埋藏的历史键不做兼容恢复。正式发布历史仍由 Workflow Version 保存。
+
+[SDK 同步持久化回归](../../reachai-runtime-service/src/test/java/com/enterprise/ai/runtime/registry/RuntimeSdkWorkflowSyncPersistenceTest.java) 使用实际 MyBatis、Spring 事务及 SQL 基线生成的 H2 Workflow／Version／引用表，覆盖来源冲突、并发发布与元数据、创建竞争、批次锁序、整批回滚、预览和发布快照保留。Capability 项目查询使用替身，H2 夹具移除了 MySQL 专用的排序规则和索引前缀；真实 MySQL 锁与唯一键竞争、Control／SDK 签名和跨服务同步未在本批验收。现有 SQL 基线满足本批，无新增表、列、索引或升级脚本。
+
+### 2.2 公开编辑与管理视图
+
+普通创建／更新、Studio 工作副本和版本管理经 [Workflow 管理服务](../../reachai-runtime-service/src/main/java/com/enterprise/ai/runtime/workflow/RuntimeWorkflowManagementService.java) 进入所属模块。公开 Controller 不再接收或返回 Entity，列表、详情、分页 records 和版本历史使用不可变视图；原字段名、分页结构、版本快照、画布、发布人、发布时间和备注保留。执行专用的发布视图继续独立，不与管理历史合并。
+
+`POST /api/workflows` 创建 USER／STUDIO／DRAFT 草稿。ID、创建／更新时间和删除资格不属于写入命令，发送这些字段不会改变服务端值。`definitionAuthority`、`creationChannel`、`status` 可回传当前值，但只能作为一致性声明，不能赋予其他来源或直接制造发布状态；普通编辑不再提供直接改生命周期状态的隐式入口。
+
+普通 `PUT /api/workflows/{id}` 和 Studio 保存均必须传 `baseRevision`。所属事务先锁定并重读 Workflow，再检查来源和修订；SDK、SYSTEM 以及 AI_QUICK_ACCESS 定义拒绝人工编辑。USER／AI_CODING 定义可以在 Studio 继续编辑，保留原创建入口。过期修订沿用 409／`WORKFLOW_WORKING_COPY_CONFLICT` 与当前 ETag；缺失修订、只读定义或试图改写所属字段返回结构化 400。草稿与引用索引同事务提交，发布后的编辑保留生命周期状态与历史快照。
+
+删除仍遵循草稿且无 Agent 引用的既有规则，先锁定 Workflow 后清理所属记录。发布／回滚保留原事务及可信操作人要求。项目权限和跨服务身份校验仍由原 Control／Runtime 入口承担，本次没有新增授权模型。GraphSpec 候选校验在 Workflow 内构造隔离候选；尚未保存的新候选也使用请求指定的默认模型，不修改已保存定义。
+
+[公开管理持久化回归](../../reachai-runtime-service/src/test/java/com/enterprise/ai/runtime/workflow/RuntimeWorkflowManagementPersistenceTest.java) 通过 MockMvc、实际 MyBatis/H2 与 Spring 事务验证 JSON 绑定、编辑归属、并发修订、失败回滚和历史响应。发布校验／能力固定端口使用替身，未替代真实 MySQL、Control 签名或跨服务验收。现有 SQL 基线满足本批，没有新增 DDL 或升级脚本。
+
+### 2.3 Studio 工作副本异步结果归属
+
+Studio 的运行校验由 [工作副本校验 composable](../../ai-admin-front/src/views/workflow/composables/useWorkflowStudioRuntimeValidation.ts) 维护。请求同时绑定当前文档实例、路由、请求序号、图、默认模型和编辑代次。重新加载同一 Workflow、切换路由或销毁页面立即使旧请求失效；切走后再切回相同 ID，也不能接收此前结果。路由已经切换但新文档尚未加载时，不得把旧图提交到新 Workflow 的校验入口。原有画布同步、服务失败提示和显式重试保留。
+
+保存与发布的版本冲突确认属于发起操作的工作副本。用户在弹窗出现后切换 Workflow 或重新加载文档，旧确认不得重新加载并覆盖当前内容；发布冲突还校验编辑代次。覆盖操作不接受弹窗默认焦点，必须显式选择；取消或 Escape 保留本地输入。服务端修订检查仍是最终并发边界。
+
+本批浏览器检查使用模拟的 503／409 和延迟响应，覆盖键盘重试、重复校验保护、旧响应、旧保存／发布确认及 768 像素视口。未向后端保存或发布业务数据，不能据此宣称真实跨服务发布已经验收。
+
 ## 3. GraphSpec 当前契约
 
 GraphSpec 顶层只允许：
@@ -76,6 +108,16 @@ Studio 新建节点和 AI Proposal 默认使用 `REQUIRED`。历史 GraphSpec �
 
 ## 5. 编辑、调试与发布生命周期
 
+发布与回滚命令必须携带调用方已读取的 `baseRevision`。Runtime 在同一事务内锁定 `runtime_workflow` 行，校验修订、校验发布内容、切换唯一活动版本、推进修订并追加 `runtime_workflow_release_event`。过期或缺失修订不得通过省略参数绕过；并发命令只能有一个接受同一修订。
+
+管理端发布/回滚的操作人来自 Control 已验证平台会话，经精确请求体 HMAC 传递到 Runtime，请求体不接受手填发布人。平台操作记录为 `platform:<userId>`；页面工作台与 AI Coding 服务内交付记录其服务端工作流身份，不把请求中的显示名称当成人工审计身份。
+
+回滚表示重新激活选定的历史发布版本，保留当前编辑草稿；原发布人、发布时间和发布快照保持原值，操作人和回滚时间另记新事件。历史版本按其发布快照中的默认模型和业务形态重新校验，不能借用当前草稿的配置通过校验。活动版本超过一个属于需修复的数据异常，运行查询不得静默选第一项。
+
+Supervisor、MCP 和 Automation 通过 Workflow 所有的 `RuntimePublishedWorkflowSnapshot` 解析发布执行配置。节点显式模型优先，其次为发布默认模型；发布默认值明确为空时不能从调用参数补入模型。损坏或缺少执行配置的快照拒绝执行，重新发布后恢复。
+
+发布版本的输入输出 Schema 只能从发布快照与发布 GraphSpec 解析，缺少 Schema 时使用通用输入约束，不能读取当前草稿。评测目标快照的文档 `schemaVersion=2` 保存完整发布配置，并以 Workflow ID、发布版本 ID 和工具名共同定位绑定；同一 Workflow 的不同固定版本不能相互覆盖。旧评测快照需要重新捕获，不能用当前草稿补齐历史配置。
+
 | 概念 | 含义 |
 | --- | --- |
 | `WorkflowWorkingCopy` | `runtime_workflow` 中可编辑的当前工作副本 |
@@ -112,6 +154,8 @@ Studio 新建节点和 AI Proposal 默认使用 `REQUIRED`。历史 GraphSpec �
 ## 7. 数据库切换
 
 `sql/initV2.sql` 是唯一新库基线。项目不提供旧 Workflow 数据转换脚本；旧 Workflow 行、旧版本快照、旧调试会话和旧 GraphSpec 不保证可执行。
+
+`runtime_workflow_capability_reference` 是 Workflow 所有的可重建引用索引，不参与执行语义。定义保存、发布与删除须同时维护索引；发布或审计失败时索引也回滚。已有库先执行 [引用索引升级](../../sql/upgrade-20260905-workflow-reference-index.sql)，Runtime 启动时补齐缺失索引。索引缺失、草稿修订不匹配或图无法解析时，能力影响证据为 `PARTIAL`，不能作为零引用的依据；历史发布版本的固定引用继续参与查询。
 
 历史 `upgrade-20260722-workflow-semantics.sql` 已并入 GitHub 基线并从当前树清理。早于 `ae9e1ce6` 的开发/测试库必须先备份，再从对应 Git tag 获取这份破坏性迁移或按当前 `initV2.sql` 重建；当前合并升级不重复承载旧 Workflow 数据转换。
 

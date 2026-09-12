@@ -5,13 +5,19 @@ import java.util.List;
 
 /** Server-attested platform principal used by console authorization. */
 public record PlatformAuthenticatedSession(
-        PlatformUserEntity user,
+        PlatformPrincipal user,
         String sessionId,
         LocalDateTime expiresAt,
         List<String> roles,
         List<String> permissions,
         List<PlatformPermissionGrant> permissionGrants
 ) {
+
+    public PlatformAuthenticatedSession {
+        roles = roles == null ? List.of() : List.copyOf(roles);
+        permissions = permissions == null ? List.of() : List.copyOf(permissions);
+        permissionGrants = permissionGrants == null ? List.of() : List.copyOf(permissionGrants);
+    }
 
     public boolean hasGlobalPermission(String requiredPermission) {
         return permissionGrants.stream().anyMatch(grant -> grant.grantsGlobal(requiredPermission));

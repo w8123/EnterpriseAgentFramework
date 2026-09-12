@@ -1,5 +1,7 @@
 package com.enterprise.ai.control.runtime;
 
+import com.enterprise.ai.control.identity.PlatformPrincipal;
+
 import com.enterprise.ai.control.client.runtime.RuntimeProxyClient;
 import com.enterprise.ai.control.identity.PlatformAuthenticatedSession;
 import com.enterprise.ai.control.identity.PlatformConsoleAuthInterceptor;
@@ -172,7 +174,7 @@ class ControlAgentEvalPublicControllerTest {
         user.setId(userId);
         user.setUsername(username);
         PlatformAuthenticatedSession session = new PlatformAuthenticatedSession(
-                user,
+                PlatformPrincipal.fromUser(user),
                 "session-" + userId,
                 LocalDateTime.now().plusHours(1),
                 List.of("PLATFORM_ADMIN"),

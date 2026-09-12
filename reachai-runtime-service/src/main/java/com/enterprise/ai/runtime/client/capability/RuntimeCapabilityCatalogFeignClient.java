@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import java.util.List;
 import java.util.Map;
 
-/** Raw transport. Tool execution must only be called by {@link RuntimeCapabilityCatalogGateway}. */
+/** Raw transport. Tool calls must pass through the guarded Runtime execution gateway. */
 @FeignClient(
         name = "reachai-capability-service",
         contextId = "runtimeCapabilityCatalogFeignClient",

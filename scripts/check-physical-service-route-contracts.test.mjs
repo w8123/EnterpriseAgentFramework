@@ -1212,42 +1212,6 @@ class CapabilitySemanticCatalogController {
     Object edit() { return null; }
 }
 `)
-writeFile(allowedRoot, 'reachai-capability-service/src/main/java/com/enterprise/ai/capability/catalog/CapabilityKernelController.java', `
-package com.enterprise.ai.capability.catalog;
-
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
-
-@RestController
-@RequestMapping("/api/capabilities")
-class CapabilityKernelController {
-    @GetMapping
-    Object listModules() { return null; }
-
-    @PostMapping
-    Object saveModule() { return null; }
-
-    @GetMapping("/{code}/tools")
-    Object listTools() { return null; }
-
-    @PostMapping("/{code}/tools")
-    Object saveTool() { return null; }
-
-    @GetMapping("/{code}/compositions")
-    Object listCompositions() { return null; }
-
-    @PostMapping("/{code}/compositions")
-    Object saveComposition() { return null; }
-
-    @GetMapping("/{code}/interactions")
-    Object listInteractions() { return null; }
-
-    @PostMapping("/{code}/interactions")
-    Object saveInteraction() { return null; }
-}
-`)
 writeFile(allowedRoot, 'reachai-capability-service/src/main/java/com/enterprise/ai/capability/catalog/DomainController.java', `
 package com.enterprise.ai.capability.catalog;
 
@@ -1327,18 +1291,23 @@ class CapabilityRegistryCompatibilityController {
     @PostMapping("/projects/{projectCode}/capabilities/diff")
     Object diff() { return null; }
 
-    @PostMapping("/projects/{projectCode}/capabilities/apply")
-    Object apply() { return null; }
-
     @GetMapping("/projects/{projectCode}/capability-snapshots")
     Object snapshots() { return null; }
 
-    @GetMapping("/capability-snapshots/{snapshotId}/diff-items")
+    @GetMapping("/projects/{projectCode}/capability-changes")
+    Object capabilityChanges() { return null; }
+
+    @GetMapping("/projects/{projectCode}/capability-snapshots/{snapshotId}/diff-items")
     Object diffItems() { return null; }
 
-    @PostMapping("/capability-diff-items/{diffItemId}/review")
+    @PostMapping("/projects/{projectCode}/capability-diff-items/{diffItemId}/review")
     Object review() { return null; }
+
+    @PostMapping("/projects/{projectCode}/capability-diff-items/{diffItemId}/rollback")
+    Object rollback() { return null; }
 }
+
+
 `)
 writeFile(allowedRoot, 'reachai-capability-service/src/main/java/com/enterprise/ai/capability/catalog/graph/CapabilityApiGraphSnapshotController.java', `
 package com.enterprise.ai.capability.catalog.graph;
@@ -1397,3 +1366,31 @@ const allowedResult = spawnSync(process.execPath, [scriptPath], {
 })
 
 assert.strictEqual(allowedResult.status, 0, allowedResult.stderr || allowedResult.stdout)
+
+const compositionRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'reachai-route-contracts-composition-'))
+writeFile(compositionRoot, 'reachai-control-service/src/main/java/com/enterprise/ai/control/config/pageworkbench/PageWorkbenchRuntimeClient.java', `
+package com.enterprise.ai.control.config.pageworkbench;
+@FeignClient(name = "page-workbench-runtime")
+interface PageWorkbenchRuntimeClient {
+    @RequestMapping(method = RequestMethod.GET, path = "/api/workbench/probe")
+    Object probe();
+}
+`)
+const missingCompositionTarget = spawnSync(process.execPath, [scriptPath], { cwd: compositionRoot, encoding: 'utf8' })
+assert.notStrictEqual(missingCompositionTarget.status, 0)
+assert.match(missingCompositionTarget.stderr, /control RuntimeProxyClient route must exist in reachai-runtime-service/)
+assert.match(missingCompositionTarget.stderr, /GET \/api\/workbench\/probe/)
+writeFile(compositionRoot, 'reachai-runtime-service/src/main/java/com/enterprise/ai/runtime/ProbeController.java', `
+package com.enterprise.ai.runtime;
+@RestController
+class ProbeController {
+    @GetMapping("/api/workbench/probe")
+    Object probe() { return null; }
+}
+`)
+const missingCompositionPublicEntry = spawnSync(process.execPath, [scriptPath], { cwd: compositionRoot, encoding: 'utf8' })
+assert.notStrictEqual(missingCompositionPublicEntry.status, 0)
+assert.match(missingCompositionPublicEntry.stderr, /control RuntimeProxyClient public route must be exposed by reachai-control-service/)
+assert.match(missingCompositionPublicEntry.stderr, /GET \/api\/workbench\/probe/)
+
+console.log('physical service route checker regression tests passed (shared clients and composition bindings)')

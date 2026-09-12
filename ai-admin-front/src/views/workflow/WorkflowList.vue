@@ -1063,6 +1063,11 @@ function workflowStatusClass(status?: string | null) {
   flex: 1;
   min-height: 0;
   background: transparent;
+  transition: max-height var(--motion-duration-fast) var(--motion-easing-standard);
+
+  :deep(.el-scrollbar__wrap) {
+    transition: max-height var(--motion-duration-fast) var(--motion-easing-standard);
+  }
 
   :deep(.el-table__inner-wrapper::before) {
     height: 0;
@@ -1630,6 +1635,13 @@ function workflowStatusClass(status?: string | null) {
   .table-footer {
     align-items: flex-start;
     flex-direction: column;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workflow-table,
+  .workflow-table :deep(.el-scrollbar__wrap) {
+    transition: none;
   }
 }
 </style>

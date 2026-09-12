@@ -28,6 +28,7 @@ final class ReachAiRegistryCredentialStore {
 
     private final ReachAiRegistryProperties properties;
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private IssuedCredential pendingCredential;
 
     ReachAiRegistryCredentialStore(ReachAiRegistryProperties properties) {
         this.properties = properties;
@@ -59,6 +60,14 @@ final class ReachAiRegistryCredentialStore {
         properties.getRegistry().setAppSecret(appSecret);
     }
 
+    /** Called under the client's registration lock before another network attempt. */
+    void prepareForRegistration() {
+        if (pendingCredential != null) {
+            persistPendingCredential();
+        }
+        loadIntoProperties();
+    }
+
     void persistFromRegistrationResponse(String responseBody) {
         try {
             JsonNode response = objectMapper.readTree(responseBody == null ? "{}" : responseBody);
@@ -70,29 +79,56 @@ final class ReachAiRegistryCredentialStore {
                     || !projectCode.equals(trimmed(properties.getProject().getCode()))) {
                 throw new IllegalStateException("registry enrollment response did not contain a matching issued credential");
             }
+            pendingCredential = new IssuedCredential(projectCode, appKey, appSecret);
+        } catch (Exception failure) {
+            throw new IllegalStateException("ReachAI registry enrollment response did not contain a matching issued credential", failure);
+        }
+        persistPendingCredential();
+    }
+
+    private void persistPendingCredential() {
+        IssuedCredential credential = pendingCredential;
+        try {
             Properties stored = new Properties();
-            stored.setProperty(KEY_PROJECT_CODE, projectCode);
-            stored.setProperty(KEY_APP_KEY, appKey);
-            stored.setProperty(KEY_APP_SECRET, appSecret);
+            stored.setProperty(KEY_PROJECT_CODE, credential.projectCode);
+            stored.setProperty(KEY_APP_KEY, credential.appKey);
+            stored.setProperty(KEY_APP_SECRET, credential.appSecret);
             Path target = credentialPath();
             Path parent = target.toAbsolutePath().getParent();
             if (parent != null) {
                 Files.createDirectories(parent);
             }
             Path temporary = Files.createTempFile(parent, target.getFileName().toString(), ".tmp");
-            try (OutputStream output = Files.newOutputStream(temporary, StandardOpenOption.TRUNCATE_EXISTING)) {
-                stored.store(output, "ReachAI registry credential; do not commit or share");
-            }
             try {
-                Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-            } catch (AtomicMoveNotSupportedException noAtomicMove) {
-                Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING);
+                try (OutputStream output = Files.newOutputStream(temporary, StandardOpenOption.TRUNCATE_EXISTING)) {
+                    stored.store(output, "ReachAI registry credential; do not commit or share");
+                }
+                try {
+                    Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+                } catch (AtomicMoveNotSupportedException noAtomicMove) {
+                    Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING);
+                }
+            } finally {
+                Files.deleteIfExists(temporary);
             }
-            properties.getRegistry().setAppKey(appKey);
-            properties.getRegistry().setAppSecret(appSecret);
+            properties.getRegistry().setAppKey(credential.appKey);
+            properties.getRegistry().setAppSecret(credential.appSecret);
             properties.getRegistry().setEnrollmentToken(null);
+            pendingCredential = null;
         } catch (Exception failure) {
             throw new IllegalStateException("ReachAI registry credential could not be persisted", failure);
+        }
+    }
+
+    private static final class IssuedCredential {
+        final String projectCode;
+        final String appKey;
+        final String appSecret;
+
+        IssuedCredential(String projectCode, String appKey, String appSecret) {
+            this.projectCode = projectCode;
+            this.appKey = appKey;
+            this.appSecret = appSecret;
         }
     }
 

@@ -4,7 +4,7 @@ import com.enterprise.ai.runtime.credential.RuntimeWorkflowCredentialEntity;
 import com.enterprise.ai.runtime.credential.RuntimeWorkflowCredentialMapper;
 import com.enterprise.ai.runtime.credential.RuntimeWorkflowCredentialCipher;
 import com.enterprise.ai.runtime.credential.RuntimeWorkflowCredentialService;
-import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
+import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;

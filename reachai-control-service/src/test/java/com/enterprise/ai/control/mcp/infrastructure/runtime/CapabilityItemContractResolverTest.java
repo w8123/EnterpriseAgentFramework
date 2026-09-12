@@ -41,6 +41,8 @@ class CapabilityItemContractResolverTest {
         body.put("description", "raw description");
         body.put("aiDescription", aiDescription);
         body.put("parametersJson", parametersJson);
+        body.put("contractHash", "a".repeat(64));
+        body.put("sourceAvailability", "READY");
         body.put("sideEffect", sideEffect);
         body.put("enabled", Boolean.TRUE);
         body.put("qualifiedName", "orders:" + name);
@@ -70,7 +72,7 @@ class CapabilityItemContractResolverTest {
         assertEquals("AI 取消订单说明", projection.description());
         assertEquals("IRREVERSIBLE", projection.riskLevel());
         assertEquals(McpPublicationItemKind.CAPABILITY, projection.sourceKind());
-        assertEquals("orders:order.cancel", projection.sourceRef());
+        assertEquals("orders:order_cancel", projection.sourceRef());
         assertTrue(projection.workflowVersionId() == null);
         String expectedSchema = """
                 {"type":"object","properties":{"orderId":{"type":"string","description":"订单 ID"},"reason":{"type":"string"}},"required":["orderId"]}""";
@@ -215,5 +217,15 @@ class CapabilityItemContractResolverTest {
         McpContractResolutionException exception = assertThrows(McpContractResolutionException.class,
                 () -> resolver.resolve("  "));
         assertEquals("MCP_REQUIRED_FIELD", exception.code());
+    }
+
+    @Test void publicationFreezesOwnerHashAndRefusesSourceDrift() {
+        Map<String, Object> body = definition("read", "查询", "业务查询", "[]", "READ_ONLY");
+        body.put("qualifiedName", "orders:read");
+        when(capabilityProxyClient.getToolDefinition("orders:read")).thenReturn(ResponseEntity.ok(body));
+        assertEquals("a".repeat(64), resolver.resolve("orders:read").capabilityContractHash());
+        body.put("sourceAvailability", "CONTRACT_DRIFT");
+        assertEquals("MCP_CAPABILITY_SOURCE_NOT_READY", assertThrows(McpContractResolutionException.class,
+                () -> resolver.resolve("orders:read")).code());
     }
 }

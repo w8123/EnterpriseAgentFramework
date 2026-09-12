@@ -1,20 +1,19 @@
 package com.enterprise.ai.runtime.supervisor;
 
-import com.enterprise.ai.runtime.agent.RuntimeAgentConfigVersionEntity;
+
+import com.enterprise.ai.runtime.agent.RuntimeAgentConfigSnapshot;
 import com.enterprise.ai.runtime.agent.RuntimeAgentView;
-import com.enterprise.ai.runtime.agent.RuntimeAgentWorkflowToolEntity;
-import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
-import com.enterprise.ai.runtime.eval.RuntimeEvalExecutionContext;
-import com.enterprise.ai.runtime.execution.SupervisorRuntimeAdapter.PolicyApprovalGrant;
+import com.enterprise.ai.runtime.agent.RuntimeAgentWorkflowToolSnapshot;
+import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
+import com.enterprise.ai.runtime.execution.policy.RuntimeEvalExecutionContext;
+import com.enterprise.ai.runtime.execution.RuntimeSupervisorApprovalPort.PolicyApprovalGrant;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -28,13 +27,12 @@ import static org.mockito.Mockito.when;
 
 class SupervisorToolPolicyServiceTest {
 
-    private final SupervisorExecutionTraceService traceService = mock(SupervisorExecutionTraceService.class);
     private final SupervisorApprovalInteractionService approvalService = mock(SupervisorApprovalInteractionService.class);
     private final SupervisorToolPolicyService service =
-            new SupervisorToolPolicyService(traceService, approvalService, new ObjectMapper());
+            new SupervisorToolPolicyService(org.mockito.Mockito.mock(com.enterprise.ai.runtime.runops.RuntimeGuardDecisionWriter.class), approvalService, new ObjectMapper());
     private SupervisorExecutionTraceService.TraceHandle trace;
     private RuntimeAgentView agent;
-    private RuntimeAgentConfigVersionEntity config;
+    private RuntimeAgentConfigSnapshot config;
 
     @BeforeEach
     void setUp() {
@@ -43,19 +41,15 @@ class SupervisorToolPolicyServiceTest {
                 "agent-1", 7L, "qmssmp", "team-assistant", "班组助手", null,
                 "PROJECT", "[\"team:user\"]", true,
                 7L, 7L, 1, "ACTIVE", "AGENTSCOPE", 1, null, null);
-        config = new RuntimeAgentConfigVersionEntity();
-        config.setId(7L);
-        config.setAgentId("agent-1");
-        config.setToolCatalogMode("ALLOW_LIST");
-        config.setPolicyProfile("STANDARD");
-        config.setConfigJson("""
+        config = RuntimeAgentConfigSnapshot.builder().id(7L).agentId("agent-1")
+                .toolCatalogMode("ALLOW_LIST").policyProfile("STANDARD").configJson("""
                 {"policy":{"allowedTenantIds":["tenant-a"],"permissionRoles":{"team:read":["team:user"]}}}
-                """);
+                """).build();
     }
 
     @Test
     void allowsReadToolWhenProjectTenantRoleAndPermissionMatch() {
-        RuntimeAgentWorkflowToolEntity tool = tool("READ", "team:read", true);
+        RuntimeAgentWorkflowToolSnapshot tool = tool("READ", "team:read", true);
 
         SupervisorToolPolicyService.PolicyDecision decision = service.evaluate(
                 trace, agent, config, tool, input("查询第一条有效班组信息"), Map.of(), null);
@@ -67,7 +61,7 @@ class SupervisorToolPolicyServiceTest {
 
     @Test
     void pageActionRequiresExplicitPageIntent() {
-        RuntimeAgentWorkflowToolEntity tool = tool("PAGE_ACTION", "team:read", false);
+        RuntimeAgentWorkflowToolSnapshot tool = tool("PAGE_ACTION", "team:read", false);
 
         SupervisorToolPolicyService.PolicyDecision denied = service.evaluate(
                 trace, agent, config, tool, input("查询第一条有效班组信息"), Map.of(), null);
@@ -122,10 +116,10 @@ class SupervisorToolPolicyServiceTest {
 
     @Test
     void writeToolPausesForExactOneTimeApproval() {
-        RuntimeAgentWorkflowToolEntity tool = tool("WRITE", "team:write", false);
-        config.setConfigJson("""
+        RuntimeAgentWorkflowToolSnapshot tool = tool("WRITE", "team:write", false);
+        config = config.toBuilder().configJson("""
                 {"policy":{"allowedTenantIds":["tenant-a"],"permissionRoles":{"team:write":["team:user"]}}}
-                """);
+                """).build();
         Map<String, Object> args = Map.of("teamId", "T-1", "name", "一班");
         when(approvalService.create(any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(new SupervisorApprovalInteractionService.ApprovalRequest(
@@ -154,7 +148,7 @@ class SupervisorToolPolicyServiceTest {
 
     @Test
     void irreversibleToolIsDeniedByDefault() {
-        RuntimeAgentWorkflowToolEntity tool = tool("IRREVERSIBLE", "team:delete", false);
+        RuntimeAgentWorkflowToolSnapshot tool = tool("IRREVERSIBLE", "team:delete", false);
 
         SupervisorToolPolicyService.PolicyDecision decision = service.evaluate(
                 trace, agent, config, tool, input("删除班组 T-1"), Map.of("teamId", "T-1"), null);
@@ -166,12 +160,12 @@ class SupervisorToolPolicyServiceTest {
 
     @Test
     void evalBlocksWriteBeforeCreatingApprovalButStillAllowsRead() {
-        RuntimeAgentWorkflowToolEntity write = tool("WRITE", "team:write", false);
-        RuntimeAgentWorkflowToolEntity read = tool("READ", "team:read", true);
-        config.setConfigJson("""
+        RuntimeAgentWorkflowToolSnapshot write = tool("WRITE", "team:write", false);
+        RuntimeAgentWorkflowToolSnapshot read = tool("READ", "team:read", true);
+        config = config.toBuilder().configJson("""
                 {"policy":{"allowedTenantIds":["tenant-a"],"permissionRoles":{
                   "team:write":["team:user"],"team:read":["team:user"]}}}
-                """);
+                """).build();
         RuntimeEvalExecutionContext evaluation =
                 RuntimeEvalExecutionContext.readOnly("exp-1", "item-1", null);
 
@@ -189,7 +183,7 @@ class SupervisorToolPolicyServiceTest {
 
     @Test
     void rejectsMismatchedProjectTenantRoleAndMissingPermission() {
-        RuntimeAgentWorkflowToolEntity tool = tool("READ", "team:read", true);
+        RuntimeAgentWorkflowToolSnapshot tool = tool("READ", "team:read", true);
         assertEquals("DENY", service.evaluate(trace, agent, config, tool,
                 Map.of("message", "查询", "projectCode", "other", "tenantId", "tenant-a",
                         "roles", List.of("team:user")), Map.of(), null).decision());
@@ -199,14 +193,14 @@ class SupervisorToolPolicyServiceTest {
         assertEquals("DENY", service.evaluate(trace, agent, config, tool,
                 Map.of("message", "查询", "projectCode", "qmssmp", "tenantId", "tenant-a",
                         "roles", List.of("guest")), Map.of(), null).decision());
-        tool.setPermissionKey(null);
+        tool = tool.toBuilder().permissionKey(null).build();
         assertEquals("DENY", service.evaluate(trace, agent, config, tool,
                 input("查询"), Map.of(), null).decision());
     }
 
     @Test
     void rejectsInvalidPolicyJsonInsteadOfSkippingTenantAndPermissionChecks() {
-        config.setConfigJson("{invalid-json");
+        config = config.toBuilder().configJson("{invalid-json").build();
 
         SupervisorToolPolicyService.PolicyDecision decision = service.evaluate(
                 trace, agent, config, tool("READ", "team:read", true), input("query"), Map.of(), null);
@@ -216,14 +210,15 @@ class SupervisorToolPolicyServiceTest {
         assertEquals("Supervisor policy configuration is invalid", decision.reason());
     }
 
-    private RuntimeAgentWorkflowToolEntity tool(String risk, String permissionKey, boolean readOnly) {
-        RuntimeAgentWorkflowToolEntity tool = new RuntimeAgentWorkflowToolEntity();
-        tool.setToolName("query_team");
-        tool.setWorkflowId("wf-team");
-        tool.setRiskLevel(risk);
-        tool.setPermissionKey(permissionKey);
-        tool.setReadOnly(readOnly);
-        tool.setEnabled(true);
+    private RuntimeAgentWorkflowToolSnapshot tool(String risk, String permissionKey, boolean readOnly) {
+        RuntimeAgentWorkflowToolSnapshot tool = RuntimeAgentWorkflowToolSnapshot.builder()
+                .toolName("query_team")
+                .workflowId("wf-team")
+                .riskLevel(risk)
+                .permissionKey(permissionKey)
+                .readOnly(readOnly)
+                .enabled(true)
+                .build();
         return tool;
     }
 

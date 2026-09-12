@@ -1,5 +1,7 @@
 package com.enterprise.ai.control.context;
 
+import com.enterprise.ai.control.identity.PlatformPrincipal;
+
 import com.enterprise.ai.control.identity.PlatformAuthenticatedSession;
 import com.enterprise.ai.control.identity.PlatformAuthorizationService;
 import com.enterprise.ai.control.identity.PlatformAuthAuditService;
@@ -134,7 +136,7 @@ class ContextRuntimeUserMappingControllerTest {
         PlatformUserEntity user = new PlatformUserEntity();
         user.setId(userId);
         PlatformAuthenticatedSession session = new PlatformAuthenticatedSession(
-                user, "session-" + userId, LocalDateTime.now().plusHours(1), List.of(), List.of(), List.of());
+                PlatformPrincipal.fromUser(user), "session-" + userId, LocalDateTime.now().plusHours(1), List.of(), List.of(), List.of());
         HttpServletRequest request = mock(HttpServletRequest.class);
         when(request.getAttribute(PlatformConsoleAuthInterceptor.SESSION_REQUEST_ATTRIBUTE)).thenReturn(session);
         return request;

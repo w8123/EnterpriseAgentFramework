@@ -36,6 +36,9 @@ public class ScanProjectToolEntity {
 
     private String sourceLocation;
 
+    /** 服务端绑定的来源能力标识；由注册治理维护，不能通过目录编辑改变。 */
+    private String sourceQualifiedName;
+
     private String httpMethod;
 
     private String baseUrl;

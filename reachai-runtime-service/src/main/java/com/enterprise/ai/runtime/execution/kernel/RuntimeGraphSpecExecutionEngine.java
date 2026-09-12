@@ -13,11 +13,11 @@ import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionEventSink;
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionResult;
 import com.enterprise.ai.runtime.execution.RuntimeBusinessMemoryHydrationPort;
 import com.enterprise.ai.runtime.execution.RuntimeBusinessMemoryHydrationPort.HydrationBatch;
-import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
+import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
 import com.enterprise.ai.runtime.execution.http.WorkflowHttpClient;
 import com.enterprise.ai.runtime.execution.interaction.WorkflowInteractionCodes;
 import com.enterprise.ai.runtime.execution.event.RuntimeExecutionEventBridgeSink;
-import com.enterprise.ai.runtime.eval.RuntimeEvalExecutionContext;
+import com.enterprise.ai.runtime.execution.policy.RuntimeEvalExecutionContext;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.util.StringUtils;
 
@@ -930,13 +930,6 @@ public final class RuntimeGraphSpecExecutionEngine {
 
     private RuntimeGraphSpecExecutionResult cancelled(String nodeId, String nodeType) {
         return failure("RUNTIME_GRAPH_CANCELLED", "Workflow execution cancelled", nodeId, nodeType);
-    }
-
-    private Map<String, Object> nodeMetadata(GraphSpec.Node node, String nodeType) {
-        Map<String, Object> metadata = new LinkedHashMap<>();
-        metadata.put("nodeId", node.getId());
-        metadata.put("nodeType", nodeType);
-        return metadata;
     }
 
     private Map<String, Object> initialContext(Map<String, Object> request) {

@@ -48,14 +48,7 @@ public class RuntimeAgentService {
             return Optional.empty();
         }
         String lookup = idOrKeySlug.trim();
-        RuntimeAgentEntity byId = mapper.selectById(lookup);
-        if (byId != null) {
-            return Optional.of(toView(byId));
-        }
-        return Optional.ofNullable(mapper.selectOne(Wrappers.<RuntimeAgentEntity>lambdaQuery()
-                        .eq(RuntimeAgentEntity::getKeySlug, lookup)
-                        .last("LIMIT 1")))
-                .map(this::toView);
+        return Optional.ofNullable(mapper.selectByIdOrKeySlug(lookup)).map(this::toView);
     }
 
     @Transactional
@@ -71,12 +64,23 @@ public class RuntimeAgentService {
 
     @Transactional
     public RuntimeAgentView update(String id, RuntimeAgentIdentityRequest update) {
+        if (StringUtils.hasText(id)) mapper.lockById(id.trim());
         RuntimeAgentEntity current = findEntityById(id)
                 .orElseThrow(() -> new IllegalArgumentException("agent not found: " + id));
         if (update != null) {
             merge(current, update);
             current.setUpdatedAt(LocalDateTime.now());
-            mapper.updateById(current);
+            mapper.update(null, Wrappers.<RuntimeAgentEntity>lambdaUpdate()
+                    .eq(RuntimeAgentEntity::getId, current.getId())
+                    .set(RuntimeAgentEntity::getKeySlug, current.getKeySlug())
+                    .set(RuntimeAgentEntity::getName, current.getName())
+                    .set(RuntimeAgentEntity::getDescription, current.getDescription())
+                    .set(RuntimeAgentEntity::getProjectId, current.getProjectId())
+                    .set(RuntimeAgentEntity::getProjectCode, current.getProjectCode())
+                    .set(RuntimeAgentEntity::getVisibility, current.getVisibility())
+                    .set(RuntimeAgentEntity::getAllowedRolesJson, current.getAllowedRolesJson())
+                    .set(RuntimeAgentEntity::getEnabled, current.getEnabled())
+                    .set(RuntimeAgentEntity::getUpdatedAt, current.getUpdatedAt()));
         }
         return toView(current);
     }

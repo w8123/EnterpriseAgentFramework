@@ -36,7 +36,9 @@
 | `/api/mcp/**`、`/mcp/**` | MCP 互联中心：发布/Client/流水管理 + `tools/list`/`tools/call` 协议 | Control 本地修订驱动治理，`tools/call` 经 internal 委托 Runtime |
 | `/gateway/**` | 公开 AI Gateway 目录与 Agent Chat | Control 入口，执行委托 Runtime |
 | `/api/agents/**`、`/api/workflows/**`、`/api/runops/**` | Runtime 公共契约 | Control 平台会话边界后委托 Runtime |
-| `/api/tools/**`、`/api/capabilities/**`、`/api/api-market/**` | Capability 公共契约 | Control 平台会话边界后委托 Capability |
+| `GET /api/tools/**`、`/api/api-market/**` | Capability 公共契约 | Control 平台会话边界后委托 Capability；能力目录只读 |
+| `/api/capability-review/projects/{projectCode}/**` | 能力变更治理 | Control 校验项目级 RBAC 与会话 operator，再用精确 body HMAC 委托 Capability |
+| `/api/capabilities/**` | 退役兼容面 | 固定返回 `410 Gone`，不再提供 Kernel 人工 CRUD |
 | `/api/knowledge/**` | 受保护的业务索引/文档导入控制台入口 | Control 做会话/RBAC/HMAC，再委托 Knowledge |
 
 完整生命周期以 [Public Route Contracts](../docs/architecture/public-route-contracts.md) 和 [Control API 认证边界矩阵](../docs/architecture/platform-api-auth-matrix.md) 为准。路径在 Control 出现不代表业务数据归 Control。

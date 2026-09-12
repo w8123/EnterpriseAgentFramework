@@ -86,27 +86,27 @@ public class RuntimeAgentSkillRepositoryFactory {
         this.maxFiles = maxFiles;
     }
 
-    public PreparedSkills prepare(List<RuntimeAgentSkillBindingEntity> bindings) {
+    public PreparedSkills prepare(List<RuntimeAgentSkillBindingSnapshot> bindings) {
         return prepare(bindings, null);
     }
 
-    public PreparedSkills prepare(List<RuntimeAgentSkillBindingEntity> bindings, String agentProjectCode) {
+    public PreparedSkills prepare(List<RuntimeAgentSkillBindingSnapshot> bindings, String agentProjectCode) {
         if (bindings == null || bindings.isEmpty()) {
             return PreparedSkills.empty();
         }
         validateProjectScope(bindings, agentProjectCode);
         List<AgentSkillRepository> repositories = new ArrayList<>();
-        List<RuntimeAgentSkillBindingEntity> active = new ArrayList<>();
+        List<RuntimeAgentSkillBindingSnapshot> active = new ArrayList<>();
         List<SkippedSkill> skipped = new ArrayList<>();
         StringBuilder alwaysInstructions = new StringBuilder();
         try {
-            List<RuntimeAgentSkillBindingEntity> candidates = bindings.stream()
+            List<RuntimeAgentSkillBindingSnapshot> candidates = bindings.stream()
                     .filter(java.util.Objects::nonNull)
                     .filter(binding -> Boolean.TRUE.equals(binding.getEnabled()))
                     .filter(binding -> !"EXPLICIT".equalsIgnoreCase(binding.getActivationMode()))
                     .toList();
-            List<RuntimeAgentSkillBindingEntity> executableCandidates = new ArrayList<>();
-            for (RuntimeAgentSkillBindingEntity binding : candidates) {
+            List<RuntimeAgentSkillBindingSnapshot> executableCandidates = new ArrayList<>();
+            for (RuntimeAgentSkillBindingSnapshot binding : candidates) {
                 try {
                     validateBindingIdentity(binding);
                     executableCandidates.add(binding);
@@ -118,7 +118,7 @@ public class RuntimeAgentSkillRepositoryFactory {
                 }
             }
             ExecutionStatusBatch executionStatus = resolveExecutionStatus(executableCandidates);
-            for (RuntimeAgentSkillBindingEntity binding : executableCandidates) {
+            for (RuntimeAgentSkillBindingSnapshot binding : executableCandidates) {
                 String rejection = executionStatus.rejection(binding);
                 if (rejection != null) {
                     if (Boolean.TRUE.equals(binding.getRequired())) {
@@ -174,8 +174,8 @@ public class RuntimeAgentSkillRepositoryFactory {
         }
     }
 
-    private void validateProjectScope(List<RuntimeAgentSkillBindingEntity> bindings, String agentProjectCode) {
-        for (RuntimeAgentSkillBindingEntity binding : bindings) {
+    private void validateProjectScope(List<RuntimeAgentSkillBindingSnapshot> bindings, String agentProjectCode) {
+        for (RuntimeAgentSkillBindingSnapshot binding : bindings) {
             if (binding == null || !"PROJECT".equalsIgnoreCase(binding.getVisibility())) continue;
             if (!StringUtils.hasText(binding.getProjectCode())
                     || !StringUtils.hasText(agentProjectCode)
@@ -186,7 +186,7 @@ public class RuntimeAgentSkillRepositoryFactory {
         }
     }
 
-    private ExecutionStatusBatch resolveExecutionStatus(List<RuntimeAgentSkillBindingEntity> bindings) {
+    private ExecutionStatusBatch resolveExecutionStatus(List<RuntimeAgentSkillBindingSnapshot> bindings) {
         if (bindings == null || bindings.isEmpty()) return ExecutionStatusBatch.empty();
         List<ExecutionReference> references = bindings.stream()
                 .map(binding -> new ExecutionReference(
@@ -211,7 +211,7 @@ public class RuntimeAgentSkillRepositoryFactory {
         return new ExecutionStatusBatch(Map.copyOf(byVersion), null);
     }
 
-    private IllegalStateException unavailable(RuntimeAgentSkillBindingEntity binding,
+    private IllegalStateException unavailable(RuntimeAgentSkillBindingSnapshot binding,
                                               String reason,
                                               RuntimeException cause) {
         String message = "Required Agent Skill is unavailable: " + binding.getPublisher() + "/"
@@ -219,7 +219,7 @@ public class RuntimeAgentSkillRepositoryFactory {
         return cause == null ? new IllegalStateException(message) : new IllegalStateException(message, cause);
     }
 
-    private SkippedSkill skipped(RuntimeAgentSkillBindingEntity binding, String reason) {
+    private SkippedSkill skipped(RuntimeAgentSkillBindingSnapshot binding, String reason) {
         return new SkippedSkill(
                 binding.getSkillId(), binding.getSkillVersionId(),
                 binding.getPublisher() + "/" + binding.getStandardName(),
@@ -237,7 +237,7 @@ public class RuntimeAgentSkillRepositoryFactory {
         return "PACKAGE_LOAD_FAILED";
     }
 
-    Path materialize(RuntimeAgentSkillBindingEntity binding) {
+    Path materialize(RuntimeAgentSkillBindingSnapshot binding) {
         validateBindingIdentity(binding);
         String digest = binding.getSourceSha256().toLowerCase(Locale.ROOT);
         Path finalDir = cacheRoot.resolve("sha256").resolve(digest.substring(0, 2)).resolve(digest).normalize();
@@ -286,7 +286,7 @@ public class RuntimeAgentSkillRepositoryFactory {
         }
     }
 
-    private byte[] download(RuntimeAgentSkillBindingEntity binding) {
+    private byte[] download(RuntimeAgentSkillBindingSnapshot binding) {
         ResponseEntity<byte[]> response;
         try {
             response = controlClient.getPackage(binding.getSkillId(), binding.getSkillVersionId());
@@ -306,7 +306,7 @@ public class RuntimeAgentSkillRepositoryFactory {
         return body;
     }
 
-    private Manifest manifest(RuntimeAgentSkillBindingEntity binding) {
+    private Manifest manifest(RuntimeAgentSkillBindingSnapshot binding) {
         try {
             JsonNode root = objectMapper.readTree(binding.getPackageManifestJson());
             if (root == null || !root.isObject() || !root.path("files").isArray()) {
@@ -360,7 +360,7 @@ public class RuntimeAgentSkillRepositoryFactory {
 
     private void extractVerified(byte[] archive,
                                  Path temporary,
-                                 RuntimeAgentSkillBindingEntity binding,
+                                 RuntimeAgentSkillBindingSnapshot binding,
                                  Manifest manifest) throws IOException {
         Path skillDir = temporary.resolve("skills").resolve(binding.getStandardName()).normalize();
         requireInside(temporary, skillDir);
@@ -420,7 +420,7 @@ public class RuntimeAgentSkillRepositoryFactory {
     }
 
     private boolean isVerifiedCache(Path finalDir,
-                                    RuntimeAgentSkillBindingEntity binding,
+                                    RuntimeAgentSkillBindingSnapshot binding,
                                     Manifest manifest) {
         try {
             Path marker = finalDir.resolve(".verified");
@@ -509,7 +509,7 @@ public class RuntimeAgentSkillRepositoryFactory {
         }
     }
 
-    private void validateBindingIdentity(RuntimeAgentSkillBindingEntity binding) {
+    private void validateBindingIdentity(RuntimeAgentSkillBindingSnapshot binding) {
         if (binding == null || binding.getSkillId() == null || binding.getSkillVersionId() == null
                 || !StringUtils.hasText(binding.getPublisher())
                 || !StringUtils.hasText(binding.getStandardName())
@@ -666,7 +666,7 @@ public class RuntimeAgentSkillRepositoryFactory {
     }
 
     private void appendAlwaysInstruction(StringBuilder target,
-                                         RuntimeAgentSkillBindingEntity binding,
+                                         RuntimeAgentSkillBindingSnapshot binding,
                                          AgentSkill skill) {
         StringBuilder block = new StringBuilder();
         block.append("<reachai-always-skill name=\"")
@@ -722,7 +722,7 @@ public class RuntimeAgentSkillRepositoryFactory {
             return new ExecutionStatusBatch(Map.of(), null);
         }
 
-        String rejection(RuntimeAgentSkillBindingEntity binding) {
+        String rejection(RuntimeAgentSkillBindingSnapshot binding) {
             if (batchFailureReason != null) return batchFailureReason;
             ExecutionResolution resolution = resolutions.get(binding.getSkillVersionId());
             if (resolution == null) return "CONTROL_STATUS_MISSING";
@@ -749,13 +749,13 @@ public class RuntimeAgentSkillRepositoryFactory {
 
     public record PreparedSkills(
             List<AgentSkillRepository> repositories,
-            List<RuntimeAgentSkillBindingEntity> activeBindings,
+            List<RuntimeAgentSkillBindingSnapshot> activeBindings,
             String alwaysInstructions,
             List<SkippedSkill> skippedSkills) implements AutoCloseable {
 
         public PreparedSkills(
                 List<AgentSkillRepository> repositories,
-                List<RuntimeAgentSkillBindingEntity> activeBindings,
+                List<RuntimeAgentSkillBindingSnapshot> activeBindings,
                 String alwaysInstructions) {
             this(repositories, activeBindings, alwaysInstructions, List.of());
         }

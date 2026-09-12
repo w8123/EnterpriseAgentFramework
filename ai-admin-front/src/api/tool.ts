@@ -1,11 +1,19 @@
 ﻿import { controlRequest } from './request'
-import type { ToolInfo, ToolListQuery, ToolPageResult } from '@/types/tool'
+import type {
+  ToolInfo,
+  ToolListQuery,
+  ToolPageResult,
+} from '@/types/tool'
 
 const TOOL_SELECTOR_PAGE_SIZE = 100
 const TOOL_SELECTOR_MAX_PAGES = 20
 
 export function getTools(params?: ToolListQuery) {
   return controlRequest.get<ToolPageResult>('/api/tools', { params })
+}
+
+export function getTool(name: string) {
+  return controlRequest.get<ToolInfo>(`/api/tools/${encodeURIComponent(name)}`)
 }
 
 export async function listAllTools(

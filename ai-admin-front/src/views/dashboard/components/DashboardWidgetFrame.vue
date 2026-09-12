@@ -1,6 +1,4 @@
 <script setup lang="ts">
-import type { DashboardWidgetRect } from '@/types/operationsDashboard'
-
 /**
  * 统一 Widget 外壳：常态显示标题；编辑态由标题栏直接拖动，保留设置/删除操作，
  * 并在左、右、下三侧提供缩放热区。

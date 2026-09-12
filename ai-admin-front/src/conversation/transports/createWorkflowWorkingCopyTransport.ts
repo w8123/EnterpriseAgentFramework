@@ -2,6 +2,7 @@ import {
   cancelWorkflowDebugSession,
   createWorkflowDebugSession,
   getWorkflowDebugSession,
+  getWorkflowDebugSessionByCreationKey,
   submitWorkflowDebugSession,
 } from '@/api/workflow'
 import type {
@@ -16,6 +17,8 @@ import {
 import {
   adaptWorkflowSessionViewToEvents,
   adaptWorkflowSessionViewToSnapshot,
+  isWorkflowSessionInFlight,
+  WORKFLOW_DEBUG_UNCONFIRMED_MESSAGE,
 } from '../core/adapters/adaptWorkflowSessionView'
 import type { ConversationEventEnvelope } from '../core/conversationEvents'
 import { createEvent } from '../core/conversationEvents'
@@ -25,7 +28,7 @@ import {
   StreamFallbackForbiddenError,
 } from '../core/streamFallbackPolicy'
 import type { ConversationSnapshot, ConversationTurnInput } from '../core/conversationTypes'
-import { buildDebugInteractionIdempotencyKey } from '../core/buildInteractionIdempotencyKey'
+import { buildDebugInteractionIdempotencyKey, createAttemptIdempotencyKey } from '../core/buildInteractionIdempotencyKey'
 import type { ConversationTransport } from './transportTypes'
 
 export const WORKFLOW_INITIAL_INPUT_ID = 'local:workflow-initial-input'
@@ -33,6 +36,8 @@ export const WORKFLOW_INITIAL_INPUT_ID = 'local:workflow-initial-input'
 export interface WorkflowWorkingCopyTransportOptions {
   getSessionId?: () => string | undefined
   setSessionId?: (sessionId: string | undefined) => void
+  getCreationKey?: () => string | undefined
+  setCreationKey?: (key: string | undefined) => void
   /** 构造 create 请求（工作副本 GraphSpec / Canvas 由 Shell 提供） */
   getCreateRequest?: () => Omit<WorkflowDebugSessionCreateRequest, 'message' | 'inputParams'> & {
     message?: string
@@ -45,16 +50,6 @@ export interface WorkflowWorkingCopyTransportOptions {
   fetchImpl?: typeof fetch
 }
 
-type SessionLifecycleStatus =
-  | 'RUNNING'
-  | 'SUSPENDED'
-  | 'RESUMING'
-  | 'COMPLETED'
-  | 'FAILED'
-  | 'CANCELLED'
-  | 'EXPIRED'
-  | string
-
 async function unwrapView(
   promise: Promise<{ data: WorkflowDebugSessionView } | WorkflowDebugSessionView>,
 ): Promise<WorkflowDebugSessionView> {
@@ -65,17 +60,14 @@ async function unwrapView(
   return result as WorkflowDebugSessionView
 }
 
-function normalizeStatus(status: unknown): SessionLifecycleStatus | undefined {
-  if (typeof status !== 'string' || !status.trim()) return undefined
-  return status.trim().toUpperCase()
-}
-
 export function createWorkflowWorkingCopyTransport(
   options: WorkflowWorkingCopyTransportOptions = {},
 ): ConversationTransport {
   const {
     getSessionId,
     setSessionId,
+    getCreationKey,
+    setCreationKey,
     getCreateRequest,
     onSessionView,
     tryStream = false,
@@ -84,7 +76,7 @@ export function createWorkflowWorkingCopyTransport(
 
   let disposed = false
   let activeSessionId: string | undefined
-  let lastStatus: SessionLifecycleStatus | undefined
+  let activeCreationKey: string | undefined
   let previousStepCount = 0
 
   function currentSessionId(): string | undefined {
@@ -93,25 +85,41 @@ export function createWorkflowWorkingCopyTransport(
     return activeSessionId
   }
 
+  function rememberSessionId(sessionId: string) {
+    if (disposed) return
+    activeSessionId = sessionId
+    setSessionId?.(sessionId)
+  }
+
   function remember(view: WorkflowDebugSessionView) {
-    activeSessionId = view.sessionId
-    lastStatus = normalizeStatus(view.status)
-    setSessionId?.(view.sessionId)
+    if (disposed) return
+    rememberSessionId(view.sessionId)
     previousStepCount = view.steps?.length || 0
     onSessionView?.(view)
+    rememberCreationKey(undefined)
+  }
+
+  function rememberCreationKey(key: string | undefined) {
+    activeCreationKey = key
+    setCreationKey?.(key)
+  }
+
+  function beginCreation(): string {
+    const key = createAttemptIdempotencyKey('wf-debug', 'create')
+    rememberCreationKey(key)
+    return key
   }
 
   function clearLocalSession() {
     activeSessionId = undefined
-    lastStatus = undefined
     previousStepCount = 0
     setSessionId?.(undefined)
   }
 
   async function* eventsFromView(view: WorkflowDebugSessionView): AsyncIterable<ConversationEventEnvelope> {
     const start = view.steps && view.steps.length >= previousStepCount ? previousStepCount : 0
-    yield* adaptWorkflowSessionViewToEvents(view, { previousStepCount: start })
     remember(view)
+    yield* adaptWorkflowSessionViewToEvents(view, { previousStepCount: start })
   }
 
   async function* streamWorkflowTurn(
@@ -152,36 +160,44 @@ export function createWorkflowWorkingCopyTransport(
     }
 
     let streamSessionId = currentSessionId()
-    let eventsConsumed = false
+    let terminalReceived = false
     yield createEvent('turn.started', {}, { sessionId: streamSessionId })
 
     try {
       for await (const frame of parseSseStream(response.body, { signal })) {
-        eventsConsumed = true
         for (const event of expandWorkflowDebugAdapted(
           adaptWorkflowDebugStreamEvent(frame.event, frame.data, { sessionId: streamSessionId }),
         )) {
           if (event.sessionId) streamSessionId = event.sessionId
           const data = event.data as Record<string, unknown> | undefined
           if (data?.sessionId) streamSessionId = String(data.sessionId)
-          if (typeof data?.status === 'string') {
-            lastStatus = normalizeStatus(data.status)
+          if (streamSessionId) rememberSessionId(streamSessionId)
+          if (event.type === 'session.created' && data && typeof data.status === 'string'
+            && Array.isArray(data.messages) && Array.isArray(data.steps)) {
+            remember(data as unknown as WorkflowDebugSessionView)
+          }
+          if (['turn.completed', 'turn.waiting', 'turn.failed', 'turn.cancelled'].includes(event.type)) {
+            terminalReceived = true
           }
           yield event
         }
       }
+
+      if (streamSessionId) {
+        const view = await unwrapView(getWorkflowDebugSession(streamSessionId))
+        remember(view)
+        if (isWorkflowSessionInFlight(view.status)) throw new Error(WORKFLOW_DEBUG_UNCONFIRMED_MESSAGE)
+        if (!terminalReceived) yield createWorkflowRestoredEvent(adaptWorkflowSessionViewToSnapshot(view))
+      } else if (!terminalReceived) {
+        throw new Error('调试连接已结束，未收到会话标识或执行结果。请检查服务状态。')
+      }
     } catch (error) {
       const err = error as Error & { status?: number; bytesOrEventsConsumed?: boolean; aborted?: boolean }
-      err.bytesOrEventsConsumed = eventsConsumed
+      // A successful SSE response has already accepted the POST. Later read/GET
+      // errors are never evidence that the original streaming endpoint is unsupported.
+      err.bytesOrEventsConsumed = true
       err.aborted = signal?.aborted === true
       throw err
-    }
-
-    if (streamSessionId) {
-      activeSessionId = streamSessionId
-      setSessionId?.(streamSessionId)
-      const view = await unwrapView(getWorkflowDebugSession(streamSessionId))
-      remember(view)
     }
   }
 
@@ -279,6 +295,7 @@ export function createWorkflowWorkingCopyTransport(
       }
       yield* runTurn('create', {
         ...createRequest,
+        idempotencyKey: beginCreation(),
         message: input.message,
         inputParams: input.values ?? createRequest.inputParams,
       }, undefined, signal)
@@ -295,6 +312,7 @@ export function createWorkflowWorkingCopyTransport(
       }
       yield* runTurn('create', {
         ...createRequest,
+        idempotencyKey: beginCreation(),
         message: input.message,
       }, undefined, signal)
       return
@@ -325,9 +343,14 @@ export function createWorkflowWorkingCopyTransport(
     },
 
     async restoreSession(): Promise<ConversationSnapshot | null> {
+      if (disposed) return null
       const sessionId = currentSessionId()
-      if (!sessionId) return null
-      const view = await unwrapView(getWorkflowDebugSession(sessionId))
+      const creationKey = getCreationKey ? getCreationKey() : activeCreationKey
+      if (!sessionId && !creationKey) return null
+      const view = await unwrapView(sessionId
+        ? getWorkflowDebugSession(sessionId)
+        : getWorkflowDebugSessionByCreationKey(creationKey!))
+      if (disposed) return null
       remember(view)
       return adaptWorkflowSessionViewToSnapshot(view)
     },
@@ -336,11 +359,11 @@ export function createWorkflowWorkingCopyTransport(
       const sessionId = currentSessionId()
       if (!sessionId) return
       await cancelWorkflowDebugSession(sessionId)
-      lastStatus = 'CANCELLED'
     },
 
     async clearSession() {
       clearLocalSession()
+      rememberCreationKey(undefined)
     },
 
     dispose() {

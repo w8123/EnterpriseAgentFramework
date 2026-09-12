@@ -3,9 +3,8 @@ package com.enterprise.ai.pipeline.document.artifact;
 import java.io.InputStream;
 
 /**
- * Durable, service-owned storage boundary.  Providers receive a fresh stream
- * from this interface so parsing can be retried without asking a browser to
- * upload the source again.
+ * Service-owned artifact lifecycle. Writes are registered before IO, reference
+ * publication retains them in its transaction, and retirement is durable.
  */
 public interface DocumentArtifactStore {
 
@@ -13,5 +12,9 @@ public interface DocumentArtifactStore {
 
     InputStream open(String objectKey);
 
-    void delete(String objectKey);
+    /** Must join the transaction that publishes the first job reference to a new object. */
+    void retain(String objectKey);
+
+    /** Persist cleanup intent in the caller's metadata transaction; do not perform remote IO here. */
+    void retire(String objectKey);
 }

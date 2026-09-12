@@ -18,7 +18,13 @@ public record McpToolProjection(
         McpPublicationItemKind sourceKind,
         String sourceRef,
         Long workflowVersionId,
-        String riskLevel) {
+        String riskLevel,
+        String capabilityContractHash) {
+
+    public McpToolProjection(String name, String description, String inputSchemaJson,
+            McpPublicationItemKind sourceKind, String sourceRef, Long workflowVersionId, String riskLevel) {
+        this(name, description, inputSchemaJson, sourceKind, sourceRef, workflowVersionId, riskLevel, null);
+    }
 
     private static final Pattern NAME_PATTERN = Pattern.compile("[a-zA-Z][a-zA-Z0-9_-]{0,127}");
 

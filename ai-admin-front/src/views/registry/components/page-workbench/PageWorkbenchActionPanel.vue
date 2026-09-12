@@ -155,10 +155,10 @@ function actionSourceText(action: ProjectPageAction) {
             :title="pageWorkbenchRiskLabel(selectedAction.riskLevel)"
           >{{ selectedAction.riskLevel }}</el-tag>
         </header>
-        <nav class="operation-contract-tabs" aria-label="操作详情">
-          <button class="is-active" type="button">操作契约</button>
+        <div class="operation-contract-tabs" role="group" aria-label="操作详情">
+          <span class="is-active">操作契约</span>
           <button type="button" @click="emit('debug', page, selectedAction)">调试与验证</button>
-        </nav>
+        </div>
         <div class="operation-contract-scroll">
           <section class="operation-contract-card">
             <p>{{ pageWorkbenchHumanText(selectedAction.description, '当前操作尚未提供中文说明。') }}</p>

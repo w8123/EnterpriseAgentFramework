@@ -13,7 +13,6 @@ import {
   VideoPlay,
 } from '@element-plus/icons-vue'
 
-import StatusTag from '@/components/common/StatusTag.vue'
 import WorkbenchPanel from '@/components/common/WorkbenchPanel.vue'
 import type { AgentA2aRemoteBindingConfig, AgentWorkflowToolConfig } from '@/types/agent'
 import type { AgentSkillBindingConfig } from '@/types/skill'

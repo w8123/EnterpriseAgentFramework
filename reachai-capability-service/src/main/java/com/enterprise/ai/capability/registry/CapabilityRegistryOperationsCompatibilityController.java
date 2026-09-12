@@ -9,8 +9,10 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RequestParam;
 
 @RestController
 @RequestMapping("/api/registry")
@@ -18,6 +20,19 @@ import org.springframework.web.bind.annotation.RestController;
 public class CapabilityRegistryOperationsCompatibilityController {
 
     private final CapabilityRegistryService registryService;
+
+    @GetMapping("/projects/{projectCode}/capability-changes")
+    public ResponseEntity<?> listChanges(@PathVariable String projectCode,
+                                         @RequestParam(defaultValue = "PENDING") String state,
+                                         @RequestParam(defaultValue = "") String keyword,
+                                         @RequestParam(defaultValue = "1") int current,
+                                         @RequestParam(defaultValue = "20") int size) {
+        try {
+            return ResponseEntity.ok(registryService.listChanges(projectCode, state, keyword, current, size));
+        } catch (IllegalArgumentException invalid) {
+            return ResponseEntity.badRequest().body(new ApiErrorResponse(invalid.getMessage()));
+        }
+    }
 
     @PostMapping("/projects/{projectCode}/instances/heartbeat")
     public ResponseEntity<?> heartbeat(@PathVariable String projectCode,
@@ -51,9 +66,17 @@ public class CapabilityRegistryOperationsCompatibilityController {
 
     @PostMapping("/projects/{projectCode}/capabilities/sync")
     public ResponseEntity<?> syncCapabilities(@PathVariable String projectCode,
+                                              @RequestHeader(value = "X-ReachAI-App-Key", required = false) String appKey,
+                                              @RequestHeader(value = "X-ReachAI-Timestamp", required = false) String timestamp,
+                                              @RequestHeader(value = "X-ReachAI-Nonce", required = false) String nonce,
+                                              @RequestHeader(value = "X-ReachAI-Signature", required = false) String signature,
                                               @RequestBody(required = false) CapabilitySyncRequest request) {
         try {
-            return ResponseEntity.ok(registryService.sync(projectCode, request));
+            return ResponseEntity.ok(registryService.syncFromProject(
+                    projectCode,
+                    request,
+                    new com.enterprise.ai.agent.registry.RegistrySecurityService.RegistrySignatureHeaders(
+                            appKey, timestamp, nonce, signature)));
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(new ApiErrorResponse(ex.getMessage()));
         }
@@ -69,16 +92,6 @@ public class CapabilityRegistryOperationsCompatibilityController {
         }
     }
 
-    @PostMapping("/projects/{projectCode}/capabilities/apply")
-    public ResponseEntity<?> applyCapabilities(@PathVariable String projectCode,
-                                               @RequestBody(required = false) CapabilitySyncRequest request) {
-        try {
-            return ResponseEntity.ok(registryService.apply(projectCode, request));
-        } catch (IllegalArgumentException ex) {
-            return ResponseEntity.badRequest().body(new ApiErrorResponse(ex.getMessage()));
-        }
-    }
-
     @GetMapping("/projects/{projectCode}/capability-snapshots")
     public ResponseEntity<?> listCapabilitySnapshots(@PathVariable String projectCode) {
         try {
@@ -88,26 +101,33 @@ public class CapabilityRegistryOperationsCompatibilityController {
         }
     }
 
-    @GetMapping("/capability-snapshots/{snapshotId}/diff-items")
-    public ResponseEntity<?> listCapabilityDiffItems(@PathVariable Long snapshotId) {
-        return ResponseEntity.ok(registryService.listDiffItems(snapshotId));
-    }
-
-    @PostMapping("/capability-diff-items/{diffItemId}/review")
-    public ResponseEntity<?> reviewCapabilityDiffItem(@PathVariable Long diffItemId,
-                                                      @RequestBody(required = false) CapabilityReviewRequest request) {
+    @GetMapping("/projects/{projectCode}/capability-snapshots/{snapshotId}/diff-items")
+    public ResponseEntity<?> listCapabilityDiffItems(@PathVariable String projectCode,
+                                                     @PathVariable Long snapshotId) {
         try {
-            return ResponseEntity.ok(registryService.reviewDiffItem(diffItemId, request));
+            return ResponseEntity.ok(registryService.listDiffItems(projectCode, snapshotId));
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(new ApiErrorResponse(ex.getMessage()));
         }
     }
 
-    @PostMapping("/capability-diff-items/{diffItemId}/rollback")
-    public ResponseEntity<?> rollbackCapabilityDiffItem(@PathVariable Long diffItemId,
+    @PostMapping("/projects/{projectCode}/capability-diff-items/{diffItemId}/review")
+    public ResponseEntity<?> reviewCapabilityDiffItem(@PathVariable String projectCode,
+                                                      @PathVariable Long diffItemId,
+                                                      @RequestBody(required = false) CapabilityReviewRequest request) {
+        try {
+            return ResponseEntity.ok(registryService.reviewDiffItem(projectCode, diffItemId, request));
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.badRequest().body(new ApiErrorResponse(ex.getMessage()));
+        }
+    }
+
+    @PostMapping("/projects/{projectCode}/capability-diff-items/{diffItemId}/rollback")
+    public ResponseEntity<?> rollbackCapabilityDiffItem(@PathVariable String projectCode,
+                                                        @PathVariable Long diffItemId,
                                                         @RequestBody(required = false) CapabilityReviewRequest request) {
         try {
-            return ResponseEntity.ok(registryService.rollbackDiffItem(diffItemId, request));
+            return ResponseEntity.ok(registryService.rollbackDiffItem(projectCode, diffItemId, request));
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(new ApiErrorResponse(ex.getMessage()));
         }

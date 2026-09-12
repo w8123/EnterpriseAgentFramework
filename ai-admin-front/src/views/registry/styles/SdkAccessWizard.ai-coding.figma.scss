@@ -426,6 +426,11 @@
   cursor: default;
 }
 
+.sdk-access-page .ai-progress-steps {
+  display: grid;
+  min-width: 0;
+}
+
 .sdk-access-page .ai-progress-panel .progress-step:last-child {
   border-bottom: 0;
 }
@@ -1011,6 +1016,11 @@
   min-height: 64px !important;
   padding-top: 9px !important;
   padding-bottom: 9px !important;
+}
+
+.sdk-access-page .ai-coding-side.access-progress--refined .ai-progress-step:hover:not(.active) {
+  border-color: transparent !important;
+  background: transparent !important;
 }
 
 .sdk-access-page .ai-coding-side.access-progress--refined .progress-step::before {

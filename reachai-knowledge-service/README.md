@@ -61,7 +61,7 @@
 | 分组 | 主要变量 | 说明 |
 | --- | --- | --- |
 | MySQL/Redis | `AI_MYSQL_*`、`REDIS_*` | Knowledge-owned 元数据、任务和协调状态 |
-| 向量 | `MILVUS_HOST`、`MILVUS_PORT` | 向量索引；可用性需单独验证 |
+| 向量 | `MILVUS_HOST`、`MILVUS_PORT`、`MILVUS_USERNAME`、`MILVUS_PASSWORD` | 向量索引；启用 Milvus 认证时用户名与密码必须同时配置，可用性需单独验证 |
 | Model | `MODEL_SERVICE_URL` | Chat/Embedding/Rerank 统一进入 Model Gateway；没有 OpenAI HTTP 代理回退 |
 | Docling | `REACHAI_DOCLING_*` | 可选重解析服务、版本、OCR、超时和并发限制 |
 | 工件 | `REACHAI_KNOWLEDGE_ARTIFACT_*` | 本地或 S3-compatible 原件/解析工件存储 |

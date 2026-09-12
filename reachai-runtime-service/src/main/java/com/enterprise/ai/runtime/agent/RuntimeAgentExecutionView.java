@@ -3,7 +3,7 @@ package com.enterprise.ai.runtime.agent;
 import java.time.LocalDateTime;
 
 /**
- * Lightweight Agent identity for Runtime execution. Does not carry admin display fields
+ * Lightweight Agent identity for execution and asset references. Does not carry admin display fields
  * and must never trigger resolveDisplayConfig / listTools.
  */
 public record RuntimeAgentExecutionView(
@@ -39,7 +39,7 @@ public record RuntimeAgentExecutionView(
                 entity.getUpdatedAt());
     }
 
-    /** Compatibility bridge for Supervisor / RunOps APIs that still accept {@link RuntimeAgentView}. */
+    /** Supervisor request view; RunOps receives only the selected lifecycle target facts. */
     public RuntimeAgentView toRuntimeAgentView(int workflowToolCount, String runtimeType) {
         return new RuntimeAgentView(
                 id,

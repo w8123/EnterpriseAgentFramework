@@ -1,9 +1,9 @@
 package com.enterprise.ai.runtime.eval;
 
-import com.enterprise.ai.runtime.agent.RuntimeAgentConfigVersionEntity;
+import com.enterprise.ai.runtime.agent.RuntimeAgentConfigSnapshot;
 import com.enterprise.ai.runtime.agent.RuntimeAgentExecutionContext;
 import com.enterprise.ai.runtime.agent.RuntimeAgentExecutionView;
-import com.enterprise.ai.runtime.agent.RuntimeAgentMapper;
+import com.enterprise.ai.runtime.agent.RuntimeAgentIdentityQuery;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
@@ -47,7 +47,7 @@ class RuntimeEvalExperimentServiceTest {
                 datasetMapper,
                 suiteService,
                 snapshotService,
-                mock(RuntimeAgentMapper.class),
+                mock(RuntimeAgentIdentityQuery.class),
                 json);
 
         RuntimeEvalDatasetVersionEntity datasetVersion = new RuntimeEvalDatasetVersionEntity();
@@ -191,15 +191,16 @@ class RuntimeEvalExperimentServiceTest {
         RuntimeAgentExecutionView agent = new RuntimeAgentExecutionView(
                 "agent-1", 7L, "orders", "orders-agent", "Orders Agent", "query orders",
                 "PROJECT", "[\"orders:user\"]", true, 100L, null, null);
-        RuntimeAgentConfigVersionEntity config = new RuntimeAgentConfigVersionEntity();
-        config.setId(configVersionId);
-        config.setAgentId("agent-1");
-        config.setVersionNo(configVersionId.intValue());
-        config.setStatus(status);
-        config.setRuntimeType("AGENTSCOPE");
-        config.setPolicyProfile("STANDARD");
-        config.setToolCatalogMode("ALLOW_LIST");
-        config.setConfigJson("{}");
+        RuntimeAgentConfigSnapshot config = RuntimeAgentConfigSnapshot.builder()
+                .id(configVersionId)
+                .agentId("agent-1")
+                .versionNo(configVersionId.intValue())
+                .status(status)
+                .runtimeType("AGENTSCOPE")
+                .policyProfile("STANDARD")
+                .toolCatalogMode("ALLOW_LIST")
+                .configJson("{}")
+                .build();
         RuntimeAgentExecutionContext context = new RuntimeAgentExecutionContext(
                 agent, config, List.of(), List.of(), List.of(), List.of(),
                 new RuntimeAgentExecutionContext.ResolveTimings(0, 0, 0, 0, 0));

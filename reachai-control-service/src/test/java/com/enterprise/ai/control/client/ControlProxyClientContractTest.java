@@ -217,7 +217,7 @@ class ControlProxyClientContractTest {
         assertEquals(ResponseEntity.class, listWorkflowVersions.getReturnType());
 
         Method publishWorkflowVersion = RuntimeProxyClient.class
-                .getMethod("publishWorkflowVersion", String.class, Map.class);
+                .getMethod("publishWorkflowVersion", String.class, Map.class, byte[].class);
         assertMapping(publishWorkflowVersion, RequestMethod.POST, "/api/workflows/{workflowId}/versions/publish");
         assertEquals(ResponseEntity.class, publishWorkflowVersion.getReturnType());
 
@@ -226,7 +226,7 @@ class ControlProxyClientContractTest {
         assertEquals(ResponseEntity.class, validateWorkflowVersion.getReturnType());
 
         Method rollbackWorkflowVersion = RuntimeProxyClient.class
-                .getMethod("rollbackWorkflowVersion", String.class, Long.class, Map.class);
+                .getMethod("rollbackWorkflowVersion", String.class, Long.class, Map.class, byte[].class);
         assertMapping(rollbackWorkflowVersion, RequestMethod.POST,
                 "/api/workflows/{workflowId}/versions/{versionId}/rollback");
         assertEquals(ResponseEntity.class, rollbackWorkflowVersion.getReturnType());
@@ -326,22 +326,22 @@ class ControlProxyClientContractTest {
         assertEquals(ResponseEntity.class, resumeRuntimeInteraction.getReturnType());
 
         Method createRuntimeDebugSession = RuntimeProxyClient.class
-                .getMethod("createRuntimeDebugSession", Map.class);
+                .getMethod("createRuntimeDebugSession", Map.class, byte[].class);
         assertMapping(createRuntimeDebugSession, RequestMethod.POST, "/api/runtime/debug-sessions");
         assertEquals(ResponseEntity.class, createRuntimeDebugSession.getReturnType());
 
         Method getRuntimeDebugSession = RuntimeProxyClient.class
-                .getMethod("getRuntimeDebugSession", String.class);
+                .getMethod("getRuntimeDebugSession", String.class, Map.class);
         assertMapping(getRuntimeDebugSession, RequestMethod.GET, "/api/runtime/debug-sessions/{sessionId}");
         assertEquals(ResponseEntity.class, getRuntimeDebugSession.getReturnType());
 
         Method submitRuntimeDebugSession = RuntimeProxyClient.class
-                .getMethod("submitRuntimeDebugSession", String.class, Map.class);
+                .getMethod("submitRuntimeDebugSession", String.class, Map.class, byte[].class);
         assertMapping(submitRuntimeDebugSession, RequestMethod.POST, "/api/runtime/debug-sessions/{sessionId}/submit");
         assertEquals(ResponseEntity.class, submitRuntimeDebugSession.getReturnType());
 
         Method cancelRuntimeDebugSession = RuntimeProxyClient.class
-                .getMethod("cancelRuntimeDebugSession", String.class);
+                .getMethod("cancelRuntimeDebugSession", String.class, Map.class);
         assertMapping(cancelRuntimeDebugSession, RequestMethod.POST, "/api/runtime/debug-sessions/{sessionId}/cancel");
         assertEquals(ResponseEntity.class, cancelRuntimeDebugSession.getReturnType());
 
@@ -384,35 +384,9 @@ class ControlProxyClientContractTest {
         assertEquals(ResponseEntity.class, syncCapabilities.getReturnType());
         assertSignatureHeaders(syncCapabilities, 1);
 
-        Method diffCapabilities = CapabilityProxyClient.class.getMethod(
-                "diffCapabilities", String.class, String.class, String.class, String.class, String.class, Map.class);
-        assertMapping(diffCapabilities, RequestMethod.POST, "/api/registry/projects/{projectCode}/capabilities/diff");
-        assertEquals(ResponseEntity.class, diffCapabilities.getReturnType());
-        assertSignatureHeaders(diffCapabilities, 1);
-
         Method getToolDefinition = CapabilityProxyClient.class.getMethod("getToolDefinition", String.class);
         assertMapping(getToolDefinition, RequestMethod.GET, "/internal/capability/tools/{qualifiedName}");
         assertEquals(ResponseEntity.class, getToolDefinition.getReturnType());
-
-        Method applyCapabilities = CapabilityProxyClient.class.getMethod("applyCapabilities", String.class, Map.class);
-        assertMapping(applyCapabilities, RequestMethod.POST, "/api/registry/projects/{projectCode}/capabilities/apply");
-        assertEquals(ResponseEntity.class, applyCapabilities.getReturnType());
-
-        Method listCapabilitySnapshots = CapabilityProxyClient.class.getMethod("listCapabilitySnapshots", String.class);
-        assertMapping(listCapabilitySnapshots, RequestMethod.GET, "/api/registry/projects/{projectCode}/capability-snapshots");
-        assertEquals(ResponseEntity.class, listCapabilitySnapshots.getReturnType());
-
-        Method listCapabilityDiffItems = CapabilityProxyClient.class.getMethod("listCapabilityDiffItems", Long.class);
-        assertMapping(listCapabilityDiffItems, RequestMethod.GET, "/api/registry/capability-snapshots/{snapshotId}/diff-items");
-        assertEquals(ResponseEntity.class, listCapabilityDiffItems.getReturnType());
-
-        Method reviewCapabilityDiffItem = CapabilityProxyClient.class.getMethod("reviewCapabilityDiffItem", Long.class, Map.class);
-        assertMapping(reviewCapabilityDiffItem, RequestMethod.POST, "/api/registry/capability-diff-items/{diffItemId}/review");
-        assertEquals(ResponseEntity.class, reviewCapabilityDiffItem.getReturnType());
-
-        Method rollbackCapabilityDiffItem = CapabilityProxyClient.class.getMethod("rollbackCapabilityDiffItem", Long.class, Map.class);
-        assertMapping(rollbackCapabilityDiffItem, RequestMethod.POST, "/api/registry/capability-diff-items/{diffItemId}/rollback");
-        assertEquals(ResponseEntity.class, rollbackCapabilityDiffItem.getReturnType());
 
         Method listEmbedCredentialPolicies = CapabilityProxyClient.class
                 .getMethod("listEmbedCredentialPolicies", String.class, String.class, int.class);

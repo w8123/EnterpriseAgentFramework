@@ -548,7 +548,8 @@ VALUES
 CREATE TABLE IF NOT EXISTS `knowledge_base` (
     `id`              BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
     `name`            VARCHAR(128) NOT NULL                COMMENT '知识库名称',
-    `code`            VARCHAR(64)  NOT NULL                COMMENT '知识库编码（对应 Milvus collection 名称）',
+    `code`            VARCHAR(64)  NOT NULL                COMMENT '知识库业务编码',
+    `vector_collection_name` VARCHAR(64) NOT NULL          COMMENT '不可复用的物理向量集合身份',
     `description`     VARCHAR(512) DEFAULT NULL            COMMENT '描述',
     `embedding_model_instance_id` VARCHAR(64) DEFAULT NULL COMMENT 'Embedding model instance id',
     `rerank_model_instance_id` VARCHAR(64) DEFAULT NULL COMMENT 'Rerank model instance id',
@@ -561,11 +562,13 @@ CREATE TABLE IF NOT EXISTS `knowledge_base` (
     `create_time`     DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `update_time`     DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_code` (`code`)
+    UNIQUE KEY `uk_code` (`code`),
+    UNIQUE KEY `uk_knowledge_vector_collection` (`vector_collection_name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='知识库';
 
 CREATE TABLE IF NOT EXISTS `knowledge_file_info` (
     `id`                BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
+    `record_generation` VARCHAR(32)  DEFAULT NULL COMMENT '每次插入生成的不可变记录身份；缺失时禁止身份快照操作',
     `file_id`           VARCHAR(128) NOT NULL                COMMENT '文件业务ID（对外暴露）',
     `knowledge_base_id` BIGINT       NOT NULL                COMMENT '所属知识库ID',
     `file_name`         VARCHAR(256) DEFAULT NULL            COMMENT '文件名称',
@@ -585,6 +588,9 @@ CREATE TABLE IF NOT EXISTS `knowledge_file_info` (
     `update_time`       DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_knowledge_file_file_id` (`file_id`),
+    UNIQUE KEY `uk_knowledge_file_generation` (`record_generation`),
+    KEY `idx_knowledge_file_source_artifact` (`source_object_key`(191)),
+    KEY `idx_knowledge_file_parsed_artifact` (`parse_artifact_object_key`(191)),
     KEY `idx_kb_id` (`knowledge_base_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='文件信息';
 
@@ -593,8 +599,11 @@ CREATE TABLE IF NOT EXISTS `knowledge_document_import_job` (
     `job_id`                VARCHAR(64)  NOT NULL                COMMENT '对外导入任务ID',
     `file_id`               VARCHAR(128) NOT NULL                COMMENT '完成后对应 knowledge_file_info.file_id',
     `replace_file_id`       VARCHAR(128) DEFAULT NULL            COMMENT '完成后被替换的旧文件ID',
+    `replace_file_row_id`   BIGINT DEFAULT NULL                  COMMENT '提交重解析时原文件内部ID；缺失时禁止替换',
+    `replace_file_generation` VARCHAR(32) DEFAULT NULL COMMENT '提交重解析时原文件记录身份；缺失时禁止替换',
     `knowledge_base_id`     BIGINT       NOT NULL                COMMENT '所属知识库ID',
     `knowledge_base_code`   VARCHAR(64)  NOT NULL                COMMENT '提交时知识库编码快照',
+    `vector_collection_name` VARCHAR(64) DEFAULT NULL            COMMENT '提交时物理集合快照；缺失时禁止索引',
     `tenant_id`             VARCHAR(96)  NOT NULL DEFAULT 'default' COMMENT 'Control 已验证租户快照',
     `created_by_actor_id`   VARCHAR(128) DEFAULT NULL            COMMENT 'Control 已验证任务创建用户',
     `workspace_id`          VARCHAR(64)  NOT NULL DEFAULT 'default' COMMENT '知识库 workspace 授权快照',
@@ -610,6 +619,7 @@ CREATE TABLE IF NOT EXISTS `knowledge_document_import_job` (
     `provider_version`      VARCHAR(64)  DEFAULT NULL            COMMENT '实际解析版本',
     `parse_artifact_object_key` VARCHAR(512) DEFAULT NULL        COMMENT '结构化解析 JSON 工件 key',
     `status`                VARCHAR(32)  NOT NULL                COMMENT 'QUEUED/PARSING/PARSED/INDEXING/COMPLETED/RETRY_WAIT/FAILED/CANCELLED',
+    `active_file_id`        VARCHAR(128) GENERATED ALWAYS AS (CASE WHEN `status` IN ('COMPLETED','CANCELLED') THEN NULL ELSE `file_id` END) STORED COMMENT '未退场任务的文件占用；历史完成或取消任务不占用',
     `stage`                 VARCHAR(32)  NOT NULL                COMMENT '当前阶段',
     `chunk_strategy`        VARCHAR(32)  NOT NULL DEFAULT 'fixed_length' COMMENT '切分策略',
     `chunk_size`            INT          NOT NULL DEFAULT 500    COMMENT '切分大小',
@@ -629,12 +639,87 @@ CREATE TABLE IF NOT EXISTS `knowledge_document_import_job` (
     `update_time`           DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_knowledge_document_import_job_id` (`job_id`),
+    KEY `idx_knowledge_job_source_artifact` (`source_object_key`(191),`status`),
+    KEY `idx_knowledge_job_parsed_artifact` (`parse_artifact_object_key`(191),`status`),
     KEY `idx_knowledge_document_import_status_retry` (`status`, `next_attempt_at`),
     KEY `idx_knowledge_document_import_autocommit` (`status`, `auto_commit`, `parsed_at`),
-    UNIQUE KEY `uk_knowledge_document_import_file_id` (`file_id`),
+    KEY `idx_knowledge_document_import_file` (`file_id`),
+    UNIQUE KEY `uk_knowledge_document_import_active_file` (`active_file_id`),
+    KEY `idx_knowledge_document_import_replace` (`knowledge_base_id`, `replace_file_id`),
     KEY `idx_knowledge_document_import_kb` (`knowledge_base_id`, `create_time`),
     KEY `idx_knowledge_document_import_actor` (`tenant_id`, `created_by_actor_id`, `create_time`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='知识文档原件、解析工件和入库任务状态';
+
+CREATE TABLE IF NOT EXISTS `knowledge_document_artifact_lifecycle` (
+    `artifact_id`          CHAR(64) NOT NULL COMMENT '存储后端身份与对象key的SHA-256，不复用写入身份',
+    `storage_id`           CHAR(64) NOT NULL COMMENT '服务端推导的后端身份；不包含凭据',
+    `object_key`           VARCHAR(768) NOT NULL COMMENT '不可变的原件或解析产物对象key',
+    `state`                VARCHAR(16) NOT NULL DEFAULT 'WRITING' COMMENT 'WRITING/RETAINED/RECLAIMING/RECLAIMED',
+    `write_acknowledged`   TINYINT(1) NOT NULL DEFAULT 0 COMMENT '唯一一次写入已返回完成；未知写入持续回收',
+    `publication_deadline` DATETIME DEFAULT NULL COMMENT '引用发布截止时间；历史退场不推断回填',
+    `next_cleanup_at`      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '下次回收时间',
+    `cleanup_lease_owner`  VARCHAR(64) DEFAULT NULL COMMENT '当前回收租约身份',
+    `cleanup_lease_until`  DATETIME DEFAULT NULL COMMENT '当前回收租约截止时间',
+    `last_cleanup_error`   VARCHAR(128) DEFAULT NULL COMMENT '仅保存清理错误类型',
+    `create_time`          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `update_time`          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`artifact_id`),
+    KEY `idx_knowledge_artifact_cleanup` (`storage_id`,`state`,`next_cleanup_at`,`cleanup_lease_until`),
+    KEY `idx_knowledge_artifact_deadline` (`storage_id`,`state`,`publication_deadline`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='文档原件和解析产物的写入登记与持久化回收';
+
+CREATE TABLE IF NOT EXISTS `knowledge_collection_lifecycle` (
+  `collection_name` VARCHAR(128) NOT NULL COMMENT '不可复用的物理集合身份',
+  `knowledge_base_id` BIGINT DEFAULT NULL COMMENT '发布后的知识库内部ID；退场后保留',
+  `knowledge_base_code` VARCHAR(128) NOT NULL COMMENT '提交时知识库业务编码快照',
+  `dimension` INT DEFAULT NULL COMMENT '创建时向量维度快照；历史未知值保持为空',
+  `state` VARCHAR(16) NOT NULL DEFAULT 'CREATING' COMMENT 'CREATING/READY/RECLAIMING/RECLAIMED',
+  `create_acknowledged` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '单次集合创建流程已返回完成；未知时持续回收',
+  `create_deadline` DATETIME DEFAULT NULL COMMENT '创建发布截止时间；历史映射为空',
+  `next_cleanup_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '下次集合回收时间',
+  `cleanup_lease_owner` VARCHAR(64) DEFAULT NULL COMMENT '本轮集合回收租约',
+  `cleanup_lease_until` DATETIME DEFAULT NULL COMMENT '集合回收租约截止',
+  `last_cleanup_error` VARCHAR(128) DEFAULT NULL COMMENT '仅保存清理错误类型',
+  `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`collection_name`),
+  UNIQUE KEY `uk_knowledge_collection_owner` (`knowledge_base_id`),
+  KEY `idx_knowledge_collection_cleanup` (`state`,`next_cleanup_at`,`cleanup_lease_until`),
+  KEY `idx_knowledge_collection_deadline` (`state`,`create_deadline`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='知识库物理集合创建发布与持久化退场';
+
+CREATE TABLE IF NOT EXISTS `knowledge_document_index_execution` (
+    `lease_owner`          VARCHAR(128) NOT NULL COMMENT '本次索引执行唯一租约身份',
+    `job_id`               VARCHAR(64)  DEFAULT NULL COMMENT '所属导入任务ID；同步操作为空',
+    `operation_type`       VARCHAR(24)  NOT NULL DEFAULT 'JOB' COMMENT 'JOB/DIRECT/PIPELINE/REEMBED/RETIRED_VECTOR',
+    `publication_deadline` DATETIME     DEFAULT NULL COMMENT '非任务写入的发布截止时间；使用数据库时间',
+    `file_id`              VARCHAR(128) NOT NULL COMMENT '本次文件ID',
+    `knowledge_base_id`    BIGINT       NOT NULL COMMENT '所属知识库ID',
+    `collection_name`      VARCHAR(64)  NOT NULL COMMENT '向量集合快照',
+    `vector_prefix`        CHAR(64)     DEFAULT NULL COMMENT '新写入的确定性向量主键前缀；单主键回收为空',
+    `single_vector_id`     VARCHAR(256) DEFAULT NULL COMMENT '被替换向量的准确主键，不推断历史前缀',
+    `vector_count`         INT          NOT NULL COMMENT '不可变向量数量',
+    `target_file_row_id`   BIGINT       DEFAULT NULL COMMENT '重新向量化时的原文件内部ID',
+    `target_file_generation` VARCHAR(32) DEFAULT NULL COMMENT '重新向量化时原文件记录身份；缺失时禁止发布',
+    `target_chunk_id`      BIGINT       DEFAULT NULL COMMENT '重新向量化时的原片段内部ID',
+    `target_vector_id`     VARCHAR(256) DEFAULT NULL COMMENT '重新向量化时的原向量主键',
+    `target_collection_name` VARCHAR(64) DEFAULT NULL COMMENT '重新向量化时的原集合身份',
+    `target_content_hash`  CHAR(64)     DEFAULT NULL COMMENT '重新向量化时原文SHA-256',
+    `state`                VARCHAR(16)  NOT NULL DEFAULT 'REGISTERED' COMMENT 'REGISTERED/PUBLISHED/RECLAIMING/RECLAIMED',
+    `write_acknowledged`   TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '唯一一次远端写入已明确成功返回',
+    `cleanup_cursor`       INT          NOT NULL DEFAULT 0 COMMENT '下一条待回收向量序号',
+    `next_cleanup_at`      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '下次允许回收时间',
+    `cleanup_lease_owner`  VARCHAR(64)  DEFAULT NULL COMMENT '本轮回收租约身份',
+    `cleanup_lease_until`  DATETIME     DEFAULT NULL COMMENT '本轮回收租约截止时间',
+    `last_cleanup_error`   VARCHAR(128) DEFAULT NULL COMMENT '回收错误类型，不保存远端敏感详情',
+    `create_time`          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `update_time`          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`lease_owner`),
+    UNIQUE KEY `uk_knowledge_index_vector_prefix` (`vector_prefix`),
+    KEY `idx_knowledge_index_cleanup` (`state`, `next_cleanup_at`, `cleanup_lease_until`),
+    KEY `idx_knowledge_index_job` (`job_id`),
+    KEY `idx_knowledge_index_file` (`knowledge_base_id`, `file_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='知识索引执行清单与向量回收进度';
 
 CREATE TABLE IF NOT EXISTS `knowledge_chunk` (
     `id`                BIGINT        NOT NULL AUTO_INCREMENT COMMENT '主键',
@@ -650,17 +735,21 @@ CREATE TABLE IF NOT EXISTS `knowledge_chunk` (
     `create_time`       DATETIME      DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_knowledge_chunk_file_index` (`file_id`, `chunk_index`),
+    KEY `idx_knowledge_chunk_vector` (`collection_name`(32), `vector_id`(128)),
     KEY `idx_kb_id` (`knowledge_base_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='文本块';
 
 CREATE TABLE IF NOT EXISTS `knowledge_user_file_permission` (
     `id`              BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
+    `record_generation` VARCHAR(32) DEFAULT NULL COMMENT '每次授予生成的不可变记录身份；缺失时禁止检索',
     `user_id`         VARCHAR(128) NOT NULL                COMMENT '用户ID',
     `file_id`         VARCHAR(128) NOT NULL                COMMENT '文件业务ID',
     `permission_type` VARCHAR(16)  DEFAULT 'read'          COMMENT '权限类型: read / write / admin',
     `create_time`     DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_user_file` (`user_id`, `file_id`),
+    UNIQUE KEY `uk_knowledge_permission_generation` (`record_generation`),
+    KEY `idx_knowledge_permission_file` (`file_id`),
     KEY `idx_user_id` (`user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户文件权限';
 
@@ -694,7 +783,6 @@ CALL add_idx_if_absent('knowledge_base', 'idx_kb_project_code', '`project_code`'
 CALL add_idx_if_absent('knowledge_chunk', 'idx_kb_enabled', '`knowledge_base_id`, `enabled`');
 CALL add_idx_if_absent('knowledge_chunk', 'idx_kb_hit_count', '`knowledge_base_id`, `hit_count`');
 CALL add_unique_idx_if_absent('knowledge_file_info', 'uk_knowledge_file_file_id', '`file_id`');
-CALL add_unique_idx_if_absent('knowledge_document_import_job', 'uk_knowledge_document_import_file_id', '`file_id`');
 CALL add_unique_idx_if_absent('knowledge_chunk', 'uk_knowledge_chunk_file_index', '`file_id`, `chunk_index`');
 CALL add_idx_if_absent('knowledge_chunk', 'idx_kb_created', '`knowledge_base_id`, `create_time`');
 CALL add_idx_if_absent('knowledge_file_info', 'idx_kb_file_created', '`knowledge_base_id`, `create_time`');
@@ -893,6 +981,7 @@ CREATE TABLE IF NOT EXISTS `capability_scan_project_tool` (
     `parameters_json`     TEXT         DEFAULT NULL            COMMENT '参数定义 JSON',
     `source`              VARCHAR(32)  NOT NULL DEFAULT 'scanner' COMMENT '来源: scanner',
     `source_location`     VARCHAR(512) DEFAULT NULL            COMMENT '来源定位',
+    `source_qualified_name` VARCHAR(256) DEFAULT NULL           COMMENT '服务端绑定的 SDK 来源能力标识，目录编辑不可变',
     `http_method`         VARCHAR(8)   DEFAULT NULL            COMMENT 'HTTP 方法',
     `base_url`            VARCHAR(256) DEFAULT NULL            COMMENT '目标服务基础地址',
     `context_path`        VARCHAR(128) DEFAULT NULL            COMMENT '服务公共前缀',
@@ -913,6 +1002,7 @@ CREATE TABLE IF NOT EXISTS `capability_scan_project_tool` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='扫描项目接口（未注册为全局 Tool 前）';
 
 CALL add_col_if_absent('capability_scan_project_tool', 'title', 'VARCHAR(192) DEFAULT NULL COMMENT ''用户可读的简短工具名称'' AFTER `name`');
+CALL add_col_if_absent('capability_scan_project_tool', 'source_qualified_name', 'VARCHAR(256) DEFAULT NULL COMMENT ''服务端绑定的 SDK 来源能力标识，目录编辑不可变'' AFTER `source_location`');
 UPDATE `capability_scan_project_tool` SET `title` = `name` WHERE `title` IS NULL OR TRIM(`title`) = '';
 ALTER TABLE `capability_scan_project_tool` MODIFY COLUMN `title` VARCHAR(192) NOT NULL COMMENT '用户可读的简短工具名称';
 CALL add_col_if_absent('capability_scan_project_tool', 'capability_metadata_json', 'MEDIUMTEXT DEFAULT NULL COMMENT ''@ReachCapability 能力声明元数据 JSON'' AFTER `ai_description`');
@@ -955,6 +1045,7 @@ CREATE TABLE IF NOT EXISTS `capability_tool_definition` (
     `parameters_json`     TEXT          DEFAULT NULL            COMMENT '参数定义 JSON',
     `source`              VARCHAR(32)   NOT NULL DEFAULT 'manual' COMMENT '来源: code/scanner/manual',
     `source_location`     VARCHAR(512)  DEFAULT NULL            COMMENT '来源详情',
+    `source_qualified_name` VARCHAR(256) DEFAULT NULL           COMMENT 'capability_source_state 稳定来源能力标识',
     `http_method`         VARCHAR(8)    DEFAULT NULL            COMMENT 'HTTP 方法',
     `base_url`            VARCHAR(256)  DEFAULT NULL            COMMENT '目标服务基础地址',
     `context_path`        VARCHAR(128)  DEFAULT NULL            COMMENT '服务公共前缀',
@@ -976,6 +1067,7 @@ CREATE TABLE IF NOT EXISTS `capability_tool_definition` (
 
 -- 兼容老库：如果 capability_tool_definition 已存在但缺少当前基线列，这里补齐（CREATE TABLE IF NOT EXISTS 不会重建）
 CALL add_col_if_absent('capability_tool_definition', 'title',            'VARCHAR(192) DEFAULT NULL COMMENT ''用户可读的简短工具名称'' AFTER `name`');
+CALL add_col_if_absent('capability_tool_definition', 'source_qualified_name', 'VARCHAR(256) DEFAULT NULL COMMENT ''capability_source_state 稳定来源能力标识'' AFTER `source_location`');
 UPDATE `capability_tool_definition` SET `title` = `name` WHERE `title` IS NULL OR TRIM(`title`) = '';
 ALTER TABLE `capability_tool_definition` MODIFY COLUMN `title` VARCHAR(192) NOT NULL COMMENT '用户可读的简短工具名称';
 CALL add_col_if_absent('capability_tool_definition', 'ai_description',   'MEDIUMTEXT DEFAULT NULL COMMENT ''LLM 生成的业务语义描述'' AFTER `description`');
@@ -1228,7 +1320,7 @@ CREATE TABLE IF NOT EXISTS `runtime_trace_span` (
     `external_user_id`  VARCHAR(128) DEFAULT NULL            COMMENT '业务系统内用户 ID',
     `global_user_id`    VARCHAR(128) DEFAULT NULL            COMMENT '跨系统稳定用户 ID',
     `page_instance_id`  VARCHAR(128) DEFAULT NULL            COMMENT '业务前端页面实例 ID',
-    `status`            VARCHAR(16)  NOT NULL DEFAULT 'SUCCESS' COMMENT 'RUNNING / SUCCESS / FAILED / ERROR / WAITING_USER / WAITING_APPROVAL',
+    `status`            VARCHAR(32)  NOT NULL DEFAULT 'SUCCESS' COMMENT 'RUNNING / SUCCESS / FAILED / ERROR / WAITING_USER / WAITING_APPROVAL / WAITING_REMOTE / BUSINESS_TERMINAL / CANCELLED / TIMEOUT',
     `input_summary`     MEDIUMTEXT   DEFAULT NULL            COMMENT '输入摘要',
     `output_summary`    MEDIUMTEXT   DEFAULT NULL            COMMENT '输出摘要',
     `metadata_json`     MEDIUMTEXT   DEFAULT NULL            COMMENT '结构化元数据 JSON',
@@ -1432,6 +1524,51 @@ CREATE TABLE IF NOT EXISTS `runtime_workflow_version` (
     UNIQUE KEY `uk_ai_workflow_version` (`workflow_id`, `version`),
     KEY `idx_ai_workflow_version_status` (`workflow_id`, `status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Workflow 发布版本';
+
+CREATE TABLE IF NOT EXISTS `runtime_workflow_draft_submission` (
+    `id`                BIGINT       NOT NULL AUTO_INCREMENT,
+    `workflow_id`       VARCHAR(64)  NOT NULL COMMENT '由任务作用域确定的 Workflow ID',
+    `request_hash`      CHAR(64)     NOT NULL COMMENT '规范化请求 SHA-256，不保存原始请求或凭据',
+    `source_type`       VARCHAR(48)  NOT NULL COMMENT 'PAGE_WORKBENCH / RUNOPS_TRACE_CANDIDATE',
+    `project_id`        BIGINT       DEFAULT NULL,
+    `project_code`      VARCHAR(96)  NOT NULL,
+    `task_id`           VARCHAR(64)  NOT NULL,
+    `target_key`        VARCHAR(255) NOT NULL COMMENT '来源页面或 Trace 标识',
+    `workflow_revision` DATETIME(6)  DEFAULT NULL COMMENT '成功应用后的 runtime_workflow.updated_at；事务内预约期间为空',
+    `created_at`        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_workflow_draft_request` (`workflow_id`, `request_hash`),
+    KEY `idx_workflow_draft_revision` (`workflow_id`, `workflow_revision`, `id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Workflow 任务草稿的幂等投递与自动修正凭据';
+
+CREATE TABLE IF NOT EXISTS `runtime_workflow_release_event` (
+    `id`                  BIGINT NOT NULL AUTO_INCREMENT,
+    `workflow_id`         VARCHAR(32) NOT NULL,
+    `action`              VARCHAR(24) NOT NULL COMMENT 'PUBLISH / ROLLBACK',
+    `previous_version_id` BIGINT DEFAULT NULL,
+    `target_version_id`   BIGINT NOT NULL,
+    `actor`               VARCHAR(64) NOT NULL COMMENT '可信平台身份或服务端工作流身份',
+    `base_revision`       VARCHAR(64) NOT NULL COMMENT '操作已校验的草稿修订',
+    `occurred_at`         DATETIME NOT NULL,
+    PRIMARY KEY (`id`),
+    KEY `idx_workflow_release_event` (`workflow_id`, `id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Workflow 发布与回滚事件；不改写原始发布人和时间';
+
+CREATE TABLE IF NOT EXISTS `runtime_workflow_capability_reference` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `workflow_id` VARCHAR(32) NOT NULL,
+    `workflow_version_id` BIGINT NOT NULL COMMENT '0 为当前草稿；正数为不可变发布版本',
+    `node_ordinal` INT NOT NULL COMMENT '-1 为覆盖状态，其余为 GraphSpec 节点序号',
+    `node_id` TEXT DEFAULT NULL,
+    `reference_key` VARCHAR(256) COLLATE utf8mb4_bin DEFAULT NULL,
+    `state` VARCHAR(16) NOT NULL COMMENT 'READY / PARTIAL',
+    `warnings_json` TEXT DEFAULT NULL,
+    `indexed_revision` DATETIME DEFAULT NULL COMMENT '草稿索引对应的 updated_at；发布版本不变',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_workflow_reference_node` (`workflow_id`, `workflow_version_id`, `node_ordinal`),
+    KEY `idx_workflow_reference_key` (`reference_key`(191)),
+    KEY `idx_workflow_reference_coverage` (`node_ordinal`, `state`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Workflow 自有能力引用索引；缺失或过期索引不得视为零引用';
 
 CREATE TABLE IF NOT EXISTS `runtime_workflow_resource_binding` (
     `id`            BIGINT       NOT NULL AUTO_INCREMENT,
@@ -2772,10 +2909,10 @@ CREATE TABLE IF NOT EXISTS `capability_api_graph_layout` (
 CREATE TABLE IF NOT EXISTS `runtime_guard_decision_log` (
     `id`             BIGINT       NOT NULL AUTO_INCREMENT,
     `trace_id`       VARCHAR(64)  DEFAULT NULL                 COMMENT '关联 traceId，可为空',
-    `decision_type`  VARCHAR(32)  NOT NULL                     COMMENT 'RATE_LIMIT / BREAKER / ACL / SIDE_EFFECT / PREFLIGHT',
-    `target_kind`    VARCHAR(32)  NOT NULL                     COMMENT 'AGENT / TOOL / MCP_CLIENT / A2A_ENDPOINT / PROJECT',
+    `decision_type`  VARCHAR(32)  NOT NULL                     COMMENT 'RATE_LIMIT / BREAKER / ACL / SIDE_EFFECT / PREFLIGHT / SUPERVISOR_TOOL_POLICY',
+    `target_kind`    VARCHAR(32)  NOT NULL                     COMMENT 'AGENT / TOOL / MCP_CLIENT / A2A_ENDPOINT / PROJECT / WORKFLOW_TOOL / A2A_REMOTE_AGENT',
     `target_name`    VARCHAR(255) NOT NULL                     COMMENT '目标名称或 key',
-    `decision`       VARCHAR(16)  NOT NULL                     COMMENT 'ALLOW / DENY / WARN / SKIP / DRY_RUN',
+    `decision`       VARCHAR(32)  NOT NULL                     COMMENT 'ALLOW / DENY / WARN / SKIP / DRY_RUN / REQUIRE_CONFIRMATION / EVAL_SIDE_EFFECT_BLOCKED',
     `reason`         VARCHAR(512) DEFAULT NULL                 COMMENT '决策原因',
     `metadata_json`  TEXT         DEFAULT NULL                 COMMENT '扩展上下文 JSON',
     `created_at`     DATETIME     DEFAULT CURRENT_TIMESTAMP,
@@ -2795,7 +2932,8 @@ CALL add_col_if_absent('capability_scan_project', 'project_kind', 'VARCHAR(24) N
 CALL add_col_if_absent('capability_scan_project', 'environment', 'VARCHAR(32) NOT NULL DEFAULT ''default'' COMMENT ''项目环境'' AFTER `project_kind`');
 CALL add_col_if_absent('capability_scan_project', 'owner', 'VARCHAR(128) DEFAULT NULL COMMENT ''负责人或团队'' AFTER `environment`');
 CALL add_col_if_absent('capability_scan_project', 'visibility', 'VARCHAR(24) NOT NULL DEFAULT ''PRIVATE'' COMMENT ''PRIVATE / PROJECT / SHARED / PUBLIC'' AFTER `owner`');
-CALL add_idx_if_absent('capability_scan_project', 'idx_scan_project_code', '`project_code`');
+-- 稳定项目编码在同库中唯一，防止不同 enrollment token 并发创建同一项目身份。
+CALL add_unique_idx_if_absent('capability_scan_project', 'uk_scan_project_code', '`project_code`');
 CALL add_idx_if_absent('capability_scan_project', 'idx_scan_project_env', '`environment`, `status`');
 
 CALL add_col_if_absent('capability_tool_definition', 'project_code', 'VARCHAR(96) DEFAULT NULL COMMENT ''冗余项目编码'' AFTER `project_id`');
@@ -2888,7 +3026,7 @@ CREATE TABLE IF NOT EXISTS `capability_sync_log` (
     `error_message`   TEXT         DEFAULT NULL,
     `created_at`      DATETIME     DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_sync_id` (`sync_id`),
+    UNIQUE KEY `uk_sync_project_id` (`project_id`, `sync_id`),
     KEY `idx_sync_project` (`project_id`, `created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='能力同步日志';
 
@@ -2898,6 +3036,10 @@ CREATE TABLE IF NOT EXISTS `capability_snapshot` (
     `project_code` VARCHAR(96) NOT NULL,
     `sync_id`      VARCHAR(64) NOT NULL,
     `source`       VARCHAR(32) NOT NULL DEFAULT 'SDK',
+    `intake_mode`  VARCHAR(24) NOT NULL DEFAULT 'DIAGNOSTIC',
+    `content_hash` CHAR(64) DEFAULT NULL,
+    `report_count` INT NOT NULL DEFAULT 1,
+    `last_seen_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
     `status`       VARCHAR(24) NOT NULL DEFAULT 'PENDING',
     `payload_json` JSON        DEFAULT NULL,
     `received`     INT         NOT NULL DEFAULT 0,
@@ -2908,9 +3050,23 @@ CREATE TABLE IF NOT EXISTS `capability_snapshot` (
     `created_at`   DATETIME    DEFAULT CURRENT_TIMESTAMP,
     `updated_at`   DATETIME    DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_snapshot_sync` (`sync_id`),
+    UNIQUE KEY `uk_snapshot_project_sync` (`project_id`, `sync_id`),
+    KEY `idx_snapshot_latest` (`project_id`, `intake_mode`, `id`),
     KEY `idx_snapshot_project` (`project_id`, `created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='能力同步快照';
+
+CREATE TABLE IF NOT EXISTS `capability_sync_receipt` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `project_id` BIGINT NOT NULL,
+    `sync_id` VARCHAR(64) NOT NULL,
+    `snapshot_id` BIGINT NOT NULL,
+    `intake_mode` VARCHAR(24) NOT NULL,
+    `content_hash` CHAR(64) NOT NULL,
+    `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_receipt_project_sync` (`project_id`, `sync_id`),
+    KEY `idx_receipt_snapshot` (`snapshot_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='能力同步请求身份回执';
 
 CREATE TABLE IF NOT EXISTS `capability_diff_item` (
     `id`               BIGINT       NOT NULL AUTO_INCREMENT,
@@ -2925,6 +3081,8 @@ CREATE TABLE IF NOT EXISTS `capability_diff_item` (
     `existing_tool_id` BIGINT       DEFAULT NULL,
     `field_diff_json`  JSON         DEFAULT NULL,
     `impact_json`      JSON         DEFAULT NULL,
+    `candidate_hash`   CHAR(64) DEFAULT NULL,
+    `intake_mode`      VARCHAR(24) NOT NULL DEFAULT 'DIAGNOSTIC',
     `before_state_json` JSON        DEFAULT NULL COMMENT '评审应用前的扫描目录与全局 Tool 状态，用于真实回滚',
     `review_status`    VARCHAR(24)  NOT NULL DEFAULT 'PENDING',
     `review_note`      VARCHAR(512) DEFAULT NULL,
@@ -2932,8 +3090,25 @@ CREATE TABLE IF NOT EXISTS `capability_diff_item` (
     `updated_at`       DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     KEY `idx_diff_snapshot` (`snapshot_id`, `review_status`),
+    KEY `idx_diff_current` (`project_id`, `intake_mode`, `review_status`, `id`),
     KEY `idx_diff_qualified` (`qualified_name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='能力同步字段级差异项';
+
+CREATE TABLE IF NOT EXISTS `capability_source_state` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `project_id` BIGINT NOT NULL,
+    `project_code` VARCHAR(96) NOT NULL,
+    `qualified_name` VARCHAR(256) NOT NULL,
+    `snapshot_id` BIGINT NOT NULL,
+    `diff_item_id` BIGINT NOT NULL,
+    `source_contract_hash` CHAR(64) DEFAULT NULL,
+    `accepted_contract_hash` CHAR(64) DEFAULT NULL,
+    `availability` VARCHAR(32) NOT NULL,
+    `observed_at` DATETIME NOT NULL,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_capability_source_name` (`qualified_name`),
+    KEY `idx_capability_source_project` (`project_id`, `availability`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='能力最新可信来源观察，与目录接受决策分离';
 
 CREATE TABLE IF NOT EXISTS `capability_apply_record` (
     `id`             BIGINT       NOT NULL AUTO_INCREMENT,
@@ -4331,14 +4506,15 @@ CREATE TABLE IF NOT EXISTS `runtime_interaction_session` (
     `status`                     VARCHAR(32)  NOT NULL DEFAULT 'WAITING_USER' COMMENT 'WAITING_USER / RESUMING / COMPLETED / CANCELLED / EXPIRED / FAILED',
     `revision`                   INT          NOT NULL DEFAULT 0 COMMENT '乐观锁版本',
     `idempotency_key`            VARCHAR(128) DEFAULT NULL COMMENT '当前恢复尝试的幂等键',
+    `resume_deadline_at`         DATETIME     DEFAULT NULL COMMENT 'Workflow / Supervisor 本次恢复结果提交期限；超时结果未知，禁止自动重跑',
     `resume_checkpoint_json`     MEDIUMTEXT   DEFAULT NULL COMMENT '版本化内部断点 envelope；不得作为公共结果返回',
     `checkpoint_schema_version`  SMALLINT     NOT NULL DEFAULT 0 COMMENT '0=历史 Map；1=WorkflowCheckpointV1',
     `execution_engine_version`   VARCHAR(32)  NOT NULL DEFAULT 'LEGACY' COMMENT 'LEGACY / RUNTIME_KERNEL_V2',
     `checkpoint_digest`          CHAR(64)     DEFAULT NULL COMMENT 'resume_checkpoint_json 原始 UTF-8 字节 SHA-256',
     `checkpoint_size_bytes`      INT          DEFAULT NULL COMMENT '断点 UTF-8 字节数；Runtime V1 上限 1 MiB',
     `ui_request_json`            MEDIUMTEXT   DEFAULT NULL COMMENT 'canonical uiRequest',
-    `submitted_payload_json`     MEDIUMTEXT   DEFAULT NULL COMMENT '最近一次提交（已脱敏策略由服务层保证）',
-    `result_json`                MEDIUMTEXT   DEFAULT NULL COMMENT '可幂等重放的完整恢复结果',
+    `submitted_payload_json`     MEDIUMTEXT   DEFAULT NULL COMMENT '最近提交；Workflow 为 submissionSchemaVersion/action/values envelope，其他流程维护自有格式',
+    `result_json`                MEDIUMTEXT   DEFAULT NULL COMMENT '完整恢复结果；Workflow 为 resumeResultSchemaVersion/response envelope',
     `continuation_json`          MEDIUMTEXT   DEFAULT NULL COMMENT 'Supervisor 续跑信息',
     `app_id`                     VARCHAR(96)  DEFAULT NULL,
     `tenant_id`                  VARCHAR(96)  DEFAULT NULL,
@@ -4351,6 +4527,7 @@ CREATE TABLE IF NOT EXISTS `runtime_interaction_session` (
     KEY `idx_interaction_session_run` (`run_id`),
     KEY `idx_interaction_session_trace` (`trace_id`),
     KEY `idx_interaction_session_status` (`status`, `expires_at`),
+    KEY `idx_interaction_session_resume` (`status`, `resume_deadline_at`, `id`),
     KEY `idx_interaction_session_owner` (`session_id`, `app_id`, `status`),
     KEY `idx_interaction_session_agent` (`source_type`, `interaction_type`, `agent_id`, `status`, `create_time`),
     KEY `idx_interaction_session_idem` (`id`, `idempotency_key`)
@@ -4372,11 +4549,15 @@ CREATE TABLE IF NOT EXISTS `runtime_executable_debug_session` (
     `run_id`                VARCHAR(128) DEFAULT NULL,
     `trace_id`              VARCHAR(128) DEFAULT NULL,
     `target_type`           VARCHAR(64)  NOT NULL DEFAULT 'AGENT_WORKING_COPY' COMMENT 'AGENT_WORKING_COPY / WORKFLOW_WORKING_COPY / WORKFLOW_VERSION 等',
+    `owner_tenant_id`       VARCHAR(96)  DEFAULT NULL COMMENT '已验证的平台会话租户；旧无归属记录禁止用户访问',
+    `owner_user_id`         VARCHAR(128) DEFAULT NULL COMMENT '已验证的平台用户 ID；创建后不变',
     `status`                VARCHAR(32)  NOT NULL DEFAULT 'RUNNING' COMMENT 'RUNNING / SUSPENDED / RESUMING / COMPLETED / FAILED / CANCELLED / EXPIRED',
     `revision`              INT          NOT NULL DEFAULT 0 COMMENT '乐观锁版本，Debug submit CAS',
+    `creation_request_hash` CHAR(64)     DEFAULT NULL COMMENT '创建请求不可变指纹；创建身份按平台用户和尝试标识隔离',
     `idempotency_key`       VARCHAR(128) DEFAULT NULL COMMENT '最近一次成功提交的幂等键',
     `submitted_payload_json` MEDIUMTEXT  DEFAULT NULL COMMENT '规范化提交载荷，用于幂等比较',
-    `result_json`           MEDIUMTEXT   DEFAULT NULL COMMENT '最近一次 submit 结果摘要',
+    `result_json`           MEDIUMTEXT   DEFAULT NULL COMMENT '执行完成回执或最近一次执行结果摘要',
+    `execution_deadline_at` DATETIME     DEFAULT NULL COMMENT '本次调试执行结果提交期限；超时结果未知，禁止自动重跑',
     `current_node_id`       VARCHAR(128) DEFAULT NULL,
     `working_copy_definition_json` MEDIUMTEXT DEFAULT NULL COMMENT '调试启动时的可编辑工作副本快照',
     `debug_options_json`    MEDIUMTEXT   DEFAULT NULL,
@@ -4390,6 +4571,7 @@ CREATE TABLE IF NOT EXISTS `runtime_executable_debug_session` (
     PRIMARY KEY (`id`),
     KEY `idx_executable_debug_session_trace` (`trace_id`),
     KEY `idx_executable_debug_session_status` (`status`, `expires_at`),
+    KEY `idx_executable_debug_session_execution` (`status`, `execution_deadline_at`, `id`),
     KEY `idx_executable_debug_session_idem` (`id`, `idempotency_key`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Executable debug sessions for Studio and runtime workbench';
 

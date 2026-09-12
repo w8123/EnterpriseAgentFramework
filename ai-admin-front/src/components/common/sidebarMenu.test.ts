@@ -54,6 +54,24 @@ describe('sidebarMenu information architecture', () => {
     ])
   })
 
+  it('keeps Capability review in the core asset path instead of the lab', () => {
+    const capability = sidebarMenu.find((entry) => (
+      entry.kind === 'item' && entry.index === '/capability'
+    ))
+    const experimental = sidebarMenu.find((entry) => (
+      entry.kind === 'item' && entry.index === '/experimental-group'
+    ))
+
+    expect(capability?.kind).toBe('item')
+    expect(experimental?.kind).toBe('item')
+    if (capability?.kind !== 'item' || experimental?.kind !== 'item') return
+    expect(capability.label).toBe('能力目录')
+    expect(capability.children).toBeUndefined()
+    expect(capability.requiredPermissions).toEqual(['platform:read'])
+    expect(experimental.children?.map((child) => child.index)).not.toContain('/capability')
+    expect(experimental.children?.map((child) => child.index)).not.toContain('/capability/review')
+  })
+
   it('removes privileged identity entries without leaving the group empty', () => {
     const visible = filterSidebarMenu(sidebarMenu, ['platform:read'])
     const identity = visible.find((entry) => (
@@ -125,8 +143,8 @@ describe('resolveActiveMenu', () => {
 describe('resolveOpenGroups', () => {
   it.each([
     ['/api-market', ['/integration-group']],
-    ['/capability', ['/experimental-group']],
-    ['/capability/review', ['/experimental-group']],
+    ['/capability', []],
+    ['/capability/review', []],
     ['/settings/tool-acl', ['/identity-group']],
     ['/settings/personal-memory', ['/identity-group']],
     ['/mcp-hub/call-logs', ['/integration-group']],

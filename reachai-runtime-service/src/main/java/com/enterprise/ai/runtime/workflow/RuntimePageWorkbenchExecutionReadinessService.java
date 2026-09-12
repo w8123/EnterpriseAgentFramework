@@ -1,10 +1,9 @@
 package com.enterprise.ai.runtime.workflow;
 
-import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.enterprise.ai.runtime.runops.RuntimeRunEntity;
-import com.enterprise.ai.runtime.runops.RuntimeRunMapper;
-import com.enterprise.ai.runtime.trace.RuntimeTraceSpanEntity;
-import com.enterprise.ai.runtime.trace.RuntimeTraceSpanMapper;
+import com.enterprise.ai.runtime.runops.RuntimeRunQuery;
+import com.enterprise.ai.runtime.runops.RuntimeRunQuery.Run;
+import com.enterprise.ai.runtime.trace.RuntimeTraceRecordQuery;
+import com.enterprise.ai.runtime.trace.RuntimeTraceRecords.Span;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowResourceBindingService.BindingView;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -14,6 +13,8 @@ import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Verifies that an exact post-task Embed trace successfully executed the
@@ -28,8 +29,8 @@ public class RuntimePageWorkbenchExecutionReadinessService {
     private static final String PASS = "PASS";
     private static final String FAIL = "FAIL";
 
-    private final RuntimeRunMapper runMapper;
-    private final RuntimeTraceSpanMapper spanMapper;
+    private final RuntimeRunQuery runQuery;
+    private final RuntimeTraceRecordQuery traceQuery;
     private final RuntimeWorkflowDefinitionMapper workflowMapper;
     private final RuntimeWorkflowVersionMapper versionMapper;
     private final RuntimeWorkflowResourceBindingService bindingService;
@@ -158,10 +159,7 @@ public class RuntimePageWorkbenchExecutionReadinessService {
         }
         NodeUsage nodeUsage = nodeUsage(version);
 
-        RuntimeRunEntity run = runMapper.selectOne(
-                Wrappers.<RuntimeRunEntity>lambdaQuery()
-                        .eq(RuntimeRunEntity::getTraceId, expectedTraceId)
-                        .last("LIMIT 1"));
+        Run run = runQuery.findByTraceId(expectedTraceId).orElse(null);
         if (run == null) {
             return failed(
                     "RUNTIME_RUN_NOT_FOUND",
@@ -177,10 +175,10 @@ public class RuntimePageWorkbenchExecutionReadinessService {
                     null,
                     nodeUsage);
         }
-        if (!expectedProjectCode.equalsIgnoreCase(run.getProjectCode())
-                || !expectedSessionId.equals(run.getSessionId())
-                || !expectedPageInstanceId.equals(run.getPageInstanceId())
-                || !"EMBED".equalsIgnoreCase(run.getEntryType())) {
+        if (!expectedProjectCode.equalsIgnoreCase(run.projectCode())
+                || !expectedSessionId.equals(run.sessionId())
+                || !expectedPageInstanceId.equals(run.pageInstanceId())
+                || !"EMBED".equalsIgnoreCase(run.entryType())) {
             return failed(
                     "RUNTIME_RUN_IDENTITY_MISMATCH",
                     "当前 Trace 不属于本次页面会话",
@@ -195,7 +193,7 @@ public class RuntimePageWorkbenchExecutionReadinessService {
                     run,
                     nodeUsage);
         }
-        if (!"COMPLETED".equalsIgnoreCase(run.getStatus())) {
+        if (!"COMPLETED".equalsIgnoreCase(run.status())) {
             return failed(
                     "RUNTIME_RUN_NOT_COMPLETED",
                     "当前页面 Runtime Run 尚未成功完成",
@@ -211,20 +209,19 @@ public class RuntimePageWorkbenchExecutionReadinessService {
                     nodeUsage);
         }
 
-        List<RuntimeTraceSpanEntity> spans = defaultList(spanMapper.selectList(
-                Wrappers.<RuntimeTraceSpanEntity>lambdaQuery()
-                        .eq(
-                                RuntimeTraceSpanEntity::getTraceId,
-                                expectedTraceId)));
-        boolean workflowObserved = spans.stream()
-                .filter(span -> "WORKFLOW_TOOL".equals(span.getSpanType()))
-                .filter(span -> isWorkflowCompletionStatus(span.getStatus()))
-                .anyMatch(span -> exactWorkflow(
+        List<Span> spans = traceQuery.findSpans(expectedTraceId);
+        Set<String> completedWorkflowSpans = spans.stream()
+                .filter(span -> "WORKFLOW_TOOL".equals(span.spanType()))
+                .filter(span -> isWorkflowCompletionStatus(span.status()))
+                .filter(span -> exactWorkflow(
                         span,
                         expectedWorkflowId,
                         workflowVersionId,
-                        expectedWorkflowVersion));
-        if (!workflowObserved) {
+                        expectedWorkflowVersion))
+                .map(Span::spanId)
+                .filter(StringUtils::hasText)
+                .collect(Collectors.toSet());
+        if (completedWorkflowSpans.isEmpty()) {
             return failed(
                     "WORKFLOW_EXECUTION_NOT_OBSERVED",
                     "当前页面 Trace 未成功执行验收任务指定的 Workflow 版本",
@@ -240,7 +237,8 @@ public class RuntimePageWorkbenchExecutionReadinessService {
                     nodeUsage);
         }
 
-        NodeObservation nodeObservation = observedNodes(spans);
+        NodeObservation nodeObservation = observedNodes(spans, completedWorkflowSpans,
+                expectedWorkflowId, workflowVersionId, expectedWorkflowVersion);
 
         if (nodeUsage.structuredPresentationRequired()
                 && !nodeObservation.structuredPresentationObserved()) {
@@ -272,8 +270,8 @@ public class RuntimePageWorkbenchExecutionReadinessService {
                 expectedWorkflowId,
                 workflowVersionId,
                 expectedWorkflowVersion,
-                run.getStatus(),
-                run.getEntryType(),
+                run.status(),
+                run.entryType(),
                 true,
                 nodeUsage.capabilityRequired(),
                 nodeUsage.capabilityRequired() && nodeObservation.capabilityObserved(),
@@ -327,32 +325,36 @@ public class RuntimePageWorkbenchExecutionReadinessService {
         }
     }
 
-    private NodeObservation observedNodes(List<RuntimeTraceSpanEntity> spans) {
+    private NodeObservation observedNodes(List<Span> spans, Set<String> completedWorkflowSpans,
+                                         String workflowId, Long workflowVersionId, String workflowVersion) {
         boolean capabilityObserved = false;
         boolean pageActionObserved = false;
         boolean pageActionBusinessTerminalObserved = false;
         boolean structuredPresentationObserved = false;
-        for (RuntimeTraceSpanEntity span : spans) {
-            if (!"WORKFLOW_NODE".equals(span.getSpanType())) {
+        for (Span span : spans) {
+            // Supervisor 写入的节点必须直接属于同次成功调用，且携带相同的发布版本身份。
+            if (!"WORKFLOW_NODE".equals(span.spanType())
+                    || !completedWorkflowSpans.contains(span.parentSpanId())
+                    || !exactWorkflow(span, workflowId, workflowVersionId, workflowVersion)) {
                 continue;
             }
             String type = metadata(span).path("nodeType").asText("")
                     .trim().toUpperCase();
             if ("TOOL".equals(type)
-                    && "SUCCESS".equalsIgnoreCase(span.getStatus())) {
+                    && "SUCCESS".equalsIgnoreCase(span.status())) {
                 capabilityObserved = true;
             }
             if ("PAGE_ACTION".equals(type)
-                    && isWorkflowCompletionStatus(span.getStatus())) {
+                    && isWorkflowCompletionStatus(span.status())) {
                 pageActionObserved = true;
-                if ("BUSINESS_TERMINAL".equalsIgnoreCase(span.getStatus())) {
+                if ("BUSINESS_TERMINAL".equalsIgnoreCase(span.status())) {
                     pageActionBusinessTerminalObserved = true;
                 }
             }
             if ("INTERACTION".equals(type)
                     && "PRESENT_OUTPUT".equalsIgnoreCase(
                     metadata(span).path("interactionType").asText(""))
-                    && "SUCCESS".equalsIgnoreCase(span.getStatus())) {
+                    && "SUCCESS".equalsIgnoreCase(span.status())) {
                 structuredPresentationObserved = true;
             }
         }
@@ -369,7 +371,7 @@ public class RuntimePageWorkbenchExecutionReadinessService {
     }
 
     private boolean exactWorkflow(
-            RuntimeTraceSpanEntity span,
+            Span span,
             String workflowId,
             Long workflowVersionId,
             String workflowVersion) {
@@ -381,9 +383,10 @@ public class RuntimePageWorkbenchExecutionReadinessService {
                         metadata.path("workflowVersion").asText());
     }
 
-    private JsonNode metadata(RuntimeTraceSpanEntity span) {
+    private JsonNode metadata(Span span) {
         try {
-            return objectMapper.readTree(span.getMetadataJson());
+            JsonNode value = objectMapper.readTree(span.metadataJson());
+            return value != null && value.isObject() ? value : objectMapper.createObjectNode();
         } catch (Exception ex) {
             return objectMapper.createObjectNode();
         }
@@ -400,7 +403,7 @@ public class RuntimePageWorkbenchExecutionReadinessService {
             String workflowId,
             Long workflowVersionId,
             String workflowVersion,
-            RuntimeRunEntity run,
+            Run run,
             NodeUsage nodeUsage) {
         return new ExecutionReadinessView(
                 FAIL,
@@ -414,8 +417,8 @@ public class RuntimePageWorkbenchExecutionReadinessService {
                 workflowId,
                 workflowVersionId,
                 workflowVersion,
-                run == null ? null : run.getStatus(),
-                run == null ? null : run.getEntryType(),
+                run == null ? null : run.status(),
+                run == null ? null : run.entryType(),
                 false,
                 nodeUsage.capabilityRequired(),
                 false,
@@ -438,7 +441,7 @@ public class RuntimePageWorkbenchExecutionReadinessService {
             String workflowId,
             Long workflowVersionId,
             String workflowVersion,
-            RuntimeRunEntity run,
+            Run run,
             NodeUsage nodeUsage,
             NodeObservation observed) {
         return new ExecutionReadinessView(
@@ -453,8 +456,8 @@ public class RuntimePageWorkbenchExecutionReadinessService {
                 workflowId,
                 workflowVersionId,
                 workflowVersion,
-                run == null ? null : run.getStatus(),
-                run == null ? null : run.getEntryType(),
+                run == null ? null : run.status(),
+                run == null ? null : run.entryType(),
                 true,
                 nodeUsage.capabilityRequired(),
                 observed.capabilityObserved(),
@@ -471,10 +474,6 @@ public class RuntimePageWorkbenchExecutionReadinessService {
             throw new IllegalArgumentException(field + " is required");
         }
         return value.trim();
-    }
-
-    private static <T> List<T> defaultList(List<T> value) {
-        return value == null ? List.of() : value;
     }
 
     public record ExecutionReadinessView(

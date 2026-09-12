@@ -32,13 +32,6 @@ public interface KnowledgeService {
      */
     void deleteByFileId(String knowledgeBaseCode, String fileId);
 
-    /**
-     * Best-effort compensation for a failed document indexing attempt. Removes
-     * only vector/database index data owned by the same import job and keeps the
-     * source plus parse artifacts available for retry.
-     */
-    void cleanupImportIndexData(String knowledgeBaseCode, String fileId, String importJobId);
-
     // ==================== 知识库 CRUD ====================
 
     List<KnowledgeBaseVO> listAll();

@@ -4,7 +4,7 @@ import com.enterprise.ai.control.agentskill.AgentSkillCatalogService;
 import com.enterprise.ai.control.agentskill.AgentSkillContracts.SkillDetail;
 import com.enterprise.ai.control.agentskill.AgentSkillContracts.SkillSummary;
 import com.enterprise.ai.control.agentskill.AgentSkillContracts.VersionView;
-import com.enterprise.ai.control.agentskill.AgentSkillExceptionHandler;
+import com.enterprise.ai.control.config.web.AgentSkillExceptionHandler;
 import com.enterprise.ai.control.internalauth.ControlInternalServiceAuthVerifier;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;

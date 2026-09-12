@@ -59,7 +59,18 @@ public class CapabilityCompatibilityProxyController {
 
     @RequestMapping(path = "/api/registry/{*path}")
     public ResponseEntity<byte[]> proxyRegistry(RequestEntity<byte[]> requestEntity, HttpServletRequest request) {
+        if (isRetiredRegistryManagementPath(request.getRequestURI())) {
+            return retiredRegistryManagementRoute();
+        }
         return proxyRequest(requestEntity, request);
+    }
+
+    @RequestMapping(path = {
+            "/api/capabilities",
+            "/api/capabilities/{*path}"
+    })
+    public ResponseEntity<byte[]> retiredCapabilities() {
+        return retiredCapabilityKernelRoute();
     }
 
     /**
@@ -67,8 +78,6 @@ public class CapabilityCompatibilityProxyController {
      * PlatformConsoleAuthInterceptor before this proxy is entered.
      */
     @RequestMapping(path = {
-            "/api/capabilities",
-            "/api/capabilities/{*path}",
             "/api/api-market",
             "/api/api-market/{*path}",
             "/api/tools",
@@ -142,6 +151,34 @@ public class CapabilityCompatibilityProxyController {
         String body = "{\"code\":\"CAPABILITY_SERVICE_UNAVAILABLE\","
                 + "\"message\":\"ReachAI Capability Service is unavailable\"}";
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(body.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private boolean isRetiredRegistryManagementPath(String path) {
+        if (!StringUtils.hasText(path)) {
+            return false;
+        }
+        return path.matches("^/api/registry/projects/[^/]+/capabilities/(diff|apply)$")
+                || path.matches("^/api/registry/projects/[^/]+/capability-snapshots$")
+                || path.matches("^/api/registry/projects/[^/]+/capability-snapshots/[0-9]+/diff-items$")
+                || path.matches("^/api/registry/projects/[^/]+/capability-diff-items/[0-9]+/(review|rollback)$")
+                || path.matches("^/api/registry/capability-snapshots/[0-9]+/diff-items$")
+                || path.matches("^/api/registry/capability-diff-items/[0-9]+/(review|rollback)$");
+    }
+
+    private ResponseEntity<byte[]> retiredCapabilityKernelRoute() {
+        String body = "{\"code\":\"CAPABILITY_KERNEL_ROUTE_RETIRED\","
+                + "\"message\":\"The public /api/capabilities product entry has been retired\"}";
+        return ResponseEntity.status(HttpStatus.GONE)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(body.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private ResponseEntity<byte[]> retiredRegistryManagementRoute() {
+        String body = "{\"code\":\"CAPABILITY_REVIEW_ROUTE_RETIRED\","
+                + "\"message\":\"Use the platform-authenticated /api/capability-review routes\"}";
+        return ResponseEntity.status(HttpStatus.GONE)
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(body.getBytes(StandardCharsets.UTF_8));
     }

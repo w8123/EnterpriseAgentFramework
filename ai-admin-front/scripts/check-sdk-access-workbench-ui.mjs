@@ -80,6 +80,8 @@ assert.doesNotMatch(aiCodingPane, /<span class="step-kicker">AI Coding 接入<\/
 assert.doesNotMatch(aiCodingPane, /ai-coding-key-panel/, 'AI Coding pane should not render the access key card inline')
 assert.doesNotMatch(aiCodingPane, /AI Coding 接入秘钥/, 'AI Coding pane should not render the access key card title inline')
 assert.match(aiCodingPane, /将接入任务交给AI 编程工具/, 'AI Coding pane should use the shorter main heading')
+assert.match(aiCodingPane, /class="ai-progress-steps" role="list"/, 'AI Coding progress should be a status list')
+assert.match(aiCodingPane, /class="progress-step ai-progress-step"[\s\S]*?role="listitem"/, 'AI Coding progress rows should not masquerade as buttons')
 assert.match(wizardSource, /真实浏览器 Embed 会话由 AI Coding 任务的“浏览器 Embed 闭环”单独验收/, 'SDK self-check must not claim browser acceptance')
 assert.match(wizardSource, /SDK 回调与平台自检/, 'AI Coding pane should name the SDK callback self-check precisely')
 assert.doesNotMatch(wizardSource, /可选 API 调用|参数 JSON/, 'SDK self-check must not render request fields ignored by the backend')

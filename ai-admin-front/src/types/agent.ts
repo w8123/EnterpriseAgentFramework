@@ -154,12 +154,13 @@ export interface WorkflowGraphEdge {
   priority?: number
 }
 
-export interface WorkflowGraphCapabilityRef {
+  export interface WorkflowGraphCapabilityRef {
   kind: 'TOOL' | 'INTERACTION'
   name?: string
   qualifiedName?: string
   definitionId?: number | null
-  projectCode?: string | null
+    projectCode?: string | null
+    contractHash?: string | null
 }
 
 export interface WorkflowGraphPort {

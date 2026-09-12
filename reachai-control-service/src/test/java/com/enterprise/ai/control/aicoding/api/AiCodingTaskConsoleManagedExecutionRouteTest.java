@@ -1,5 +1,7 @@
 package com.enterprise.ai.control.aicoding.api;
 
+import com.enterprise.ai.control.identity.PlatformPrincipal;
+
 import com.enterprise.ai.control.aicoding.application.AiCodingHandoffApplicationService;
 import com.enterprise.ai.control.aicoding.application.AiCodingManagedExecutionService;
 import com.enterprise.ai.control.aicoding.application.AiCodingManagedExecutionStreamService;
@@ -44,7 +46,7 @@ class AiCodingTaskConsoleManagedExecutionRouteTest {
         user.setId(99L);
         user.setUsername("operator");
         PlatformAuthenticatedSession session = new PlatformAuthenticatedSession(
-                user,
+                PlatformPrincipal.fromUser(user),
                 "session-1",
                 LocalDateTime.now().plusMinutes(5),
                 List.of("ADMIN"),

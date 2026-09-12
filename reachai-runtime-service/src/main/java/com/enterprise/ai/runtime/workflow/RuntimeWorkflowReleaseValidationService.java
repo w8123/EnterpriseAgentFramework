@@ -1280,15 +1280,15 @@ public class RuntimeWorkflowReleaseValidationService {
                         "Duplicate COLLECT_INPUT field key: " + key);
             }
             String fieldType = firstText(text(field.get("type")), "string").toLowerCase(Locale.ROOT);
-            if (!Set.of("string", "text", "number", "integer", "boolean", "bool", "enum", "select",
+            if (!Set.of("string", "text", "number", "integer", "boolean", "bool", "enum", "select", "multi_select",
                     "object", "array", "date", "datetime").contains(fieldType)) {
                 report.error("GRAPH_INTERACTION_FIELD_TYPE_INVALID", node.getId(),
                         "COLLECT_INPUT field type is invalid: " + fieldType);
             }
-            if (("enum".equals(fieldType) || "select".equals(fieldType))
+            if (Set.of("enum", "select", "multi_select").contains(fieldType)
                     && !(field.get("options") instanceof List<?> options && !options.isEmpty())) {
                 report.error("GRAPH_INTERACTION_FIELD_OPTIONS_REQUIRED", node.getId(),
-                        "COLLECT_INPUT enum/select field requires options: " + key);
+                        "COLLECT_INPUT enum/select/multi_select field requires options: " + key);
             }
         }
         String outputAlias = text(config.get("outputAlias"));

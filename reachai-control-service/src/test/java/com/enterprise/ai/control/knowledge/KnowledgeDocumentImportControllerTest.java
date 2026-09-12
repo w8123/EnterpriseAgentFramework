@@ -1,5 +1,7 @@
 package com.enterprise.ai.control.knowledge;
 
+import com.enterprise.ai.control.identity.PlatformPrincipal;
+
 import com.enterprise.ai.control.identity.PlatformAuthAuditService;
 import com.enterprise.ai.control.identity.PlatformAuthenticatedSession;
 import com.enterprise.ai.control.identity.PlatformAuthorizationService;
@@ -84,7 +86,7 @@ class KnowledgeDocumentImportControllerTest {
         PlatformUserEntity user = new PlatformUserEntity();
         user.setId(42L);
         PlatformAuthenticatedSession session = new PlatformAuthenticatedSession(
-                user,
+                PlatformPrincipal.fromUser(user),
                 "pls_test",
                 LocalDateTime.now().plusHours(1),
                 List.of("PROJECT_OWNER"),

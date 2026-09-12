@@ -1,5 +1,6 @@
 <template>
   <div
+    ref="rootEl"
     class="reachai-interaction"
     :class="[
       `reachai-interaction--${kind}`,
@@ -26,14 +27,23 @@
     />
 
     <!-- form / text_question -->
-    <form v-else-if="kind === 'form'" class="reachai-interaction__form" @submit.prevent="submitForm('submit')">
-      <label v-for="field in request.fields || []" :key="field.key" class="reachai-interaction__field">
+    <form
+      v-else-if="kind === 'form'"
+      class="reachai-interaction__form"
+      novalidate
+      @submit.prevent="submitForm('submit')"
+    >
+      <label v-for="(field, fieldIndex) in request.fields || []" :key="field.key" class="reachai-interaction__field">
         <span>{{ field.label }}<em v-if="field.required">*</em></span>
         <input
           v-if="field.type === 'boolean'"
           v-model="formValues[field.key]"
           type="checkbox"
           :disabled="isDisabled"
+          :aria-required="field.required || undefined"
+          :aria-invalid="fieldInvalid(field) || undefined"
+          :aria-describedby="fieldInvalid(field) ? validationErrorId : undefined"
+          :data-interaction-field-index="fieldIndex"
         />
         <input
           v-else-if="field.type === 'number' || field.type === 'integer'"
@@ -42,12 +52,21 @@
           :step="field.type === 'integer' ? '1' : 'any'"
           :disabled="isDisabled"
           :placeholder="field.placeholder"
+          :aria-required="field.required || undefined"
+          :aria-invalid="fieldInvalid(field) || undefined"
+          :aria-describedby="fieldInvalid(field) ? validationErrorId : undefined"
+          :data-interaction-field-index="fieldIndex"
         />
+        <!-- Embed SDK intentionally accepts browser/OS-owned popup geometry for this native variant. -->
         <select
           v-else-if="isSelectField(field)"
           :value="selectDisplayValue(field)"
           :multiple="field.type === 'multi_select'"
           :disabled="isDisabled"
+          :aria-required="field.required || undefined"
+          :aria-invalid="fieldInvalid(field) || undefined"
+          :aria-describedby="fieldInvalid(field) ? validationErrorId : undefined"
+          :data-interaction-field-index="fieldIndex"
           @change="onSelectChange(field, $event)"
         >
           <option v-for="opt in field.options || []" :key="String(opt.value)" :value="opt.value">
@@ -59,13 +78,22 @@
           v-model="formValues[field.key]"
           type="date"
           :disabled="isDisabled"
+          :aria-required="field.required || undefined"
+          :aria-invalid="fieldInvalid(field) || undefined"
+          :aria-describedby="fieldInvalid(field) ? validationErrorId : undefined"
+          :data-interaction-field-index="fieldIndex"
         />
         <textarea
           v-else-if="field.type === 'textarea' || field.type === 'object' || field.type === 'array'"
+          class="resize-none"
           :value="String(formValues[field.key] ?? '')"
           rows="3"
           :disabled="isDisabled"
           :placeholder="field.placeholder"
+          :aria-required="field.required || undefined"
+          :aria-invalid="fieldInvalid(field) || undefined"
+          :aria-describedby="fieldInvalid(field) ? validationErrorId : undefined"
+          :data-interaction-field-index="fieldIndex"
           @input="formValues[field.key] = ($event.target as HTMLTextAreaElement).value"
         />
         <input
@@ -74,6 +102,10 @@
           type="text"
           :disabled="isDisabled"
           :placeholder="field.placeholder"
+          :aria-required="field.required || undefined"
+          :aria-invalid="fieldInvalid(field) || undefined"
+          :aria-describedby="fieldInvalid(field) ? validationErrorId : undefined"
+          :data-interaction-field-index="fieldIndex"
           @input="formValues[field.key] = ($event.target as HTMLInputElement).value"
         />
       </label>
@@ -236,7 +268,12 @@
       </div>
     </div>
 
-    <p v-if="validationError || errorMessage" class="reachai-interaction__error" role="alert">
+    <p
+      v-if="validationError || errorMessage"
+      :id="validationErrorId"
+      class="reachai-interaction__error"
+      role="alert"
+    >
       {{ validationError || errorMessage }}
     </p>
     <div v-if="state === 'failed'" class="reachai-interaction__actions">
@@ -246,7 +283,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineComponent, h, reactive, ref, watch, type Component } from 'vue'
+import { computed, defineComponent, h, nextTick, reactive, ref, watch, type Component } from 'vue'
 import type { InteractionRenderState, UiFieldPayload, UiRequestV1, UiActionPayload } from '../core/conversationTypes'
 import {
   getCustomInteractionRenderer,
@@ -277,7 +314,10 @@ const isDisabled = computed(() =>
   || state.value === 'cancelled',
 )
 const choiceRadioName = computed(() => `reachai-choice-${props.request.interactionId || 'default'}`)
+const validationErrorId = computed(() => `reachai-interaction-error-${props.request.interactionId || 'default'}`)
+const rootEl = ref<HTMLElement | null>(null)
 const validationError = ref('')
+const invalidFieldKey = ref<string | null>(null)
 const listExpanded = ref(false)
 const actionButtons = computed(() => (props.request.actions || []) as UiActionPayload[])
 
@@ -320,6 +360,7 @@ watch(
   () => props.request,
   (req) => {
     validationError.value = ''
+    invalidFieldKey.value = null
     listExpanded.value = false
     Object.keys(formValues).forEach((k) => delete formValues[k])
     for (const field of req.fields || []) {
@@ -357,6 +398,23 @@ watch(
 
 function isSelectField(field: UiFieldPayload) {
   return field.type === 'select' || field.type === 'multi_select' || !!field.options?.length
+}
+
+function formValueMissing(field: UiFieldPayload): boolean {
+  const value = formValues[field.key]
+  return value === '' || value == null || (Array.isArray(value) && !value.length)
+}
+
+function fieldInvalid(field: UiFieldPayload): boolean {
+  return invalidFieldKey.value === field.key
+}
+
+function focusInteractionField(index: number) {
+  nextTick(() => {
+    rootEl.value
+      ?.querySelector<HTMLElement>(`[data-interaction-field-index="${index}"]`)
+      ?.focus()
+  })
 }
 
 function selectDisplayValue(field: UiFieldPayload): string | number | readonly string[] | undefined {
@@ -521,15 +579,17 @@ function submit(action: string, values: Record<string, unknown>) {
 }
 
 function submitForm(action: string) {
-  for (const field of props.request.fields || []) {
-    if (field.required) {
-      const value = formValues[field.key]
-      if (value === '' || value == null || (Array.isArray(value) && !value.length)) {
-        validationError.value = `请填写必填项：${field.label || field.key}`
-        return
-      }
+  const fields = props.request.fields || []
+  for (let index = 0; index < fields.length; index += 1) {
+    const field = fields[index]
+    if (field?.required && formValueMissing(field)) {
+      invalidFieldKey.value = field.key
+      validationError.value = `请填写必填项：${field.label || field.key}`
+      focusInteractionField(index)
+      return
     }
   }
+  invalidFieldKey.value = null
   validationError.value = ''
   submit(action, { ...formValues })
 }
@@ -537,17 +597,21 @@ function submitForm(action: string) {
 function submitChoice() {
   if (props.request.component === 'multi_select') {
     if (!multiChoice.value.length && props.request.fields?.some((f) => f.required)) {
+      invalidFieldKey.value = null
       validationError.value = '请至少选择一项'
       return
     }
     validationError.value = ''
+    invalidFieldKey.value = null
     submit('choose', { value: [...multiChoice.value] })
   } else {
     if ((choiceValue.value === null || choiceValue.value === '') && props.request.fields?.some((f) => f.required)) {
+      invalidFieldKey.value = null
       validationError.value = '请选择一项'
       return
     }
     validationError.value = ''
+    invalidFieldKey.value = null
     submit('choose', { value: choiceValue.value })
   }
 }
@@ -614,6 +678,9 @@ function retryLast() {
   color: inherit;
   max-width: 100%;
   box-sizing: border-box;
+}
+.reachai-interaction__field textarea {
+  resize: none;
 }
 .reachai-interaction__actions {
   display: flex;

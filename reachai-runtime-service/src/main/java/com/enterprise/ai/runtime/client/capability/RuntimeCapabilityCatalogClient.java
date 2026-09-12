@@ -1,5 +1,7 @@
 package com.enterprise.ai.runtime.client.capability;
 
+import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
+
 import com.enterprise.ai.common.capability.CapabilityInvocationRequest;
 import com.enterprise.ai.common.capability.CapabilityInvocationResponse;
 

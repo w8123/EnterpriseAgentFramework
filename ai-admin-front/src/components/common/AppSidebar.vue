@@ -5,7 +5,7 @@
       <img class="brand-logo" src="/reachai-logo-tile.png" alt="ReachAI" />
       <div v-if="!collapsed" class="brand-text">
         <span class="brand-title">ReachAI</span>
-        <span class="brand-sub">企业AI智能体中台</span>
+        <span class="brand-sub">企业 AI 能力中台</span>
       </div>
       <button
         class="sidebar-collapse-button"
@@ -122,36 +122,8 @@
 
           <div v-else class="appearance-panel">
             <div class="appearance-heading">
-              <span class="panel-kicker">界面星盘</span>
-              <strong>光影与色彩</strong>
-            </div>
-
-            <div class="appearance-subtitle">光影模式</div>
-            <div class="appearance-mode" role="radiogroup" aria-label="光影模式">
-              <button
-                class="appearance-mode-button"
-                :class="{ active: theme === 'light' }"
-                type="button"
-                role="radio"
-                :aria-checked="theme === 'light'"
-                :aria-disabled="themeModeControlsDisabled"
-                :disabled="themeModeControlsDisabled"
-              >
-                <el-icon><Sunny /></el-icon>
-                <span>日曜</span>
-              </button>
-              <button
-                class="appearance-mode-button"
-                :class="{ active: theme === 'dark' }"
-                type="button"
-                role="radio"
-                :aria-checked="theme === 'dark'"
-                :aria-disabled="themeModeControlsDisabled"
-                :disabled="themeModeControlsDisabled"
-              >
-                <el-icon><Moon /></el-icon>
-                <span>月隐</span>
-              </button>
+              <span class="panel-kicker">界面设置</span>
+              <strong>主题配色</strong>
             </div>
 
             <div class="appearance-subtitle">主题色</div>
@@ -205,9 +177,7 @@ import {
   ArrowLeft,
   ArrowRight,
   Check,
-  Moon,
   Setting,
-  Sunny,
   SwitchButton,
   User,
 } from '@element-plus/icons-vue'
@@ -236,7 +206,7 @@ const emit = defineEmits<{
 const route = useRoute()
 const router = useRouter()
 const projectStore = useProjectStore()
-const { theme, brand, brandOptions, setBrand } = useTheme()
+const { brand, brandOptions, setBrand } = useTheme()
 const collapsed = computed(() => props.collapsed)
 const hideProjectPanel = computed(() => props.hideProjectPanel)
 const activeMenu = computed(() => resolveActiveMenu(route.path, route.meta.activeMenu))
@@ -251,7 +221,6 @@ const NO_PROJECT_VALUE = '__reachai_no_project__'
 const resolvedCurrentProjectId = computed(
   () => projectStore.currentProject?.id ?? NO_PROJECT_VALUE,
 )
-const themeModeControlsDisabled = true
 
 function ensureProjectOptionsLoaded() {
   if (!hideProjectPanel.value && !projectStore.projects.length) {
@@ -904,13 +873,6 @@ async function handleLogout() {
   margin-top: 2px;
 }
 
-.appearance-mode {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.appearance-mode-button,
 .brand-choice {
   border: 1px solid rgba(189, 207, 230, 0.6);
   border-radius: 8px;
@@ -929,25 +891,6 @@ async function handleLogout() {
     background: rgb(var(--brand-selected-rgb) / 0.72);
     color: var(--brand-active);
     box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.72);
-  }
-}
-
-.appearance-mode-button {
-  height: 34px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  font-size: 12px;
-  font-weight: 800;
-
-  .el-icon {
-    font-size: 15px;
-  }
-
-  &:disabled {
-    cursor: not-allowed;
-    opacity: 0.64;
   }
 }
 
@@ -1082,7 +1025,6 @@ async function handleLogout() {
   color: #9aa8c0;
 }
 
-[data-theme='dark'] .appearance-mode-button,
 [data-theme='dark'] .brand-choice {
   border-color: rgba(255, 255, 255, 0.08);
   background: rgba(15, 23, 42, 0.5);

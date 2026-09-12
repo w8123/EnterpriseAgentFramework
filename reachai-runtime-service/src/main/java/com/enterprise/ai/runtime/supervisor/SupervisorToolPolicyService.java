@@ -1,19 +1,23 @@
 package com.enterprise.ai.runtime.supervisor;
 
-import com.enterprise.ai.runtime.agent.RuntimeAgentConfigVersionEntity;
+
+import com.enterprise.ai.runtime.agent.RuntimeAgentConfigSnapshot;
 import com.enterprise.ai.runtime.agent.RuntimeAgentView;
-import com.enterprise.ai.runtime.agent.RuntimeAgentWorkflowToolEntity;
-import com.enterprise.ai.runtime.eval.RuntimeEvalExecutionContext;
-import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
+import com.enterprise.ai.runtime.agent.RuntimeAgentWorkflowToolSnapshot;
+import com.enterprise.ai.runtime.execution.policy.RuntimeEvalExecutionContext;
+import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
+import com.enterprise.ai.runtime.runops.RuntimeGuardDecisionWriter;
 import com.enterprise.ai.runtime.supervisor.SupervisorApprovalInteractionService.ApprovalRequest;
-import com.enterprise.ai.runtime.execution.SupervisorRuntimeAdapter.PolicyApprovalGrant;
-import com.enterprise.ai.runtime.execution.SupervisorRuntimeAdapter.RemoteAgentBinding;
+import com.enterprise.ai.runtime.trace.WorkflowTraceSanitizer;
+import com.enterprise.ai.runtime.execution.RuntimeSupervisorApprovalPort.PolicyApprovalGrant;
+import com.enterprise.ai.runtime.supervisor.SupervisorRuntimeAdapter.RemoteAgentBinding;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
-
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -24,6 +28,7 @@ import java.util.Set;
 import java.util.regex.Pattern;
 
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class SupervisorToolPolicyService {
 
@@ -40,14 +45,23 @@ public class SupervisorToolPolicyService {
             "(?i)\\b(?:create|add|modify|update|edit|delete|remove|cancel|submit|save|pay|ship|"
                     + "enable|disable|activate|deactivate|archive|unarchive|restore)\\b");
 
-    private final SupervisorExecutionTraceService traceService;
+    private final RuntimeGuardDecisionWriter guardDecisions;
     private final SupervisorApprovalInteractionService approvalService;
     private final ObjectMapper objectMapper;
 
+    boolean requiresWorkflowConfirmation(RuntimeAgentConfigSnapshot config, RuntimeAgentWorkflowToolSnapshot tool) {
+        return requiresWorkflowConfirmation(normalizeRisk(tool), policy(config.getConfigJson()).values());
+    }
+
+    private boolean requiresWorkflowConfirmation(String riskLevel, Map<String, Object> policy) {
+        return "WRITE".equals(riskLevel) || "IRREVERSIBLE".equals(riskLevel)
+                || Boolean.TRUE.equals(policy.get("confirmPageActions")) && "PAGE_ACTION".equals(riskLevel);
+    }
+
     public PolicyDecision evaluate(SupervisorExecutionTraceService.TraceHandle trace,
                                    RuntimeAgentView agent,
-                                   RuntimeAgentConfigVersionEntity config,
-                                   RuntimeAgentWorkflowToolEntity tool,
+                                   RuntimeAgentConfigSnapshot config,
+                                   RuntimeAgentWorkflowToolSnapshot tool,
                                    Map<String, Object> input,
                                    Map<String, Object> args,
                                    PolicyApprovalGrant approvalGrant) {
@@ -56,8 +70,8 @@ public class SupervisorToolPolicyService {
 
     public PolicyDecision evaluate(SupervisorExecutionTraceService.TraceHandle trace,
                                    RuntimeAgentView agent,
-                                   RuntimeAgentConfigVersionEntity config,
-                                   RuntimeAgentWorkflowToolEntity tool,
+                                   RuntimeAgentConfigSnapshot config,
+                                   RuntimeAgentWorkflowToolSnapshot tool,
                                    Map<String, Object> input,
                                    Map<String, Object> args,
                                    PolicyApprovalGrant approvalGrant,
@@ -68,8 +82,8 @@ public class SupervisorToolPolicyService {
 
     public PolicyDecision evaluate(SupervisorExecutionTraceService.TraceHandle trace,
                                    RuntimeAgentView agent,
-                                   RuntimeAgentConfigVersionEntity config,
-                                   RuntimeAgentWorkflowToolEntity tool,
+                                   RuntimeAgentConfigSnapshot config,
+                                   RuntimeAgentWorkflowToolSnapshot tool,
                                    Map<String, Object> input,
                                    Map<String, Object> args,
                                    PolicyApprovalGrant approvalGrant,
@@ -84,7 +98,7 @@ public class SupervisorToolPolicyService {
 
         PolicyDecision structural = structuralChecks(agent, config, tool, input, profile, parsedPolicy, metadata);
         if (structural != null) {
-            trace(structural, trace, agent, input, tool, metadata);
+            trace(structural, trace, agent, input, tool, metadata, trustedIdentity);
             return structural;
         }
 
@@ -96,26 +110,24 @@ public class SupervisorToolPolicyService {
             metadata.put("evalMode", evaluation.mode().name());
             PolicyDecision denied = evalSideEffectDenied(
                     "Eval execution permits only READ Workflow tools; blocked " + riskLevel);
-            trace(denied, trace, agent, input, tool, metadata);
+            trace(denied, trace, agent, input, tool, metadata, trustedIdentity);
             return denied;
         }
 
         if ("PAGE_ACTION".equals(riskLevel) && !explicitPageIntent(input)) {
             PolicyDecision denied = deny("PAGE_ACTION requires an explicit user request to open, navigate, or operate a page");
-            trace(denied, trace, agent, input, tool, metadata);
+            trace(denied, trace, agent, input, tool, metadata, trustedIdentity);
             return denied;
         }
 
         if ("IRREVERSIBLE".equals(riskLevel)
                 && !"CONFIRM".equalsIgnoreCase(text(policy.get("irreversibleMode")))) {
             PolicyDecision denied = deny("IRREVERSIBLE Workflow tools are denied by default");
-            trace(denied, trace, agent, input, tool, metadata);
+            trace(denied, trace, agent, input, tool, metadata, trustedIdentity);
             return denied;
         }
 
-        boolean confirmationRequired = "WRITE".equals(riskLevel)
-                || "IRREVERSIBLE".equals(riskLevel)
-                || Boolean.TRUE.equals(policy.get("confirmPageActions")) && "PAGE_ACTION".equals(riskLevel);
+        boolean confirmationRequired = requiresWorkflowConfirmation(riskLevel, policy);
         if (confirmationRequired && !approved(permissionKey, tool.getToolName(), args, approvalGrant)) {
             String reason = "执行该 " + riskLevel + " 操作前需要用户确认："
                     + firstText(tool.getToolName(), "Workflow Tool");
@@ -123,7 +135,7 @@ public class SupervisorToolPolicyService {
                     trace, agent, config, tool, input, args, reason, trustedIdentity);
             PolicyDecision required = new PolicyDecision(
                     false, true, "REQUIRE_CONFIRMATION", reason, approval.interactionId(), approval.uiRequest());
-            trace(required, trace, agent, input, tool, metadata);
+            trace(required, trace, agent, input, tool, metadata, trustedIdentity);
             return required;
         }
 
@@ -131,7 +143,7 @@ public class SupervisorToolPolicyService {
                 ? "One-time user approval matched the configured permission key"
                 : "Configured Workflow tool passed project, tenant, role, permission, and risk policy checks";
         PolicyDecision allowed = new PolicyDecision(true, false, "ALLOW", reason, null, null);
-        trace(allowed, trace, agent, input, tool, metadata);
+        trace(allowed, trace, agent, input, tool, metadata, trustedIdentity);
         return allowed;
     }
 
@@ -139,7 +151,7 @@ public class SupervisorToolPolicyService {
     public PolicyDecision evaluateA2a(
             SupervisorExecutionTraceService.TraceHandle trace,
             RuntimeAgentView agent,
-            RuntimeAgentConfigVersionEntity config,
+            RuntimeAgentConfigSnapshot config,
             RemoteAgentBinding binding,
             Map<String, Object> input,
             Map<String, Object> args,
@@ -152,7 +164,7 @@ public class SupervisorToolPolicyService {
     public PolicyDecision evaluateA2a(
             SupervisorExecutionTraceService.TraceHandle trace,
             RuntimeAgentView agent,
-            RuntimeAgentConfigVersionEntity config,
+            RuntimeAgentConfigSnapshot config,
             RemoteAgentBinding binding,
             Map<String, Object> input,
             Map<String, Object> args,
@@ -185,8 +197,8 @@ public class SupervisorToolPolicyService {
             metadata.put("evalMode", evaluation.mode().name());
             PolicyDecision denied = evalSideEffectDenied(
                     "Eval execution blocks A2A delegation until a dedicated sandbox adapter is configured");
-            traceService.guard(trace, agent, input, toolName,
-                    denied.decision(), denied.reason(), metadata);
+            recordDecision(trace, agent, input, toolName,
+                    denied.decision(), denied.reason(), metadata, "A2A_REMOTE_AGENT", trustedIdentity);
             return denied;
         }
 
@@ -235,13 +247,13 @@ public class SupervisorToolPolicyService {
         }
         if (deniedReason != null) {
             PolicyDecision denied = deny(deniedReason);
-            traceService.guard(trace, agent, input, toolName, denied.decision(), denied.reason(), metadata);
+            recordDecision(trace, agent, input, toolName, denied.decision(), denied.reason(), metadata, "A2A_REMOTE_AGENT", trustedIdentity);
             return denied;
         }
         if ("IRREVERSIBLE".equals(riskLevel)
                 && !"CONFIRM".equalsIgnoreCase(text(policy.get("irreversibleMode")))) {
             PolicyDecision denied = deny("IRREVERSIBLE A2A delegation is denied by default");
-            traceService.guard(trace, agent, input, toolName, denied.decision(), denied.reason(), metadata);
+            recordDecision(trace, agent, input, toolName, denied.decision(), denied.reason(), metadata, "A2A_REMOTE_AGENT", trustedIdentity);
             return denied;
         }
         boolean confirmationRequired = "WRITE".equals(riskLevel) || "IRREVERSIBLE".equals(riskLevel);
@@ -254,22 +266,22 @@ public class SupervisorToolPolicyService {
                     false, true, "REQUIRE_CONFIRMATION", reason,
                     approval.interactionId(), approval.uiRequest());
             metadata.put("interactionId", approval.interactionId());
-            traceService.guard(trace, agent, input, toolName,
-                    required.decision(), required.reason(), metadata);
+            recordDecision(trace, agent, input, toolName,
+                    required.decision(), required.reason(), metadata, "A2A_REMOTE_AGENT", trustedIdentity);
             return required;
         }
         String reason = approved(permissionKey, toolName, args, approvalGrant)
                 ? "One-time user approval matched the A2A permission key"
                 : "Configured A2A remote Agent passed project, tenant, role, permission, and risk checks";
         PolicyDecision allowed = new PolicyDecision(true, false, "ALLOW", reason, null, null);
-        traceService.guard(trace, agent, input, toolName,
-                allowed.decision(), allowed.reason(), metadata);
+        recordDecision(trace, agent, input, toolName,
+                allowed.decision(), allowed.reason(), metadata, "A2A_REMOTE_AGENT", trustedIdentity);
         return allowed;
     }
 
     private PolicyDecision structuralChecks(RuntimeAgentView agent,
-                                            RuntimeAgentConfigVersionEntity config,
-                                            RuntimeAgentWorkflowToolEntity tool,
+                                            RuntimeAgentConfigSnapshot config,
+                                            RuntimeAgentWorkflowToolSnapshot tool,
                                             Map<String, Object> input,
                                             String profile,
                                             ParsedPolicy parsedPolicy,
@@ -323,16 +335,38 @@ public class SupervisorToolPolicyService {
                        SupervisorExecutionTraceService.TraceHandle trace,
                        RuntimeAgentView agent,
                        Map<String, Object> input,
-                       RuntimeAgentWorkflowToolEntity tool,
-                       Map<String, Object> metadata) {
+                       RuntimeAgentWorkflowToolSnapshot tool,
+                       Map<String, Object> metadata,
+                       WorkflowExecutionIdentity trustedIdentity) {
         if (decision.interactionId() != null) metadata.put("interactionId", decision.interactionId());
-        traceService.guard(trace, agent, input, tool.getToolName(), decision.decision(), decision.reason(), metadata);
+        recordDecision(trace, agent, input, tool.getToolName(), decision.decision(), decision.reason(), metadata,
+                "WORKFLOW_TOOL", trustedIdentity);
+    }
+
+    private void recordDecision(SupervisorExecutionTraceService.TraceHandle trace, RuntimeAgentView agent,
+                                Map<String, Object> input, String targetName, String decision, String reason,
+                                Map<String, Object> metadata, String targetKind, WorkflowExecutionIdentity identity) {
+        try {
+            String tenantId = identity != null && identity.projectTrusted() ? identity.tenantId() : null;
+            Map<String, Object> safeMetadata = new LinkedHashMap<>(WorkflowTraceSanitizer.sanitizeGuardMetadata(metadata));
+            if (StringUtils.hasText(agent.projectCode())) safeMetadata.put("projectCode", agent.projectCode());
+            else safeMetadata.remove("projectCode");
+            if (StringUtils.hasText(tenantId)) safeMetadata.put("tenantId", tenantId);
+            else safeMetadata.remove("tenantId");
+            guardDecisions.append(new RuntimeGuardDecisionWriter.Decision(
+                    trace.traceId(), agent.projectId(), agent.projectCode(),
+                    firstText(text(input == null ? null : input.get("environment")), "DEV"), tenantId,
+                    "SUPERVISOR_TOOL_POLICY", targetKind, targetName, decision,
+                    WorkflowTraceSanitizer.sanitizeAnswer(reason), objectMapper.writeValueAsString(safeMetadata), LocalDateTime.now()));
+        } catch (Exception failure) {
+            log.warn("Cannot persist Supervisor policy decision: {}", failure.getClass().getSimpleName());
+        }
     }
 
     private Map<String, Object> metadata(String profile,
                                          String riskLevel,
                                          String permissionKey,
-                                         RuntimeAgentWorkflowToolEntity tool,
+                                         RuntimeAgentWorkflowToolSnapshot tool,
                                          Map<String, Object> input,
                                          Map<String, Object> args) {
         Map<String, Object> metadata = new LinkedHashMap<>();
@@ -460,7 +494,7 @@ public class SupervisorToolPolicyService {
         return values.stream().anyMatch(value -> value.equalsIgnoreCase(expected));
     }
 
-    private String normalizeRisk(RuntimeAgentWorkflowToolEntity tool) {
+    private String normalizeRisk(RuntimeAgentWorkflowToolSnapshot tool) {
         String risk = text(tool.getRiskLevel());
         if (StringUtils.hasText(risk)) return risk.toUpperCase(Locale.ROOT);
         return Boolean.TRUE.equals(tool.getReadOnly()) ? "READ" : "WRITE";

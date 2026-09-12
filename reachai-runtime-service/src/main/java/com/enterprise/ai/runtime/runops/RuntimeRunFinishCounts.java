@@ -9,6 +9,7 @@ public class RuntimeRunFinishCounts {
     private Long toolCallCount;
     private Long guardDenyCount;
     private Long approvalCount;
+    private String metadataJson;
 
     public static RuntimeRunFinishCounts zeros() {
         RuntimeRunFinishCounts counts = new RuntimeRunFinishCounts();

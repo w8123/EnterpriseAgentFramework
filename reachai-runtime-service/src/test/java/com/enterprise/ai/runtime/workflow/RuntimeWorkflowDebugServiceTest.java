@@ -22,13 +22,15 @@ class RuntimeWorkflowDebugServiceTest {
 
     private final RuntimeWorkflowDefinitionService workflowService = mock(RuntimeWorkflowDefinitionService.class);
     private final RuntimeWorkflowDebugService service = new RuntimeWorkflowDebugService(
-            workflowService,
-            new RuntimeGraphSpecExecutor(new ObjectMapper(), new NoopModelClient(), new NoopCapabilityClient(),
+                workflowService,
+                new RuntimeGraphSpecExecutor(new ObjectMapper(), new NoopModelClient(), new NoopCapabilityClient(),
                     mock(com.enterprise.ai.runtime.client.control.RuntimeControlCatalogClient.class)),
-            mock(com.enterprise.ai.runtime.runops.RuntimeRunLifecycleService.class),
-            mock(com.enterprise.ai.runtime.trace.RuntimeTraceSpanMapper.class),
-            new ObjectMapper(),
-            new RuntimeWorkflowDocumentCanonicalizer(new ObjectMapper()));
+                mock(com.enterprise.ai.runtime.runops.RuntimeRunLifecycleService.class),
+                new com.enterprise.ai.runtime.trace.RuntimeTraceEvidenceWriter(mock(com.enterprise.ai.runtime.trace.RuntimeTraceSpanMapper.class), org.mockito.Mockito.mock(com.enterprise.ai.runtime.trace.RuntimeToolCallLogMapper.class)),
+                new ObjectMapper(),
+                new RuntimeWorkflowDocumentCanonicalizer(new ObjectMapper()),
+                new com.enterprise.ai.runtime.trace.RuntimeTraceRootService(mock(com.enterprise.ai.runtime.trace.RuntimeTraceSpanMapper.class), new ObjectMapper()),
+                mock(com.enterprise.ai.runtime.trace.RuntimeTraceSpanTerminationService.class));
 
     @Test
     void debugContractsUseCanonicalNamesOnly() throws Exception {
@@ -106,7 +108,8 @@ class RuntimeWorkflowDebugServiceTest {
         assertEquals(true, result.success());
         assertEquals("COMPLETED", result.status());
         assertEquals("收到：A-1", result.answer());
-        assertEquals("trace-debug", result.traceId());
+        assertTrue(result.traceId().startsWith("studio-debug-run-"));
+        assertEquals(result.runId(), result.traceId());
         assertEquals(2, result.steps().size());
         assertEquals("input", result.steps().get(0).nodeId());
         assertEquals("answer", result.steps().get(1).nodeId());

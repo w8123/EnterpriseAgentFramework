@@ -1,6 +1,9 @@
 package com.enterprise.ai.capability.catalog.tool;
 
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectMapper;
 import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectToolMapper;
@@ -9,6 +12,8 @@ import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinition
 import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionParameter;
 import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionUpsertRequest;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -27,6 +32,13 @@ import static org.mockito.Mockito.when;
 
 class CapabilityToolCatalogServiceTest {
 
+    @BeforeAll
+    static void initMybatisPlusLambdaCache() {
+        TableInfoHelper.initTableInfo(
+                new MapperBuilderAssistant(new MybatisConfiguration(), "capability-tool-catalog-test"),
+                ToolDefinitionEntity.class);
+    }
+
     private final ToolDefinitionMapper toolMapper = mock(ToolDefinitionMapper.class);
     private final ScanProjectMapper projectMapper = mock(ScanProjectMapper.class);
     private final ScanProjectToolMapper scanToolMapper = mock(ScanProjectToolMapper.class);
@@ -42,12 +54,17 @@ class CapabilityToolCatalogServiceTest {
         ToolDefinitionEntity entity = tool("orders_create", "Create order");
         Page<ToolDefinitionEntity> page = new Page<>(1, 20, 1);
         page.setRecords(List.of(entity));
-        when(toolMapper.selectPage(any(), any())).thenReturn(page);
+        AtomicReference<Wrapper<ToolDefinitionEntity>> capturedQuery = new AtomicReference<>();
+        when(toolMapper.selectPage(any(), any())).thenAnswer(invocation -> {
+            capturedQuery.set(invocation.getArgument(1));
+            return page;
+        });
 
         IPage<ToolDefinitionEntity> result = service.page(1, 20, "order", "manual", true, 7L);
 
         assertEquals(1, result.getTotal());
         assertEquals("orders_create", result.getRecords().get(0).getName());
+        assertTrue(capturedQuery.get().getSqlSegment().toLowerCase().contains("qualified_name"));
         verify(toolMapper).selectPage(any(), any());
     }
 
@@ -79,6 +96,20 @@ class CapabilityToolCatalogServiceTest {
         when(toolMapper.selectOne(any())).thenReturn(tool("orders_create", "Create order"));
 
         assertThrows(IllegalArgumentException.class, () -> service.create(toolRequest("orders_create")));
+    }
+
+    @Test
+    void sourceOwnedProjectionCannotBeEditedToggledOrDeletedThroughGenericCatalog() {
+        ToolDefinitionEntity owned = tool("orders_create", "Create order");
+        owned.setSourceQualifiedName("orders:create");
+        owned.setSourceLocation(null);
+        when(toolMapper.selectOne(any())).thenReturn(owned);
+        assertTrue(service.isSdkBackedTool(owned));
+        assertThrows(IllegalArgumentException.class, () -> service.update("orders_create", toolRequest("orders_create")));
+        assertThrows(IllegalArgumentException.class, () -> service.toggle("orders_create", false));
+        assertThrows(IllegalArgumentException.class, () -> service.delete("orders_create"));
+        verify(toolMapper, org.mockito.Mockito.never()).updateById(any());
+        verify(toolMapper, org.mockito.Mockito.never()).deleteById(owned.getId());
     }
 
     @Test

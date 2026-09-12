@@ -218,7 +218,7 @@ public final class WorkflowInteractionNodeHandler {
                 }
             }
             List<Object> allowed = allowedValues(field.get("options"));
-            if (!allowed.isEmpty() && !allowedContains(allowed, value)) {
+            if (!selectionAllowed(allowed, value, "multi_select".equals(fieldType))) {
                 errors.add("field value not allowed: " + key);
             }
         }
@@ -250,8 +250,13 @@ public final class WorkflowInteractionNodeHandler {
         if (selected == null) {
             return ValidationOutcome.fail(List.of("choice value is required"));
         }
-        if (!allowed.isEmpty() && !allowedContains(allowed, selected)) {
+        boolean multiple = "multi_select".equals(
+                WorkflowInteractionUiRequestFactory.resolveComponent(WorkflowInteractionType.USER_CHOICE, config));
+        if (!selectionAllowed(allowed, selected, multiple)) {
             return ValidationOutcome.fail(List.of("choice value is not in declared options"));
+        }
+        if (multiple && isBlank(selected) && fieldsOf(config).stream().anyMatch(field -> Boolean.TRUE.equals(field.get("required")))) {
+            return ValidationOutcome.fail(List.of("choice value is required"));
         }
         Map<String, Object> normalized = new LinkedHashMap<>(values);
         normalized.put("selected", selected);
@@ -369,6 +374,15 @@ public final class WorkflowInteractionNodeHandler {
             }
         }
         return allowed;
+    }
+
+    private static boolean selectionAllowed(List<Object> allowed, Object value, boolean multiple) {
+        if (multiple) {
+            if (!(value instanceof List<?> values)) return false;
+            return values.stream().allMatch(item -> item != null && !(item instanceof Map<?, ?>) && !(item instanceof List<?>)
+                    && (allowed.isEmpty() || allowedContains(allowed, item)));
+        }
+        return allowed.isEmpty() || allowedContains(allowed, value);
     }
 
     private static boolean allowedContains(List<Object> allowed, Object value) {

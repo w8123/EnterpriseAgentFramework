@@ -145,6 +145,20 @@ Control 仅在 `control_ai_coding_task` 保存执行模式、Profile 和 Runtime
 
 大 Artifact 进入 S3/MinIO。MySQL 只保存对象 key、digest、大小、媒体类型、扫描和留存元数据。
 
+服务内的 RunOps 投影分为两个职责：[ManagedExecutionRunProjector](../../reachai-runtime-service/src/main/java/com/enterprise/ai/runtime/managed/ManagedExecutionRunProjector.java) 仅接收 execution ID，使用 Managed 自有 Mapper 在当前事务内锁定并读取执行记录，将当前状态、事件序号、清理状态与冻结的来源配置转换为不可变投影。[RuntimeManagedRunProjectionWriter](../../reachai-runtime-service/src/main/java/com/enterprise/ai/runtime/runops/RuntimeManagedRunProjectionWriter.java) 拥有 `runtime_run` 的插入和更新，Managed 不再直接持有 Run 的 Entity/Mapper。
+
+两个入口都要求已有事务，执行记录、Worker event、Run 投影和 outbox 一起提交或回滚。投影触发点仍是现有 outbox 生成路径；它读取触发时的数据库事实，不使用可能尚未更新事件序号的调用方 Entity。锁定查询清理 MyBatis 缓存；锁顺序为执行记录、已有 Run。首次插入先普通查询，唯一键竞争后锁定已提交的获胜行，再校验根类型、租户、项目、入口、请求人以及冻结的输入和配置快照；冲突会中止当前事务。快照按 JSON 内容比较，纯格式差异不修改原有快照，也不误判为身份变化。
+
+Managed 投影遵循当前 owning aggregate，允许完成后继续同步清理状态，不复用普通 Agent/Workflow/MCP 完成回调的开放状态限制。[Spring/MyBatis/H2 持久化回归](../../reachai-runtime-service/src/test/java/com/enterprise/ai/runtime/managed/ManagedExecutionRunProjectionPersistenceTest.java) 覆盖真实服务的 Worker 事件入口、事件序号、重复事件、身份冲突、暂停恢复、终态清理、中文快照回读、事务回滚、独立连接的唯一键竞争，以及通过 H2 会话元数据确认的行锁等待。审批服务与会话持久化使用真实实现，Sandbox/Artifact 外部依赖使用替身；未执行 MySQL、Kubernetes 或真实 Worker E2E。
+
+审批由两个 owning module 协作：[ManagedExecutionApprovalService](../../reachai-runtime-service/src/main/java/com/enterprise/ai/runtime/managed/ManagedExecutionApprovalService.java) 负责请求归属、决策、命令序号和执行记录中的待办绑定；execution 的 [RuntimeManagedApprovalInteractionStore](../../reachai-runtime-service/src/main/java/com/enterprise/ai/runtime/execution/RuntimeManagedApprovalInteractionStore.java) 负责会话与事件的同事务持久化，只向外返回不可变快照。Managed 不再直接引用交互会话、事件的 Entity/Mapper。变更先锁定当前执行记录，再锁定或条件更新对应会话；锁定读取清理 MyBatis 缓存。会话读写同时匹配 execution/run/trace、租户、请求人、审批节点、交互类型、来源与执行引擎，不能仅凭 `MANAGED_EXECUTOR` 来源修改其他会话。
+
+审批请求 ID 绑定冻结的 checkpoint 与 UI 请求。重试必须匹配原请求内容和当前待办绑定，保持审批计数、已记录决定与截止时间；已完成的请求不能重开。Worker 的 `accept` 必须对应 Runtime 已记录的同一批准决定，Worker 自行拒绝仍可关闭尚未提交的审批。会话修订号或执行记录的条件更新失败时抛出冲突，状态、事件和待办绑定一起回滚；创建事件的唯一键异常不能当作重复创建会话而吞掉。
+
+首次人工决定在 `runtime_interaction_session.submitted_payload_json` 保存 `reachai.managed-executor.approval-decision.v1` 回执，包含原始 `requestedDecision`、实际 `decision`、原始 `commandSequence` 和 `expired`。过期的首次请求记录拒绝；同一幂等键的重试必须保持原始请求，返回首次结果，不根据重试时间重新计算决定或重复写决定 outbox。旧回执缺少这些证据时返回冲突，不推断其含义。已核对 `sql/initV2.sql` 的现有 JSON 文本列，本次不涉及 DDL 或新增升级脚本。
+
+执行终止以数据库当前状态为准。仅取消身份匹配且仍开放的会话，修订号按数据库当前值原子递增；已过期或其他终态的证据保留，随后清理本执行自己的待办绑定。[审批持久化回归](../../reachai-runtime-service/src/test/java/com/enterprise/ai/runtime/managed/ManagedExecutionApprovalPersistenceTest.java) 覆盖未批准执行、七类会话归属冲突、请求与决定重放、事务失败、终态清理和并发相同决定；H2 会话元数据证实第二个决定等待执行记录行锁。服务入口回归还验证批准前的 Worker 确认会回滚，以及重复人工决定和重复 Worker 事件均不多生成通知或完成事件。这些本地持久化证据不替代真实 Worker 与 MySQL 验收。
+
 ## 9. 标准事件契约
 
 Worker 到 Runtime 的事件 envelope：

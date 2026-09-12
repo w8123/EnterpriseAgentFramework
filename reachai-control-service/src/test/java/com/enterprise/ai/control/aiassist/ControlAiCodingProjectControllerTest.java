@@ -69,6 +69,14 @@ class ControlAiCodingProjectControllerTest {
         assertEquals(
                 "http://localhost:18603/api/workflows/{workflowId}/ai-coding/resource-bindings",
                 response.getBody().endpoints().workflowResourceBindingsUrlTemplate());
+        assertEquals(
+                "http://localhost:18603/api/ai-coding/projects/7/agents",
+                response.getBody().endpoints().agentsUrl());
+        assertEquals(
+                "http://localhost:18603/api/ai-coding/projects/7/agent-skills/bindable",
+                response.getBody().endpoints().bindableSkillsUrl());
+        assertTrue(response.getBody().capabilities().stream()
+                .anyMatch(capability -> "AGENT_AI_CODING".equals(capability.key())));
         assertEquals("com.enterprise.ai:reachai-spring-boot2-starter:1.0.0-SNAPSHOT",
                 response.getBody().sdkArtifacts().get(1).coordinates());
         assertEquals("platform-artifact-tarball",
@@ -89,6 +97,9 @@ class ControlAiCodingProjectControllerTest {
         assertTrue(onboarding.getBody().agentSupervisor()
                 .requiredSteps().stream()
                 .anyMatch(step -> step.contains("replaceWorkflowId")));
+        assertEquals("agent-supervisor.authoring.v2", onboarding.getBody().agentSupervisor().model());
+        assertTrue(onboarding.getBody().agentSupervisor().endpoints().skillAttachUrlTemplate()
+                .endsWith("/agents/{agentId}/skills/attach"));
         assertFalse(response.toString().contains("aic_secret"));
         verify(client, org.mockito.Mockito.times(2)).getOnboardingProjectById(7L);
     }

@@ -5,7 +5,8 @@ import com.enterprise.ai.domain.dto.RetrievalTestResponse;
 
 /**
  * Internal engine contract for production retrieval execution.
- * Kept package-facing so admin {@code retrievalTest} and {@link KnowledgeRetrievalCore} share one implementation.
+ * Admin {@code retrievalTest} and {@link KnowledgeRetrievalCore} use the same retrieval implementation.
+ * Implementations do not own catalog, document or chunk management commands.
  */
 public interface KnowledgeRetrievalEngine {
 

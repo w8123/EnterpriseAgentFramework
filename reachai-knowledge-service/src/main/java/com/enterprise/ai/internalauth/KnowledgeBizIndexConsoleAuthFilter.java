@@ -4,6 +4,7 @@ import com.enterprise.ai.common.internalauth.InternalServiceAuthHeaders;
 import com.enterprise.ai.common.internalauth.InternalServiceHmac;
 import com.enterprise.ai.common.internalauth.InternalServiceSecretRing;
 import jakarta.servlet.FilterChain;
+import jakarta.servlet.MultipartConfigElement;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -40,6 +41,12 @@ public class KnowledgeBizIndexConsoleAuthFilter extends OncePerRequestFilter {
     private final long skewMillis;
     private final long maxBodyBytes;
     private final KnowledgeInternalNonceStore nonceStore;
+    private MultipartConfigElement multipartConfig;
+
+    @Autowired(required = false)
+    void configureMultipart(MultipartConfigElement config) {
+        this.multipartConfig = config;
+    }
 
     @Autowired
     public KnowledgeBizIndexConsoleAuthFilter(
@@ -86,6 +93,7 @@ public class KnowledgeBizIndexConsoleAuthFilter extends OncePerRequestFilter {
             }
             cached.setAttribute(VERIFIED_TENANT_ATTRIBUTE, identity.tenantId());
             cached.setAttribute(VERIFIED_ACTOR_ATTRIBUTE, identity.actorId());
+            cached.configureMultipart(multipartConfig);
             filterChain.doFilter(cached, response);
         } catch (KnowledgeReplayableBodyRequest.BodyTooLargeException tooLarge) {
             response.setStatus(HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE);

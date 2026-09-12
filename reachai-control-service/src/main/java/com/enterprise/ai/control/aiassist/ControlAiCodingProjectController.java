@@ -118,7 +118,7 @@ public class ControlAiCodingProjectController {
                             baseUrl + "/api/scan-projects/" + projectId + "/tools/reconcile"),
                     new ControlAiAssistProjectController.EmbedManifest("/api/reachai/embed-token", null, null, List.of()),
                     provisioning,
-                    agentSupervisorManifest(provisioning, baseUrl),
+                    agentSupervisorManifest(provisioning, baseUrl, root),
                     new ControlAiAssistProjectController.SecurityGuidance(
                             "REACHAI_REGISTRY_APP_SECRET",
                             "scripts/set-reachai-registry-secret.ps1",
@@ -257,19 +257,25 @@ public class ControlAiCodingProjectController {
 
     private ControlAiAssistProjectController.AgentSupervisorManifest agentSupervisorManifest(
             ControlAiAssistProjectController.AgentProvisioningManifest provisioning,
-            String baseUrl) {
+            String baseUrl,
+            String root) {
         String globalAgentKeySlug = provisioning.defaultKeySlug();
         return new ControlAiAssistProjectController.AgentSupervisorManifest(
-                "agent-supervisor.workflow-tools.v1",
+                "agent-supervisor.authoring.v2",
                 globalAgentKeySlug,
                 "AGENTSCOPE",
                 "WORKFLOW_AS_TOOL_ALLOW_LIST",
                 new ControlAiAssistProjectController.AgentSupervisorEndpoints(
-                        baseUrl + "/api/agents",
-                        baseUrl + "/api/agents/{agentId}/config-versions",
-                        baseUrl + "/api/agents/{agentId}/config-versions/draft",
-                        baseUrl + "/api/ai-coding/projects/{projectId}/agent-supervisor/workflow-tools/attach",
-                        baseUrl + "/api/runtime/agents/execute"),
+                        root + "/agents",
+                        root + "/agents/{agentId}",
+                        root + "/agents/{agentId}/config/draft",
+                        root + "/agent-supervisor/workflow-tools/attach",
+                        baseUrl + "/api/runtime/agents/execute",
+                        root + "/agents/{agentId}/config/publish",
+                        root + "/agent-skills/bindable",
+                        root + "/agents/{agentId}/skills/attach",
+                        root + "/agents/{agentId}/skills/detach",
+                        baseUrl + "/api/ai-assist/skills/agent-ai-coding/latest.zip"),
                 new ControlAiAssistProjectController.WorkflowAiCodingManifest(
                         baseUrl + "/api/ai-assist/skills/workflow-ai-coding/latest.zip",
                         baseUrl + "/api/workflows/ai-coding/workflows",
@@ -290,13 +296,15 @@ public class ControlAiCodingProjectController {
                                 "Attachment is additive by default. Set replaceWorkflowId only to replace one exact currently attached predecessor; all other Workflow tools are preserved.",
                                 "Read /context before patch; use workflow.updatedAt as baseRevision when saving.")),
                 List.of(
-                        "Provision or reuse one project-level page copilot Agent entry.",
+                        "Download and install the agent-ai-coding skill before authoring project Agents or binding Skills from AI tools.",
+                        "Use only the project-key Agent endpoints in this manifest; do not call console /api/agents or /api/skills endpoints with an AI Coding key.",
+                        "Read Agent context and mutableBase before every config or Skill mutation; send the current DRAFT id when one exists.",
+                        "Bind only exact published Skill versions returned by bindableSkillsUrl; AI Coding forces scriptPolicy=DENY and cannot access PRIVATE Skills.",
                         "Store every executable graph as a runtime_workflow and publish an ACTIVE version before attachment.",
                         "Attach published Workflows via POST /api/ai-coding/projects/{projectId}/agent-supervisor/workflow-tools/attach using agentKeySlug (not internal agentId by default).",
                         "Use replaceWorkflowId only after reading the currently attached catalog and selecting the exact predecessor; omit it when another Workflow should remain available on the same page.",
-                        "The Page Assistant-specific endpoint /api/workflows/{id}/page-assistant/attach-tool accepts PAGE_ASSISTANT only.",
-                        "Publish a new Agent config version after changing its tool catalog.",
-                        "Use only the published Agent config Workflow-as-Tool catalog for runtime selection."));
+                        "Publish a new Agent config version after changing Supervisor, Skill, or Workflow bindings.",
+                        "Remote A2A bindings and Skill package governance still require the human console."));
     }
 
     private Map<String, Object> contextCandidate(Map<String, Object> project, Map<String, ?> request) {
@@ -355,6 +363,15 @@ public class ControlAiCodingProjectController {
                 taskProtocol + "/events",
                 taskProtocol + "/questions",
                 taskProtocol + "/artifacts",
+                baseUrl + "/api/ai-assist/skills/agent-ai-coding/latest.zip",
+                root + "/agents",
+                root + "/agents/{agentId}",
+                root + "/agents/{agentId}/config/draft",
+                root + "/agents/{agentId}/config/publish",
+                root + "/agent-skills/bindable",
+                root + "/agents/{agentId}/skills/attach",
+                root + "/agents/{agentId}/skills/detach",
+                root + "/agent-supervisor/workflow-tools/attach",
                 baseUrl + "/api/workflows/ai-coding/workflows",
                 baseUrl + "/api/workflows/{workflowId}/ai-coding/context",
                 baseUrl + "/api/workflows/{workflowId}/ai-coding/resource-bindings",
@@ -427,6 +444,15 @@ public class ControlAiCodingProjectController {
                                 "Read scoped context first and write progress, questions, artifacts, and acceptance evidence back to the same task.",
                                 "The project AI Coding key is not valid for task protocol endpoints.")),
                 new AiCodingCapability(
+                        "AGENT_AI_CODING",
+                        "Agent 与 Skill 编排",
+                        "AGENT",
+                        root + "/agents",
+                        List.of(
+                                "Create and update only Agents owned by this exact project.",
+                                "Read mutableBase before changing Supervisor config or Skill bindings.",
+                                "Bind only exact PUBLISHED Skill versions returned by the bindable catalog; scriptPolicy is always DENY.")),
+                new AiCodingCapability(
                         "WORKFLOW_AI_CODING",
                         "Workflow AI Coding",
                         "WORKFLOW",
@@ -442,23 +468,11 @@ public class ControlAiCodingProjectController {
                         List.of("Submit PROJECT_DEV candidates for review under project " + projectId + ".")));
     }
 
-    private boolean aiCodingAccessEnabled(Map<String, Object> project) {
-        Object value = project.get("aiCodingAccess");
-        if (value instanceof Map<?, ?> map) {
-            return booleanValue(map.get("enabled"));
-        }
-        return false;
-    }
-
     private boolean booleanValue(Object value) {
         if (value instanceof Boolean bool) {
             return bool;
         }
         return value != null && Boolean.parseBoolean(String.valueOf(value));
-    }
-
-    private String nullToEmpty(Object value) {
-        return value == null ? "" : String.valueOf(value);
     }
 
     private Long longValue(Object value) {
@@ -542,6 +556,15 @@ public class ControlAiCodingProjectController {
                                            String taskEventsUrlTemplate,
                                            String taskQuestionsUrlTemplate,
                                            String taskArtifactsUrlTemplate,
+                                           String agentSkillPackageUrl,
+                                           String agentsUrl,
+                                           String agentUrlTemplate,
+                                           String agentConfigDraftUrlTemplate,
+                                           String agentConfigPublishUrlTemplate,
+                                           String bindableSkillsUrl,
+                                           String agentSkillAttachUrlTemplate,
+                                           String agentSkillDetachUrlTemplate,
+                                           String agentWorkflowAttachUrl,
                                            String workflowCreateUrl,
                                            String workflowContextUrlTemplate,
                                            String workflowResourceBindingsUrlTemplate,

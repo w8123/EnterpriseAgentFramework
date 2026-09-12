@@ -2380,9 +2380,8 @@ const sidebarDarkRuleOracle = [
     hash: '5f1c07c593533e7154d77234d2206ad5607b31988f7e5db41710015370095b79',
   },
   {
-    header:
-      "[data-theme='dark'] .appearance-mode-button, [data-theme='dark'] .brand-choice",
-    hash: '7fcfa64df47125751a12afcad29bec3beef6a57168a3536c2eb8b8ffbd6c1a43',
+    header: "[data-theme='dark'] .brand-choice",
+    hash: '7c179758643dd42f758741bcb3d8254f6a040c6ceade4d2c6b520a7a0088af99',
   },
   {
     header:

@@ -134,10 +134,8 @@ const {
   publishedUnavailable,
   loadAll,
   refreshPages,
-  refreshFindings,
   refreshTasks,
   refreshAccessCenter,
-  refreshPublished,
   addManualPage,
   checkPageReadiness,
   deliverWorkflowTask,
@@ -703,7 +701,7 @@ async function handleJourneyAction(
 
 async function handleImplementationRetarget(
   page: ProjectPage,
-  journey: PageAccessJourney,
+  _journey: PageAccessJourney,
   draft: PageImplementationGoalDraft,
 ) {
   const currentTask = tasks.value
@@ -1206,17 +1204,6 @@ async function refreshWorkbenchStatus() {
   } catch (error) {
     ElMessage.error((error as Error).message || '刷新当前项目状态失败')
   }
-}
-
-function formatDateTime(value?: string) {
-  if (!value) return '—'
-  return new Intl.DateTimeFormat('zh-CN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(value))
 }
 
 function taskPageKey(task?: AiCodingTask) {

@@ -105,6 +105,7 @@ PENDING --> LEASED --> RUNNING --> SUCCEEDED
 - `CRON` 使用 Spring 六段 cron（含秒），并保存显式 IANA time zone。
 - `ONCE` 接受 ISO-8601 UTC instant，创建时必须在未来。
 - 数据库与调度表统一写 UTC；时区只用于解释 CRON。API 返回带 `Z` 的时间。
+- 到期筛选、租约有效性与审计时间使用 `UTC_TIMESTAMP(6)`，与应用传入的 UTC `LocalDateTime` 保持一致，不依赖 MySQL 会话时区。并发槽接管先更新审计时间，再更新租约截止时间，避免 MySQL 按赋值顺序读取到新截止时间后漏记接管时间。
 - 夏令时跳变由 Java `ZoneId` 和 cron 计划解释，不通过数据库服务器本地时区猜测。
 
 ### 5.2 misfire
@@ -125,10 +126,12 @@ misfire 只决定“物化哪些 occurrence”，不绕过并发、重试、版�
 
 ### 6.1 目标固定
 
-- Agent 固定 `runtime_agent_config_version.id`，允许已发布的 `ACTIVE/ARCHIVED` 快照。
-- Workflow 固定 `runtime_workflow_version.id`，使用该版本的 GraphSpec snapshot。
+- Agent 固定 `runtime_agent_config_version.id`，由 Agent 模块确认目标已启用、版本归属正确且状态为 `ACTIVE/ARCHIVED`。空状态和未知状态不能作为已发布配置；评测入口仍可显式使用 `DRAFT`。
+- Workflow 固定 `runtime_workflow_version.id`，由 Workflow 模块确认目标为 `ACTIVE`、版本归属正确且状态为 `ACTIVE/RETIRED`，使用该版本的 GraphSpec snapshot。
 - 创建、编辑、恢复和手工运行都会重新确认目标仍存在、属于目标项目且为可执行发布版本。
-- 版本运行期间被删除或失效时，occurrence 以不可重试错误结束，不漂移到新版本。
+- 调度执行前再次通过所属模块的查询接口校验目标和固定版本。目标在计划创建后停用、删除，或固定版本失效时，occurrence 以不可重试错误结束。历史已发布版本不会因当前版本指针更新而漂移；此检查不提供执行中停用的实时取消保证。
+
+Automation 的目标校验与执行只接收不可变查询结果，不直接读取 Agent/Workflow 的 Mapper 或 Entity。创建阶段保持原有目标错误码、项目检查和版本元数据指纹；执行阶段统一将目标不可用映射为 `AUTOMATION_TARGET_VERSION_UNAVAILABLE`，发布快照内容损坏仍使用独立错误码。定向回归覆盖实际 MyBatis/H2 查询与本地图执行器，外部模型使用替身。[真实调度与 SDK 验收](../../output/tasks/architecture-audit-20260905/automation-utc-trace-notes.md) 另验证 Workflow 的手动与 ONCE 触发、固定发布版本和业务签名追踪关联；Agent、CRON、重试及多副本恢复仍未完成实际验收。
 
 ### 6.2 身份与输入
 
@@ -142,10 +145,20 @@ misfire 只决定“物化哪些 occurrence”，不绕过并发、重试、版�
 
 V1 为 `FAIL_CLOSED`：Agent/Workflow 请求用户输入或审批时，Automation occurrence 失败，
 记录交互证据并保留 RunOps Trace，不自动点击确认，也不把服务主体当成人类审批人。
+会话取消由 execution 所属的 `RuntimeWorkflowInteractionSessionService.cancelWaiting` 执行，
+只更新同一 Trace 下仍为 `WAITING_USER` 的会话；修订号基于数据库当前值原子递增，更新成功才写一条取消事件。
+Trace 所属的 `RuntimeTraceSpanTerminationService` 只结束该 Trace 下尚未结束的 `WAITING_USER/WAITING_APPROVAL` Span。
+Automation 保留外层事务和终止原因；事件或 Trace 写入失败时，会话与事件一起回滚。会话 ID 缺失或不属于该 Trace 时，
+不取消其他会话，仍可结束当前 Trace 的等待 Span。已被恢复流程抢占的 `RESUMING` 会话不会被覆盖。
+这些状态、回滚和并发行为由 [MyBatis/H2 回归](../../reachai-runtime-service/src/test/java/com/enterprise/ai/runtime/automation/RuntimeAutomationInteractionTerminationPersistenceTest.java) 验证，尚未验证 MySQL 并发。
 未来若支持“等待人工后继续”，必须新增显式 `WAIT_FOR_OPERATOR` 状态、截止时间、通知和
 同一 checkpoint 恢复协议，不能复用普通重试伪装。
 
 ### 6.4 超时、重试和取消
+
+Automation 的 Workflow 根 Span 由 Trace 所属的 [RuntimeTraceRootService](../../reachai-runtime-service/src/main/java/com/enterprise/ai/runtime/trace/RuntimeTraceRootService.java) 创建和结束，保留 UTC 时间、版本与入口元数据。输出和错误摘要统一脱敏；不再把原始回答写入 `error_message`。完成操作只更新身份一致且仍开放的根记录，已结束时不继续覆盖 RunOps 投影；Trace 写入异常仍向上传播，不保证独立的 Span 与 Run 写入原子提交。
+
+Worker 为每次执行生成追踪号并写入 Attempt，同时覆盖执行输入的 `traceId` 与供 SDK 签名上下文使用的 `supervisorTraceId`。手动和定时触发均以该服务端追踪号关联业务调用，定义输入不能覆盖它；Agent 内部调用 Workflow 时仍由 Supervisor 建立后续父子追踪关系。
 
 - 每个版本保存 10 秒到 24 小时的 timeout。
 - 重试 1-20 次，指数退避受 initial/max backoff 上限控制。
@@ -158,7 +171,7 @@ V1 为 `FAIL_CLOSED`：Agent/Workflow 请求用户输入或审批时，Automatio
 | --- | --- |
 | 定义事务成功、时钟同步失败 | `runtime_automation_engine_command` 重试；20 次后 `DEAD` 并告警 |
 | 两个时钟副本同时回调 | occurrence 唯一键去重 |
-| worker 领取后进程退出 | occurrence 与 execution slot 租约过期，其他副本重领 |
+| worker 领取后进程退出 | 租约过期后关闭旧 Attempt、仍为 RUNNING 的 Automation Run 与 Trace，释放旧 execution slot，再由其他副本重领 |
 | 执行完成后落库前退出 | 可能重试目标；目标 Capability 应使用 occurrence/trace id 做下游幂等 |
 | 旧版本时钟回调晚到 | materializer 校验 `ACTIVE + current_version_id` 后丢弃 |
 | pause/update 与待执行 occurrence 竞争 | worker 开始前再次校验状态和 current version；旧计划取消 |
@@ -167,6 +180,14 @@ V1 为 `FAIL_CLOSED`：Agent/Workflow 请求用户输入或审批时，Automatio
 
 本模块提供 at-least-once 执行和业务 occurrence 幂等，不宣称对任意外部副作用实现
 exactly-once。具有副作用的 Capability 必须接受并持久化幂等键。
+
+恢复扫描在锁定 occurrence 后按数据库 `UTC_TIMESTAMP(6)` 再次确认租约过期；恢复后的
+`available_at` 也使用数据库 UTC 时间，避免应用时钟偏快导致已过期任务暂时无法领取。
+旧 Attempt 以 `AUTOMATION_LEASE_EXPIRED` 结束；重试次数耗尽时 occurrence 为 `DEAD`，
+定义已归档时为 `CANCELLED`，其他情况为 `RETRY`。已完成的 Run 和 Trace 保留原结果。
+这些状态修改、旧占位释放与恢复事件在同一事务中提交，审计写入失败时全部回滚。
+旧 worker 返回结果时须重新校验当前租约，不能覆盖接管后的结果；直接重领过期任务的
+路径也会在新 Attempt 开始前关闭旧 Attempt。
 
 ## 8. API 与授权
 

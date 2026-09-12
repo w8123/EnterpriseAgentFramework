@@ -1,14 +1,10 @@
 package com.enterprise.ai.control.client.runtime;
 
-import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.PublishedWorkflowView;
-import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.WorkflowDeliveryView;
-import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.WorkflowEngineeringDraftView;
-import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.WorkflowExecutionReadinessView;
-import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.WorkflowReleaseReadinessView;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -18,6 +14,12 @@ import java.util.Map;
 
 @FeignClient(name = "reachai-runtime-proxy", url = "${services.runtime-service.url:http://localhost:18604}")
 public interface RuntimeProxyClient {
+
+    @RequestMapping(method = RequestMethod.POST, path = "/internal/runtime/capability-references",
+            consumes = "application/json")
+    Map<String, Object> capabilityReferences(
+            @org.springframework.web.bind.annotation.RequestHeader Map<String, String> headers,
+            @RequestBody byte[] exactBody);
 
     @RequestMapping(method = RequestMethod.POST, path = "/api/runtime/agents/execute")
     ResponseEntity<Map<String, Object>> executeAgent(@RequestBody Map<String, Object> body);
@@ -114,9 +116,6 @@ public interface RuntimeProxyClient {
     @RequestMapping(method = RequestMethod.GET, path = "/api/workflows/graph-node-types")
     ResponseEntity<Object> graphNodeTypes();
 
-    @RequestMapping(method = RequestMethod.GET,
-            path = "/internal/runtime/page-workbench/workflow-node-types")
-    ResponseEntity<Object> pageWorkbenchWorkflowNodeTypes();
 
     @RequestMapping(method = RequestMethod.POST, path = "/api/workflows/runtime-validation")
     ResponseEntity<Object> validateWorkflowRuntime(@RequestBody Map<String, Object> body);
@@ -198,17 +197,19 @@ public interface RuntimeProxyClient {
     @RequestMapping(method = RequestMethod.GET, path = "/api/workflows/{workflowId}/versions")
     ResponseEntity<Object> listWorkflowVersions(@PathVariable("workflowId") String workflowId);
 
-    @RequestMapping(method = RequestMethod.POST, path = "/api/workflows/{workflowId}/versions/publish")
+    @RequestMapping(method = RequestMethod.POST, path = "/api/workflows/{workflowId}/versions/publish", consumes = "application/json")
     ResponseEntity<Object> publishWorkflowVersion(@PathVariable("workflowId") String workflowId,
-                                                  @RequestBody Map<String, Object> body);
+                                                  @org.springframework.web.bind.annotation.RequestHeader Map<String, String> headers,
+                                                  @RequestBody byte[] exactBody);
 
     @RequestMapping(method = RequestMethod.POST, path = "/api/workflows/{workflowId}/versions/validate")
     ResponseEntity<Object> validateWorkflowVersion(@PathVariable("workflowId") String workflowId);
 
-    @RequestMapping(method = RequestMethod.POST, path = "/api/workflows/{workflowId}/versions/{versionId}/rollback")
+    @RequestMapping(method = RequestMethod.POST, path = "/api/workflows/{workflowId}/versions/{versionId}/rollback", consumes = "application/json")
     ResponseEntity<Object> rollbackWorkflowVersion(@PathVariable("workflowId") String workflowId,
                                                    @PathVariable("versionId") Long versionId,
-                                                   @RequestBody Map<String, Object> body);
+                                                   @org.springframework.web.bind.annotation.RequestHeader Map<String, String> headers,
+                                                   @RequestBody byte[] exactBody);
 
     @RequestMapping(method = RequestMethod.POST, path = "/api/workflows/{id}/page-assistant/attach-tool")
     ResponseEntity<Object> attachPageAssistantWorkflowTool(@PathVariable("id") String id,
@@ -219,45 +220,10 @@ public interface RuntimeProxyClient {
     ResponseEntity<Object> attachAgentSupervisorWorkflowTool(@PathVariable("projectId") Long projectId,
                                                              @RequestBody Map<String, Object> body);
 
-    @RequestMapping(method = RequestMethod.POST,
-            path = "/internal/runtime/page-workbench/projects/{projectCode}/workflow-drafts")
-    ResponseEntity<WorkflowEngineeringDraftView>
-            createPageWorkbenchWorkflowDraft(
-                    @PathVariable("projectCode") String projectCode,
-                    @RequestBody Map<String, Object> body);
 
-    @RequestMapping(method = RequestMethod.POST,
-            path = "/internal/runtime/page-workbench/projects/{projectCode}/workflows/{workflowId}/deliver")
-    ResponseEntity<WorkflowDeliveryView> deliverPageWorkbenchWorkflow(
-            @PathVariable("projectCode") String projectCode,
-            @PathVariable("workflowId") String workflowId,
-            @RequestBody Map<String, Object> body);
 
-    @RequestMapping(method = RequestMethod.GET,
-            path = "/internal/runtime/page-workbench/projects/{projectCode}/published")
-    ResponseEntity<List<PublishedWorkflowView>> pageWorkbenchPublished(
-            @PathVariable("projectCode") String projectCode,
-            @RequestParam(value = "pageKey", required = false) String pageKey);
 
-    @RequestMapping(method = RequestMethod.GET,
-            path = "/internal/runtime/page-workbench/projects/{projectCode}/release-readiness")
-    ResponseEntity<WorkflowReleaseReadinessView> pageWorkbenchReleaseReadiness(
-            @PathVariable("projectCode") String projectCode,
-            @RequestParam("pageKey") String pageKey,
-            @RequestParam("workflowId") String workflowId,
-            @RequestParam("workflowVersion") String workflowVersion);
 
-    @RequestMapping(method = RequestMethod.GET,
-            path = "/internal/runtime/page-workbench/projects/{projectCode}/execution-readiness")
-    ResponseEntity<WorkflowExecutionReadinessView> pageWorkbenchExecutionReadiness(
-            @PathVariable("projectCode") String projectCode,
-            @RequestParam("pageKey") String pageKey,
-            @RequestParam("sessionId") String sessionId,
-            @RequestParam("pageInstanceId") String pageInstanceId,
-            @RequestParam("traceId") String traceId,
-            @RequestParam("workflowId") String workflowId,
-            @RequestParam("workflowVersionId") Long workflowVersionId,
-            @RequestParam("workflowVersion") String workflowVersion);
 
     @RequestMapping(method = RequestMethod.GET, path = "/api/workflows/credentials")
     ResponseEntity<Object> listWorkflowCredentials(@RequestParam(value = "projectId", required = false) Long projectId,
@@ -396,18 +362,21 @@ public interface RuntimeProxyClient {
     ResponseEntity<Object> resumeRuntimeInteraction(@PathVariable("sessionId") String sessionId,
                                                     @RequestBody Map<String, Object> body);
 
-    @RequestMapping(method = RequestMethod.POST, path = "/api/runtime/debug-sessions")
-    ResponseEntity<Object> createRuntimeDebugSession(@RequestBody Map<String, Object> body);
+    @RequestMapping(method = RequestMethod.POST, path = "/api/runtime/debug-sessions", consumes = "application/json")
+    ResponseEntity<Object> createRuntimeDebugSession(@RequestHeader Map<String, String> signedHeaders, @RequestBody byte[] body);
 
     @RequestMapping(method = RequestMethod.GET, path = "/api/runtime/debug-sessions/{sessionId}")
-    ResponseEntity<Object> getRuntimeDebugSession(@PathVariable("sessionId") String sessionId);
+    ResponseEntity<Object> getRuntimeDebugSession(@PathVariable("sessionId") String sessionId, @RequestHeader Map<String, String> signedHeaders);
 
-    @RequestMapping(method = RequestMethod.POST, path = "/api/runtime/debug-sessions/{sessionId}/submit")
+    @RequestMapping(method = RequestMethod.GET, path = "/api/runtime/debug-sessions/by-creation-key/{key}")
+    ResponseEntity<Object> getRuntimeDebugSessionByCreationKey(@PathVariable("key") String key, @RequestHeader Map<String, String> signedHeaders);
+
+    @RequestMapping(method = RequestMethod.POST, path = "/api/runtime/debug-sessions/{sessionId}/submit", consumes = "application/json")
     ResponseEntity<Object> submitRuntimeDebugSession(@PathVariable("sessionId") String sessionId,
-                                                     @RequestBody Map<String, Object> body);
+                                                     @RequestHeader Map<String, String> signedHeaders, @RequestBody byte[] body);
 
     @RequestMapping(method = RequestMethod.POST, path = "/api/runtime/debug-sessions/{sessionId}/cancel")
-    ResponseEntity<Object> cancelRuntimeDebugSession(@PathVariable("sessionId") String sessionId);
+    ResponseEntity<Object> cancelRuntimeDebugSession(@PathVariable("sessionId") String sessionId, @RequestHeader Map<String, String> signedHeaders);
 
     @RequestMapping(method = RequestMethod.GET, path = "/api/runtime/interactions/human-approvals")
     ResponseEntity<Object> listHumanApprovals(@RequestParam(value = "agentId", required = false) String agentId,

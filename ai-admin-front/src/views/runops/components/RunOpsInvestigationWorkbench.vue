@@ -174,9 +174,9 @@
             </div>
           </div>
           <el-table v-if="detail.toolCalls.length" :data="detail.toolCalls" stripe class="evidence-table" @row-click="selectToolCall">
-            <el-table-column label="状态" width="92">
+            <el-table-column label="状态" width="140">
               <template #default="{ row }">
-                <el-tag size="small" :type="row.success ? 'success' : 'danger'">{{ row.success ? '成功' : '失败' }}</el-tag>
+                <el-tag size="small" :type="toolCallStatusTone(row)">{{ toolCallStatusLabel(row) }}</el-tag>
               </template>
             </el-table-column>
             <el-table-column prop="toolName" label="工具" min-width="190" show-overflow-tooltip />
@@ -391,6 +391,7 @@
 import { computed, ref, watch } from 'vue'
 import { formatRuntimeTypeLabel } from '@/utils/registryLabels'
 import DiffTable from './RunOpsDiffTable.vue'
+import { toolCallStatusLabel, toolCallStatusTone } from '../toolCallOutcome'
 import type {
   RunComparison,
   RunDetail,
@@ -648,10 +649,11 @@ function selectSpan(span: RunSpan) {
 }
 
 function selectToolCall(tool: RunToolCall) {
-  const row = executionRows.value.find((candidate) =>
-    candidate.item.toolName === tool.toolName || candidate.span?.toolName === tool.toolName,
-  )
-  if (!row) return
+  const matches = executionRows.value.filter((candidate) => tool.statusSourceSpanId
+    ? candidate.item.spanId === tool.statusSourceSpanId
+    : candidate.item.toolName === tool.toolName || candidate.span?.toolName === tool.toolName)
+  if (matches.length !== 1) return
+  const row = matches[0]!
   activeTab.value = 'execution'
   selectExecutionRow(row.key)
 }
@@ -923,7 +925,7 @@ function spanDigest(span?: RunSpan) {
 
 function toolDigest(tool?: RunToolCall) {
   if (!tool) return '缺失'
-  return `${tool.success ? '成功' : '失败'} · ${formatDuration(tool.elapsedMs)} · ${tool.errorCode || tool.resultSummary || '-'}`
+  return `${toolCallStatusLabel(tool)} · ${formatDuration(tool.elapsedMs)} · ${tool.errorCode || tool.resultSummary || '-'}`
 }
 
 function guardDigest(guard?: RunGuardDecision) {

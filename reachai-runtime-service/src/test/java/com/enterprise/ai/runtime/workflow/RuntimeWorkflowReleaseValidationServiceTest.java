@@ -997,6 +997,39 @@ class RuntimeWorkflowReleaseValidationServiceTest {
                 || hasError(service.validate(workflow), "GRAPH_ERROR_FALLBACK_SELF"));
     }
 
+    @Test
+    void collectInputMultiSelectWithDeclaredOptionsMatchesTheRuntimeContract() {
+        var result = openInteractionService().validate(multiSelectWorkflow(
+                ",\"options\":[{\"value\":\"a\",\"label\":\"甲\"},{\"value\":\"b\",\"label\":\"乙\"}]"));
+        assertTrue(result.valid(), () -> result.errors().toString());
+    }
+
+    @Test
+    void collectInputMultiSelectRequiresANonEmptyOptionList() {
+        for (String options : List.of("", ",\"options\":[]", ",\"options\":\"a\"")) {
+            var result = openInteractionService().validate(multiSelectWorkflow(options));
+            assertTrue(hasError(result, "GRAPH_INTERACTION_FIELD_OPTIONS_REQUIRED"),
+                    () -> result.errors().toString());
+        }
+    }
+
+    @Test
+    void validMultiSelectDoesNotOpenTheProductionBlockingInteractionGate() {
+        var result = service(mock(RuntimeControlCatalogClient.class)).validate(multiSelectWorkflow(
+                ",\"options\":[{\"value\":\"a\",\"label\":\"甲\"}]"));
+        assertTrue(hasError(result, "GRAPH_NODE_NOT_PUBLISHABLE"));
+    }
+
+    private RuntimeWorkflowDefinitionEntity multiSelectWorkflow(String options) {
+        return workflow("""
+                {"entryNodeId":"ask","exitNodeIds":["answer"],"nodes":[
+                  {"id":"ask","type":"INTERACTION","config":{"interactionType":"COLLECT_INPUT",
+                    "fields":[{"key":"items","type":"multi_select","required":true%s}]}},
+                  {"id":"answer","type":"ANSWER","config":{"template":"{{ items }}"}}
+                ],"edges":[{"from":"ask","to":"answer"}]}
+                """.formatted(options));
+    }
+
     private RuntimeWorkflowReleaseValidationService service(RuntimeControlCatalogClient client) {
         return new RuntimeWorkflowReleaseValidationService(client, new ObjectMapper());
     }

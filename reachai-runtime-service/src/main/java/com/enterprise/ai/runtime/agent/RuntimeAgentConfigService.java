@@ -11,18 +11,15 @@ import com.enterprise.ai.runtime.agent.RuntimeAgentConfigViews.WorkflowToolReque
 import com.enterprise.ai.runtime.agent.RuntimeAgentConfigViews.WorkflowToolView;
 import com.enterprise.ai.runtime.agent.RuntimeAgentEntity;
 import com.enterprise.ai.runtime.agent.RuntimeAgentMapper;
-import com.enterprise.ai.runtime.a2a.RuntimeA2aRemoteAgentBindingEntity;
-import com.enterprise.ai.runtime.a2a.RuntimeA2aRemoteAgentBindingMapper;
-import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionEntity;
-import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionMapper;
-import com.enterprise.ai.runtime.workflow.RuntimeWorkflowSchemaResolver;
-import com.enterprise.ai.runtime.workflow.RuntimeWorkflowVersionEntity;
-import com.enterprise.ai.runtime.workflow.RuntimeWorkflowVersionMapper;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowToolCatalogQuery;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowToolCatalogQuery.Entry;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowToolCatalogQuery.Reference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
@@ -32,9 +29,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Function;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -60,10 +55,9 @@ public class RuntimeAgentConfigService {
     private final RuntimeAgentConfigVersionMapper configMapper;
     private final RuntimeAgentWorkflowToolMapper toolMapper;
     private final RuntimeAgentSkillBindingMapper skillBindingMapper;
-    private final RuntimeA2aRemoteAgentBindingMapper remoteAgentBindingMapper;
+    private final RuntimeAgentRemoteBindingMapper remoteAgentBindingMapper;
     private final RuntimeAgentMapper agentMapper;
-    private final RuntimeWorkflowDefinitionMapper workflowMapper;
-    private final RuntimeWorkflowVersionMapper workflowVersionMapper;
+    private final RuntimeWorkflowToolCatalogQuery workflowCatalog;
     private final ObjectMapper objectMapper;
 
     public List<AgentConfigVersionView> list(String agentId) {
@@ -109,7 +103,7 @@ public class RuntimeAgentConfigService {
 
     @Transactional
     public AgentConfigVersionView saveDraft(String agentId, AgentConfigDraftRequest request) {
-        requireAgent(agentId);
+        requireLockedAgent(agentId);
         AgentConfigDraftRequest body = request == null ? emptyDraft() : request;
         RuntimeAgentConfigVersionEntity draft = configMapper.selectOne(
                 Wrappers.<RuntimeAgentConfigVersionEntity>lambdaQuery()
@@ -176,13 +170,88 @@ public class RuntimeAgentConfigService {
 
     @Transactional
     public AgentConfigVersionView publish(String agentId, Long configVersionId, String publishedBy) {
-        RuntimeAgentEntity agent = requireAgent(agentId);
+        RuntimeAgentEntity agent = requireLockedAgent(agentId);
         RuntimeAgentConfigVersionEntity target = requireVersion(agentId, configVersionId);
+        return publishPrepared(agent, target, publishedBy, true);
+    }
+
+    /** Publish one attachment from ACTIVE while leaving the editable DRAFT and unrelated pins intact. */
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public WorkflowAttachmentPublication publishWorkflowAttachment(
+            String agentId, WorkflowToolRequest request, String replacedWorkflowId, String modelInstanceId,
+            String publishedBy, boolean preserveToolConfiguration, AgentConfigDraftRequest initialDefaults) {
+        RuntimeAgentEntity agent = requireLockedAgent(agentId);
+        if (request == null || !StringUtils.hasText(request.workflowId())) {
+            throw new IllegalArgumentException("workflowId is required for Agent Workflow Tool");
+        }
+        String workflowId = request.workflowId().trim();
+        Entry entry = requireActivePublishedWorkflow(workflowId);
+        if (!entry.version().executable()) {
+            throw new IllegalArgumentException("Agent Workflow Tool requires an executable published Workflow version: " + workflowId);
+        }
+        RuntimeAgentConfigVersionEntity active = resolveActive(agentId).orElse(null);
+        if (active == null && initialDefaults == null) {
+            throw new IllegalArgumentException("Publish the initial Agent configuration before attaching a Workflow");
+        }
+        List<RuntimeAgentWorkflowToolEntity> activeTools = active == null ? List.of() : snapshotTools(agentId, active.getId());
+        String replacedId = trimToNull(replacedWorkflowId);
+        String targetId = replacedId == null ? workflowId : replacedId;
+        RuntimeAgentWorkflowToolEntity current = activeTools.stream()
+                .filter(tool -> targetId.equals(tool.getWorkflowId())).findFirst().orElse(null);
+        if (replacedId != null && (replacedId.equals(workflowId) || current == null
+                || activeTools.stream().anyMatch(tool -> workflowId.equals(tool.getWorkflowId())))) {
+            throw new IllegalArgumentException("replaceWorkflowId must name an attached Workflow and replacement Workflow must be different and unattached");
+        }
+        if (active != null && replacedId == null && current != null && preserveToolConfiguration
+                && java.util.Objects.equals(current.getWorkflowVersionId(), entry.version().id())
+                && java.util.Objects.equals(active.getModelInstanceId(), modelInstanceId)) {
+            return new WorkflowAttachmentPublication(toView(active), true);
+        }
+        RuntimeAgentConfigVersionEntity candidate = new RuntimeAgentConfigVersionEntity();
+        candidate.setAgentId(agentId);
+        candidate.setVersionNo(nextVersionNo(agentId));
+        candidate.setStatus("DRAFT");
+        if (active != null) copyConfiguration(active, candidate);
+        else apply(initialDefaults, candidate);
+        candidate.setModelInstanceId(modelInstanceId);
+        applyDefaults(candidate);
+        validatePublishable(candidate);
+        candidate.setCreatedAt(LocalDateTime.now());
+        candidate.setUpdatedAt(candidate.getCreatedAt());
+        configMapper.insert(candidate);
+        copyActiveToolsIfNeeded(agentId, candidate.getId(), null);
+        copyActiveSkillsIfNeeded(agentId, candidate.getId(), null);
+        copyActiveRemoteAgentsIfNeeded(agentId, candidate.getId(), null);
+        RuntimeAgentWorkflowToolEntity copied = toolMapper.selectOne(Wrappers.<RuntimeAgentWorkflowToolEntity>lambdaQuery()
+                .eq(RuntimeAgentWorkflowToolEntity::getAgentConfigVersionId, candidate.getId())
+                .eq(RuntimeAgentWorkflowToolEntity::getWorkflowId, targetId));
+        if (copied != null && replacedId == null && preserveToolConfiguration) {
+            copied.setWorkflowVersionId(entry.version().id());
+            copied.setUpdatedAt(LocalDateTime.now());
+            toolMapper.updateById(copied);
+        } else {
+            int priority = request.priority() != null ? request.priority()
+                    : current != null && current.getPriority() != null ? current.getPriority()
+                    : activeTools.stream().map(RuntimeAgentWorkflowToolEntity::getPriority)
+                            .filter(java.util.Objects::nonNull).max(Integer::compareTo).orElse(-1) + 1;
+            if (copied != null) toolMapper.deleteById(copied.getId());
+            requireToolName(request.toolName());
+            insertWorkflowTool(agentId, candidate.getId(), request, entry, priority);
+        }
+        validateUniqueToolNames(candidate);
+        return new WorkflowAttachmentPublication(publishPrepared(agent, candidate, publishedBy, false), false);
+    }
+
+    public record WorkflowAttachmentPublication(AgentConfigVersionView config, boolean reused) { }
+
+    private AgentConfigVersionView publishPrepared(RuntimeAgentEntity agent, RuntimeAgentConfigVersionEntity target,
+                                                   String publishedBy, boolean refreshAllWorkflowPins) {
+        String agentId = agent.getId();
         if (!"DRAFT".equalsIgnoreCase(target.getStatus())) {
             throw new IllegalArgumentException("only DRAFT Agent config can be published");
         }
         validatePublishable(target);
-        pinWorkflowVersions(target);
+        if (refreshAllWorkflowPins) pinWorkflowVersions(target);
         validateSkillBindings(target, agent.getProjectCode());
         validateRemoteAgentBindings(target);
         List<RuntimeAgentConfigVersionEntity> activeVersions = configMapper.selectList(
@@ -201,7 +270,10 @@ public class RuntimeAgentConfigService {
         configMapper.updateById(target);
         agent.setActiveConfigVersionId(target.getId());
         agent.setUpdatedAt(LocalDateTime.now());
-        agentMapper.updateById(agent);
+        agentMapper.update(null, Wrappers.<RuntimeAgentEntity>lambdaUpdate()
+                .eq(RuntimeAgentEntity::getId, agentId)
+                .set(RuntimeAgentEntity::getActiveConfigVersionId, target.getId())
+                .set(RuntimeAgentEntity::getUpdatedAt, agent.getUpdatedAt()));
         return toView(target);
     }
 
@@ -211,7 +283,7 @@ public class RuntimeAgentConfigService {
      */
     @Transactional
     public AgentConfigVersionView copyToDraft(String agentId, Long configVersionId) {
-        requireAgent(agentId);
+        requireLockedAgent(agentId);
         RuntimeAgentConfigVersionEntity source = requireVersion(agentId, configVersionId);
         if ("DRAFT".equalsIgnoreCase(source.getStatus())) {
             return toView(source);
@@ -228,8 +300,8 @@ public class RuntimeAgentConfigService {
                     .eq(RuntimeAgentWorkflowToolEntity::getAgentConfigVersionId, currentDraft.getId()));
             skillBindingMapper.delete(Wrappers.<RuntimeAgentSkillBindingEntity>lambdaQuery()
                     .eq(RuntimeAgentSkillBindingEntity::getAgentConfigVersionId, currentDraft.getId()));
-            remoteAgentBindingMapper.delete(Wrappers.<RuntimeA2aRemoteAgentBindingEntity>lambdaQuery()
-                    .eq(RuntimeA2aRemoteAgentBindingEntity::getAgentConfigVersionId,
+            remoteAgentBindingMapper.delete(Wrappers.<RuntimeAgentRemoteBindingEntity>lambdaQuery()
+                    .eq(RuntimeAgentRemoteBindingEntity::getAgentConfigVersionId,
                             currentDraft.getId()));
             configMapper.deleteById(currentDraft.getId());
         }
@@ -317,30 +389,30 @@ public class RuntimeAgentConfigService {
                 .toList();
     }
 
-    public List<RuntimeA2aRemoteAgentBindingEntity> resolveRemoteAgentBindings(
+    public List<RuntimeAgentRemoteBindingEntity> resolveRemoteAgentBindings(
             String agentId, RuntimeAgentConfigVersionEntity config) {
         if (config == null || config.getId() == null || !agentId.equals(config.getAgentId())) {
             return List.of();
         }
         return remoteAgentBindingMapper.selectList(
-                Wrappers.<RuntimeA2aRemoteAgentBindingEntity>lambdaQuery()
-                        .eq(RuntimeA2aRemoteAgentBindingEntity::getAgentId, agentId)
-                        .eq(RuntimeA2aRemoteAgentBindingEntity::getAgentConfigVersionId, config.getId())
-                        .eq(RuntimeA2aRemoteAgentBindingEntity::getEnabled, true)
-                        .orderByAsc(RuntimeA2aRemoteAgentBindingEntity::getPriority)
-                        .orderByAsc(RuntimeA2aRemoteAgentBindingEntity::getId));
+                Wrappers.<RuntimeAgentRemoteBindingEntity>lambdaQuery()
+                        .eq(RuntimeAgentRemoteBindingEntity::getAgentId, agentId)
+                        .eq(RuntimeAgentRemoteBindingEntity::getAgentConfigVersionId, config.getId())
+                        .eq(RuntimeAgentRemoteBindingEntity::getEnabled, true)
+                        .orderByAsc(RuntimeAgentRemoteBindingEntity::getPriority)
+                        .orderByAsc(RuntimeAgentRemoteBindingEntity::getId));
     }
 
     public List<RemoteAgentBindingView> listRemoteAgentBindings(
             String agentId, Long configVersionId) {
         requireVersion(agentId, configVersionId);
         return remoteAgentBindingMapper.selectList(
-                        Wrappers.<RuntimeA2aRemoteAgentBindingEntity>lambdaQuery()
-                                .eq(RuntimeA2aRemoteAgentBindingEntity::getAgentId, agentId)
-                                .eq(RuntimeA2aRemoteAgentBindingEntity::getAgentConfigVersionId,
+                        Wrappers.<RuntimeAgentRemoteBindingEntity>lambdaQuery()
+                                .eq(RuntimeAgentRemoteBindingEntity::getAgentId, agentId)
+                                .eq(RuntimeAgentRemoteBindingEntity::getAgentConfigVersionId,
                                         configVersionId)
-                                .orderByAsc(RuntimeA2aRemoteAgentBindingEntity::getPriority)
-                                .orderByAsc(RuntimeA2aRemoteAgentBindingEntity::getId))
+                                .orderByAsc(RuntimeAgentRemoteBindingEntity::getPriority)
+                                .orderByAsc(RuntimeAgentRemoteBindingEntity::getId))
                 .stream().map(this::toView).toList();
     }
 
@@ -352,20 +424,15 @@ public class RuntimeAgentConfigService {
             throw new IllegalArgumentException("workflowId is required for Agent Workflow Tool");
         }
         String normalizedWorkflowId = workflowId.trim();
-        RuntimeWorkflowDefinitionEntity workflow = workflowMapper.selectById(normalizedWorkflowId);
-        if (workflow == null || !"ACTIVE".equalsIgnoreCase(workflow.getStatus())
-                || workflowVersionMapper.listActive(normalizedWorkflowId).isEmpty()) {
-            throw new IllegalArgumentException(
-                    "Agent Workflow Tool requires an ACTIVE published workflow: " + normalizedWorkflowId);
-        }
+        var workflow = requireActivePublishedWorkflow(normalizedWorkflowId).workflow();
         return upsertWorkflowToolInDraft(agentId, new WorkflowToolRequest(
                 normalizedWorkflowId,
-                workflowToolName(workflow.getKeySlug()),
-                workflow.getDescription(),
+                workflowToolName(workflow.keySlug()),
+                workflow.description(),
                 null,
                 null,
                 readOnly ? "READ" : "PAGE_ACTION",
-                "workflow:" + workflow.getKeySlug(),
+                "workflow:" + workflow.keySlug(),
                 readOnly,
                 true,
                 null));
@@ -375,17 +442,12 @@ public class RuntimeAgentConfigService {
     @Transactional
     public AgentConfigVersionView upsertWorkflowToolInDraft(String agentId,
                                                             WorkflowToolRequest requestedTool) {
-        requireAgent(agentId);
+        requireLockedAgent(agentId);
         if (requestedTool == null || !StringUtils.hasText(requestedTool.workflowId())) {
             throw new IllegalArgumentException("workflowId is required for Agent Workflow Tool");
         }
         String normalizedWorkflowId = requestedTool.workflowId().trim();
-        RuntimeWorkflowDefinitionEntity workflow = workflowMapper.selectById(normalizedWorkflowId);
-        if (workflow == null || !"ACTIVE".equalsIgnoreCase(workflow.getStatus())
-                || workflowVersionMapper.listActive(normalizedWorkflowId).isEmpty()) {
-            throw new IllegalArgumentException(
-                    "Agent Workflow Tool requires an ACTIVE published workflow: " + normalizedWorkflowId);
-        }
+        requireActivePublishedWorkflow(normalizedWorkflowId);
 
         Optional<RuntimeAgentConfigVersionEntity> displayConfig = resolveDisplayConfig(agentId);
         List<WorkflowToolRequest> tools = new ArrayList<>();
@@ -430,7 +492,7 @@ public class RuntimeAgentConfigService {
             String agentId,
             String replacedWorkflowId,
             WorkflowToolRequest requestedTool) {
-        requireAgent(agentId);
+        requireLockedAgent(agentId);
         if (!StringUtils.hasText(replacedWorkflowId)) {
             throw new IllegalArgumentException(
                     "replaceWorkflowId is required for Workflow Tool replacement");
@@ -446,12 +508,7 @@ public class RuntimeAgentConfigService {
                     "replaceWorkflowId must identify a different Workflow");
         }
 
-        RuntimeWorkflowDefinitionEntity workflow = workflowMapper.selectById(newWorkflowId);
-        if (workflow == null || !"ACTIVE".equalsIgnoreCase(workflow.getStatus())
-                || workflowVersionMapper.listActive(newWorkflowId).isEmpty()) {
-            throw new IllegalArgumentException(
-                    "Agent Workflow Tool requires an ACTIVE published workflow: " + newWorkflowId);
-        }
+        requireActivePublishedWorkflow(newWorkflowId);
 
         Optional<RuntimeAgentConfigVersionEntity> displayConfig = resolveDisplayConfig(agentId);
         if (displayConfig.isEmpty()) {
@@ -500,12 +557,13 @@ public class RuntimeAgentConfigService {
             return;
         }
         String normalizedAgentId = agentId.trim();
+        agentMapper.lockById(normalizedAgentId);
         toolMapper.delete(Wrappers.<RuntimeAgentWorkflowToolEntity>lambdaQuery()
                 .eq(RuntimeAgentWorkflowToolEntity::getAgentId, normalizedAgentId));
         skillBindingMapper.delete(Wrappers.<RuntimeAgentSkillBindingEntity>lambdaQuery()
                 .eq(RuntimeAgentSkillBindingEntity::getAgentId, normalizedAgentId));
-        remoteAgentBindingMapper.delete(Wrappers.<RuntimeA2aRemoteAgentBindingEntity>lambdaQuery()
-                .eq(RuntimeA2aRemoteAgentBindingEntity::getAgentId, normalizedAgentId));
+        remoteAgentBindingMapper.delete(Wrappers.<RuntimeAgentRemoteBindingEntity>lambdaQuery()
+                .eq(RuntimeAgentRemoteBindingEntity::getAgentId, normalizedAgentId));
         configMapper.delete(Wrappers.<RuntimeAgentConfigVersionEntity>lambdaQuery()
                 .eq(RuntimeAgentConfigVersionEntity::getAgentId, normalizedAgentId));
     }
@@ -521,23 +579,28 @@ public class RuntimeAgentConfigService {
         if (requests == null || requests.isEmpty()) {
             return;
         }
-        Map<String, Boolean> workflowIds = new LinkedHashMap<>();
-        Map<String, Boolean> toolNames = new LinkedHashMap<>();
-        int index = 0;
+        List<String> requestedIds = new ArrayList<>();
         for (WorkflowToolRequest request : requests) {
             if (request == null || !StringUtils.hasText(request.workflowId())) {
                 throw new IllegalArgumentException("workflowId is required for Agent Workflow Tool");
             }
+            requestedIds.add(request.workflowId().trim());
+        }
+        Map<String, Entry> catalog = workflowCatalog.current(requestedIds);
+        Map<String, Boolean> workflowIds = new LinkedHashMap<>();
+        Map<String, Boolean> toolNames = new LinkedHashMap<>();
+        int index = 0;
+        for (WorkflowToolRequest request : requests) {
             String workflowId = request.workflowId().trim();
-            RuntimeWorkflowDefinitionEntity workflow = workflowMapper.selectById(workflowId);
-            if (workflow == null || !"ACTIVE".equalsIgnoreCase(workflow.getStatus())) {
+            Entry entry = catalog.get(workflowId);
+            if (entry == null || !entry.activeWorkflow()) {
                 throw new IllegalArgumentException("Agent Workflow Tool requires an ACTIVE workflow: " + workflowId);
             }
-            List<RuntimeWorkflowVersionEntity> activeVersions = workflowVersionMapper.listActive(workflowId);
-            if (activeVersions.isEmpty()) {
+            if (entry.version() == null) {
                 throw new IllegalArgumentException("Agent Workflow Tool requires a published workflow version: " + workflowId);
             }
-            String toolName = firstText(request.toolName(), workflow.getKeySlug());
+            var workflow = entry.workflow();
+            String toolName = firstText(request.toolName(), workflow.keySlug());
             requireToolName(toolName);
             if (workflowIds.putIfAbsent(workflowId, true) != null) {
                 throw new IllegalArgumentException("duplicate workflow in Agent tool catalog: " + workflowId);
@@ -545,26 +608,34 @@ public class RuntimeAgentConfigService {
             if (toolNames.putIfAbsent(toolName, true) != null) {
                 throw new IllegalArgumentException("duplicate toolName in Agent tool catalog: " + toolName);
             }
-            RuntimeAgentWorkflowToolEntity entity = new RuntimeAgentWorkflowToolEntity();
-            entity.setAgentId(agentId);
-            entity.setAgentConfigVersionId(draft.getId());
-            entity.setWorkflowId(workflowId);
-            entity.setWorkflowVersionId(activeVersions.get(0).getId());
-            entity.setToolName(toolName);
-            entity.setDescriptionOverride(trimToNull(request.descriptionOverride()));
-            entity.setInputSchemaOverrideJson(trimToNull(request.inputSchemaOverrideJson()));
-            entity.setOutputSchemaOverrideJson(trimToNull(request.outputSchemaOverrideJson()));
-            entity.setRiskLevel(firstText(request.riskLevel(), Boolean.FALSE.equals(request.readOnly()) ? "WRITE" : "READ"));
-            entity.setPermissionKey(firstText(request.permissionKey(), "workflow:" + workflow.getKeySlug()));
-            entity.setReadOnly(request.readOnly() == null ? !"WRITE".equalsIgnoreCase(entity.getRiskLevel()) : request.readOnly());
-            entity.setEnabled(request.enabled() == null || request.enabled());
-            entity.setPriority(index);
-            LocalDateTime now = LocalDateTime.now();
-            entity.setCreatedAt(now);
-            entity.setUpdatedAt(now);
-            toolMapper.insert(entity);
+            insertWorkflowTool(agentId, draft.getId(), request, entry, index);
             index++;
         }
+    }
+
+    private void insertWorkflowTool(String agentId, Long configVersionId,
+                                    WorkflowToolRequest request, Entry entry, int priority) {
+        String workflowId = request.workflowId().trim();
+        var workflow = entry.workflow();
+        String toolName = firstText(request.toolName(), workflow.keySlug());
+        RuntimeAgentWorkflowToolEntity entity = new RuntimeAgentWorkflowToolEntity();
+        entity.setAgentId(agentId);
+        entity.setAgentConfigVersionId(configVersionId);
+        entity.setWorkflowId(workflowId);
+        entity.setWorkflowVersionId(entry.version().id());
+        entity.setToolName(toolName);
+        entity.setDescriptionOverride(trimToNull(request.descriptionOverride()));
+        entity.setInputSchemaOverrideJson(trimToNull(request.inputSchemaOverrideJson()));
+        entity.setOutputSchemaOverrideJson(trimToNull(request.outputSchemaOverrideJson()));
+        entity.setRiskLevel(firstText(request.riskLevel(), Boolean.FALSE.equals(request.readOnly()) ? "WRITE" : "READ"));
+        entity.setPermissionKey(firstText(request.permissionKey(), "workflow:" + workflow.keySlug()));
+        entity.setReadOnly(request.readOnly() == null ? !"WRITE".equalsIgnoreCase(entity.getRiskLevel()) : request.readOnly());
+        entity.setEnabled(request.enabled() == null || request.enabled());
+        entity.setPriority(priority);
+        LocalDateTime now = LocalDateTime.now();
+        entity.setCreatedAt(now);
+        entity.setUpdatedAt(now);
+        toolMapper.insert(entity);
     }
 
     private void replaceSkills(String agentId,
@@ -665,8 +736,8 @@ public class RuntimeAgentConfigService {
             throw new IllegalArgumentException("published Agent A2A bindings are immutable");
         }
         remoteAgentBindingMapper.delete(
-                Wrappers.<RuntimeA2aRemoteAgentBindingEntity>lambdaQuery()
-                        .eq(RuntimeA2aRemoteAgentBindingEntity::getAgentConfigVersionId,
+                Wrappers.<RuntimeAgentRemoteBindingEntity>lambdaQuery()
+                        .eq(RuntimeAgentRemoteBindingEntity::getAgentConfigVersionId,
                                 draft.getId()));
         if (requests == null || requests.isEmpty()) return;
         Map<Long, Boolean> revisions = new LinkedHashMap<>();
@@ -711,7 +782,7 @@ public class RuntimeAgentConfigService {
             if (timeoutMs < 1_000L || timeoutMs > 600_000L) {
                 throw new IllegalArgumentException("A2A timeoutMs must be between 1000 and 600000");
             }
-            RuntimeA2aRemoteAgentBindingEntity entity = new RuntimeA2aRemoteAgentBindingEntity();
+            RuntimeAgentRemoteBindingEntity entity = new RuntimeAgentRemoteBindingEntity();
             entity.setAgentId(agentId);
             entity.setAgentConfigVersionId(draft.getId());
             entity.setPrincipalId(request.principalId());
@@ -744,7 +815,7 @@ public class RuntimeAgentConfigService {
         if (active.isEmpty()) {
             return;
         }
-        for (RuntimeAgentWorkflowToolEntity source : resolveActiveTools(agentId, active.get())) {
+        for (RuntimeAgentWorkflowToolEntity source : snapshotTools(agentId, active.get().getId())) {
             RuntimeAgentWorkflowToolEntity copy = new RuntimeAgentWorkflowToolEntity();
             copy.setAgentId(agentId);
             copy.setAgentConfigVersionId(draftId);
@@ -819,9 +890,13 @@ public class RuntimeAgentConfigService {
         if (requestedBindings != null || draftId == null) return;
         Optional<RuntimeAgentConfigVersionEntity> active = resolveActive(agentId);
         if (active.isEmpty()) return;
-        for (RuntimeA2aRemoteAgentBindingEntity source
-                : resolveRemoteAgentBindings(agentId, active.get())) {
-            RuntimeA2aRemoteAgentBindingEntity copy = new RuntimeA2aRemoteAgentBindingEntity();
+        for (RuntimeAgentRemoteBindingEntity source : remoteAgentBindingMapper.selectList(
+                Wrappers.<RuntimeAgentRemoteBindingEntity>lambdaQuery()
+                        .eq(RuntimeAgentRemoteBindingEntity::getAgentId, agentId)
+                        .eq(RuntimeAgentRemoteBindingEntity::getAgentConfigVersionId, active.get().getId())
+                        .orderByAsc(RuntimeAgentRemoteBindingEntity::getPriority)
+                        .orderByAsc(RuntimeAgentRemoteBindingEntity::getId))) {
+            RuntimeAgentRemoteBindingEntity copy = new RuntimeAgentRemoteBindingEntity();
             copy.setAgentId(agentId);
             copy.setAgentConfigVersionId(draftId);
             copy.setPrincipalId(source.getPrincipalId());
@@ -845,48 +920,45 @@ public class RuntimeAgentConfigService {
         }
     }
 
+    private List<RuntimeAgentWorkflowToolEntity> snapshotTools(String agentId, Long configVersionId) {
+        return toolMapper.selectList(Wrappers.<RuntimeAgentWorkflowToolEntity>lambdaQuery()
+                .eq(RuntimeAgentWorkflowToolEntity::getAgentId, agentId)
+                .eq(RuntimeAgentWorkflowToolEntity::getAgentConfigVersionId, configVersionId)
+                .orderByAsc(RuntimeAgentWorkflowToolEntity::getPriority)
+                .orderByAsc(RuntimeAgentWorkflowToolEntity::getId));
+    }
+
     private List<WorkflowToolView> toToolViews(List<RuntimeAgentWorkflowToolEntity> rows) {
         if (rows == null || rows.isEmpty()) {
             return List.of();
         }
-        Map<String, RuntimeWorkflowDefinitionEntity> workflows = workflowMapper.selectBatchIds(
-                        rows.stream().map(RuntimeAgentWorkflowToolEntity::getWorkflowId).distinct().toList())
-                .stream()
-                .collect(Collectors.toMap(RuntimeWorkflowDefinitionEntity::getId, Function.identity()));
-        List<Long> versionIds = rows.stream()
-                .map(RuntimeAgentWorkflowToolEntity::getWorkflowVersionId)
-                .filter(java.util.Objects::nonNull)
-                .distinct()
-                .toList();
-        Map<Long, RuntimeWorkflowVersionEntity> pinnedVersions = versionIds.isEmpty()
-                ? Map.of()
-                : workflowVersionMapper.selectBatchIds(versionIds).stream()
-                .collect(Collectors.toMap(RuntimeWorkflowVersionEntity::getId, Function.identity(),
-                        (a, b) -> a, LinkedHashMap::new));
+        Map<Reference, Entry> catalog = workflowCatalog.pinned(rows.stream()
+                .map(row -> new Reference(row.getWorkflowId(), row.getWorkflowVersionId())).toList());
         List<WorkflowToolView> views = new ArrayList<>();
         for (RuntimeAgentWorkflowToolEntity row : rows) {
-            RuntimeWorkflowDefinitionEntity workflow = workflows.get(row.getWorkflowId());
-            RuntimeWorkflowVersionEntity version = pinnedVersions.get(row.getWorkflowVersionId());
+            Entry entry = catalog.get(new Reference(row.getWorkflowId(), row.getWorkflowVersionId()));
+            var workflow = entry.workflow();
+            var version = entry.version();
             views.add(new WorkflowToolView(
                     row.getId(),
                     row.getAgentId(),
                     row.getAgentConfigVersionId(),
                     row.getWorkflowId(),
-                    workflow == null ? null : workflow.getKeySlug(),
-                    workflow == null ? null : workflow.getName(),
-                    version == null ? null : version.getVersion(),
-                    version == null ? null : version.getId(),
+                    workflow == null ? null : workflow.keySlug(),
+                    workflow == null ? null : workflow.name(),
+                    version == null ? null : version.version(),
+                    version == null ? null : version.id(),
                     row.getToolName(),
                     row.getDescriptionOverride(),
-                    firstText(row.getDescriptionOverride(), workflow == null ? null : workflow.getDescription()),
+                    firstText(row.getDescriptionOverride(), workflow == null ? null : workflow.description()),
                     row.getInputSchemaOverrideJson(),
                     firstText(
                             row.getInputSchemaOverrideJson(),
-                            RuntimeWorkflowSchemaResolver.inputSchemaJson(objectMapper, workflow, version)),
+                            version == null ? null : version.inputSchemaJson()),
                     row.getOutputSchemaOverrideJson(),
                     firstText(
                             row.getOutputSchemaOverrideJson(),
-                            RuntimeWorkflowSchemaResolver.outputSchemaJson(objectMapper, workflow, version)),
+                            version == null ? null : version.outputSchemaJson()),
                     row.getRiskLevel(),
                     row.getPermissionKey(),
                     row.getReadOnly(),
@@ -945,7 +1017,7 @@ public class RuntimeAgentConfigService {
                 binding.enabled(), binding.priority());
     }
 
-    private RemoteAgentBindingView toView(RuntimeA2aRemoteAgentBindingEntity binding) {
+    private RemoteAgentBindingView toView(RuntimeAgentRemoteBindingEntity binding) {
         return new RemoteAgentBindingView(
                 binding.getId(), binding.getAgentId(), binding.getAgentConfigVersionId(),
                 binding.getPrincipalId(), binding.getRemoteAgentId(),
@@ -1024,6 +1096,12 @@ public class RuntimeAgentConfigService {
             throw new IllegalArgumentException("agent not found: " + agentId);
         }
         return agent;
+    }
+
+    private RuntimeAgentEntity requireLockedAgent(String agentId) {
+        if (!StringUtils.hasText(agentId)) throw new IllegalArgumentException("agentId is required");
+        agentMapper.lockById(agentId.trim());
+        return requireAgent(agentId);
     }
 
     private RuntimeAgentConfigVersionEntity requireVersion(String agentId, Long configVersionId) {
@@ -1136,19 +1214,30 @@ public class RuntimeAgentConfigService {
         if (config.has(field)) requiredManagedInteger(config, field, minimum, maximum);
     }
 
+    private Entry requireActivePublishedWorkflow(String workflowId) {
+        Entry entry = workflowCatalog.current(List.of(workflowId)).get(workflowId);
+        if (entry == null || !entry.activePublishedWorkflow()) {
+            throw new IllegalArgumentException(
+                    "Agent Workflow Tool requires an ACTIVE published workflow: " + workflowId);
+        }
+        return entry;
+    }
+
     private void pinWorkflowVersions(RuntimeAgentConfigVersionEntity target) {
         List<RuntimeAgentWorkflowToolEntity> tools = toolMapper.selectList(
                 Wrappers.<RuntimeAgentWorkflowToolEntity>lambdaQuery()
                         .eq(RuntimeAgentWorkflowToolEntity::getAgentId, target.getAgentId())
                         .eq(RuntimeAgentWorkflowToolEntity::getAgentConfigVersionId, target.getId())
                         .eq(RuntimeAgentWorkflowToolEntity::getEnabled, true));
+        Map<String, Entry> catalog = workflowCatalog.current(tools.stream()
+                .map(RuntimeAgentWorkflowToolEntity::getWorkflowId).toList());
         for (RuntimeAgentWorkflowToolEntity tool : tools) {
-            List<RuntimeWorkflowVersionEntity> activeVersions = workflowVersionMapper.listActive(tool.getWorkflowId());
-            if (activeVersions.isEmpty() || !StringUtils.hasText(activeVersions.get(0).getGraphSpecSnapshotJson())) {
+            Entry entry = catalog.get(tool.getWorkflowId());
+            if (entry == null || !entry.activePublishedWorkflow() || !entry.version().executable()) {
                 throw new IllegalArgumentException(
                         "Agent Workflow Tool requires an executable published Workflow version: " + tool.getWorkflowId());
             }
-            tool.setWorkflowVersionId(activeVersions.get(0).getId());
+            tool.setWorkflowVersionId(entry.version().id());
             tool.setUpdatedAt(LocalDateTime.now());
             toolMapper.updateById(tool);
         }
@@ -1191,12 +1280,12 @@ public class RuntimeAgentConfigService {
     }
 
     private void validateRemoteAgentBindings(RuntimeAgentConfigVersionEntity target) {
-        List<RuntimeA2aRemoteAgentBindingEntity> bindings = remoteAgentBindingMapper.selectList(
-                Wrappers.<RuntimeA2aRemoteAgentBindingEntity>lambdaQuery()
-                        .eq(RuntimeA2aRemoteAgentBindingEntity::getAgentId, target.getAgentId())
-                        .eq(RuntimeA2aRemoteAgentBindingEntity::getAgentConfigVersionId,
+        List<RuntimeAgentRemoteBindingEntity> bindings = remoteAgentBindingMapper.selectList(
+                Wrappers.<RuntimeAgentRemoteBindingEntity>lambdaQuery()
+                        .eq(RuntimeAgentRemoteBindingEntity::getAgentId, target.getAgentId())
+                        .eq(RuntimeAgentRemoteBindingEntity::getAgentConfigVersionId,
                                 target.getId()));
-        for (RuntimeA2aRemoteAgentBindingEntity binding : bindings) {
+        for (RuntimeAgentRemoteBindingEntity binding : bindings) {
             if (binding.getPrincipalId() == null || binding.getPrincipalId() <= 0
                     || binding.getRemoteAgentId() == null || binding.getRemoteAgentId() <= 0
                     || binding.getRemoteAgentRevisionId() == null
@@ -1235,9 +1324,9 @@ public class RuntimeAgentConfigService {
                         "duplicate Supervisor toolName in Agent config: " + tool.getToolName());
             }
         }
-        for (RuntimeA2aRemoteAgentBindingEntity binding : remoteAgentBindingMapper.selectList(
-                Wrappers.<RuntimeA2aRemoteAgentBindingEntity>lambdaQuery()
-                        .eq(RuntimeA2aRemoteAgentBindingEntity::getAgentConfigVersionId,
+        for (RuntimeAgentRemoteBindingEntity binding : remoteAgentBindingMapper.selectList(
+                Wrappers.<RuntimeAgentRemoteBindingEntity>lambdaQuery()
+                        .eq(RuntimeAgentRemoteBindingEntity::getAgentConfigVersionId,
                                 target.getId()))) {
             if (!names.add(binding.getToolName())) {
                 throw new IllegalArgumentException(

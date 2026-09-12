@@ -1,6 +1,6 @@
 package com.enterprise.ai.runtime.memory;
 
-import com.enterprise.ai.runtime.supervisor.RuntimeContextEngineeringProperties;
+import com.enterprise.ai.runtime.configuration.RuntimeContextEngineeringProperties;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

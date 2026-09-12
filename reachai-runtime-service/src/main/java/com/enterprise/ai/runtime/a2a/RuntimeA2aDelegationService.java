@@ -1,11 +1,10 @@
 package com.enterprise.ai.runtime.a2a;
 
-import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.enterprise.ai.runtime.agent.RuntimeAgentConfigVersionEntity;
-import com.enterprise.ai.runtime.agent.RuntimeAgentConfigVersionMapper;
 import com.enterprise.ai.runtime.client.control.RuntimeA2aControlClient;
 import com.enterprise.ai.runtime.client.control.RuntimeA2aControlClient.SendRequest;
 import com.enterprise.ai.runtime.client.control.RuntimeA2aControlClient.SendResponse;
+import com.enterprise.ai.runtime.agent.RuntimeAgentRemoteBindingQuery;
+import com.enterprise.ai.runtime.agent.RuntimeAgentRemoteBindingView;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -27,8 +26,7 @@ public class RuntimeA2aDelegationService {
     private static final Pattern IDENTIFIER = Pattern.compile("[^\\r\\n]{1,128}");
     private static final TypeReference<List<String>> STRING_LIST = new TypeReference<>() { };
 
-    private final RuntimeA2aRemoteAgentBindingMapper bindingMapper;
-    private final RuntimeAgentConfigVersionMapper configMapper;
+    private final RuntimeAgentRemoteBindingQuery bindings;
     private final RuntimeA2aControlClient controlClient;
     private final ObjectMapper objectMapper;
 
@@ -38,24 +36,8 @@ public class RuntimeA2aDelegationService {
             long bindingId,
             DelegationRequest request) {
         String normalizedAgentId = identifier(agentId, "agentId");
-        RuntimeAgentConfigVersionEntity config = configMapper.selectById(agentConfigVersionId);
-        if (config == null || !normalizedAgentId.equals(config.getAgentId())
-                || !"ACTIVE".equalsIgnoreCase(config.getStatus())) {
-            throw new IllegalArgumentException(
-                    "outbound A2A delegation requires the active fixed Agent config version");
-        }
-        RuntimeA2aRemoteAgentBindingEntity binding = bindingMapper.selectOne(
-                Wrappers.<RuntimeA2aRemoteAgentBindingEntity>lambdaQuery()
-                        .eq(RuntimeA2aRemoteAgentBindingEntity::getId, bindingId)
-                        .eq(RuntimeA2aRemoteAgentBindingEntity::getAgentId, normalizedAgentId)
-                        .eq(RuntimeA2aRemoteAgentBindingEntity::getAgentConfigVersionId,
-                                agentConfigVersionId)
-                        .eq(RuntimeA2aRemoteAgentBindingEntity::getEnabled, true)
-                        .last("LIMIT 1"));
-        if (binding == null) {
-            throw new IllegalArgumentException(
-                    "outbound A2A binding is not enabled in the active Agent config version");
-        }
+        RuntimeAgentRemoteBindingView binding = bindings.requireActiveBinding(
+                normalizedAgentId, agentConfigVersionId, bindingId);
         DelegationRequest body = request == null ? new DelegationRequest(
                 null, null, null, null, null, null, null, null, null) : request;
         String protocolSkillId = identifier(body.protocolSkillId(), "protocolSkillId");
@@ -89,17 +71,6 @@ public class RuntimeA2aDelegationService {
                 classification(body.contentClassification()), outputModes,
                 body.historyLength(), timeoutMs,
                 optionalIdentifier(body.traceId(), "traceId")), timeoutMs);
-    }
-
-    public List<RuntimeA2aRemoteAgentBindingEntity> listEnabled(
-            String agentId, long configVersionId) {
-        return bindingMapper.selectList(
-                Wrappers.<RuntimeA2aRemoteAgentBindingEntity>lambdaQuery()
-                        .eq(RuntimeA2aRemoteAgentBindingEntity::getAgentId, agentId)
-                        .eq(RuntimeA2aRemoteAgentBindingEntity::getAgentConfigVersionId, configVersionId)
-                        .eq(RuntimeA2aRemoteAgentBindingEntity::getEnabled, true)
-                        .orderByAsc(RuntimeA2aRemoteAgentBindingEntity::getPriority)
-                        .orderByAsc(RuntimeA2aRemoteAgentBindingEntity::getId));
     }
 
     private List<String> strings(String json, String field) {

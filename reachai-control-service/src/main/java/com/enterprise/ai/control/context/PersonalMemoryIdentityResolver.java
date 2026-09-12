@@ -3,7 +3,7 @@ package com.enterprise.ai.control.context;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.enterprise.ai.control.identity.PlatformAuthenticatedSession;
 import com.enterprise.ai.control.identity.PlatformConsoleAuthInterceptor;
-import com.enterprise.ai.control.identity.PlatformUserEntity;
+import com.enterprise.ai.control.identity.PlatformPrincipal;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
@@ -36,15 +36,15 @@ public class PersonalMemoryIdentityResolver {
                 || session.user().getId() == null) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "authenticated platform session is required");
         }
-        return resolveAttestedPlatformUser(session.user(), session.sessionId(), requestedTenant);
+        return resolveAttestedPlatformPrincipal(session.user(), session.sessionId(), requestedTenant);
     }
 
     /**
      * Resolves the canonical Runtime owner for a platform user already authenticated by a
      * server-side boundary. Public request values must never be passed as {@code user}.
      */
-    public PersonalMemoryPrincipal resolveAttestedPlatformUser(
-            PlatformUserEntity user,
+    public PersonalMemoryPrincipal resolveAttestedPlatformPrincipal(
+            PlatformPrincipal user,
             String platformSessionId,
             String requestedTenant) {
         if (user == null || user.getId() == null || user.getId() <= 0) {

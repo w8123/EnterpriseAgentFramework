@@ -467,7 +467,6 @@ const {
   hScrollDockPositionStyle,
   bindDockScrollListeners,
   refreshHScrollDockMetrics,
-  scheduleHScrollDockLayout,
   onGraphScroll,
   onHScrollDockScroll,
   onGraphWheel,
@@ -567,13 +566,6 @@ const {
 
 const nodeMap = computed(() => new Map(snapshot.value.nodes.map((node) => [node.id, node])))
 const allEdges = computed(() => [...snapshot.value.edges, ...candidateEdges.value].filter((edge) => edge.enabled !== false))
-const apiLabelMap = computed(() => {
-  const map = new Map<number, string>()
-  snapshot.value.nodes
-    .filter((node) => node.kind === 'API')
-    .forEach((node) => map.set(node.id, node.label))
-  return map
-})
 const fieldNodes = computed(() => snapshot.value.nodes.filter((node) => node.kind === 'FIELD_IN' || node.kind === 'FIELD_OUT'))
 const fieldChildrenByParent = computed(() => {
   const map = new Map<number, ApiGraphNode[]>()
@@ -627,7 +619,7 @@ const graphLayout = computed(() => {
       outFields,
     }
   })
-  const rowTops = rowHeights.reduce<number[]>((tops, height, index) => {
+  const rowTops = rowHeights.reduce<number[]>((tops, _height, index) => {
     tops[index] = index === 0 ? API_CARD_TOP : tops[index - 1] + rowHeights[index - 1] + API_CARD_GAP_Y
     return tops
   }, [])

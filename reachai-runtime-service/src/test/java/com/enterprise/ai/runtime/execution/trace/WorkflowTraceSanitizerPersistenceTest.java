@@ -1,7 +1,10 @@
 package com.enterprise.ai.runtime.execution.trace;
 
-import com.enterprise.ai.runtime.agent.RuntimeAgentConfigVersionEntity;
+import com.enterprise.ai.runtime.trace.WorkflowTraceSanitizer;
+
+import com.enterprise.ai.runtime.agent.RuntimeAgentConfigSnapshot;
 import com.enterprise.ai.runtime.agent.RuntimeAgentView;
+import com.enterprise.ai.runtime.execution.RuntimeAgentRunLifecyclePort.AgentTarget;
 import com.enterprise.ai.runtime.runops.RuntimeGuardDecisionLogEntity;
 import com.enterprise.ai.runtime.runops.RuntimeGuardDecisionLogMapper;
 import com.enterprise.ai.runtime.runops.RuntimeRunEntity;
@@ -110,7 +113,11 @@ class WorkflowTraceSanitizerPersistenceTest {
         RuntimeGuardDecisionLogMapper guardLogMapper = mock(RuntimeGuardDecisionLogMapper.class);
         RuntimeRunLifecycleService lifecycle = new RuntimeRunLifecycleService(runMapper, new ObjectMapper());
         SupervisorExecutionTraceService service = new SupervisorExecutionTraceService(
-                spanMapper, toolLogMapper, guardLogMapper, lifecycle, new ObjectMapper());
+                new com.enterprise.ai.runtime.trace.RuntimeTraceEvidenceWriter(spanMapper, toolLogMapper),
+                lifecycle,
+                new ObjectMapper(),
+                new com.enterprise.ai.runtime.trace.RuntimeTraceRootService(spanMapper, new ObjectMapper()),
+                new com.enterprise.ai.runtime.trace.RuntimeTraceSpanTerminationService(spanMapper));
 
         String message = uuid();
         String inputText = uuid();
@@ -124,7 +131,7 @@ class WorkflowTraceSanitizerPersistenceTest {
         String planReason = uuid();
         String rejectionMessage = uuid();
         RuntimeAgentView agent = agent();
-        RuntimeAgentConfigVersionEntity config = config();
+        RuntimeAgentConfigSnapshot config = config();
         Map<String, Object> input = new LinkedHashMap<>();
         input.put("message", message);
         input.put("input", inputText);
@@ -137,9 +144,15 @@ class WorkflowTraceSanitizerPersistenceTest {
         service.plan(handle, agent, config, input, 1, Map.of(
                 "reason", planReason,
                 "steps", List.of(Map.of("toolName", "wf_tool", "reason", planReason))));
-        service.guard(handle, agent, input, "wf_tool", "DENY", planReason, Map.of(
-                "policyProfile", "DEFAULT",
-                "args", Map.of("q", q, "searchText", searchText, "customerValue", customerValue)));
+        com.enterprise.ai.runtime.agent.RuntimeAgentWorkflowToolSnapshot deniedTool = com.enterprise.ai.runtime.agent.RuntimeAgentWorkflowToolSnapshot.builder()
+                .toolName("wf_tool")
+                .enabled(false)
+                .build();
+        var policy = new com.enterprise.ai.runtime.supervisor.SupervisorToolPolicyService(
+                new com.enterprise.ai.runtime.runops.RuntimeGuardDecisionWriter(guardLogMapper),
+                mock(com.enterprise.ai.runtime.supervisor.SupervisorApprovalInteractionService.class), new ObjectMapper());
+        policy.evaluate(handle, agent, config, deniedTool, input,
+                Map.of("q", q, "searchText", searchText, "customerValue", customerValue), null);
 
         Map<String, Object> resultMetadata = new LinkedHashMap<>();
         resultMetadata.put("answer", httpBody);
@@ -182,7 +195,9 @@ class WorkflowTraceSanitizerPersistenceTest {
                         "nested", Map.of("q", q),
                         "toolName", "wf_tool"),
                 false, "RUNTIME_HTTP_STATUS_500", httpBody, 12L, resultMetadata);
-        lifecycle.rejectAgent("rejected-trace", agent, input, "AGENT_POLICY_DENIED", rejectionMessage);
+        lifecycle.rejectAgent("rejected-trace",
+                new AgentTarget(agent.id(), agent.keySlug(), agent.name(), agent.projectId(), agent.projectCode()),
+                input, "AGENT_POLICY_DENIED", rejectionMessage, null);
 
         ArgumentCaptor<RuntimeTraceSpanEntity> spans = ArgumentCaptor.forClass(RuntimeTraceSpanEntity.class);
         ArgumentCaptor<RuntimeToolCallLogEntity> toolLogs = ArgumentCaptor.forClass(RuntimeToolCallLogEntity.class);
@@ -249,13 +264,14 @@ class WorkflowTraceSanitizerPersistenceTest {
                 10L, 10L, 1, "ACTIVE", "AGENTSCOPE", 1, null, null);
     }
 
-    private static RuntimeAgentConfigVersionEntity config() {
-        RuntimeAgentConfigVersionEntity config = new RuntimeAgentConfigVersionEntity();
-        config.setId(10L);
-        config.setVersionNo(1);
-        config.setPolicyProfile("DEFAULT");
-        config.setToolCatalogMode("WHITELIST");
-        config.setModelInstanceId("model-1");
+    private static RuntimeAgentConfigSnapshot config() {
+        RuntimeAgentConfigSnapshot config = RuntimeAgentConfigSnapshot.builder()
+                .id(10L)
+                .versionNo(1)
+                .policyProfile("DEFAULT")
+                .toolCatalogMode("WHITELIST")
+                .modelInstanceId("model-1")
+                .build();
         return config;
     }
 

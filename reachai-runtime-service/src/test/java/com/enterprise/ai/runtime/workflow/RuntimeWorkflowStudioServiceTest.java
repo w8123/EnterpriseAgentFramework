@@ -22,13 +22,13 @@ class RuntimeWorkflowStudioServiceTest {
 
     @Test
     void getWorkingCopyReturnsWorkflowCanvasAndRuntimeFields() {
-        RuntimeWorkflowDefinitionService workflowService = mock(RuntimeWorkflowDefinitionService.class);
+        RuntimeWorkflowManagementService workflowService = mock(RuntimeWorkflowManagementService.class);
         RuntimeWorkflowVersionService versionService = mock(RuntimeWorkflowVersionService.class);
         RuntimeWorkflowStudioService service = new RuntimeWorkflowStudioService(
                 workflowService, versionService, new ObjectMapper());
         RuntimeWorkflowDefinitionEntity workflow = workflow("wf-1");
         RuntimeWorkflowVersionEntity active = activeVersion(workflow);
-        when(workflowService.findById("wf-1")).thenReturn(Optional.of(workflow));
+        when(workflowService.findById("wf-1")).thenReturn(Optional.of(RuntimeWorkflowDefinitionView.fromEntity(workflow)));
         when(versionService.resolveActive("wf-1")).thenReturn(active);
 
         RuntimeWorkflowStudioService.WorkflowWorkingCopyState state = service.getWorkingCopy("wf-1");
@@ -45,7 +45,7 @@ class RuntimeWorkflowStudioServiceTest {
 
     @Test
     void saveWorkingCopyUpdatesMetadataGraphAndCanvasWithBaseRevision() {
-        RuntimeWorkflowDefinitionService workflowService = mock(RuntimeWorkflowDefinitionService.class);
+        RuntimeWorkflowManagementService workflowService = mock(RuntimeWorkflowManagementService.class);
         RuntimeWorkflowVersionService versionService = mock(RuntimeWorkflowVersionService.class);
         RuntimeWorkflowStudioService service = new RuntimeWorkflowStudioService(
                 workflowService, versionService, new ObjectMapper());
@@ -55,8 +55,8 @@ class RuntimeWorkflowStudioServiceTest {
         updated.setGraphSpecJson("{\"nodes\":[{\"id\":\"answer\",\"type\":\"ANSWER\"}],\"entryNodeId\":\"answer\"}");
         updated.setCanvasJson("{\"viewport\":{\"x\":1}}");
         updated.setUpdatedAt(LocalDateTime.of(2026, 7, 14, 9, 31));
-        when(workflowService.update(eq("wf-1"), any(), eq("2026-07-14T09:30")))
-                .thenReturn(updated);
+        when(workflowService.update(eq("wf-1"), any()))
+                .thenReturn(RuntimeWorkflowDefinitionView.fromEntity(updated));
 
         RuntimeWorkflowStudioService.WorkflowWorkingCopyState result = service.saveWorkingCopy("wf-1",
                 new RuntimeWorkflowStudioService.SaveWorkingCopyCommand(
@@ -80,20 +80,21 @@ class RuntimeWorkflowStudioServiceTest {
         assertEquals("Updated Orders", result.name());
         assertEquals("2026-07-14T09:31", result.revision());
         assertTrue(result.hasUnpublishedChanges());
-        ArgumentCaptor<RuntimeWorkflowDefinitionEntity> update = ArgumentCaptor.forClass(RuntimeWorkflowDefinitionEntity.class);
-        verify(workflowService).update(eq("wf-1"), update.capture(), eq("2026-07-14T09:30"));
-        assertEquals("updated-orders", update.getValue().getKeySlug());
-        assertEquals("Updated Orders", update.getValue().getName());
-        assertEquals("llm-2", update.getValue().getDefaultModelInstanceId());
-        assertEquals("{\"viewport\":{\"x\":1}}", update.getValue().getCanvasJson());
-        assertEquals("GENERAL", update.getValue().getWorkflowKind());
-        assertEquals("GRAPH_SPEC", update.getValue().getExecutionEngine());
+        ArgumentCaptor<RuntimeWorkflowWriteCommand> update = ArgumentCaptor.forClass(RuntimeWorkflowWriteCommand.class);
+        verify(workflowService).update(eq("wf-1"), update.capture());
+        assertEquals("2026-07-14T09:30", update.getValue().baseRevision());
+        assertEquals("updated-orders", update.getValue().keySlug());
+        assertEquals("Updated Orders", update.getValue().name());
+        assertEquals("llm-2", update.getValue().defaultModelInstanceId());
+        assertEquals("{\"viewport\":{\"x\":1}}", update.getValue().canvasJson());
+        assertEquals("GENERAL", update.getValue().workflowKind());
+        assertEquals("GRAPH_SPEC", update.getValue().executionEngine());
     }
 
     @Test
     void saveWorkingCopyRejectsMissingGraphSpec() {
         RuntimeWorkflowStudioService service = new RuntimeWorkflowStudioService(
-                mock(RuntimeWorkflowDefinitionService.class),
+                mock(RuntimeWorkflowManagementService.class),
                 mock(RuntimeWorkflowVersionService.class),
                 new ObjectMapper());
 
@@ -105,7 +106,7 @@ class RuntimeWorkflowStudioServiceTest {
 
     @Test
     void saveWorkingCopyRejectsJsonNullGraphSpecBeforeUpdatingWorkflow() {
-        RuntimeWorkflowDefinitionService workflowService = mock(RuntimeWorkflowDefinitionService.class);
+        RuntimeWorkflowManagementService workflowService = mock(RuntimeWorkflowManagementService.class);
         RuntimeWorkflowStudioService service = new RuntimeWorkflowStudioService(
                 workflowService,
                 mock(RuntimeWorkflowVersionService.class),
@@ -117,19 +118,19 @@ class RuntimeWorkflowStudioServiceTest {
                         new RuntimeWorkflowStudioService.SaveWorkingCopyCommand("null", null, null)));
 
         assertEquals("graphSpecJson must be a JSON object", ex.getMessage());
-        verify(workflowService, never()).update(eq("wf-1"), any(), any());
+        verify(workflowService, never()).update(eq("wf-1"), any());
     }
 
     @Test
     void getWorkingCopyMarksPublishedMetadataChangesAsUnpublished() {
-        RuntimeWorkflowDefinitionService workflowService = mock(RuntimeWorkflowDefinitionService.class);
+        RuntimeWorkflowManagementService workflowService = mock(RuntimeWorkflowManagementService.class);
         RuntimeWorkflowVersionService versionService = mock(RuntimeWorkflowVersionService.class);
         RuntimeWorkflowStudioService service = new RuntimeWorkflowStudioService(
                 workflowService, versionService, new ObjectMapper());
         RuntimeWorkflowDefinitionEntity workflow = workflow("wf-1");
         RuntimeWorkflowVersionEntity active = activeVersion(workflow);
         active.setSnapshotJson("{\"name\":\"Published Orders\"}");
-        when(workflowService.findById("wf-1")).thenReturn(Optional.of(workflow));
+        when(workflowService.findById("wf-1")).thenReturn(Optional.of(RuntimeWorkflowDefinitionView.fromEntity(workflow)));
         when(versionService.resolveActive("wf-1")).thenReturn(active);
 
         RuntimeWorkflowStudioService.WorkflowWorkingCopyState state = service.getWorkingCopy("wf-1");

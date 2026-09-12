@@ -1,5 +1,7 @@
 package com.enterprise.ai.control.aiassist;
 
+import com.enterprise.ai.control.identity.ControlAiCodingAccessGuard;
+
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import com.enterprise.ai.control.identity.PlatformConsoleRoutePolicy;

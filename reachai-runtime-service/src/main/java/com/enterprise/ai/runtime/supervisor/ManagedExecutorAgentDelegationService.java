@@ -1,7 +1,7 @@
 package com.enterprise.ai.runtime.supervisor;
 
-import com.enterprise.ai.runtime.agent.RuntimeAgentConfigVersionEntity;
-import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
+import com.enterprise.ai.runtime.agent.RuntimeAgentConfigSnapshot;
+import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
 import com.enterprise.ai.runtime.managed.ManagedArtifactReadService;
 import com.enterprise.ai.runtime.managed.ManagedExecutionException;
 import com.enterprise.ai.runtime.managed.ManagedExecutionService;
@@ -79,7 +79,7 @@ public class ManagedExecutorAgentDelegationService {
 
     /** Resolve a fail-closed policy for this exact published configuration and trusted identity. */
     public DelegationPolicy resolvePolicy(
-            RuntimeAgentConfigVersionEntity config,
+            RuntimeAgentConfigSnapshot config,
             WorkflowExecutionIdentity identity) {
         if (!properties.enabled()
                 || config == null
@@ -98,7 +98,7 @@ public class ManagedExecutorAgentDelegationService {
      * it never authorizes a real execution.
      */
     public DelegationPolicy resolveEvaluationPolicy(
-            RuntimeAgentConfigVersionEntity config,
+            RuntimeAgentConfigSnapshot config,
             String projectCode) {
         if (config == null
                 || config.getId() == null
@@ -110,7 +110,7 @@ public class ManagedExecutorAgentDelegationService {
         return parsePolicy(config, true);
     }
 
-    private DelegationPolicy parsePolicy(RuntimeAgentConfigVersionEntity config, boolean evaluation) {
+    private DelegationPolicy parsePolicy(RuntimeAgentConfigSnapshot config, boolean evaluation) {
         Map<String, Object> policy;
         try {
             if (!StringUtils.hasText(config.getConfigJson())) return DelegationPolicy.disabled();
@@ -174,7 +174,7 @@ public class ManagedExecutorAgentDelegationService {
     public Map<String, Object> invoke(
             String toolName,
             DelegationPolicy policy,
-            RuntimeAgentConfigVersionEntity config,
+            RuntimeAgentConfigSnapshot config,
             WorkflowExecutionIdentity identity,
             Map<String, Object> trustedRequestInput,
             Map<String, Object> modelArgs,
@@ -193,7 +193,7 @@ public class ManagedExecutorAgentDelegationService {
     public Map<String, Object> simulate(
             String toolName,
             DelegationPolicy policy,
-            RuntimeAgentConfigVersionEntity config,
+            RuntimeAgentConfigSnapshot config,
             String projectCode,
             Map<String, Object> trustedRequestInput,
             Map<String, Object> modelArgs,
@@ -232,7 +232,7 @@ public class ManagedExecutorAgentDelegationService {
 
     private Map<String, Object> start(
             DelegationPolicy policy,
-            RuntimeAgentConfigVersionEntity config,
+            RuntimeAgentConfigSnapshot config,
             WorkflowExecutionIdentity identity,
             Map<String, Object> trustedRequestInput,
             Map<String, Object> modelArgs,
@@ -269,7 +269,7 @@ public class ManagedExecutorAgentDelegationService {
 
     private Map<String, Object> status(
             DelegationPolicy policy,
-            RuntimeAgentConfigVersionEntity config,
+            RuntimeAgentConfigSnapshot config,
             WorkflowExecutionIdentity identity,
             Map<String, Object> modelArgs) {
         requireExactArguments(modelArgs, Set.of("executionId"));
@@ -280,7 +280,7 @@ public class ManagedExecutorAgentDelegationService {
 
     private Map<String, Object> readResult(
             DelegationPolicy policy,
-            RuntimeAgentConfigVersionEntity config,
+            RuntimeAgentConfigSnapshot config,
             WorkflowExecutionIdentity identity,
             Map<String, Object> modelArgs) {
         requireExactArguments(modelArgs, Set.of("executionId"));
@@ -312,7 +312,7 @@ public class ManagedExecutorAgentDelegationService {
 
     private ExecutionView ownedExecution(
             String executionId,
-            RuntimeAgentConfigVersionEntity config,
+            RuntimeAgentConfigSnapshot config,
             WorkflowExecutionIdentity identity) {
         try {
             ExecutionView execution = executionService.get(executionId, tenantId(identity));
@@ -328,7 +328,7 @@ public class ManagedExecutorAgentDelegationService {
 
     private void requireOwnedExecution(
             ExecutionView execution,
-            RuntimeAgentConfigVersionEntity config,
+            RuntimeAgentConfigSnapshot config,
             WorkflowExecutionIdentity identity) {
         String expectedPrefix = sourcePrefix(config);
         if (execution == null
@@ -552,11 +552,11 @@ public class ManagedExecutorAgentDelegationService {
         }
     }
 
-    private String sourceRef(RuntimeAgentConfigVersionEntity config, String traceId) {
+    private String sourceRef(RuntimeAgentConfigSnapshot config, String traceId) {
         return sourcePrefix(config) + sha256(StringUtils.hasText(traceId) ? traceId : "missing-trace").substring(0, 40);
     }
 
-    private String sourcePrefix(RuntimeAgentConfigVersionEntity config) {
+    private String sourcePrefix(RuntimeAgentConfigSnapshot config) {
         if (config == null || config.getId() == null) throw denied("MANAGED_EXECUTOR_CONFIG_REQUIRED");
         return "acv:" + config.getId() + ":trace:";
     }

@@ -4,11 +4,14 @@ import com.baomidou.mybatisplus.annotation.DbType;
 import com.baomidou.mybatisplus.core.handlers.MetaObjectHandler;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
 import com.baomidou.mybatisplus.extension.plugins.inner.PaginationInnerInterceptor;
+import com.enterprise.ai.domain.entity.FileInfo;
+import com.enterprise.ai.domain.entity.UserFilePermission;
 import org.apache.ibatis.reflection.MetaObject;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import java.time.LocalDateTime;
+import java.util.UUID;
 
 @Configuration
 public class MyBatisPlusConfig {
@@ -25,6 +28,11 @@ public class MyBatisPlusConfig {
         return new MetaObjectHandler() {
             @Override
             public void insertFill(MetaObject metaObject) {
+                // An INSERT is a new identity even when its caller supplies an old primary key or generation.
+                if (metaObject.getOriginalObject() instanceof FileInfo
+                        || metaObject.getOriginalObject() instanceof UserFilePermission) {
+                    this.setFieldValByName("recordGeneration", UUID.randomUUID().toString().replace("-", ""), metaObject);
+                }
                 this.strictInsertFill(metaObject, "createTime", LocalDateTime.class, LocalDateTime.now());
                 this.strictInsertFill(metaObject, "updateTime", LocalDateTime.class, LocalDateTime.now());
             }

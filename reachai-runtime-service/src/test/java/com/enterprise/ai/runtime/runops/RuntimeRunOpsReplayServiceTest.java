@@ -1,15 +1,12 @@
 package com.enterprise.ai.runtime.runops;
 
-import com.enterprise.ai.runtime.execution.RuntimeAgentExecutionService;
 import com.enterprise.ai.runtime.runops.RuntimeRunOpsViews.RuntimeRunOpsDetailView;
 import com.enterprise.ai.runtime.runops.RuntimeRunOpsViews.RuntimeRunOpsSummaryView;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
-
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -22,7 +19,7 @@ import static org.mockito.Mockito.when;
 class RuntimeRunOpsReplayServiceTest {
 
     private final RuntimeRunOpsQueryService queryService = mock(RuntimeRunOpsQueryService.class);
-    private final RuntimeAgentExecutionService executionService = mock(RuntimeAgentExecutionService.class);
+    private final RuntimeRunReplayExecutionPort executionService = mock(RuntimeRunReplayExecutionPort.class);
     private final RuntimeRunOpsReplayService service = new RuntimeRunOpsReplayService(queryService, executionService);
 
     @Test
@@ -33,7 +30,7 @@ class RuntimeRunOpsReplayServiceTest {
                         .map(java.lang.reflect.RecordComponent::getName)
                         .toList());
         when(queryService.detail("trace-1")).thenReturn(detail("查询班组信息", 11L));
-        when(executionService.executePublishedConfig(eq("agent-1"), eq(11L), any(), eq(true)))
+        when(executionService.executePublishedAgent(eq("agent-1"), eq(11L), any()))
                 .thenReturn(Map.of(
                         "success", true,
                         "answer", "第一条班组信息",
@@ -51,8 +48,8 @@ class RuntimeRunOpsReplayServiceTest {
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, Object>> requestCaptor = ArgumentCaptor.forClass(Map.class);
-        verify(executionService).executePublishedConfig(
-                eq("agent-1"), eq(11L), requestCaptor.capture(), eq(true));
+        verify(executionService).executePublishedAgent(
+                eq("agent-1"), eq(11L), requestCaptor.capture());
         Map<String, Object> request = requestCaptor.getValue();
         assertEquals("REPLAY", request.get("entryType"));
         assertEquals("trace-1", request.get("replayOfTraceId"));

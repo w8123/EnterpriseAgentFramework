@@ -3,6 +3,7 @@ import type {
   CapabilitySyncRequest,
   CapabilitySyncResponse,
   CapabilityDiffReviewItem,
+  CapabilityChangePage,
   CapabilitySnapshot,
   ProjectInstance,
   RegistryProjectRegisterRequest,
@@ -35,40 +36,46 @@ export function purgeRegistryProjectOfflineInstances(projectCode: string, minIdl
 
 export function diffRegistryCapabilities(projectCode: string, data: CapabilitySyncRequest) {
   return controlRequest.post<CapabilitySyncResponse>(
-    `/api/registry/projects/${projectCode}/capabilities/diff`,
+    `/api/capability-review/projects/${projectCode}/capabilities/diff`,
     data,
   )
 }
 
 export function syncRegistryCapabilities(projectCode: string, data: CapabilitySyncRequest) {
   return controlRequest.post<CapabilitySyncResponse>(
-    `/api/registry/projects/${projectCode}/capabilities/sync`,
-    data,
-  )
-}
-
-export function applyRegistryCapabilities(projectCode: string, data: CapabilitySyncRequest) {
-  return controlRequest.post<CapabilitySyncResponse>(
-    `/api/registry/projects/${projectCode}/capabilities/apply`,
+    `/api/capability-review/projects/${projectCode}/capabilities/sync`,
     data,
   )
 }
 
 export function listCapabilitySnapshots(projectCode: string) {
-  return controlRequest.get<CapabilitySnapshot[]>(`/api/registry/projects/${projectCode}/capability-snapshots`)
+  return controlRequest.get<CapabilitySnapshot[]>(`/api/capability-review/projects/${projectCode}/snapshots`)
 }
 
-export function listCapabilityDiffItems(snapshotId: number) {
-  return controlRequest.get<CapabilityDiffReviewItem[]>(`/api/registry/capability-snapshots/${snapshotId}/diff-items`)
+export function listCapabilityChanges(projectCode: string, params: {
+  state: 'PENDING' | 'PROCESSED'; keyword?: string; current: number; size: number
+}) {
+  return controlRequest.get<CapabilityChangePage>(
+    `/api/capability-review/projects/${encodeURIComponent(projectCode)}/changes`, { params },
+  )
 }
 
-export function reviewCapabilityDiffItem(diffItemId: number, data: { action: 'APPLY' | 'IGNORE'; operator?: string; note?: string }) {
-  return controlRequest.post<CapabilityDiffReviewItem>(`/api/registry/capability-diff-items/${diffItemId}/review`, data)
+export function listCapabilityDiffItems(projectCode: string, snapshotId: number) {
+  return controlRequest.get<CapabilityDiffReviewItem[]>(
+    `/api/capability-review/projects/${projectCode}/snapshots/${snapshotId}/diff-items`,
+  )
 }
 
-export function rollbackCapabilityDiffItem(diffItemId: number, data: { operator?: string; note?: string } = {}) {
+export function reviewCapabilityDiffItem(projectCode: string, diffItemId: number, data: { action: 'APPLY' | 'IGNORE'; note?: string }) {
   return controlRequest.post<CapabilityDiffReviewItem>(
-    `/api/registry/capability-diff-items/${diffItemId}/rollback`,
+    `/api/capability-review/projects/${projectCode}/diff-items/${diffItemId}/review`,
+    data,
+  )
+}
+
+export function rollbackCapabilityDiffItem(projectCode: string, diffItemId: number, data: { note?: string } = {}) {
+  return controlRequest.post<CapabilityDiffReviewItem>(
+    `/api/capability-review/projects/${projectCode}/diff-items/${diffItemId}/rollback`,
     { action: 'ROLLBACK', ...data },
   )
 }

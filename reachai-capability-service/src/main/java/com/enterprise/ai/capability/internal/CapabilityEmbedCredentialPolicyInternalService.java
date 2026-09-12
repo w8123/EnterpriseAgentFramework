@@ -5,14 +5,12 @@ import com.enterprise.ai.agent.registry.RegistryCredentialEntity;
 import com.enterprise.ai.agent.registry.RegistryCredentialMapper;
 import com.enterprise.ai.agent.registry.RegistrySecurityService;
 import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.net.URI;
-import java.time.LocalDateTime;
 import java.util.List;
 
 @Service
@@ -39,21 +37,13 @@ public class CapabilityEmbedCredentialPolicyInternalService {
     }
 
     public EmbedCredentialPolicyView updatePolicy(Long id, EmbedCredentialPolicyUpdate request) {
-        RegistryCredentialEntity entity = credentialMapper.selectById(id);
-        if (entity == null) {
-            throw new IllegalArgumentException("Credential not found: " + id);
-        }
         EmbedCredentialPolicyUpdate safeRequest = request == null
                 ? new EmbedCredentialPolicyUpdate(List.of(), List.of(), 600, null)
                 : request;
-        entity.setAllowedOriginsJson(toJson(safeRequest.allowedOrigins() == null ? List.of() : safeRequest.allowedOrigins()));
-        entity.setAllowedAgentIdsJson(toJson(safeRequest.allowedAgentIds() == null ? List.of() : safeRequest.allowedAgentIds()));
-        entity.setTokenTtlSeconds(safeTtl(safeRequest.tokenTtlSeconds()));
-        if (StringUtils.hasText(safeRequest.status())) {
-            entity.setStatus(safeRequest.status().trim());
-        }
-        entity.setUpdatedAt(LocalDateTime.now());
-        credentialMapper.updateById(entity);
+        RegistryCredentialEntity entity = registrySecurityService.updateAdministrativePolicy(id,
+                safeRequest.allowedOrigins() == null ? List.of() : safeRequest.allowedOrigins(),
+                safeRequest.allowedAgentIds() == null ? List.of() : safeRequest.allowedAgentIds(),
+                safeTtl(safeRequest.tokenTtlSeconds()), safeRequest.status());
         return toView(entity);
     }
 
@@ -93,14 +83,6 @@ public class CapabilityEmbedCredentialPolicyInternalService {
 
     private String trim(String value) {
         return StringUtils.hasText(value) ? value.trim() : value;
-    }
-
-    private String toJson(Object value) {
-        try {
-            return objectMapper.writeValueAsString(value);
-        } catch (JsonProcessingException ex) {
-            throw new IllegalArgumentException("embed credential policy json is invalid", ex);
-        }
     }
 
     private void ensureOriginAllowed(RegistryCredentialEntity credential, String origin) {

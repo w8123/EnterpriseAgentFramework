@@ -21,6 +21,9 @@ public class RuntimeWorkflowVersionService {
     private final RuntimeWorkflowDefinitionService workflowService;
     private final RuntimeWorkflowReleaseValidationService validationService;
     private final ObjectMapper objectMapper;
+    private final RuntimeCapabilityContractPins capabilityContractPins;
+    private final RuntimeWorkflowReleaseEventMapper releaseEvents;
+    private final RuntimeWorkflowReferenceIndex referenceIndex;
 
     public List<RuntimeWorkflowVersionEntity> listVersions(String workflowId) {
         return versionMapper.listByWorkflow(workflowId);
@@ -37,20 +40,10 @@ public class RuntimeWorkflowVersionService {
                                                  String version,
                                                  int rolloutPercent,
                                                  String note,
-                                                 String publishedBy) {
-        return publish(workflowId, version, rolloutPercent, note, publishedBy, null);
-    }
-
-    @Transactional
-    public RuntimeWorkflowVersionEntity publish(String workflowId,
-                                                 String version,
-                                                 int rolloutPercent,
-                                                 String note,
                                                  String publishedBy,
                                                  String baseRevision) {
-        RuntimeWorkflowDefinitionEntity workflow = workflowService.findById(workflowId)
-                .orElseThrow(() -> new IllegalArgumentException("workflow not found: " + workflowId));
-        workflowService.assertRevision(workflow, baseRevision);
+        requireActor(publishedBy);
+        RuntimeWorkflowDefinitionEntity workflow = workflowService.lockForRelease(workflowId, baseRevision);
         if (!StringUtils.hasText(version)) {
             throw new IllegalArgumentException("version is required");
         }
@@ -69,14 +62,15 @@ public class RuntimeWorkflowVersionService {
         if (duplicate != null) {
             throw new IllegalArgumentException("workflow version already exists: " + version);
         }
-        retireActiveVersions(workflowId);
+        String publishedGraph = capabilityContractPins.pin(workflow.getGraphSpecJson());
+        Long previousVersionId = retireActiveVersions(workflowId);
 
         LocalDateTime now = LocalDateTime.now();
         RuntimeWorkflowVersionEntity entity = new RuntimeWorkflowVersionEntity();
         entity.setWorkflowId(workflowId);
         entity.setVersion(version.trim());
-        entity.setSnapshotJson(writeSnapshot(workflow));
-        entity.setGraphSpecSnapshotJson(workflow.getGraphSpecJson());
+        entity.setSnapshotJson(writeSnapshot(workflow, publishedGraph));
+        entity.setGraphSpecSnapshotJson(publishedGraph);
         entity.setCanvasSnapshotJson(workflow.getCanvasJson());
         entity.setRolloutPercent(rolloutPercent);
         entity.setStatus("ACTIVE");
@@ -85,25 +79,24 @@ public class RuntimeWorkflowVersionService {
         entity.setNote(note);
         entity.setCreatedAt(now);
         versionMapper.insert(entity);
+        referenceIndex.indexVersion(entity);
 
         RuntimeWorkflowDefinitionEntity update = new RuntimeWorkflowDefinitionEntity();
         update.setStatus("ACTIVE");
-        if (StringUtils.hasText(baseRevision)) {
-            workflowService.update(workflowId, update, baseRevision);
-        } else {
-            workflowService.update(workflowId, update);
-        }
+        workflowService.update(workflowId, update, baseRevision);
+        recordRelease(workflowId, "PUBLISH", previousVersionId, entity.getId(), publishedBy, baseRevision);
         return entity;
     }
 
     @Transactional
-    public RuntimeWorkflowVersionEntity rollback(String workflowId, Long versionId, String operator) {
+    public RuntimeWorkflowVersionEntity rollback(String workflowId, Long versionId, String operator, String baseRevision) {
+        requireActor(operator);
+        workflowService.lockForRelease(workflowId, baseRevision);
         RuntimeWorkflowVersionEntity target = versionMapper.selectById(versionId);
         if (target == null || !workflowId.equals(target.getWorkflowId())) {
             throw new IllegalArgumentException("workflow version not found: " + versionId);
         }
-        RuntimeWorkflowDefinitionEntity workflow = workflowService.findById(workflowId)
-                .orElseThrow(() -> new IllegalArgumentException("workflow not found: " + workflowId));
+        RuntimePublishedWorkflowSnapshot published = RuntimePublishedWorkflowSnapshot.read(target);
         // Validate historical snapshot against CURRENT publish policy before any DB writes.
         RuntimeWorkflowReleaseValidationResult.Builder report = RuntimeWorkflowReleaseValidationResult.builder();
         GraphSpec graph = validationService.readGraph(target.getGraphSpecSnapshotJson(), report);
@@ -112,40 +105,62 @@ public class RuntimeWorkflowVersionService {
             String code = invalid.errors().isEmpty() ? "GRAPH_SPEC_INVALID" : invalid.errors().get(0).code();
             throw new IllegalArgumentException("workflow rollback validation failed: " + code);
         }
-        RuntimeWorkflowReleaseValidationResult validation = validationService.validateProposed(workflow, graph);
+        RuntimeWorkflowReleaseValidationResult validation = validationService.validateProposed(
+                published.validationDefinition(), graph);
         if (!validation.valid()) {
             String code = validation.errors().isEmpty() ? "UNKNOWN" : validation.errors().get(0).code();
             throw new IllegalArgumentException("workflow rollback validation failed: " + code);
         }
 
-        retireActiveVersions(workflowId);
+        capabilityContractPins.validatePinned(target.getGraphSpecSnapshotJson());
+        Long previousVersionId = retireActiveVersions(workflowId);
         target.setStatus("ACTIVE");
         target.setRolloutPercent(100);
-        target.setPublishedBy(operator);
-        target.setPublishedAt(LocalDateTime.now());
         versionMapper.updateById(target);
 
+        // Rollback changes the active release. The working copy remains available for continued editing.
         RuntimeWorkflowDefinitionEntity update = new RuntimeWorkflowDefinitionEntity();
-        update.setGraphSpecJson(target.getGraphSpecSnapshotJson());
-        update.setCanvasJson(target.getCanvasSnapshotJson());
         update.setStatus("ACTIVE");
-        workflowService.update(workflowId, update);
+        workflowService.update(workflowId, update, baseRevision);
+        recordRelease(workflowId, "ROLLBACK", previousVersionId, target.getId(), operator, baseRevision);
         return target;
     }
 
     public RuntimeWorkflowVersionEntity resolveActive(String workflowId) {
         List<RuntimeWorkflowVersionEntity> active = versionMapper.listActive(workflowId);
+        if (active.size() > 1) throw new IllegalStateException("WORKFLOW_MULTIPLE_ACTIVE_RELEASES: " + workflowId);
         return active.isEmpty() ? null : active.get(0);
     }
 
-    private void retireActiveVersions(String workflowId) {
-        for (RuntimeWorkflowVersionEntity active : versionMapper.listActive(workflowId)) {
+    private Long retireActiveVersions(String workflowId) {
+        RuntimeWorkflowVersionEntity active = resolveActive(workflowId);
+        if (active != null) {
             active.setStatus("RETIRED");
             versionMapper.updateById(active);
         }
+        return active == null ? null : active.getId();
     }
 
-    private String writeSnapshot(RuntimeWorkflowDefinitionEntity workflow) {
+    private void requireActor(String actor) {
+        if (!StringUtils.hasText(actor) || actor.length() > 64) {
+            throw new IllegalArgumentException("WORKFLOW_RELEASE_ACTOR_REQUIRED: 缺少可信发布身份");
+        }
+    }
+
+    private void recordRelease(String workflowId, String action, Long previousVersionId,
+                               Long targetVersionId, String actor, String baseRevision) {
+        var event = new RuntimeWorkflowReleaseEventEntity();
+        event.setWorkflowId(workflowId);
+        event.setAction(action);
+        event.setPreviousVersionId(previousVersionId);
+        event.setTargetVersionId(targetVersionId);
+        event.setActor(actor);
+        event.setBaseRevision(baseRevision);
+        event.setOccurredAt(LocalDateTime.now());
+        releaseEvents.insert(event);
+    }
+
+    private String writeSnapshot(RuntimeWorkflowDefinitionEntity workflow, String publishedGraph) {
         Map<String, Object> snapshot = new LinkedHashMap<>();
         snapshot.put("id", workflow.getId());
         snapshot.put("projectId", workflow.getProjectId());
@@ -155,7 +170,8 @@ public class RuntimeWorkflowVersionService {
         snapshot.put("description", workflow.getDescription());
         snapshot.put("workflowKind", workflow.getWorkflowKind());
         snapshot.put("executionEngine", workflow.getExecutionEngine());
-        snapshot.put("graphSpec", workflow.getGraphSpecJson());
+        snapshot.put("graphSpec", publishedGraph);
+        snapshot.put("draftGraphSpec", workflow.getGraphSpecJson());
         snapshot.put("canvas", workflow.getCanvasJson());
         snapshot.put("inputSchemaJson", workflow.getInputSchemaJson());
         snapshot.put("outputSchemaJson", workflow.getOutputSchemaJson());

@@ -366,6 +366,7 @@ import { CopyDocument, MoreFilled, Refresh, VideoPlay } from '@element-plus/icon
 import PageHeader from '@/components/common/PageHeader.vue'
 import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
 import RunOpsInvestigationWorkbench from './components/RunOpsInvestigationWorkbench.vue'
+import { toolCallFailed, toolCallStatus } from './toolCallOutcome'
 import {
   compareRunOpsTrace,
   createTraceWorkflowCandidateTask,
@@ -510,12 +511,12 @@ const failureFocus = computed<FailureFocus | null>(() => {
     }
   }
 
-  const failedTool = detail.value?.toolCalls.find((tool) => !tool.success)
+  const failedTool = detail.value?.toolCalls.find(toolCallFailed)
   if (failedTool) {
     return {
       kindLabel: '工具调用',
       title: failedTool.toolName || '未命名工具',
-      status: 'FAILED',
+      status: toolCallStatus(failedTool),
       code: failedTool.errorCode,
       message: compactMessage(
         failedTool.resultSummary,
@@ -920,22 +921,6 @@ function formatDateTime(value?: string | null) {
     second: '2-digit',
     hour12: false,
   })
-}
-
-function formatCompactDateTime(value?: string | null) {
-  if (!value) return '-'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  const parts = new Intl.DateTimeFormat('zh-CN', {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  }).formatToParts(date)
-  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]))
-  return `${values.month}-${values.day} ${values.hour}:${values.minute}:${values.second}`
 }
 
 function shortIdentifier(value?: string | null) {

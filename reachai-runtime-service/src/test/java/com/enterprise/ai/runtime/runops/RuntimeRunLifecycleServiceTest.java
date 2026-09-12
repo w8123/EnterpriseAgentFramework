@@ -3,9 +3,8 @@ package com.enterprise.ai.runtime.runops;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
-import com.enterprise.ai.runtime.agent.RuntimeAgentConfigVersionEntity;
-import com.enterprise.ai.runtime.agent.RuntimeAgentView;
-import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
+import com.enterprise.ai.runtime.execution.RuntimeAgentRunLifecyclePort.AgentTarget;
+import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeAll;
@@ -53,7 +52,6 @@ class RuntimeRunLifecycleServiceTest {
                 startedAt,
                 agent(),
                 publishedConfig(),
-                List.of(),
                 Map.of("entryType", "EMBED", "sessionId", "session-before", "message", "hi"));
 
         Map<String, Object> metadata = new LinkedHashMap<>();
@@ -88,7 +86,7 @@ class RuntimeRunLifecycleServiceTest {
     }
 
     @Test
-    void finishWithoutTokenMetadataWritesZeroTokenCostNotNull() {
+    void finishWithoutTokenMetadataPreservesTheInitializedNonNullTotal() {
         FinishCapture capture = finishCapture(1);
         LocalDateTime startedAt = LocalDateTime.of(2026, 7, 14, 10, 0, 0);
         capture.service().beginAgent(
@@ -97,7 +95,6 @@ class RuntimeRunLifecycleServiceTest {
                 startedAt,
                 agent(),
                 publishedConfig(),
-                List.of(),
                 Map.of("entryType", "API", "message", "hi"));
 
         Map<String, Object> metadata = new LinkedHashMap<>();
@@ -119,7 +116,8 @@ class RuntimeRunLifecycleServiceTest {
                 startedAt);
 
         Map<String, Object> sets = capture.lastSetValues();
-        assertEquals(0, ((Number) sets.get("token_cost")).intValue());
+        assertFalse(sets.containsKey("token_cost"));
+        assertEquals(0, capture.inserted().get().getTokenCost());
         assertEquals("COMPLETED", sets.get("status"));
         assertNotNull(sets.get("ended_at"));
     }
@@ -134,7 +132,6 @@ class RuntimeRunLifecycleServiceTest {
                 startedAt,
                 agent(),
                 publishedConfig(),
-                List.of(),
                 Map.of("message", "请执行高风险操作", "sessionId", "session-approval"));
 
         Map<String, Object> metadata = new LinkedHashMap<>();
@@ -157,7 +154,8 @@ class RuntimeRunLifecycleServiceTest {
         assertEquals("APPROVAL", sets.get("suspension_reason"));
         assertNull(sets.get("ended_at"));
         assertNull(sets.get("latency_ms"));
-        assertEquals(0, ((Number) sets.get("token_cost")).intValue());
+        assertFalse(sets.containsKey("token_cost"));
+        assertEquals(0, capture.inserted().get().getTokenCost());
         assertEquals(1, ((Number) sets.get("approval_count")).intValue());
     }
 
@@ -221,7 +219,6 @@ class RuntimeRunLifecycleServiceTest {
                 startedAt,
                 agent(),
                 publishedConfig(),
-                List.of(),
                 Map.of("entryType", "AGENT", "userId", "attacker", "message", "spoof me"),
                 identity);
 
@@ -237,12 +234,8 @@ class RuntimeRunLifecycleServiceTest {
                 "trace-wfi",
                 "span-root",
                 "WORKFLOW_STUDIO",
-                "wf-1",
-                "demo-flow",
-                "Demo Flow",
-                "demo",
-                "GRAPH_SPEC",
-                "{\"entryNodeId\":\"form\"}",
+                new RuntimeRunSnapshots.Workflow("wf-1", "demo-flow", "Demo Flow", null, "demo",
+                        "GRAPH_SPEC", "{\"entryNodeId\":\"form\"}"),
                 Map.of("message", "start"));
         capture.service().finishWorkflow(
                 "trace-wfi",
@@ -253,13 +246,14 @@ class RuntimeRunLifecycleServiceTest {
                 Map.of("interactionId", "wfi_abc", "nodeCount", 1));
 
         RuntimeRunEntity saved = capture.inserted().get();
-        assertEquals("SUSPENDED", saved.getStatus());
-        assertEquals("USER_INPUT", saved.getSuspensionReason());
+        Map<String, Object> sets = capture.lastSetValues();
+        assertEquals("SUSPENDED", sets.get("status"));
+        assertEquals("USER_INPUT", sets.get("suspension_reason"));
         assertEquals("GRAPH_SPEC", saved.getRuntimeType());
-        assertNull(saved.getEndedAt());
-        assertNull(saved.getErrorCode());
-        assertEquals("[omitted]", saved.getOutputSummary());
-        assertEquals(0, saved.getTokenCost());
+        assertNull(sets.get("ended_at"));
+        assertNull(sets.get("error_code"));
+        assertEquals("[omitted]", sets.get("output_summary"));
+        assertEquals(0, sets.get("token_cost"));
     }
 
     private FinishCapture finishCapture(int updateRows) {
@@ -286,21 +280,12 @@ class RuntimeRunLifecycleServiceTest {
         return new FinishCapture(service, runMapper, inserted, lastUpdate, updateCalls);
     }
 
-    private RuntimeAgentView agent() {
-        return new RuntimeAgentView(
-                "agent-1", 7L, "orders", "orders-agent", "Orders Agent", null,
-                "PROJECT", null, true,
-                91L, 91L, 4, "ARCHIVED", "AGENTSCOPE", 0, null, null);
+    private AgentTarget agent() {
+        return new AgentTarget("agent-1", "orders-agent", "Orders Agent", 7L, "orders");
     }
 
-    private RuntimeAgentConfigVersionEntity publishedConfig() {
-        RuntimeAgentConfigVersionEntity config = new RuntimeAgentConfigVersionEntity();
-        config.setId(91L);
-        config.setAgentId("agent-1");
-        config.setVersionNo(4);
-        config.setStatus("ARCHIVED");
-        config.setRuntimeType("AGENTSCOPE");
-        return config;
+    private RuntimeRunSnapshots.AgentConfiguration publishedConfig() {
+        return new RuntimeRunSnapshots.AgentConfiguration(91L, 4, "AGENTSCOPE", 0, List.of());
     }
 
     private RuntimeRunFinishCounts finishCounts(long toolCalls, long guardDenies, long approvals) {
@@ -349,7 +334,7 @@ class RuntimeRunLifecycleServiceTest {
 
     /**
      * Extracts column→value pairs from a MyBatis-Plus LambdaUpdateWrapper SET clause.
-     * Fails loudly if token_cost is absent or explicitly null.
+     * Rejects an explicit null token_cost; absence preserves the initialized or previously recorded total.
      */
     private static Map<String, Object> extractSetValues(LambdaUpdateWrapper<RuntimeRunEntity> wrapper) {
         String sqlSet = wrapper.getSqlSet();
@@ -378,9 +363,7 @@ class RuntimeRunLifecycleServiceTest {
             String key = path.contains(".") ? path.substring(path.lastIndexOf('.') + 1) : path;
             out.put(column, params.get(key));
         }
-        assertTrue(out.containsKey("token_cost"),
-                "finish UPDATE must set token_cost; sqlSet=" + sqlSet);
-        assertNotNull(out.get("token_cost"),
+        if (out.containsKey("token_cost")) assertNotNull(out.get("token_cost"),
                 "token_cost must not be written as null; sqlSet=" + sqlSet);
         return out;
     }

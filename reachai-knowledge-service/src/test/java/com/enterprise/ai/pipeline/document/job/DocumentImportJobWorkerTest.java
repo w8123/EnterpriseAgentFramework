@@ -12,7 +12,6 @@ import com.enterprise.ai.pipeline.document.DocumentProviderType;
 import com.enterprise.ai.pipeline.document.ParsedDocumentElement;
 import com.enterprise.ai.pipeline.document.artifact.DocumentArtifactStore;
 import com.enterprise.ai.repository.DocumentImportJobRepository;
-import com.enterprise.ai.service.KnowledgeService;
 import com.enterprise.ai.service.PipelineImportService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -107,13 +106,7 @@ class DocumentImportJobWorkerTest {
             job.setStatus(DocumentImportJobStatus.INDEXING.name());
             job.setStage("INDEXING");
             job.setLeaseOwner(invocation.getArgument(1));
-            return 1;
-        });
-        when(jobs.finalizeIndexing(anyString(), anyString(), any())).thenAnswer(invocation -> {
-            job.setStatus(DocumentImportJobStatus.COMPLETED.name());
-            job.setStage("COMPLETED");
-            job.setCompletedAt(invocation.getArgument(2));
-            job.setLeaseOwner(null);
+            job.setLeaseUntil(LocalDateTime.now().plusMinutes(1));
             return 1;
         });
         InMemoryArtifactStore artifacts = new InMemoryArtifactStore();
@@ -122,7 +115,13 @@ class DocumentImportJobWorkerTest {
                 objectMapper.writeValueAsBytes(parsedResult()).length, "application/json");
         DocumentParseRouter router = mock(DocumentParseRouter.class);
         PipelineImportService pipeline = mock(PipelineImportService.class);
-        when(pipeline.execute(any())).thenReturn(PipelineResult.builder().status("SUCCESS").build());
+        when(pipeline.execute(any())).thenAnswer(invocation -> {
+            PipelineContext published = invocation.getArgument(0);
+            published.setImportPublished(true);
+            job.setStatus(DocumentImportJobStatus.COMPLETED.name());
+            job.setCompletedAt(LocalDateTime.now());
+            return PipelineResult.builder().status("SUCCESS").build();
+        });
 
         worker(jobs, artifacts, router, pipeline).process(job.getJobId());
 
@@ -132,6 +131,7 @@ class DocumentImportJobWorkerTest {
         assertEquals(job.getParseArtifactObjectKey(), context.getValue().getParseArtifactObjectKey());
         assertEquals(DocumentImportJobStatus.COMPLETED.name(), job.getStatus());
         assertNotNull(job.getCompletedAt());
+        verify(jobs, never()).finalizeIndexing(anyString(), anyString(), any());
         verify(router, never()).parse(any());
     }
 
@@ -148,6 +148,7 @@ class DocumentImportJobWorkerTest {
             job.setStatus(DocumentImportJobStatus.INDEXING.name());
             job.setStage("INDEXING");
             job.setLeaseOwner(invocation.getArgument(1));
+            job.setLeaseUntil(LocalDateTime.now().plusMinutes(1));
             return 1;
         });
         when(jobs.renewIndexingLease(anyString(), anyString(), anyInt())).thenReturn(1);
@@ -164,17 +165,21 @@ class DocumentImportJobWorkerTest {
         artifacts.put(job.getParseArtifactObjectKey(), new ByteArrayInputStream(parsed), parsed.length,
                 "application/json");
         PipelineImportService pipeline = mock(PipelineImportService.class);
-        when(pipeline.execute(any())).thenReturn(PipelineResult.builder()
-                .status("FAILED").errorMessage("metadata unavailable").build());
-        KnowledgeService knowledgeService = mock(KnowledgeService.class);
+        when(pipeline.execute(any())).thenAnswer(invocation -> {
+            PipelineContext context = invocation.getArgument(0);
+            context.setVectorCollectionName("physical_unit_test");
+            context.setVectorIds(List.of("attempt-vector"));
+            return PipelineResult.builder().status("FAILED").errorMessage("metadata unavailable").build();
+        });
+        var vectors = mock(com.enterprise.ai.vector.VectorService.class);
 
-        worker(jobs, artifacts, mock(DocumentParseRouter.class), pipeline, knowledgeService)
+        worker(jobs, artifacts, mock(DocumentParseRouter.class), pipeline, vectors)
                 .process(job.getJobId());
 
         assertEquals(DocumentImportJobStatus.FAILED.name(), job.getStatus());
         assertEquals("INDEXING_FAILED", job.getErrorCode());
         assertTrue(artifacts.contains(job.getParseArtifactObjectKey()));
-        verify(knowledgeService).cleanupImportIndexData(job.getKnowledgeBaseCode(), job.getFileId(), job.getJobId());
+        verify(vectors).deleteById("physical_unit_test", "attempt-vector");
     }
 
     @Test
@@ -187,6 +192,7 @@ class DocumentImportJobWorkerTest {
             job.setStage("PARSING");
             job.setAttemptCount(1);
             job.setLeaseOwner(invocation.getArgument(1));
+            job.setLeaseUntil(LocalDateTime.now().plusMinutes(1));
             return 1;
         });
         when(jobs.finalizeParsing(anyString(), anyString(), anyString(), anyString(), anyString(), any()))
@@ -199,9 +205,48 @@ class DocumentImportJobWorkerTest {
 
         worker(jobs, artifacts, router, mock(PipelineImportService.class)).process(job.getJobId());
 
-        assertFalse(artifacts.contains("knowledge-document-import/" + job.getJobId()
-                + "/parsed/attempt-1.json"));
+        ArgumentCaptor<String> staleArtifact = ArgumentCaptor.forClass(String.class);
+        verify(jobs).finalizeParsing(anyString(), anyString(), anyString(), anyString(), staleArtifact.capture(), any());
+        assertFalse(artifacts.contains(staleArtifact.getValue()));
         verify(jobs, never()).failParsing(anyString(), anyString(), anyString(), any(), anyString(), anyString());
+    }
+
+    @Test
+    void staleParserAfterManualRetryCannotDeleteTheSuccessfulArtifact() throws Exception {
+        DocumentImportJob job = queuedJob();
+        DocumentImportJobRepository jobs = parsingRepository(job);
+        InMemoryArtifactStore artifacts = new InMemoryArtifactStore();
+        DocumentParseRouter router = mock(DocumentParseRouter.class);
+        DocumentImportJobWorker worker = worker(jobs, artifacts, router, mock(PipelineImportService.class));
+        when(jobs.finalizeParsing(anyString(), anyString(), anyString(), anyString(), anyString(), any()))
+                .thenAnswer(invocation -> {
+                    if (!invocation.getArgument(1).equals(job.getLeaseOwner())) return 0;
+                    job.setStatus(DocumentImportJobStatus.PARSED.name());
+                    job.setParseArtifactObjectKey(invocation.getArgument(4));
+                    job.setLeaseOwner(null);
+                    return 1;
+                });
+        var calls = new java.util.concurrent.atomic.AtomicInteger();
+        job.setStatus(DocumentImportJobStatus.QUEUED.name());
+        job.setParseArtifactObjectKey(null);
+        when(router.parse(any())).thenAnswer(invocation -> {
+            if (calls.incrementAndGet() == 1) {
+                // Lease recovery followed by manual retry resets the attempt counter.
+                job.setStatus(DocumentImportJobStatus.QUEUED.name());
+                job.setAttemptCount(0);
+                worker.process(job.getJobId());
+                return DocumentParseResult.builder().providerType(DocumentProviderType.DOCLING)
+                        .normalizedText("stale result").build();
+            }
+            return parsedResult();
+        });
+
+        worker.process(job.getJobId());
+
+        assertEquals(DocumentImportJobStatus.PARSED.name(), job.getStatus());
+        assertTrue(artifacts.contains(job.getParseArtifactObjectKey()));
+        assertEquals("Docling text", objectMapper.readValue(artifacts.bytes(job.getParseArtifactObjectKey()),
+                DocumentParseResult.class).getNormalizedText());
     }
 
     @Test
@@ -213,6 +258,7 @@ class DocumentImportJobWorkerTest {
             job.setStatus(DocumentImportJobStatus.PARSING.name());
             job.setAttemptCount(job.getAttemptCount() + 1);
             job.setLeaseOwner(invocation.getArgument(1));
+            job.setLeaseUntil(LocalDateTime.now().plusMinutes(1));
             return 1;
         });
         when(jobs.finalizeParsing(anyString(), anyString(), anyString(), anyString(), anyString(), any()))
@@ -236,7 +282,7 @@ class DocumentImportJobWorkerTest {
     }
 
     @Test
-    void staleSuccessfulIndexerCannotDeleteReplacementFile() throws Exception {
+    void successWithoutACommittedPublicationIsTreatedAsAnIndexingFailure() throws Exception {
         DocumentImportJob job = queuedJob();
         job.setStatus(DocumentImportJobStatus.PARSED.name());
         job.setStage("PARSED");
@@ -248,6 +294,7 @@ class DocumentImportJobWorkerTest {
         when(jobs.claimForIndexing(anyString(), anyString(), anyInt())).thenAnswer(invocation -> {
             job.setStatus(DocumentImportJobStatus.INDEXING.name());
             job.setLeaseOwner(invocation.getArgument(1));
+            job.setLeaseUntil(LocalDateTime.now().plusMinutes(1));
             return 1;
         });
         when(jobs.finalizeIndexing(anyString(), anyString(), any())).thenReturn(0);
@@ -257,12 +304,11 @@ class DocumentImportJobWorkerTest {
                 "application/json");
         PipelineImportService pipeline = mock(PipelineImportService.class);
         when(pipeline.execute(any())).thenReturn(PipelineResult.builder().status("SUCCESS").build());
-        KnowledgeService knowledgeService = mock(KnowledgeService.class);
 
-        worker(jobs, artifacts, mock(DocumentParseRouter.class), pipeline, knowledgeService)
+        worker(jobs, artifacts, mock(DocumentParseRouter.class), pipeline)
                 .process(job.getJobId());
 
-        verify(knowledgeService, never()).deleteFileById("file_old");
+        verify(jobs).failIndexing(anyString(), anyString(), anyString());
     }
 
     @Test
@@ -283,28 +329,32 @@ class DocumentImportJobWorkerTest {
         PipelineImportService pipeline = mock(PipelineImportService.class);
         when(pipeline.execute(any())).thenReturn(PipelineResult.builder()
                 .status("FAILED").errorMessage("stale failure").build());
-        KnowledgeService knowledgeService = mock(KnowledgeService.class);
 
-        worker(jobs, artifacts, mock(DocumentParseRouter.class), pipeline, knowledgeService)
+        worker(jobs, artifacts, mock(DocumentParseRouter.class), pipeline)
                 .process(job.getJobId());
 
-        verify(knowledgeService, never()).cleanupImportIndexData(anyString(), anyString(), anyString());
-        verify(jobs, never()).failIndexing(anyString(), anyString(), anyString());
+        verify(jobs).failIndexing(anyString(), anyString(), anyString());
     }
 
     private DocumentImportJobWorker worker(DocumentImportJobRepository jobs, DocumentArtifactStore artifacts,
                                              DocumentParseRouter router, PipelineImportService pipeline) {
-        return worker(jobs, artifacts, router, pipeline, mock(KnowledgeService.class));
+        return worker(jobs, artifacts, router, pipeline, mock(com.enterprise.ai.vector.VectorService.class));
     }
 
     private DocumentImportJobWorker worker(DocumentImportJobRepository jobs, DocumentArtifactStore artifacts,
                                              DocumentParseRouter router, PipelineImportService pipeline,
-                                             KnowledgeService knowledgeService) {
+                                             com.enterprise.ai.vector.VectorService vectors) {
+        when(jobs.lockValidParsing(anyString(), anyString())).thenAnswer(invocation -> {
+            var current = jobs.selectOne(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<DocumentImportJob>()
+                    .eq(DocumentImportJob::getJobId, invocation.getArgument(0)));
+            return current != null && "PARSING".equals(current.getStatus())
+                    && java.util.Objects.equals(current.getLeaseOwner(), invocation.getArgument(1))
+                    && current.getLeaseUntil() != null && current.getLeaseUntil().isAfter(LocalDateTime.now()) ? current : null;
+        });
         DocumentImportJobProperties properties = new DocumentImportJobProperties();
         properties.setRetryInitialDelaySeconds(1);
         properties.setRetryMaxDelaySeconds(10);
-        return new DocumentImportJobWorker(jobs, artifacts, router, pipeline, knowledgeService,
-                objectMapper, properties);
+        return new DocumentImportJobWorker(jobs, artifacts, router, pipeline, vectors, objectMapper, properties, com.enterprise.ai.support.ArtifactLifecycleTestSupport.transactions());
     }
 
     private static DocumentImportJobRepository parsingRepository(DocumentImportJob job) {
@@ -346,7 +396,7 @@ class DocumentImportJobWorkerTest {
         DocumentImportJob job = new DocumentImportJob();
         job.setJobId("dij_unit_test");
         job.setFileId("file_unit_test");
-        job.setKnowledgeBaseCode("kb_unit_test");
+        job.setKnowledgeBaseCode("kb_unit_test"); job.setVectorCollectionName("physical_unit_test"); job.setKnowledgeBaseId(7L);
         job.setFileName("contract.pdf");
         job.setFileType("pdf");
         job.setContentType("application/pdf");
@@ -404,8 +454,13 @@ class DocumentImportJobWorkerTest {
         }
 
         @Override
-        public void delete(String objectKey) {
+        public void retire(String objectKey) {
             objects.remove(objectKey);
+        }
+
+        @Override
+        public void retain(String objectKey) {
+            if (!objects.containsKey(objectKey)) throw new IllegalStateException("Missing test artifact");
         }
 
         boolean contains(String objectKey) {

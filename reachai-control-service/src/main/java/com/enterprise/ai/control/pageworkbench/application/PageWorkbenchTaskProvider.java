@@ -9,6 +9,7 @@ import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskRequired
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskTargetView;
 import com.enterprise.ai.control.aicoding.domain.AiCodingDeliveryEvidence.ReportedCheck;
 import com.enterprise.ai.control.aicoding.provider.AiCodingTaskKindProvider;
+import com.enterprise.ai.control.aicoding.provider.AiCodingArtifactApplicationUnconfirmedException;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.AcceptancePayload;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.ImplementationPayload;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.PageAnalysisPayload;
@@ -441,14 +442,20 @@ final class PageWorkbenchTaskProvider implements AiCodingTaskKindProvider {
         request.put(
                 "remainingQuestions",
                 defaultList(report.remainingQuestions()));
-        WorkflowEngineeringDraftView draft = runtimeClient
+        ResponseEntity<WorkflowEngineeringDraftView> response = runtimeClient
                 .createPageWorkbenchWorkflowDraft(
                         task.projectCode(),
-                        request)
-                .getBody();
-        if (draft == null || draft.workflow() == null) {
-            throw new IllegalStateException(
-                    "Runtime did not return the created Workflow draft");
+                        request);
+        WorkflowEngineeringDraftView draft = response == null ? null : response.getBody();
+        if (response == null || !response.getStatusCode().is2xxSuccessful()
+                || draft == null || draft.workflow() == null
+                || !"reachai.page-workbench.workflow-engineering-draft.v1".equals(draft.schema())
+                || !task.taskId().equals(draft.taskId())
+                || !targetPageKey.equals(draft.pageKey())
+                || !StringUtils.hasText(draft.workflow().id())
+                || draft.workflow().updatedAt() == null) {
+            throw new AiCodingArtifactApplicationUnconfirmedException(
+                    "Runtime did not confirm the Workflow draft for this task; retry the same Artifact");
         }
 
         ObjectNode result = objectMapper.createObjectNode();

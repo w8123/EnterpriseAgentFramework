@@ -229,7 +229,7 @@
 
     </el-card>
 
-    <el-drawer
+    <AppDrawer
       v-model="editorVisible"
       :title="editorMode === 'create' ? '新建自动化' : '编辑自动化并创建新版本'"
       size="min(760px, 94vw)"
@@ -470,9 +470,9 @@
           </el-button>
         </div>
       </template>
-    </el-drawer>
+    </AppDrawer>
 
-    <el-drawer
+    <AppDrawer
       v-model="historyVisible"
       title="运行历史"
       size="min(920px, 96vw)"
@@ -579,11 +579,12 @@
 
         <el-empty v-if="!historyLoading && history.length === 0" :image-size="64" description="暂无运行记录" />
       </template>
-    </el-drawer>
+    </AppDrawer>
   </WorkbenchPage>
 </template>
 
 <script setup lang="ts">
+import AppDrawer from '@/components/common/AppDrawer.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'

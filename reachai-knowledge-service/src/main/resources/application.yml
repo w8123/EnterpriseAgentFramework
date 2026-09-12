@@ -31,6 +31,8 @@ mybatis-plus:
 milvus:
   host: ${MILVUS_HOST:localhost}
   port: ${MILVUS_PORT:19530}
+  username: ${MILVUS_USERNAME:}
+  password: ${MILVUS_PASSWORD:}
   dimension: 1536
 
 embedding:

@@ -7,12 +7,14 @@ import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionEventSink;
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionResult;
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutor;
 import com.enterprise.ai.runtime.execution.WorkflowExecutionStatus;
-import com.enterprise.ai.runtime.eval.RuntimeEvalExecutionContext;
-import com.enterprise.ai.runtime.execution.trace.WorkflowTraceSanitizer;
+import com.enterprise.ai.runtime.execution.policy.RuntimeEvalExecutionContext;
+import com.enterprise.ai.runtime.trace.WorkflowTraceSanitizer;
 import com.enterprise.ai.runtime.runops.RuntimeRunLifecycleService;
-import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.enterprise.ai.runtime.trace.RuntimeTraceSpanEntity;
-import com.enterprise.ai.runtime.trace.RuntimeTraceSpanMapper;
+import com.enterprise.ai.runtime.runops.RuntimeRunSnapshots;
+import com.enterprise.ai.runtime.trace.RuntimeTraceEvidenceWriter;
+import com.enterprise.ai.runtime.trace.RuntimeTraceEvidenceWriter.ChildSpan;
+import com.enterprise.ai.runtime.trace.RuntimeTraceRootService;
+import com.enterprise.ai.runtime.trace.RuntimeTraceSpanTerminationService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -34,9 +36,11 @@ public class RuntimeWorkflowDebugService {
     private final RuntimeWorkflowDefinitionService workflowDefinitionService;
     private final RuntimeGraphSpecExecutor graphSpecExecutor;
     private final RuntimeRunLifecycleService runLifecycleService;
-    private final RuntimeTraceSpanMapper spanMapper;
+    private final RuntimeTraceEvidenceWriter evidence;
     private final ObjectMapper objectMapper;
     private final RuntimeWorkflowDocumentCanonicalizer documentCanonicalizer;
+    private final RuntimeTraceRootService rootSpans;
+    private final RuntimeTraceSpanTerminationService spanTermination;
 
     public DebugRunResult debugRun(DebugRunRequest request) {
         return debugRun(request, RuntimeGraphSpecExecutionEventSink.NOOP, RuntimeGraphSpecExecutionCancellation.none());
@@ -46,31 +50,82 @@ public class RuntimeWorkflowDebugService {
                                    RuntimeGraphSpecExecutionEventSink eventSink,
                                    RuntimeGraphSpecExecutionCancellation cancellation) {
         DebugRunRequest actual = request == null ? DebugRunRequest.empty() : request;
+        DebugRunReference run = DebugRunReference.fresh();
+        try {
+            return executeSnapshot(captureDefinition(actual),
+                    new DebugInput(actual.message(), actual.inputParams(), actual.debugOptions()), run,
+                    text(debugOption(actual.debugOptions(), "entryNodeId")), false, eventSink, cancellation);
+        } catch (MissingDebugWorkflow missing) {
+            return toDebugRunResult(run.runId(), run.traceId(), actual.message(), Map.of(), null,
+                    failure("WORKFLOW_NOT_FOUND", missing.getMessage(), null, null), System.currentTimeMillis());
+        }
+    }
+
+    /** Resolve saved ownership once; the caller's candidate graph remains an editable debug input. */
+    public DebugDefinition captureDefinition(DebugRunRequest request) {
+        DebugRunRequest actual = request == null ? DebugRunRequest.empty() : request;
+        RuntimeWorkflowDefinitionEntity saved = StringUtils.hasText(actual.workflowId())
+                ? workflowDefinitionService.findById(actual.workflowId()).orElseThrow(
+                        () -> new MissingDebugWorkflow(actual.workflowId())) : null;
+        String graph = firstText(actual.graphSpecJson(), saved == null ? null : saved.getGraphSpecJson());
+        if (StringUtils.hasText(graph)) {
+            GraphSpecResolution parsed = parseGraphSpec(graph);
+            if (parsed.success()) graph = parsed.graphSpecJson();
+        }
+        return new DebugDefinition(
+                saved == null ? null : saved.getId(),
+                saved == null ? actual.workflowKeySlug() : saved.getKeySlug(),
+                saved == null ? actual.workflowName() : saved.getName(),
+                saved == null ? actual.workflowKind() : saved.getWorkflowKind(),
+                saved == null ? null : saved.getProjectId(),
+                saved == null ? actual.projectCode() : saved.getProjectCode(),
+                WorkflowSemanticValues.normalizeExecutionEngine(firstText(
+                        saved == null ? actual.executionEngine() : saved.getExecutionEngine(),
+                        WorkflowSemanticValues.ENGINE_GRAPH_SPEC)),
+                firstText(actual.modelInstanceId(), saved == null ? null : saved.getDefaultModelInstanceId()),
+                graph, firstText(actual.canvasJson(), saved == null ? null : saved.getCanvasJson()));
+    }
+
+    /** Session creation starts at the graph entry; request options cannot turn it into a continuation. */
+    public DebugRunResult startSessionDebug(DebugDefinition definition, DebugInput input, DebugRunReference run,
+                                            RuntimeGraphSpecExecutionEventSink eventSink,
+                                            RuntimeGraphSpecExecutionCancellation cancellation) {
+        return executeSnapshot(definition, input, run, null, false, eventSink, cancellation);
+    }
+
+    /** The session owner supplies the persisted definition, run and checkpoint after claiming its waiting row. */
+    public DebugRunResult resumeSessionDebug(DebugDefinition definition, DebugInput input, DebugContinuation continuation,
+                                             RuntimeGraphSpecExecutionEventSink eventSink,
+                                             RuntimeGraphSpecExecutionCancellation cancellation) {
+        return executeSnapshot(definition, input, continuation.run(), continuation.entryNodeId(), true, eventSink, cancellation);
+    }
+
+    private DebugRunResult executeSnapshot(DebugDefinition definition, DebugInput actual, DebugRunReference run,
+                                           String entryNodeId, boolean resume,
+                                           RuntimeGraphSpecExecutionEventSink eventSink,
+                                           RuntimeGraphSpecExecutionCancellation cancellation) {
         RuntimeGraphSpecExecutionEventSink sink = eventSink == null
                 ? RuntimeGraphSpecExecutionEventSink.NOOP : eventSink;
         RuntimeGraphSpecExecutionCancellation cancel = cancellation == null
                 ? RuntimeGraphSpecExecutionCancellation.none() : cancellation;
-        String runId = firstText(text(debugOption(actual.debugOptions(), "runId")),
-                "studio-debug-run-" + UUID.randomUUID());
-        String traceId = firstText(text(debugOption(actual.debugOptions(), "traceId")), runId);
+        String runId = run.runId();
+        String traceId = run.traceId();
         boolean evalMode = Boolean.TRUE.equals(debugOption(actual.debugOptions(), "evalMode"))
                 || Boolean.TRUE.equals(debugOption(actual.debugOptions(), "sandboxSideEffects"));
         RuntimeEvalExecutionContext evaluation = evalMode
                 ? RuntimeEvalExecutionContext.readOnly("workflow-debug:" + runId, "workflow", null)
                 : RuntimeEvalExecutionContext.none();
         long started = System.currentTimeMillis();
-        Map<String, Object> context = inputContext(actual.message(), actual.modelInstanceId(), actual.inputParams());
-        String entryNodeId = text(debugOption(actual.debugOptions(), "entryNodeId"));
-        WorkflowTraceHandle trace = StringUtils.hasText(entryNodeId)
-                ? continueOrBeginWorkflowTrace(traceId, actual, context)
-                : beginWorkflowTrace(traceId, actual.workflowId(), actual.workflowKeySlug(),
-                actual.workflowName(), actual.projectCode(), actual.executionEngine(), actual.graphSpecJson(), context);
+        Map<String, Object> context = inputContext(actual.message(), definition.modelInstanceId(), actual.inputParams());
+        GraphSpecResolution resolved = resolveGraphSpec(definition.graphSpecJson());
+        WorkflowTraceHandle trace = resume
+                ? continueOrBeginWorkflowTrace(traceId, definition, context)
+                : beginWorkflowTrace(traceId, definition, context);
 
-        GraphSpecResolution resolved = resolveGraphSpec(actual.workflowId(), actual.graphSpecJson());
         if (!resolved.success()) {
             RuntimeGraphSpecExecutionResult failure = failure(resolved.code(), resolved.message(), null, null);
-            finishWorkflowTrace(trace, failure, actual, context);
-            return toDebugRunResult(runId, traceId, actual, Map.of(), null, failure, started);
+            finishWorkflowTrace(trace, failure);
+            return toDebugRunResult(runId, traceId, actual.message(), Map.of(), null, failure, started);
         }
 
         RuntimeGraphSpecExecutionResult execution = StringUtils.hasText(entryNodeId)
@@ -78,22 +133,30 @@ public class RuntimeWorkflowDebugService {
                         resolved.graphSpecJson(), context, entryNodeId, sink, cancel, evaluation)
                 : graphSpecExecutor.execute(
                         resolved.graphSpecJson(), context, sink, cancel,
-                        com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity.untrustedDebug(),
+                        com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity.untrustedDebug(),
                         evaluation);
-        finishWorkflowTrace(trace, execution, actual, context);
-        return toDebugRunResult(runId, traceId, actual, context, resolved.graph(), execution, started);
+        finishWorkflowTrace(trace, execution);
+        return toDebugRunResult(runId, traceId, actual.message(), context, resolved.graph(), execution, started);
     }
 
     public NodeDebugResult debugNode(NodeDebugRequest request) {
         NodeDebugRequest actual = request == null ? NodeDebugRequest.empty() : request;
         long started = System.currentTimeMillis();
         String traceId = "studio-debug-node-" + UUID.randomUUID();
-        Map<String, Object> context = stateContext(actual.message(), actual.modelInstanceId(), actual.state());
-        WorkflowTraceHandle trace = beginWorkflowTrace(traceId, actual.workflowId(), actual.workflowKeySlug(),
-                actual.workflowName(), actual.projectCode(), actual.executionEngine(), actual.graphSpecJson(), context);
+        DebugDefinition definition;
+        try {
+            definition = captureDefinition(new DebugRunRequest(actual.workflowId(), actual.workflowKeySlug(),
+                    actual.workflowName(), actual.workflowKind(), actual.projectCode(), actual.executionEngine(),
+                    actual.modelInstanceId(), actual.graphSpecJson(), actual.canvasJson(), actual.message(),
+                    actual.state(), Map.of()));
+        } catch (MissingDebugWorkflow missing) {
+            return new NodeDebugResult(actual.nodeId(), null, false, elapsed(started), Map.of(), Map.of(),
+                    null, null, "WORKFLOW_NOT_FOUND", missing.getMessage(), traceId);
+        }
+        Map<String, Object> context = stateContext(actual.message(), definition.modelInstanceId(), actual.state());
+        WorkflowTraceHandle trace = beginWorkflowTrace(traceId, definition, context);
         if (!StringUtils.hasText(actual.nodeId())) {
-            finishWorkflowTrace(trace, failure("WORKFLOW_DEBUG_NODE_REQUIRED", "debug nodeId is required", null, null),
-                    actual.workflowId(), actual.workflowKeySlug(), actual.workflowName(), context);
+            finishWorkflowTrace(trace, failure("WORKFLOW_DEBUG_NODE_REQUIRED", "debug nodeId is required", null, null));
             return new NodeDebugResult(
                     null,
                     null,
@@ -108,10 +171,9 @@ public class RuntimeWorkflowDebugService {
                     traceId);
         }
 
-        GraphSpecResolution resolved = resolveGraphSpec(actual.workflowId(), actual.graphSpecJson());
+        GraphSpecResolution resolved = resolveGraphSpec(definition.graphSpecJson());
         if (!resolved.success()) {
-            finishWorkflowTrace(trace, failure(resolved.code(), resolved.message(), actual.nodeId(), null),
-                    actual.workflowId(), actual.workflowKeySlug(), actual.workflowName(), context);
+            finishWorkflowTrace(trace, failure(resolved.code(), resolved.message(), actual.nodeId(), null));
             return new NodeDebugResult(
                     actual.nodeId(),
                     null,
@@ -128,7 +190,7 @@ public class RuntimeWorkflowDebugService {
 
         RuntimeGraphSpecExecutionResult execution =
                 graphSpecExecutor.executeFromNode(resolved.graphSpecJson(), context, actual.nodeId());
-        finishWorkflowTrace(trace, execution, actual.workflowId(), actual.workflowKeySlug(), actual.workflowName(), context);
+        finishWorkflowTrace(trace, execution);
         GraphSpec.Node node = nodeById(resolved.graph(), firstText(execution.nodeId(), actual.nodeId()));
         String nodeType = firstText(execution.nodeType(), normalizeNodeType(node));
         return new NodeDebugResult(
@@ -147,7 +209,7 @@ public class RuntimeWorkflowDebugService {
 
     private DebugRunResult toDebugRunResult(String runId,
                                             String traceId,
-                                            DebugRunRequest request,
+                                            String message,
                                             Map<String, Object> inputContext,
                                             GraphSpec graph,
                                             RuntimeGraphSpecExecutionResult execution,
@@ -159,7 +221,7 @@ public class RuntimeWorkflowDebugService {
         Map<String, Object> stateSnapshot = outputState(snapshotBase, execution.answer(), execution.code(),
                 execution.success() ? null : execution.answer());
         List<DebugMessage> messages = new ArrayList<>();
-        String userMessage = firstText(request.message(), text(inputContext.get("message")), text(inputContext.get("input")));
+        String userMessage = firstText(message, text(inputContext.get("message")), text(inputContext.get("input")));
         if (StringUtils.hasText(userMessage)) {
             messages.add(new DebugMessage("user", userMessage, null, Instant.ofEpochMilli(started).toString()));
         }
@@ -234,24 +296,12 @@ public class RuntimeWorkflowDebugService {
         return steps;
     }
 
-    private GraphSpecResolution resolveGraphSpec(String workflowId, String graphSpecJson) {
+    private GraphSpecResolution resolveGraphSpec(String graphSpecJson) {
         if (StringUtils.hasText(graphSpecJson)) {
             return parseGraphSpec(graphSpecJson);
         }
-        if (!StringUtils.hasText(workflowId)) {
-            return GraphSpecResolution.failure("WORKFLOW_DEBUG_GRAPH_REQUIRED",
-                    "debug request requires graphSpecJson or workflowId");
-        }
-        return workflowDefinitionService.findById(workflowId)
-                .map(workflow -> {
-                    if (!StringUtils.hasText(workflow.getGraphSpecJson())) {
-                        return GraphSpecResolution.failure("WORKFLOW_DEBUG_GRAPH_REQUIRED",
-                                "workflow has no GraphSpec: " + workflowId);
-                    }
-                    return parseGraphSpec(workflow.getGraphSpecJson());
-                })
-                .orElseGet(() -> GraphSpecResolution.failure("WORKFLOW_NOT_FOUND",
-                        "workflow not found: " + workflowId));
+        return GraphSpecResolution.failure("WORKFLOW_DEBUG_GRAPH_REQUIRED",
+                "debug request requires graphSpecJson or a workflow with GraphSpec");
     }
 
     private GraphSpecResolution parseGraphSpec(String graphSpecJson) {
@@ -270,130 +320,95 @@ public class RuntimeWorkflowDebugService {
     }
 
     private WorkflowTraceHandle continueOrBeginWorkflowTrace(String traceId,
-                                                             DebugRunRequest actual,
+                                                             DebugDefinition definition,
                                                              Map<String, Object> context) {
-        RuntimeTraceSpanEntity existingRoot = spanMapper.selectOne(Wrappers.<RuntimeTraceSpanEntity>lambdaQuery()
-                .eq(RuntimeTraceSpanEntity::getTraceId, traceId)
-                .eq(RuntimeTraceSpanEntity::getSpanType, "WORKFLOW")
-                .isNull(RuntimeTraceSpanEntity::getParentSpanId)
-                .orderByAsc(RuntimeTraceSpanEntity::getId)
-                .last("LIMIT 1"));
+        var existingRoot = rootSpans.resumeWorkflow(traceId);
         if (existingRoot != null) {
-            existingRoot.setStatus("RUNNING");
-            existingRoot.setEndedAt(null);
-            existingRoot.setErrorCode(null);
-            existingRoot.setErrorMessage(null);
-            try { spanMapper.updateById(existingRoot); } catch (Exception ignored) { }
-            return new WorkflowTraceHandle(traceId, existingRoot.getSpanId(), existingRoot.getId(),
-                    existingRoot.getStartedAt() == null ? LocalDateTime.now() : existingRoot.getStartedAt());
+            return new WorkflowTraceHandle(existingRoot, definition);
         }
-        return beginWorkflowTrace(traceId, actual.workflowId(), actual.workflowKeySlug(),
-                actual.workflowName(), actual.projectCode(), actual.executionEngine(), actual.graphSpecJson(), context);
+        return beginWorkflowTrace(traceId, definition, context);
     }
 
     private WorkflowTraceHandle beginWorkflowTrace(String traceId,
-                                                    String workflowId,
-                                                    String workflowKeySlug,
-                                                    String workflowName,
-                                                    String projectCode,
-                                                    String executionEngine,
-                                                    String graphSpecJson,
+                                                    DebugDefinition definition,
                                                     Map<String, Object> input) {
         String rootSpanId = compactId(16);
         LocalDateTime now = LocalDateTime.now();
-        RuntimeTraceSpanEntity root = new RuntimeTraceSpanEntity();
-        root.setTraceId(traceId);
-        root.setSpanId(rootSpanId);
-        root.setSpanType("WORKFLOW");
-        root.setRuntimeType(WorkflowSemanticValues.normalizeExecutionEngine(
-                firstText(executionEngine, WorkflowSemanticValues.ENGINE_GRAPH_SPEC)));
-        root.setAgentId(workflowId);
-        root.setAgentName(workflowName);
-        root.setNodeId(workflowId);
-        root.setProjectCode(projectCode);
-        root.setStatus("RUNNING");
-        root.setInputSummary(json(WorkflowTraceSanitizer.sanitizeInputSummary(input)));
-        root.setMetadataJson(json(Map.of(
+        var root = rootSpans.startBestEffort(RuntimeTraceRootService.Start.builder()
+                .traceId(traceId).spanId(rootSpanId).spanType("WORKFLOW")
+                .runtimeType(definition.executionEngine())
+                .agentId(definition.workflowId()).agentName(definition.workflowName()).nodeId(definition.workflowId())
+                .projectCode(definition.projectCode()).appId(firstText(text(input.get("appId")), definition.projectCode()))
+                .input(input).metadataJson(json(Map.of(
                 "sourceType", "WORKFLOW_STUDIO",
-                "workflowId", workflowId == null ? "" : workflowId,
-                "workflowKeySlug", workflowKeySlug == null ? "" : workflowKeySlug,
-                "workflowName", workflowName == null ? "" : workflowName)));
-        root.setStartedAt(now);
-        root.setCreatedAt(now);
-        try { spanMapper.insert(root); } catch (Exception ignored) { }
-        runLifecycleService.beginWorkflow(traceId, rootSpanId, "WORKFLOW_STUDIO", workflowId,
-                workflowKeySlug, workflowName, projectCode, executionEngine, graphSpecJson, input);
-        return new WorkflowTraceHandle(traceId, rootSpanId, root.getId(), now);
-    }
-
-    private void finishWorkflowTrace(WorkflowTraceHandle trace,
-                                     RuntimeGraphSpecExecutionResult execution,
-                                     DebugRunRequest request,
-                                     Map<String, Object> input) {
-        finishWorkflowTrace(trace, execution, request.workflowId(), request.workflowKeySlug(),
-                request.workflowName(), input);
+                "workflowId", definition.workflowId() == null ? "" : definition.workflowId(),
+                "workflowKeySlug", definition.workflowKeySlug() == null ? "" : definition.workflowKeySlug(),
+                "workflowName", definition.workflowName() == null ? "" : definition.workflowName())))
+                .startedAt(now).build());
+        runLifecycleService.beginWorkflow(traceId, rootSpanId, "WORKFLOW_STUDIO", new RuntimeRunSnapshots.Workflow(
+                definition.workflowId(), definition.workflowKeySlug(), definition.workflowName(), definition.projectId(),
+                definition.projectCode(), definition.executionEngine(), definition.graphSpecJson()), input);
+        return new WorkflowTraceHandle(root, definition);
     }
 
     @SuppressWarnings("unchecked")
     private void finishWorkflowTrace(WorkflowTraceHandle trace,
-                                     RuntimeGraphSpecExecutionResult execution,
-                                     String workflowId,
-                                     String workflowKeySlug,
-                                     String workflowName,
-                                     Map<String, Object> input) {
+                                     RuntimeGraphSpecExecutionResult execution) {
+        DebugDefinition definition = trace.definition();
+        String workflowId = definition.workflowId();
+        String workflowKeySlug = definition.workflowKeySlug();
+        String workflowName = definition.workflowName();
         LocalDateTime ended = LocalDateTime.now();
         String status = traceSpanStatus(execution);
-        boolean waiting = "WAITING_USER".equals(status);
-        if (trace.rootId() != null) {
-            RuntimeTraceSpanEntity root = spanMapper.selectById(trace.rootId());
-            if (root != null) {
-                root.setStatus(waiting ? "WAITING_USER" : status);
-                String safeAnswer = WorkflowTraceSanitizer.sanitizeAnswer(execution.answer());
-                root.setOutputSummary(safeAnswer);
-                root.setErrorCode(execution.success() || waiting ? null : execution.code());
-                root.setErrorMessage(execution.success() || waiting ? null : safeAnswer);
-                root.setLatencyMs(waiting ? null : (int) Math.min(Integer.MAX_VALUE,
-                        java.time.temporal.ChronoUnit.MILLIS.between(trace.startedAt(), ended)));
-                root.setEndedAt(waiting ? null : ended);
-                try { spanMapper.updateById(root); } catch (Exception ignored) { }
-            }
-        }
+        if (!rootSpans.finishBestEffort(trace.root(),
+                new RuntimeTraceRootService.Completion(status, execution.code(), execution.answer(), ended, null))) return;
         List<Map<String, Object>> nodeTraces = canonicalNodeTraces(execution);
         for (int index = 0; index < nodeTraces.size(); index++) {
             Map<String, Object> nodeTrace = nodeTraces.get(index);
             String nodeId = firstText(text(nodeTrace.get("nodeId")), text(nodeTrace.get("detail")));
-            RuntimeTraceSpanEntity child = new RuntimeTraceSpanEntity();
-            child.setTraceId(trace.traceId());
-            child.setSpanId(compactId(16));
-            child.setParentSpanId(trace.rootSpanId());
-            child.setSpanType("WORKFLOW_NODE");
-            child.setRuntimeType("LANGGRAPH4J");
-            child.setAgentId(workflowId);
-            child.setAgentName(workflowName);
-            child.setNodeId(nodeId);
-            child.setToolName(text(nodeTrace.get("qualifiedName")));
+            ChildSpan.ChildSpanBuilder child = ChildSpan.builder();
+            child.traceId(trace.root().traceId());
+            child.spanId(compactId(16));
+            child.parentSpanId(trace.root().spanId());
+            child.spanType("WORKFLOW_NODE");
+            child.runtimeType("LANGGRAPH4J");
+            child.agentId(workflowId);
+            child.agentName(workflowName);
+            var scope = trace.root().scope();
+            child.projectCode(scope.projectCode());
+            child.tenantId(scope.tenantId());
+            child.appId(scope.appId());
+            child.nodeId(nodeId);
+            child.toolName(text(nodeTrace.get("qualifiedName")));
             String nodeStatus = firstText(text(nodeTrace.get("status")), "SUCCESS").toUpperCase();
             boolean nodeWaiting = "WAITING_USER".equals(nodeStatus) || "WAITING".equals(nodeStatus);
             boolean failed = "FAILED".equals(nodeStatus) || "ERROR".equals(nodeStatus)
                     || "TIMEOUT".equals(nodeStatus);
-            child.setStatus(nodeWaiting ? "WAITING_USER" : (failed ? nodeStatus : nodeStatus));
+            child.status(nodeWaiting ? "WAITING_USER" : (failed ? nodeStatus : nodeStatus));
             Map<String, Object> childMeta = new LinkedHashMap<>(
                     WorkflowTraceSanitizer.sanitizeDebugStepMetadata(nodeTrace));
             childMeta.put("workflowKeySlug", workflowKeySlug == null ? "" : workflowKeySlug);
             if (nodeWaiting && execution.interactionId() != null) {
                 childMeta.put("interactionId", execution.interactionId());
             }
-            child.setMetadataJson(json(childMeta));
-            child.setErrorCode(failed
+            child.metadataJson(json(childMeta));
+            child.errorCode(failed
                     ? firstText(text(nodeTrace.get("failureCode")), execution.code())
                     : null);
-            child.setLatencyMs(nonNegativeInt(nodeTrace.get("latencyMs")));
+            child.latencyMs(nonNegativeInt(nodeTrace.get("latencyMs")));
             LocalDateTime nodeStarted = epochMillis(nodeTrace.get("startedAt"), ended);
             LocalDateTime nodeEnded = epochMillis(nodeTrace.get("endedAt"), ended);
-            child.setStartedAt(nodeStarted);
-            child.setEndedAt(nodeWaiting ? null : nodeEnded);
-            child.setCreatedAt(nodeStarted);
-            try { spanMapper.insert(child); } catch (Exception ignored) { }
+            child.startedAt(nodeStarted);
+            child.endedAt(nodeWaiting ? null : nodeEnded);
+            child.createdAt(nodeStarted);
+            try {
+                if (!nodeWaiting && StringUtils.hasText(nodeId)) {
+                    spanTermination.finishWaitingWorkflowNode(trace.root().traceId(), trace.root().spanId(), nodeId,
+                            nodeStatus, failed ? firstText(text(nodeTrace.get("failureCode")), execution.code()) : null,
+                            nodeEnded);
+                }
+                evidence.appendChild(child.build());
+            } catch (Exception ignored) { }
         }
         Map<String, Object> metadata = new LinkedHashMap<>();
         metadata.put("sourceType", "WORKFLOW_STUDIO");
@@ -404,7 +419,7 @@ public class RuntimeWorkflowDebugService {
         if (execution.interactionId() != null) {
             metadata.put("interactionId", execution.interactionId());
         }
-        runLifecycleService.finishWorkflow(trace.traceId(), execution.success(), execution.code(),
+        runLifecycleService.finishWorkflow(trace.root().traceId(), execution.success(), execution.code(),
                 execution.answer(), nodeTraces.size(), metadata);
     }
 
@@ -481,14 +496,7 @@ public class RuntimeWorkflowDebugService {
         catch (Exception ex) { return "{}"; }
     }
 
-    private String limit(String value, int max) {
-        return value == null || value.length() <= max ? value : value.substring(0, max);
-    }
-
-    private record WorkflowTraceHandle(String traceId,
-                                       String rootSpanId,
-                                       Long rootId,
-                                       LocalDateTime startedAt) {
+    private record WorkflowTraceHandle(RuntimeTraceRootService.Handle root, DebugDefinition definition) {
     }
 
     private Map<String, Object> inputContext(String message, String modelInstanceId, Map<String, Object> inputParams) {
@@ -607,6 +615,44 @@ public class RuntimeWorkflowDebugService {
             }
         }
         return null;
+    }
+
+    /** Frozen debug target and candidate; metadata is not an execution identity or an ACL grant. */
+    public record DebugDefinition(String workflowId, String workflowKeySlug, String workflowName,
+                                  String workflowKind, Long projectId, String projectCode, String executionEngine,
+                                  String modelInstanceId, String graphSpecJson, String canvasJson) {
+    }
+
+    public record DebugInput(String message, Map<String, Object> inputParams, Map<String, Object> debugOptions) {
+    }
+
+    /** Internal run facts; public DebugRunRequest never deserializes this contract. */
+    public record DebugRunReference(String runId, String traceId) {
+        public DebugRunReference {
+            if (!StringUtils.hasText(runId) || !StringUtils.hasText(traceId)) {
+                throw new IllegalArgumentException("debug runId and traceId are required");
+            }
+        }
+
+        private static DebugRunReference fresh() {
+            String id = "studio-debug-run-" + UUID.randomUUID();
+            return new DebugRunReference(id, id);
+        }
+    }
+
+    public record DebugContinuation(DebugRunReference run, String entryNodeId) {
+        public DebugContinuation {
+            java.util.Objects.requireNonNull(run, "run");
+            if (!StringUtils.hasText(entryNodeId)) {
+                throw new IllegalArgumentException("debug continuation nodeId is required");
+            }
+        }
+    }
+
+    private static final class MissingDebugWorkflow extends IllegalArgumentException {
+        private MissingDebugWorkflow(String workflowId) {
+            super("workflow not found: " + workflowId);
+        }
     }
 
     public record DebugRunRequest(String workflowId,

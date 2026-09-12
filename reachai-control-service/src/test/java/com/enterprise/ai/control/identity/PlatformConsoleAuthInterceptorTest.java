@@ -58,7 +58,7 @@ class PlatformConsoleAuthInterceptorTest {
         PlatformLoginSessionEntity loginSession = new PlatformLoginSessionEntity();
         loginSession.setSessionId("pls_7");
         PlatformAuthenticatedSession session = new PlatformAuthenticatedSession(
-                user,
+                PlatformPrincipal.fromUser(user),
                 "pls_7",
                 null,
                 java.util.List.of("PLATFORM_ADMIN"),
@@ -80,7 +80,7 @@ class PlatformConsoleAuthInterceptorTest {
                 new MockHttpServletResponse(),
                 new Object()));
         assertSame(
-                user,
+                session.user(),
                 request.getAttribute(
                         PlatformConsoleAuthInterceptor.USER_REQUEST_ATTRIBUTE));
         assertSame(
@@ -217,7 +217,7 @@ class PlatformConsoleAuthInterceptorTest {
         PlatformUserEntity user = new PlatformUserEntity();
         user.setId(7L);
         return new PlatformAuthenticatedSession(
-                user,
+                PlatformPrincipal.fromUser(user),
                 sessionId,
                 null,
                 java.util.List.of("PLATFORM_ADMIN"),

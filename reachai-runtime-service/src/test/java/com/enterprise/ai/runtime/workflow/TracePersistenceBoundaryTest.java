@@ -1,10 +1,11 @@
 package com.enterprise.ai.runtime.workflow;
 
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionResult;
-import com.enterprise.ai.runtime.agent.RuntimeAgentConfigVersionEntity;
-import com.enterprise.ai.runtime.agent.RuntimeAgentView;
+import com.enterprise.ai.runtime.agent.RuntimeAgentConfigSnapshot;
+import com.enterprise.ai.runtime.execution.RuntimeAgentRunLifecyclePort.AgentTarget;
 import com.enterprise.ai.runtime.runops.RuntimeRunEntity;
 import com.enterprise.ai.runtime.runops.RuntimeRunLifecycleService;
+import com.enterprise.ai.runtime.runops.RuntimeRunSnapshots;
 import com.enterprise.ai.runtime.runops.RuntimeRunMapper;
 import com.enterprise.ai.runtime.trace.RuntimeTraceSpanEntity;
 import com.enterprise.ai.runtime.trace.RuntimeTraceSpanMapper;
@@ -59,6 +60,7 @@ class TracePersistenceBoundaryTest {
         when(runMapper.selectOne(any())).thenAnswer(call -> run.get());
         when(runMapper.insert(any())).thenAnswer(call -> {
             RuntimeRunEntity entity = call.getArgument(0);
+            entity.setId(1L);
             run.set(entity);
             return 1;
         });
@@ -71,6 +73,7 @@ class TracePersistenceBoundaryTest {
             return 1;
         });
         when(spanMapper.selectById(1L)).thenAnswer(call -> root.get());
+        when(spanMapper.update(org.mockito.ArgumentMatchers.isNull(), any())).thenReturn(1);
 
         ObjectMapper json = new ObjectMapper();
         RuntimeRunLifecycleService lifecycle = new RuntimeRunLifecycleService(runMapper, json);
@@ -85,9 +88,23 @@ class TracePersistenceBoundaryTest {
                                 "body", httpBody, "headers", Map.of("authorization", token)))),
                 Map.of("answer", answer, "uiRequest", Map.of("card", uiRequest),
                         "headers", Map.of("x-secret", header), "hits", List.of(Map.of("content", hit)))));
+        var definitions = mock(RuntimeWorkflowDefinitionService.class);
+        var workflow = new RuntimeWorkflowDefinitionEntity();
+        workflow.setId("wf-1");
+        workflow.setKeySlug("wf");
+        workflow.setName("Workflow");
+        workflow.setProjectCode("demo");
+        workflow.setExecutionEngine("GRAPH_SPEC");
+        when(definitions.findById("wf-1")).thenReturn(java.util.Optional.of(workflow));
         RuntimeWorkflowDebugService service = new RuntimeWorkflowDebugService(
-                mock(RuntimeWorkflowDefinitionService.class), executor, lifecycle, spanMapper, json,
-                new RuntimeWorkflowDocumentCanonicalizer(json));
+                definitions,
+                executor,
+                lifecycle,
+                new com.enterprise.ai.runtime.trace.RuntimeTraceEvidenceWriter(spanMapper, org.mockito.Mockito.mock(com.enterprise.ai.runtime.trace.RuntimeToolCallLogMapper.class)),
+                json,
+                new RuntimeWorkflowDocumentCanonicalizer(json),
+                new com.enterprise.ai.runtime.trace.RuntimeTraceRootService(spanMapper, json),
+                new com.enterprise.ai.runtime.trace.RuntimeTraceSpanTerminationService(spanMapper));
 
         String graph = "{\"schemaVersion\":2,\"entryNodeId\":\"http\",\"exitNodeIds\":[\"http\"],"
                 + "\"nodes\":[{\"id\":\"http\",\"type\":\"HTTP_REQUEST\","
@@ -98,15 +115,26 @@ class TracePersistenceBoundaryTest {
                 Map.of("headers", Map.of("authorization", token), "query", query), Map.of()));
 
         ArgumentCaptor<RuntimeTraceSpanEntity> spanInserts = ArgumentCaptor.forClass(RuntimeTraceSpanEntity.class);
-        ArgumentCaptor<RuntimeTraceSpanEntity> spanUpdates = ArgumentCaptor.forClass(RuntimeTraceSpanEntity.class);
+        ArgumentCaptor<com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<RuntimeTraceSpanEntity>> spanUpdates =
+                ArgumentCaptor.forClass(com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper.class);
         ArgumentCaptor<RuntimeRunEntity> runInserts = ArgumentCaptor.forClass(RuntimeRunEntity.class);
+        ArgumentCaptor<com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<RuntimeRunEntity>> runUpdates =
+                ArgumentCaptor.forClass(com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper.class);
         verify(spanMapper, org.mockito.Mockito.atLeast(2)).insert(spanInserts.capture());
-        verify(spanMapper).updateById(spanUpdates.capture());
+        verify(spanMapper, org.mockito.Mockito.atLeastOnce()).update(org.mockito.ArgumentMatchers.isNull(), spanUpdates.capture());
         verify(runMapper).insert(runInserts.capture());
-        verify(runMapper).updateById(any());
+        verify(runMapper).update(org.mockito.ArgumentMatchers.isNull(), runUpdates.capture());
 
-        String persisted = strings(spanInserts.getAllValues()) + strings(spanUpdates.getAllValues())
-                + strings(runInserts.getAllValues());
+        String persisted = strings(spanInserts.getAllValues()) + strings(spanUpdates.getAllValues().stream().map(update -> {
+            update.getSqlSet();
+            update.getSqlSegment();
+            return update.getParamNameValuePairs();
+        }).toList())
+                + strings(runInserts.getAllValues()) + strings(runUpdates.getAllValues().stream().map(update -> {
+                    update.getSqlSet();
+                    update.getSqlSegment();
+                    return update.getParamNameValuePairs();
+                }).toList());
         for (String sensitive : List.of(message, answer, httpBody, header, query, hit, token, uiRequest, graphSecret)) {
             assertFalse(persisted.contains(sensitive), () -> "raw value persisted: " + sensitive);
         }
@@ -118,6 +146,7 @@ class TracePersistenceBoundaryTest {
     @Test
     void debugPersistenceUsesCanonicalProjectedNodeTrace() {
         RuntimeTraceSpanMapper spanMapper = mock(RuntimeTraceSpanMapper.class);
+        when(spanMapper.update(org.mockito.ArgumentMatchers.isNull(), any())).thenReturn(1);
         AtomicReference<RuntimeTraceSpanEntity> root = new AtomicReference<>();
         when(spanMapper.insert(any())).thenAnswer(call -> {
             RuntimeTraceSpanEntity entity = call.getArgument(0);
@@ -153,9 +182,14 @@ class TracePersistenceBoundaryTest {
 
         ObjectMapper json = new ObjectMapper();
         RuntimeWorkflowDebugService service = new RuntimeWorkflowDebugService(
-                mock(RuntimeWorkflowDefinitionService.class), executor,
-                mock(RuntimeRunLifecycleService.class), spanMapper, json,
-                new RuntimeWorkflowDocumentCanonicalizer(json));
+                mock(RuntimeWorkflowDefinitionService.class),
+                executor,
+                mock(RuntimeRunLifecycleService.class),
+                new com.enterprise.ai.runtime.trace.RuntimeTraceEvidenceWriter(spanMapper, org.mockito.Mockito.mock(com.enterprise.ai.runtime.trace.RuntimeToolCallLogMapper.class)),
+                json,
+                new RuntimeWorkflowDocumentCanonicalizer(json),
+                new com.enterprise.ai.runtime.trace.RuntimeTraceRootService(spanMapper, json),
+                new com.enterprise.ai.runtime.trace.RuntimeTraceSpanTerminationService(spanMapper));
         String graph = "{\"schemaVersion\":2,\"entryNodeId\":\"tool\",\"exitNodeIds\":[\"tool\"],"
                 + "\"nodes\":[{\"id\":\"tool\",\"type\":\"TOOL\",\"ref\":{\"qualifiedName\":\"system.echo\"}}],\"edges\":[]}";
 
@@ -190,14 +224,15 @@ class TracePersistenceBoundaryTest {
             return 1;
         });
         RuntimeRunLifecycleService lifecycle = new RuntimeRunLifecycleService(mapper, new ObjectMapper());
-        RuntimeAgentConfigVersionEntity config = new RuntimeAgentConfigVersionEntity();
-        config.setId(1L);
-        config.setVersionNo(1);
-        config.setRuntimeType("AGENTSCOPE");
-        RuntimeAgentView agent = new RuntimeAgentView("agent", 1L, "demo", "agent", "Agent",
-                null, "PROJECT", null, true, 1L, 1L, 1, "ACTIVE", "AGENTSCOPE", 1, null, null);
+        RuntimeAgentConfigSnapshot config = RuntimeAgentConfigSnapshot.builder()
+                .id(1L)
+                .versionNo(1)
+                .runtimeType("AGENTSCOPE")
+                .build();
+        var agent = new AgentTarget("agent", "agent", "Agent", 1L, "demo");
 
-        lifecycle.beginAgent("agent-trace", "span", java.time.LocalDateTime.now(), agent, config, List.of(),
+        lifecycle.beginAgent("agent-trace", "span", java.time.LocalDateTime.now(), agent,
+                new RuntimeRunSnapshots.AgentConfiguration(config.getId(), config.getVersionNo(), config.getRuntimeType(), 0, List.of()),
                 Map.of("message", metadataSecret, "userId", metadataSecret));
         lifecycle.finishAgent("agent-trace", false, "FAILED", answer,
                 Map.of("uiRequest", Map.of("defaults", metadataSecret), "planCount", 1), null);
@@ -206,8 +241,9 @@ class TracePersistenceBoundaryTest {
         verify(mapper).update(any(), any());
 
         saved.set(null);
-        lifecycle.beginWorkflow("workflow-trace", "span", "DEBUG", "wf", "wf", "Workflow", "demo",
-                "GRAPH_SPEC", "{\"nodes\":[{\"type\":\"ANSWER\",\"config\":\"" + metadataSecret + "\"}]}",
+        lifecycle.beginWorkflow("workflow-trace", "span", "DEBUG",
+                new RuntimeRunSnapshots.Workflow("wf", "wf", "Workflow", null, "demo",
+                "GRAPH_SPEC", "{\"nodes\":[{\"type\":\"ANSWER\",\"config\":\"" + metadataSecret + "\"}]}"),
                 Map.of("message", metadataSecret));
         lifecycle.finishWorkflow("workflow-trace", false, "FAILED", answer, 1,
                 Map.of("uiRequest", Map.of("card", metadataSecret), "nodeCount", 1));
@@ -219,6 +255,10 @@ class TracePersistenceBoundaryTest {
     private static String strings(List<?> entities) {
         List<String> values = new ArrayList<>();
         for (Object entity : entities) {
+            if (entity instanceof Map<?, ?> || entity instanceof Iterable<?>) {
+                values.add(String.valueOf(entity));
+                continue;
+            }
             for (Field field : entity.getClass().getDeclaredFields()) {
                 if (field.getType() == String.class) {
                     try {

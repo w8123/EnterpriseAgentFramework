@@ -4,7 +4,7 @@ import com.enterprise.ai.control.aicoding.application.AiCodingCredentialPolicySe
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.CredentialPolicyUpdateCommand;
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.CredentialPolicyView;
 import com.enterprise.ai.control.identity.PlatformConsoleAuthInterceptor;
-import com.enterprise.ai.control.identity.PlatformUserEntity;
+import com.enterprise.ai.control.identity.PlatformPrincipal;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -42,7 +42,7 @@ public class AiCodingCredentialPolicyConsoleController {
     private static String authenticatedUsername(HttpServletRequest request) {
         Object value = request.getAttribute(
                 PlatformConsoleAuthInterceptor.USER_REQUEST_ATTRIBUTE);
-        if (value instanceof PlatformUserEntity user) {
+        if (value instanceof PlatformPrincipal user) {
             return user.getUsername();
         }
         return null;

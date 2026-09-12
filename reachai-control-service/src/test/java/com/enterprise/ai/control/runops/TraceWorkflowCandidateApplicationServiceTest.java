@@ -1,12 +1,9 @@
 package com.enterprise.ai.control.runops;
 
 import com.enterprise.ai.control.aicoding.application.AiCodingTaskApplicationService;
+import com.enterprise.ai.control.aicoding.application.port.AiCodingReusableTaskQuery;
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.CreateTaskCommand;
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskView;
-import com.enterprise.ai.control.aicoding.persistence.AiCodingTaskEntity;
-import com.enterprise.ai.control.aicoding.persistence.AiCodingTaskMapper;
-import com.enterprise.ai.control.aicoding.persistence.AiCodingTaskTargetEntity;
-import com.enterprise.ai.control.aicoding.persistence.AiCodingTaskTargetMapper;
 import com.enterprise.ai.control.client.capability.CapabilityProjectOnboardingClient;
 import com.enterprise.ai.control.runops.TraceWorkflowCandidateApplicationService.CreateCandidateTaskRequest;
 import com.enterprise.ai.control.runops.TraceWorkflowCandidateEligibility.EligibilityView;
@@ -17,6 +14,7 @@ import org.mockito.ArgumentCaptor;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -36,24 +34,20 @@ class TraceWorkflowCandidateApplicationServiceTest {
             mock(CapabilityProjectOnboardingClient.class);
     private final AiCodingTaskApplicationService taskService =
             mock(AiCodingTaskApplicationService.class);
-    private final AiCodingTaskMapper taskMapper = mock(AiCodingTaskMapper.class);
-    private final AiCodingTaskTargetMapper targetMapper =
-            mock(AiCodingTaskTargetMapper.class);
+    private final AiCodingReusableTaskQuery reusableTasks = mock(AiCodingReusableTaskQuery.class);
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final TraceWorkflowCandidateApplicationService service =
             new TraceWorkflowCandidateApplicationService(
                     eligibilityService,
                     capabilityClient,
                     taskService,
-                    taskMapper,
-                    targetMapper,
+                    reusableTasks,
                     objectMapper);
 
     @BeforeEach
     void eligibleTrace() {
         when(eligibilityService.evaluate("trace-1"))
                 .thenReturn(eligibility(true));
-        when(targetMapper.selectList(any())).thenReturn(List.of());
     }
 
     @Test
@@ -84,15 +78,8 @@ class TraceWorkflowCandidateApplicationServiceTest {
 
     @Test
     void reusesUnfinishedTaskForSameTraceAndExecutor() {
-        AiCodingTaskTargetEntity target = new AiCodingTaskTargetEntity();
-        target.setTaskId("ait-existing");
-        when(targetMapper.selectList(any())).thenReturn(List.of(target));
-        AiCodingTaskEntity entity = new AiCodingTaskEntity();
-        entity.setTaskId("ait-existing");
-        entity.setTaskKind(TraceWorkflowCandidateTaskProvider.TASK_KIND);
-        entity.setExecutorProvider("CODEX");
-        entity.setExecutionStatus("RUNNING");
-        when(taskMapper.selectById("ait-existing")).thenReturn(entity);
+        when(reusableTasks.latestForPrimaryTarget(TraceWorkflowCandidateTaskProvider.TASK_KIND, "CODEX",
+                TraceWorkflowCandidateEligibility.PRIMARY_TARGET_TYPE, "trace-1")).thenReturn(Optional.of("ait-existing"));
         TaskView existing = task("ait-existing", "RUNNING");
         when(taskService.task("ait-existing")).thenReturn(existing);
 

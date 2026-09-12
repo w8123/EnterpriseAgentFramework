@@ -1,745 +1,785 @@
 <template>
-  <WorkbenchPage class="capability-kernel" layout="list">
+  <WorkbenchPage class="capability-catalog-page" layout="list">
     <PageHeader
-      variant="standard"
-      domain="governance"
+      variant="overview"
+      domain="platform"
       eyebrow="Capability Catalog"
       title="能力目录"
-      description="统一管理能力模块、执行动作、组合资产与交互定义。"
+      description="查看已接入平台的能力及其来源、调用方式和可用状态。"
     >
+      <template #tags>
+        <el-tag effect="light">平台范围</el-tag>
+        <el-tag v-if="summaryState === 'ready'" type="success" effect="light">{{ summary.available }} 项已启用</el-tag>
+        <el-tag v-else-if="summaryState === 'error'" type="danger" effect="light">目录指标不可用</el-tag>
+        <el-tag v-else type="info" effect="light">正在读取目录</el-tag>
+        <el-tag v-if="summaryState === 'ready' && summary.disabled" type="warning" effect="light">
+          {{ summary.disabled }} 项停用
+        </el-tag>
+      </template>
       <template #actions>
-        <el-button type="primary" :icon="Plus" @click="openModuleDialog()">新建模块</el-button>
-        <el-tooltip content="刷新能力模块" placement="top">
+        <el-button :icon="Document" @click="router.push('/capability/review')">
+          能力变化
+        </el-button>
+        <el-tooltip content="刷新目录与指标" placement="top">
           <el-button
             circle
             :icon="Refresh"
-            :loading="loading"
-            aria-label="刷新能力模块"
-            @click="loadModules"
+            :loading="loading || summaryLoading"
+            aria-label="刷新能力目录"
+            @click="refreshCatalog"
           />
         </el-tooltip>
       </template>
     </PageHeader>
 
-    <section class="kernel-layout workbench-list-surface">
-      <aside class="module-pane">
-        <el-table
-          v-loading="loading"
-          :data="modules"
-          row-key="code"
-          highlight-current-row
-          class="module-table"
-          empty-text="暂无数据"
-          @current-change="selectModule"
-        >
-          <el-table-column label="能力模块" min-width="180" show-overflow-tooltip>
-            <template #default="{ row }">
-              <div class="module-cell">
-                <strong>{{ formatCapabilityDisplayName(row.name, row.code) }}</strong>
-                <span>{{ row.code }}</span>
-              </div>
-            </template>
-          </el-table-column>
-          <el-table-column label="状态" width="86" align="center">
-            <template #default="{ row }">
-              <el-tag :type="row.enabled ? 'success' : 'info'" size="small">
-                {{ row.enabled ? '启用' : '停用' }}
-              </el-tag>
-            </template>
-          </el-table-column>
-        </el-table>
-      </aside>
+    <MetricStrip :items="metricItems" density="compact" aria-label="能力目录指标概览" />
 
-      <main class="asset-pane">
-        <el-empty v-if="!selectedModule" description="请选择能力模块" />
-        <template v-else>
-          <div class="module-summary">
-            <div>
-              <h3>{{ formatCapabilityDisplayName(selectedModule.name, selectedModule.code) }}</h3>
-              <span>{{ selectedModule.code }} / {{ selectedModule.version || '1.0.0' }}</span>
-            </div>
-            <div class="summary-actions">
-              <el-switch
-                v-model="selectedModule.enabled"
-                active-text="启用"
-                inactive-text="停用"
-                @change="saveSelectedModule"
+    <el-alert
+      v-if="listError"
+      type="error"
+      show-icon
+      :closable="false"
+      :title="listError"
+      class="catalog-load-alert"
+    >
+      <template #default>
+        <el-button link type="primary" @click="loadCapabilities">重新加载能力目录</el-button>
+      </template>
+    </el-alert>
+
+    <DataTableShell
+      v-model:current-page="currentPage"
+      v-model:page-size="pageSize"
+      class="capability-table-shell project-list-table-shell workbench-list-surface"
+      density="compact"
+      :loading="loading"
+      :empty="listState === 'ready' && capabilities.length === 0"
+      :total="listState === 'ready' ? total : 0"
+      :page-sizes="[10, 20, 50, 100]"
+      @page-change="loadCapabilities"
+      @size-change="handleSizeChange"
+    >
+      <template #toolbar>
+        <FilterBar
+          class="capability-filter-bar project-list-filter-bar"
+          density="compact"
+          :loading="loading"
+          @query="applyFilters"
+          @reset="resetFilters"
+        >
+          <el-input
+            v-model="filterKeyword"
+            class="filter-control is-keyword"
+            :prefix-icon="Search"
+            placeholder="搜索能力名称、稳定标识或说明"
+            clearable
+          />
+          <el-select
+            v-model="filterProjectId"
+            class="filter-control is-project"
+            placeholder="来源项目"
+            aria-label="来源项目筛选"
+            clearable
+            filterable
+          >
+            <el-option
+              v-for="project in projectStore.projects"
+              :key="project.id"
+              :label="projectStore.projectLabel(project)"
+              :value="project.id"
+            />
+          </el-select>
+          <el-select
+            v-model="filterSource"
+            class="filter-control is-source"
+            placeholder="接入方式"
+            aria-label="接入方式筛选"
+            clearable
+          >
+            <el-option label="代码内置" value="code" />
+            <el-option label="SDK 注册" value="sdk" />
+            <el-option label="源码扫描" value="scanner" />
+            <el-option label="平台配置" value="manual" />
+          </el-select>
+          <el-select
+            v-model="filterEnabled"
+            class="filter-control is-status"
+            placeholder="可用状态"
+            aria-label="可用状态筛选"
+            clearable
+          >
+            <el-option label="可用" :value="true" />
+            <el-option label="已停用" :value="false" />
+          </el-select>
+
+          <template #actions>
+            <el-tooltip content="重置筛选" placement="top">
+              <el-button
+                circle
+                native-type="button"
+                :icon="RefreshLeft"
+                aria-label="重置能力筛选"
+                @click="resetFilters"
               />
-              <el-button :icon="Edit" @click="openModuleDialog(selectedModule)">编辑</el-button>
+            </el-tooltip>
+            <el-button native-type="submit" type="primary" :icon="Search" :loading="loading">
+              搜索
+            </el-button>
+          </template>
+        </FilterBar>
+      </template>
+
+      <el-table
+        v-if="capabilities.length"
+        :data="capabilities"
+        row-key="name"
+        class="capability-table"
+        @row-click="openCapabilityDetail"
+      >
+        <el-table-column label="能力" min-width="280">
+          <template #default="{ row }">
+            <div class="capability-cell">
+              <span class="capability-cell__mark" aria-hidden="true">C</span>
+              <span class="capability-cell__copy">
+                <strong>{{ capabilityDisplayName(row) }}</strong>
+                <small>{{ capabilityStableName(row) }}</small>
+                <span>{{ capabilityDescription(row) }}</span>
+              </span>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="来源" min-width="180">
+          <template #default="{ row }">
+            <div class="source-cell">
+              <strong>{{ row.sourceProjectName || row.projectCode || '平台级能力' }}</strong>
+              <StatusTag
+                :label="capabilitySourceLabel(row.source, row.sourceLocation)"
+                :tone="capabilitySourceTone(row.source, row.sourceLocation)"
+              />
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="调用入口" min-width="220" show-overflow-tooltip>
+          <template #default="{ row }">
+            <code class="protocol-cell">{{ capabilityProtocol(row) }}</code>
+          </template>
+        </el-table-column>
+        <el-table-column label="副作用" width="126">
+          <template #default="{ row }">
+            <StatusTag
+              :label="capabilitySideEffectLabel(row.sideEffect)"
+              :tone="capabilitySideEffectTone(row.sideEffect)"
+            />
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" width="104" align="center">
+          <template #default="{ row }">
+            <StatusTag
+              :label="row.catalogLinkStatus === 'NOT_IN_CATALOG' ? '关联异常' : availabilityLabel(row)"
+              :tone="row.catalogLinkStatus === 'NOT_IN_CATALOG' ? 'danger' : row.sourceAvailability && row.sourceAvailability !== 'READY' ? 'warning' : row.enabled ? 'success' : 'neutral'"
+              :pulse="row.enabled && row.sourceAvailability === 'READY' && row.catalogLinkStatus !== 'NOT_IN_CATALOG'"
+            />
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="92" fixed="right">
+          <template #default="{ row }">
+            <el-button link type="primary" :icon="View" @click.stop="openCapabilityDetail(row)">
+              查看
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <template #empty>
+        <div class="catalog-empty-state">
+          <el-empty
+            :description="hasActiveFilters ? '没有符合当前条件的能力' : '能力目录还是空的'"
+            :image-size="84"
+          />
+          <p v-if="!hasActiveFilters">先接入业务项目，再由 SDK 同步或扫描纳管能力。</p>
+          <div class="catalog-empty-state__actions">
+            <el-button v-if="hasActiveFilters" @click="resetFilters">清空筛选</el-button>
+            <el-button v-else type="primary" @click="router.push('/registry/projects')">接入业务项目</el-button>
+            <el-button @click="router.push('/capability/review')">查看能力变化</el-button>
+          </div>
+        </div>
+      </template>
+    </DataTableShell>
+
+    <AppDrawer
+      v-model="detailVisible"
+      title="能力详情"
+      description="目录展示当前已纳管定义；字段修改请回到来源项目，SDK 变化请通过评审应用。"
+      size="min(760px, 92vw)"
+      destroy-on-close
+    >
+      <template v-if="selectedCapability">
+        <section class="capability-detail-identity">
+          <div class="capability-detail-identity__mark" aria-hidden="true">C</div>
+          <div class="capability-detail-identity__copy">
+            <p>{{ selectedCapability.sourceProjectName || selectedCapability.projectCode || '平台级能力' }}</p>
+            <h2>{{ capabilityDisplayName(selectedCapability) }}</h2>
+            <code>{{ capabilityStableName(selectedCapability) }}</code>
+            <div class="capability-detail-identity__tags">
+              <StatusTag
+                :label="capabilitySourceLabel(selectedCapability.source, selectedCapability.sourceLocation)"
+                :tone="capabilitySourceTone(selectedCapability.source, selectedCapability.sourceLocation)"
+              />
+              <StatusTag
+                :label="capabilitySideEffectLabel(selectedCapability.sideEffect)"
+                :tone="capabilitySideEffectTone(selectedCapability.sideEffect)"
+              />
+              <StatusTag
+                :label="selectedCapability.catalogLinkStatus === 'NOT_IN_CATALOG' ? '目录关联异常' : availabilityLabel(selectedCapability)"
+                :tone="selectedCapability.catalogLinkStatus === 'NOT_IN_CATALOG' ? 'danger' : selectedCapability.sourceAvailability && selectedCapability.sourceAvailability !== 'READY' ? 'warning' : selectedCapability.enabled ? 'success' : 'neutral'"
+              />
             </div>
           </div>
+        </section>
 
-          <el-tabs v-model="activeTab" class="asset-tabs">
-            <el-tab-pane label="执行动作" name="tools">
-              <div class="tab-toolbar">
-                <el-button type="primary" :icon="Plus" @click="openToolDialog()">新建动作</el-button>
+        <el-alert
+          v-if="selectedCapability.catalogLinkStatus === 'NOT_IN_CATALOG'"
+          title="该执行定义没有对应的项目能力目录记录"
+          :description="selectedCapability.catalogLinkMessage || '请回到来源项目重新同步并检查能力变化；在关联修复前，不应把它视为正常纳管能力。'"
+          type="error"
+          :closable="false"
+          show-icon
+          class="catalog-link-alert"
+        />
+
+        <el-alert
+          v-if="capabilityDescriptionHasEncodingIssue(selectedCapability)"
+          title="来源说明存在编码异常"
+          description="平台已保留能力身份和调用契约，但不会将损坏文本伪装成正常说明；请在来源项目修复编码后重新同步。"
+          type="warning"
+          :closable="false"
+          show-icon
+          class="catalog-link-alert"
+        />
+
+        <el-tabs v-model="detailTab" class="capability-detail-tabs">
+          <el-tab-pane label="概览" name="overview">
+            <section class="capability-detail-section">
+              <h3>它能做什么</h3>
+              <p>{{ capabilityDescription(selectedCapability) }}</p>
+              <small v-if="selectedCapability.aiDescription && selectedCapability.description">
+                来源说明：{{ capabilityDescription({ description: selectedCapability.description }) }}
+              </small>
+            </section>
+
+            <dl class="capability-fact-grid">
+              <div>
+                <dt>稳定标识</dt>
+                <dd>{{ capabilityStableName(selectedCapability) }}</dd>
               </div>
-              <el-table :data="tools" v-loading="assetLoading" row-key="qualifiedName" stripe empty-text="暂无数据">
-                <el-table-column prop="name" label="动作" min-width="160" show-overflow-tooltip>
-                  <template #default="{ row }">
-                    {{ formatCapabilityDisplayName(row.name, row.toolCode) }}
-                  </template>
-                </el-table-column>
-                <el-table-column prop="qualifiedName" label="限定名" min-width="220" show-overflow-tooltip />
-                <el-table-column prop="executorType" label="执行器" width="110">
-                  <template #default="{ row }">
-                    {{ formatExecutorTypeLabel(row.executorType) }}
-                  </template>
-                </el-table-column>
-                <el-table-column label="状态" width="100" align="center">
-                  <template #default="{ row }">
-                    <el-tag :type="row.enabled ? 'success' : 'info'" size="small">
-                      {{ row.enabled ? '启用' : '停用' }}
-                    </el-tag>
-                  </template>
-                </el-table-column>
-                <el-table-column label="操作" width="170" fixed="right">
-                  <template #default="{ row }">
-                    <el-button link type="primary" :icon="Edit" @click="openToolDialog(row)">编辑</el-button>
-                    <el-button link type="primary" :icon="VideoPlay" @click="openRunDialog('tool', row)">测试</el-button>
-                  </template>
-                </el-table-column>
-              </el-table>
-            </el-tab-pane>
-
-            <el-tab-pane label="组合" name="compositions">
-              <div class="tab-toolbar">
-                <el-button type="primary" :icon="Plus" @click="openCompositionDialog()">新建组合</el-button>
+              <div>
+                <dt>来源项目</dt>
+                <dd>{{ selectedCapability.sourceProjectName || selectedCapability.projectCode || '平台级能力' }}</dd>
               </div>
-              <el-table :data="compositions" v-loading="assetLoading" row-key="qualifiedName" stripe empty-text="暂无数据">
-                <el-table-column prop="name" label="组合" min-width="160" show-overflow-tooltip>
-                  <template #default="{ row }">
-                    {{ formatCapabilityDisplayName(row.name, row.compositionCode) }}
-                  </template>
-                </el-table-column>
-                <el-table-column prop="qualifiedName" label="限定名" min-width="220" show-overflow-tooltip />
-                <el-table-column label="状态" width="100" align="center">
-                  <template #default="{ row }">
-                    <el-tag :type="row.enabled ? 'success' : 'info'" size="small">
-                      {{ row.enabled ? '启用' : '停用' }}
-                    </el-tag>
-                  </template>
-                </el-table-column>
-                <el-table-column label="操作" width="170" fixed="right">
-                  <template #default="{ row }">
-                    <el-button link type="primary" :icon="Edit" @click="openCompositionDialog(row)">编辑</el-button>
-                    <el-button link type="primary" :icon="VideoPlay" @click="openRunDialog('composition', row)">测试</el-button>
-                  </template>
-                </el-table-column>
-              </el-table>
-            </el-tab-pane>
-
-            <el-tab-pane label="交互" name="interactions">
-              <div class="tab-toolbar">
-                <el-button type="primary" :icon="Plus" @click="openInteractionDialog()">新建交互</el-button>
+              <div>
+                <dt>接入方式</dt>
+                <dd>{{ capabilitySourceLabel(selectedCapability.source, selectedCapability.sourceLocation) }}</dd>
               </div>
-              <el-table :data="interactions" v-loading="assetLoading" row-key="qualifiedName" stripe empty-text="暂无数据">
-                <el-table-column prop="name" label="交互定义" min-width="160" show-overflow-tooltip>
-                  <template #default="{ row }">
-                    {{ formatCapabilityDisplayName(row.name, row.interactionCode) }}
-                  </template>
-                </el-table-column>
-                <el-table-column prop="qualifiedName" label="限定名" min-width="220" show-overflow-tooltip />
-                <el-table-column prop="interactionType" label="类型" width="150">
-                  <template #default="{ row }">
-                    {{ formatInteractionTypeLabel(row.interactionType) }}
-                  </template>
-                </el-table-column>
-                <el-table-column label="状态" width="100" align="center">
-                  <template #default="{ row }">
-                    <el-tag :type="row.enabled ? 'success' : 'info'" size="small">
-                      {{ row.enabled ? '启用' : '停用' }}
-                    </el-tag>
-                  </template>
-                </el-table-column>
-                <el-table-column label="操作" width="100" fixed="right">
-                  <template #default="{ row }">
-                    <el-button link type="primary" :icon="Edit" @click="openInteractionDialog(row)">编辑</el-button>
-                  </template>
-                </el-table-column>
-              </el-table>
-            </el-tab-pane>
-          </el-tabs>
-        </template>
-      </main>
-    </section>
+              <div>
+                <dt>输入参数</dt>
+                <dd>{{ capabilityParameterCount(selectedCapability.parameters) }} 项</dd>
+              </div>
+              <div class="is-wide">
+                <dt>调用地址</dt>
+                <dd>{{ capabilityEndpoint(selectedCapability) }}</dd>
+              </div>
+              <div>
+                <dt>请求类型</dt>
+                <dd>{{ selectedCapability.requestBodyType || '未声明' }}</dd>
+              </div>
+              <div>
+                <dt>响应类型</dt>
+                <dd>{{ selectedCapability.responseType || '未声明' }}</dd>
+              </div>
+            </dl>
+          </el-tab-pane>
 
-    <AppDialog v-model="moduleDialogVisible" title="能力模块" width="560px">
-      <el-form label-width="110px">
-        <el-form-item label="模块编码" required>
-          <el-input v-model="moduleForm.code" :disabled="Boolean(moduleEditingCode)" />
-        </el-form-item>
-        <el-form-item label="模块名称" required>
-          <el-input v-model="moduleForm.name" />
-        </el-form-item>
-        <el-form-item label="版本">
-          <el-input v-model="moduleForm.version" />
-        </el-form-item>
-        <el-form-item label="来源">
-          <el-select v-model="moduleForm.sourceType" style="width: 100%">
-            <el-option
-              v-for="item in MODULE_SOURCE_SELECT_OPTIONS"
-              :key="item.value"
-              :label="item.label"
-              :value="item.value"
+          <el-tab-pane :label="`调用契约 · ${capabilityParameterCount(selectedCapability.parameters)}`" name="contract">
+            <section class="capability-detail-section">
+              <h3>调用协议</h3>
+              <div class="protocol-banner">
+                <el-tag v-if="selectedCapability.httpMethod" :type="httpMethodTone(selectedCapability.httpMethod)" effect="dark">
+                  {{ selectedCapability.httpMethod.toUpperCase() }}
+                </el-tag>
+                <code>{{ capabilityEndpoint(selectedCapability) }}</code>
+              </div>
+            </section>
+
+            <el-table
+              v-if="selectedCapability.parameters?.length"
+              :data="selectedCapability.parameters"
+              row-key="name"
+              default-expand-all
+              :tree-props="{ children: 'children' }"
+              class="parameter-table"
+            >
+              <el-table-column prop="name" label="参数" min-width="180" />
+              <el-table-column prop="type" label="类型" width="120" />
+              <el-table-column prop="location" label="位置" width="100">
+                <template #default="{ row }">{{ row.location || 'body' }}</template>
+              </el-table-column>
+              <el-table-column label="必填" width="76" align="center">
+                <template #default="{ row }">{{ row.required ? '是' : '否' }}</template>
+              </el-table-column>
+              <el-table-column prop="description" label="说明" min-width="180">
+                <template #default="{ row }">{{ row.description || '—' }}</template>
+              </el-table-column>
+            </el-table>
+            <el-empty v-else description="该能力没有声明输入参数" :image-size="72" />
+          </el-tab-pane>
+
+          <el-tab-pane label="治理边界" name="governance">
+            <el-alert
+              title="跨服务引用尚未汇总到目录"
+              description="这里不会把缺失数据展示成 0。停用、移除或改变调用契约前，仍需核对 Workflow、Agent 与 MCP 发布修订。"
+              type="warning"
+              :closable="false"
+              show-icon
             />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="启用">
-          <el-switch v-model="moduleForm.enabled" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="moduleDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="submitModule">保存</el-button>
-      </template>
-    </AppDialog>
 
-    <AppDialog v-model="toolDialogVisible" title="能力执行动作" width="720px">
-      <el-form label-width="130px">
-        <el-form-item label="动作编码" required>
-          <el-input v-model="toolForm.toolCode" :disabled="Boolean(toolEditingCode)" />
-        </el-form-item>
-        <el-form-item label="动作名称" required>
-          <el-input v-model="toolForm.name" />
-        </el-form-item>
-        <el-form-item label="执行器类型">
-          <el-select v-model="toolForm.executorType" style="width: 100%">
-            <el-option
-              v-for="item in EXECUTOR_TYPE_SELECT_OPTIONS"
-              :key="item.value"
-              :label="item.label"
-              :value="item.value"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="执行器引用">
-          <el-input v-model="toolForm.executorRef" />
-        </el-form-item>
-        <el-form-item label="描述">
-          <el-input v-model="toolForm.description" type="textarea" :rows="3" />
-        </el-form-item>
-        <el-form-item label="状态">
-          <el-switch v-model="toolForm.enabled" active-text="启用" inactive-text="停用" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="toolDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="submitTool">保存</el-button>
-      </template>
-    </AppDialog>
+            <section class="governance-path">
+              <article>
+                <span>Workflow</span>
+                <strong>按稳定标识引用</strong>
+                <p>Studio 从可用目录中选择，发布时由 Runtime 校验引用。</p>
+              </article>
+              <article>
+                <span>Agent</span>
+                <strong>通过 Workflow 使用</strong>
+                <p>Agent 只装配已发布的 Workflow-as-Tool，不直接拥有目录能力。</p>
+              </article>
+              <article>
+                <span>MCP / A2A</span>
+                <strong>由控制面解析</strong>
+                <p>开放时按发布修订冻结，不以当前目录列表替代发布证据。</p>
+              </article>
+            </section>
 
-    <AppDialog v-model="compositionDialogVisible" title="组合资产" width="860px">
-      <el-form label-width="130px">
-        <el-form-item label="组合编码" required>
-          <el-input v-model="compositionForm.compositionCode" :disabled="Boolean(compositionEditingCode)" />
-        </el-form-item>
-        <el-form-item label="组合名称" required>
-          <el-input v-model="compositionForm.name" />
-        </el-form-item>
-        <el-form-item label="描述">
-          <el-input v-model="compositionForm.description" type="textarea" :rows="2" />
-        </el-form-item>
-        <el-form-item label="图规格 JSON">
-          <el-input v-model="compositionForm.graphSpecJson" type="textarea" :rows="12" />
-        </el-form-item>
-        <el-form-item label="状态">
-          <el-switch v-model="compositionForm.enabled" active-text="启用" inactive-text="停用" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="compositionDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="submitComposition">保存</el-button>
+            <section v-if="metadataEntries.length" class="capability-detail-section metadata-section">
+              <h3>声明元数据</h3>
+              <dl>
+                <div v-for="([key, value]) in metadataEntries" :key="key">
+                  <dt>{{ key }}</dt>
+                  <dd>{{ prettyCapabilityValue(value) }}</dd>
+                </div>
+              </dl>
+            </section>
+          </el-tab-pane>
+        </el-tabs>
       </template>
-    </AppDialog>
 
-    <AppDialog v-model="interactionDialogVisible" title="交互定义" width="860px">
-      <el-form label-width="130px">
-        <el-form-item label="交互编码" required>
-          <el-input v-model="interactionForm.interactionCode" :disabled="Boolean(interactionEditingCode)" />
-        </el-form-item>
-        <el-form-item label="交互名称" required>
-          <el-input v-model="interactionForm.name" />
-        </el-form-item>
-        <el-form-item label="交互类型">
-          <el-select v-model="interactionForm.interactionType" style="width: 100%">
-            <el-option
-              v-for="item in INTERACTION_TYPE_SELECT_OPTIONS"
-              :key="item.value"
-              :label="item.label"
-              :value="item.value"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="描述">
-          <el-input v-model="interactionForm.description" type="textarea" :rows="2" />
-        </el-form-item>
-        <el-form-item label="交互规格 JSON">
-          <el-input v-model="interactionForm.specJson" type="textarea" :rows="12" />
-        </el-form-item>
-        <el-form-item label="状态">
-          <el-switch v-model="interactionForm.enabled" active-text="启用" inactive-text="停用" />
-        </el-form-item>
-      </el-form>
       <template #footer>
-        <el-button @click="interactionDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="submitInteraction">保存</el-button>
+        <div class="drawer-actions">
+          <el-button
+            v-if="selectedCapability?.projectCode"
+            @click="openSourceProject(selectedCapability.projectCode)"
+          >
+            查看来源项目
+          </el-button>
+          <el-button type="primary" @click="router.push('/workflows')">前往 Workflow 编排</el-button>
+        </div>
       </template>
-    </AppDialog>
-
-    <AppDialog v-model="runDialogVisible" :title="runTitle" width="760px">
-      <el-form label-width="120px">
-        <el-form-item label="限定名">
-          <el-input :model-value="runTarget?.qualifiedName" readonly />
-        </el-form-item>
-        <el-form-item label="入参 JSON">
-          <el-input v-model="runParamsJson" type="textarea" :rows="7" />
-        </el-form-item>
-        <el-form-item v-if="currentUiRequest" label="交互请求">
-          <InteractionRenderer
-            :ui-request="currentUiRequest"
-            @submit="resumeCurrentInteraction"
-            @cancel="currentUiRequest = null"
-          />
-        </el-form-item>
-        <el-form-item v-if="runResult" label="执行结果">
-          <pre class="json-result">{{ prettyJson(runResult) }}</pre>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="runDialogVisible = false">关闭</el-button>
-        <el-button type="primary" :icon="VideoPlay" :loading="running" @click="executeRun">执行</el-button>
-      </template>
-    </AppDialog>
+    </AppDrawer>
   </WorkbenchPage>
 </template>
 
 <script setup lang="ts">
-import AppDialog from '@/components/common/AppDialog.vue'
-import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed, onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Edit, Plus, Refresh, VideoPlay } from '@element-plus/icons-vue'
-import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
+import { Document, Refresh, RefreshLeft, Search, View } from '@element-plus/icons-vue'
+import AppDrawer from '@/components/common/AppDrawer.vue'
+import DataTableShell from '@/components/common/DataTableShell.vue'
+import FilterBar from '@/components/common/FilterBar.vue'
+import MetricStrip from '@/components/common/MetricStrip.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
-import InteractionRenderer from '@/components/interaction/InteractionRenderer.vue'
-import type { UiRequestPayload } from '@/types/interaction'
+import StatusTag from '@/components/common/StatusTag.vue'
+import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
+import type { MetricStripItem } from '@/components/common/glassWorkbench'
+import { getTools } from '@/api/tool'
+import { useProjectStore } from '@/store/project'
+import type { ToolInfo, ToolPageResult } from '@/types/tool'
 import {
-  executeComposition,
-  executeToolAsset,
-  listCapabilityModules,
-  listModuleCompositions,
-  listModuleInteractions,
-  listModuleTools,
-  resumeInteraction,
-  saveCapabilityModule,
-  saveModuleComposition,
-  saveModuleInteraction,
-  saveModuleTool,
-  type CapabilityModule,
-  type CompositionDefinition,
-  type InteractionDefinition,
-  type RuntimeExecuteResult,
-  type ToolAsset,
-} from '@/api/capabilityKernel'
-import {
-  EXECUTOR_TYPE_SELECT_OPTIONS,
-  INTERACTION_TYPE_SELECT_OPTIONS,
-  MODULE_SOURCE_SELECT_OPTIONS,
-  formatCapabilityDisplayName,
-  formatExecutorTypeLabel,
-  formatInteractionTypeLabel,
-} from '@/utils/capabilityLabels'
+  capabilityDescription,
+  capabilityDescriptionHasEncodingIssue,
+  capabilityDisplayName,
+  capabilityEndpoint,
+  capabilityParameterCount,
+  capabilityProtocol,
+  capabilitySideEffectLabel,
+  capabilitySideEffectTone,
+  capabilitySourceLabel,
+  capabilitySourceTone,
+  capabilityStableName,
+  parseCapabilityMetadata,
+  prettyCapabilityValue,
+} from './capabilityGovernance'
 
-type RunKind = 'tool' | 'composition'
-type AssetTab = 'tools' | 'compositions' | 'interactions'
+const router = useRouter()
+const projectStore = useProjectStore()
+type LoadState = 'loading' | 'ready' | 'error'
 
-const route = useRoute()
 const loading = ref(false)
-const assetLoading = ref(false)
-const saving = ref(false)
-const running = ref(false)
-const modules = ref<CapabilityModule[]>([])
-const tools = ref<ToolAsset[]>([])
-const compositions = ref<CompositionDefinition[]>([])
-const interactions = ref<InteractionDefinition[]>([])
-const selectedModule = ref<CapabilityModule | null>(null)
-const activeTab = ref<AssetTab>('tools')
+const summaryLoading = ref(false)
+const summaryState = ref<LoadState>('loading')
+const listState = ref<LoadState>('loading')
+const listError = ref('')
+const capabilities = ref<ToolInfo[]>([])
+const total = ref(0)
+const currentPage = ref(1)
+const pageSize = ref(20)
+const filterKeyword = ref('')
+const filterProjectId = ref<number>()
+const filterSource = ref('')
+const filterEnabled = ref<boolean>()
+const requestSequence = ref(0)
 
-const moduleDialogVisible = ref(false)
-const toolDialogVisible = ref(false)
-const compositionDialogVisible = ref(false)
-const interactionDialogVisible = ref(false)
-const runDialogVisible = ref(false)
-const moduleEditingCode = ref('')
-const toolEditingCode = ref('')
-const compositionEditingCode = ref('')
-const interactionEditingCode = ref('')
-const runKind = ref<RunKind>('tool')
-const runTarget = ref<ToolAsset | CompositionDefinition | null>(null)
-const runParamsJson = ref('{\n  "message": "hello"\n}')
-const runResult = ref<RuntimeExecuteResult | null>(null)
-const currentUiRequest = ref<UiRequestPayload | null>(null)
-const currentInteractionSessionId = ref('')
+const summary = reactive({ catalog: 0, available: 0, disabled: 0 })
 
-const moduleForm = reactive<CapabilityModule>(emptyModule())
-const toolForm = reactive<ToolAsset>(emptyTool())
-const compositionForm = reactive<CompositionDefinition>(emptyComposition())
-const interactionForm = reactive<InteractionDefinition>(emptyInteraction())
+const detailVisible = ref(false)
+const detailTab = ref('overview')
+const selectedCapability = ref<ToolInfo | null>(null)
 
-const runTitle = computed(() => `${runKind.value === 'tool' ? '执行动作' : '组合'}测试`)
+const metricItems = computed<MetricStripItem[]>(() => [
+  { key: 'catalog', label: '目录能力', value: summaryState.value === 'ready' ? summary.catalog : '—', hint: summaryState.value === 'error' ? '指标读取失败' : '当前已纳管定义', tone: 'brand', iconKey: 'box' },
+  { key: 'available', label: '已启用', value: summaryState.value === 'ready' ? summary.available : '—', hint: summaryState.value === 'error' ? '状态未知' : '调用前仍核对来源与发布契约', tone: 'success', iconKey: 'check' },
+  { key: 'disabled', label: '已停用', value: summaryState.value === 'ready' ? summary.disabled : '—', hint: summaryState.value === 'error' ? '状态未知' : '保留定义但不可新选', tone: 'warning', iconKey: 'pause' },
+  { key: 'projects', label: '平台项目', value: projectStore.projects.length, hint: '接入与来源治理范围', tone: 'info', iconKey: 'link' },
+])
 
-watch(
-  () => route.path,
-  (path) => {
-    if (path.endsWith('/compositions')) activeTab.value = 'compositions'
-    else if (path.endsWith('/interactions')) activeTab.value = 'interactions'
-    else activeTab.value = 'tools'
-  },
-  { immediate: true },
-)
+const hasActiveFilters = computed(() => Boolean(
+  filterKeyword.value.trim()
+  || filterProjectId.value
+  || filterSource.value
+  || filterEnabled.value !== undefined,
+))
 
-watch(activeTab, () => {
-  if (selectedModule.value) loadAssets(selectedModule.value.code)
+const capabilityMetadata = computed(() => parseCapabilityMetadata(selectedCapability.value?.capabilityMetadataJson))
+const metadataEntries = computed(() => Object.entries(capabilityMetadata.value || {}))
+
+onMounted(async () => {
+  await Promise.all([
+    projectStore.projects.length ? Promise.resolve() : projectStore.fetchProjects(),
+    loadCatalogSummary(),
+    loadCapabilities(),
+  ])
 })
 
-onMounted(loadModules)
-
-async function loadModules() {
-  loading.value = true
+async function loadCatalogSummary() {
+  summaryLoading.value = true
+  summaryState.value = 'loading'
   try {
-    const { data } = await listCapabilityModules()
-    modules.value = data || []
-    if (!selectedModule.value && modules.value.length > 0) {
-      await selectModule(modules.value[0])
-    } else if (selectedModule.value) {
-      const next = modules.value.find((item) => item.code === selectedModule.value?.code) || null
-      selectedModule.value = next
-      if (next) await loadAssets(next.code)
-    }
-  } finally {
-    loading.value = false
-  }
-}
-
-async function selectModule(row: CapabilityModule | null) {
-  selectedModule.value = row
-  tools.value = []
-  compositions.value = []
-  interactions.value = []
-  if (row) await loadAssets(row.code)
-}
-
-async function loadAssets(code: string) {
-  assetLoading.value = true
-  try {
-    if (activeTab.value === 'tools') {
-      const { data } = await listModuleTools(code)
-      tools.value = data || []
-    } else if (activeTab.value === 'compositions') {
-      const { data } = await listModuleCompositions(code)
-      compositions.value = data || []
-    } else {
-      const { data } = await listModuleInteractions(code)
-      interactions.value = data || []
-    }
-  } finally {
-    assetLoading.value = false
-  }
-}
-
-function openModuleDialog(row?: CapabilityModule) {
-  Object.assign(moduleForm, row ? { ...row } : emptyModule())
-  moduleEditingCode.value = row?.code || ''
-  moduleDialogVisible.value = true
-}
-
-function openToolDialog(row?: ToolAsset) {
-  Object.assign(toolForm, row ? { ...row } : emptyTool())
-  toolEditingCode.value = row?.toolCode || ''
-  toolDialogVisible.value = true
-}
-
-function openCompositionDialog(row?: CompositionDefinition) {
-  Object.assign(compositionForm, row ? { ...row } : emptyComposition())
-  compositionEditingCode.value = row?.compositionCode || ''
-  compositionDialogVisible.value = true
-}
-
-function openInteractionDialog(row?: InteractionDefinition) {
-  Object.assign(interactionForm, row ? { ...row } : emptyInteraction())
-  interactionEditingCode.value = row?.interactionCode || ''
-  interactionDialogVisible.value = true
-}
-
-async function submitModule() {
-  if (!moduleForm.code || !moduleForm.name) {
-    ElMessage.warning('请填写模块编码和名称')
-    return
-  }
-  saving.value = true
-  try {
-    await saveCapabilityModule({ ...moduleForm })
-    moduleDialogVisible.value = false
-    await loadModules()
-    ElMessage.success('模块已保存')
-  } finally {
-    saving.value = false
-  }
-}
-
-async function saveSelectedModule() {
-  if (!selectedModule.value) return
-  await saveCapabilityModule({ ...selectedModule.value })
-  ElMessage.success('状态已更新')
-}
-
-async function submitTool() {
-  if (!selectedModule.value) return
-  if (!toolForm.toolCode || !toolForm.name) {
-    ElMessage.warning('请填写动作编码和名称')
-    return
-  }
-  saving.value = true
-  try {
-    await saveModuleTool(selectedModule.value.code, { ...toolForm })
-    toolDialogVisible.value = false
-    await loadAssets(selectedModule.value.code)
-    ElMessage.success('执行动作已保存')
-  } finally {
-    saving.value = false
-  }
-}
-
-async function submitComposition() {
-  if (!selectedModule.value) return
-  if (!compositionForm.compositionCode || !compositionForm.name) {
-    ElMessage.warning('请填写组合编码和名称')
-    return
-  }
-  tryParseJson(compositionForm.graphSpecJson || '{}')
-  saving.value = true
-  try {
-    await saveModuleComposition(selectedModule.value.code, { ...compositionForm })
-    compositionDialogVisible.value = false
-    await loadAssets(selectedModule.value.code)
-    ElMessage.success('组合已保存')
-  } finally {
-    saving.value = false
-  }
-}
-
-async function submitInteraction() {
-  if (!selectedModule.value) return
-  if (!interactionForm.interactionCode || !interactionForm.name) {
-    ElMessage.warning('请填写交互编码和名称')
-    return
-  }
-  tryParseJson(interactionForm.specJson || '{}')
-  saving.value = true
-  try {
-    await saveModuleInteraction(selectedModule.value.code, { ...interactionForm })
-    interactionDialogVisible.value = false
-    await loadAssets(selectedModule.value.code)
-    ElMessage.success('交互定义已保存')
-  } finally {
-    saving.value = false
-  }
-}
-
-function openRunDialog(kind: RunKind, row: ToolAsset | CompositionDefinition) {
-  runKind.value = kind
-  runTarget.value = row
-  runResult.value = null
-  currentUiRequest.value = null
-  currentInteractionSessionId.value = ''
-  runDialogVisible.value = true
-}
-
-async function executeRun() {
-  if (!runTarget.value?.qualifiedName) return
-  const params = tryParseJson(runParamsJson.value)
-  running.value = true
-  try {
-    const { data } = runKind.value === 'tool'
-      ? await executeToolAsset(runTarget.value.qualifiedName, params)
-      : await executeComposition(runTarget.value.qualifiedName, params)
-    applyRunResult(data)
-  } finally {
-    running.value = false
-  }
-}
-
-async function resumeCurrentInteraction(values: Record<string, unknown>) {
-  if (!currentInteractionSessionId.value) return
-  running.value = true
-  try {
-    const { data } = await resumeInteraction(currentInteractionSessionId.value, values)
-    currentUiRequest.value = null
-    currentInteractionSessionId.value = ''
-    applyRunResult(data)
-  } finally {
-    running.value = false
-  }
-}
-
-function applyRunResult(data: RuntimeExecuteResult) {
-  runResult.value = data
-  const uiRequest = data.metadata?.uiRequest as UiRequestPayload | undefined
-  const sessionId = data.metadata?.interactionSessionId
-  if (data.status === 'WAITING_USER' && uiRequest && typeof sessionId === 'string') {
-    currentUiRequest.value = uiRequest
-    currentInteractionSessionId.value = sessionId
-  }
-}
-
-function tryParseJson(raw: string): Record<string, unknown> {
-  try {
-    const value = JSON.parse(raw || '{}')
-    return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+    const [catalogResponse, availableResponse, disabledResponse] = await Promise.all([
+      getTools({ current: 1, size: 1 }),
+      getTools({ current: 1, size: 1, enabled: true }),
+      getTools({ current: 1, size: 1, enabled: false }),
+    ])
+    summary.catalog = pageTotal(catalogResponse.data)
+    summary.available = pageTotal(availableResponse.data)
+    summary.disabled = pageTotal(disabledResponse.data)
+    summaryState.value = 'ready'
   } catch {
-    ElMessage.warning('JSON 格式不正确')
-    throw new Error('invalid json')
+    summaryState.value = 'error'
+  } finally {
+    summaryLoading.value = false
   }
 }
 
-function prettyJson(value: unknown) {
-  return JSON.stringify(value, null, 2)
-}
-
-function emptyModule(): CapabilityModule {
-  return {
-    code: '',
-    name: '',
-    version: '1.0.0',
-    sourceType: 'BUILTIN',
-    status: 'ACTIVE',
-    enabled: true,
+async function loadCapabilities() {
+  const sequence = ++requestSequence.value
+  loading.value = true
+  listState.value = 'loading'
+  listError.value = ''
+  capabilities.value = []
+  total.value = 0
+  try {
+    const { data } = await getTools({
+      current: currentPage.value,
+      size: pageSize.value,
+      keyword: filterKeyword.value.trim() || undefined,
+      projectId: filterProjectId.value,
+      source: filterSource.value || undefined,
+      enabled: filterEnabled.value,
+    })
+    if (sequence !== requestSequence.value) return
+    capabilities.value = Array.isArray(data?.records) ? data.records : []
+    total.value = Number(data?.total || 0)
+    listState.value = 'ready'
+  } catch (error) {
+    if (sequence !== requestSequence.value) return
+    capabilities.value = []
+    total.value = 0
+    listState.value = 'error'
+    listError.value = error instanceof Error ? error.message : '能力目录加载失败'
+  } finally {
+    if (sequence === requestSequence.value) loading.value = false
   }
 }
 
-function emptyTool(): ToolAsset {
-  return {
-    toolCode: '',
-    name: '',
-    executorType: 'BEAN',
-    executorRef: '',
-    sideEffect: 'WRITE',
-    enabled: true,
-  }
+async function refreshCatalog() {
+  await Promise.all([loadCatalogSummary(), loadCapabilities()])
+  if (summaryState.value === 'ready' && listState.value === 'ready') ElMessage.success('能力目录已刷新')
+  else ElMessage.warning('能力目录刷新不完整，请重试')
 }
 
-function emptyComposition(): CompositionDefinition {
-  return {
-    compositionCode: '',
-    name: '',
-    graphSpecJson: '{\n  "schemaVersion": 2,\n  "entryNodeId": "collect",\n  "exitNodeIds": ["collect"],\n  "nodes": [\n    {\n      "id": "collect",\n      "type": "INTERACTION",\n      "config": {\n        "interactionType": "COLLECT_INPUT",\n        "fields": [\n          { "key": "message", "label": "消息", "type": "string", "required": true }\n        ],\n        "outputAlias": "params"\n      }\n    }\n  ],\n  "edges": []\n}',
-    sideEffect: 'WRITE',
-    enabled: true,
-  }
+async function applyFilters() {
+  currentPage.value = 1
+  await loadCapabilities()
 }
 
-function emptyInteraction(): InteractionDefinition {
-  return {
-    interactionCode: '',
-    name: '',
-    interactionType: 'COLLECT_INPUT',
-    specJson: '{\n  "interactionType": "COLLECT_INPUT",\n  "title": "信息采集",\n  "fields": [\n    { "key": "message", "name": "message", "label": "消息", "type": "string", "required": true }\n  ],\n  "behavior": { "askPolicy": "MISSING_ONLY" }\n}',
-    enabled: true,
-  }
+async function resetFilters() {
+  filterKeyword.value = ''
+  filterProjectId.value = undefined
+  filterSource.value = ''
+  filterEnabled.value = undefined
+  currentPage.value = 1
+  await loadCapabilities()
+}
+
+async function handleSizeChange() {
+  currentPage.value = 1
+  await loadCapabilities()
+}
+
+function openCapabilityDetail(row: ToolInfo) {
+  selectedCapability.value = row
+  detailTab.value = 'overview'
+  detailVisible.value = true
+}
+
+function openSourceProject(projectCode: string) {
+  detailVisible.value = false
+  router.push({ name: 'RegistryProjectDetail', params: { projectCode } })
+}
+
+function httpMethodTone(method?: string | null) {
+  const normalized = String(method || '').toUpperCase()
+  if (normalized === 'GET') return 'success'
+  if (normalized === 'DELETE') return 'danger'
+  if (normalized === 'POST') return 'warning'
+  return 'info'
+}
+
+function pageTotal(data?: ToolPageResult | null) {
+  return Number(data?.total || 0)
+}
+function availabilityLabel(tool: { enabled: boolean; sourceAvailability?: string }) {
+  if (!tool.enabled) return '已停用'
+  if (tool.sourceAvailability && tool.sourceAvailability !== 'READY') return '来源待确认'
+  return tool.sourceAvailability === 'READY' ? '可用' : '待核验'
 }
 </script>
 
 <style scoped lang="scss">
-.kernel-layout {
+.capability-table-shell { min-height: 430px; }
+.catalog-load-alert { margin: 0; }
+.capability-filter-bar { width: 100%; }
+.filter-control.is-keyword { width: min(360px, 100%); }
+.filter-control.is-project { width: 240px; }
+.filter-control.is-source { width: 180px; }
+.filter-control.is-status { width: 140px; }
+
+.capability-table { --el-table-row-hover-bg-color: rgb(var(--brand-primary-rgb) / 0.07); }
+.capability-table :deep(.el-table__row) { cursor: pointer; }
+.capability-cell,
+.source-cell,
+.capability-detail-identity,
+.capability-detail-identity__tags,
+.protocol-banner,
+.drawer-actions { display: flex; align-items: center; }
+
+.capability-cell { min-width: 0; gap: 11px; }
+
+.capability-cell__mark,
+.capability-detail-identity__mark {
   display: grid;
-  grid-template-columns: minmax(260px, 34%) minmax(0, 1fr);
-  gap: 16px;
-  min-height: 560px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid rgb(var(--brand-primary-rgb) / 0.24);
+  color: var(--brand-primary);
+  font-weight: 800;
+  background: var(--surface-glass-selected);
 }
 
-.module-pane,
-.asset-pane {
-  min-width: 0;
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
-  background: var(--bg-card);
+.capability-cell__mark { width: 34px; height: 34px; border-radius: 11px; font-size: 13px; }
+
+.capability-cell__copy,
+.source-cell,
+.capability-detail-identity__copy { display: grid; min-width: 0; }
+
+.capability-cell__copy { gap: 2px; }
+
+.capability-cell__copy strong,
+.capability-cell__copy small,
+.capability-cell__copy > span,
+.source-cell strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.capability-cell__copy strong,
+.source-cell strong { color: var(--text-primary); font-size: 13px; }
+
+.capability-cell__copy small {
+  color: var(--text-secondary);
+  font: 11px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace;
 }
 
-.module-pane {
-  padding: 10px;
+.capability-cell__copy > span { color: var(--text-muted); font-size: 12px; }
+.source-cell { justify-items: start; gap: 6px; }
+.protocol-cell { color: var(--text-secondary); font-size: 12px; }
+
+.catalog-empty-state {
+  display: grid;
+  justify-items: center;
+  padding: 28px;
+  color: var(--text-muted);
+  text-align: center;
 }
 
-.asset-pane {
-  padding: 16px;
+.catalog-empty-state > p { margin: -12px 0 16px; font-size: 13px; }
+.catalog-empty-state__actions,
+.drawer-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.capability-detail-identity {
+  position: relative;
+  isolation: isolate;
+  gap: 15px;
+  overflow: hidden;
+  padding: 18px;
+  border: 1px solid var(--border-readable);
+  border-radius: var(--radius-lg);
+  background:
+    radial-gradient(circle at 92% 0, rgb(var(--brand-primary-rgb) / 0.18), transparent 42%),
+    var(--surface-glass-selected);
 }
 
-.module-cell {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 3px;
+.capability-detail-identity__mark { width: 52px; height: 52px; border-radius: 16px; font-size: 20px; }
+.capability-detail-identity__copy { gap: 3px; }
 
-  strong,
-  span {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
+.capability-detail-identity__copy p,
+.capability-detail-identity__copy h2,
+.capability-detail-identity__copy code { margin: 0; }
 
-  span {
-    color: var(--text-tertiary);
-    font-size: 12px;
-  }
+.capability-detail-identity__copy p { color: var(--text-muted); font-size: 12px; }
+.capability-detail-identity__copy h2 { color: var(--text-primary); font-size: 20px; }
+.capability-detail-identity__copy code { color: var(--text-secondary); font-size: 12px; }
+
+.capability-detail-identity__tags { flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+.capability-detail-tabs { margin-top: var(--section-gap); }
+.catalog-link-alert { margin-top: var(--section-gap); }
+.capability-detail-section { padding: 14px 0; }
+
+.capability-detail-section h3,
+.capability-detail-section p { margin: 0; }
+
+.capability-detail-section h3 { color: var(--text-primary); font-size: 14px; }
+
+.capability-detail-section p,
+.capability-detail-section > small {
+  display: block;
+  margin-top: 7px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.65;
 }
 
-.module-summary,
-.tab-toolbar,
-.summary-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
+.capability-detail-section > small { color: var(--text-muted); font-size: 12px; }
 
-.module-summary {
-  margin-bottom: 12px;
-
-  h3 {
-    margin: 0 0 4px;
-    font-size: 18px;
-  }
-
-  span {
-    color: var(--text-secondary);
-    font-size: 13px;
-  }
-}
-
-.tab-toolbar {
-  justify-content: flex-end;
-  margin-bottom: 10px;
-}
-
-.inline-switch {
-  margin-left: 16px;
-}
-
-.json-result {
-  max-height: 320px;
-  width: 100%;
-  overflow: auto;
+.capability-fact-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
   margin: 0;
-  padding: 12px;
-  border-radius: 6px;
-  background: var(--fill-muted);
-  font-size: 12px;
-  line-height: 1.6;
 }
+
+.capability-fact-grid > div {
+  min-width: 0;
+  padding: 11px 12px;
+  border: 1px solid var(--border-divider);
+  border-radius: var(--radius-md);
+  background: var(--surface-glass-control);
+}
+
+.capability-fact-grid > .is-wide { grid-column: 1 / -1; }
+.capability-fact-grid dt,
+.capability-fact-grid dd { margin: 0; }
+.capability-fact-grid dt { color: var(--text-muted); font-size: 11px; }
+
+.capability-fact-grid dd {
+  overflow-wrap: anywhere;
+  margin-top: 5px;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.protocol-banner {
+  gap: 10px;
+  margin-top: 8px;
+  padding: 12px;
+  border: 1px solid var(--border-divider);
+  border-radius: var(--radius-md);
+  background: var(--surface-glass-control);
+}
+
+.protocol-banner code { overflow-wrap: anywhere; color: var(--text-secondary); font-size: 12px; }
+.parameter-table { margin-top: 4px; }
+
+.governance-path {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: var(--section-gap);
+}
+
+.governance-path article {
+  padding: 12px;
+  border: 1px solid var(--border-divider);
+  border-radius: var(--radius-md);
+  background: var(--surface-glass-control);
+}
+
+.governance-path span,
+.governance-path strong { display: block; }
+.governance-path span { color: var(--brand-primary); font-size: 11px; font-weight: 700; letter-spacing: 0.05em; }
+.governance-path strong { margin-top: 4px; color: var(--text-primary); font-size: 13px; }
+.governance-path p { margin: 6px 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.55; }
+
+.metadata-section dl { display: grid; gap: 8px; margin: 10px 0 0; }
+
+.metadata-section dl > div {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.4fr) minmax(0, 1.6fr);
+  gap: 12px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--border-divider);
+}
+
+.metadata-section dt,
+.metadata-section dd { margin: 0; }
+.metadata-section dt { color: var(--text-muted); font-size: 12px; }
+
+.metadata-section dd {
+  overflow-wrap: anywhere;
+  color: var(--text-secondary);
+  font: 12px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace;
+  white-space: pre-wrap;
+}
+
+.drawer-actions { justify-content: flex-end; }
 
 @media (max-width: 900px) {
-  .kernel-layout {
-    grid-template-columns: 1fr;
-  }
+  .filter-control.is-project,
+  .filter-control.is-source,
+  .filter-control.is-status { width: min(100%, 220px); }
+  .governance-path { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 560px) {
+  .capability-fact-grid { grid-template-columns: 1fr; }
+  .capability-fact-grid > .is-wide { grid-column: auto; }
+  .metadata-section dl > div { grid-template-columns: 1fr; gap: 4px; }
 }
 </style>

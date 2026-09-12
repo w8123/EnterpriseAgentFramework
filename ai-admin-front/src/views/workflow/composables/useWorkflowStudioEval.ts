@@ -2,7 +2,7 @@ import { ElMessage } from 'element-plus'
 import { computed, ref, type Ref } from 'vue'
 import { debugWorkflowRun } from '@/api/workflow'
 import type { WorkflowDebugRunResult, WorkflowDebugStepResult, WorkflowWorkingCopyState } from '@/types/workflow'
-import { stringifyDebugPayload } from '@/views/workflow/composables/useWorkflowStudioDebugRun'
+import { stringifyDebugPayload } from './workflowStudioTrace'
 
 export interface WorkflowEvalCase {
   id: string

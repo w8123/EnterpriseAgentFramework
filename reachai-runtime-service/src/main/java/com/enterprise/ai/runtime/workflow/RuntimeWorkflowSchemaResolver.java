@@ -46,6 +46,7 @@ public final class RuntimeWorkflowSchemaResolver {
             if (StringUtils.hasText(publishedGraphSchema)) {
                 return publishedGraphSchema;
             }
+            return null;
         }
         if (workflow == null) {
             return null;
@@ -57,6 +58,26 @@ public final class RuntimeWorkflowSchemaResolver {
             return explicitWorkingSchema.trim();
         }
         return graphSchemaJson(objectMapper, workflow.getGraphSpecJson(), graphField);
+    }
+
+    public static String publishedInputSchemaJson(ObjectMapper objectMapper,
+                                                 RuntimeWorkflowPublishedVersionView version) {
+        if (version == null) return null;
+        Map<String, Object> snapshot = readMap(objectMapper, version.getSnapshotJson());
+        String explicit = schemaJson(objectMapper, snapshot.get("inputSchemaJson"));
+        return StringUtils.hasText(explicit) ? explicit : graphSchemaJson(objectMapper,
+                firstText(version.getGraphSpecSnapshotJson(), text(snapshot.get("graphSpec"))), "inputSchema");
+    }
+
+    /** An explicit tool binding with properties overrides the pinned published input contract. */
+    public static String publishedInputSchemaJson(ObjectMapper objectMapper,
+                                                  RuntimeWorkflowPublishedVersionView version,
+                                                  String bindingOverrideJson) {
+        Map<String, Object> override = readMap(objectMapper, bindingOverrideJson);
+        if (override != null && override.get("properties") instanceof Map<?, ?> properties && !properties.isEmpty()) {
+            return bindingOverrideJson;
+        }
+        return publishedInputSchemaJson(objectMapper, version);
     }
 
     private static String graphSchemaJson(ObjectMapper objectMapper, String graphJson, String graphField) {

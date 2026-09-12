@@ -121,7 +121,7 @@
             </div>
           </template>
           <template #composer>
-            <form class="chat-input" @submit.prevent="handleSend">
+            <form class="chat-input" novalidate @submit.prevent="handleSend">
               <div class="input-composer">
                 <el-input
                   v-model="inputMessage"
@@ -1019,7 +1019,7 @@ async function loadPendingApprovals() {
 }
 
 function handleKeydown(event: KeyboardEvent) {
-  if (event.ctrlKey && event.key === 'Enter') {
+  if (!event.isComposing && (event.ctrlKey || event.metaKey) && event.key === 'Enter') {
     event.preventDefault()
     handleSend()
   }

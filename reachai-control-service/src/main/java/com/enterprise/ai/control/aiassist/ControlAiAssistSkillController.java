@@ -18,7 +18,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Compatibility facade for the two public AI-assist download URLs.
+ * Compatibility facade for the public AI-assist download URLs.
  * Canonical package bytes and versions now come from the governed Agent Skill catalog.
  */
 @RestController
@@ -26,6 +26,7 @@ import java.util.List;
 public class ControlAiAssistSkillController {
 
     private static final String PUBLISHER = "reachai";
+    private static final String AGENT_AI_CODING = "agent-ai-coding";
     private static final String ONBOARDING = "reachai-onboarding";
     private static final String WORKFLOW_AI_CODING = "workflow-ai-coding";
 
@@ -45,6 +46,11 @@ public class ControlAiAssistSkillController {
         return ResponseEntity.ok(skillResponse(request, WORKFLOW_AI_CODING));
     }
 
+    @GetMapping("/skills/agent-ai-coding/latest")
+    public ResponseEntity<SkillPackageResponse> latestAgentAiCodingSkill(HttpServletRequest request) {
+        return ResponseEntity.ok(skillResponse(request, AGENT_AI_CODING));
+    }
+
     @GetMapping(value = "/skills/reachai-onboarding/latest.zip", produces = "application/zip")
     public ResponseEntity<byte[]> downloadLatestSkill() {
         return zipResponse(ONBOARDING);
@@ -53,6 +59,11 @@ public class ControlAiAssistSkillController {
     @GetMapping(value = "/skills/workflow-ai-coding/latest.zip", produces = "application/zip")
     public ResponseEntity<byte[]> downloadLatestWorkflowAiCodingSkill() {
         return zipResponse(WORKFLOW_AI_CODING);
+    }
+
+    @GetMapping(value = "/skills/agent-ai-coding/latest.zip", produces = "application/zip")
+    public ResponseEntity<byte[]> downloadLatestAgentAiCodingSkill() {
+        return zipResponse(AGENT_AI_CODING);
     }
 
     private SkillPackageResponse skillResponse(HttpServletRequest request, String name) {

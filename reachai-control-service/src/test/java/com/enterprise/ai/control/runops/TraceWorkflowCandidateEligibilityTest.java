@@ -1,17 +1,23 @@
 package com.enterprise.ai.control.runops;
 
 import com.enterprise.ai.control.client.runtime.RuntimeProxyClient;
+import com.enterprise.ai.control.aicoding.provider.AiCodingArtifactApplicationUnconfirmedException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.http.ResponseEntity;
 
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class TraceWorkflowCandidateEligibilityTest {
 
@@ -49,6 +55,21 @@ class TraceWorkflowCandidateEligibilityTest {
                 message.contains("重规划")));
         assertTrue(result.blockers().stream().anyMatch(message ->
                 message.contains("恰好调用一个")));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"NULL_RESPONSE", "EMPTY_BODY", "MISSING_ID", "WRONG_ID"})
+    void incompleteOrMismatchedTraceResponseIsUnconfirmed(String fault) {
+        var runtime = mock(RuntimeProxyClient.class);
+        var current = new TraceWorkflowCandidateEligibility(runtime, new ObjectMapper());
+        var detail = new LinkedHashMap<>(detail(true, "READ", 0, 1));
+        var summary = new LinkedHashMap<>((Map<String, Object>) detail.get("summary"));
+        if (fault.equals("MISSING_ID")) summary.remove("traceId");
+        if (fault.equals("WRONG_ID")) summary.put("traceId", "another-trace");
+        detail.put("summary", summary);
+        when(runtime.runOpsDetail("trace-1")).thenReturn(fault.equals("NULL_RESPONSE")
+                ? null : ResponseEntity.ok(fault.equals("EMPTY_BODY") ? null : detail));
+        assertThrows(AiCodingArtifactApplicationUnconfirmedException.class, () -> current.evaluate("trace-1"));
     }
 
     private Map<String, Object> detail(

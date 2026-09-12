@@ -21,11 +21,15 @@
         <el-button v-if="canWriteWorkflow" :icon="CircleCheck" :loading="validating" @click="validateRelease">
           校验
         </el-button>
-        <el-button v-if="canPublishWorkflow" type="primary" :icon="Upload" @click="publishOpen = true">
+        <el-button v-if="canPublishWorkflow" type="primary" :icon="Upload" :disabled="publishing || rollingBackId !== null" @click="publishOpen = true">
           发布
         </el-button>
       </template>
     </PageHeader>
+
+    <el-alert v-if="releaseError" type="error" :closable="false" show-icon :title="releaseError">
+      <el-button text :disabled="publishing || rollingBackId !== null" @click="refreshReleaseState">刷新版本状态</el-button>
+    </el-alert>
 
     <el-alert
       v-if="validation"
@@ -67,7 +71,7 @@
           <el-button
             v-if="canPublishWorkflow"
             size="small"
-            :disabled="row.status === 'ACTIVE'"
+            :disabled="row.status === 'ACTIVE' || publishing || rollingBackId !== null"
             :loading="rollingBackId === row.id"
             @click="rollback(row)"
           >
@@ -77,23 +81,24 @@
       </el-table-column>
     </el-table>
 
-    <AppDialog v-model="publishOpen" title="发布 Workflow 版本" width="460px">
-      <el-form :model="publishForm" label-width="110px">
+    <AppDialog v-model="publishOpen" title="发布 Workflow 版本" width="460px"
+      :close-on-click-modal="!publishing" :close-on-press-escape="!publishing" :show-close="!publishing">
+      <el-alert v-if="releaseError" type="error" :closable="false" show-icon :title="releaseError">
+        <el-button text :disabled="publishing" @click="refreshReleaseState">刷新版本状态</el-button>
+      </el-alert>
+      <el-form :model="publishForm" label-width="110px" :disabled="publishing" novalidate>
         <el-form-item label="版本">
           <el-input v-model="publishForm.version" placeholder="v1.0.0" />
         </el-form-item>
         <el-form-item label="生效方式">
           <el-input value="全量发布" disabled />
         </el-form-item>
-        <el-form-item label="发布人">
-          <el-input v-model="publishForm.publishedBy" placeholder="operator" />
-        </el-form-item>
         <el-form-item label="备注">
-          <el-input v-model="publishForm.note" type="textarea" :rows="3" />
+          <el-input v-model="publishForm.note" type="textarea" :rows="3" resize="none" />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="publishOpen = false">取消</el-button>
+        <el-button :disabled="publishing" @click="publishOpen = false">取消</el-button>
         <el-button type="primary" :loading="publishing" @click="publishVersion">发布</el-button>
       </template>
     </AppDialog>
@@ -146,10 +151,10 @@ const publishOpen = ref(false)
 const workflow = ref<WorkflowWorkingCopy | null>(null)
 const versions = ref<WorkflowVersion[]>([])
 const validation = ref<WorkflowReleaseValidationResult | null>(null)
+const releaseError = ref('')
 const publishForm = reactive<WorkflowPublishRequest>({
   version: '',
   rolloutPercent: 100,
-  publishedBy: '',
   note: '',
 })
 
@@ -204,41 +209,83 @@ async function validateRelease() {
 }
 
 async function publishVersion() {
-  if (!canPublishWorkflow.value) return
+  if (!canPublishWorkflow.value || publishing.value || rollingBackId.value !== null) return
+  const baseRevision = workflow.value?.updatedAt
+  if (!baseRevision) {
+    releaseError.value = '未能读取草稿修订，请刷新版本状态后再发布。'
+    return
+  }
   if (!publishForm.version.trim()) {
     ElMessage.warning('请填写版本号')
     return
   }
   publishing.value = true
+  releaseError.value = ''
   try {
     await publishWorkflowVersion(workflowId, {
       version: publishForm.version.trim(),
       rolloutPercent: 100,
       note: publishForm.note,
-      publishedBy: publishForm.publishedBy,
+      baseRevision,
     })
     publishOpen.value = false
     validation.value = null
     ElMessage.success('Workflow 版本已发布')
-    await Promise.all([loadWorkflow(), loadVersions()])
+    await refreshAfterRelease()
+  } catch (error) {
+    releaseError.value = releaseFailure(error)
   } finally {
     publishing.value = false
   }
 }
 
 async function rollback(row: WorkflowVersion) {
-  if (!canPublishWorkflow.value) return
-  await ElMessageBox.confirm(`确认回滚到 ${row.version}？`, '回滚 Workflow', {
-    type: 'warning',
-  })
+  if (!canPublishWorkflow.value || publishing.value || rollingBackId.value !== null) return
+  const baseRevision = workflow.value?.updatedAt
+  if (!baseRevision) {
+    releaseError.value = '未能读取草稿修订，请刷新版本状态后再回滚。'
+    return
+  }
   rollingBackId.value = row.id
   try {
-    await rollbackWorkflowVersion(workflowId, row.id, publishForm.publishedBy || undefined)
+    await ElMessageBox.confirm(`将活动发布版本切换到 ${row.version}，当前编辑草稿会保留。确认回滚？`, '回滚 Workflow', {
+      type: 'warning', confirmButtonText: '回滚版本', cancelButtonText: '取消',
+    })
+  } catch {
+    rollingBackId.value = null
+    return
+  }
+  releaseError.value = ''
+  try {
+    await rollbackWorkflowVersion(workflowId, row.id, baseRevision)
     ElMessage.success('Workflow 已回滚')
-    await Promise.all([loadWorkflow(), loadVersions()])
+    await refreshAfterRelease()
+  } catch (error) {
+    releaseError.value = releaseFailure(error)
   } finally {
     rollingBackId.value = null
   }
+}
+
+async function refreshAfterRelease() {
+  try {
+    await Promise.all([loadWorkflow(), loadVersions()])
+  } catch {
+    releaseError.value = '操作已完成，但版本状态未能刷新。请刷新版本状态后继续。'
+  }
+}
+
+async function refreshReleaseState() {
+  try {
+    await Promise.all([loadWorkflow(), loadVersions()])
+    releaseError.value = ''
+  } catch { releaseError.value = '版本状态加载失败，请重试。' }
+}
+
+function releaseFailure(error: unknown) {
+  const failure = error as { response?: { status?: number; data?: { message?: string } } }
+  if (failure.response?.status === 409) return '草稿已被更新，本次操作未执行。请刷新版本状态并检查最新草稿后重试。'
+  return failure.response?.data?.message || '暂未能确认操作结果，请刷新版本状态后再重试。'
 }
 </script>
 

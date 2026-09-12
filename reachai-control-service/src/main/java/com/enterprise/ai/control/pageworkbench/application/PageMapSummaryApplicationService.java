@@ -1,6 +1,6 @@
 package com.enterprise.ai.control.pageworkbench.application;
 
-import com.enterprise.ai.control.aicoding.application.AiCodingTaskApplicationService.LatestAppliedTaskArtifact;
+import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.LatestAppliedTaskArtifact;
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskView;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.PageMapSummaryView;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.PageView;

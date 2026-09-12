@@ -20,6 +20,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Function;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -39,6 +40,9 @@ class RuntimePageWorkbenchWorkflowDeliveryServiceTest {
     private RuntimeWorkflowVersionService workflowVersionService;
     private RuntimePageAssistantWorkflowAttachmentService attachmentService;
     private RuntimePageWorkbenchWorkflowDeliveryService service;
+    private RuntimeWorkflowDraftSubmissionService submissions;
+    private RuntimeWorkflowDefinitionEntity submissionCurrent;
+    private boolean submissionReplay;
 
     @BeforeEach
     void setUp() {
@@ -50,21 +54,31 @@ class RuntimePageWorkbenchWorkflowDeliveryServiceTest {
         workflowVersionService = mock(RuntimeWorkflowVersionService.class);
         attachmentService =
                 mock(RuntimePageAssistantWorkflowAttachmentService.class);
+        submissions = mock(RuntimeWorkflowDraftSubmissionService.class);
+        when(submissions.apply(any(), any(), any(), any())).thenAnswer(call -> {
+            if (submissionReplay) {
+                Function<String, ContextView> readCurrent = call.getArgument(3);
+                return readCurrent.apply("wf-orders-detail");
+            }
+            Function<RuntimeWorkflowDraftSubmissionService.Attempt,
+                    RuntimeWorkflowDraftSubmissionService.Applied<ContextView>> writer = call.getArgument(2);
+            return writer.apply(new RuntimeWorkflowDraftSubmissionService.Attempt(
+                    "wf-orders-detail", submissionCurrent, "2026-07-26T10:00")).value();
+        });
         service = new RuntimePageWorkbenchWorkflowDeliveryService(
                 workflowAiCodingService,
                 workflowDefinitionService,
                 resourceBindingService,
                 workflowVersionService,
                 attachmentService,
-                new ObjectMapper());
+                new ObjectMapper(),
+                submissions);
     }
 
     @Test
     void artifactCreatesTaskScopedDraftWithOneExactTargetPageBinding() {
-        when(workflowDefinitionService.findByKeySlug(
-                org.mockito.ArgumentMatchers.anyString()))
-                .thenReturn(Optional.empty());
         when(workflowAiCodingService.createWorkflow(
+                eq("wf-orders-detail"),
                 org.mockito.ArgumentMatchers.any(CreateRequest.class)))
                 .thenReturn(context());
 
@@ -90,7 +104,7 @@ class RuntimePageWorkbenchWorkflowDeliveryServiceTest {
 
         ArgumentCaptor<CreateRequest> captor =
                 ArgumentCaptor.forClass(CreateRequest.class);
-        verify(workflowAiCodingService).createWorkflow(captor.capture());
+        verify(workflowAiCodingService).createWorkflow(eq("wf-orders-detail"), captor.capture());
         CreateRequest request = captor.getValue();
         assertEquals(
                 WorkflowSemanticValues.KIND_PAGE_ASSISTANT,
@@ -111,12 +125,9 @@ class RuntimePageWorkbenchWorkflowDeliveryServiceTest {
     }
 
     @Test
-    void retryReusesTheTaskScopedDraftInsteadOfCreatingAnotherWorkflow() {
-        RuntimeWorkflowDefinitionEntity existing = workflow();
-        when(workflowDefinitionService.findByKeySlug(
-                org.mockito.ArgumentMatchers.anyString()))
-                .thenReturn(Optional.empty(), Optional.of(existing));
+    void sameRequestRetryDoesNotOverwriteTheTaskDraft() {
         when(workflowAiCodingService.createWorkflow(
+                eq("wf-orders-detail"),
                 org.mockito.ArgumentMatchers.any(CreateRequest.class)))
                 .thenReturn(context());
         when(resourceBindingService.list("wf-orders-detail"))
@@ -132,8 +143,9 @@ class RuntimePageWorkbenchWorkflowDeliveryServiceTest {
                         LocalDateTime.of(2026, 7, 26, 10, 0))));
         when(workflowAiCodingService.replaceDraft(
                 org.mockito.ArgumentMatchers.eq("wf-orders-detail"),
-                org.mockito.ArgumentMatchers.any(CreateRequest.class)))
+                org.mockito.ArgumentMatchers.any(CreateRequest.class), any()))
                 .thenReturn(context());
+        when(workflowAiCodingService.context("wf-orders-detail")).thenReturn(context());
 
         EngineeringDraftRequest request = new EngineeringDraftRequest(
                 7L,
@@ -154,33 +166,25 @@ class RuntimePageWorkbenchWorkflowDeliveryServiceTest {
                 List.of());
 
         service.createDraft("orders", request);
+        submissionReplay = true;
         var retried = service.createDraft("orders", request);
 
-        ArgumentCaptor<String> keys = ArgumentCaptor.forClass(String.class);
-        verify(workflowDefinitionService, times(2))
-                .findByKeySlug(keys.capture());
-        assertEquals(keys.getAllValues().get(0), keys.getAllValues().get(1));
+        verify(workflowAiCodingService).context("wf-orders-detail");
         assertEquals("wf-orders-detail", retried.workflow().id());
         verify(workflowAiCodingService, times(1)).createWorkflow(
+                eq("wf-orders-detail"),
                 org.mockito.ArgumentMatchers.any(CreateRequest.class));
-        ArgumentCaptor<CreateRequest> replaceCaptor =
-                ArgumentCaptor.forClass(CreateRequest.class);
-        verify(workflowAiCodingService).replaceDraft(
+        verify(workflowAiCodingService, times(0)).replaceDraft(
                 org.mockito.ArgumentMatchers.eq("wf-orders-detail"),
-                replaceCaptor.capture());
-        assertEquals(
-                "Order detail page assistant",
-                replaceCaptor.getValue().name());
+                org.mockito.ArgumentMatchers.any(CreateRequest.class), any());
     }
 
     @Test
-    void retryWithChangedGraphSpecOverwritesTheExistingDraft() {
+    void correctedSubmissionUsesTheAcceptedRevisionWhenReplacingGraphSpec() {
         RuntimeWorkflowDefinitionEntity existing = workflow();
+        submissionCurrent = existing;
         GraphSpec corrected = new GraphSpec();
         corrected.setEntryNodeId("answer");
-        when(workflowDefinitionService.findByKeySlug(
-                org.mockito.ArgumentMatchers.anyString()))
-                .thenReturn(Optional.of(existing));
         when(resourceBindingService.list("wf-orders-detail"))
                 .thenReturn(List.of(new BindingView(
                         1L,
@@ -194,7 +198,7 @@ class RuntimePageWorkbenchWorkflowDeliveryServiceTest {
                         LocalDateTime.of(2026, 7, 26, 10, 0))));
         when(workflowAiCodingService.replaceDraft(
                 org.mockito.ArgumentMatchers.eq("wf-orders-detail"),
-                org.mockito.ArgumentMatchers.any(CreateRequest.class)))
+                org.mockito.ArgumentMatchers.any(CreateRequest.class), eq("2026-07-26T10:00")))
                 .thenReturn(context());
 
         service.createDraft(
@@ -220,10 +224,11 @@ class RuntimePageWorkbenchWorkflowDeliveryServiceTest {
         ArgumentCaptor<CreateRequest> replaceCaptor =
                 ArgumentCaptor.forClass(CreateRequest.class);
         verify(workflowAiCodingService, times(0)).createWorkflow(
+                any(),
                 org.mockito.ArgumentMatchers.any(CreateRequest.class));
         verify(workflowAiCodingService).replaceDraft(
                 org.mockito.ArgumentMatchers.eq("wf-orders-detail"),
-                replaceCaptor.capture());
+                replaceCaptor.capture(), eq("2026-07-26T10:00"));
         assertEquals("answer", replaceCaptor.getValue().graphSpec().getEntryNodeId());
         assertEquals(Map.of("version", 2), replaceCaptor.getValue().canvas());
     }
@@ -262,7 +267,7 @@ class RuntimePageWorkbenchWorkflowDeliveryServiceTest {
                 "v1.0.0",
                 100,
                 "Delivered from Page Workbench task ait-orders-1",
-                "tester")).thenReturn(version);
+                "system:page-workbench", workflow.getUpdatedAt().toString())).thenReturn(version);
         when(attachmentService.attachPublishedPageWorkflow(
                 org.mockito.ArgumentMatchers.eq("wf-orders-detail"),
                 org.mockito.ArgumentMatchers.any(
@@ -299,7 +304,7 @@ class RuntimePageWorkbenchWorkflowDeliveryServiceTest {
                 "v1.0.0",
                 100,
                 "Delivered from Page Workbench task ait-orders-1",
-                "tester");
+                "system:page-workbench", workflow.getUpdatedAt().toString());
         writes.verify(attachmentService)
                 .attachPublishedPageWorkflow(
                         org.mockito.ArgumentMatchers.eq(
@@ -410,6 +415,7 @@ class RuntimePageWorkbenchWorkflowDeliveryServiceTest {
         RuntimeWorkflowDefinitionEntity workflow =
                 new RuntimeWorkflowDefinitionEntity();
         workflow.setId("wf-orders-detail");
+        workflow.setUpdatedAt(LocalDateTime.of(2026, 7, 26, 10, 0));
         workflow.setProjectId(7L);
         workflow.setProjectCode("orders");
         workflow.setKeySlug("orders-detail-page-assistant-1234567890");

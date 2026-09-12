@@ -1,6 +1,6 @@
 package com.enterprise.ai.runtime.execution;
 
-import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
+import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
 
 import java.util.Map;
 

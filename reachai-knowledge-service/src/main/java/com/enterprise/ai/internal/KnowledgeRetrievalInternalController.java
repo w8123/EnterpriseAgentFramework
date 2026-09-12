@@ -4,7 +4,6 @@ import com.enterprise.ai.common.dto.ApiResult;
 import com.enterprise.ai.retrieval.KnowledgeRetrievalCore;
 import com.enterprise.ai.retrieval.KnowledgeRetrievalCoreRequest;
 import com.enterprise.ai.retrieval.KnowledgeRetrievalCoreResponse;
-import com.enterprise.ai.security.PermissionService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
@@ -16,7 +15,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -54,22 +52,10 @@ public class KnowledgeRetrievalInternalController {
             "totalCostMs");
 
     private final KnowledgeRetrievalCore knowledgeRetrievalCore;
-    private final PermissionService permissionService;
 
     @PostMapping("/retrieval/query")
     public ApiResult<RetrievalData> retrieve(@Valid @RequestBody RetrievalRequest request) {
         String userId = request.userId().trim();
-        List<String> accessibleFileIds = permissionService.getAccessibleFileIds(userId);
-        if (accessibleFileIds == null || accessibleFileIds.isEmpty()) {
-            return ApiResult.ok(new RetrievalData(
-                    request.query().trim(),
-                    List.of(),
-                    0,
-                    "NO_EVIDENCE",
-                    true,
-                    contentDiagnostics(Map.of(), 0, 0, 0, 0, false)));
-        }
-        Set<String> allowedFiles = new HashSet<>(accessibleFileIds);
 
         int topK = request.topK() == null ? 5 : Math.max(1, Math.min(MAX_TOP_K, request.topK()));
         String searchMode = normalizeSearchMode(request.searchMode());
@@ -84,8 +70,6 @@ public class KnowledgeRetrievalInternalController {
                 .searchMode(searchMode)
                 .rerankEnabled(rerankEnabled)
                 .recordHit(false)
-                .accessibleFileIds(accessibleFileIds)
-                .fileIdFilterExpression(permissionService.buildMilvusFilter(accessibleFileIds))
                 .build());
 
         List<KnowledgeRetrievalCoreResponse.RetrievalItem> items = response == null || response.getItems() == null
@@ -93,7 +77,7 @@ public class KnowledgeRetrievalInternalController {
                 : response.getItems();
         List<KnowledgeRetrievalCoreResponse.RetrievalItem> allowedItems = items.stream()
                 .filter(item -> item != null)
-                .filter(item -> !StringUtils.hasText(item.getFileId()) || allowedFiles.contains(item.getFileId()))
+                .filter(item -> StringUtils.hasText(item.getFileId()))
                 .toList();
         List<RetrievalHit> hits = new ArrayList<>();
         int totalContent = 0;

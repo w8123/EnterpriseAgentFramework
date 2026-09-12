@@ -2,6 +2,7 @@ package com.enterprise.ai.control.runops;
 
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskTargetView;
 import com.enterprise.ai.control.client.runtime.RuntimeProxyClient;
+import com.enterprise.ai.control.aicoding.provider.AiCodingArtifactApplicationUnconfirmedException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -44,8 +45,8 @@ public class TraceWorkflowCandidateEligibility {
         ResponseEntity<Map<String, Object>> response =
                 runtimeClient.runOpsDetail(requiredTraceId);
         Map<String, Object> detail = response == null ? null : response.getBody();
-        if (detail == null || detail.isEmpty()) {
-            throw new IllegalArgumentException(
+        if (response == null || !response.getStatusCode().is2xxSuccessful() || detail == null || detail.isEmpty()) {
+            throw new AiCodingArtifactApplicationUnconfirmedException(
                     "Runtime did not return the selected trace");
         }
         return evaluate(detail, requiredTraceId);
@@ -53,10 +54,10 @@ public class TraceWorkflowCandidateEligibility {
 
     EligibilityView evaluate(Map<String, Object> detail, String expectedTraceId) {
         Map<String, Object> summary = map(detail.get("summary"));
-        String traceId = firstText(text(summary.get("traceId")), expectedTraceId);
+        String traceId = text(summary.get("traceId"));
         if (!expectedTraceId.equals(traceId)) {
-            throw new IllegalArgumentException(
-                    "Runtime returned a different trace identity");
+            throw new AiCodingArtifactApplicationUnconfirmedException(
+                    "Runtime did not confirm the selected trace identity");
         }
 
         List<String> blockers = new ArrayList<>();

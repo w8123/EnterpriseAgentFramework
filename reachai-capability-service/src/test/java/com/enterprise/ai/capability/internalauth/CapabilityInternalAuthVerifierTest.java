@@ -5,6 +5,8 @@ import com.enterprise.ai.common.internalauth.InternalServiceHmac;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.mock.env.MockEnvironment;
 
 import java.nio.charset.StandardCharsets;
@@ -16,6 +18,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class CapabilityInternalAuthVerifierTest {
@@ -26,6 +29,38 @@ class CapabilityInternalAuthVerifierTest {
     private static final String INVOCATION_PATH = "/internal/capability/invocations";
 
     private CapabilityInternalAuthVerifier verifier;
+
+    @ParameterizedTest
+    @ValueSource(strings = {TOOL_PATH, INVOCATION_PATH})
+    void tenantScopedInvocationBindsExactBodyWithoutBusinessUserAndRejectsReplay(String path) throws Exception {
+        byte[] body = new ObjectMapper().writeValueAsBytes(Map.of("context", Map.of("tenantId", "tenant-a")));
+        Signed signed = signTool(path, body, "RUNTIME_TRUSTED_TENANT", "tenant-a", "", SECRET);
+        CapabilityVerifiedInternalServiceAuth verified = verifyTool(verifier, path, signed, body).orElseThrow();
+        assertEquals("RUNTIME_TRUSTED_TENANT", verified.identitySource());
+        assertEquals("tenant-a", verified.identityTenantId());
+        assertNull(verified.identityUserId());
+        assertTrue(verifyTool(verifier, path, signed, body).isEmpty());
+    }
+
+    @Test
+    void tenantScopedInvocationRejectsEndUserAndRoleClaimsEvenWithValidSignature() throws Exception {
+        for (String field : Set.of("userId", "externalUserId", "globalUserId", "userName", "deptId", "deptName", "roles", "attributes")) {
+            byte[] body = new ObjectMapper().writeValueAsBytes(Map.of("context", Map.of("tenantId", "tenant-a", field, "forged")));
+            Signed signed = signTool(INVOCATION_PATH, body, "RUNTIME_TRUSTED_TENANT", "tenant-a", "", SECRET);
+            assertTrue(verifyTool(verifier, INVOCATION_PATH, signed, body).isEmpty(), field);
+        }
+    }
+
+    @Test
+    void tenantScopedInvocationRejectsMissingScopeIdentityMismatchAndUserHeader() throws Exception {
+        for (String[] scopes : new String[][] {
+                {"", "", ""}, {"tenant-a", "tenant-b", ""}, {"tenant-a", "tenant-a", "mcp-client-7"}
+        }) {
+            byte[] body = new ObjectMapper().writeValueAsBytes(Map.of("context", Map.of("tenantId", scopes[0])));
+            Signed signed = signTool(INVOCATION_PATH, body, "RUNTIME_TRUSTED_TENANT", scopes[1], scopes[2], SECRET);
+            assertTrue(verifyTool(verifier, INVOCATION_PATH, signed, body).isEmpty());
+        }
+    }
 
     @BeforeEach
     void setUp() {

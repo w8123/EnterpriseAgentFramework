@@ -28,7 +28,7 @@ class RuntimeWorkflowInteractionSessionServiceTest {
                  "nodes":[{"id":"form","type":"INTERACTION"}]}
                 """;
 
-        RuntimeInteractionSessionEntity created = service.createWaitingSession(
+        RuntimeWorkflowInteractionSessionService.WaitingSession receipt = service.createWaitingSession(
                 new RuntimeWorkflowInteractionSessionService.CreateRequest(
                         "wfi_v1", "WORKFLOW", "run-1", "trace-1", "wf-1", 3L,
                         null, graph, "form", "COLLECT_INPUT",
@@ -36,6 +36,12 @@ class RuntimeWorkflowInteractionSessionServiceTest {
                         Map.of("component", "form"), Map.of(),
                         "app-1", "tenant-1", "chat-1", "user-1", 60));
 
+        ArgumentCaptor<RuntimeInteractionSessionEntity> sessionCaptor =
+                ArgumentCaptor.forClass(RuntimeInteractionSessionEntity.class);
+        verify(sessionMapper).insert(sessionCaptor.capture());
+        RuntimeInteractionSessionEntity created = sessionCaptor.getValue();
+        assertEquals("wfi_v1", receipt.interactionId());
+        assertEquals(created.getUiRequestJson(), receipt.uiRequestJson());
         assertEquals(WorkflowCheckpointCodec.SCHEMA_VERSION, created.getCheckpointSchemaVersion());
         assertEquals(WorkflowCheckpointCodec.ENGINE_VERSION, created.getExecutionEngineVersion());
         assertEquals(64, created.getCheckpointDigest().length());
@@ -44,9 +50,6 @@ class RuntimeWorkflowInteractionSessionServiceTest {
         assertFalse(created.getResumeCheckpointJson().contains("__workflowExecutionIdentity"));
         assertNotNull(service.decodeCheckpoint(created, graph).state().get("lastOutput"));
 
-        ArgumentCaptor<RuntimeInteractionSessionEntity> sessionCaptor =
-                ArgumentCaptor.forClass(RuntimeInteractionSessionEntity.class);
-        verify(sessionMapper).insert(sessionCaptor.capture());
         assertEquals("wfi_v1", sessionCaptor.getValue().getId());
         verify(eventMapper, times(2)).insert(org.mockito.ArgumentMatchers.any());
     }

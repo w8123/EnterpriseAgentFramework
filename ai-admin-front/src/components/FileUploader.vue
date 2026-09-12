@@ -34,8 +34,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import type { UploadFile, UploadInstance, UploadRawFile } from 'element-plus'
+import { ref } from 'vue'
+import type { UploadFile, UploadInstance } from 'element-plus'
 import { ElMessage } from 'element-plus'
 import { UploadFilled, Document } from '@element-plus/icons-vue'
 import { isSupportedFile, formatFileSize } from '@/utils'

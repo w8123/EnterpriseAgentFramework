@@ -2,9 +2,13 @@ package com.enterprise.ai.runtime.api;
 
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowReleaseValidationResult;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowRevisionConflictException;
-import com.enterprise.ai.runtime.workflow.RuntimeWorkflowVersionEntity;
-import com.enterprise.ai.runtime.workflow.RuntimeWorkflowVersionService;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowVersionView;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowManagementService;
 import org.junit.jupiter.api.Test;
+import jakarta.servlet.http.HttpServletRequest;
+import com.enterprise.ai.runtime.internalauth.VerifiedInternalServiceAuth;
+import com.enterprise.ai.common.internalauth.InternalServiceAuthHeaders;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -25,10 +29,10 @@ class RuntimeWorkflowVersionPublicControllerTest {
     void exposesOnlyCanonicalVersionRoutes() throws Exception {
         Method list = RuntimeWorkflowVersionPublicController.class.getDeclaredMethod("list", String.class);
         Method publish = RuntimeWorkflowVersionPublicController.class.getDeclaredMethod(
-                "publishExplicit", String.class, RuntimeWorkflowVersionPublishRequest.class);
+                "publishExplicit", String.class, RuntimeWorkflowVersionPublishRequest.class, HttpServletRequest.class);
         Method validate = RuntimeWorkflowVersionPublicController.class.getDeclaredMethod("validate", String.class);
         Method rollback = RuntimeWorkflowVersionPublicController.class.getDeclaredMethod(
-                "rollback", String.class, Long.class, RuntimeWorkflowVersionRollbackRequest.class);
+                "rollback", String.class, Long.class, RuntimeWorkflowVersionRollbackRequest.class, HttpServletRequest.class);
 
         assertArrayEquals(new String[]{"/api/workflows/{workflowId}/versions"},
                 list.getAnnotation(GetMapping.class).value());
@@ -42,53 +46,70 @@ class RuntimeWorkflowVersionPublicControllerTest {
 
     @Test
     void delegatesVersionOperations() {
-        RuntimeWorkflowVersionService service = mock(RuntimeWorkflowVersionService.class);
+        RuntimeWorkflowManagementService service = mock(RuntimeWorkflowManagementService.class);
         RuntimeWorkflowVersionPublicController controller = new RuntimeWorkflowVersionPublicController(service);
-        RuntimeWorkflowVersionEntity version = version();
+        RuntimeWorkflowVersionView version = version();
         RuntimeWorkflowVersionPublishRequest publishRequest = new RuntimeWorkflowVersionPublishRequest(
-                "v1.0.0", 100, "first", "alice", "2026-07-14T10:30:00");
-        RuntimeWorkflowVersionRollbackRequest rollbackRequest = new RuntimeWorkflowVersionRollbackRequest("bob");
+                "v1.0.0", 100, "first", "2026-07-14T10:30:00");
+        RuntimeWorkflowVersionRollbackRequest rollbackRequest = new RuntimeWorkflowVersionRollbackRequest("2026-07-14T10:30:00");
         RuntimeWorkflowReleaseValidationResult validation = RuntimeWorkflowReleaseValidationResult.builder().build();
         when(service.listVersions("wf-1")).thenReturn(List.of(version));
-        when(service.publish("wf-1", "v1.0.0", 100, "first", "alice", "2026-07-14T10:30:00"))
+        when(service.publish("wf-1", "v1.0.0", 100, "first", "platform:42", "2026-07-14T10:30:00"))
                 .thenReturn(version);
         when(service.validateRelease("wf-1")).thenReturn(validation);
-        when(service.rollback("wf-1", 1L, "bob")).thenReturn(version);
+        when(service.rollback("wf-1", 1L, "platform:42", "2026-07-14T10:30:00")).thenReturn(version);
 
         assertEquals(List.of(version), controller.list("wf-1").getBody());
-        assertEquals(version, controller.publishExplicit("wf-1", publishRequest).getBody());
+        assertEquals(version, controller.publishExplicit("wf-1", publishRequest, attested()).getBody());
         assertEquals(validation, controller.validate("wf-1").getBody());
-        assertEquals(version, controller.rollback("wf-1", 1L, rollbackRequest).getBody());
+        assertEquals(version, controller.rollback("wf-1", 1L, rollbackRequest, attested()).getBody());
         verify(service).listVersions("wf-1");
-        verify(service).publish("wf-1", "v1.0.0", 100, "first", "alice", "2026-07-14T10:30:00");
+        verify(service).publish("wf-1", "v1.0.0", 100, "first", "platform:42", "2026-07-14T10:30:00");
         verify(service).validateRelease("wf-1");
-        verify(service).rollback("wf-1", 1L, "bob");
+        verify(service).rollback("wf-1", 1L, "platform:42", "2026-07-14T10:30:00");
     }
 
     @Test
     void mapsValidationErrorsAndPropagatesRevisionConflicts() {
-        RuntimeWorkflowVersionService service = mock(RuntimeWorkflowVersionService.class);
+        RuntimeWorkflowManagementService service = mock(RuntimeWorkflowManagementService.class);
         RuntimeWorkflowVersionPublicController controller = new RuntimeWorkflowVersionPublicController(service);
-        when(service.publish("wf-1", "bad", 100, null, null, null))
+        when(service.publish("wf-1", "bad", 100, null, "platform:42", null))
                 .thenThrow(new IllegalArgumentException("workflow release validation failed"));
         assertEquals(HttpStatus.BAD_REQUEST, controller.publishExplicit(
-                "wf-1", new RuntimeWorkflowVersionPublishRequest("bad", 100, null, null)).getStatusCode());
+                "wf-1", new RuntimeWorkflowVersionPublishRequest("bad", 100, null, null), attested()).getStatusCode());
 
         RuntimeWorkflowRevisionConflictException conflict = new RuntimeWorkflowRevisionConflictException(
                 "wf-1", "2026-07-14T10:30:00", "2026-07-14T10:31:00");
-        when(service.publish("wf-1", "v1.0.0", 100, null, null, "2026-07-14T10:30:00"))
+        when(service.publish("wf-1", "v1.0.0", 100, null, "platform:42", "2026-07-14T10:30:00"))
                 .thenThrow(conflict);
         assertEquals(conflict, assertThrows(RuntimeWorkflowRevisionConflictException.class,
                 () -> controller.publishExplicit("wf-1", new RuntimeWorkflowVersionPublishRequest(
-                        "v1.0.0", 100, null, null, "2026-07-14T10:30:00"))));
+                        "v1.0.0", 100, null, "2026-07-14T10:30:00"), attested())));
     }
 
-    private RuntimeWorkflowVersionEntity version() {
-        RuntimeWorkflowVersionEntity entity = new RuntimeWorkflowVersionEntity();
-        entity.setId(1L);
-        entity.setWorkflowId("wf-1");
-        entity.setVersion("v1.0.0");
-        entity.setStatus("ACTIVE");
-        return entity;
+    private MockHttpServletRequest attested() {
+        var request = new MockHttpServletRequest();
+        request.setAttribute(VerifiedInternalServiceAuth.REQUEST_ATTR, new VerifiedInternalServiceAuth(
+                InternalServiceAuthHeaders.CALLER_CONTROL,
+                InternalServiceAuthHeaders.IDENTITY_SOURCE_PLATFORM_SESSION, "42"));
+        return request;
+    }
+
+    @Test
+    void releaseWithoutVerifiedPlatformIdentityCannotReachTheService() {
+        var service = mock(RuntimeWorkflowManagementService.class);
+        var controller = new RuntimeWorkflowVersionPublicController(service);
+        assertThrows(org.springframework.web.server.ResponseStatusException.class,
+                () -> controller.publishExplicit("wf-1",
+                        new RuntimeWorkflowVersionPublishRequest("v1", 100, null, "revision"),
+                        new MockHttpServletRequest()));
+        assertThrows(org.springframework.web.server.ResponseStatusException.class,
+                () -> controller.rollback("wf-1", 1L,
+                        new RuntimeWorkflowVersionRollbackRequest("revision"), new MockHttpServletRequest()));
+        org.mockito.Mockito.verifyNoInteractions(service);
+    }
+
+    private RuntimeWorkflowVersionView version() {
+        return RuntimeWorkflowVersionView.builder().id(1L).workflowId("wf-1").version("v1.0.0").status("ACTIVE").build();
     }
 }

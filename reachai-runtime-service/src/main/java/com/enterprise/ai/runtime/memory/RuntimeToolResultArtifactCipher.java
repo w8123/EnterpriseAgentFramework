@@ -1,6 +1,6 @@
 package com.enterprise.ai.runtime.memory;
 
-import com.enterprise.ai.runtime.supervisor.RuntimeContextEngineeringProperties;
+import com.enterprise.ai.runtime.configuration.RuntimeContextEngineeringProperties;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.Cipher;

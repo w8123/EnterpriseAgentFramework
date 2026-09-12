@@ -142,6 +142,16 @@ allowed-tools: Read Search
 
 通过正式 Inspector 的单 Skill ZIP 进入 `AgentSkillArtifactStore`：直接单包保留上传字节，仓库/插件包保存所选子树的规范化 ZIP，原始大仓库不进入运行制品存储。当前实现是内容寻址文件系统存储；key 由摘要决定，读取时再次校验。相同版本与摘要的幂等导入也会验证并补回缺失制品，使内置包引导和人工重传具备恢复能力。`AgentSkillUploadLimitGuard` 在 Control 启动时确认 Spring multipart 文件/请求限制足以承载产品声明的包上限，避免管理端展示可上传但传输层提前拒绝的伪能力。开发环境默认使用临时目录以保持零配置可用；生产 profile 会在启动时拒绝相对路径和操作系统临时目录。生产多实例仍必须把目录放在持久化共享卷，或提供对象存储实现，不能把这种重传自愈当成临时目录的替代品。
 
+### 内置包版本维护
+
+内置包由 `BuiltinAgentSkillSource` 声明版本并随 Control 构建发布，必须遵守目录的同版本同字节规则。修改说明、参考文档、脚本或内嵌制品后，应发布新的补丁或功能版本；不能覆盖已导入版本的摘要、制品或绑定快照，也不能用长期关闭 bootstrap 代替版本维护。
+
+打包时，内置文本资源的 CRLF 统一为 LF，文件排序与 ZIP 时间固定，使 Windows 和 Linux 检出的相同文本生成相同制品。该规范化仅在内置包打包过程中进行，不改写工作区文件；二进制资源、未知后缀资源及外部上传包保持原始字节。
+
+版本维护同时在 [`builtin-agent-skill-releases.json`](../../reachai-control-service/src/test/resources/builtin-agent-skill-releases.json) 中追加 `name@version` 的 ZIP 与内容树摘要，保留旧条目。`BuiltinAgentSkillSourceTest` 会核对所有当前内置版本，未升级版本的包内容变化应在构建时被发现。当前接入包为 `0.6.1`；Workflow 包因换行规范化发布 `0.1.1`，Agent 包仍为 `0.1.0`。
+
+默认启动通过既有 `importTrustedBuiltin` 事务完成导入、评审和发布，新版本不会自动替换已有默认版本或 Agent 的精确绑定。`sql/initV2.sql` 仅定义目录与版本表，不硬编码这些内置包版本；版本升级无需新增 schema 或手工修改版本表。完成升级后需验证默认 bootstrap、重复启动幂等性、最新下载摘要及旧版本/绑定完整性。
+
 ## 6. 作用域与访问控制
 
 `visibility` 不是展示标签，而是服务端强制策略：

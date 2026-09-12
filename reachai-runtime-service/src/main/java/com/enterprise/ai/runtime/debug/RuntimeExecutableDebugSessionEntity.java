@@ -19,15 +19,23 @@ public class RuntimeExecutableDebugSessionEntity {
 
     private String targetType;
 
+    private String ownerTenantId;
+
+    private String ownerUserId;
+
     private String status;
 
     private Integer revision;
+
+    private String creationRequestHash;
 
     private String idempotencyKey;
 
     private String submittedPayloadJson;
 
     private String resultJson;
+
+    private LocalDateTime executionDeadlineAt;
 
     private String currentNodeId;
 

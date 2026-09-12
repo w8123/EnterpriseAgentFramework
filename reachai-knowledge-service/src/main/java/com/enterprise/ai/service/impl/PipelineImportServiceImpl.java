@@ -6,6 +6,9 @@ import com.enterprise.ai.pipeline.PipelineContext;
 import com.enterprise.ai.pipeline.PipelineException;
 import com.enterprise.ai.pipeline.PipelineFactory;
 import com.enterprise.ai.service.PipelineImportService;
+import com.enterprise.ai.repository.KnowledgeBaseLookup;
+import java.util.Objects;
+import static com.enterprise.ai.domain.KnowledgeBaseSettings.requireVectorCollectionName;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -26,15 +29,44 @@ import org.springframework.stereotype.Service;
 public class PipelineImportServiceImpl implements PipelineImportService {
 
     private final PipelineFactory pipelineFactory;
+    private final KnowledgeBaseLookup knowledgeBaseLookup;
+    private final com.enterprise.ai.pipeline.document.job.DocumentIndexExecutionStore executions;
 
     @Override
+    @org.springframework.transaction.annotation.Transactional(propagation = org.springframework.transaction.annotation.Propagation.NOT_SUPPORTED)
     public PipelineResult execute(PipelineContext context) {
         String kbCode = context.getKnowledgeBaseCode();
         String fileId = context.getFileId();
 
         try {
+            if (context.getImportJobId() != null && (context.getKnowledgeBaseId() == null
+                    || context.getVectorCollectionName() == null || context.getVectorCollectionName().isBlank())) {
+                throw new IllegalArgumentException("异步导入缺少提交时的知识库和物理集合身份");
+            }
+            var kb = context.getKnowledgeBaseId() == null ? knowledgeBaseLookup.requireByCode(kbCode)
+                    : knowledgeBaseLookup.requireById(context.getKnowledgeBaseId());
+            if (!Objects.equals(kbCode, kb.getCode())) throw new IllegalArgumentException("导入知识库身份不匹配");
+            String physical = requireVectorCollectionName(kb);
+            if (context.getImportJobId() != null && !Objects.equals(context.getVectorCollectionName(), physical)) {
+                throw new IllegalArgumentException("原知识库物理集合已变化，拒绝执行旧导入任务");
+            }
+            context.setKnowledgeBaseId(kb.getId());
+            context.setVectorCollectionName(physical);
+            context.setKnowledgeBaseDimension(kb.getDimension());
+            if (context.getImportJobId() == null) {
+                if (context.getImportLeaseOwner() != null) throw new IllegalArgumentException("非任务导入不能携带任务租约");
+                context.setIndexExecutionId(java.util.UUID.randomUUID().toString());
+                context.setIndexOperation("PIPELINE");
+                context.setIndexTarget(null);
+            }
+
             // 根据知识库编码动态组装 Pipeline
             KnowledgeImportPipeline pipeline = pipelineFactory.create(kbCode);
+            if (pipeline.getSteps().isEmpty()
+                    || !"METADATA_PERSIST".equals(pipeline.getSteps().get(pipeline.getSteps().size() - 1).getName())
+                    || pipeline.getSteps().stream().filter(step -> "METADATA_PERSIST".equals(step.getName())).count() != 1) {
+                throw new IllegalStateException("导入任务流水线必须且只能在最后执行一次元数据发布");
+            }
 
             // 执行流水线
             pipeline.execute(context);
@@ -54,6 +86,7 @@ public class PipelineImportServiceImpl implements PipelineImportService {
                         .build();
             }
 
+            if (!context.isImportPublished()) throw new PipelineException("METADATA_PERSIST", fileId, "流水线未提交索引发布事务");
             return PipelineResult.builder()
                     .fileId(fileId)
                     .importJobId(context.getImportJobId())
@@ -91,6 +124,14 @@ public class PipelineImportServiceImpl implements PipelineImportService {
                     .status("FAILED")
                     .errorMessage("系统异常: " + e.getMessage())
                     .build();
+        } finally {
+            if (context.getImportJobId() == null && !context.isImportPublished()) {
+                try { executions.abandonStandalone(context); }
+                catch (RuntimeException cleanupFailure) {
+                    log.warn("索引执行将按持久化截止时间恢复: execution={}, errorType={}",
+                            context.getIndexExecutionId(), cleanupFailure.getClass().getSimpleName());
+                }
+            }
         }
     }
 }

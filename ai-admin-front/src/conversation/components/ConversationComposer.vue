@@ -2,12 +2,13 @@
   <form
     class="reachai-composer"
     :class="{ 'is-disabled': disabled }"
+    novalidate
     @submit.prevent="onSubmit"
   >
     <textarea
       ref="inputEl"
       v-model="draft"
-      class="reachai-composer__input"
+      class="reachai-composer__input resize-none"
       rows="2"
       :placeholder="placeholder"
       :disabled="disabled"
@@ -67,7 +68,7 @@ function onSubmit() {
 }
 
 function onKeydown(event: KeyboardEvent) {
-  if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+  if (!event.isComposing && (event.ctrlKey || event.metaKey) && event.key === 'Enter') {
     event.preventDefault()
     onSubmit()
   }

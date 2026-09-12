@@ -248,7 +248,7 @@ class PlatformAccountRoleControllerTest {
 
     private PlatformAuthenticatedSession authenticatedSession(PlatformUserEntity user) {
         return new PlatformAuthenticatedSession(
-                user,
+                PlatformPrincipal.fromUser(user),
                 "pls_admin",
                 LocalDateTime.now().plusHours(1),
                 List.of("PLATFORM_ADMIN"),

@@ -47,11 +47,8 @@ public class PlatformBearerAuthService {
         return Optional.of(authorizationService.authenticatedSession(user, session));
     }
 
-    /**
-     * Compatibility entrypoint for existing public Runtime and AI Coding call
-     * sites. New console authorization must use {@link #resolveBearerSession}.
-     */
-    public Optional<PlatformUserEntity> resolveBearerUser(String authorization) {
+    /** Resolves only the attested identity; operations needing permissions use {@link #resolveBearerSession}. */
+    public Optional<PlatformPrincipal> resolveBearerPrincipal(String authorization) {
         return resolveBearerSession(authorization).map(PlatformAuthenticatedSession::user);
     }
 

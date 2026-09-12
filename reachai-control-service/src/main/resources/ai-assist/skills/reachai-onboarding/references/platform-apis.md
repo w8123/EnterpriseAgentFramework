@@ -10,6 +10,7 @@ Do not assume every ReachAI endpoint uses the same JSON wrapper.
 | --- | --- | --- |
 | Embed 对外 API：`POST /api/embed/token/exchange`、`/api/embed/chat/sessions`、messages、page-actions、page-bridge rebind | **Yes** | `data.token`, `data.sessionId`, `data.answer`, ... |
 | `POST /api/ai-coding/projects/{projectId}/agents/provision` | **No** | `agent.keySlug` (not `data.agent.keySlug`) |
+| Agent AI Coding：`/api/ai-coding/projects/{projectId}/agents/**`、`agent-skills/bindable` | **No** | top-level `agent`, `configVersions`, `mutableBase`, `bindings`, ... |
 | AI Coding handoff activation and task protocol | **No** | top-level `taskToken`, `taskRoot`, task/event/question/artifact fields |
 | `POST /api/scan-projects/{projectId}/sdk-access-check` | **No** | top-level `overallStatus`, `checks` |
 | `GET /api/ai-coding/projects/{projectId}/onboarding-manifest` | **No** | top-level `project`, `embed`, `agentProvisioning`, ... |
@@ -98,11 +99,12 @@ Important fields:
 - `agentProvisioning.defaultKeySlug`: predictable page copilot Agent key slug if provisioning has not been called yet.
 - `agentProvisioning.createsSupervisorConfig` / `activatesSupervisorConfig`: provisioning creates an AgentScope config and publishes it as ACTIVE.
 - `agentProvisioning.modelSelection`: model-selection policy, normally `REQUESTED_OR_FIRST_ACTIVE_LLM`.
-- `agentSupervisor.model`: Supervisor/Workflow-as-Tool manifest model, normally `agent-supervisor.workflow-tools.v1`.
+- `agentSupervisor.model`: Supervisor/Skill/Workflow authoring manifest model, normally `agent-supervisor.authoring.v2`.
 - `agentSupervisor.globalAgentKeySlug`: stable page copilot Agent entry.
 - `agentSupervisor.runtimeType`: Supervisor runtime, normally `AGENTSCOPE`.
 - `agentSupervisor.workflowToolCatalog`: the published Workflow allow-list stored in the Agent config version.
-- `agentSupervisor.endpoints`: APIs for Agent config versions, Workflow Tool attachment, and execution.
+- `agentSupervisor.endpoints`: project-key APIs for Agent create/read/update, config draft/publish, bindable Skill discovery, Skill attach/detach, Workflow Tool attachment, and execution. Do not replace them with console `/api/agents/**` or `/api/skills/**` endpoints.
+- `agentSupervisor.endpoints.skillPackageUrl`: download URL for the `agent-ai-coding` Skill.
 - `agentSupervisor.workflowAiCoding`: project-key protected Workflow AI Coding endpoints used to create, validate, and publish business Workflows before attachment.
 
 The manifest does not include `appSecret`.
@@ -158,6 +160,20 @@ Response body:
 ```
 
 Use `agent.keySlug` everywhere the business gateway token broker or front-end embed SDK asks for `agentId`.
+
+## Agent And Skill Authoring
+
+The project AI Coding key may create additional project-owned Agents and bind governed Skill versions without inheriting a human platform session. Download `agentSupervisor.endpoints.skillPackageUrl` and follow its exact workflow.
+
+- List/create: `GET|POST /api/ai-coding/projects/{projectId}/agents`
+- Read/update identity: `GET|PUT /api/ai-coding/projects/{projectId}/agents/{agentId}`
+- Save/publish Supervisor config: `PUT .../config/draft`, `POST .../config/publish`
+- Discover exact bindable versions: `GET /api/ai-coding/projects/{projectId}/agent-skills/bindable`
+- Add/remove a binding: `POST .../skills/attach`, `POST .../skills/detach`
+
+Read Agent context before every mutation and use `mutableBase.configVersionId`. If a DRAFT exists, send that exact id as `baseConfigVersionId`; conflicts require a fresh read, not a blind retry.
+
+AI Coding can bind only `PUBLISHED` `PUBLIC`/`SHARED` Skills or same-project `PROJECT` Skills. `PRIVATE` packages remain undiscoverable. The binding always uses `scriptPolicy=DENY`; project credentials cannot approve scripts. Import, review, publish, revoke, or delete a Skill package and remote A2A binding governance remain human-console operations.
 
 ## Workflow First Publish And Supervisor Attachment
 

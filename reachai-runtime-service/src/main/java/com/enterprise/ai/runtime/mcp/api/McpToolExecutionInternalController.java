@@ -1,7 +1,7 @@
 package com.enterprise.ai.runtime.mcp.api;
 
 import com.enterprise.ai.common.internalauth.InternalServiceAuthHeaders;
-import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
+import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
 import com.enterprise.ai.runtime.internalauth.VerifiedInternalServiceAuth;
 import com.enterprise.ai.runtime.mcp.application.RuntimeMcpToolExecutionService;
 import com.enterprise.ai.runtime.mcp.application.RuntimeMcpToolExecutionService.ExecutionOutcome;
@@ -35,7 +35,8 @@ public class McpToolExecutionInternalController {
             ExecutionOutcome outcome = service.execute(
                     new RuntimeMcpToolExecutionService.ExecutionRequest(
                             request.sourceKind(), request.sourceRef(), request.workflowVersionId(),
-                            request.toolName(), request.arguments(), request.metadata(), request.timeoutMs()),
+                            request.toolName(), request.arguments(), request.metadata(), request.timeoutMs(),
+                            request.capabilityContractHash()),
                     identity);
             Map<String, Object> body = new LinkedHashMap<>();
             body.put("success", outcome.success());
@@ -122,6 +123,7 @@ public class McpToolExecutionInternalController {
                                        String toolName,
                                        Map<String, Object> arguments,
                                        Map<String, Object> metadata,
-                                       Long timeoutMs) {
+                                       Long timeoutMs,
+                                       String capabilityContractHash) {
     }
 }

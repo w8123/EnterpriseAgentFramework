@@ -1,12 +1,10 @@
 package com.enterprise.ai.runtime.runops;
 
-import com.enterprise.ai.runtime.execution.RuntimeAgentExecutionService;
 import com.enterprise.ai.runtime.runops.RuntimeRunOpsViews.RuntimeRunOpsDetailView;
 import com.enterprise.ai.runtime.runops.RuntimeRunOpsViews.RuntimeRunOpsSummaryView;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
-
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -17,7 +15,7 @@ import java.util.UUID;
 public class RuntimeRunOpsReplayService {
 
     private final RuntimeRunOpsQueryService runOpsQueryService;
-    private final RuntimeAgentExecutionService agentExecutionService;
+    private final RuntimeRunReplayExecutionPort agentExecutionService;
 
     public ReplayResult replay(String traceId, ReplayRequest request) {
         String originalTraceId = requiredText(traceId, "traceId is required");
@@ -68,8 +66,8 @@ public class RuntimeRunOpsReplayService {
             executionRequest.put("roles", List.copyOf(request.roles()));
         }
 
-        Map<String, Object> execution = agentExecutionService.executePublishedConfig(
-                source.agentId(), source.agentConfigVersionId(), executionRequest, true);
+        Map<String, Object> execution = agentExecutionService.executePublishedAgent(
+                source.agentId(), source.agentConfigVersionId(), executionRequest);
         Map<String, Object> resultMetadata = mapValue(execution == null ? null : execution.get("metadata"));
         return new ReplayResult(
                 originalTraceId,

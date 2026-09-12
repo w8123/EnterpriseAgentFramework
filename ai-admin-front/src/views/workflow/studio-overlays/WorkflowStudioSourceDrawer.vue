@@ -1,5 +1,5 @@
 <template>
-  <el-drawer
+  <AppDrawer
     v-model="open"
     title="Workflow 源码"
     size="50%"
@@ -50,10 +50,11 @@
         </div>
       </div>
     </template>
-  </el-drawer>
+  </AppDrawer>
 </template>
 
 <script setup lang="ts">
+import AppDrawer from '@/components/common/AppDrawer.vue'
 defineProps<{
   readOnly: boolean
   applying: boolean

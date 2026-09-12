@@ -1,5 +1,7 @@
 package com.enterprise.ai.control.runtime;
 
+import com.enterprise.ai.control.identity.PlatformPrincipal;
+
 import com.enterprise.ai.control.client.capability.CapabilityProjectOnboardingClient;
 import com.enterprise.ai.control.identity.PlatformAuthenticatedSession;
 import com.enterprise.ai.control.identity.PlatformPermissionGrant;
@@ -91,7 +93,7 @@ class RuntimeManagementAccessTest {
         PlatformUserEntity user = new PlatformUserEntity();
         user.setId(7L);
         return new PlatformAuthenticatedSession(
-                user,
+                PlatformPrincipal.fromUser(user),
                 "session",
                 LocalDateTime.now().plusHours(1),
                 List.of("PROJECT_OWNER"),

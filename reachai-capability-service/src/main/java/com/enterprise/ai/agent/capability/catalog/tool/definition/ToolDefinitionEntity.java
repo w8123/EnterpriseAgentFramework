@@ -32,6 +32,9 @@ public class ToolDefinitionEntity {
 
     private String sourceLocation;
 
+    /** capability_source_state.qualified_name；独立于展示位置和可调用名称的来源归属。 */
+    private String sourceQualifiedName;
+
     private String httpMethod;
 
     private String baseUrl;

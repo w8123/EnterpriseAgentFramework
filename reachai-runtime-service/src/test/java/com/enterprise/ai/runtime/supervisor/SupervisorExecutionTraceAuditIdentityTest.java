@@ -1,9 +1,8 @@
 package com.enterprise.ai.runtime.supervisor;
 
-import com.enterprise.ai.runtime.agent.RuntimeAgentConfigVersionEntity;
+import com.enterprise.ai.runtime.agent.RuntimeAgentConfigSnapshot;
 import com.enterprise.ai.runtime.agent.RuntimeAgentView;
-import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
-import com.enterprise.ai.runtime.runops.RuntimeGuardDecisionLogMapper;
+import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
 import com.enterprise.ai.runtime.runops.RuntimeRunLifecycleService;
 import com.enterprise.ai.runtime.trace.RuntimeToolCallLogEntity;
 import com.enterprise.ai.runtime.trace.RuntimeToolCallLogMapper;
@@ -32,7 +31,11 @@ class SupervisorExecutionTraceAuditIdentityTest {
         when(toolLogMapper.insert(any())).thenReturn(1);
         RuntimeRunLifecycleService lifecycle = mock(RuntimeRunLifecycleService.class);
         SupervisorExecutionTraceService service = new SupervisorExecutionTraceService(
-                spanMapper, toolLogMapper, mock(RuntimeGuardDecisionLogMapper.class), lifecycle, new ObjectMapper());
+                new com.enterprise.ai.runtime.trace.RuntimeTraceEvidenceWriter(spanMapper, toolLogMapper),
+                lifecycle,
+                new ObjectMapper(),
+                new com.enterprise.ai.runtime.trace.RuntimeTraceRootService(spanMapper, new ObjectMapper()),
+                new com.enterprise.ai.runtime.trace.RuntimeTraceSpanTerminationService(spanMapper));
 
         SupervisorExecutionTraceService.TraceHandle trace =
                 new SupervisorExecutionTraceService.TraceHandle("trace-1", "span-root", 9L,
@@ -58,8 +61,11 @@ class SupervisorExecutionTraceAuditIdentityTest {
         when(spanMapper.insert(any())).thenReturn(1);
         when(toolLogMapper.insert(any())).thenReturn(1);
         SupervisorExecutionTraceService service = new SupervisorExecutionTraceService(
-                spanMapper, toolLogMapper, mock(RuntimeGuardDecisionLogMapper.class),
-                mock(RuntimeRunLifecycleService.class), new ObjectMapper());
+                new com.enterprise.ai.runtime.trace.RuntimeTraceEvidenceWriter(spanMapper, toolLogMapper),
+                mock(RuntimeRunLifecycleService.class),
+                new ObjectMapper(),
+                new com.enterprise.ai.runtime.trace.RuntimeTraceRootService(spanMapper, new ObjectMapper()),
+                new com.enterprise.ai.runtime.trace.RuntimeTraceSpanTerminationService(spanMapper));
 
         SupervisorExecutionTraceService.TraceHandle trace =
                 new SupervisorExecutionTraceService.TraceHandle("trace-2", "span-root", 9L,
@@ -81,8 +87,11 @@ class SupervisorExecutionTraceAuditIdentityTest {
         when(spanMapper.insert(any())).thenReturn(1);
         when(toolLogMapper.insert(any())).thenReturn(1);
         SupervisorExecutionTraceService service = new SupervisorExecutionTraceService(
-                spanMapper, toolLogMapper, mock(RuntimeGuardDecisionLogMapper.class),
-                mock(RuntimeRunLifecycleService.class), new ObjectMapper());
+                new com.enterprise.ai.runtime.trace.RuntimeTraceEvidenceWriter(spanMapper, toolLogMapper),
+                mock(RuntimeRunLifecycleService.class),
+                new ObjectMapper(),
+                new com.enterprise.ai.runtime.trace.RuntimeTraceRootService(spanMapper, new ObjectMapper()),
+                new com.enterprise.ai.runtime.trace.RuntimeTraceSpanTerminationService(spanMapper));
 
         SupervisorExecutionTraceService.TraceHandle trace =
                 new SupervisorExecutionTraceService.TraceHandle("trace-3", "span-root", 9L,
@@ -106,15 +115,16 @@ class SupervisorExecutionTraceAuditIdentityTest {
                 91L, 91L, 4, "ARCHIVED", "AGENTSCOPE", 0, null, null);
     }
 
-    private RuntimeAgentConfigVersionEntity publishedConfig() {
-        RuntimeAgentConfigVersionEntity config = new RuntimeAgentConfigVersionEntity();
-        config.setId(91L);
-        config.setAgentId("agent-1");
-        config.setVersionNo(4);
-        config.setStatus("ARCHIVED");
-        config.setRuntimeType("AGENTSCOPE");
-        config.setPolicyProfile("DEFAULT");
-        config.setToolCatalogMode("PUBLISHED");
+    private RuntimeAgentConfigSnapshot publishedConfig() {
+        RuntimeAgentConfigSnapshot config = RuntimeAgentConfigSnapshot.builder()
+                .id(91L)
+                .agentId("agent-1")
+                .versionNo(4)
+                .status("ARCHIVED")
+                .runtimeType("AGENTSCOPE")
+                .policyProfile("DEFAULT")
+                .toolCatalogMode("PUBLISHED")
+                .build();
         return config;
     }
 }

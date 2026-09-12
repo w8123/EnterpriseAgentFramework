@@ -20,12 +20,12 @@ public class RuntimeWorkflowStudioService {
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {
     };
 
-    private final RuntimeWorkflowDefinitionService workflowDefinitionService;
+    private final RuntimeWorkflowManagementService workflowManagementService;
     private final RuntimeWorkflowVersionService workflowVersionService;
     private final ObjectMapper objectMapper;
 
     public WorkflowWorkingCopyState getWorkingCopy(String workflowId) {
-        RuntimeWorkflowDefinitionEntity workflow = requireWorkflow(workflowId);
+        RuntimeWorkflowDefinitionView workflow = requireWorkflow(workflowId);
         return toWorkingCopyState(workflow);
     }
 
@@ -42,29 +42,20 @@ public class RuntimeWorkflowStudioService {
         validateOptionalJson("defaultResourceConfigJson", command.defaultResourceConfigJson());
         validateOptionalJson("extraJson", command.extraJson());
 
-        RuntimeWorkflowDefinitionEntity update = new RuntimeWorkflowDefinitionEntity();
-        update.setKeySlug(command.keySlug());
-        update.setName(command.name());
-        update.setDescription(command.description());
-        update.setWorkflowKind(command.workflowKind());
-        update.setExecutionEngine(command.executionEngine());
-        update.setDefinitionAuthority(command.definitionAuthority());
-        update.setCreationChannel(command.creationChannel());
-        update.setGraphSpecJson(graphSpecJson);
-        update.setCanvasJson(command.canvasJson());
-        update.setInputSchemaJson(command.inputSchemaJson());
-        update.setOutputSchemaJson(command.outputSchemaJson());
-        update.setDefaultModelInstanceId(command.defaultModelInstanceId());
-        update.setDefaultResourceConfigJson(command.defaultResourceConfigJson());
-        update.setExtraJson(command.extraJson());
-        RuntimeWorkflowDefinitionEntity saved = workflowDefinitionService.update(
-                workflowId,
-                update,
-                command.baseRevision());
+        RuntimeWorkflowDefinitionView saved = workflowManagementService.update(workflowId,
+                RuntimeWorkflowWriteCommand.builder()
+                        .keySlug(command.keySlug()).name(command.name()).description(command.description())
+                        .workflowKind(command.workflowKind()).executionEngine(command.executionEngine())
+                        .definitionAuthority(command.definitionAuthority()).creationChannel(command.creationChannel())
+                        .graphSpecJson(graphSpecJson).canvasJson(command.canvasJson())
+                        .inputSchemaJson(command.inputSchemaJson()).outputSchemaJson(command.outputSchemaJson())
+                        .defaultModelInstanceId(command.defaultModelInstanceId())
+                        .defaultResourceConfigJson(command.defaultResourceConfigJson()).extraJson(command.extraJson())
+                        .baseRevision(command.baseRevision()).build());
         return toWorkingCopyState(saved);
     }
 
-    private WorkflowWorkingCopyState toWorkingCopyState(RuntimeWorkflowDefinitionEntity workflow) {
+    private WorkflowWorkingCopyState toWorkingCopyState(RuntimeWorkflowDefinitionView workflow) {
         RuntimeWorkflowVersionEntity activeVersion = workflowVersionService.resolveActive(workflow.getId());
         return new WorkflowWorkingCopyState(
                 workflow.getId(),
@@ -94,11 +85,11 @@ public class RuntimeWorkflowStudioService {
                 hasUnpublishedChanges(workflow, activeVersion));
     }
 
-    private RuntimeWorkflowDefinitionEntity requireWorkflow(String workflowId) {
+    private RuntimeWorkflowDefinitionView requireWorkflow(String workflowId) {
         if (!StringUtils.hasText(workflowId)) {
             throw new IllegalArgumentException("workflowId is required");
         }
-        return workflowDefinitionService.findById(workflowId)
+        return workflowManagementService.findById(workflowId)
                 .orElseThrow(() -> new IllegalArgumentException("workflow not found: " + workflowId));
     }
 
@@ -128,7 +119,7 @@ public class RuntimeWorkflowStudioService {
         }
     }
 
-    private String revision(RuntimeWorkflowDefinitionEntity workflow) {
+    private String revision(RuntimeWorkflowDefinitionView workflow) {
         return workflow.getUpdatedAt() == null ? null : workflow.getUpdatedAt().toString();
     }
 
@@ -146,16 +137,18 @@ public class RuntimeWorkflowStudioService {
                 activeVersion.getNote());
     }
 
-    private boolean hasUnpublishedChanges(RuntimeWorkflowDefinitionEntity workflow,
+    private boolean hasUnpublishedChanges(RuntimeWorkflowDefinitionView workflow,
                                           RuntimeWorkflowVersionEntity activeVersion) {
         if (activeVersion == null) {
             return true;
         }
-        if (!jsonEquals(workflow.getGraphSpecJson(), activeVersion.getGraphSpecSnapshotJson())
+        Map<String, Object> snapshot = readSnapshot(activeVersion.getSnapshotJson());
+        String originalGraph = snapshot != null && snapshot.get("draftGraphSpec") instanceof String draft
+                ? draft : activeVersion.getGraphSpecSnapshotJson();
+        if (!jsonEquals(workflow.getGraphSpecJson(), originalGraph)
                 || !jsonEquals(workflow.getCanvasJson(), activeVersion.getCanvasSnapshotJson())) {
             return true;
         }
-        Map<String, Object> snapshot = readSnapshot(activeVersion.getSnapshotJson());
         if (snapshot == null) {
             return true;
         }

@@ -1,9 +1,7 @@
 package com.enterprise.ai.runtime.interaction;
 
-import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
-import com.enterprise.ai.runtime.execution.RuntimeInteractionSessionEntity;
-import com.enterprise.ai.runtime.execution.RuntimeInteractionSessionMapper;
-import com.enterprise.ai.runtime.supervisor.SupervisorApprovalInteractionService;
+import com.enterprise.ai.runtime.execution.RuntimeSupervisorApprovalService;
+import com.enterprise.ai.runtime.execution.RuntimeSupervisorApprovalService.PendingApproval;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -21,44 +19,33 @@ public class RuntimeHumanApprovalService {
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {
     };
 
-    private final RuntimeInteractionSessionMapper sessionMapper;
+    private final RuntimeSupervisorApprovalService approvals;
     private final ObjectMapper objectMapper;
 
     public List<PendingHumanApprovalView> listPendingHumanApprovals(String agentId, String userId, int limit) {
-        QueryWrapper<RuntimeInteractionSessionEntity> query = new QueryWrapper<RuntimeInteractionSessionEntity>()
-                .eq("source_type", SupervisorApprovalInteractionService.SOURCE_TYPE)
-                .eq("interaction_type", SupervisorApprovalInteractionService.INTERACTION_TYPE)
-                .eq("status", SupervisorApprovalInteractionService.WAITING_USER);
-        if (StringUtils.hasText(agentId)) {
-            query.eq("agent_id", agentId.trim());
-        }
-        if (StringUtils.hasText(userId)) {
-            query.eq("user_id", userId.trim());
-        }
-        query.orderByDesc("create_time").last("LIMIT " + effectiveLimit(limit));
-        return sessionMapper.selectList(query).stream()
+        return approvals.pending(agentId, userId, limit).stream()
                 .map(this::toPendingApproval)
                 .toList();
     }
 
-    private PendingHumanApprovalView toPendingApproval(RuntimeInteractionSessionEntity row) {
-        Map<String, Object> uiRequest = readMap(row.getUiRequestJson());
-        Map<String, Object> checkpoint = readMap(row.getResumeCheckpointJson());
+    private PendingHumanApprovalView toPendingApproval(PendingApproval row) {
+        Map<String, Object> uiRequest = readMap(row.uiRequestJson());
+        Map<String, Object> publicState = readMap(row.publicStateJson());
         return new PendingHumanApprovalView(
-                row.getId(),
-                row.getTraceId(),
-                row.getSessionId(),
-                row.getUserId(),
-                row.getAgentId(),
-                firstText(row.getNodeId(), ""),
-                row.getStatus(),
-                row.getCreateTime(),
-                row.getUpdateTime(),
-                row.getExpiresAt(),
+                row.id(),
+                row.traceId(),
+                row.sessionId(),
+                row.userId(),
+                row.agentId(),
+                firstText(row.nodeId(), ""),
+                row.status(),
+                row.createTime(),
+                row.updateTime(),
+                row.expiresAt(),
                 text(uiRequest.get("title")),
                 text(uiRequest.get("message")),
                 uiRequest,
-                checkpoint);
+                publicState);
     }
 
     private Map<String, Object> readMap(String json) {
@@ -70,10 +57,6 @@ public class RuntimeHumanApprovalService {
         } catch (Exception ignored) {
             return Map.of();
         }
-    }
-
-    private static int effectiveLimit(int limit) {
-        return Math.max(1, Math.min(limit, 200));
     }
 
     private static String text(Object value) {

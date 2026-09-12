@@ -9,6 +9,7 @@ import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskRequired
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskTargetView;
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.VerificationGuideItem;
 import com.enterprise.ai.control.aicoding.provider.AiCodingContractResourceLoader;
+import com.enterprise.ai.control.aicoding.provider.AiCodingArtifactApplicationUnconfirmedException;
 import com.enterprise.ai.control.aicoding.provider.AiCodingTaskKindProvider;
 import com.enterprise.ai.control.client.runtime.RuntimeProxyClient;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -304,7 +305,7 @@ public class TraceWorkflowCandidateTaskProvider
         if (StringUtils.hasText(defaultModelInstanceId)) {
             preflightRequest.put("defaultModelInstanceId", defaultModelInstanceId);
         }
-        Map<String, Object> preflight = responseMap(
+        Map<String, Object> preflight = validationResponse(
                 runtimeClient.validateWorkflowRuntime(preflightRequest),
                 "Runtime validation preflight");
         if (!booleanValue(preflight.get("valid"))) {
@@ -325,10 +326,10 @@ public class TraceWorkflowCandidateTaskProvider
                 runtimeClient.createTraceWorkflowCandidateDraft(createRequest),
                 "created Workflow candidate");
         Map<String, Object> workflowView = map(context.get("workflow"));
-        String workflowId = requireText(
+        String workflowId = requireReceiptText(
                 text(workflowView.get("id")),
                 "Runtime workflow id");
-        Map<String, Object> validation = responseMap(
+        Map<String, Object> validation = validationResponse(
                 runtimeClient.validateWorkflowAiCoding(
                         workflowId,
                         Map.of("mode", "CURRENT")),
@@ -340,10 +341,14 @@ public class TraceWorkflowCandidateTaskProvider
         Map<String, Object> savedWorkflow = responseMap(
                 runtimeClient.getWorkflow(workflowId),
                 "saved Workflow candidate");
-        String savedGraphSpecJson = requireText(
+        if (!workflowId.equals(text(savedWorkflow.get("id")))) {
+            throw new AiCodingArtifactApplicationUnconfirmedException(
+                    "Runtime returned a different Workflow candidate; retry the same Artifact");
+        }
+        String savedGraphSpecJson = requireReceiptText(
                 text(savedWorkflow.get("graphSpecJson")),
                 "saved Workflow graphSpecJson");
-        String savedWorkflowUpdatedAt = requireText(
+        String savedWorkflowUpdatedAt = requireReceiptText(
                 text(savedWorkflow.get("updatedAt")),
                 "saved Workflow updatedAt");
 
@@ -376,8 +381,8 @@ public class TraceWorkflowCandidateTaskProvider
         ResponseEntity<Object> response = runtimeClient.listWorkflowVersions(
                 eligibility.sourceWorkflowId());
         Object body = response == null ? null : response.getBody();
-        if (!(body instanceof List<?> versions)) {
-            throw new IllegalArgumentException(
+        if (response == null || !response.getStatusCode().is2xxSuccessful() || !(body instanceof List<?> versions)) {
+            throw new AiCodingArtifactApplicationUnconfirmedException(
                     "Runtime did not return source Workflow versions");
         }
         Object sourceVersion = versions.stream()
@@ -706,10 +711,27 @@ public class TraceWorkflowCandidateTaskProvider
         Map<String, Object> body = response == null
                 ? Map.of()
                 : map(response.getBody());
-        if (body.isEmpty()) {
-            throw new IllegalStateException("Runtime did not return " + label);
+        if (response == null || !response.getStatusCode().is2xxSuccessful() || body.isEmpty()) {
+            throw new AiCodingArtifactApplicationUnconfirmedException("Runtime did not return " + label);
         }
         return body;
+    }
+
+    private String requireReceiptText(String value, String label) {
+        if (!StringUtils.hasText(value)) {
+            throw new AiCodingArtifactApplicationUnconfirmedException(
+                    "Runtime did not confirm " + label + "; retry the same Artifact");
+        }
+        return value;
+    }
+
+    private Map<String, Object> validationResponse(ResponseEntity<?> response, String label) {
+        Map<String, Object> validation = responseMap(response, label);
+        if (!(validation.get("valid") instanceof Boolean)) {
+            throw new AiCodingArtifactApplicationUnconfirmedException(
+                    "Runtime did not confirm " + label + "; retry the same Artifact");
+        }
+        return validation;
     }
 
     @SuppressWarnings("unchecked")

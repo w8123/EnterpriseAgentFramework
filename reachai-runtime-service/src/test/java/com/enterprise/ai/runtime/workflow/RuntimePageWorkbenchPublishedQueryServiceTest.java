@@ -1,15 +1,21 @@
 package com.enterprise.ai.runtime.workflow;
 
+import com.enterprise.ai.runtime.internal.RuntimePageWorkbenchPublishedQueryService;
 import com.enterprise.ai.runtime.agent.RuntimeAgentConfigVersionEntity;
 import com.enterprise.ai.runtime.agent.RuntimeAgentConfigVersionMapper;
 import com.enterprise.ai.runtime.agent.RuntimeAgentEntity;
 import com.enterprise.ai.runtime.agent.RuntimeAgentMapper;
+import com.enterprise.ai.runtime.agent.RuntimeAgentPublishedWorkflowToolReader;
+import com.enterprise.ai.runtime.runops.RuntimeWorkflowRunMetricsReader;
 import com.enterprise.ai.runtime.agent.RuntimeAgentWorkflowToolEntity;
 import com.enterprise.ai.runtime.agent.RuntimeAgentWorkflowToolMapper;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowResourceBindingService.BindingView;
 import org.h2.jdbcx.JdbcDataSource;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
+import com.enterprise.ai.runtime.agent.RuntimeAgentPublishedWorkflowToolQuery;
+import com.enterprise.ai.runtime.runops.RuntimeWorkflowRunMetricsQuery;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -18,8 +24,68 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verify;
 
 class RuntimePageWorkbenchPublishedQueryServiceTest {
+
+    @Test
+    void domainSelectionFiltersBeforeAgentAndMetricsQueriesWithRealSpringWiring() {
+        var bindings = mock(RuntimeWorkflowResourceBindingService.class);
+        var workflows = mock(RuntimeWorkflowDefinitionMapper.class);
+        var versions = mock(RuntimeWorkflowVersionMapper.class);
+        var agents = mock(RuntimeAgentPublishedWorkflowToolQuery.class);
+        var metrics = mock(RuntimeWorkflowRunMetricsQuery.class);
+        when(bindings.find("orders", "PAGE", "orders.detail"))
+                .thenReturn(List.of(binding("orders.detail", "TARGET")));
+        try (var context = new AnnotationConfigApplicationContext()) {
+            context.registerBean(RuntimeWorkflowResourceBindingService.class, () -> bindings);
+            context.registerBean(RuntimeWorkflowDefinitionMapper.class, () -> workflows);
+            context.registerBean(RuntimeWorkflowVersionMapper.class, () -> versions);
+            context.registerBean(RuntimeAgentPublishedWorkflowToolQuery.class, () -> agents);
+            context.registerBean(RuntimeWorkflowRunMetricsQuery.class, () -> metrics);
+            context.register(RuntimePublishedPageWorkflowQuery.class, RuntimePageWorkbenchPublishedQueryService.class);
+            context.refresh();
+            var service = context.getBean(RuntimePageWorkbenchPublishedQueryService.class);
+            assertEquals(List.of(), service.list("orders", "orders.detail"));
+            var draft = workflow();
+            draft.setStatus("DRAFT");
+            when(workflows.selectById("wf-orders")).thenReturn(draft);
+            assertEquals(List.of(), service.list("orders", "orders.detail"));
+            var general = workflow();
+            general.setWorkflowKind("GENERAL");
+            when(workflows.selectById("wf-orders")).thenReturn(general);
+            assertEquals(List.of(), service.list("orders", "orders.detail"));
+            verifyNoInteractions(versions);
+            when(workflows.selectById("wf-orders")).thenReturn(workflow());
+            assertEquals(List.of(), service.list("orders", "orders.detail"));
+            verify(versions).selectOne(any());
+            verifyNoInteractions(agents, metrics);
+        }
+    }
+
+    @Test
+    void excludesAgentWhoseActiveConfigPointerBelongsToAnotherAgent() {
+        var bindings = mock(RuntimeWorkflowResourceBindingService.class);
+        var workflows = mock(RuntimeWorkflowDefinitionMapper.class);
+        var versions = mock(RuntimeWorkflowVersionMapper.class);
+        var tools = mock(RuntimeAgentWorkflowToolMapper.class);
+        var agents = mock(RuntimeAgentMapper.class);
+        var configs = mock(RuntimeAgentConfigVersionMapper.class);
+        when(bindings.find("orders", "PAGE", null)).thenReturn(List.of(binding("orders.detail", "TARGET")));
+        when(workflows.selectById("wf-orders")).thenReturn(workflow());
+        when(versions.selectOne(any())).thenReturn(version());
+        when(tools.selectList(any())).thenReturn(List.of(tool()));
+        when(agents.selectById("agent-orders")).thenReturn(agent());
+        var wrongOwner = config();
+        wrongOwner.setAgentId("another-agent");
+        when(configs.selectById(31L)).thenReturn(wrongOwner);
+        var service = new RuntimePageWorkbenchPublishedQueryService(
+                new RuntimePublishedPageWorkflowQuery(bindings, workflows, versions), new RuntimeAgentPublishedWorkflowToolReader(tools, agents, configs),
+                new RuntimeWorkflowRunMetricsReader(mock(JdbcTemplate.class)));
+
+        assertEquals(List.of(), service.list("orders", null));
+    }
 
     @Test
     void returnsOnlyActivePublishedAndAttachedPageWorkflowsWithCurrentRunMetrics() {
@@ -61,13 +127,9 @@ class RuntimePageWorkbenchPublishedQueryServiceTest {
 
         RuntimePageWorkbenchPublishedQueryService service =
                 new RuntimePageWorkbenchPublishedQueryService(
-                        bindingService,
-                        workflowMapper,
-                        versionMapper,
-                        workflowToolMapper,
-                        agentMapper,
-                        configMapper,
-                        jdbc);
+                        new RuntimePublishedPageWorkflowQuery(bindingService, workflowMapper, versionMapper),
+                        new RuntimeAgentPublishedWorkflowToolReader(workflowToolMapper, agentMapper, configMapper),
+                        new RuntimeWorkflowRunMetricsReader(jdbc));
 
         List<RuntimePageWorkbenchPublishedQueryService.PublishedWorkflowView> result =
                 service.list("orders", null);

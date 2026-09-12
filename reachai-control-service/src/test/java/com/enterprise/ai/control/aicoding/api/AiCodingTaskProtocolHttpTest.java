@@ -1,5 +1,7 @@
 package com.enterprise.ai.control.aicoding.api;
 
+import com.enterprise.ai.control.identity.PlatformPrincipal;
+
 import com.enterprise.ai.control.client.capability.CapabilityProjectOnboardingClient;
 import com.enterprise.ai.control.aicoding.application.AiCodingPowerShellBootstrapFactory;
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.ReadinessItem;
@@ -151,13 +153,13 @@ class AiCodingTaskProtocolHttpTest {
         PlatformUserEntity user = new PlatformUserEntity();
         user.setId(99L);
         user.setUsername("tester");
-        when(platformAuth.resolveBearerUser(
+        when(platformAuth.resolveBearerPrincipal(
                 "Bearer " + PLATFORM_TOKEN))
-                .thenReturn(Optional.of(user));
+                .thenReturn(Optional.of(PlatformPrincipal.fromUser(user)));
         when(platformAuth.resolveBearerSession(
                 "Bearer " + PLATFORM_TOKEN))
                 .thenReturn(Optional.of(new PlatformAuthenticatedSession(
-                        user,
+                        PlatformPrincipal.fromUser(user),
                         "test-platform-session",
                         LocalDateTime.now().plusHours(1),
                         List.of("ADMIN"),

@@ -1,8 +1,8 @@
 package com.enterprise.ai.runtime.automation;
 
-import com.enterprise.ai.runtime.execution.RuntimeInteractionEventMapper;
-import com.enterprise.ai.runtime.execution.RuntimeInteractionSessionMapper;
-import com.enterprise.ai.runtime.trace.RuntimeTraceSpanMapper;
+import com.enterprise.ai.runtime.execution.RuntimeWorkflowInteractionSessionService;
+import com.enterprise.ai.runtime.trace.RuntimeTraceSpanTerminationService;
+import com.enterprise.ai.runtime.runops.RuntimeRunLifecycleService;
 import org.junit.jupiter.api.Test;
 import org.springframework.aop.support.AopUtils;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
@@ -44,16 +44,18 @@ class RuntimeAutomationTransactionalProxyTest {
                     mock(RuntimeAutomationOccurrenceMapper.class),
                     mock(RuntimeAutomationAttemptMapper.class),
                     mock(RuntimeAutomationEventMapper.class),
-                    mock(RuntimeAutomationJsonSupport.class));
+                    mock(RuntimeAutomationJsonSupport.class),
+                    mock(RuntimeAutomationExecutionSlotMapper.class),
+                    mock(RuntimeRunLifecycleService.class),
+                    mock(RuntimeTraceSpanTerminationService.class),
+                    mock(RuntimeAutomationMapper.class));
         }
 
         @Bean
         RuntimeAutomationInteractionTerminationService interactionTerminationService() {
             return new RuntimeAutomationInteractionTerminationService(
-                    mock(RuntimeInteractionSessionMapper.class),
-                    mock(RuntimeInteractionEventMapper.class),
-                    mock(RuntimeTraceSpanMapper.class),
-                    mock(RuntimeAutomationJsonSupport.class));
+                    mock(RuntimeWorkflowInteractionSessionService.class),
+                    mock(RuntimeTraceSpanTerminationService.class));
         }
     }
 }

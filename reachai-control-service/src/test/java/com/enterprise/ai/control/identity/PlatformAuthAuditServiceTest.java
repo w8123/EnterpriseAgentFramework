@@ -21,7 +21,7 @@ class PlatformAuthAuditServiceTest {
         PlatformUserEntity user = new PlatformUserEntity();
         user.setId(7L);
         PlatformAuthenticatedSession actor = new PlatformAuthenticatedSession(
-                user, "pls_7", null, List.of(), List.of(), List.of());
+                PlatformPrincipal.fromUser(user), "pls_7", null, List.of(), List.of(), List.of());
 
         service.record(actor, "PLATFORM_AUTH_PROVIDER_SAVED", "AUTH_PROVIDER", "1",
                 Map.of("providerCode", "LOCAL", "status", "ACTIVE"));

@@ -1,6 +1,5 @@
 package com.enterprise.ai.runtime.agent;
 
-import com.enterprise.ai.runtime.a2a.RuntimeA2aRemoteAgentBindingEntity;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -11,19 +10,26 @@ import java.util.Map;
  */
 public record RuntimeAgentExecutionContext(
         RuntimeAgentExecutionView agent,
-        RuntimeAgentConfigVersionEntity config,
-        List<RuntimeAgentWorkflowToolEntity> tools,
-        List<RuntimeAgentSkillBindingEntity> skills,
-        List<RuntimeA2aRemoteAgentBindingEntity> remoteAgents,
+        RuntimeAgentConfigSnapshot config,
+        List<RuntimeAgentWorkflowToolSnapshot> tools,
+        List<RuntimeAgentSkillBindingSnapshot> skills,
+        List<RuntimeAgentRemoteBindingView> remoteAgents,
         List<RuntimeResolvedWorkflowTarget> resolvedTargets,
         ResolveTimings timings) {
+
+    public RuntimeAgentExecutionContext {
+        tools = tools == null ? List.of() : List.copyOf(tools);
+        skills = skills == null ? List.of() : List.copyOf(skills);
+        remoteAgents = remoteAgents == null ? List.of() : List.copyOf(remoteAgents);
+        resolvedTargets = resolvedTargets == null ? List.of() : List.copyOf(resolvedTargets);
+    }
 
     /** Source-compatible constructor for executions created before Skill bindings existed. */
     public RuntimeAgentExecutionContext(
             RuntimeAgentExecutionView agent,
-            RuntimeAgentConfigVersionEntity config,
-            List<RuntimeAgentWorkflowToolEntity> tools,
-            List<RuntimeAgentSkillBindingEntity> skills,
+            RuntimeAgentConfigSnapshot config,
+            List<RuntimeAgentWorkflowToolSnapshot> tools,
+            List<RuntimeAgentSkillBindingSnapshot> skills,
             List<RuntimeResolvedWorkflowTarget> resolvedTargets,
             ResolveTimings timings) {
         this(agent, config, tools, skills, List.of(), resolvedTargets, timings);
@@ -31,8 +37,8 @@ public record RuntimeAgentExecutionContext(
 
     public RuntimeAgentExecutionContext(
             RuntimeAgentExecutionView agent,
-            RuntimeAgentConfigVersionEntity config,
-            List<RuntimeAgentWorkflowToolEntity> tools,
+            RuntimeAgentConfigSnapshot config,
+            List<RuntimeAgentWorkflowToolSnapshot> tools,
             List<RuntimeResolvedWorkflowTarget> resolvedTargets,
             ResolveTimings timings) {
         this(agent, config, tools, List.of(), List.of(), resolvedTargets, timings);

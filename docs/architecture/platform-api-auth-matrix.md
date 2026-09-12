@@ -13,9 +13,12 @@
 | `/api/ai-coding-console/**`、`/api/ai-assist/projects/*/**`、`/api/registry/projects/*/page-workbench/**` | PLATFORM_SESSION | 控制台会话拦截器 | AI Coding 控制台、项目接入与页面工作台。 |
 | `/api/context/**`、`/api/tool-acl/**`、`/api/a2a-hub/**`、`/api/mcp/**`、`/api/market/**` | PLATFORM_SESSION | 控制台会话拦截器 | 管理/治理操作；A2A Hub 再按发布、信任、凭据、任务操作和正文读取细分权限。 |
 | `/api/workflows/**`（独立 AI Coding 子协议除外）、`/api/agents/**`、`/api/skills/**`、`/api/automations/**`、`/api/traces/**`、`/api/runops/**`、`/api/trace-center/**` | PLATFORM_SESSION + RESOURCE_RBAC | 控制台会话拦截器；Agent、Workflow、Automation、RunOps 分别追加领域权限与 PROJECT scope；Skill Controller 追加 `skill:*` 权限与 PRIVATE owner / PROJECT scope | 建模、版本、发布、自动化与运行治理。无项目过滤的跨项目查询要求 GLOBAL grant。 |
-| `/api/runtime/evals/**`、`/api/runtime/agents/route-evaluation`、`/api/runtime/debug-sessions/**`、`/api/runtime/interactions/human-approvals` | PLATFORM_SESSION + RESOURCE_RBAC | EvalOps 使用 `agent:evaluate`，Debug 使用 `agent:debug` / `workflow:debug`；可解析 Agent、Workflow、Dataset、Experiment、Debug Session 时校验其 PROJECT scope | 旧 Eval opaque ID、全量评测和无法解析项目的兼容入口采用 GLOBAL-only fail-closed。 |
+| `/api/runtime/evals/**`、`/api/runtime/agents/route-evaluation`、`/api/runtime/interactions/human-approvals` | PLATFORM_SESSION + RESOURCE_RBAC | EvalOps 使用 `agent:evaluate`，Debug 使用 `agent:debug`；可解析 Agent、Workflow、Dataset、Experiment 时校验其 PROJECT scope | 旧 Eval opaque ID、全量评测和无法解析项目的兼容入口采用 GLOBAL-only fail-closed。 |
+| `/api/runtime/debug-sessions` 及子路径 | PLATFORM_SESSION + RESOURCE_RBAC + SESSION_OWNER | 六个会话接口由 `RuntimeDebugSessionGateway` 要求 `workflow:debug` 与保存 Workflow／会话快照的 PROJECT scope；Control 向 Runtime 签入平台租户和用户 | Runtime 只接受 Control HMAC 的 PLATFORM_SESSION，先检查不可变会话所有者再恢复回执或处理超时。跨用户、跨租户、未知和旧无归属会话返回 404；GLOBAL 权限也不能绕过所有者校验。缺失或无效内部签名返回 401。 |
 | `/api/runtime/agents/sessions/**`、`/api/runtime/tools/**`、`/api/runtime/compositions/**`、其余 `/api/runtime/interactions/**` | PLATFORM_SESSION / RUNTIME_IDENTITY | 控制台拦截器或 Controller 自身的 Runtime 用户身份约束 | 兼容执行辅助协议；不能据此推断拥有 Agent/Workflow 管理权限。 |
-| `/api/capabilities/**`、`/api/api-market/**`、`/api/tools/**`、`/api/api-graph/**`、`/api/tool-retrieval/**`、`/api/scan-projects/**`、`/api/scan-modules/**`、`/api/semantic-docs/**`、`/api/domains/**` | PLATFORM_SESSION | `CapabilityCompatibilityProxyController` 已把 console mapping 与 registry mapping 分开；入口拦截后才代理 | Capability 目录、API 市场发现/项目接入、扫描和项目配置管理；API 市场不接收调用凭据。 |
+| `/api/capability-review/**` | PLATFORM_SESSION + RESOURCE_RBAC | Control 专用 facade；读取要求当前项目的 `platform:read`，同步诊断与逐项 review/rollback 要求当前项目的 `platform:write`；operator 强制来自当前会话；Control→Capability 使用精确 body HMAC | 当前能力变化、处理记录与开发诊断；无 bulk apply，不再使用多凭证 `/api/registry/**` 兼容路径。 |
+| `/api/api-market/**`、`/api/tools/**`、`/api/api-graph/**`、`/api/tool-retrieval/**`、`/api/scan-projects/**`、`/api/scan-modules/**`、`/api/semantic-docs/**`、`/api/domains/**` | PLATFORM_SESSION | `CapabilityCompatibilityProxyController` 已把 console mapping 与 registry mapping分开；入口拦截后才代理 | Capability 目录、API 市场发现/项目接入、扫描和项目配置管理；`/api/tools` 正式目录只读，API 市场不接收调用凭据。 |
+| `/api/capabilities/**` | PLATFORM_SESSION + RETIRED | Control 保留明确 `410 Gone` 退役响应，Capability 不再暴露 Kernel CRUD Controller | 禁止恢复并行的模块/Tool/Composition/Interaction 人工资产模型；使用能力目录、Workflow 和 Runtime 协议路径。 |
 | `/api/internal-services/health` | PLATFORM_SESSION | 控制台会话拦截器 | Dashboard 聚合健康接口；不是 `/internal/**`。 |
 | `/api/knowledge/biz-index/**` | PLATFORM_SESSION + RBAC | 控制台会话拦截器；Controller 追加 `platform:read` / `platform:write`；随后 HMAC 到 Knowledge | 业务索引控制台。浏览器 Bearer 不再直达 Knowledge。 |
 | `/api/knowledge/import-jobs/**`、`/api/knowledge/import-files/{fileId}/reparse` | PLATFORM_SESSION + RESOURCE_RBAC | 控制台会话拦截器；Controller 根据 Knowledge 返回的 workspace/project scope 校验 `platform:read` / `platform:write`；随后以精确请求体 HMAC 到 Knowledge | 文档导入、任务查询/操作和重新解析。任务还由 Knowledge 按 tenant/actor owner fence 隔离。 |
@@ -23,7 +26,8 @@
 | `/api/embed/**`、`/embed/**` | EMBED_TOKEN / PROJECT_HMAC | Embed controller 自身校验 | 业务终端用户协议；平台 Token 不能代替。 |
 | `/api/ai-coding/projects/**` | AI_CODING_KEY | `ControlAiCodingAccessInterceptor` | `X-ReachAI-AiCoding-Key`；平台登录不能代替。 |
 | `/api/ai-coding/tasks/**`、`/api/ai-coding/handoffs/**` 激活协议 | TASK_TOKEN / ONE_TIME_ACTIVATION | `AiCodingTaskTokenGuard` 等协议控制器 | 外部任务协作协议；前端不得当作平台会话失效。 |
-| `/api/runtime/agents/execute`、`/detailed`、`/stream`、`/api/v1/agents/**`、`/gateway/**` | PUBLIC_RUNTIME_COMPAT / GATEWAY | Controller 会剥除客户端注入的信任字段；有真实平台 Bearer 时才附加服务端可信身份 | 不是控制台管理路由；其公开调用凭证/ACL 收口另由 Runtime/Embed/Gateway 契约负责。 |
+| `/api/runtime/agents/execute`、`/detailed`、`/stream` | PUBLIC_RUNTIME_COMPAT + 可选平台会话 | 可选会话拦截器复用控制台认证；Cookie 必须通过 CSRF 校验，显式 Bearer 优先；Controller 使用已验证会话并剥除客户端信任字段 | 无平台凭证时保留非可信兼容调用；提交无效凭证时拒绝，不降级继续执行。可信主体经 HMAC 传给 Runtime。 |
+| `/api/v1/agents/**`、`/gateway/**` | GATEWAY | 保留独立 Gateway 契约 | 不是控制台管理路由；公开调用凭证和 ACL 由 Runtime/Embed/Gateway 契约负责，不适用 Agent 执行入口的可选平台会话适配。 |
 | `/api/ai-assist/skills/**`、`/api/ai-assist/artifacts/**` | PUBLIC_ARTIFACT | 仅打包产物 | 不含项目密钥、Provider 秘钥或平台 Token。 |
 | `/mcp/manifest`、`/mcp/jsonrpc` | MCP_CLIENT_KEY | MCP endpoint controller | `manifest` 可匿名发现；JSON-RPC 只接受已启用 MCP Client 的 Bearer API Key，不接受平台会话替代。 |
 | `/api/a2a-hub/**` | PLATFORM_SESSION + RESOURCE_RBAC | A2A Hub management controllers | 管理查看、发布、信任、凭据、任务操作与正文读取使用独立权限；正文读取额外审计且响应 `no-store`。 |
@@ -40,7 +44,7 @@
 
 1. 由 owning Capability service 验证 `projectCode + timestamp + nonce` 的项目签名并防重放。
 2. Control 以显式适配器按确定顺序解析“平台 session 或已验证 SDK 签名”，产生带 `callerType`、`platformUserId` 或 `projectCode` 的受内部认证保护主体。
-3. 管理端逐步迁出兼容 Registry 路由；新增 console API 不得继续写入该路径。
+3. 能力快照评审管理端已迁移到 `/api/capability-review/**`；其余管理端继续逐步迁出兼容 Registry 路由，新增 console API 不得继续写入该路径。
 4. 为无凭据、过期签名、重放、有效 SDK 同步和有效控制台操作分别增加集成测试后，才可将此路径标记为完全收口。
 
 平台角色、scope 与建设/运营治理工作区的关系见 [平台授权与工作区底座](./platform-authorization-foundation.md)。菜单和路由只投影服务端权限，不能替代本矩阵中的 API 授权执行点。

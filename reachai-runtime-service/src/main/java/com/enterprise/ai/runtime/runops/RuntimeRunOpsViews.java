@@ -194,7 +194,18 @@ public final class RuntimeRunOpsViews {
             String errorCode,
             Integer elapsedMs,
             Integer tokenCost,
-            LocalDateTime createdAt) {
+            LocalDateTime createdAt,
+            String status,
+            String statusSourceSpanId) {
+        /** success is the immutable observation; status is the current correlated outcome. */
+        public RuntimeRunOpsToolCallView(Long id, String toolName, String agentName, String sessionId,
+                                        String userId, String intentType, String projectCode, boolean success,
+                                        String argsJson, String resultSummary, String errorCode,
+                                        Integer elapsedMs, Integer tokenCost, LocalDateTime createdAt) {
+            this(id, toolName, agentName, sessionId, userId, intentType, projectCode, success,
+                    argsJson, resultSummary, errorCode, elapsedMs, tokenCost, createdAt,
+                    success ? "SUCCESS" : "FAILED", null);
+        }
     }
 
     public record RuntimeRunOpsGuardDecisionView(

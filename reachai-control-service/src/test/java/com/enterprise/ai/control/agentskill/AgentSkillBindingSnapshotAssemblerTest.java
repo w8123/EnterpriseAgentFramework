@@ -18,6 +18,7 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -101,6 +102,51 @@ class AgentSkillBindingSnapshotAssemblerTest {
         Map<String, Object> draft = Map.of("systemPrompt", "legacy");
 
         assertSame(draft, assembler.assemble(null, draft));
+    }
+
+    @Test
+    void projectAiCodingUsesCatalogSnapshotWithoutHumanSession() {
+        AgentSkillCatalogService catalog = mock(AgentSkillCatalogService.class);
+        AgentSkillAccessPolicy accessPolicy = mock(AgentSkillAccessPolicy.class);
+        PlatformAuthorizationService authorization = mock(PlatformAuthorizationService.class);
+        BindingDescriptor published = descriptor(false);
+        when(catalog.publishedBindingDescriptor(11L, 21L)).thenReturn(published);
+        AgentSkillBindingSnapshotAssembler assembler = new AgentSkillBindingSnapshotAssembler(
+                catalog, accessPolicy, authorization, objectMapper);
+
+        Map<String, Object> assembled = assembler.assembleForAiCodingProject(
+                Map.of("skills", List.of(Map.of(
+                        "skillId", 11L,
+                        "skillVersionId", 21L))),
+                "orders");
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> snapshot = ((List<Map<String, Object>>) assembled.get("skills")).get(0);
+        assertEquals("reachai", snapshot.get("publisher"));
+        assertEquals("DENY", snapshot.get("scriptPolicy"));
+        verify(accessPolicy).requireProjectCredentialBind(published.skill(), "orders");
+        verify(authorization, never()).requireGlobalPermission(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyString());
+    }
+
+    @Test
+    void projectAiCodingCannotApproveSkillScripts() {
+        AgentSkillCatalogService catalog = mock(AgentSkillCatalogService.class);
+        AgentSkillAccessPolicy accessPolicy = mock(AgentSkillAccessPolicy.class);
+        PlatformAuthorizationService authorization = mock(PlatformAuthorizationService.class);
+        when(catalog.publishedBindingDescriptor(11L, 21L)).thenReturn(descriptor(true));
+        AgentSkillBindingSnapshotAssembler assembler = new AgentSkillBindingSnapshotAssembler(
+                catalog, accessPolicy, authorization, objectMapper);
+
+        AgentSkillException failure = assertThrows(AgentSkillException.class,
+                () -> assembler.assembleForAiCodingProject(Map.of("skills", List.of(Map.of(
+                        "skillId", 11L,
+                        "skillVersionId", 21L,
+                        "scriptPolicy", "SANDBOX_REVIEWED"))), "orders"));
+
+        assertEquals("SKILL_ACCESS_DENIED", failure.code());
+        verify(authorization, never()).requireGlobalPermission(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyString());
     }
 
     private BindingDescriptor descriptor(boolean hasScripts) {

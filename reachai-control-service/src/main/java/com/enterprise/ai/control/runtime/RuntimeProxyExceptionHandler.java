@@ -3,6 +3,8 @@ package com.enterprise.ai.control.runtime;
 import com.enterprise.ai.common.dto.ApiResult;
 import feign.FeignException;
 import feign.RetryableException;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -16,6 +18,7 @@ import java.util.Map;
 import java.util.Set;
 
 @RestControllerAdvice(assignableTypes = ControlRuntimePublicController.class)
+@Order(Ordered.HIGHEST_PRECEDENCE)
 public class RuntimeProxyExceptionHandler {
 
     private static final Set<String> EXCLUDED_RESPONSE_HEADERS = Set.of(
@@ -32,6 +35,13 @@ public class RuntimeProxyExceptionHandler {
     @ExceptionHandler(FeignException.Conflict.class)
     public ResponseEntity<byte[]> handleConflict(FeignException.Conflict exception) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
+                .headers(copyResponseHeaders(exception.responseHeaders()))
+                .body(copyResponseBody(exception));
+    }
+
+    @ExceptionHandler(FeignException.NotFound.class)
+    public ResponseEntity<byte[]> handleNotFound(FeignException.NotFound exception) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
                 .headers(copyResponseHeaders(exception.responseHeaders()))
                 .body(copyResponseBody(exception));
     }

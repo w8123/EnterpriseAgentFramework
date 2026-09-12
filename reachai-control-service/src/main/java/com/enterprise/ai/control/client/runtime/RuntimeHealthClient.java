@@ -8,7 +8,7 @@ import java.util.Map;
 @FeignClient(
         name = "reachai-runtime-health",
         url = "${services.runtime-service.url:http://localhost:18604}",
-        configuration = com.enterprise.ai.control.internal.InternalHealthFeignConfig.class
+        configuration = com.enterprise.ai.control.client.health.InternalHealthFeignConfig.class
 )
 public interface RuntimeHealthClient {
 

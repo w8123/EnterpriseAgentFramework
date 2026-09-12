@@ -4,24 +4,16 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectToolEntity;
 import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionEntity;
 import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionParameter;
-import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionUpsertRequest;
-import com.enterprise.ai.capability.internal.CapabilityToolExecutionService;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.PutMapping;
-import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
-import java.util.Map;
 
 @RestController
 @RequestMapping("/api/tools")
@@ -29,7 +21,7 @@ import java.util.Map;
 public class CapabilityToolCatalogController {
 
     private final CapabilityToolCatalogService toolCatalogService;
-    private final CapabilityToolExecutionService toolExecutionService;
+    private final com.enterprise.ai.capability.internal.CapabilitySourceContractGuard sourceContractGuard;
 
     @GetMapping
     public ResponseEntity<ToolListPageResponse> list(
@@ -57,76 +49,6 @@ public class CapabilityToolCatalogController {
         return toolCatalogService.findByName(name)
                 .map(entity -> ResponseEntity.ok(toDto(entity)))
                 .orElse(ResponseEntity.notFound().build());
-    }
-
-    @PostMapping
-    public ResponseEntity<ToolInfoDTO> create(@RequestBody ToolUpsertRequest request) {
-        try {
-            return ResponseEntity.ok(toDto(toolCatalogService.create(request.toServiceRequest())));
-        } catch (IllegalArgumentException ex) {
-            return ResponseEntity.badRequest().build();
-        }
-    }
-
-    @PutMapping("/{name}")
-    public ResponseEntity<ToolInfoDTO> update(@PathVariable String name,
-                                              @RequestBody ToolUpsertRequest request) {
-        try {
-            return ResponseEntity.ok(toDto(toolCatalogService.update(name, request.toServiceRequest())));
-        } catch (IllegalArgumentException ex) {
-            if (isNotFound(ex)) {
-                return ResponseEntity.notFound().build();
-            }
-            return ResponseEntity.badRequest().build();
-        }
-    }
-
-    @DeleteMapping("/{name}")
-    public ResponseEntity<Void> delete(@PathVariable String name) {
-        try {
-            return toolCatalogService.delete(name)
-                    ? ResponseEntity.noContent().build()
-                    : ResponseEntity.notFound().build();
-        } catch (IllegalArgumentException ex) {
-            return ResponseEntity.status(HttpStatus.CONFLICT).build();
-        }
-    }
-
-    @PutMapping("/{name}/toggle")
-    public ResponseEntity<ToolInfoDTO> toggle(@PathVariable String name,
-                                              @RequestBody ToolToggleRequest request) {
-        try {
-            return ResponseEntity.ok(toDto(toolCatalogService.toggle(name, request.enabled())));
-        } catch (IllegalArgumentException ex) {
-            return ResponseEntity.notFound().build();
-        }
-    }
-
-    @PostMapping("/{name}/test")
-    public ResponseEntity<ToolTestResult> test(@PathVariable String name,
-                                               @RequestBody(required = false) ToolTestRequest request) {
-        long start = System.nanoTime();
-        try {
-            Map<String, Object> args = request == null || request.args() == null ? Map.of() : request.args();
-            Map<String, Object> response = toolExecutionService.execute(name, Map.of("input", args));
-            return ResponseEntity.ok(new ToolTestResult(
-                    true,
-                    String.valueOf(response == null ? null : response.get("data")),
-                    null,
-                    elapsedMs(start)
-            ));
-        } catch (RuntimeException ex) {
-            return ResponseEntity.ok(new ToolTestResult(
-                    false,
-                    "",
-                    ex.getMessage(),
-                    elapsedMs(start)
-            ));
-        }
-    }
-
-    private boolean isNotFound(IllegalArgumentException ex) {
-        return ex.getMessage() != null && ex.getMessage().contains("does not exist");
     }
 
     private ToolInfoDTO toDto(ToolDefinitionEntity entity) {
@@ -157,7 +79,8 @@ public class CapabilityToolCatalogController {
                 entity.getCapabilityMetadataJson(),
                 link.scanToolId(),
                 link.status(),
-                link.message()
+                link.message(),
+                sourceContractGuard.availability(entity)
         );
     }
 
@@ -207,7 +130,8 @@ public class CapabilityToolCatalogController {
                        String capabilityMetadataJson,
                        Long catalogScanToolId,
                        String catalogLinkStatus,
-                       String catalogLinkMessage) {
+                       String catalogLinkMessage,
+                       String sourceAvailability) {
     }
 
     record ToolParameterDTO(String name,
@@ -233,57 +157,6 @@ public class CapabilityToolCatalogController {
                     parameter.metadata()
             );
         }
-    }
-
-    record ToolUpsertRequest(String name,
-                             String title,
-                             String description,
-                             List<ToolDefinitionParameter> parameters,
-                             String source,
-                             String sourceLocation,
-                             String httpMethod,
-                             String baseUrl,
-                             String contextPath,
-                             String endpointPath,
-                             String requestBodyType,
-                             String responseType,
-                             Long projectId,
-                             String projectCode,
-                             String qualifiedName,
-                             boolean enabled) {
-        ToolDefinitionUpsertRequest toServiceRequest() {
-            return new ToolDefinitionUpsertRequest(
-                    name,
-                    title,
-                    description,
-                    parameters == null ? List.of() : parameters,
-                    source,
-                    sourceLocation,
-                    httpMethod,
-                    baseUrl,
-                    contextPath,
-                    endpointPath,
-                    requestBodyType,
-                    responseType,
-                    projectId,
-                    projectCode,
-                    qualifiedName,
-                    enabled
-            );
-        }
-    }
-
-    record ToolToggleRequest(boolean enabled) {
-    }
-
-    record ToolTestRequest(Map<String, Object> args) {
-    }
-
-    record ToolTestResult(boolean success, String result, String errorMessage, long durationMs) {
-    }
-
-    private long elapsedMs(long start) {
-        return Math.max(0, (System.nanoTime() - start) / 1_000_000);
     }
 
     private record CatalogLink(Long scanToolId, String status, String message) {

@@ -43,6 +43,8 @@ class PlatformConsoleRoutePolicyTest {
         assertProtected("/api/automations/aut_0123456789abcdef0123456789abcdef/occurrences");
         assertProtected("/api/a2a-hub/overview");
         assertProtected("/api/knowledge/biz-index/orders/search");
+        assertProtected("/api/capability-review/projects/orders/snapshots");
+        assertProtected("/api/capability-review/projects/orders/diff-items/12/review");
     }
 
     @Test
@@ -67,6 +69,9 @@ class PlatformConsoleRoutePolicyTest {
         assertTrue(PlatformConsoleRoutePolicy.credentialDomainFor(
                         "/api/registry/projects/mall/capabilities/sync")
                         == PlatformConsoleRoutePolicy.CredentialDomain.COMPATIBILITY_PENDING);
+        assertTrue(PlatformConsoleRoutePolicy.credentialDomainFor(
+                        "/api/capability-review/projects/mall/capabilities/sync")
+                        == PlatformConsoleRoutePolicy.CredentialDomain.PLATFORM_SESSION);
         assertTrue(PlatformConsoleRoutePolicy.credentialDomainFor(
                         "/api/registry/projects/mall/page-workbench/pages")
                         == PlatformConsoleRoutePolicy.CredentialDomain.PLATFORM_SESSION);

@@ -7,6 +7,26 @@ import java.util.Locale;
 
 public final class AiCodingTaskValues {
 
+    public static String normalizeClientProvider(
+            String expectedProvider,
+            String suppliedProvider,
+            String field) {
+        if (!StringUtils.hasText(suppliedProvider)) {
+            return expectedProvider;
+        }
+        String provider = AiCodingTaskValues.requiredEnum(
+                ExecutorProvider.class,
+                suppliedProvider,
+                field).name();
+        if (!expectedProvider.equals(provider)) {
+            throw new IllegalArgumentException(
+                    field + " must match task executorProvider");
+        }
+        return provider;
+    }
+
+
+
     public static final String PROTOCOL_VERSION = "v1";
     public static final String TASK_CONTEXT_SCHEMA = "reachai.ai-coding.task-context.v1";
     public static final String EVENT_SCHEMA = "reachai.ai-coding.event.v1";
@@ -151,6 +171,29 @@ public final class AiCodingTaskValues {
             throw new IllegalArgumentException(field + " is invalid: " + value);
         }
         return normalized;
+    }
+
+    public static String requiredText(
+            String value,
+            String field) {
+        if (!StringUtils.hasText(value)) {
+            throw new IllegalArgumentException(field + " is required");
+        }
+        return value.trim();
+    }
+
+    public static String optionalText(String value) {
+        return StringUtils.hasText(value) ? value.trim() : null;
+    }
+
+    public static String firstText(String value, String fallback) {
+        return StringUtils.hasText(value) ? value.trim() : fallback;
+    }
+
+    public static void requireSchema(String actual, String expected, String field) {
+        if (!expected.equals(actual)) {
+            throw new IllegalArgumentException(field + " must be " + expected);
+        }
     }
 
     public static String requiredText(

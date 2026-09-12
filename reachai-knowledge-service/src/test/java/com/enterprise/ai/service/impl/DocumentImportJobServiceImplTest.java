@@ -79,18 +79,7 @@ class DocumentImportJobServiceImplTest {
         TextCleanStep textCleanStep = new TextCleanStep();
         ChunkStep chunkStep = new ChunkStep(new ChunkStrategyFactory(List.of(new FixedLengthChunkStrategy())));
         TaskExecutor taskExecutor = Runnable::run;
-        DocumentImportJobServiceImpl service = new DocumentImportJobServiceImpl(
-                jobs,
-                mock(KnowledgeBaseRepository.class),
-                mock(FileInfoRepository.class),
-                artifacts,
-                mock(com.enterprise.ai.pipeline.document.DocumentParseRouter.class),
-                objectMapper,
-                new DocumentImportJobProperties(),
-                mock(DocumentImportJobWorker.class),
-                textCleanStep,
-                chunkStep,
-                taskExecutor);
+        DocumentImportJobServiceImpl service = new DocumentImportJobServiceImpl(jobs, mock(KnowledgeBaseRepository.class), mock(FileInfoRepository.class), artifacts, mock(com.enterprise.ai.pipeline.document.DocumentParseRouter.class), objectMapper, new DocumentImportJobProperties(), mock(DocumentImportJobWorker.class), textCleanStep, chunkStep, taskExecutor, com.enterprise.ai.support.ArtifactLifecycleTestSupport.transactions());
 
         PipelineContext expected = new PipelineContext();
         expected.setFileId(job.getFileId());
@@ -119,7 +108,7 @@ class DocumentImportJobServiceImplTest {
         DocumentImportJob job = new DocumentImportJob();
         job.setJobId("dij_retry_preview");
         job.setFileId("file_retry_preview");
-        job.setKnowledgeBaseCode("kb_preview_test");
+        job.setKnowledgeBaseCode("kb_preview_test"); job.setKnowledgeBaseId(7L); job.setVectorCollectionName("physical-preview");
         job.setTenantId("default");
         job.setCreatedByActorId("42");
         job.setFileName("contract.pdf");
@@ -133,18 +122,10 @@ class DocumentImportJobServiceImplTest {
 
         DocumentImportJobRepository jobs = mock(DocumentImportJobRepository.class);
         when(jobs.selectOne(any())).thenReturn(job);
-        DocumentImportJobServiceImpl service = new DocumentImportJobServiceImpl(
-                jobs,
-                mock(KnowledgeBaseRepository.class),
-                mock(FileInfoRepository.class),
-                mock(DocumentArtifactStore.class),
-                mock(com.enterprise.ai.pipeline.document.DocumentParseRouter.class),
-                new ObjectMapper(),
-                new DocumentImportJobProperties(),
-                mock(DocumentImportJobWorker.class),
-                new TextCleanStep(),
-                new ChunkStep(new ChunkStrategyFactory(List.of(new FixedLengthChunkStrategy()))),
-                Runnable::run);
+        KnowledgeBaseRepository targetBases = mock(KnowledgeBaseRepository.class);
+        KnowledgeBase target = new KnowledgeBase(); target.setId(7L); target.setCode("kb_preview_test"); target.setVectorCollectionName("physical-preview");
+        when(targetBases.selectById(7L)).thenReturn(target);
+        DocumentImportJobServiceImpl service = new DocumentImportJobServiceImpl(jobs, targetBases, mock(FileInfoRepository.class), mock(DocumentArtifactStore.class), mock(com.enterprise.ai.pipeline.document.DocumentParseRouter.class), new ObjectMapper(), new DocumentImportJobProperties(), mock(DocumentImportJobWorker.class), new TextCleanStep(), new ChunkStep(new ChunkStrategyFactory(List.of(new FixedLengthChunkStrategy()))), Runnable::run, com.enterprise.ai.support.ArtifactLifecycleTestSupport.transactions());
 
         DocumentImportJobResponse response = service.retry(job.getJobId(), access());
 
@@ -157,23 +138,12 @@ class DocumentImportJobServiceImplTest {
     void rejectsUnsafeChunkConfigurationBeforePersistingArtifacts() {
         KnowledgeBase knowledgeBase = new KnowledgeBase();
         knowledgeBase.setId(7L);
-        knowledgeBase.setCode("kb_validation");
+        knowledgeBase.setCode("kb_validation"); knowledgeBase.setVectorCollectionName("kb_validation");
         knowledgeBase.setWorkspaceId("default");
         knowledgeBase.setScope("WORKSPACE");
         KnowledgeBaseRepository knowledgeBases = mock(KnowledgeBaseRepository.class);
         when(knowledgeBases.selectOne(any())).thenReturn(knowledgeBase);
-        DocumentImportJobServiceImpl service = new DocumentImportJobServiceImpl(
-                mock(DocumentImportJobRepository.class),
-                knowledgeBases,
-                mock(FileInfoRepository.class),
-                mock(DocumentArtifactStore.class),
-                mock(com.enterprise.ai.pipeline.document.DocumentParseRouter.class),
-                new ObjectMapper(),
-                new DocumentImportJobProperties(),
-                mock(DocumentImportJobWorker.class),
-                new TextCleanStep(),
-                new ChunkStep(new ChunkStrategyFactory(List.of(new FixedLengthChunkStrategy()))),
-                Runnable::run);
+        DocumentImportJobServiceImpl service = new DocumentImportJobServiceImpl(mock(DocumentImportJobRepository.class), knowledgeBases, mock(FileInfoRepository.class), mock(DocumentArtifactStore.class), mock(com.enterprise.ai.pipeline.document.DocumentParseRouter.class), new ObjectMapper(), new DocumentImportJobProperties(), mock(DocumentImportJobWorker.class), new TextCleanStep(), new ChunkStep(new ChunkStrategyFactory(List.of(new FixedLengthChunkStrategy()))), Runnable::run, com.enterprise.ai.support.ArtifactLifecycleTestSupport.transactions());
         org.springframework.mock.web.MockMultipartFile file = new org.springframework.mock.web.MockMultipartFile(
                 "file", "contract.txt", "text/plain", "content".getBytes(java.nio.charset.StandardCharsets.UTF_8));
         DocumentImportAccessContext scoped = new DocumentImportAccessContext(

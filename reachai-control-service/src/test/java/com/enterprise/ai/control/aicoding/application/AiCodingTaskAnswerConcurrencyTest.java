@@ -35,7 +35,7 @@ class AiCodingTaskAnswerConcurrencyTest {
     private final AiCodingSensitiveJsonSanitizer sanitizer =
             mock(AiCodingSensitiveJsonSanitizer.class);
     private final AiCodingTaskApplicationService service =
-            new AiCodingTaskApplicationService(
+            AiCodingTaskTestServices.create(
                     taskMapper,
                     mock(AiCodingTaskTargetMapper.class),
                     eventMapper,

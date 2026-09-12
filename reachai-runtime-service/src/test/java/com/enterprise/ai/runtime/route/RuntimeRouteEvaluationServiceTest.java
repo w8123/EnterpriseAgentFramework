@@ -1,12 +1,8 @@
 package com.enterprise.ai.runtime.route;
 
-import com.baomidou.mybatisplus.core.conditions.Wrapper;
-import com.enterprise.ai.runtime.trace.RuntimeToolCallLogEntity;
-import com.enterprise.ai.runtime.trace.RuntimeToolCallLogMapper;
+import com.enterprise.ai.runtime.trace.RuntimeToolUsageStatisticsQuery;
 import org.junit.jupiter.api.Test;
 
-import java.time.LocalDateTime;
-import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -18,14 +14,11 @@ class RuntimeRouteEvaluationServiceTest {
 
     @Test
     void evaluatesRouteReadinessFromRuntimeToolLogs() {
-        RuntimeToolCallLogMapper toolLogMapper = mock(RuntimeToolCallLogMapper.class);
-        RuntimeRouteEvaluationService service = new RuntimeRouteEvaluationService(toolLogMapper);
-        when(toolLogMapper.selectList(org.mockito.ArgumentMatchers.<Wrapper<RuntimeToolCallLogEntity>>any()))
-                .thenReturn(List.of(
-                        log(1L, "trace-1", "GENERAL_CHAT", "Agent A", null),
-                        log(2L, "trace-1", "GENERAL_CHAT", "Agent A", "[{\"docId\":\"doc-1\"}]"),
-                        log(3L, "trace-2", "ORDER_QA", "Agent B", null)
-                ));
+        RuntimeToolUsageStatisticsQuery statistics = mock(RuntimeToolUsageStatisticsQuery.class);
+        RuntimeRouteEvaluationService service = new RuntimeRouteEvaluationService(statistics);
+        when(statistics.summarizeSince(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new RuntimeToolUsageStatisticsQuery.Summary(3, 2, 1,
+                        Map.of("GENERAL_CHAT", 2L, "ORDER_QA", 1L), Map.of("Agent A", 2L, "Agent B", 1L)));
 
         RuntimeRouteEvaluationView view = service.evaluate(30);
 
@@ -39,18 +32,4 @@ class RuntimeRouteEvaluationServiceTest {
         assertFalse(view.domainClassifierReady());
     }
 
-    private RuntimeToolCallLogEntity log(Long id,
-                                         String traceId,
-                                         String intentType,
-                                         String agentName,
-                                         String retrievalTraceJson) {
-        RuntimeToolCallLogEntity entity = new RuntimeToolCallLogEntity();
-        entity.setId(id);
-        entity.setTraceId(traceId);
-        entity.setIntentType(intentType);
-        entity.setAgentName(agentName);
-        entity.setRetrievalTraceJson(retrievalTraceJson);
-        entity.setCreateTime(LocalDateTime.parse("2026-06-29T12:00:00"));
-        return entity;
-    }
 }

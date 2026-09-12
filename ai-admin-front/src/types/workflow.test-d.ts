@@ -35,6 +35,7 @@ const studio: WorkflowWorkingCopyState = {
 }
 
 const saveRequest: SaveWorkflowWorkingCopyRequest = {
+  baseRevision: '2026-09-06T10:00:00',
   graphSpecJson: '{"nodes":[]}',
   canvasJson: '{"nodes":[]}',
   extraJson: '{"source":"studio"}',
@@ -61,7 +62,6 @@ const publish: WorkflowPublishRequest = {
   version: 'v1.0.0',
   rolloutPercent: 100,
   note: 'first release',
-  publishedBy: 'alice',
   baseRevision: '2026-07-14T10:30:00',
 }
 

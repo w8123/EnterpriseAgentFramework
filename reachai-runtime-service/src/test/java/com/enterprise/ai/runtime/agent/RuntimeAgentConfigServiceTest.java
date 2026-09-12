@@ -2,13 +2,16 @@ package com.enterprise.ai.runtime.agent;
 
 import com.enterprise.ai.runtime.agent.RuntimeAgentEntity;
 import com.enterprise.ai.runtime.agent.RuntimeAgentMapper;
-import com.enterprise.ai.runtime.a2a.RuntimeA2aRemoteAgentBindingMapper;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionEntity;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionMapper;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowVersionEntity;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowVersionMapper;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowToolCatalogQuery;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowToolCatalogReader;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 
 import java.util.List;
@@ -22,6 +25,13 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class RuntimeAgentConfigServiceTest {
+    @org.junit.jupiter.api.BeforeAll
+    static void initializeAgentSqlMetadata() {
+        com.baomidou.mybatisplus.core.metadata.TableInfoHelper.initTableInfo(
+                new org.apache.ibatis.builder.MapperBuilderAssistant(
+                        new com.baomidou.mybatisplus.core.MybatisConfiguration(), "agent-config-test"),
+                RuntimeAgentEntity.class);
+    }
 
     @Test
     void copiesArchivedSnapshotIntoANewDraftWithoutMutatingPublishedVersion() {
@@ -32,8 +42,8 @@ class RuntimeAgentConfigServiceTest {
         RuntimeWorkflowDefinitionMapper workflowMapper = mock(RuntimeWorkflowDefinitionMapper.class);
         RuntimeWorkflowVersionMapper versionMapper = mock(RuntimeWorkflowVersionMapper.class);
         RuntimeAgentConfigService service = new RuntimeAgentConfigService(
-                configMapper, toolMapper, skillBindingMapper, mock(RuntimeA2aRemoteAgentBindingMapper.class),
-                agentMapper, workflowMapper, versionMapper, new ObjectMapper());
+                configMapper, toolMapper, skillBindingMapper, mock(RuntimeAgentRemoteBindingMapper.class),
+                agentMapper, catalog(workflowMapper, versionMapper), new ObjectMapper());
 
         RuntimeAgentEntity agent = new RuntimeAgentEntity();
         agent.setId("agent-1");
@@ -81,8 +91,8 @@ class RuntimeAgentConfigServiceTest {
         RuntimeWorkflowDefinitionMapper workflowMapper = mock(RuntimeWorkflowDefinitionMapper.class);
         RuntimeWorkflowVersionMapper versionMapper = mock(RuntimeWorkflowVersionMapper.class);
         RuntimeAgentConfigService service = new RuntimeAgentConfigService(
-                configMapper, toolMapper, skillBindingMapper, mock(RuntimeA2aRemoteAgentBindingMapper.class),
-                agentMapper, workflowMapper, versionMapper, new ObjectMapper());
+                configMapper, toolMapper, skillBindingMapper, mock(RuntimeAgentRemoteBindingMapper.class),
+                agentMapper, catalog(workflowMapper, versionMapper), new ObjectMapper());
 
         RuntimeAgentEntity agent = new RuntimeAgentEntity();
         agent.setId("agent-1");
@@ -107,6 +117,7 @@ class RuntimeAgentConfigServiceTest {
         version.setId(21L);
         version.setWorkflowId("wf-1");
         version.setVersion("v1.0.0");
+        version.setStatus("ACTIVE");
         when(versionMapper.listActive("wf-1")).thenReturn(List.of(version));
 
         RuntimeAgentConfigViews.AgentConfigVersionView result =
@@ -122,8 +133,9 @@ class RuntimeAgentConfigServiceTest {
         assertEquals(false, saved.getValue().getReadOnly());
     }
 
-    @Test
-    void publishPinsEnabledWorkflowToolToCurrentActiveWorkflowVersion() {
+    @ParameterizedTest
+    @ValueSource(strings = {"ACTIVE", "DRAFT", "DISABLED", "ARCHIVED"})
+    void publishPinsOnlyAnActiveWorkflowToItsCurrentPublishedVersion(String workflowStatus) {
         RuntimeAgentConfigVersionMapper configMapper = mock(RuntimeAgentConfigVersionMapper.class);
         RuntimeAgentWorkflowToolMapper toolMapper = mock(RuntimeAgentWorkflowToolMapper.class);
         RuntimeAgentSkillBindingMapper skillBindingMapper = mock(RuntimeAgentSkillBindingMapper.class);
@@ -131,8 +143,8 @@ class RuntimeAgentConfigServiceTest {
         RuntimeWorkflowDefinitionMapper workflowMapper = mock(RuntimeWorkflowDefinitionMapper.class);
         RuntimeWorkflowVersionMapper versionMapper = mock(RuntimeWorkflowVersionMapper.class);
         RuntimeAgentConfigService service = new RuntimeAgentConfigService(
-                configMapper, toolMapper, skillBindingMapper, mock(RuntimeA2aRemoteAgentBindingMapper.class),
-                agentMapper, workflowMapper, versionMapper, new ObjectMapper());
+                configMapper, toolMapper, skillBindingMapper, mock(RuntimeAgentRemoteBindingMapper.class),
+                agentMapper, catalog(workflowMapper, versionMapper), new ObjectMapper());
 
         RuntimeAgentEntity agent = new RuntimeAgentEntity();
         agent.setId("agent-1");
@@ -179,7 +191,17 @@ class RuntimeAgentConfigServiceTest {
         workflow.setId("wf-orders");
         workflow.setKeySlug("orders-workflow");
         workflow.setName("Orders Workflow");
+        workflow.setStatus(workflowStatus);
         when(workflowMapper.selectBatchIds(any())).thenReturn(List.of(workflow));
+
+        if (!"ACTIVE".equals(workflowStatus)) {
+            assertThrows(IllegalArgumentException.class, () -> service.publish("agent-1", 6L, "tester"));
+            assertEquals("DRAFT", draft.getStatus());
+            assertEquals("ACTIVE", previousActive.getStatus());
+            assertEquals(5L, agent.getActiveConfigVersionId());
+            verify(toolMapper, org.mockito.Mockito.never()).updateById(any(RuntimeAgentWorkflowToolEntity.class));
+            return;
+        }
 
         RuntimeAgentConfigViews.AgentConfigVersionView published = service.publish("agent-1", 6L, "tester");
 
@@ -203,8 +225,8 @@ class RuntimeAgentConfigServiceTest {
         RuntimeWorkflowDefinitionMapper workflowMapper = mock(RuntimeWorkflowDefinitionMapper.class);
         RuntimeWorkflowVersionMapper versionMapper = mock(RuntimeWorkflowVersionMapper.class);
         RuntimeAgentConfigService service = new RuntimeAgentConfigService(
-                configMapper, toolMapper, skillBindingMapper, mock(RuntimeA2aRemoteAgentBindingMapper.class),
-                agentMapper, workflowMapper, versionMapper, new ObjectMapper());
+                configMapper, toolMapper, skillBindingMapper, mock(RuntimeAgentRemoteBindingMapper.class),
+                agentMapper, catalog(workflowMapper, versionMapper), new ObjectMapper());
 
         RuntimeAgentEntity agent = new RuntimeAgentEntity();
         agent.setId("agent-1");
@@ -234,10 +256,9 @@ class RuntimeAgentConfigServiceTest {
                 configMapper,
                 mock(RuntimeAgentWorkflowToolMapper.class),
                 mock(RuntimeAgentSkillBindingMapper.class),
-                mock(RuntimeA2aRemoteAgentBindingMapper.class),
+                mock(RuntimeAgentRemoteBindingMapper.class),
                 agentMapper,
-                mock(RuntimeWorkflowDefinitionMapper.class),
-                mock(RuntimeWorkflowVersionMapper.class),
+                mock(RuntimeWorkflowToolCatalogQuery.class),
                 new ObjectMapper());
         RuntimeAgentEntity agent = new RuntimeAgentEntity();
         agent.setId("agent-1");
@@ -278,8 +299,8 @@ class RuntimeAgentConfigServiceTest {
         RuntimeWorkflowDefinitionMapper workflowMapper = mock(RuntimeWorkflowDefinitionMapper.class);
         RuntimeWorkflowVersionMapper versionMapper = mock(RuntimeWorkflowVersionMapper.class);
         RuntimeAgentConfigService service = new RuntimeAgentConfigService(
-                configMapper, toolMapper, skillBindingMapper, mock(RuntimeA2aRemoteAgentBindingMapper.class),
-                agentMapper, workflowMapper, versionMapper, new ObjectMapper());
+                configMapper, toolMapper, skillBindingMapper, mock(RuntimeAgentRemoteBindingMapper.class),
+                agentMapper, catalog(workflowMapper, versionMapper), new ObjectMapper());
 
         RuntimeAgentEntity agent = new RuntimeAgentEntity();
         agent.setId("agent-1");
@@ -308,7 +329,7 @@ class RuntimeAgentConfigServiceTest {
         when(workflowMapper.selectById("wf-retained")).thenReturn(retainedWorkflow);
         when(workflowMapper.selectById("wf-new")).thenReturn(replacementWorkflow);
         when(workflowMapper.selectBatchIds(any())).thenReturn(
-                List.of(oldWorkflow, retainedWorkflow));
+                List.of(oldWorkflow, retainedWorkflow, replacementWorkflow));
 
         RuntimeWorkflowVersionEntity oldVersion = workflowVersion(21L, "wf-old");
         RuntimeWorkflowVersionEntity retainedVersion = workflowVersion(22L, "wf-retained");
@@ -353,8 +374,8 @@ class RuntimeAgentConfigServiceTest {
         RuntimeWorkflowDefinitionMapper workflowMapper = mock(RuntimeWorkflowDefinitionMapper.class);
         RuntimeWorkflowVersionMapper versionMapper = mock(RuntimeWorkflowVersionMapper.class);
         RuntimeAgentConfigService service = new RuntimeAgentConfigService(
-                configMapper, toolMapper, skillBindingMapper, mock(RuntimeA2aRemoteAgentBindingMapper.class),
-                agentMapper, workflowMapper, versionMapper, new ObjectMapper());
+                configMapper, toolMapper, skillBindingMapper, mock(RuntimeAgentRemoteBindingMapper.class),
+                agentMapper, catalog(workflowMapper, versionMapper), new ObjectMapper());
 
         RuntimeAgentEntity agent = new RuntimeAgentEntity();
         agent.setId("agent-1");
@@ -396,8 +417,8 @@ class RuntimeAgentConfigServiceTest {
         RuntimeWorkflowDefinitionMapper workflowMapper = mock(RuntimeWorkflowDefinitionMapper.class);
         RuntimeWorkflowVersionMapper versionMapper = mock(RuntimeWorkflowVersionMapper.class);
         RuntimeAgentConfigService service = new RuntimeAgentConfigService(
-                configMapper, toolMapper, skillBindingMapper, mock(RuntimeA2aRemoteAgentBindingMapper.class),
-                agentMapper, workflowMapper, versionMapper, new ObjectMapper());
+                configMapper, toolMapper, skillBindingMapper, mock(RuntimeAgentRemoteBindingMapper.class),
+                agentMapper, catalog(workflowMapper, versionMapper), new ObjectMapper());
 
         RuntimeAgentEntity agent = new RuntimeAgentEntity();
         agent.setId("agent-1");
@@ -455,8 +476,8 @@ class RuntimeAgentConfigServiceTest {
         RuntimeWorkflowDefinitionMapper workflowMapper = mock(RuntimeWorkflowDefinitionMapper.class);
         RuntimeWorkflowVersionMapper versionMapper = mock(RuntimeWorkflowVersionMapper.class);
         RuntimeAgentConfigService service = new RuntimeAgentConfigService(
-                configMapper, toolMapper, skillBindingMapper, mock(RuntimeA2aRemoteAgentBindingMapper.class),
-                agentMapper, workflowMapper, versionMapper, new ObjectMapper());
+                configMapper, toolMapper, skillBindingMapper, mock(RuntimeAgentRemoteBindingMapper.class),
+                agentMapper, catalog(workflowMapper, versionMapper), new ObjectMapper());
 
         RuntimeAgentEntity agent = new RuntimeAgentEntity();
         agent.setId("agent-1");
@@ -494,8 +515,8 @@ class RuntimeAgentConfigServiceTest {
         RuntimeWorkflowDefinitionMapper workflowMapper = mock(RuntimeWorkflowDefinitionMapper.class);
         RuntimeWorkflowVersionMapper versionMapper = mock(RuntimeWorkflowVersionMapper.class);
         RuntimeAgentConfigService service = new RuntimeAgentConfigService(
-                configMapper, toolMapper, skillBindingMapper, mock(RuntimeA2aRemoteAgentBindingMapper.class),
-                agentMapper, workflowMapper, versionMapper, new ObjectMapper());
+                configMapper, toolMapper, skillBindingMapper, mock(RuntimeAgentRemoteBindingMapper.class),
+                agentMapper, catalog(workflowMapper, versionMapper), new ObjectMapper());
 
         RuntimeAgentEntity agent = new RuntimeAgentEntity();
         agent.setId("agent-1");
@@ -523,6 +544,56 @@ class RuntimeAgentConfigServiceTest {
 
         assertEquals("Project-scoped Agent Skill no longer matches the Agent project: reachai/project-skill",
                 error.getMessage());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"FOREIGN", "MISSING", "UNPINNED"})
+    void unavailablePinnedContractNeverExposesAnotherVersionOrTheWorkingCopy(String state) {
+        var configs = mock(RuntimeAgentConfigVersionMapper.class);
+        var tools = mock(RuntimeAgentWorkflowToolMapper.class);
+        var workflows = mock(RuntimeWorkflowDefinitionMapper.class);
+        var versions = mock(RuntimeWorkflowVersionMapper.class);
+        var service = new RuntimeAgentConfigService(configs, tools, mock(RuntimeAgentSkillBindingMapper.class),
+                mock(RuntimeAgentRemoteBindingMapper.class), mock(RuntimeAgentMapper.class),
+                catalog(workflows, versions), new ObjectMapper());
+        var config = new RuntimeAgentConfigVersionEntity();
+        config.setId(12L);
+        config.setAgentId("agent-1");
+        config.setStatus("ACTIVE");
+        when(configs.selectById(12L)).thenReturn(config);
+        var row = workflowTool(1L, "wf-orders", "UNPINNED".equals(state) ? null : 99L, "query_orders", 0);
+        when(tools.selectList(any())).thenReturn(List.of(row));
+        var workflow = workflow("wf-orders", "orders", "Orders");
+        workflow.setInputSchemaJson("{\"title\":\"mutable input\"}");
+        workflow.setOutputSchemaJson("{\"title\":\"mutable output\"}");
+        when(workflows.selectBatchIds(any())).thenReturn(List.of(workflow));
+        var foreign = workflowVersion(99L, "wf-foreign");
+        foreign.setStatus("ACTIVE");
+        foreign.setGraphSpecSnapshotJson("{\"inputSchema\":{\"title\":\"foreign input\"},\"outputSchema\":{\"title\":\"foreign output\"}}");
+        when(versions.selectBatchIds(any())).thenReturn("FOREIGN".equals(state) ? List.of(foreign) : List.of());
+
+        var view = service.listTools("agent-1", 12L).get(0);
+
+        org.junit.jupiter.api.Assertions.assertNull(view.inputSchemaJson());
+        org.junit.jupiter.api.Assertions.assertNull(view.outputSchemaJson());
+        org.junit.jupiter.api.Assertions.assertNull(view.workflowVersionId());
+        assertEquals("Orders", view.workflowName());
+    }
+
+    private RuntimeWorkflowToolCatalogQuery catalog(RuntimeWorkflowDefinitionMapper workflows,
+                                                    RuntimeWorkflowVersionMapper versions) {
+        // Existing command fixtures declare rows by id. Adapt them to the owning query's batch SQL boundary.
+        when(workflows.selectBatchIds(any())).thenAnswer(call -> {
+            List<String> ids = call.getArgument(0);
+            if (ids == null) return List.of();
+            return ids.stream().map(workflows::selectById).filter(java.util.Objects::nonNull).toList();
+        });
+        when(versions.listActiveByWorkflowIds(any())).thenAnswer(call -> {
+            List<String> ids = call.getArgument(0);
+            if (ids == null) return List.of();
+            return ids.stream().flatMap(id -> versions.listActive(id).stream()).toList();
+        });
+        return new RuntimeWorkflowToolCatalogReader(workflows, versions, new ObjectMapper());
     }
 
     private RuntimeAgentWorkflowToolEntity workflowTool(
@@ -563,6 +634,7 @@ class RuntimeAgentConfigServiceTest {
         version.setId(id);
         version.setWorkflowId(workflowId);
         version.setVersion("v1.0.0");
+        version.setStatus("ACTIVE");
         return version;
     }
 }

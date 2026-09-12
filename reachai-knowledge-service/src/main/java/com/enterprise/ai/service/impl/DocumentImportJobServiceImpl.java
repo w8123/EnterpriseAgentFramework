@@ -1,6 +1,7 @@
 package com.enterprise.ai.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.enterprise.ai.domain.dto.ChunkPreviewResponse;
 import com.enterprise.ai.domain.dto.DocumentImportAccessContext;
 import com.enterprise.ai.domain.dto.DocumentImportJobResponse;
@@ -31,6 +32,10 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
@@ -73,6 +78,7 @@ public class DocumentImportJobServiceImpl implements DocumentImportJobService {
     private final ChunkStep chunkStep;
 
     private final TaskExecutor taskExecutor;
+    private final TransactionTemplate submission;
 
     public DocumentImportJobServiceImpl(DocumentImportJobRepository jobRepository,
                                         KnowledgeBaseRepository knowledgeBaseRepository,
@@ -84,7 +90,8 @@ public class DocumentImportJobServiceImpl implements DocumentImportJobService {
                                         DocumentImportJobWorker worker,
                                         TextCleanStep textCleanStep,
                                         ChunkStep chunkStep,
-                                        @Qualifier("documentImportTaskExecutor") TaskExecutor taskExecutor) {
+                                        @Qualifier("documentImportTaskExecutor") TaskExecutor taskExecutor,
+                                        PlatformTransactionManager manager) {
         this.jobRepository = jobRepository;
         this.knowledgeBaseRepository = knowledgeBaseRepository;
         this.fileInfoRepository = fileInfoRepository;
@@ -96,10 +103,12 @@ public class DocumentImportJobServiceImpl implements DocumentImportJobService {
         this.textCleanStep = textCleanStep;
         this.chunkStep = chunkStep;
         this.taskExecutor = taskExecutor;
+        this.submission = new TransactionTemplate(manager);
+        this.submission.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
 
     @Override
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public DocumentImportJobResponse submit(MultipartFile file, String knowledgeBaseCode,
                                             String chunkStrategy, Integer chunkSize, Integer chunkOverlap,
                                             Map<String, Object> extraParams, boolean autoCommit,
@@ -109,7 +118,7 @@ public class DocumentImportJobServiceImpl implements DocumentImportJobService {
     }
 
     @Override
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public DocumentImportJobResponse submitWithFileId(MultipartFile file, String knowledgeBaseCode, String fileId,
                                                       String chunkStrategy, Integer chunkSize, Integer chunkOverlap,
                                                       Map<String, Object> extraParams, boolean autoCommit,
@@ -136,6 +145,7 @@ public class DocumentImportJobServiceImpl implements DocumentImportJobService {
         KnowledgeBase knowledgeBase = requireKnowledgeBase(knowledgeBaseCode);
         DocumentImportAccessContext verifiedAccess = requireAccessContext(accessContext);
         requireScopeAssertion(knowledgeBase, verifiedAccess);
+        com.enterprise.ai.domain.KnowledgeBaseSettings.requireVectorCollectionName(knowledgeBase);
         String normalizedChunkStrategy = normalizeChunkStrategy(chunkStrategy);
         int normalizedChunkSize = normalizeChunkSize(chunkSize);
         int normalizedChunkOverlap = normalizeChunkOverlap(chunkOverlap, normalizedChunkSize);
@@ -143,7 +153,7 @@ public class DocumentImportJobServiceImpl implements DocumentImportJobService {
         DocumentFormat format = documentParseRouter.detect(parseRequest);
         String jobId = "dij_" + UUID.randomUUID().toString().replace("-", "");
         String fileId = requestedFileId == null ? "file_" + UUID.randomUUID().toString().replace("-", "") : requestedFileId;
-        String sourceObjectKey = sourceObjectKey(jobId, file.getOriginalFilename());
+        String sourceObjectKey = sourceObjectKey(jobId);
         String sourceSha256 = sha256(file);
 
         try (InputStream input = file.getInputStream()) {
@@ -157,12 +167,11 @@ public class DocumentImportJobServiceImpl implements DocumentImportJobService {
                 normalizedChunkStrategy, normalizedChunkSize, normalizedChunkOverlap, extraParams, autoCommit,
                 verifiedAccess);
         try {
-            jobRepository.insert(job);
+            persistSubmittedJob(job);
         } catch (RuntimeException e) {
-            deleteArtifactQuietly(sourceObjectKey);
+            retireArtifactQuietly(sourceObjectKey);
             throw e;
         }
-        deleteArtifactOnRollback(sourceObjectKey);
         dispatchAfterCommit(jobId);
         return toResponse(job, null);
     }
@@ -180,12 +189,15 @@ public class DocumentImportJobServiceImpl implements DocumentImportJobService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public DocumentImportJobResponse commit(String jobId, DocumentImportAccessContext accessContext) {
-        DocumentImportJob job = requireJob(jobId, accessContext);
+        DocumentImportJob job = requireJob(jobId, accessContext, true);
         if (!DocumentImportJobStatus.PARSED.name().equals(job.getStatus())) {
             throw new IllegalStateException("只有 PARSED 状态的任务可以正式入库，当前状态: " + job.getStatus());
         }
+        requireCurrentTarget(job);
         job.setAutoCommit(1);
-        jobRepository.updateById(job);
+        jobRepository.update(null, new LambdaUpdateWrapper<DocumentImportJob>()
+                .eq(DocumentImportJob::getId, job.getId())
+                .set(DocumentImportJob::getAutoCommit, 1));
         dispatchAfterCommit(jobId);
         return toResponse(job, null);
     }
@@ -193,11 +205,12 @@ public class DocumentImportJobServiceImpl implements DocumentImportJobService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public DocumentImportJobResponse retry(String jobId, DocumentImportAccessContext accessContext) {
-        DocumentImportJob job = requireJob(jobId, accessContext);
+        DocumentImportJob job = requireJob(jobId, accessContext, true);
         if (!DocumentImportJobStatus.FAILED.name().equals(job.getStatus())
                 && !DocumentImportJobStatus.RETRY_WAIT.name().equals(job.getStatus())) {
             throw new IllegalStateException("只有失败任务可以重试，当前状态: " + job.getStatus());
         }
+        requireCurrentTarget(job);
         boolean hasParseArtifact = job.getParseArtifactObjectKey() != null && !job.getParseArtifactObjectKey().isBlank();
         job.setStatus(hasParseArtifact ? DocumentImportJobStatus.PARSED.name() : DocumentImportJobStatus.QUEUED.name());
         job.setStage(hasParseArtifact ? "PARSED" : "PARSING");
@@ -209,13 +222,22 @@ public class DocumentImportJobServiceImpl implements DocumentImportJobService {
         if (!hasParseArtifact) {
             job.setAttemptCount(0);
         }
-        jobRepository.updateById(job);
+        jobRepository.update(null, new LambdaUpdateWrapper<DocumentImportJob>()
+                .eq(DocumentImportJob::getId, job.getId())
+                .set(DocumentImportJob::getStatus, job.getStatus())
+                .set(DocumentImportJob::getStage, job.getStage())
+                .set(DocumentImportJob::getNextAttemptAt, null)
+                .set(DocumentImportJob::getLeaseOwner, null)
+                .set(DocumentImportJob::getLeaseUntil, null)
+                .set(DocumentImportJob::getErrorCode, null)
+                .set(DocumentImportJob::getErrorMessage, null)
+                .set(!hasParseArtifact, DocumentImportJob::getAttemptCount, 0));
         dispatchAfterCommit(jobId);
         return toResponse(job, null);
     }
 
     @Override
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public DocumentImportJobResponse reparse(String fileId, DocumentImportAccessContext accessContext) {
         DocumentImportAccessContext verifiedAccess = requireAccessContext(accessContext);
         FileInfo oldFile = fileInfoRepository.selectOne(
@@ -232,13 +254,15 @@ public class DocumentImportJobServiceImpl implements DocumentImportJobService {
         }
         requireScopeAssertion(knowledgeBase, verifiedAccess);
 
+        String originalGeneration = oldFile.requireRecordGeneration();
         DocumentFormat format = detectStoredSource(oldFile);
+        com.enterprise.ai.domain.KnowledgeBaseSettings.requireVectorCollectionName(knowledgeBase);
         long sourceSize = oldFile.getFileSize() == null ? 0L : oldFile.getFileSize();
         if (sourceSize <= 0) {
             throw new IllegalStateException("保存的原件缺少有效文件大小，无法安全重新解析");
         }
         String jobId = "dij_" + UUID.randomUUID().toString().replace("-", "");
-        String sourceObjectKey = sourceObjectKey(jobId, oldFile.getFileName());
+        String sourceObjectKey = sourceObjectKey(jobId);
         try (InputStream input = artifactStore.open(oldFile.getSourceObjectKey())) {
             artifactStore.put(sourceObjectKey, input, sourceSize,
                     normalizeContentType(oldFile.getSourceContentType()));
@@ -254,13 +278,14 @@ public class DocumentImportJobServiceImpl implements DocumentImportJobService {
                 normalizeChunkOverlap(knowledgeBase.getChunkOverlap(), normalizeChunkSize(knowledgeBase.getChunkSize())),
                 Map.of(), true, verifiedAccess);
         job.setReplaceFileId(fileId);
+        job.setReplaceFileRowId(oldFile.getId());
+        job.setReplaceFileGeneration(originalGeneration);
         try {
-            jobRepository.insert(job);
+            persistSubmittedJob(job);
         } catch (RuntimeException e) {
-            deleteArtifactQuietly(sourceObjectKey);
+            retireArtifactQuietly(sourceObjectKey);
             throw e;
         }
-        deleteArtifactOnRollback(sourceObjectKey);
         dispatchAfterCommit(jobId);
         return toResponse(job, null);
     }
@@ -268,7 +293,7 @@ public class DocumentImportJobServiceImpl implements DocumentImportJobService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void cancel(String jobId, DocumentImportAccessContext accessContext) {
-        DocumentImportJob job = requireJob(jobId, accessContext);
+        DocumentImportJob job = requireJob(jobId, accessContext, true);
         DocumentImportJobStatus status = DocumentImportJobStatus.valueOf(job.getStatus());
         if (status.isTerminal()) {
             throw new IllegalStateException("终态任务不能取消: " + job.getStatus());
@@ -280,8 +305,13 @@ public class DocumentImportJobServiceImpl implements DocumentImportJobService {
         job.setStage("CANCELLED");
         job.setLeaseOwner(null);
         job.setLeaseUntil(null);
-        jobRepository.updateById(job);
-        deleteJobArtifactsAfterCommit(job);
+        jobRepository.update(null, new LambdaUpdateWrapper<DocumentImportJob>()
+                .eq(DocumentImportJob::getId, job.getId())
+                .set(DocumentImportJob::getStatus, job.getStatus())
+                .set(DocumentImportJob::getStage, job.getStage())
+                .set(DocumentImportJob::getLeaseOwner, null)
+                .set(DocumentImportJob::getLeaseUntil, null));
+        retireJobArtifacts(job);
     }
 
     @Override
@@ -351,6 +381,7 @@ public class DocumentImportJobServiceImpl implements DocumentImportJobService {
         job.setFileId(fileId);
         job.setKnowledgeBaseId(knowledgeBase.getId());
         job.setKnowledgeBaseCode(knowledgeBase.getCode());
+        job.setVectorCollectionName(com.enterprise.ai.domain.KnowledgeBaseSettings.requireVectorCollectionName(knowledgeBase));
         job.setTenantId(accessContext.tenantId().trim());
         job.setCreatedByActorId(accessContext.actorId().trim());
         job.setWorkspaceId(normalizeWorkspaceId(knowledgeBase.getWorkspaceId()));
@@ -426,15 +457,68 @@ public class DocumentImportJobServiceImpl implements DocumentImportJobService {
     }
 
     private DocumentImportJob requireJob(String jobId, DocumentImportAccessContext accessContext) {
+        return requireJob(jobId, accessContext, false);
+    }
+
+    private DocumentImportJob requireJob(String jobId, DocumentImportAccessContext accessContext, boolean forUpdate) {
         DocumentImportAccessContext verifiedAccess = requireAccessContext(accessContext).identityOnly();
         DocumentImportJob job = jobRepository.selectOne(
-                new LambdaQueryWrapper<DocumentImportJob>().eq(DocumentImportJob::getJobId, jobId));
+                new LambdaQueryWrapper<DocumentImportJob>().eq(DocumentImportJob::getJobId, jobId)
+                        .eq(DocumentImportJob::getTenantId, verifiedAccess.tenantId())
+                        .eq(DocumentImportJob::getCreatedByActorId, verifiedAccess.actorId())
+                        .last(forUpdate, "FOR UPDATE"));
         if (job == null
                 || !Objects.equals(job.getTenantId(), verifiedAccess.tenantId())
                 || !Objects.equals(job.getCreatedByActorId(), verifiedAccess.actorId())) {
             throw new IllegalArgumentException("文档导入任务不存在: " + jobId);
         }
         return job;
+    }
+
+    private void requireCurrentTarget(DocumentImportJob job) {
+        String physical = job.getVectorCollectionName();
+        if (physical == null || physical.isBlank()) {
+            throw new IllegalStateException("任务缺少提交时的物理集合身份，请重新提交");
+        }
+        KnowledgeBase kb = job.getKnowledgeBaseId() == null ? null
+                : knowledgeBaseRepository.selectById(job.getKnowledgeBaseId());
+        if (kb == null || !Objects.equals(kb.getCode(), job.getKnowledgeBaseCode())
+                || !Objects.equals(kb.getVectorCollectionName(), physical)) {
+            throw new IllegalStateException("原知识库已删除或物理集合已变化，请重新提交任务");
+        }
+        if (job.getReplaceFileId() != null) {
+            var original = fileInfoRepository.selectOne(new LambdaQueryWrapper<FileInfo>().eq(FileInfo::getFileId, job.getReplaceFileId()));
+            requireReplacementFile(job, original);
+        }
+    }
+
+    private void persistSubmittedJob(DocumentImportJob job) {
+        // Remote source upload has finished. Lock only during final identity checks and database submission.
+        submission.executeWithoutResult(status -> {
+            var kb = knowledgeBaseRepository.lockById(job.getKnowledgeBaseId());
+            if (kb == null || !Objects.equals(kb.getCode(), job.getKnowledgeBaseCode())
+                    || !Objects.equals(kb.getVectorCollectionName(), job.getVectorCollectionName())) {
+                throw new IllegalStateException("原知识库身份已变化，请重新提交任务");
+            }
+            if (fileInfoRepository.lockByFileId(job.getFileId()) != null) {
+                throw new IllegalStateException("fileId 已存在: " + job.getFileId());
+            }
+            if (jobRepository.selectCount(new LambdaQueryWrapper<DocumentImportJob>().eq(DocumentImportJob::getFileId, job.getFileId())
+                    .notIn(DocumentImportJob::getStatus, "COMPLETED", "CANCELLED")) > 0) {
+                throw new IllegalStateException("fileId 仍有未退场的导入任务: " + job.getFileId());
+            }
+            if (job.getReplaceFileId() != null) requireReplacementFile(job, fileInfoRepository.lockByFileId(job.getReplaceFileId()));
+            artifactStore.retain(job.getSourceObjectKey());
+            if (jobRepository.insert(job) != 1) throw new IllegalStateException("无法保存导入任务");
+        });
+    }
+
+    private void requireReplacementFile(DocumentImportJob job, FileInfo original) {
+        if (job.getReplaceFileRowId() == null || original == null
+                || !original.hasRecordIdentity(job.getReplaceFileRowId(), job.getReplaceFileGeneration())
+                || !Objects.equals(original.getKnowledgeBaseId(), job.getKnowledgeBaseId())) {
+            throw new IllegalStateException("原文件已删除、重建或缺少提交快照，请重新提交解析任务");
+        }
     }
 
     private KnowledgeBase requireKnowledgeBase(String knowledgeBaseCode) {
@@ -617,12 +701,8 @@ public class DocumentImportJobServiceImpl implements DocumentImportJobService {
                 .build();
     }
 
-    private static String sourceObjectKey(String jobId, String fileName) {
-        String candidate = fileName == null ? "document" : fileName.replace('\\', '/');
-        int slash = candidate.lastIndexOf('/');
-        candidate = slash >= 0 ? candidate.substring(slash + 1) : candidate;
-        candidate = candidate.replaceAll("[^A-Za-z0-9._-]", "_");
-        return "knowledge-document-import/" + jobId + "/source/" + (candidate.isBlank() ? "document" : candidate);
+    private static String sourceObjectKey(String jobId) {
+        return "knowledge-document-import/" + jobId + "/source/original";
     }
 
     private static String defaultString(String value, String defaultValue) {
@@ -644,42 +724,16 @@ public class DocumentImportJobServiceImpl implements DocumentImportJobService {
         };
     }
 
-    private void deleteArtifactQuietly(String objectKey) {
+    private void retireArtifactQuietly(String objectKey) {
         try {
-            artifactStore.delete(objectKey);
+            artifactStore.retire(objectKey);
         } catch (Exception cleanupFailure) {
-            log.warn("无法清理未关联的文档工件: {}", objectKey, cleanupFailure);
+            log.warn("未关联工件的退场登记暂未完成: key={}, errorType={}", objectKey, cleanupFailure.getClass().getSimpleName());
         }
     }
 
-    private void deleteJobArtifactsAfterCommit(DocumentImportJob job) {
-        Runnable cleanup = () -> {
-            deleteArtifactQuietly(job.getSourceObjectKey());
-            deleteArtifactQuietly(job.getParseArtifactObjectKey());
-        };
-        if (TransactionSynchronizationManager.isSynchronizationActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    cleanup.run();
-                }
-            });
-        } else {
-            cleanup.run();
-        }
-    }
-
-    private void deleteArtifactOnRollback(String objectKey) {
-        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-            return;
-        }
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCompletion(int status) {
-                if (status != STATUS_COMMITTED) {
-                    deleteArtifactQuietly(objectKey);
-                }
-            }
-        });
+    private void retireJobArtifacts(DocumentImportJob job) {
+        artifactStore.retire(job.getSourceObjectKey());
+        artifactStore.retire(job.getParseArtifactObjectKey());
     }
 }

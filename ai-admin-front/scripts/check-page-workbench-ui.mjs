@@ -176,7 +176,7 @@ expectMatches(
   /<AiCodingProviderSelector[\s\S]*?v-model="taskForm\.provider"/,
   'AI Coding task icon provider selector',
 )
-expectExcludes(wizard, '<el-radio-button', 'PageAssistantWizard provider selector')
+expectExcludes(providerSelector, '<el-radio-button', 'shared AI Coding provider selector')
 expectIncludes(providerSelector, '<el-tooltip', 'AI Coding provider selector tooltip')
 expectIncludes(providerSelector, ':content="option.label"', 'AI Coding provider selector software name')
 expectIncludes(wizard, '@click="submitPageMapScan"', 'PageAssistantWizard')
@@ -482,9 +482,10 @@ expectMatches(
 )
 expectMatches(
   styles,
-  /\.page-access-card-list\s*\{[\s\S]*?scrollbar-width:\s*none;/,
-  'Page Access Center unobtrusive internal scrolling',
+  /\.page-access-card-list\s*\{[\s\S]*?scrollbar-gutter:\s*stable;/,
+  'Page Access Center stable visible internal scrolling',
 )
+expectExcludes(styles, 'scrollbar-width: none', 'Page Access Center hidden scrollbars')
 expectMatches(
   styles,
   /\.page-access-list-toolbar\s*>\s*\.el-button\s*\{[\s\S]*?width:\s*38px;[\s\S]*?min-width:\s*38px;[\s\S]*?padding:\s*0;/,
@@ -595,6 +596,8 @@ expectIncludes(pageDetail, '确认新目标并重新实施', 'page detail journe
 expectIncludes(pageDetail, 'PageWorkbenchActionPanel', 'page detail inline actions')
 expectIncludes(pageDetail, 'PageWorkbenchDiagnosticsPanel', 'page detail inline diagnostics')
 expectIncludes(pageDetail, 'PageWorkbenchDebugPanel', 'page detail inline debug')
+expectIncludes(pageActionPanel, '<span class="is-active">操作契约</span>', 'page action current contract label')
+expectExcludes(pageActionPanel, '<button class="is-active"', 'page action false contract tab affordance')
 expectIncludes(pageResourcePanel, 'id="page-resource-inline-title">页面资源</h3>', 'page resource panel')
 expectIncludes(pageResourcePanel, 'resource-directory-list', 'page resource panel compact groups')
 expectIncludes(pageResourcePanel, 'resource-directory-group', 'page resource panel compact groups')

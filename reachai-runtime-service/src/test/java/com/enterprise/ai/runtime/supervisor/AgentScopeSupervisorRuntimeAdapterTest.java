@@ -1,9 +1,11 @@
 package com.enterprise.ai.runtime.supervisor;
 
-import com.enterprise.ai.runtime.execution.SupervisorRuntimeAdapter;
-import com.enterprise.ai.runtime.agent.RuntimeAgentConfigVersionEntity;
+import com.enterprise.ai.runtime.execution.RuntimeAgentExecutionEventSink;
+import com.enterprise.ai.runtime.execution.policy.RuntimeEvalExecutionContext;
+import com.enterprise.ai.runtime.configuration.RuntimeContextEngineeringProperties;
+import com.enterprise.ai.runtime.agent.RuntimeAgentConfigSnapshot;
 import com.enterprise.ai.runtime.agent.RuntimeAgentView;
-import com.enterprise.ai.runtime.agent.RuntimeAgentWorkflowToolEntity;
+import com.enterprise.ai.runtime.agent.RuntimeAgentWorkflowToolSnapshot;
 import com.enterprise.ai.runtime.chat.RuntimeChatMemoryStore;
 import com.enterprise.ai.runtime.client.control.RuntimeControlCatalogClient;
 import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient;
@@ -13,7 +15,7 @@ import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient.ModelUsa
 import com.enterprise.ai.runtime.execution.RuntimeAgentExecutionCancellation;
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionResult;
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutor;
-import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
+import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
 import com.enterprise.ai.runtime.memory.RuntimeSessionMemoryService;
 import com.enterprise.ai.runtime.memory.RuntimeToolResultArtifactService;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionEntity;
@@ -23,7 +25,6 @@ import com.enterprise.ai.runtime.workflow.RuntimeWorkflowVersionMapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
-
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -32,7 +33,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
-
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -45,11 +45,324 @@ import static org.mockito.Mockito.when;
 
 class AgentScopeSupervisorRuntimeAdapterTest {
 
+    @Test
+    void returnsConfirmationWithoutAnotherModelRoundAfterCreatingTheCard() throws Exception {
+        var tool = tool("wf-confirm", "confirm_inventory").toBuilder().riskLevel("WRITE").readOnly(false).build();
+        stubWorkflow(tool);
+        when(approvalService.create(any(), any(), any(), any(RuntimeAgentWorkflowToolSnapshot.class), any(), any(), any(), any()))
+                .thenReturn(new SupervisorApprovalInteractionService.ApprovalRequest("spv-pause", Map.of("type", "CONFIRM")));
+        var responses = List.of(calls(call("plan", "record_supervisor_plan", Map.of(
+                        "summary", "inventory", "steps", List.of("inventory"), "workflowToolNames", List.of("confirm_inventory")))),
+                calls(call("inventory", "confirm_inventory", Map.of("sku", "SKU-001"))));
+        AtomicInteger rounds = new AtomicInteger();
+        var runtime = adapter(request -> {
+            int round = rounds.getAndIncrement();
+            return new ModelChatResult(200, "success", round < responses.size() ? responses.get(round) : text("Please confirm"));
+        });
+        var result = runtime.execute(new SupervisorRuntimeAdapter.SupervisorRequest(agent(), config(false), List.of(tool),
+                Map.of("message", "inventory", "sessionId", "confirmation-pause")));
+        assertEquals("SUPERVISOR_CONFIRMATION_REQUIRED", result.code());
+        assertEquals(2, rounds.get(), "A durable confirmation must pause without another model request");
+        assertEquals(2, result.metadata().get("modelRoundCount"), "A paused turn must retain its actual model diagnostics");
+        assertEquals(Map.of("type", "CONFIRM"), result.uiRequest());
+        verifyNoInteractions(graphExecutor);
+    }
+
+    @Test
+    void persistentTurnNeverLoadsAnonymousDefaultAgentState() {
+        var memoryService = mock(RuntimeSessionMemoryService.class);
+        var key = new com.enterprise.ai.runtime.memory.RuntimeSessionMemoryKey(
+                true, "default", "1", "agent-1", "public-session", "trusted-user-key", "trusted-session-key", "AGENT");
+        when(memoryService.resolve(any(), any(), any())).thenReturn(key);
+        when(memoryService.acquireTurn(any(), any(), any())).thenReturn("lease");
+        var store = mock(io.agentscope.core.state.AgentStateStore.class);
+        var saved = io.agentscope.core.state.AgentState.builder()
+                .userId(key.stateUserKey()).sessionId(key.stateSessionKey()).build();
+        saved.setShutdownInterrupted(true);
+        List<String> invalid = new ArrayList<>();
+        org.mockito.Mockito.doAnswer(invocation -> {
+            String user = invocation.getArgument(0), session = invocation.getArgument(1);
+            if (!key.stateUserKey().equals(user) || !key.stateSessionKey().equals(session)) {
+                invalid.add(user + "/" + session + " via " + StackWalker.getInstance().walk(frames -> frames
+                        .filter(f -> f.getClassName().startsWith("io.agentscope"))
+                        .limit(8).map(f -> f.getClassName() + "." + f.getMethodName()).toList()));
+                throw new com.enterprise.ai.runtime.memory.RuntimeSessionOwnershipException("AgentScope state access escaped the leased session slot");
+            }
+            return java.util.Optional.of(saved);
+        }).when(store).get(org.mockito.ArgumentMatchers.nullable(String.class), any(), any(), any());
+        when(memoryService.stateStoreForTurn(key, "lease")).thenReturn(store);
+        var result = adapter(model(List.of(text("Hello"))), null, memoryService).execute(
+                new SupervisorRuntimeAdapter.SupervisorRequest(agent(), config(false), List.of(), Map.of("message", "Hello")));
+        assertTrue(result.success(), result.code());
+        assertTrue(invalid.isEmpty(), "Unexpected anonymous state access: " + invalid);
+        assertFalse(saved.isShutdownInterrupted(), "The shutdown check must consume the active owned state's marker");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void approvalPersistsPlanAndResumesExactArgumentsWithoutRepeatingCompletedSteps() throws Exception {
+        var first = tool("wf-first", "first_query");
+        var approved = tool("wf-write", "write_inventory").toBuilder().riskLevel("WRITE").readOnly(false).build();
+        var last = tool("wf-last", "last_query");
+        List.of(first, approved, last).forEach(this::stubWorkflow);
+        when(graphExecutor.execute(any(), any(), any(), any(), any())).thenReturn(success("done"));
+        AtomicReference<Map<String, Object>> savedInput = new AtomicReference<>();
+        when(approvalService.create(any(), any(), any(), any(RuntimeAgentWorkflowToolSnapshot.class), any(), any(), any(), any()))
+                .thenAnswer(invocation -> {
+                    savedInput.set(objectMapper.convertValue(invocation.getArgument(4), Map.class));
+                    return new SupervisorApprovalInteractionService.ApprovalRequest("spv-multi", Map.of("type", "CONFIRM"));
+                });
+        var initial = adapter(model(List.of(
+                calls(call("plan", "record_supervisor_plan", Map.of("summary", "three steps", "steps", List.of("read", "write", "read"),
+                        "workflowToolNames", List.of("first_query", "write_inventory", "last_query")))),
+                calls(call("out-of-order-write", "write_inventory", Map.of("sku", "FORGED"))),
+                calls(call("first", "first_query", Map.of())),
+                calls(call("write", "write_inventory", Map.of("sku", "SKU-001"))), text("Please confirm"))));
+        var waiting = initial.execute(new SupervisorRuntimeAdapter.SupervisorRequest(
+                agent(), config(false), List.of(first, approved, last), Map.of("message", "Update inventory")));
+        assertEquals("SUPERVISOR_CONFIRMATION_REQUIRED", waiting.code());
+        assertEquals(1, waiting.metadata().get("workflowCallCount"));
+        var continuation = (Map<?, ?>) savedInput.get().get("__supervisorContinuation");
+        assertEquals(1, continuation.get("plannedWorkflowCursor"));
+        assertEquals(List.of("first_query"), continuation.get("completedWorkflowToolNames"));
+        var grant = new com.enterprise.ai.runtime.execution.RuntimeSupervisorApprovalPort.PolicyApprovalGrant(
+                "spv-multi", approved.getPermissionKey(), approved.getToolName(), Map.of("sku", "SKU-001"), "1");
+        var resumed = adapter(model(List.of(
+                calls(call("repeat-first", "first_query", Map.of())),
+                calls(call("change-approved", "write_inventory", Map.of("sku", "FORGED"))),
+                calls(call("last", "last_query", Map.of())),
+                calls(call("final", "begin_final_answer", Map.of())), text("done"))));
+        var result = resumed.execute(new SupervisorRuntimeAdapter.SupervisorRequest(
+                agent(), config(false), List.of(first, approved, last), savedInput.get(), grant));
+        assertTrue(result.success(), result.code() + " " + result.metadata());
+        assertEquals(3, result.metadata().get("workflowCallCount"));
+        assertEquals(1, result.metadata().get("planCount"));
+        var inputs = org.mockito.ArgumentCaptor.forClass(Map.class);
+        verify(graphExecutor, org.mockito.Mockito.times(3)).execute(any(), inputs.capture(), any(), any(), any());
+        assertEquals("SKU-001", inputs.getAllValues().get(1).get("sku"));
+        verify(approvalService).create(any(), any(), any(), any(RuntimeAgentWorkflowToolSnapshot.class), any(), any(), any(), any());
+    }
+
+    @Test
+    void confirmedWorkflowExecutesBeforeModelCanSkipTheApprovedAction() {
+        var tool = tool("wf-confirm", "confirm_inventory").toBuilder()
+                .riskLevel("WRITE").readOnly(false).build();
+        stubWorkflow(tool);
+        when(graphExecutor.execute(any(), any(), any(), any(), any())).thenReturn(success("Inventory: 12"));
+        var input = Map.<String, Object>of("message", "Check inventory", "__supervisorContinuation", Map.of(
+                "planNo", 1,
+                "recordedPlan", Map.of("workflowToolNames", List.of("confirm_inventory")),
+                "plannedWorkflowToolNames", List.of("confirm_inventory"),
+                "plannedWorkflowCursor", 0,
+                "completedWorkflowToolNames", List.of()));
+        var grant = new com.enterprise.ai.runtime.execution.RuntimeSupervisorApprovalPort.PolicyApprovalGrant(
+                "spv-confirm", tool.getPermissionKey(), tool.getToolName(), Map.of("sku", "SKU-001"), "1");
+        var runtime = adapter(model(List.of(text("Please confirm"), text("Inventory: 12"))));
+
+        var result = runtime.execute(new SupervisorRuntimeAdapter.SupervisorRequest(
+                agent(), config(false), List.of(tool), input, grant));
+
+        verify(graphExecutor).execute(any(), any(), any(), any(), any());
+        assertTrue(result.success(), result.code());
+        assertEquals(1, result.metadata().get("workflowCallCount"));
+    }
+
+    @Test
+    void confirmationWithoutSavedPlanCannotReportCompletionWithoutBusinessExecution() {
+        var tool = tool("wf-confirm", "confirm_inventory");
+        stubWorkflow(tool);
+        var grant = new com.enterprise.ai.runtime.execution.RuntimeSupervisorApprovalPort.PolicyApprovalGrant(
+                "spv-confirm", tool.getPermissionKey(), tool.getToolName(), Map.of(), "1");
+        var runtime = adapter(model(List.of(text("Please confirm"))));
+
+        var result = runtime.execute(new SupervisorRuntimeAdapter.SupervisorRequest(
+                agent(), config(false), List.of(tool), Map.of("message", "Check inventory"), grant));
+
+        assertFalse(result.success(), "An approval must never turn a skipped business action into success");
+        verifyNoInteractions(graphExecutor);
+    }
+
+    @Test
+    void confirmedRemoteAgentExecutesOnceBeforeModelFinalAnswer() {
+        var remote = new SupervisorRuntimeAdapter.RemoteAgentBinding(1L, 2L, 3L, 4L,
+                "remote-orders", "send_orders", "Send order", "[\"orders\"]", "[]", "WRITE", "orders:write", true);
+        var delegation = mock(com.enterprise.ai.runtime.a2a.RuntimeA2aDelegationService.class);
+        when(delegation.send(any(), org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyLong(), any()))
+                .thenReturn(new com.enterprise.ai.runtime.client.control.RuntimeA2aControlClient.SendResponse(
+                        "test", "task-1", "context-1", "remote-task-1", "remote-context-1", "TASK_STATE_COMPLETED",
+                        "Order accepted", null, false, List.of("done"), List.of()));
+        var input = Map.<String, Object>of("message", "Send order", "__supervisorContinuation", Map.of(
+                "planNo", 1, "recordedPlan", Map.of("workflowToolNames", List.of("send_orders")),
+                "plannedWorkflowToolNames", List.of("send_orders"), "plannedWorkflowCursor", 0,
+                "completedWorkflowToolNames", List.of()));
+        var grant = new com.enterprise.ai.runtime.execution.RuntimeSupervisorApprovalPort.PolicyApprovalGrant(
+                "spv-remote", "orders:write", "send_orders", Map.of("text", "Order 42", "protocolSkillId", "orders"), "1");
+        var runtime = adapter(model(List.of(text("Please confirm"), text("Order accepted"))));
+        runtime.setA2aDelegationService(delegation);
+        var result = runtime.execute(new SupervisorRuntimeAdapter.SupervisorRequest(agent(), config(false), List.of(),
+                input, grant, null, null, null, List.of(), null, List.of(), List.of(remote)));
+        assertTrue(result.success(), result.code());
+        var sent = org.mockito.ArgumentCaptor.forClass(com.enterprise.ai.runtime.a2a.RuntimeA2aDelegationService.DelegationRequest.class);
+        verify(delegation).send(org.mockito.ArgumentMatchers.eq("agent-1"), org.mockito.ArgumentMatchers.eq(7L),
+                org.mockito.ArgumentMatchers.eq(1L), sent.capture());
+        assertEquals("Order 42", sent.getValue().text());
+        assertEquals("orders", sent.getValue().protocolSkillId());
+        verifyNoInteractions(graphExecutor);
+    }
+
+    @Test
+    void approvalPermissionMismatchFailsBeforeAnyBusinessOrModelCall() {
+        var tool = tool("wf-confirm", "confirm_inventory");
+        stubWorkflow(tool);
+        var input = Map.<String, Object>of("message", "Check inventory", "__supervisorContinuation", Map.of(
+                "planNo", 1, "recordedPlan", Map.of("workflowToolNames", List.of("confirm_inventory")),
+                "plannedWorkflowToolNames", List.of("confirm_inventory"), "plannedWorkflowCursor", 0,
+                "completedWorkflowToolNames", List.of()));
+        var grant = new com.enterprise.ai.runtime.execution.RuntimeSupervisorApprovalPort.PolicyApprovalGrant(
+                "spv-confirm", "wrong-permission", tool.getToolName(), Map.of(), "1");
+        var modelClient = mock(RuntimeModelServiceClient.class);
+        var result = adapter(modelClient).execute(new SupervisorRuntimeAdapter.SupervisorRequest(
+                agent(), config(false), List.of(tool), input, grant));
+        assertFalse(result.success());
+        assertEquals("SUPERVISOR_APPROVAL_CONTINUATION_INVALID", result.code());
+        verifyNoInteractions(graphExecutor, modelClient);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.MethodSource("invalidContinuationNumbers")
+    void rejectsLossyContinuationNumbersBeforeCompletingTheTurn(String field, Number value) {
+        var query = tool("wf-query", "query_team");
+        stubWorkflow(query);
+        var continuation = new LinkedHashMap<String, Object>();
+        continuation.put("traceId", "trace-1");
+        continuation.put("continuationSchemaVersion", 3);
+        continuation.put("executionCallCounts", Map.of("workflow",1,"a2a",0,"managed",0));
+        continuation.put("plannedWorkflowCursor", 0);
+        continuation.put("waitingToolName", "query_team");
+        continuation.put("plannedWorkflowToolNames", List.of("query_team"));
+        continuation.put("completedWorkflowToolNames", List.of());
+        continuation.put("recordedPlan", Map.of("workflowToolNames", List.of("query_team")));
+        continuation.put(field, value);
+        var result = adapter(model(List.of())).continueAfterWorkflowInteraction(continuation,
+                Map.of("success", true, "status", "COMPLETED", "answer", "ok"),
+                new SupervisorRuntimeAdapter.SupervisorRequest(agent(), config(false), List.of(query), Map.of("traceId", "trace-1")));
+        assertFalse(result.success());
+        assertEquals("RUNTIME_INTERACTION_CONTINUATION_INVALID", result.code());
+        verifyNoInteractions(graphExecutor);
+    }
+
+    static java.util.stream.Stream<org.junit.jupiter.params.provider.Arguments> invalidContinuationNumbers() {
+        return java.util.stream.Stream.of(
+                org.junit.jupiter.params.provider.Arguments.of("continuationSchemaVersion", 3.5),
+                org.junit.jupiter.params.provider.Arguments.of("continuationSchemaVersion", 4294967299L),
+                org.junit.jupiter.params.provider.Arguments.of("plannedWorkflowCursor", 0.5),
+                org.junit.jupiter.params.provider.Arguments.of("plannedWorkflowCursor", -0.5),
+                org.junit.jupiter.params.provider.Arguments.of("plannedWorkflowCursor", 4294967296L),
+                org.junit.jupiter.params.provider.Arguments.of("plannedWorkflowCursor", Double.NaN));
+    }
+
+    @Test
+    void concurrentInitialPlansAcceptOnlyOneExecutionSequence() throws Exception {
+        RuntimeAgentWorkflowToolSnapshot tool = org.mockito.Mockito.spy(tool("wf-team", "query_team"));
+        var planning = new java.util.concurrent.atomic.AtomicBoolean();
+        var observations = new AtomicInteger();
+        var bothPlanningCalls = new java.util.concurrent.CountDownLatch(2);
+        org.mockito.Mockito.doAnswer(invocation -> {
+            // Force overlap only at the old admission lookup, never at prompt rendering or tool registration.
+            // The extracted state receives this immutable allowlist before model execution starts.
+            boolean admissionLookup = StackWalker.getInstance().walk(frames -> frames.anyMatch(frame ->
+                    frame.getMethodName().equals("recordPlan")
+                            && frame.getClassName().equals(AgentScopeSupervisorRuntimeAdapter.class.getName() + "$RunState")));
+            if (planning.get() && admissionLookup && observations.getAndIncrement() < 2) {
+                bothPlanningCalls.countDown();
+                assertTrue(bothPlanningCalls.await(3, java.util.concurrent.TimeUnit.SECONDS),
+                        "Both concurrent plans must reach admission before either one is committed");
+            }
+            return "query_team";
+        }).when(tool).getToolName();
+        stubWorkflow(tool);
+        when(graphExecutor.execute(any(), any(), any(), any(), any())).thenReturn(success("查询成功"));
+        var sequence = List.of(
+                calls(call("first-plan", "record_supervisor_plan", Map.of(
+                                "summary", "第一次规划", "steps", List.of("查询"), "workflowToolNames", List.of("query_team"))),
+                        call("second-plan", "record_supervisor_plan", Map.of(
+                                "summary", "重复规划", "steps", List.of("查询"), "workflowToolNames", List.of("query_team")))),
+                calls(call("query", "query_team", Map.of())), text("查询成功"), text("查询成功"));
+        AtomicInteger modelRound = new AtomicInteger();
+        AgentScopeSupervisorRuntimeAdapter runtime = adapter(request -> {
+            int index = modelRound.getAndIncrement();
+            planning.set(index == 0);
+            return new ModelChatResult(200, "success", sequence.get(index));
+        });
+
+        var result = runtime.execute(new SupervisorRuntimeAdapter.SupervisorRequest(
+                agent(), config(true), List.of(tool), Map.of("message", "查询班组", "sessionId", "parallel-plan-state")));
+
+        assertTrue(result.success(), String.valueOf(result.metadata()));
+        assertEquals(1, result.metadata().get("planCount"), "Concurrent plan submission must accept only one initial plan");
+        assertEquals(1, result.metadata().get("workflowCallCount"));
+    }
+
+    @Test
+    void rejectedPlanDoesNotIncrementPlanCount() throws Exception {
+        RuntimeAgentWorkflowToolSnapshot tool = tool("wf-team", "query_team");
+        stubWorkflow(tool);
+        when(graphExecutor.execute(any(), any(), any(), any(), any())).thenReturn(success("查询成功"));
+        Map<String, Object> invalid = new LinkedHashMap<>();
+        invalid.put("summary", null);
+        invalid.put("steps", List.of("查询班组"));
+        invalid.put("workflowToolNames", List.of("query_team"));
+        AgentScopeSupervisorRuntimeAdapter runtime = adapter(model(List.of(
+                calls(call("invalid-plan", "record_supervisor_plan", invalid)),
+                calls(call("valid-plan", "record_supervisor_plan", Map.of(
+                        "summary", "查询班组", "steps", List.of("查询"), "workflowToolNames", List.of("query_team")))),
+                calls(call("query", "query_team", Map.of())), text("查询成功"), text("查询成功"))));
+
+        var result = runtime.execute(new SupervisorRuntimeAdapter.SupervisorRequest(
+                agent(), config(false), List.of(tool), Map.of("message", "查询班组", "sessionId", "invalid-plan-state")));
+
+        assertTrue(result.success(), String.valueOf(result.metadata()));
+        assertEquals(1, result.metadata().get("planCount"), "A rejected plan must not consume a plan number");
+        assertEquals(0, result.metadata().get("replanCount"));
+        assertEquals(1, result.metadata().get("workflowCallCount"));
+    }
+
+    @Test
+    void rejectedReplanDoesNotPreventValidRecovery() throws Exception {
+        RuntimeAgentWorkflowToolSnapshot tool = tool("wf-team", "query_team");
+        stubWorkflow(tool);
+        AtomicInteger calls = new AtomicInteger();
+        when(graphExecutor.execute(any(), any(), any(), any(), any())).thenAnswer(invocation -> calls.incrementAndGet() == 1
+                ? new RuntimeGraphSpecExecutionResult(false, "UPSTREAM_FAILED", "临时失败", null, null, List.of(), Map.of())
+                : success("重试成功"));
+        Map<String, Object> invalid = new LinkedHashMap<>();
+        invalid.put("reason", null);
+        invalid.put("steps", List.of("重试"));
+        invalid.put("workflowToolNames", List.of("query_team"));
+        AgentScopeSupervisorRuntimeAdapter runtime = adapter(model(List.of(
+                calls(call("plan", "record_supervisor_plan", Map.of(
+                        "summary", "查询", "steps", List.of("查询"), "workflowToolNames", List.of("query_team")))),
+                calls(call("first-query", "query_team", Map.of())),
+                calls(call("invalid-replan", "record_supervisor_plan", invalid)),
+                calls(call("valid-replan", "record_supervisor_plan", Map.of(
+                        "summary", "重试", "steps", List.of("重试"), "workflowToolNames", List.of("query_team")))),
+                calls(call("second-query", "query_team", Map.of())), text("重试成功"), text("重试成功"))));
+
+        var result = runtime.execute(new SupervisorRuntimeAdapter.SupervisorRequest(
+                agent(), config(false), List.of(tool), Map.of("message", "查询班组", "sessionId", "invalid-replan-state")));
+
+        assertTrue(result.success(), String.valueOf(result.metadata()));
+        assertEquals(2, result.metadata().get("planCount"));
+        assertEquals(1, result.metadata().get("replanCount"));
+        assertEquals(2, calls.get(), "A rejected replan must leave the legitimate retry available");
+    }
+
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final RuntimeWorkflowDefinitionMapper workflowMapper = mock(RuntimeWorkflowDefinitionMapper.class);
     private final RuntimeWorkflowVersionMapper versionMapper = mock(RuntimeWorkflowVersionMapper.class);
     private final RuntimeGraphSpecExecutor graphExecutor = mock(RuntimeGraphSpecExecutor.class);
     private final SupervisorExecutionTraceService traceService = mock(SupervisorExecutionTraceService.class);
+    private final SupervisorApprovalInteractionService approvalService = mock(SupervisorApprovalInteractionService.class);
     private final Map<String, RuntimeWorkflowDefinitionEntity> workflowTargets = new LinkedHashMap<>();
     private final Map<Long, RuntimeWorkflowVersionEntity> workflowVersions = new LinkedHashMap<>();
 
@@ -96,9 +409,100 @@ class AgentScopeSupervisorRuntimeAdapterTest {
     }
 
     @Test
+    void advertisesCallableToolNameWhenPublishedWorkflowUsesADifferentKey() throws Exception {
+        RuntimeAgentWorkflowToolSnapshot workflowTool = tool("wf-published-check", "run_published_check");
+        stubWorkflow(workflowTool);
+        workflowTargets.get(workflowTool.getWorkflowId()).setKeySlug("published-check-workflow");
+        when(graphExecutor.execute(any(), any(), any(), any(), any()))
+                .thenReturn(success("published result"));
+        AtomicReference<RuntimeModelServiceClient.ModelChatRequest> firstRequest = new AtomicReference<>();
+        RuntimeModelServiceClient responses = model(List.of(
+                calls(call("plan-1", "record_supervisor_plan", Map.of(
+                        "summary", "run the published check", "steps", List.of("run the check"),
+                        "workflowToolNames", List.of(workflowTool.getToolName())))),
+                calls(call("workflow-1", workflowTool.getToolName(), Map.of())),
+                text("published result"),
+                text("published result")));
+        AgentScopeSupervisorRuntimeAdapter adapter = adapter(request -> {
+            firstRequest.compareAndSet(null, request);
+            return responses.chat(request);
+        });
+
+        SupervisorRuntimeAdapter.SupervisorResult result = adapter.execute(
+                new SupervisorRuntimeAdapter.SupervisorRequest(agent(), config(false), List.of(workflowTool),
+                        Map.of("message", "run the published check", "sessionId", "s-tool-alias"), null, null));
+
+        assertTrue(result.success(), String.valueOf(result.metadata()));
+        assertEquals(1, result.metadata().get("workflowCallCount"));
+        String systemPrompt = firstRequest.get().getMessages().stream()
+                .filter(message -> "system".equals(message.getRole()))
+                .map(RuntimeModelServiceClient.ModelChatRequest.ChatMessage::getContent)
+                .findFirst().orElseThrow();
+        String workflowSection = systemPrompt.split("Permitted published Workflow tools:\\n", 2)[1]
+                .split("Permitted fixed A2A remote-Agent tools:", 2)[0];
+        List<String> advertisedNames = workflowSection.lines()
+                .filter(line -> line.startsWith("- "))
+                .map(line -> line.substring(2).split("\\s", 2)[0]).toList();
+        List<String> registeredNames = new ArrayList<>();
+        firstRequest.get().getTools().forEach(toolDefinition ->
+                registeredNames.add(toolDefinition.path("function").path("name").asText()));
+        assertEquals(List.of(workflowTool.getToolName()), advertisedNames,
+                "the planning allowlist must use the callable binding name even when the Workflow key differs");
+        assertTrue(registeredNames.containsAll(advertisedNames),
+                "every advertised name must be a registered execution tool");
+        verify(graphExecutor).execute(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void incompletePlanDoesNotPublishAForcedFinalAnswer() throws Exception {
+        assertIncompletePlanDoesNotPublish(false);
+    }
+
+    @Test
+    void rejectedExplicitFinalAnswerCannotBeBypassedByForcedFinalPass() throws Exception {
+        assertIncompletePlanDoesNotPublish(true);
+    }
+
+    private void assertIncompletePlanDoesNotPublish(boolean explicitFinalAttempt) throws Exception {
+        RuntimeAgentWorkflowToolSnapshot workflowTool = tool("wf-unfinished", "unfinished_query");
+        stubWorkflow(workflowTool);
+        List<ModelChatData> responses = new ArrayList<>();
+        responses.add(calls(call("unfinished-plan", "record_supervisor_plan", Map.of(
+                "summary", "run the requested query", "steps", List.of("run unfinished_query"),
+                "workflowToolNames", List.of("unfinished_query")))));
+        if (explicitFinalAttempt) responses.add(calls(call("blocked-final", "begin_final_answer", Map.of())));
+        responses.add(text("internal draft that claims the work completed"));
+        responses.add(text("The requested query has completed successfully."));
+        AtomicInteger modelCalls = new AtomicInteger();
+        RuntimeModelServiceClient script = model(responses);
+        AgentScopeSupervisorRuntimeAdapter adapter = adapter(request -> {
+            modelCalls.incrementAndGet();
+            return script.chat(request);
+        });
+        List<String> publicText = new java.util.concurrent.CopyOnWriteArrayList<>();
+
+        SupervisorRuntimeAdapter.SupervisorResult result = adapter.execute(
+                new SupervisorRuntimeAdapter.SupervisorRequest(agent(), config(false), List.of(workflowTool),
+                        Map.of("message", "run the requested query", "sessionId", "s-unfinished-plan"),
+                        null, (event, data) -> {
+                            if ("message.delta".equals(event)) publicText.add(String.valueOf(data));
+                        }));
+
+        assertFalse(result.success());
+        assertEquals("SUPERVISOR_PLAN_INCOMPLETE", result.code());
+        assertTrue(publicText.isEmpty(), "unfinished work must not publish a model-generated completion answer");
+        assertEquals(explicitFinalAttempt ? 3 : 2, modelCalls.get(), "no forced model pass is allowed for an incomplete plan");
+        assertEquals("FAILED", result.metadata().get("answerPhase"));
+        assertEquals(false, result.metadata().get("contentStreamed"));
+        assertTrue(result.steps().stream().noneMatch(step -> "final_answer".equals(step.get("name"))
+                && "completed".equals(step.get("state"))));
+        verify(graphExecutor, never()).execute(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
     void forcedPublicFinalPassRecoversOnceFromContextOverflowWithoutRepeatingWorkflow()
             throws Exception {
-        RuntimeAgentWorkflowToolEntity workflowTool = tool("wf-query", "query_team");
+        RuntimeAgentWorkflowToolSnapshot workflowTool = tool("wf-query", "query_team");
         stubWorkflow(workflowTool);
         when(graphExecutor.execute(any(), any(), any(), any(), any()))
                 .thenReturn(success("workflow completed once"));
@@ -195,8 +599,8 @@ class AgentScopeSupervisorRuntimeAdapterTest {
 
     @Test
     void ruleFirstPageQueryUsesNaturalLanguageAndPublishedPageSchema() throws Exception {
-        RuntimeAgentWorkflowToolEntity pageQuery = pageActionTool("wf-page-orders", "mall_order_page_query");
-        pageQuery.setInputSchemaOverrideJson("""
+        RuntimeAgentWorkflowToolSnapshot pageQuery = pageActionTool("wf-page-orders", "mall_order_page_query").toBuilder()
+                .inputSchemaOverrideJson("""
                 {
                   "type":"object",
                   "properties":{
@@ -205,7 +609,8 @@ class AgentScopeSupervisorRuntimeAdapterTest {
                     "pageSize":{"type":"integer"}
                   }
                 }
-                """);
+                """)
+                .build();
         stubWorkflow(pageQuery);
         setPageActionGraph(pageQuery, "orders", "query", "status", "pageNum", "pageSize");
         RuntimeControlCatalogClient catalogClient = mock(RuntimeControlCatalogClient.class);
@@ -248,7 +653,7 @@ class AgentScopeSupervisorRuntimeAdapterTest {
 
     @Test
     void ruleFirstPageQueryPreservesExplicitPagination() {
-        RuntimeAgentWorkflowToolEntity pageQuery = pageActionTool("wf-page-orders", "mall_order_page_query");
+        RuntimeAgentWorkflowToolSnapshot pageQuery = pageActionTool("wf-page-orders", "mall_order_page_query");
         stubWorkflow(pageQuery);
         setPageActionGraph(pageQuery, "orders", "query", "pageNum", "pageSize");
         RuntimeControlCatalogClient catalogClient = mock(RuntimeControlCatalogClient.class);
@@ -277,7 +682,7 @@ class AgentScopeSupervisorRuntimeAdapterTest {
 
     @Test
     void ruleFirstPageQueryKeepsNaturalLanguageSeparateWhenNoStructuredArgumentsExist() {
-        RuntimeAgentWorkflowToolEntity pageQuery = pageActionTool("wf-page-orders", "mall_order_page_query");
+        RuntimeAgentWorkflowToolSnapshot pageQuery = pageActionTool("wf-page-orders", "mall_order_page_query");
         stubWorkflow(pageQuery);
         setPageActionGraph(pageQuery, "orders", "query");
         RuntimeControlCatalogClient catalogClient = mock(RuntimeControlCatalogClient.class);
@@ -307,7 +712,7 @@ class AgentScopeSupervisorRuntimeAdapterTest {
 
     @Test
     void ruleFirstPageQueryDoesNotRunAWorkflowForAnotherCurrentPage() {
-        RuntimeAgentWorkflowToolEntity pageQuery = pageActionTool("wf-page-orders", "mall_order_page_query");
+        RuntimeAgentWorkflowToolSnapshot pageQuery = pageActionTool("wf-page-orders", "mall_order_page_query");
         stubWorkflow(pageQuery);
         setPageActionGraph(pageQuery, "orders", "query");
         RuntimeControlCatalogClient catalogClient = mock(RuntimeControlCatalogClient.class);
@@ -327,7 +732,7 @@ class AgentScopeSupervisorRuntimeAdapterTest {
 
     @Test
     void ruleFirstPageQueryDoesNotSilentlyDropUnsupportedFilters() {
-        RuntimeAgentWorkflowToolEntity pageQuery = pageActionTool("wf-page-orders", "mall_order_page_query");
+        RuntimeAgentWorkflowToolSnapshot pageQuery = pageActionTool("wf-page-orders", "mall_order_page_query");
         stubWorkflow(pageQuery);
         setPageActionGraph(pageQuery, "orders", "query");
         RuntimeControlCatalogClient catalogClient = mock(RuntimeControlCatalogClient.class);
@@ -353,7 +758,7 @@ class AgentScopeSupervisorRuntimeAdapterTest {
 
     @Test
     void ruleFirstPageQueryFallsBackForOverflowingIntegerFilterWithoutDescription() {
-        RuntimeAgentWorkflowToolEntity pageQuery = pageActionTool("wf-page-orders", "mall_order_page_query");
+        RuntimeAgentWorkflowToolSnapshot pageQuery = pageActionTool("wf-page-orders", "mall_order_page_query");
         stubWorkflow(pageQuery);
         setPageActionGraph(pageQuery, "orders", "query", "status", "pageNum", "pageSize");
         RuntimeControlCatalogClient catalogClient = mock(RuntimeControlCatalogClient.class);
@@ -380,7 +785,7 @@ class AgentScopeSupervisorRuntimeAdapterTest {
 
     @Test
     void ruleFirstPageQueryDoesNotTreatOneNegatedWriteAsAReadOnlyCompoundRequest() {
-        RuntimeAgentWorkflowToolEntity pageQuery = pageActionTool("wf-page-orders", "mall_order_page_query");
+        RuntimeAgentWorkflowToolSnapshot pageQuery = pageActionTool("wf-page-orders", "mall_order_page_query");
         stubWorkflow(pageQuery);
         setPageActionGraph(pageQuery, "orders", "query", "pageNum", "pageSize");
         RuntimeControlCatalogClient catalogClient = mock(RuntimeControlCatalogClient.class);
@@ -401,7 +806,7 @@ class AgentScopeSupervisorRuntimeAdapterTest {
 
     @Test
     void ruleFirstPageQueryDoesNotDropEnglishWriteIntent() {
-        RuntimeAgentWorkflowToolEntity pageQuery = pageActionTool("wf-page-orders", "mall_order_page_query");
+        RuntimeAgentWorkflowToolSnapshot pageQuery = pageActionTool("wf-page-orders", "mall_order_page_query");
         stubWorkflow(pageQuery);
         setPageActionGraph(pageQuery, "orders", "query", "pageNum", "pageSize");
         RuntimeControlCatalogClient catalogClient = mock(RuntimeControlCatalogClient.class);
@@ -422,7 +827,7 @@ class AgentScopeSupervisorRuntimeAdapterTest {
 
     @Test
     void ruleFirstPageQueryRejectsUnsafeCatalogAction() {
-        RuntimeAgentWorkflowToolEntity pageQuery = pageActionTool("wf-page-orders", "mall_order_page_query");
+        RuntimeAgentWorkflowToolSnapshot pageQuery = pageActionTool("wf-page-orders", "mall_order_page_query");
         stubWorkflow(pageQuery);
         setPageActionGraph(pageQuery, "orders", "query");
         RuntimeControlCatalogClient catalogClient = mock(RuntimeControlCatalogClient.class);
@@ -445,7 +850,7 @@ class AgentScopeSupervisorRuntimeAdapterTest {
 
     @Test
     void ruleFirstPageQueryRejectsMisdeclaredReadActionWithWriteSemantics() {
-        RuntimeAgentWorkflowToolEntity pageQuery = pageActionTool("wf-page-orders", "mall_order_page_query");
+        RuntimeAgentWorkflowToolSnapshot pageQuery = pageActionTool("wf-page-orders", "mall_order_page_query");
         stubWorkflow(pageQuery);
         setPageActionGraph(pageQuery, "orders", "queryAndDelete");
         RuntimeControlCatalogClient catalogClient = mock(RuntimeControlCatalogClient.class);
@@ -469,7 +874,7 @@ class AgentScopeSupervisorRuntimeAdapterTest {
 
     @Test
     void ruleFirstPageQuerySummarizesOnlySafeStructuredCount() {
-        RuntimeAgentWorkflowToolEntity pageQuery = pageActionTool("wf-page-orders", "mall_order_page_query");
+        RuntimeAgentWorkflowToolSnapshot pageQuery = pageActionTool("wf-page-orders", "mall_order_page_query");
         stubWorkflow(pageQuery);
         setPageActionGraph(pageQuery, "orders", "query", "pageNum", "pageSize");
         RuntimeControlCatalogClient catalogClient = mock(RuntimeControlCatalogClient.class);
@@ -493,7 +898,7 @@ class AgentScopeSupervisorRuntimeAdapterTest {
 
     @Test
     void ruleFirstPageQueryExplicitlyReportsNoMatchingRecords() {
-        RuntimeAgentWorkflowToolEntity pageQuery = pageActionTool("wf-page-orders", "mall_order_page_query");
+        RuntimeAgentWorkflowToolSnapshot pageQuery = pageActionTool("wf-page-orders", "mall_order_page_query");
         stubWorkflow(pageQuery);
         setPageActionGraph(pageQuery, "orders", "query", "pageNum", "pageSize");
         RuntimeControlCatalogClient catalogClient = mock(RuntimeControlCatalogClient.class);
@@ -517,7 +922,7 @@ class AgentScopeSupervisorRuntimeAdapterTest {
 
     @Test
     void ruleFirstPageQueryRejectsCompositeWorkflowWithAnotherExecutableNode() {
-        RuntimeAgentWorkflowToolEntity pageQuery = pageActionTool("wf-page-orders", "mall_order_page_query");
+        RuntimeAgentWorkflowToolSnapshot pageQuery = pageActionTool("wf-page-orders", "mall_order_page_query");
         stubWorkflow(pageQuery);
         RuntimeWorkflowVersionEntity version = workflowVersions.get(pageQuery.getWorkflowVersionId());
         version.setGraphSpecSnapshotJson("""
@@ -544,8 +949,8 @@ class AgentScopeSupervisorRuntimeAdapterTest {
 
     @Test
     void executesMultipleReadOnlyWorkflowCallsInParallelAndAggregatesAnswer() throws Exception {
-        RuntimeAgentWorkflowToolEntity teamTool = tool("wf-team", "query_team");
-        RuntimeAgentWorkflowToolEntity ownerTool = tool("wf-owner", "query_owner");
+        RuntimeAgentWorkflowToolSnapshot teamTool = tool("wf-team", "query_team");
+        RuntimeAgentWorkflowToolSnapshot ownerTool = tool("wf-owner", "query_owner");
         stubWorkflow(teamTool);
         stubWorkflow(ownerTool);
         AtomicInteger active = new AtomicInteger();
@@ -584,7 +989,7 @@ class AgentScopeSupervisorRuntimeAdapterTest {
 
     @Test
     void modelToolArgumentsCannotOverrideSignedExecutionContext() throws Exception {
-        RuntimeAgentWorkflowToolEntity teamTool = tool("wf-team", "query_team");
+        RuntimeAgentWorkflowToolSnapshot teamTool = tool("wf-team", "query_team");
         stubWorkflow(teamTool);
         List<Map<String, Object>> workflowInputs = new ArrayList<>();
         when(graphExecutor.execute(any(), any(), any(), any(), any())).thenAnswer(invocation -> {
@@ -633,7 +1038,7 @@ class AgentScopeSupervisorRuntimeAdapterTest {
 
     @Test
     void surfacesNonBlockingWorkflowPresentationWithFinalAgentAnswer() throws Exception {
-        RuntimeAgentWorkflowToolEntity tool = tool("wf-team", "query_team");
+        RuntimeAgentWorkflowToolSnapshot tool = tool("wf-team", "query_team");
         stubWorkflow(tool);
         Map<String, Object> uiRequest = Map.of(
                 "schemaVersion", "1.0",
@@ -675,8 +1080,8 @@ class AgentScopeSupervisorRuntimeAdapterTest {
 
     @Test
     void serializesPageActionsEvenWhenParallelToolExecutionIsEnabled() throws Exception {
-        RuntimeAgentWorkflowToolEntity firstPageAction = pageActionTool("wf-page-team", "open_team_page");
-        RuntimeAgentWorkflowToolEntity secondPageAction = pageActionTool("wf-page-owner", "query_owner_on_page");
+        RuntimeAgentWorkflowToolSnapshot firstPageAction = pageActionTool("wf-page-team", "open_team_page");
+        RuntimeAgentWorkflowToolSnapshot secondPageAction = pageActionTool("wf-page-owner", "query_owner_on_page");
         stubWorkflow(firstPageAction);
         stubWorkflow(secondPageAction);
         AtomicInteger active = new AtomicInteger();
@@ -711,7 +1116,7 @@ class AgentScopeSupervisorRuntimeAdapterTest {
 
     @Test
     void requiresBoundedReplanAfterFailureBeforeRetryingWorkflow() throws Exception {
-        RuntimeAgentWorkflowToolEntity tool = tool("wf-team", "query_team");
+        RuntimeAgentWorkflowToolSnapshot tool = tool("wf-team", "query_team");
         stubWorkflow(tool);
         AtomicInteger execution = new AtomicInteger();
         when(graphExecutor.execute(any(), any(), any(), any(), any())).thenAnswer(invocation -> execution.incrementAndGet() == 1
@@ -743,7 +1148,7 @@ class AgentScopeSupervisorRuntimeAdapterTest {
 
     @Test
     void neverRetriesTheSameSideEffectWorkflowAfterAnAmbiguousFailure() throws Exception {
-        RuntimeAgentWorkflowToolEntity tool = pageActionTool("wf-team-toggle", "toggle_team_on_page");
+        RuntimeAgentWorkflowToolSnapshot tool = pageActionTool("wf-team-toggle", "toggle_team_on_page");
         stubWorkflow(tool);
         AtomicInteger execution = new AtomicInteger();
         when(graphExecutor.execute(any(), any(), any(), any(), any())).thenAnswer(invocation -> {
@@ -792,8 +1197,8 @@ class AgentScopeSupervisorRuntimeAdapterTest {
 
     @Test
     void replansToReadOnlyWorkflowAfterPageActionPolicyDenial() throws Exception {
-        RuntimeAgentWorkflowToolEntity pageTool = pageActionTool("wf-page-team", "query_team_on_page");
-        RuntimeAgentWorkflowToolEntity apiTool = tool("wf-api-team", "query_team_by_api");
+        RuntimeAgentWorkflowToolSnapshot pageTool = pageActionTool("wf-page-team", "query_team_on_page");
+        RuntimeAgentWorkflowToolSnapshot apiTool = tool("wf-api-team", "query_team_by_api");
         stubWorkflow(pageTool);
         stubWorkflow(apiTool);
         when(graphExecutor.execute(any(), any(), any(), any(), any()))
@@ -826,7 +1231,7 @@ class AgentScopeSupervisorRuntimeAdapterTest {
 
     @Test
     void abandonsFailedWorkflowPlanBeforeReturningAUserFacingExplanation() throws Exception {
-        RuntimeAgentWorkflowToolEntity pageTool = pageActionTool("wf-page-team", "query_team_on_page");
+        RuntimeAgentWorkflowToolSnapshot pageTool = pageActionTool("wf-page-team", "query_team_on_page");
         stubWorkflow(pageTool);
         AgentScopeSupervisorRuntimeAdapter adapter = adapter(model(List.of(
                 calls(call("plan-page", "record_supervisor_plan", Map.of(
@@ -858,7 +1263,7 @@ class AgentScopeSupervisorRuntimeAdapterTest {
 
     @Test
     void executesPublishedWorkflowWithModelDefaultFromPinnedVersionSnapshot() throws Exception {
-        RuntimeAgentWorkflowToolEntity tool = tool("wf-model", "classify_intent");
+        RuntimeAgentWorkflowToolSnapshot tool = tool("wf-model", "classify_intent");
         stubWorkflow(tool, "published-model", "newer-draft-model");
         List<Map<String, Object>> workflowInputs = new ArrayList<>();
         when(graphExecutor.execute(any(), any(), any(), any(), any())).thenAnswer(invocation -> {
@@ -885,8 +1290,8 @@ class AgentScopeSupervisorRuntimeAdapterTest {
 
     @Test
     void resumesTheExactNextStructuredWorkflowAfterInteraction() throws Exception {
-        RuntimeAgentWorkflowToolEntity queryTool = tool("wf-query", "query_team");
-        RuntimeAgentWorkflowToolEntity disableTool = tool("wf-disable", "disable_team");
+        RuntimeAgentWorkflowToolSnapshot queryTool = tool("wf-query", "query_team");
+        RuntimeAgentWorkflowToolSnapshot disableTool = tool("wf-disable", "disable_team");
         stubWorkflow(queryTool);
         stubWorkflow(disableTool);
         when(graphExecutor.execute(any(), any(), any(), any(), any())).thenReturn(success("已停用"));
@@ -901,7 +1306,8 @@ class AgentScopeSupervisorRuntimeAdapterTest {
                 "workflowToolNames", List.of("query_team", "disable_team"),
                 "planNo", 1);
         Map<String, Object> continuation = new LinkedHashMap<>();
-        continuation.put("continuationSchemaVersion", 2);
+        continuation.put("continuationSchemaVersion", 3);
+        continuation.put("executionCallCounts", Map.of("workflow", 1, "a2a", 0, "managed", 0));
         continuation.put("agentId", "agent-1");
         continuation.put("agentConfigVersionId", 7L);
         continuation.put("traceId", "trace-1");
@@ -925,13 +1331,110 @@ class AgentScopeSupervisorRuntimeAdapterTest {
 
         assertTrue(result.success(), String.valueOf(result.metadata()));
         assertEquals("班组已停用", result.answer());
-        assertEquals(1, result.metadata().get("workflowCallCount"));
+        assertEquals(2, result.metadata().get("workflowCallCount"));
         assertEquals(2, result.metadata().get("plannedWorkflowCursor"));
     }
 
     @Test
+    void workflowContinuationCannotResetAnAlreadyConsumedCallBudget() throws Exception {
+        var first = tool("wf-first", "first_query");
+        var next = tool("wf-next", "next_query");
+        stubWorkflow(first); stubWorkflow(next);
+        when(graphExecutor.execute(any(), any(), any(), any(), any())).thenReturn(success("unexpected call"));
+        var continuation = new LinkedHashMap<>(twoStepContinuation());
+        continuation.put("executionCallCounts", Map.of("workflow",2,"a2a",0,"managed",0));
+        var result = adapter(model(List.of(calls(call("next", "next_query", Map.of())),
+                calls(call("final", "begin_final_answer", Map.of())), text("done"))))
+                .continueAfterWorkflowInteraction(continuation,
+                        Map.of("success",true,"status","COMPLETED","answer","first done"),
+                        new SupervisorRuntimeAdapter.SupervisorRequest(agent(),config(false).toBuilder().maxWorkflowCalls(2).build(),
+                                List.of(first,next),Map.of("sessionId","budget-resume")));
+        assertFalse(result.success(), "the prior consumed budget must constrain the resumed plan");
+        verify(graphExecutor, never()).execute(any(),any(),any(),any(),any());
+    }
+
+    @Test
+    void continuationKeepsPublishedBindingsAndTrustedMemory() throws Exception {
+        RuntimeAgentWorkflowToolSnapshot first = tool("wf-first", "first_query");
+        RuntimeAgentWorkflowToolSnapshot next = tool("wf-next", "next_query");
+        stubWorkflow(first);
+        stubWorkflow(next);
+        when(graphExecutor.execute(any(), any(), any(), any(), any())).thenReturn(success("next query complete"));
+        AtomicReference<RuntimeModelServiceClient.ModelChatRequest> modelRequest = new AtomicReference<>();
+        RuntimeModelServiceClient script = model(List.of(
+                calls(call("next", "next_query", Map.of())),
+                calls(call("final", "begin_final_answer", Map.of())), text("query complete")));
+        AgentScopeSupervisorRuntimeAdapter adapter = adapter(request -> {
+            modelRequest.compareAndSet(null, request);
+            return script.chat(request);
+        });
+        var memory = new com.enterprise.ai.runtime.execution.TrustedPersonalMemoryContext(
+                "reachai-personal-memory-context-v1", List.of(
+                new com.enterprise.ai.runtime.execution.TrustedPersonalMemoryContext.MemorySnippet(
+                        1L, "PREFERENCE", "format", "trusted-continuation-memory", null, "USER", 1D)), 0, false);
+        var skill = com.enterprise.ai.runtime.agent.RuntimeAgentSkillBindingSnapshot.builder()
+                .id(1L).agentId("agent-1").agentConfigVersionId(7L).skillId(2L).skillVersionId(3L)
+                .publisher("test").standardName("query-format").version("1").sourceSha256("fixed").enabled(true).build();
+        var remote = new SupervisorRuntimeAdapter.RemoteAgentBinding(
+                1L, 2L, 3L, 4L, "remote-query", "remote_query", "Published remote query",
+                "[\"query\"]", "[\"text/plain\"]", "READ", null, true);
+        SupervisorRuntimeAdapter.SupervisorResult result = adapter.continueAfterWorkflowInteraction(
+                twoStepContinuation(), Map.of("success", true, "status", "COMPLETED", "answer", "first complete"),
+                new SupervisorRuntimeAdapter.SupervisorRequest(agent(), config(false), List.of(first, next),
+                        Map.of("sessionId", "s-context", "personalMemory", "spoofed-input-memory"), null, null,
+                        null, null, List.of(), memory, List.of(skill), List.of(remote), RuntimeEvalExecutionContext.none()));
+
+        assertTrue(result.success(), String.valueOf(result.metadata()));
+        String prompt = modelRequest.get().getMessages().stream()
+                .filter(message -> "system".equals(message.getRole()))
+                .map(RuntimeModelServiceClient.ModelChatRequest.ChatMessage::getContent).findFirst().orElseThrow();
+        List<String> registeredTools = new ArrayList<>();
+        modelRequest.get().getTools().forEach(tool -> registeredTools.add(tool.path("function").path("name").asText()));
+        Map<?, ?> modelMetadata = (Map<?, ?>) result.metadata().get("model");
+        org.junit.jupiter.api.Assertions.assertAll(
+                () -> assertEquals(1, modelMetadata.get("skillBindingCount")),
+                () -> assertEquals(1, modelMetadata.get("a2aRemoteAgentBindingCount")),
+                () -> assertTrue(registeredTools.contains("remote_query")),
+                () -> assertTrue(prompt.contains("trusted-continuation-memory")),
+                () -> assertFalse(prompt.contains("spoofed-input-memory")));
+        verify(graphExecutor).execute(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void continuationPreservesReadOnlyEvaluationPolicy() throws Exception {
+        RuntimeAgentWorkflowToolSnapshot first = tool("wf-first", "first_query");
+        RuntimeAgentWorkflowToolSnapshot next = tool("wf-next", "next_query");
+        stubWorkflow(first);
+        stubWorkflow(next);
+        when(graphExecutor.execute(any(), any(), any(), any(), any())).thenReturn(success("next query complete"));
+        AgentScopeSupervisorRuntimeAdapter adapter = adapter(model(List.of(
+                calls(call("next", "next_query", Map.of())),
+                calls(call("final", "begin_final_answer", Map.of())), text("query complete"))));
+        RuntimeEvalExecutionContext policy = RuntimeEvalExecutionContext.readOnly("exp-context", "item-context", "fixed-target");
+        SupervisorRuntimeAdapter.SupervisorResult result = adapter.continueAfterWorkflowInteraction(
+                twoStepContinuation(), Map.of("success", true, "status", "COMPLETED", "answer", "first complete"),
+                new SupervisorRuntimeAdapter.SupervisorRequest(agent(), config(false), List.of(first, next),
+                        Map.of("sessionId", "s-eval-context"), null, null, null, null, List.of(), null,
+                        List.of(), List.of(), policy));
+
+        assertTrue(result.success(), String.valueOf(result.metadata()));
+        var executedPolicy = org.mockito.ArgumentCaptor.forClass(RuntimeEvalExecutionContext.class);
+        verify(graphExecutor).execute(any(), any(), any(), any(), any(), executedPolicy.capture());
+        assertEquals(policy, executedPolicy.getValue(), "the next GraphSpec execution must retain the server-owned evaluation policy");
+    }
+
+    private Map<String, Object> twoStepContinuation() {
+        List<String> tools = List.of("first_query", "next_query");
+        return Map.of("continuationSchemaVersion", 3, "agentId", "agent-1", "agentConfigVersionId", 7L,
+                "executionCallCounts", Map.of("workflow",1,"a2a",0,"managed",0),
+                "traceId", "trace-1", "waitingToolName", "first_query", "plannedWorkflowToolNames", tools,
+                "plannedWorkflowCursor", 0, "completedWorkflowToolNames", List.of(),
+                "recordedPlan", Map.of("summary", "two queries", "steps", tools, "workflowToolNames", tools, "planNo", 1));
+    }
+
+    @Test
     void rejectsLegacyOrUnstructuredInteractionContinuation() {
-        RuntimeAgentWorkflowToolEntity queryTool = tool("wf-query", "query_team");
+        RuntimeAgentWorkflowToolSnapshot queryTool = tool("wf-query", "query_team");
         stubWorkflow(queryTool);
         AgentScopeSupervisorRuntimeAdapter adapter = adapter(model(List.of()));
 
@@ -960,7 +1463,8 @@ class AgentScopeSupervisorRuntimeAdapterTest {
         when(memoryService.resolve(any(), any(), any())).thenReturn(memoryKey);
         AgentScopeSupervisorRuntimeAdapter adapter = adapter(model(List.of()), null, memoryService);
         Map<String, Object> continuation = new LinkedHashMap<>();
-        continuation.put("continuationSchemaVersion", 2);
+        continuation.put("continuationSchemaVersion", 3);
+        continuation.put("executionCallCounts", Map.of("workflow",1,"a2a",0,"managed",0));
         continuation.put("agentId", "agent-1");
         continuation.put("agentConfigVersionId", 7L);
         continuation.put("traceId", "trace-1");
@@ -973,7 +1477,7 @@ class AgentScopeSupervisorRuntimeAdapterTest {
                 "steps", List.of("query"),
                 "workflowToolNames", List.of("query_team"),
                 "planNo", 1));
-        RuntimeAgentWorkflowToolEntity queryTool = tool("wf-query", "query_team");
+        RuntimeAgentWorkflowToolSnapshot queryTool = tool("wf-query", "query_team");
         stubWorkflow(queryTool);
 
         SupervisorRuntimeAdapter.SupervisorResult result = adapter.continueAfterWorkflowInteraction(
@@ -999,8 +1503,9 @@ class AgentScopeSupervisorRuntimeAdapterTest {
 
     @Test
     void delegatesToManagedExecutorAsAnImmediateAsyncToolAndNeverInvokesGraphSpec() throws Exception {
-        RuntimeAgentConfigVersionEntity config = config(false);
-        config.setStatus("PUBLISHED");
+        RuntimeAgentConfigSnapshot config = config(false).toBuilder()
+                .status("PUBLISHED")
+                .build();
         ManagedExecutorAgentDelegationService delegation = mock(ManagedExecutorAgentDelegationService.class);
         var managedPolicy = new ManagedExecutorAgentDelegationService.DelegationPolicy(
                 true,
@@ -1050,7 +1555,7 @@ class AgentScopeSupervisorRuntimeAdapterTest {
                                 "sessionId", "s-managed",
                                 "managedExecutorRequested", true),
                         null,
-                        SupervisorRuntimeAdapter.SupervisorEventSink.NOOP,
+                        RuntimeAgentExecutionEventSink.NOOP,
                         RuntimeAgentExecutionCancellation.NOOP,
                         identity));
 
@@ -1076,8 +1581,9 @@ class AgentScopeSupervisorRuntimeAdapterTest {
 
     @Test
     void registersOnlyManagedToolsExposedByTheFailClosedPerRunPolicy() {
-        RuntimeAgentConfigVersionEntity config = config(false);
-        config.setStatus("PUBLISHED");
+        RuntimeAgentConfigSnapshot config = config(false).toBuilder()
+                .status("PUBLISHED")
+                .build();
         ManagedExecutorAgentDelegationService delegation = mock(ManagedExecutorAgentDelegationService.class);
         var managedPolicy = new ManagedExecutorAgentDelegationService.DelegationPolicy(
                 true,
@@ -1113,7 +1619,7 @@ class AgentScopeSupervisorRuntimeAdapterTest {
                         List.of(),
                         Map.of("message", "分析一下复杂问题", "sessionId", "s-no-auto-route"),
                         null,
-                        SupervisorRuntimeAdapter.SupervisorEventSink.NOOP,
+                        RuntimeAgentExecutionEventSink.NOOP,
                         RuntimeAgentExecutionCancellation.NOOP,
                         WorkflowExecutionIdentity.fromAgent(
                                 "tenant-a", 7L, "qmssmp", "user-a")));
@@ -1146,14 +1652,13 @@ class AgentScopeSupervisorRuntimeAdapterTest {
         when(traceService.beginOrResume(any(), any(), any(), any(), any())).thenReturn(handle);
         when(traceService.resume(any())).thenReturn(handle);
         SupervisorToolPolicyService policy = new SupervisorToolPolicyService(
-                traceService, mock(SupervisorApprovalInteractionService.class), objectMapper);
+                org.mockito.Mockito.mock(com.enterprise.ai.runtime.runops.RuntimeGuardDecisionWriter.class), approvalService, objectMapper);
         if (memoryService != null) {
             return new AgentScopeSupervisorRuntimeAdapter(
                     modelClient,
                     null,
                     controlCatalogClient,
-                    workflowMapper,
-                    versionMapper,
+                    new com.enterprise.ai.runtime.workflow.RuntimeWorkflowExecutionReader(workflowMapper, versionMapper),
                     graphExecutor,
                     mock(com.enterprise.ai.runtime.execution.RuntimeWorkflowInteractionSessionService.class),
                     memoryService,
@@ -1165,8 +1670,7 @@ class AgentScopeSupervisorRuntimeAdapterTest {
                 modelClient,
                 null,
                 controlCatalogClient,
-                workflowMapper,
-                versionMapper,
+                new com.enterprise.ai.runtime.workflow.RuntimeWorkflowExecutionReader(workflowMapper, versionMapper),
                 graphExecutor,
                 mock(com.enterprise.ai.runtime.execution.RuntimeWorkflowInteractionSessionService.class),
                 new RuntimeChatMemoryStore(20),
@@ -1188,13 +1692,12 @@ class AgentScopeSupervisorRuntimeAdapterTest {
         when(traceService.beginOrResume(any(), any(), any(), any(), any())).thenReturn(handle);
         when(traceService.resume(any())).thenReturn(handle);
         SupervisorToolPolicyService policy = new SupervisorToolPolicyService(
-                traceService, mock(SupervisorApprovalInteractionService.class), objectMapper);
+                org.mockito.Mockito.mock(com.enterprise.ai.runtime.runops.RuntimeGuardDecisionWriter.class), mock(SupervisorApprovalInteractionService.class), objectMapper);
         return new AgentScopeSupervisorRuntimeAdapter(
                 modelClient,
                 null,
                 null,
-                workflowMapper,
-                versionMapper,
+                new com.enterprise.ai.runtime.workflow.RuntimeWorkflowExecutionReader(workflowMapper, versionMapper),
                 graphExecutor,
                 mock(com.enterprise.ai.runtime.execution.RuntimeWorkflowInteractionSessionService.class),
                 memoryService,
@@ -1231,24 +1734,25 @@ class AgentScopeSupervisorRuntimeAdapterTest {
                 "function", Map.of("name", name, "arguments", objectMapper.writeValueAsString(args)));
     }
 
-    private RuntimeAgentConfigVersionEntity config(boolean parallelReadOnly) {
-        RuntimeAgentConfigVersionEntity config = new RuntimeAgentConfigVersionEntity();
-        config.setId(7L);
-        config.setAgentId("agent-1");
-        config.setVersionNo(1);
-        config.setRuntimeType("AGENTSCOPE");
-        config.setSystemPrompt("你是班组助手");
-        config.setModelInstanceId("model-1");
-        config.setMaxPlanSteps(6);
-        config.setMaxWorkflowCalls(4);
-        config.setMaxReplans(1);
-        config.setTotalTimeoutMs(10_000);
-        config.setWorkflowTimeoutMs(5_000);
-        config.setPageBridgeTimeoutMs(2_000);
-        config.setParallelReadOnly(parallelReadOnly);
-        config.setPolicyProfile("DEV_ALLOW_ALL");
-        config.setToolCatalogMode("ALLOW_LIST");
-        config.setConfigJson("{}");
+    private RuntimeAgentConfigSnapshot config(boolean parallelReadOnly) {
+        RuntimeAgentConfigSnapshot config = RuntimeAgentConfigSnapshot.builder()
+                .id(7L)
+                .agentId("agent-1")
+                .versionNo(1)
+                .runtimeType("AGENTSCOPE")
+                .systemPrompt("你是班组助手")
+                .modelInstanceId("model-1")
+                .maxPlanSteps(6)
+                .maxWorkflowCalls(4)
+                .maxReplans(1)
+                .totalTimeoutMs(10_000)
+                .workflowTimeoutMs(5_000)
+                .pageBridgeTimeoutMs(2_000)
+                .parallelReadOnly(parallelReadOnly)
+                .policyProfile("DEV_ALLOW_ALL")
+                .toolCatalogMode("ALLOW_LIST")
+                .configJson("{}")
+                .build();
         return config;
     }
 
@@ -1259,32 +1763,35 @@ class AgentScopeSupervisorRuntimeAdapterTest {
                 7L, 7L, 1, "ACTIVE", "AGENTSCOPE", 2, null, null);
     }
 
-    private RuntimeAgentWorkflowToolEntity tool(String workflowId, String toolName) {
-        RuntimeAgentWorkflowToolEntity tool = new RuntimeAgentWorkflowToolEntity();
-        tool.setAgentId("agent-1");
-        tool.setAgentConfigVersionId(7L);
-        tool.setWorkflowId(workflowId);
-        tool.setToolName(toolName);
-        tool.setRiskLevel("READ");
-        tool.setPermissionKey(toolName + ":read");
-        tool.setReadOnly(true);
-        tool.setEnabled(true);
+    private RuntimeAgentWorkflowToolSnapshot tool(String workflowId, String toolName) {
+        RuntimeAgentWorkflowToolSnapshot tool = RuntimeAgentWorkflowToolSnapshot.builder()
+                .agentId("agent-1")
+                .agentConfigVersionId(7L)
+                .workflowId(workflowId)
+                .workflowVersionId((long) Math.abs(workflowId.hashCode()))
+                .toolName(toolName)
+                .riskLevel("READ")
+                .permissionKey(toolName + ":read")
+                .readOnly(true)
+                .enabled(true)
+                .build();
         return tool;
     }
 
-    private RuntimeAgentWorkflowToolEntity pageActionTool(String workflowId, String toolName) {
-        RuntimeAgentWorkflowToolEntity tool = tool(workflowId, toolName);
-        tool.setRiskLevel("PAGE_ACTION");
-        tool.setPermissionKey(toolName + ":page");
-        tool.setReadOnly(false);
+    private RuntimeAgentWorkflowToolSnapshot pageActionTool(String workflowId, String toolName) {
+        RuntimeAgentWorkflowToolSnapshot tool = tool(workflowId, toolName).toBuilder()
+                .riskLevel("PAGE_ACTION")
+                .permissionKey(toolName + ":page")
+                .readOnly(false)
+                .build();
         return tool;
     }
 
-    private void stubWorkflow(RuntimeAgentWorkflowToolEntity tool) {
+    private void stubWorkflow(RuntimeAgentWorkflowToolSnapshot tool) {
         stubWorkflow(tool, null, null);
     }
 
-    private void stubWorkflow(RuntimeAgentWorkflowToolEntity tool,
+    private void stubWorkflow(RuntimeAgentWorkflowToolSnapshot tool,
                               String publishedModelInstanceId,
                               String currentDraftModelInstanceId) {
         RuntimeWorkflowDefinitionEntity workflow = new RuntimeWorkflowDefinitionEntity();
@@ -1297,13 +1804,14 @@ class AgentScopeSupervisorRuntimeAdapterTest {
         workflow.setDefaultModelInstanceId(currentDraftModelInstanceId);
         RuntimeWorkflowVersionEntity version = new RuntimeWorkflowVersionEntity();
         version.setId((long) Math.abs(tool.getWorkflowId().hashCode()));
-        tool.setWorkflowVersionId(version.getId());
         version.setWorkflowId(tool.getWorkflowId());
         version.setVersion("1.0.0");
         version.setStatus("ACTIVE");
         version.setGraphSpecSnapshotJson("{\"nodes\":[],\"edges\":[]}");
         if (publishedModelInstanceId != null) {
             version.setSnapshotJson("{\"defaultModelInstanceId\":\"" + publishedModelInstanceId + "\"}");
+        } else {
+            version.setSnapshotJson("{\"defaultModelInstanceId\":null}");
         }
         when(workflowMapper.selectById(tool.getWorkflowId())).thenReturn(workflow);
         when(versionMapper.selectById(version.getId())).thenReturn(version);
@@ -1324,7 +1832,7 @@ class AgentScopeSupervisorRuntimeAdapterTest {
         });
     }
 
-    private void setPageActionGraph(RuntimeAgentWorkflowToolEntity tool,
+    private void setPageActionGraph(RuntimeAgentWorkflowToolSnapshot tool,
                                     String pageKey,
                                     String actionKey,
                                     String... inputNames) {

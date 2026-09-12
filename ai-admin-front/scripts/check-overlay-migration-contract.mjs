@@ -12,7 +12,6 @@ const rawOverlayAllowlist = new Set([
   'src/views/scan/components/scan-project/ScanProjectAddInterfaceDialog.vue',
   'src/views/scan/components/scan-project/ScanProjectModelGenerateDrawer.vue',
   'src/views/scan/components/scan-project/ScanProjectOpsDrawer.vue',
-  'src/views/scan/components/scan-project/ScanProjectScanRulesDrawer.vue',
   'src/views/scan/components/scan-project/ScanProjectSemanticDialogs.vue',
   'src/views/scan/components/scan-project/ScanProjectToolDiffDialog.vue',
   'src/views/scan/components/scan-project/ScanProjectToolEditDialog.vue',
@@ -55,7 +54,11 @@ for (const file of collectVueFiles(srcRoot)) {
     errors.push(`${path}: 使用了 AppDrawer，但没有从共享组件入口导入`)
   }
 
-  if (/class=["'][^"']*\bpage-header\b/.test(code)) {
+  // Match a complete static class token: market-page-header is a page-specific
+  // hook on the shared PageHeader, not the retired page-header component.
+  const hasLegacyHeader = [...code.matchAll(/(?:^|\s)class\s*=\s*["']([^"']*)["']/g)]
+    .some(([, classes]) => classes.split(/\s+/).includes('page-header'))
+  if (hasLegacyHeader) {
     errors.push(`${path}: 旧 page-header 骨架必须迁移到共享 PageHeader`)
   }
 }

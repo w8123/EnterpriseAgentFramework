@@ -94,6 +94,7 @@ export function workflowCanvasToSaveRequest(
     graphSpecJson: JSON.stringify(draft.graphSpec || parseWorkflowGraphSpec(studio.graphSpecJson)),
     canvasJson: draft.canvasJson || JSON.stringify(snapshot),
     extraJson: studio.extraJson || null,
+    baseRevision: studio.revision || studio.updatedAt || '',
   }
 }
 

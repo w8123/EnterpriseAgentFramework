@@ -1,4 +1,3 @@
-import type { Agent } from '@/types/agent'
 import { agentListActions } from './agentActions'
 
 const ids = agentListActions({ id: 'demo' }).map((action) => action.id)

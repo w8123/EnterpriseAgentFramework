@@ -191,7 +191,7 @@ public class ControlProjectAgentProvisioningService {
                 + " 页面副驾驶 Agent";
     }
 
-    private String resolveSupervisorModelInstanceId(
+    String resolveSupervisorModelInstanceId(
             String requestedModelInstanceId) {
         List<Map<String, Object>> activeModels =
                 modelDataList(modelCatalogClient.list(null, "LLM", null))

@@ -1,7 +1,7 @@
 package com.enterprise.ai.runtime.internal;
 
-import com.enterprise.ai.runtime.workflow.RuntimePageWorkbenchPublishedQueryService;
-import com.enterprise.ai.runtime.workflow.RuntimePageWorkbenchPublishedQueryService.PublishedWorkflowView;
+import com.enterprise.ai.runtime.internal.RuntimePageWorkbenchPublishedQueryService;
+import com.enterprise.ai.runtime.internal.RuntimePageWorkbenchPublishedQueryService.PublishedWorkflowView;
 import com.enterprise.ai.runtime.workflow.RuntimePageWorkbenchExecutionReadinessService;
 import com.enterprise.ai.runtime.workflow.RuntimePageWorkbenchExecutionReadinessService.ExecutionReadinessView;
 import com.enterprise.ai.runtime.workflow.RuntimePageWorkbenchReleaseReadinessService;

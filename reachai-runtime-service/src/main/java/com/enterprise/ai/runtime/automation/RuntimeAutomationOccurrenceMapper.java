@@ -7,9 +7,41 @@ import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Mapper
 public interface RuntimeAutomationOccurrenceMapper extends BaseMapper<RuntimeAutomationOccurrenceEntity> {
+
+    @Select("SELECT * FROM runtime_automation_occurrence WHERE id = #{id} FOR UPDATE")
+    RuntimeAutomationOccurrenceEntity lockById(@Param("id") Long id);
+
+    @Select("""
+            SELECT * FROM runtime_automation_occurrence
+            WHERE id = #{id} AND status IN ('LEASED', 'RUNNING')
+              AND leased_until < UTC_TIMESTAMP(6) FOR UPDATE
+            """)
+    RuntimeAutomationOccurrenceEntity lockExpiredById(@Param("id") Long id);
+
+    @Update("""
+            UPDATE runtime_automation_occurrence
+            SET status = #{nextStatus}, available_at = UTC_TIMESTAMP(6),
+                lease_owner = NULL, lease_token = NULL, leased_until = NULL,
+                last_error_code = 'AUTOMATION_LEASE_EXPIRED',
+                last_error_message = 'Execution lease expired before a terminal result',
+                completed_at = CASE WHEN #{nextStatus} IN ('DEAD', 'CANCELLED') THEN UTC_TIMESTAMP(6) ELSE NULL END,
+                updated_at = UTC_TIMESTAMP(6)
+            WHERE id = #{id} AND status IN ('LEASED', 'RUNNING') AND lease_token = #{leaseToken}
+              AND leased_until < UTC_TIMESTAMP(6)
+            """)
+    int releaseExpired(@Param("id") Long id, @Param("leaseToken") String leaseToken,
+                       @Param("nextStatus") String nextStatus);
+
+    @Select("""
+            SELECT id FROM runtime_automation_occurrence
+            WHERE status IN ('LEASED', 'RUNNING') AND leased_until < UTC_TIMESTAMP(6)
+            ORDER BY leased_until, id LIMIT 20
+            """)
+    List<Long> findRecoveryCandidateIds();
 
     @Select("""
             SELECT o.id
@@ -19,8 +51,8 @@ public interface RuntimeAutomationOccurrenceMapper extends BaseMapper<RuntimeAut
             WHERE a.status <> 'ARCHIVED'
               AND o.attempt_count < o.max_attempts
               AND (
-                (o.status IN ('PENDING', 'RETRY') AND o.available_at <= NOW(6))
-                OR (o.status IN ('LEASED', 'RUNNING') AND o.leased_until < NOW(6))
+                (o.status IN ('PENDING', 'RETRY') AND o.available_at <= UTC_TIMESTAMP(6))
+                OR (o.status IN ('LEASED', 'RUNNING') AND o.leased_until < UTC_TIMESTAMP(6))
               )
               AND (
                 v.concurrency_policy <> 'QUEUE'
@@ -29,7 +61,7 @@ public interface RuntimeAutomationOccurrenceMapper extends BaseMapper<RuntimeAut
                     WHERE active.automation_id = o.automation_id
                       AND active.id <> o.id
                       AND active.status IN ('LEASED', 'RUNNING')
-                      AND active.leased_until >= NOW(6)
+                      AND active.leased_until >= UTC_TIMESTAMP(6)
                 )
               )
               AND (
@@ -39,7 +71,7 @@ public interface RuntimeAutomationOccurrenceMapper extends BaseMapper<RuntimeAut
                     WHERE active.automation_id = o.automation_id
                       AND active.id <> o.id
                       AND active.status IN ('LEASED', 'RUNNING')
-                      AND active.leased_until >= NOW(6)
+                      AND active.leased_until >= UTC_TIMESTAMP(6)
                 ) < v.max_concurrent_runs
               )
             ORDER BY o.priority DESC, o.available_at ASC, o.id ASC
@@ -51,12 +83,12 @@ public interface RuntimeAutomationOccurrenceMapper extends BaseMapper<RuntimeAut
             UPDATE runtime_automation_occurrence
             SET status = 'LEASED', lease_owner = #{leaseOwner}, lease_token = #{leaseToken},
                 leased_until = #{leasedUntil}, attempt_count = attempt_count + 1,
-                updated_at = NOW(6)
+                updated_at = UTC_TIMESTAMP(6)
             WHERE id = #{id}
               AND attempt_count < max_attempts
               AND (
-                (status IN ('PENDING', 'RETRY') AND available_at <= NOW(6))
-                OR (status IN ('LEASED', 'RUNNING') AND leased_until < NOW(6))
+                (status IN ('PENDING', 'RETRY') AND available_at <= UTC_TIMESTAMP(6))
+                OR (status IN ('LEASED', 'RUNNING') AND leased_until < UTC_TIMESTAMP(6))
               )
             """)
     int claim(@Param("id") Long id,
@@ -66,8 +98,8 @@ public interface RuntimeAutomationOccurrenceMapper extends BaseMapper<RuntimeAut
 
     @Update("""
             UPDATE runtime_automation_occurrence
-            SET status = 'RUNNING', trace_id = #{traceId}, started_at = COALESCE(started_at, NOW(6)),
-                updated_at = NOW(6)
+            SET status = 'RUNNING', trace_id = #{traceId}, started_at = COALESCE(started_at, UTC_TIMESTAMP(6)),
+                updated_at = UTC_TIMESTAMP(6)
             WHERE id = #{id} AND status = 'LEASED' AND lease_token = #{leaseToken}
             """)
     int markRunning(@Param("id") Long id,
@@ -76,7 +108,7 @@ public interface RuntimeAutomationOccurrenceMapper extends BaseMapper<RuntimeAut
 
     @Update("""
             UPDATE runtime_automation_occurrence
-            SET leased_until = #{leasedUntil}, updated_at = NOW(6)
+            SET leased_until = #{leasedUntil}, updated_at = UTC_TIMESTAMP(6)
             WHERE id = #{id} AND status IN ('LEASED', 'RUNNING') AND lease_token = #{leaseToken}
             """)
     int renew(@Param("id") Long id,
@@ -85,7 +117,7 @@ public interface RuntimeAutomationOccurrenceMapper extends BaseMapper<RuntimeAut
 
     @Update("""
             UPDATE runtime_automation_occurrence
-            SET interaction_id = #{interactionId}, updated_at = NOW(6)
+            SET interaction_id = #{interactionId}, updated_at = UTC_TIMESTAMP(6)
             WHERE id = #{id} AND lease_token = #{leaseToken}
             """)
     int recordInteraction(@Param("id") Long id,
@@ -96,7 +128,7 @@ public interface RuntimeAutomationOccurrenceMapper extends BaseMapper<RuntimeAut
             UPDATE runtime_automation_occurrence
             SET status = 'SUCCEEDED', lease_owner = NULL, lease_token = NULL, leased_until = NULL,
                 last_error_code = NULL, last_error_message = NULL,
-                completed_at = NOW(6), updated_at = NOW(6)
+                completed_at = UTC_TIMESTAMP(6), updated_at = UTC_TIMESTAMP(6)
             WHERE id = #{id} AND status = 'RUNNING' AND lease_token = #{leaseToken}
             """)
     int complete(@Param("id") Long id, @Param("leaseToken") String leaseToken);
@@ -107,8 +139,8 @@ public interface RuntimeAutomationOccurrenceMapper extends BaseMapper<RuntimeAut
                 lease_owner = NULL, lease_token = NULL, leased_until = NULL,
                 last_error_code = #{errorCode}, last_error_message = #{errorMessage},
                 completed_at = CASE WHEN #{nextStatus} IN ('FAILED', 'DEAD', 'CANCELLED', 'SKIPPED')
-                                    THEN NOW(6) ELSE NULL END,
-                updated_at = NOW(6)
+                                    THEN UTC_TIMESTAMP(6) ELSE NULL END,
+                updated_at = UTC_TIMESTAMP(6)
             WHERE id = #{id} AND status IN ('LEASED', 'RUNNING') AND lease_token = #{leaseToken}
             """)
     int release(@Param("id") Long id,
@@ -122,7 +154,7 @@ public interface RuntimeAutomationOccurrenceMapper extends BaseMapper<RuntimeAut
             UPDATE runtime_automation_occurrence
             SET status = 'PENDING', available_at = #{availableAt},
                 lease_owner = NULL, lease_token = NULL, leased_until = NULL,
-                attempt_count = GREATEST(0, attempt_count - 1), updated_at = NOW(6)
+                attempt_count = GREATEST(0, attempt_count - 1), updated_at = UTC_TIMESTAMP(6)
             WHERE id = #{id} AND status = 'LEASED' AND lease_token = #{leaseToken}
             """)
     int defer(@Param("id") Long id,
@@ -132,7 +164,7 @@ public interface RuntimeAutomationOccurrenceMapper extends BaseMapper<RuntimeAut
     @Update("""
             UPDATE runtime_automation_occurrence
             SET status = 'SKIPPED', last_error_code = #{errorCode}, last_error_message = #{errorMessage},
-                completed_at = NOW(6), updated_at = NOW(6)
+                completed_at = UTC_TIMESTAMP(6), updated_at = UTC_TIMESTAMP(6)
             WHERE id = #{id} AND status IN ('PENDING', 'RETRY')
             """)
     int skipPending(@Param("id") Long id,
@@ -142,7 +174,7 @@ public interface RuntimeAutomationOccurrenceMapper extends BaseMapper<RuntimeAut
     @Update("""
             UPDATE runtime_automation_occurrence
             SET status = 'CANCELLED', last_error_code = 'AUTOMATION_CANCELLED',
-                last_error_message = #{reason}, completed_at = NOW(6), updated_at = NOW(6)
+                last_error_message = #{reason}, completed_at = UTC_TIMESTAMP(6), updated_at = UTC_TIMESTAMP(6)
             WHERE id = #{id} AND status IN ('PENDING', 'RETRY')
             """)
     int cancelPending(@Param("id") Long id, @Param("reason") String reason);
@@ -151,7 +183,7 @@ public interface RuntimeAutomationOccurrenceMapper extends BaseMapper<RuntimeAut
             UPDATE runtime_automation_occurrence
             SET status = 'CANCELLED', last_error_code = 'AUTOMATION_DEACTIVATED',
                 last_error_message = 'Automation was paused or archived',
-                completed_at = NOW(6), updated_at = NOW(6)
+                completed_at = UTC_TIMESTAMP(6), updated_at = UTC_TIMESTAMP(6)
             WHERE automation_id = #{automationId} AND status IN ('PENDING', 'RETRY')
             """)
     int cancelPendingForAutomation(@Param("automationId") Long automationId);
@@ -162,7 +194,7 @@ public interface RuntimeAutomationOccurrenceMapper extends BaseMapper<RuntimeAut
             WHERE automation_id = #{automationId}
               AND id <> #{occurrenceId}
               AND status IN ('LEASED', 'RUNNING')
-              AND leased_until >= NOW(6)
+              AND leased_until >= UTC_TIMESTAMP(6)
             """)
     int countOtherActive(@Param("automationId") Long automationId,
                          @Param("occurrenceId") Long occurrenceId);
@@ -172,8 +204,8 @@ public interface RuntimeAutomationOccurrenceMapper extends BaseMapper<RuntimeAut
             SET status = 'DEAD', lease_owner = NULL, lease_token = NULL, leased_until = NULL,
                 last_error_code = 'AUTOMATION_LEASE_EXHAUSTED',
                 last_error_message = 'Execution lease expired after the final allowed attempt',
-                completed_at = NOW(6), updated_at = NOW(6)
-            WHERE status IN ('LEASED', 'RUNNING') AND leased_until < NOW(6)
+                completed_at = UTC_TIMESTAMP(6), updated_at = UTC_TIMESTAMP(6)
+            WHERE status IN ('LEASED', 'RUNNING') AND leased_until < UTC_TIMESTAMP(6)
               AND attempt_count >= max_attempts
             """)
     int markExpiredExhausted();

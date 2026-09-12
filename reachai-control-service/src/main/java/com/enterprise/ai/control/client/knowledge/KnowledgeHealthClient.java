@@ -8,7 +8,7 @@ import java.util.Map;
 @FeignClient(
         name = "reachai-knowledge-health",
         url = "${services.knowledge-service.url:http://localhost:18602}",
-        configuration = com.enterprise.ai.control.internal.InternalHealthFeignConfig.class
+        configuration = com.enterprise.ai.control.client.health.InternalHealthFeignConfig.class
 )
 public interface KnowledgeHealthClient {
 

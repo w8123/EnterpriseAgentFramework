@@ -42,12 +42,34 @@ reachai:
       - com.company.order
 ```
 
-On the first successful registration, Control exchanges the one-time Enrollment
+On the first successful registration, the platform exchanges the one-time Enrollment
 Token for a project `appKey` and `appSecret`. The Starter writes those project
 credentials atomically to the credential store and clears the Enrollment Token
 from memory; it never persists that token. Treat the credential-store file as a
 secret, keep it outside the application package, and restrict its filesystem
 permissions.
+
+### Recovering interrupted enrollment
+
+If the enrollment response arrives but the credential file cannot be saved,
+the running client retains the validated result privately and retries the
+local write before another registration request. Restore access to
+`credential-store-path` and allow the scheduled retry to run. Credentials
+become available for signed requests only after the file is saved. Failed
+writes clean up their temporary files. Startup and heartbeat registration
+share one in-flight enrollment; a retry also reloads a credential saved by
+another client since startup.
+
+If the response is completely lost, or the process exits before saving it,
+an authorized platform operator can replace the existing project's primary
+credential through `PATCH /api/scan-projects/{id}/registry-credential`, using
+the authenticated platform session and its CSRF protection. Supply the new
+`appKey` and `appSecret` together, inject the same pair through the static
+configuration below, and restart the affected business instances. Replacing
+that credential invalidates its previous pair; other instances using it need
+the same update. Provision the new pair in the managed credential file before
+later removing the static override. The consumed Enrollment Token remains
+invalid, and this recovery retains the existing project and its assets.
 
 Existing deployments may continue to inject static credentials instead:
 

@@ -1,11 +1,10 @@
 package com.enterprise.ai.runtime.api;
 
-import com.enterprise.ai.agent.graph.GraphSpec;
-import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionEntity;
-import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionService;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionView;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowWriteCommand;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowManagementService;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDebugService;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowReleaseValidationResult;
-import com.enterprise.ai.runtime.workflow.RuntimeWorkflowReleaseValidationService;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowSearchPage;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowStudioService;
 import com.enterprise.ai.runtime.workflow.proposal.RuntimeWorkflowProposalEditRequest;
@@ -16,7 +15,6 @@ import com.enterprise.ai.runtime.workflow.proposal.RuntimeWorkflowProposalGenera
 import com.enterprise.ai.runtime.workflow.proposal.RuntimeWorkflowProposalGenerationView;
 import com.enterprise.ai.runtime.workflow.node.RuntimeWorkflowNodeCapabilityDescriptor;
 import com.enterprise.ai.runtime.workflow.node.RuntimeWorkflowNodeCapabilityRegistry;
-import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -34,34 +32,30 @@ import java.util.Map;
 @RestController
 public class RuntimeWorkflowPublicController {
 
-    private final RuntimeWorkflowDefinitionService workflowDefinitionService;
-    private final RuntimeWorkflowReleaseValidationService validationService;
+    private final RuntimeWorkflowManagementService workflowManagementService;
     private final RuntimeWorkflowStudioService studioService;
     private final RuntimeWorkflowDebugService debugService;
     private final RuntimeWorkflowProposalGenerationService proposalGenerationService;
     private final RuntimeWorkflowProposalEditService proposalEditService;
     private final RuntimeWorkflowNodeCapabilityRegistry nodeCapabilityRegistry;
 
-    public RuntimeWorkflowPublicController(RuntimeWorkflowDefinitionService workflowDefinitionService,
-                                                  RuntimeWorkflowReleaseValidationService validationService,
+    public RuntimeWorkflowPublicController(RuntimeWorkflowManagementService workflowManagementService,
                                                   RuntimeWorkflowStudioService studioService,
                                                   RuntimeWorkflowDebugService debugService,
                                                    RuntimeWorkflowProposalGenerationService proposalGenerationService,
                                                    RuntimeWorkflowProposalEditService proposalEditService) {
-        this(workflowDefinitionService, validationService, studioService, debugService,
+        this(workflowManagementService, studioService, debugService,
                 proposalGenerationService, proposalEditService, new RuntimeWorkflowNodeCapabilityRegistry());
     }
 
     @Autowired
-    public RuntimeWorkflowPublicController(RuntimeWorkflowDefinitionService workflowDefinitionService,
-                                                  RuntimeWorkflowReleaseValidationService validationService,
+    public RuntimeWorkflowPublicController(RuntimeWorkflowManagementService workflowManagementService,
                                                   RuntimeWorkflowStudioService studioService,
                                                   RuntimeWorkflowDebugService debugService,
                                                    RuntimeWorkflowProposalGenerationService proposalGenerationService,
                                                    RuntimeWorkflowProposalEditService proposalEditService,
                                                   RuntimeWorkflowNodeCapabilityRegistry nodeCapabilityRegistry) {
-        this.workflowDefinitionService = workflowDefinitionService;
-        this.validationService = validationService;
+        this.workflowManagementService = workflowManagementService;
         this.studioService = studioService;
         this.debugService = debugService;
         this.proposalGenerationService = proposalGenerationService;
@@ -72,13 +66,13 @@ public class RuntimeWorkflowPublicController {
     }
 
     @GetMapping("/api/workflows")
-    public ResponseEntity<List<RuntimeWorkflowDefinitionEntity>> list(
+    public ResponseEntity<List<RuntimeWorkflowDefinitionView>> list(
             @RequestParam(required = false) Long projectId,
             @RequestParam(required = false) String projectCode,
             @RequestParam(required = false) String workflowKind,
             @RequestParam(required = false) String definitionAuthority,
             @RequestParam(required = false) String status) {
-        return ResponseEntity.ok(workflowDefinitionService.list(
+        return ResponseEntity.ok(workflowManagementService.list(
                 projectId,
                 projectCode,
                 workflowKind,
@@ -96,7 +90,7 @@ public class RuntimeWorkflowPublicController {
             @RequestParam(required = false) String keyword,
             @RequestParam(defaultValue = "1") int current,
             @RequestParam(defaultValue = "10") int size) {
-        return ResponseEntity.ok(workflowDefinitionService.search(
+        return ResponseEntity.ok(workflowManagementService.search(
                 projectId,
                 projectCode,
                 workflowKind,
@@ -108,14 +102,14 @@ public class RuntimeWorkflowPublicController {
     }
 
     @PostMapping("/api/workflows")
-    public ResponseEntity<RuntimeWorkflowDefinitionEntity> create(
-            @RequestBody RuntimeWorkflowDefinitionEntity request) {
-        return ResponseEntity.ok(workflowDefinitionService.create(request));
+    public ResponseEntity<RuntimeWorkflowDefinitionView> create(
+            @RequestBody RuntimeWorkflowWriteCommand request) {
+        return ResponseEntity.ok(workflowManagementService.create(request));
     }
 
     @GetMapping("/api/workflows/{id}")
-    public ResponseEntity<RuntimeWorkflowDefinitionEntity> get(@PathVariable String id) {
-        return workflowDefinitionService.findById(id)
+    public ResponseEntity<RuntimeWorkflowDefinitionView> get(@PathVariable String id) {
+        return workflowManagementService.findById(id)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
@@ -134,20 +128,8 @@ public class RuntimeWorkflowPublicController {
                             "WORKFLOW_REQUEST_EMPTY", null, "workflow runtime validation request is required")),
                     List.of()));
         }
-        RuntimeWorkflowReleaseValidationResult result;
-        if (request.graphSpecJson() != null && !request.graphSpecJson().isBlank()) {
-            RuntimeWorkflowReleaseValidationResult.Builder report = RuntimeWorkflowReleaseValidationResult.builder();
-            GraphSpec proposed = validationService.readGraph(request.graphSpecJson(), report);
-            if (proposed == null) {
-                result = report.build();
-            } else {
-                RuntimeWorkflowDefinitionEntity workflow = workflowForValidation(request, true);
-                result = validationService.validateProposed(workflow, proposed);
-            }
-        } else {
-            RuntimeWorkflowDefinitionEntity workflow = workflowForValidation(request, false);
-            result = validationService.validate(workflow);
-        }
+        RuntimeWorkflowReleaseValidationResult result = workflowManagementService.validateRuntime(
+                request.workflowId(), request.graphSpecJson(), request.executionEngine(), request.defaultModelInstanceId());
         return ResponseEntity.ok(toValidationView(result));
     }
 
@@ -207,16 +189,16 @@ public class RuntimeWorkflowPublicController {
     }
 
     @PutMapping("/api/workflows/{id}")
-    public ResponseEntity<RuntimeWorkflowDefinitionEntity> update(
+    public ResponseEntity<RuntimeWorkflowDefinitionView> update(
             @PathVariable String id,
-            @RequestBody RuntimeWorkflowDefinitionEntity request) {
-        return ResponseEntity.ok(workflowDefinitionService.update(id, request));
+            @RequestBody RuntimeWorkflowWriteCommand request) {
+        return ResponseEntity.ok(workflowManagementService.update(id, request));
     }
 
     @DeleteMapping("/api/workflows/{id}")
     public ResponseEntity<?> delete(@PathVariable String id) {
         try {
-            workflowDefinitionService.delete(id);
+            workflowManagementService.delete(id);
             return ResponseEntity.noContent().build();
         } catch (IllegalArgumentException ex) {
             String message = ex.getMessage();
@@ -225,24 +207,6 @@ public class RuntimeWorkflowPublicController {
             }
             return ResponseEntity.badRequest().body(Map.of("message", message != null ? message : "delete rejected"));
         }
-    }
-
-    private RuntimeWorkflowDefinitionEntity workflowForValidation(RuntimeWorkflowRuntimeValidationRequest request,
-                                                                  boolean applyProposedOverrides) {
-        if (request.workflowId() == null || request.workflowId().isBlank()) {
-            RuntimeWorkflowDefinitionEntity workflow = new RuntimeWorkflowDefinitionEntity();
-            workflow.setExecutionEngine(request.executionEngine());
-            return workflow;
-        }
-        RuntimeWorkflowDefinitionEntity persisted = workflowDefinitionService.findById(request.workflowId())
-                .orElse(null);
-        if (persisted == null || !applyProposedOverrides || request.defaultModelInstanceId() == null) {
-            return persisted;
-        }
-        RuntimeWorkflowDefinitionEntity proposed = new RuntimeWorkflowDefinitionEntity();
-        BeanUtils.copyProperties(persisted, proposed);
-        proposed.setDefaultModelInstanceId(request.defaultModelInstanceId());
-        return proposed;
     }
 
     private RuntimeWorkflowRuntimeValidationView toValidationView(RuntimeWorkflowReleaseValidationResult result) {

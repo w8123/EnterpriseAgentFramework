@@ -39,6 +39,8 @@ public class RuntimeInteractionSessionEntity {
 
     private String idempotencyKey;
 
+    private LocalDateTime resumeDeadlineAt;
+
     private String resumeCheckpointJson;
 
     private Integer checkpointSchemaVersion;

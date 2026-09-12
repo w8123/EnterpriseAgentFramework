@@ -1,8 +1,8 @@
 package com.enterprise.ai.runtime.supervisor;
 
+import com.enterprise.ai.runtime.execution.RuntimeAgentExecutionEventSink;
 import com.enterprise.ai.runtime.agentscope.AgentScopeAnswerPhase;
-import com.enterprise.ai.runtime.execution.SupervisorRuntimeAdapter;
-import com.enterprise.ai.runtime.agent.RuntimeAgentConfigVersionEntity;
+import com.enterprise.ai.runtime.agent.RuntimeAgentConfigSnapshot;
 import com.enterprise.ai.runtime.agent.RuntimeAgentView;
 import com.enterprise.ai.runtime.chat.RuntimeChatMemoryStore;
 import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient;
@@ -15,12 +15,10 @@ import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionMapper;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowVersionMapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
-
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
-
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -54,7 +52,7 @@ class SupervisorCancellationTest {
                         List.of(),
                         Map.of("message", "你好", "sessionId", "s-cancel", "projectCode", "qmssmp"),
                         null,
-                        SupervisorRuntimeAdapter.SupervisorEventSink.NOOP,
+                        RuntimeAgentExecutionEventSink.NOOP,
                         cancellation));
 
         assertFalse(result.success());
@@ -94,7 +92,7 @@ class SupervisorCancellationTest {
                         List.of(),
                         Map.of("message", "你好", "sessionId", "s-cancel-mid", "projectCode", "qmssmp"),
                         null,
-                        SupervisorRuntimeAdapter.SupervisorEventSink.NOOP,
+                        RuntimeAgentExecutionEventSink.NOOP,
                         cancellation));
 
         assertFalse(result.success());
@@ -111,13 +109,12 @@ class SupervisorCancellationTest {
         when(traceService.beginOrResume(any(), any(), any(), any())).thenReturn(handle);
         when(traceService.beginOrResume(any(), any(), any(), any(), any())).thenReturn(handle);
         SupervisorToolPolicyService policy = new SupervisorToolPolicyService(
-                traceService, mock(SupervisorApprovalInteractionService.class), objectMapper);
+                org.mockito.Mockito.mock(com.enterprise.ai.runtime.runops.RuntimeGuardDecisionWriter.class), mock(SupervisorApprovalInteractionService.class), objectMapper);
         return new AgentScopeSupervisorRuntimeAdapter(
                 modelClient,
                 null,
                 null,
-                mock(RuntimeWorkflowDefinitionMapper.class),
-                mock(RuntimeWorkflowVersionMapper.class),
+                mock(com.enterprise.ai.runtime.workflow.RuntimeWorkflowExecutionQuery.class),
                 mock(RuntimeGraphSpecExecutor.class),
                 mock(com.enterprise.ai.runtime.execution.RuntimeWorkflowInteractionSessionService.class),
                 new RuntimeChatMemoryStore(20),
@@ -133,24 +130,25 @@ class SupervisorCancellationTest {
                 7L, 7L, 1, "ACTIVE", "AGENTSCOPE", 2, null, null);
     }
 
-    private RuntimeAgentConfigVersionEntity config() {
-        RuntimeAgentConfigVersionEntity config = new RuntimeAgentConfigVersionEntity();
-        config.setId(7L);
-        config.setAgentId("agent-1");
-        config.setVersionNo(1);
-        config.setRuntimeType("AGENTSCOPE");
-        config.setSystemPrompt("你是班组助手");
-        config.setModelInstanceId("model-1");
-        config.setMaxPlanSteps(6);
-        config.setMaxWorkflowCalls(4);
-        config.setMaxReplans(1);
-        config.setTotalTimeoutMs(10_000);
-        config.setWorkflowTimeoutMs(5_000);
-        config.setPageBridgeTimeoutMs(2_000);
-        config.setParallelReadOnly(false);
-        config.setPolicyProfile("DEV_ALLOW_ALL");
-        config.setToolCatalogMode("ALLOW_LIST");
-        config.setConfigJson("{}");
+    private RuntimeAgentConfigSnapshot config() {
+        RuntimeAgentConfigSnapshot config = RuntimeAgentConfigSnapshot.builder()
+                .id(7L)
+                .agentId("agent-1")
+                .versionNo(1)
+                .runtimeType("AGENTSCOPE")
+                .systemPrompt("你是班组助手")
+                .modelInstanceId("model-1")
+                .maxPlanSteps(6)
+                .maxWorkflowCalls(4)
+                .maxReplans(1)
+                .totalTimeoutMs(10_000)
+                .workflowTimeoutMs(5_000)
+                .pageBridgeTimeoutMs(2_000)
+                .parallelReadOnly(false)
+                .policyProfile("DEV_ALLOW_ALL")
+                .toolCatalogMode("ALLOW_LIST")
+                .configJson("{}")
+                .build();
         return config;
     }
 }

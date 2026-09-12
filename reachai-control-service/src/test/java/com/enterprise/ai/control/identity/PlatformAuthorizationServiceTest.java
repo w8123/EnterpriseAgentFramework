@@ -26,7 +26,7 @@ class PlatformAuthorizationServiceTest {
                 mock(PlatformRolePermissionMapper.class),
                 mock(PlatformPermissionMapper.class));
         PlatformAuthenticatedSession authenticated = new PlatformAuthenticatedSession(
-                user(7L),
+                PlatformPrincipal.fromUser(user(7L)),
                 "pls_7",
                 LocalDateTime.now().plusHours(1),
                 List.of("BUSINESS_USER_READER"),
@@ -109,7 +109,7 @@ class PlatformAuthorizationServiceTest {
     @Test
     void resourcePermissionHonorsWorkspaceProjectHierarchyAndKeepsSharedGlobal() {
         PlatformAuthenticatedSession authenticated = new PlatformAuthenticatedSession(
-                user(7L),
+                PlatformPrincipal.fromUser(user(7L)),
                 "pls_7",
                 LocalDateTime.now().plusHours(1),
                 List.of("PROJECT_OWNER"),

@@ -23,4 +23,13 @@ public interface RuntimeWorkflowVersionMapper extends BaseMapper<RuntimeWorkflow
                 .orderByDesc(RuntimeWorkflowVersionEntity::getRolloutPercent)
                 .orderByDesc(RuntimeWorkflowVersionEntity::getId));
     }
+
+    default List<RuntimeWorkflowVersionEntity> listActiveByWorkflowIds(List<String> workflowIds) {
+        if (workflowIds == null || workflowIds.isEmpty()) return List.of();
+        return selectList(Wrappers.<RuntimeWorkflowVersionEntity>lambdaQuery()
+                .in(RuntimeWorkflowVersionEntity::getWorkflowId, workflowIds)
+                .eq(RuntimeWorkflowVersionEntity::getStatus, "ACTIVE")
+                .orderByDesc(RuntimeWorkflowVersionEntity::getRolloutPercent)
+                .orderByDesc(RuntimeWorkflowVersionEntity::getId));
+    }
 }

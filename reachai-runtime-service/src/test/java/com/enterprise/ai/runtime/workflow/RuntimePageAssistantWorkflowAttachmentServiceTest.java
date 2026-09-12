@@ -1,12 +1,14 @@
 package com.enterprise.ai.runtime.workflow;
 
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowAgentAttachmentPort;
+
 import com.enterprise.ai.runtime.workflow.aicoding.AiCodingAttachmentException;
-import com.enterprise.ai.runtime.workflow.aicoding.RuntimeAgentSupervisorWorkflowAttachmentService;
-import com.enterprise.ai.runtime.workflow.aicoding.RuntimeAgentSupervisorWorkflowAttachmentService.ActiveConfigRef;
-import com.enterprise.ai.runtime.workflow.aicoding.RuntimeAgentSupervisorWorkflowAttachmentService.AgentRef;
-import com.enterprise.ai.runtime.workflow.aicoding.RuntimeAgentSupervisorWorkflowAttachmentService.AttachmentResult;
-import com.enterprise.ai.runtime.workflow.aicoding.RuntimeAgentSupervisorWorkflowAttachmentService.PageAssistantAttachRequest;
-import com.enterprise.ai.runtime.workflow.aicoding.RuntimeAgentSupervisorWorkflowAttachmentService.WorkflowRef;
+import com.enterprise.ai.runtime.internal.RuntimeAgentSupervisorWorkflowAttachmentService;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowAgentAttachmentPort.ActiveConfigRef;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowAgentAttachmentPort.AgentRef;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowAgentAttachmentPort.AttachmentResult;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowAgentAttachmentPort.PageAssistantAttachRequest;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowAgentAttachmentPort.WorkflowRef;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;

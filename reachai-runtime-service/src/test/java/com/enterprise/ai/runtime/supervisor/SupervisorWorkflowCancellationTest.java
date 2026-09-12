@@ -1,9 +1,9 @@
 package com.enterprise.ai.runtime.supervisor;
 
-import com.enterprise.ai.runtime.execution.SupervisorRuntimeAdapter;
-import com.enterprise.ai.runtime.agent.RuntimeAgentConfigVersionEntity;
+import com.enterprise.ai.runtime.execution.RuntimeAgentExecutionEventSink;
+import com.enterprise.ai.runtime.agent.RuntimeAgentConfigSnapshot;
 import com.enterprise.ai.runtime.agent.RuntimeAgentView;
-import com.enterprise.ai.runtime.agent.RuntimeAgentWorkflowToolEntity;
+import com.enterprise.ai.runtime.agent.RuntimeAgentWorkflowToolSnapshot;
 import com.enterprise.ai.runtime.chat.RuntimeChatMemoryStore;
 import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient;
 import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient.ModelChatData;
@@ -13,13 +13,17 @@ import com.enterprise.ai.runtime.execution.RuntimeAgentExecutionCancellation;
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionCancellation;
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionResult;
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutor;
+import com.enterprise.ai.runtime.execution.RuntimeWorkflowInteractionSessionService;
+import com.enterprise.ai.runtime.execution.interaction.WorkflowInteractionCodes;
+import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionEntity;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionMapper;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowVersionEntity;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowVersionMapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
-
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -29,14 +33,17 @@ import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-
+import java.util.concurrent.atomic.AtomicReference;
+import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -49,12 +56,14 @@ class SupervisorWorkflowCancellationTest {
     private final RuntimeWorkflowVersionMapper versionMapper = mock(RuntimeWorkflowVersionMapper.class);
     private final RuntimeGraphSpecExecutor graphExecutor = mock(RuntimeGraphSpecExecutor.class);
     private final SupervisorExecutionTraceService traceService = mock(SupervisorExecutionTraceService.class);
+    private final RuntimeWorkflowInteractionSessionService interactionSessionService =
+            mock(RuntimeWorkflowInteractionSessionService.class);
     private final Map<String, RuntimeWorkflowDefinitionEntity> workflowTargets = new LinkedHashMap<>();
     private final Map<Long, RuntimeWorkflowVersionEntity> workflowVersions = new LinkedHashMap<>();
 
     @Test
     void cancelBeforeWorkflowDoesNotCallGraphExecutor() {
-        RuntimeAgentWorkflowToolEntity tool = tool("wf-1", "query_team");
+        RuntimeAgentWorkflowToolSnapshot tool = tool("wf-1", "query_team");
         stubWorkflow(tool);
         RuntimeAgentExecutionCancellation cancellation = new RuntimeAgentExecutionCancellation();
         cancellation.cancel();
@@ -66,7 +75,7 @@ class SupervisorWorkflowCancellationTest {
                 new SupervisorRuntimeAdapter.SupervisorRequest(
                         agent(), config(false), List.of(tool),
                         Map.of("message", "查询", "sessionId", "s-pre", "projectCode", "qmssmp"),
-                        null, SupervisorRuntimeAdapter.SupervisorEventSink.NOOP, cancellation));
+                        null, RuntimeAgentExecutionEventSink.NOOP, cancellation));
 
         assertFalse(result.success());
         assertEquals("SUPERVISOR_CANCELLED", result.code());
@@ -75,7 +84,7 @@ class SupervisorWorkflowCancellationTest {
 
     @Test
     void cancelDuringWorkflowDoesNotMapToTimeoutAndDoesNotWriteSuccessMemory() throws Exception {
-        RuntimeAgentWorkflowToolEntity tool = tool("wf-1", "query_team");
+        RuntimeAgentWorkflowToolSnapshot tool = tool("wf-1", "query_team");
         stubWorkflow(tool);
         RuntimeAgentExecutionCancellation cancellation = new RuntimeAgentExecutionCancellation();
         CountDownLatch inWorkflow = new CountDownLatch(1);
@@ -101,7 +110,7 @@ class SupervisorWorkflowCancellationTest {
                 new SupervisorRuntimeAdapter.SupervisorRequest(
                         agent(), config(false), List.of(tool),
                         Map.of("message", "查询班组", "sessionId", "s-mid", "projectCode", "qmssmp"),
-                        null, SupervisorRuntimeAdapter.SupervisorEventSink.NOOP, cancellation))));
+                        null, RuntimeAgentExecutionEventSink.NOOP, cancellation))));
         runner.start();
         assertTrue(inWorkflow.await(5, TimeUnit.SECONDS));
         cancellation.cancel();
@@ -117,8 +126,8 @@ class SupervisorWorkflowCancellationTest {
 
     @Test
     void parallelWorkflowsAreAllCancelledOnRequestCancel() throws Exception {
-        RuntimeAgentWorkflowToolEntity teamTool = tool("wf-team", "query_team");
-        RuntimeAgentWorkflowToolEntity ownerTool = tool("wf-owner", "query_owner");
+        RuntimeAgentWorkflowToolSnapshot teamTool = tool("wf-team", "query_team");
+        RuntimeAgentWorkflowToolSnapshot ownerTool = tool("wf-owner", "query_owner");
         stubWorkflow(teamTool);
         stubWorkflow(ownerTool);
         RuntimeAgentExecutionCancellation cancellation = new RuntimeAgentExecutionCancellation();
@@ -142,7 +151,7 @@ class SupervisorWorkflowCancellationTest {
                 new SupervisorRuntimeAdapter.SupervisorRequest(
                         agent(), config(true), List.of(teamTool, ownerTool),
                         Map.of("message", "并行查询", "sessionId", "s-par", "projectCode", "qmssmp"),
-                        null, SupervisorRuntimeAdapter.SupervisorEventSink.NOOP, cancellation)));
+                        null, RuntimeAgentExecutionEventSink.NOOP, cancellation)));
         runner.start();
         assertTrue(bothStarted.await(5, TimeUnit.SECONDS), "both parallel workflows should start");
         cancellation.cancel();
@@ -154,7 +163,7 @@ class SupervisorWorkflowCancellationTest {
 
     @Test
     void cancelAfterSuccessfulWorkflowIsIdempotent() {
-        RuntimeAgentWorkflowToolEntity tool = tool("wf-1", "query_team");
+        RuntimeAgentWorkflowToolSnapshot tool = tool("wf-1", "query_team");
         stubWorkflow(tool);
         when(graphExecutor.execute(any(), any(), any(), any(), any(), any())).thenReturn(
                 new RuntimeGraphSpecExecutionResult(true, "OK", "done", null, null, List.of(), Map.of()));
@@ -165,13 +174,222 @@ class SupervisorWorkflowCancellationTest {
                 new SupervisorRuntimeAdapter.SupervisorRequest(
                         agent(), config(false), List.of(tool),
                         Map.of("message", "查询", "sessionId", "s-done", "projectCode", "qmssmp"),
-                        null, SupervisorRuntimeAdapter.SupervisorEventSink.NOOP, cancellation));
+                        null, RuntimeAgentExecutionEventSink.NOOP, cancellation));
 
         assertTrue(result.success());
         cancellation.cancel();
         cancellation.cancel();
         assertTrue(result.success());
         assertEquals("SUPERVISOR_COMPLETED", result.code());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"SUCCESS", WorkflowInteractionCodes.WAITING, "LATE_FAILURE"})
+    void timedOutWorkflowCancelsExecutorAndDiscardsLateResult(String lateCode) throws Exception {
+        RuntimeAgentWorkflowToolSnapshot tool = tool("wf-1", "query_team");
+        stubWorkflow(tool);
+        CountDownLatch releaseGraph = new CountDownLatch(1);
+        AtomicReference<RuntimeGraphSpecExecutionCancellation> graphCancellation = new AtomicReference<>();
+        AtomicReference<Thread> graphThread = new AtomicReference<>();
+        List<String> tracedCodes = Collections.synchronizedList(new ArrayList<>());
+        doAnswer(invocation -> {
+            tracedCodes.add(invocation.getArgument(10));
+            return null;
+        }).when(traceService).workflow(any(), any(), any(), any(), any(), any(), any(), any(), any(),
+                org.mockito.ArgumentMatchers.anyBoolean(), any(), any(), org.mockito.ArgumentMatchers.anyLong(), any(), any());
+        when(interactionSessionService.createWaitingSession(any())).thenReturn(
+                new RuntimeWorkflowInteractionSessionService.WaitingSession("late-interaction", "{}"));
+        when(interactionSessionService.readMap(any())).thenReturn(Map.of("late", true));
+        when(graphExecutor.execute(any(), any(), any(), any(), any(), any())).thenAnswer(invocation -> {
+            graphCancellation.set(invocation.getArgument(3));
+            graphThread.set(Thread.currentThread());
+            // Model a dependency that cannot be stopped with Thread.interrupt().
+            awaitIgnoringInterrupts(releaseGraph);
+            return new RuntimeGraphSpecExecutionResult("SUCCESS".equals(lateCode), lateCode,
+                    "late workflow result", "answer", "ANSWER", List.of(),
+                    Map.of("uiRequest", Map.of("late", true)), Map.of("answer", "late"));
+        });
+        RuntimeModelServiceClient initialModel = modelForPlanAndTool();
+        AtomicInteger rounds = new AtomicInteger();
+        RuntimeModelServiceClient model = request -> {
+            int round = rounds.incrementAndGet();
+            if (round <= 2) return initialModel.chat(request);
+            if (round == 3) {
+                releaseGraph.countDown();
+                awaitWorkflowReturn(graphThread.get());
+                return toolCalls(List.of(Map.of("id", "abandon", "type", "function", "function", Map.of(
+                        "name", "record_supervisor_plan", "arguments",
+                        "{\"summary\":\"Report the timeout\",\"steps\":[\"Explain timeout\"],\"workflowToolNames\":[]}"))));
+            }
+            if (round == 4) return toolCalls(List.of(Map.of("id", "final", "type", "function",
+                    "function", Map.of("name", "begin_final_answer", "arguments", "{}"))));
+            return text("The workflow timed out.");
+        };
+        RuntimeAgentConfigSnapshot config = config(false).toBuilder().workflowTimeoutMs(1_000).build();
+        RuntimeAgentExecutionCancellation cancellation = new RuntimeAgentExecutionCancellation();
+        SupervisorRuntimeAdapter.SupervisorResult result;
+        try {
+            result = adapter(model).execute(new SupervisorRuntimeAdapter.SupervisorRequest(
+                    agent(), config, List.of(tool), Map.of("message", "query", "sessionId", "s-timeout"),
+                    null, RuntimeAgentExecutionEventSink.NOOP, cancellation,
+                    WorkflowExecutionIdentity.fromAgent("tenant-a", 7L, "qmssmp", "user-a")));
+        } finally {
+            releaseGraph.countDown();
+            awaitWorkflowReturn(graphThread.get());
+        }
+        assertAll(
+                () -> assertTrue(graphCancellation.get() != null && graphCancellation.get().isCancelled(),
+                        "the workflow deadline must reach the executor's cooperative cancellation"),
+                () -> assertFalse(cancellation.isCancelled(), "a local timeout must not cancel the Agent request"),
+                () -> assertEquals(List.of("SUPERVISOR_WORKFLOW_TIMEOUT"), tracedCodes,
+                        "a late outcome must not add another workflow trace"),
+                () -> verifyNoInteractions(interactionSessionService),
+                () -> assertTrue(result.success(), result.code() + " " + result.answer()),
+                () -> assertEquals(null, result.uiRequest(), "late presentation must not survive in the final response"));
+    }
+
+    @Test
+    void lateAttemptDoesNotCancelOrReplaceTheRetriedWorkflowResult() throws Exception {
+        RuntimeAgentWorkflowToolSnapshot tool = tool("wf-1", "query_team");
+        stubWorkflow(tool);
+        CountDownLatch releaseFirstGraph = new CountDownLatch(1);
+        AtomicReference<Thread> firstThread = new AtomicReference<>();
+        List<RuntimeGraphSpecExecutionCancellation> graphCancellations =
+                Collections.synchronizedList(new ArrayList<>());
+        List<String> tracedCodes = Collections.synchronizedList(new ArrayList<>());
+        doAnswer(invocation -> {
+            tracedCodes.add(invocation.getArgument(10));
+            return null;
+        }).when(traceService).workflow(any(), any(), any(), any(), any(), any(), any(), any(), any(),
+                org.mockito.ArgumentMatchers.anyBoolean(), any(), any(), org.mockito.ArgumentMatchers.anyLong(), any(), any());
+        when(graphExecutor.execute(any(), any(), any(), any(), any(), any())).thenAnswer(invocation -> {
+            graphCancellations.add(invocation.getArgument(3));
+            if (graphCancellations.size() == 1) {
+                firstThread.set(Thread.currentThread());
+                awaitIgnoringInterrupts(releaseFirstGraph);
+                return new RuntimeGraphSpecExecutionResult(false, "LATE_FAILURE", "old attempt", null, null,
+                        List.of(), Map.of());
+            }
+            releaseFirstGraph.countDown();
+            awaitWorkflowReturn(firstThread.get());
+            return new RuntimeGraphSpecExecutionResult(true, "SUCCESS", "fresh result", null, null,
+                    List.of(), Map.of("uiRequest", Map.of("fresh", true)));
+        });
+        RuntimeModelServiceClient initialModel = modelForPlanAndTool();
+        AtomicInteger rounds = new AtomicInteger();
+        RuntimeModelServiceClient model = request -> {
+            int round = rounds.incrementAndGet();
+            if (round <= 2) return initialModel.chat(request);
+            if (round == 3) return toolCalls(List.of(Map.of("id", "retry-plan", "type", "function",
+                    "function", Map.of("name", "record_supervisor_plan", "arguments",
+                            "{\"summary\":\"Retry read\",\"steps\":[\"Query again\"],\"workflowToolNames\":[\"query_team\"]}"))));
+            if (round == 4) return toolCalls(List.of(Map.of("id", "retry", "type", "function",
+                    "function", Map.of("name", "query_team", "arguments", "{}"))));
+            if (round == 5) return toolCalls(List.of(Map.of("id", "final", "type", "function",
+                    "function", Map.of("name", "begin_final_answer", "arguments", "{}"))));
+            return text("Fresh result received.");
+        };
+        SupervisorRuntimeAdapter.SupervisorResult result;
+        try {
+            result = adapter(model).execute(new SupervisorRuntimeAdapter.SupervisorRequest(
+                    agent(), config(false).toBuilder().workflowTimeoutMs(1_000).build(), List.of(tool),
+                    Map.of("message", "query", "sessionId", "s-retry"), null,
+                    RuntimeAgentExecutionEventSink.NOOP, new RuntimeAgentExecutionCancellation()));
+        } finally {
+            releaseFirstGraph.countDown();
+            awaitWorkflowReturn(firstThread.get());
+        }
+        assertEquals(2, graphCancellations.size(), "a revised read-only plan must permit one retry");
+        assertAll(
+                () -> assertTrue(graphCancellations.get(0).isCancelled(), "only the expired invocation is cancelled"),
+                () -> assertFalse(graphCancellations.get(1).isCancelled(), "retry owns a distinct cancellation"),
+                () -> assertEquals(List.of("SUPERVISOR_WORKFLOW_TIMEOUT", "SUCCESS"), tracedCodes),
+                () -> assertTrue(result.success(), result.code() + " " + result.answer()),
+                () -> assertEquals(Map.of("fresh", true), result.uiRequest()),
+                () -> assertEquals(2, result.metadata().get("planCount")),
+                () -> assertEquals(1, result.metadata().get("plannedWorkflowCursor")));
+    }
+
+    @Test
+    void workflowTimeoutDoesNotDeliverStartedAfterFailedWhenTheEventSinkIsSlow() throws Exception {
+        RuntimeAgentWorkflowToolSnapshot tool = tool("wf-1", "query_team");
+        stubWorkflow(tool);
+        CountDownLatch releaseStarted = new CountDownLatch(1);
+        AtomicReference<Thread> phaseThread = new AtomicReference<>();
+        List<Map<String, Object>> delivered = Collections.synchronizedList(new ArrayList<>());
+        RuntimeAgentExecutionEventSink sink = (name, data) -> {
+            if (!"supervisor.step".equals(name) || !(data instanceof Map<?, ?> phase)
+                    || !"workflow-1".equals(phase.get("stepId"))) return;
+            if ("started".equals(phase.get("state"))) {
+                phaseThread.set(Thread.currentThread());
+                try { awaitIgnoringInterrupts(releaseStarted); }
+                catch (Exception failure) { throw new IllegalStateException(failure); }
+            }
+            Map<String, Object> received = new LinkedHashMap<>();
+            phase.forEach((key, value) -> received.put(String.valueOf(key), value));
+            delivered.add(received);
+        };
+        when(graphExecutor.execute(any(), any(), any(), any(), any(), any())).thenReturn(
+                new RuntimeGraphSpecExecutionResult(false, "RUNTIME_GRAPH_CANCELLED", "cancelled", null, null,
+                        List.of(), Map.of()));
+        RuntimeModelServiceClient initialModel = modelForPlanAndTool();
+        AtomicInteger rounds = new AtomicInteger();
+        RuntimeModelServiceClient model = request -> {
+            int round = rounds.incrementAndGet();
+            if (round <= 2) return initialModel.chat(request);
+            if (round == 3) {
+                // The timeout must release the tool result while the first event consumer is slow.
+                releaseStarted.countDown();
+                awaitWorkflowReturn(phaseThread.get());
+                return toolCalls(List.of(Map.of("id", "abandon", "type", "function", "function", Map.of(
+                        "name", "record_supervisor_plan", "arguments",
+                        "{\"summary\":\"Report timeout\",\"steps\":[\"Explain timeout\"],\"workflowToolNames\":[]}"))));
+            }
+            if (round == 4) return toolCalls(List.of(Map.of("id", "final", "type", "function",
+                    "function", Map.of("name", "begin_final_answer", "arguments", "{}"))));
+            return text("The workflow timed out.");
+        };
+        SupervisorRuntimeAdapter.SupervisorResult result;
+        try {
+            result = adapter(model).execute(new SupervisorRuntimeAdapter.SupervisorRequest(
+                    agent(), config(false).toBuilder().workflowTimeoutMs(1_000).build(), List.of(tool),
+                    Map.of("message", "query", "sessionId", "s-phase-order"), null, sink,
+                    new RuntimeAgentExecutionCancellation()));
+        } finally {
+            releaseStarted.countDown();
+            awaitWorkflowReturn(phaseThread.get());
+        }
+        assertTrue(result.success(), result.code() + " " + result.answer());
+        assertEquals("failed", result.steps().stream().filter(step -> "workflow-1".equals(step.get("stepId")))
+                .findFirst().orElseThrow().get("state"));
+        assertEquals(List.of("started", "failed"), delivered.stream().map(step -> step.get("state")).toList(),
+                "public progress must not regress after the workflow has failed");
+        assertEquals(1, delivered.stream().map(step -> step.get("sequence")).distinct().count());
+    }
+
+    private static void awaitIgnoringInterrupts(CountDownLatch latch) throws Exception {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        while (latch.getCount() != 0 && System.nanoTime() < deadline) {
+            try {
+                if (latch.await(10, TimeUnit.MILLISECONDS)) return;
+            } catch (InterruptedException ignored) {
+                // Deliberate test behavior: returning late is independent of Reactor interruption.
+            }
+        }
+        assertEquals(0, latch.getCount(), "test must release the non-cooperative dependency");
+    }
+
+    private static void awaitWorkflowReturn(Thread thread) {
+        if (thread == null) return;
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (System.nanoTime() < deadline) {
+            boolean running = java.util.Arrays.stream(thread.getStackTrace()).anyMatch(frame ->
+                    frame.getClassName().equals(AgentScopeSupervisorRuntimeAdapter.class.getName() + "$RunState")
+                            && frame.getMethodName().equals("runWorkflow"));
+            if (!running) return;
+            java.util.concurrent.locks.LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(5));
+        }
+        throw new AssertionError("workflow callable did not finish after the dependency returned");
     }
 
     private RuntimeModelServiceClient modelForPlanAndTool() {
@@ -270,14 +488,14 @@ class SupervisorWorkflowCancellationTest {
         when(traceService.beginOrResume(any(), any(), any(), any())).thenReturn(handle);
         when(traceService.beginOrResume(any(), any(), any(), any(), any())).thenReturn(handle);
         SupervisorToolPolicyService policy = new SupervisorToolPolicyService(
-                traceService, mock(SupervisorApprovalInteractionService.class), objectMapper);
+                org.mockito.Mockito.mock(com.enterprise.ai.runtime.runops.RuntimeGuardDecisionWriter.class), mock(SupervisorApprovalInteractionService.class), objectMapper);
         return new AgentScopeSupervisorRuntimeAdapter(
-                modelClient, null, null, workflowMapper, versionMapper, graphExecutor,
-                mock(com.enterprise.ai.runtime.execution.RuntimeWorkflowInteractionSessionService.class),
+                modelClient, null, null, new com.enterprise.ai.runtime.workflow.RuntimeWorkflowExecutionReader(workflowMapper, versionMapper), graphExecutor,
+                interactionSessionService,
                 memory, policy, traceService, objectMapper);
     }
 
-    private void stubWorkflow(RuntimeAgentWorkflowToolEntity tool) {
+    private void stubWorkflow(RuntimeAgentWorkflowToolSnapshot tool) {
         RuntimeWorkflowDefinitionEntity workflow = new RuntimeWorkflowDefinitionEntity();
         workflow.setId(tool.getWorkflowId());
         workflow.setKeySlug(tool.getToolName());
@@ -287,10 +505,10 @@ class SupervisorWorkflowCancellationTest {
         workflow.setStatus("ACTIVE");
         RuntimeWorkflowVersionEntity version = new RuntimeWorkflowVersionEntity();
         version.setId((long) Math.abs(tool.getWorkflowId().hashCode()));
-        tool.setWorkflowVersionId(version.getId());
         version.setWorkflowId(tool.getWorkflowId());
         version.setVersion("1.0.0");
         version.setStatus("ACTIVE");
+        version.setSnapshotJson("{\"defaultModelInstanceId\":null}");
         version.setGraphSpecSnapshotJson("{\"entryNodeId\":\"a\",\"nodes\":[{\"id\":\"a\",\"type\":\"ANSWER\"}]}");
         when(workflowMapper.selectById(tool.getWorkflowId())).thenReturn(workflow);
         when(versionMapper.selectById(version.getId())).thenReturn(version);
@@ -311,16 +529,18 @@ class SupervisorWorkflowCancellationTest {
         });
     }
 
-    private RuntimeAgentWorkflowToolEntity tool(String workflowId, String toolName) {
-        RuntimeAgentWorkflowToolEntity tool = new RuntimeAgentWorkflowToolEntity();
-        tool.setAgentId("agent-1");
-        tool.setAgentConfigVersionId(7L);
-        tool.setWorkflowId(workflowId);
-        tool.setToolName(toolName);
-        tool.setRiskLevel("READ");
-        tool.setPermissionKey(toolName + ":read");
-        tool.setEnabled(true);
-        tool.setReadOnly(true);
+    private RuntimeAgentWorkflowToolSnapshot tool(String workflowId, String toolName) {
+        RuntimeAgentWorkflowToolSnapshot tool = RuntimeAgentWorkflowToolSnapshot.builder()
+                .agentId("agent-1")
+                .agentConfigVersionId(7L)
+                .workflowId(workflowId)
+                .workflowVersionId((long) Math.abs(workflowId.hashCode()))
+                .toolName(toolName)
+                .riskLevel("READ")
+                .permissionKey(toolName + ":read")
+                .enabled(true)
+                .readOnly(true)
+                .build();
         return tool;
     }
 
@@ -331,24 +551,25 @@ class SupervisorWorkflowCancellationTest {
                 7L, 7L, 1, "ACTIVE", "AGENTSCOPE", 2, null, null);
     }
 
-    private RuntimeAgentConfigVersionEntity config(boolean parallelReadOnly) {
-        RuntimeAgentConfigVersionEntity config = new RuntimeAgentConfigVersionEntity();
-        config.setId(7L);
-        config.setAgentId("agent-1");
-        config.setVersionNo(1);
-        config.setRuntimeType("AGENTSCOPE");
-        config.setSystemPrompt("你是班组助手");
-        config.setModelInstanceId("model-1");
-        config.setMaxPlanSteps(6);
-        config.setMaxWorkflowCalls(4);
-        config.setMaxReplans(1);
-        config.setTotalTimeoutMs(15_000);
-        config.setWorkflowTimeoutMs(10_000);
-        config.setPageBridgeTimeoutMs(2_000);
-        config.setParallelReadOnly(parallelReadOnly);
-        config.setPolicyProfile("DEV_ALLOW_ALL");
-        config.setToolCatalogMode("ALLOW_LIST");
-        config.setConfigJson("{}");
+    private RuntimeAgentConfigSnapshot config(boolean parallelReadOnly) {
+        RuntimeAgentConfigSnapshot config = RuntimeAgentConfigSnapshot.builder()
+                .id(7L)
+                .agentId("agent-1")
+                .versionNo(1)
+                .runtimeType("AGENTSCOPE")
+                .systemPrompt("你是班组助手")
+                .modelInstanceId("model-1")
+                .maxPlanSteps(6)
+                .maxWorkflowCalls(4)
+                .maxReplans(1)
+                .totalTimeoutMs(15_000)
+                .workflowTimeoutMs(10_000)
+                .pageBridgeTimeoutMs(2_000)
+                .parallelReadOnly(parallelReadOnly)
+                .policyProfile("DEV_ALLOW_ALL")
+                .toolCatalogMode("ALLOW_LIST")
+                .configJson("{}")
+                .build();
         return config;
     }
 }

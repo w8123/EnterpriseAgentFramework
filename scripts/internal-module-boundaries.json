@@ -14,6 +14,7 @@
         "agentskill",
         "aiassist",
         "automation",
+        "capability",
         "client",
         "compat",
         "config",
@@ -25,6 +26,7 @@
         "knowledge",
         "managed",
         "market",
+        "mcp",
         "pageworkbench",
         "platform",
         "runops",
@@ -33,19 +35,24 @@
       ],
       "allowedReciprocalPairs": [],
       "forbiddenEdges": [
+        "agentskill->aiassist",
+        "agentskill->internal",
+        "agentskill->runtime",
+        "agentskill->skillmarket",
         "client->aiassist",
+        "client->config",
         "client->context",
+        "client->internal",
+        "client->pageworkbench",
         "client->runtime",
         "managed->aicoding",
         "pageworkbench->client",
-        "pageworkbench->platform"
+        "pageworkbench->config",
+        "pageworkbench->platform",
+        "runtime->aiassist"
       ],
-      "allowedCrossModulePersistenceImports": [
-        "reachai-control-service/src/main/java/com/enterprise/ai/control/runops/TraceWorkflowCandidateApplicationService.java|com.enterprise.ai.control.aicoding.persistence.AiCodingTaskEntity",
-        "reachai-control-service/src/main/java/com/enterprise/ai/control/runops/TraceWorkflowCandidateApplicationService.java|com.enterprise.ai.control.aicoding.persistence.AiCodingTaskMapper",
-        "reachai-control-service/src/main/java/com/enterprise/ai/control/runops/TraceWorkflowCandidateApplicationService.java|com.enterprise.ai.control.aicoding.persistence.AiCodingTaskTargetEntity",
-        "reachai-control-service/src/main/java/com/enterprise/ai/control/runops/TraceWorkflowCandidateApplicationService.java|com.enterprise.ai.control.aicoding.persistence.AiCodingTaskTargetMapper"
-      ]
+      "allowedCrossModulePersistenceImports": [],
+      "allowedCycleEdges": []
     },
     {
       "name": "runtime",
@@ -70,16 +77,19 @@
         "chat",
         "client",
         "compat",
+        "configuration",
         "credential",
         "debug",
         "eval",
         "execution",
         "graph",
+        "identity",
         "interaction",
         "internal",
         "internalauth",
         "managed",
         "memory",
+        "mcp",
         "registry",
         "route",
         "runops",
@@ -87,26 +97,43 @@
         "trace",
         "workflow"
       ],
-      "allowedReciprocalPairs": [
-        "a2a|agent",
-        "agent|workflow",
-        "client|execution",
-        "credential|execution",
-        "eval|execution",
-        "eval|workflow",
-        "memory|supervisor",
-        "runops|trace",
-        "runops|workflow"
-      ],
+      "allowedReciprocalPairs": [],
       "forbiddenEdges": [
         "a2a->supervisor",
+        "agent->a2a",
+        "client->eval",
+        "client->execution",
+        "configuration->eval",
+        "configuration->execution",
+        "configuration->memory",
+        "configuration->supervisor",
+        "credential->execution",
+        "execution->agent",
+        "execution->eval",
         "execution->memory",
         "execution->runops",
         "execution->supervisor",
         "execution->workflow",
+        "identity->client",
+        "identity->credential",
+        "identity->execution",
+        "interaction->supervisor",
+        "memory->supervisor",
+        "runops->agent",
+        "runops->supervisor",
+        "runops->workflow",
+        "trace->runops",
+        "workflow->agent",
+        "workflow->eval",
         "workflow->supervisor"
       ],
-      "allowedCrossModulePersistenceImports": []
+      "allowedCrossModulePersistenceImports": [],
+      "allowedCycleEdges": []
     }
-  ]
+  ],
+  "debtBaseline": {
+    "recordedAt": "2026-09-05",
+    "reason": "Expanded scanner coverage: long cycles, fully qualified references, flat Mapper and Entity types. Existing uncovered debt is recorded exactly and must only shrink.",
+    "evidence": "docs/architecture/internal-module-boundaries.md"
+  }
 }

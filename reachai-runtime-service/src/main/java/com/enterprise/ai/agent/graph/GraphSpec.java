@@ -97,6 +97,7 @@ public class GraphSpec {
         private String qualifiedName;
         private Long definitionId;
         private String projectCode;
+        private String contractHash;
 
         @JsonAnySetter
         private void rejectUnknownField(String field, Object value) {

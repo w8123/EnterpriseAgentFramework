@@ -1,5 +1,5 @@
 import { ElMessage, ElMessageBox } from 'element-plus'
-import type { ComputedRef, Ref } from 'vue'
+import type { Ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   deleteScanProject,

@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 const source = readFileSync(resolve(__dirname, './AgentEdit.vue'), 'utf8')
 const routerSource = readFileSync(resolve(__dirname, '../../router/index.ts'), 'utf8')
+const breadcrumbSource = readFileSync(resolve(__dirname, '../../components/common/AppBreadcrumb.vue'), 'utf8')
 const template = source.split('<script setup')[0]
 
 describe('AgentEdit user-facing copy', () => {
@@ -14,6 +15,12 @@ describe('AgentEdit user-facing copy', () => {
     expect(template).toContain('title="Agent 协作"')
     expect(template).toContain('title="Skill"')
     expect(source).toContain('已填写工作要求（${text.length} 字），点击查看或修改')
+  })
+
+  it('keeps the new Agent header readable without claiming a persisted status', () => {
+    expect(template).toContain('height-preset="emphasis"')
+    expect(template).not.toContain(':compact="isNew"')
+    expect(template).toContain('<template v-if="!isNew" #tags>')
   })
 
   it('keeps internal architecture wording out of primary instructions', () => {
@@ -38,13 +45,17 @@ describe('AgentEdit user-facing copy', () => {
     expect(template).not.toContain('label="最长等待（毫秒）"')
   })
 
-  it('uses an explicit list breadcrumb instead of resolving a dynamic non-route parent', () => {
+  it('uses an explicit list breadcrumb with a truthful new/edit title', () => {
     const agentEditRoute = routerSource.match(
       /path: 'agent\/:id\/edit',[\s\S]*?(?=path: 'agent\/:id\/debug')/,
     )?.[0]
 
     expect(agentEditRoute).toBeTruthy()
+    expect(agentEditRoute).toContain('title: resolveAgentEditorTitle')
     expect(agentEditRoute).toContain("{ title: '智能体与编排', to: { path: '/agent' } }")
-    expect(agentEditRoute).toContain("{ title: 'Agent 编辑' }")
+    expect(agentEditRoute).toContain('{ title: resolveAgentEditorTitle }')
+    expect(routerSource).toContain("route.params.id === 'new' ? '新建 Agent' : 'Agent 编辑'")
+    expect(routerSource).toContain("typeof metaTitle === 'function' ? metaTitle(to) : metaTitle")
+    expect(breadcrumbSource).toContain("typeof item.title === 'function' ? item.title(route) : item.title")
   })
 })

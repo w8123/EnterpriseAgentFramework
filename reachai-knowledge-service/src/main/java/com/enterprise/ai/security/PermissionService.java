@@ -8,8 +8,14 @@ import java.util.List;
  */
 public interface PermissionService {
 
+    /** Capture current grant and physical file identities before retrieval begins. */
+    FileAccessSnapshot capture(String userId);
+
+    /** Re-read current grants and metadata; only the original identities remain authorized. */
+    List<AuthorizedKnowledgeChunk> resolveAuthorizedChunks(FileAccessSnapshot snapshot, List<Long> chunkIds);
+
     /**
-     * 获取用户有权限访问的 file_id 列表
+     * 获取用户有权限访问的 file_id 列表，仅供枚举；进行中的检索必须使用 capture 和 resolveAuthorizedChunks。
      */
     List<String> getAccessibleFileIds(String userId);
 

@@ -40,7 +40,7 @@ public class PlatformAuthorizationService {
                 .distinct()
                 .toList();
         return new PlatformAuthenticatedSession(
-                user,
+                PlatformPrincipal.fromUser(user),
                 loginSession.getSessionId(),
                 loginSession.getExpiresAt(),
                 roles,

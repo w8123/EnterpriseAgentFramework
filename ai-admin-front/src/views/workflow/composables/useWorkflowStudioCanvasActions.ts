@@ -1,4 +1,6 @@
+import type { WorkflowNodeTraceState } from './workflowStudioTrace'
 import { ElMessage } from 'element-plus'
+import { normalizeClass } from 'vue'
 import type { ComputedRef, Ref } from 'vue'
 import type { WorkflowGraphNodeTypeDescriptor } from '@/types/agent'
 import type { CanvasEdge, CanvasNode, CanvasSnapshot } from '@/types/studio'
@@ -19,20 +21,6 @@ const DECORATED_NODE_CLASSES = [
   'loop-body-member',
   ...TRANSIENT_NODE_CLASSES,
 ] as const
-
-export interface WorkflowNodeTraceState {
-  nodeId: string
-  status: 'success' | 'error' | 'waiting' | 'running'
-  elapsedMs?: number
-  spanType?: string
-  toolName?: string
-  input?: string
-  output?: string
-  errorCode?: string
-  route?: string
-  interactionId?: string
-  createdAt?: string
-}
 
 export function normalizeNodeClassNames(value: CanvasNode['class']): string[] {
   if (!value) return []
@@ -61,6 +49,28 @@ export function stripTransientNodeClasses(node: CanvasNode): CanvasNode {
 
 export function cloneCanvasNode(node: CanvasNode): CanvasNode {
   return JSON.parse(JSON.stringify(node)) as CanvasNode
+}
+
+export function serializeCanvasEdge(edge: CanvasEdge): CanvasEdge {
+  const classes = normalizeClass(edge.class).split(/\s+/)
+    .filter(name => name && name !== 'edge-route-hit' && name !== 'edge-route-miss')
+  // Vue Flow adds sourceNode/targetNode references and measured coordinates to rendered edges.
+  // Persist only the CanvasEdge contract so replay and layout measurements cannot edit the draft.
+  return {
+    id: edge.id,
+    source: edge.source,
+    target: edge.target,
+    label: edge.label,
+    condition: edge.condition,
+    sourceHandle: edge.sourceHandle,
+    targetHandle: edge.targetHandle,
+    priority: edge.priority,
+    type: edge.type,
+    class: classes.length ? classes.join(' ') : undefined,
+    animated: edge.animated,
+    markerEnd: edge.markerEnd,
+    interactionWidth: edge.interactionWidth,
+  }
 }
 
 export function isDynamicCondition(condition?: string) {
@@ -259,7 +269,7 @@ export function useWorkflowStudioCanvasActions({
     return classes.join(' ')
   }
 
-  function decorateWorkflowEdge(edge: CanvasEdge): CanvasEdge {
+  function normalizeWorkflowEdge(edge: CanvasEdge): CanvasEdge {
     const nodesById = new Map(nodes.value.map((node) => [node.id, node]))
     const normalized = normalizeCanvasEdgeHandles(edge, nodesById)
     const condition = normalized.condition || normalized.label || 'always'
@@ -271,7 +281,21 @@ export function useWorkflowStudioCanvasActions({
       interactionWidth: normalized.interactionWidth || 18,
       animated: normalized.animated ?? isDynamicCondition(condition),
       label: edgeDisplayLabel(condition, normalized) || undefined,
-      class: edgeRuntimeClass(normalized, condition),
+    }
+  }
+
+  function serializeWorkflowEdge(edge: CanvasEdge): CanvasEdge {
+    return serializeCanvasEdge(normalizeWorkflowEdge(edge))
+  }
+
+  function decorateWorkflowEdge(edge: CanvasEdge): CanvasEdge {
+    const normalized = normalizeWorkflowEdge(edge)
+    return {
+      ...normalized,
+      class: normalizeClass([
+        serializeCanvasEdge(normalized).class,
+        edgeRuntimeClass(normalized, normalized.condition),
+      ]) || undefined,
     }
   }
 
@@ -307,7 +331,7 @@ export function useWorkflowStudioCanvasActions({
     return {
       version: 2,
       nodes: nodes.value.map(stripTransientNodeClasses),
-      edges: edges.value.map(decorateWorkflowEdge),
+      edges: edges.value.map(serializeWorkflowEdge),
     }
   }
 
@@ -458,6 +482,7 @@ export function useWorkflowStudioCanvasActions({
     decorateWorkflowNode,
     refreshWorkflowNodeClasses,
     canvasSnapshot,
+    serializeWorkflowEdge,
     onConnect,
     copySelectedNode,
     pasteCopiedNode,

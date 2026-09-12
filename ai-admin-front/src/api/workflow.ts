@@ -7,6 +7,7 @@ import type {
   WorkflowGraphNodeTypeDescriptor,
   WorkflowWorkingCopy,
   WorkflowWorkingCopyInput,
+  WorkflowWorkingCopyUpdateInput,
   WorkflowDebugRunRequest,
   WorkflowDebugRunResult,
   WorkflowProposalEditRequest,
@@ -128,7 +129,7 @@ export function createWorkflow(data: WorkflowWorkingCopyInput) {
   return controlRequest.post<WorkflowWorkingCopy>('/api/workflows', normalizeWorkingCopyInput(data))
 }
 
-export function updateWorkflow(id: string, data: WorkflowWorkingCopyInput) {
+export function updateWorkflow(id: string, data: WorkflowWorkingCopyUpdateInput) {
   return controlRequest.put<WorkflowWorkingCopy>(
     `/api/workflows/${encodeURIComponent(id)}`,
     normalizeWorkingCopyInput(data),
@@ -221,10 +222,10 @@ export function validateWorkflowVersion(workflowId: string) {
   )
 }
 
-export function rollbackWorkflowVersion(workflowId: string, versionId: number | string, operator?: string) {
+export function rollbackWorkflowVersion(workflowId: string, versionId: number | string, baseRevision: string) {
   return controlRequest.post<WorkflowVersion>(
     `/api/workflows/${encodeURIComponent(workflowId)}/versions/${versionId}/rollback`,
-    { operator },
+    { baseRevision },
   )
 }
 
@@ -232,6 +233,12 @@ export function attachPageAssistantWorkflowTool(workflowId: string, data: PageAs
   return controlRequest.post<PageAssistantWorkflowAttachmentResult>(
     `/api/workflows/${encodeURIComponent(workflowId)}/page-assistant/attach-tool`,
     data,
+  )
+}
+
+export function getWorkflowDebugSessionByCreationKey(key: string) {
+  return controlRequest.get<WorkflowDebugSessionView>(
+    `/api/runtime/debug-sessions/by-creation-key/${encodeURIComponent(key)}`,
   )
 }
 

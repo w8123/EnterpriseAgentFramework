@@ -4,6 +4,7 @@ import com.enterprise.ai.runtime.execution.RuntimeInteractionEventEntity;
 import com.enterprise.ai.runtime.execution.RuntimeInteractionEventMapper;
 import com.enterprise.ai.runtime.execution.RuntimeInteractionSessionEntity;
 import com.enterprise.ai.runtime.execution.RuntimeInteractionSessionMapper;
+import com.enterprise.ai.runtime.execution.RuntimeManagedApprovalInteractionStore;
 import com.enterprise.ai.runtime.managed.ManagedExecutionPayloadSanitizer.SanitizedEvent;
 import com.enterprise.ai.runtime.managed.ManagedExecutionViews.ApprovalDecisionRequest;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -41,15 +42,22 @@ class ManagedExecutionApprovalServiceTest {
     @BeforeEach
     void setUp() {
         service = new ManagedExecutionApprovalService(
-                sessionMapper, eventMapper, executionMapper, new ObjectMapper());
+                new RuntimeManagedApprovalInteractionStore(sessionMapper, eventMapper, new ObjectMapper()),
+                executionMapper, new ObjectMapper());
     }
 
     @Test
     void createsABoundedRuntimeInteractionAndOpensTheExecutionFence() {
         ManagedExecutionEntity execution = execution();
+        when(executionMapper.selectForUpdate(execution.getExecutionId())).thenReturn(execution);
         when(sessionMapper.insert(any())).thenReturn(1);
         when(eventMapper.insert(any())).thenReturn(1);
-        when(executionMapper.openApproval(anyString(), anyString(), anyString(), any())).thenReturn(1);
+        when(executionMapper.openApproval(anyString(), anyString(), anyString(), any())).thenAnswer(call -> {
+            execution.setPendingApprovalRequestId(call.getArgument(1));
+            execution.setPendingInteractionId(call.getArgument(2));
+            execution.setApprovalCount(execution.getApprovalCount() + 1);
+            return 1;
+        });
 
         var opened = service.onRequested(execution, requested());
 
@@ -71,15 +79,21 @@ class ManagedExecutionApprovalServiceTest {
     @Test
     void recordsAOneShotDecisionAndPublishesItThroughTheExecutionCommandSequence() {
         ManagedExecutionEntity execution = execution();
+        when(executionMapper.selectForUpdate(execution.getExecutionId())).thenReturn(execution);
         execution.setPendingInteractionId("mei_approval_1");
         execution.setPendingApprovalRequestId("approval-1");
         execution.setCommandSequence(4L);
         RuntimeInteractionSessionEntity interaction = interaction(execution);
-        when(sessionMapper.selectById("mei_approval_1")).thenReturn(interaction);
+        when(sessionMapper.selectForUpdate("mei_approval_1")).thenReturn(interaction);
         when(sessionMapper.update(any(), any())).thenReturn(1);
         when(executionMapper.resolveApproval(
                 eq(execution.getExecutionId()), eq("approval-1"), eq("mei_approval_1"), eq("accept"), any()))
-                .thenReturn(1);
+                .thenAnswer(call -> {
+                    execution.setCommandSequence(execution.getCommandSequence() + 1);
+                    execution.setApprovalDecision(call.getArgument(3));
+                    execution.setApprovalDecidedAt(call.getArgument(4));
+                    return 1;
+                });
         when(eventMapper.insert(any())).thenReturn(1);
 
         var decision = service.resolve(
@@ -101,10 +115,11 @@ class ManagedExecutionApprovalServiceTest {
     @Test
     void rejectsADecisionFromAnotherUserBeforeMutatingTheApproval() {
         ManagedExecutionEntity execution = execution();
+        when(executionMapper.selectForUpdate(execution.getExecutionId())).thenReturn(execution);
         execution.setPendingInteractionId("mei_approval_1");
         execution.setPendingApprovalRequestId("approval-1");
         RuntimeInteractionSessionEntity interaction = interaction(execution);
-        when(sessionMapper.selectById("mei_approval_1")).thenReturn(interaction);
+        when(sessionMapper.selectForUpdate("mei_approval_1")).thenReturn(interaction);
 
         assertThatThrownBy(() -> service.resolve(
                 execution,
@@ -125,6 +140,7 @@ class ManagedExecutionApprovalServiceTest {
     @Test
     void rejectsAWorkerDecisionThatDoesNotMatchRuntimeApproval() {
         ManagedExecutionEntity execution = execution();
+        when(executionMapper.selectForUpdate(execution.getExecutionId())).thenReturn(execution);
         execution.setPendingInteractionId("mei_approval_1");
         execution.setPendingApprovalRequestId("approval-1");
         execution.setApprovalDecision("accept");
@@ -133,7 +149,7 @@ class ManagedExecutionApprovalServiceTest {
                 .isInstanceOfSatisfying(ManagedExecutionException.class,
                         failure -> assertThat(failure.code())
                                 .isEqualTo("MANAGED_APPROVAL_DECISION_MISMATCH"));
-        verify(executionMapper, never()).closeApproval(anyString(), anyString(), any());
+        verify(executionMapper, never()).closeApproval(anyString(), anyString(), anyString(), any());
     }
 
     private ManagedExecutionEntity execution() {
@@ -155,6 +171,14 @@ class ManagedExecutionApprovalServiceTest {
         row.setSourceType("MANAGED_EXECUTOR");
         row.setInteractionType("CONFIRM_ACTION");
         row.setRunId(execution.getExecutionId());
+        row.setTraceId(execution.getExecutionId());
+        row.setExecutionEngineVersion("CODEX_HARNESS");
+        try {
+            row.setNodeId("approval:" + java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(execution.getPendingApprovalRequestId().getBytes(java.nio.charset.StandardCharsets.UTF_8))).substring(0, 24));
+        } catch (java.security.NoSuchAlgorithmException impossible) {
+            throw new AssertionError(impossible);
+        }
         row.setTenantId(execution.getTenantId());
         row.setUserId(execution.getRequestedByUserId());
         row.setStatus("WAITING_USER");

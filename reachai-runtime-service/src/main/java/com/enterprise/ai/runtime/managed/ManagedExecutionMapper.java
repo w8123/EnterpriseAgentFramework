@@ -2,6 +2,7 @@ package com.enterprise.ai.runtime.managed;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Options;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
@@ -11,6 +12,11 @@ import java.util.List;
 
 @Mapper
 public interface ManagedExecutionMapper extends BaseMapper<ManagedExecutionEntity> {
+
+    /** Current owning-aggregate state, held through approval, projection and outbox writes. */
+    @Select("SELECT * FROM runtime_managed_execution WHERE execution_id = #{executionId} FOR UPDATE")
+    @Options(flushCache = Options.FlushCachePolicy.TRUE, useCache = false)
+    ManagedExecutionEntity selectForUpdate(@Param("executionId") String executionId);
 
     @Select("""
             SELECT COUNT(*)
@@ -211,9 +217,11 @@ public interface ManagedExecutionMapper extends BaseMapper<ManagedExecutionEntit
                 updated_at = #{now}
             WHERE execution_id = #{executionId}
               AND pending_approval_request_id = #{approvalRequestId}
+              AND pending_interaction_id = #{interactionId}
             """)
     int closeApproval(@Param("executionId") String executionId,
                       @Param("approvalRequestId") String approvalRequestId,
+                      @Param("interactionId") String interactionId,
                       @Param("now") LocalDateTime now);
 
     @Update("""

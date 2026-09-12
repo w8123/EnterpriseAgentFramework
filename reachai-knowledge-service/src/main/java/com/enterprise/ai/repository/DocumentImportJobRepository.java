@@ -14,6 +14,25 @@ import java.util.List;
 @Mapper
 public interface DocumentImportJobRepository extends BaseMapper<DocumentImportJob> {
 
+    @Select("""
+            SELECT * FROM knowledge_document_import_job
+            WHERE job_id=#{jobId} AND status='PARSING' AND lease_owner=#{leaseOwner}
+              AND lease_until > CURRENT_TIMESTAMP FOR UPDATE
+            """)
+    @org.apache.ibatis.annotations.Options(useCache = false,
+            flushCache = org.apache.ibatis.annotations.Options.FlushCachePolicy.TRUE)
+    DocumentImportJob lockValidParsing(@Param("jobId") String jobId, @Param("leaseOwner") String leaseOwner);
+
+    /** Called after acquiring the job lock so CURRENT_TIMESTAMP cannot precede a lock wait. */
+    @Select("""
+            SELECT * FROM knowledge_document_import_job
+            WHERE job_id=#{jobId} AND status='INDEXING' AND lease_owner=#{leaseOwner}
+              AND lease_until > CURRENT_TIMESTAMP FOR UPDATE
+            """)
+    @org.apache.ibatis.annotations.Options(useCache = false,
+            flushCache = org.apache.ibatis.annotations.Options.FlushCachePolicy.TRUE)
+    DocumentImportJob lockValidIndexing(@Param("jobId") String jobId, @Param("leaseOwner") String leaseOwner);
+
     @Update("""
             UPDATE knowledge_document_import_job
                SET status = 'PARSING', stage = 'PARSING', attempt_count = attempt_count + 1,
@@ -49,6 +68,7 @@ public interface DocumentImportJobRepository extends BaseMapper<DocumentImportJo
              WHERE job_id = #{jobId}
                AND status = 'PARSING'
                AND lease_owner = #{leaseOwner}
+               AND lease_until > CURRENT_TIMESTAMP
             """)
     int finalizeParsing(@Param("jobId") String jobId,
                         @Param("leaseOwner") String leaseOwner,
@@ -129,10 +149,14 @@ public interface DocumentImportJobRepository extends BaseMapper<DocumentImportJo
 
     @Update("""
             UPDATE knowledge_document_import_job
-               SET status = 'RETRY_WAIT', stage = 'PARSING', next_attempt_at = NOW(),
+               SET status = CASE WHEN attempt_count < max_attempts THEN 'RETRY_WAIT' ELSE 'FAILED' END,
+                   stage = 'PARSING',
+                   next_attempt_at = CASE WHEN attempt_count < max_attempts THEN NOW() ELSE NULL END,
                    lease_owner = NULL, lease_until = NULL,
                    error_code = 'WORKER_LEASE_EXPIRED',
-                   error_message = '解析 worker 租约过期，已安排同一 Provider 重试'
+                   error_message = CASE WHEN attempt_count < max_attempts
+                       THEN '解析 worker 租约过期，已安排同一 Provider 重试'
+                       ELSE '解析 worker 租约过期，已达到最大尝试次数；请手动重试' END
              WHERE status = 'PARSING' AND lease_until IS NOT NULL AND lease_until < NOW()
             """)
     int recoverExpiredParsingLeases();

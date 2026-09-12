@@ -15,6 +15,8 @@ import java.util.Map;
 public class CapabilityToolLookupService {
 
     private final ToolDefinitionMapper toolDefinitionMapper;
+    private final com.enterprise.ai.capability.registry.CapabilityChangePolicy changePolicy;
+    private final CapabilitySourceContractGuard sourceContractGuard;
 
     public Map<String, Object> getToolDefinition(String qualifiedName) {
         if (!StringUtils.hasText(qualifiedName)) {
@@ -58,6 +60,8 @@ public class CapabilityToolLookupService {
         body.put("moduleId", entity.getModuleId());
         body.put("enabled", entity.getEnabled());
         body.put("sideEffect", entity.getSideEffect());
+        body.put("contractHash", changePolicy.contractHash(entity));
+        body.put("sourceAvailability", sourceContractGuard.availability(entity));
         body.put("createTime", String.valueOf(entity.getCreateTime()));
         body.put("updateTime", String.valueOf(entity.getUpdateTime()));
         return body;

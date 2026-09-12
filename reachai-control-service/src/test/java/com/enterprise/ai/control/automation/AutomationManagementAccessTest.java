@@ -1,5 +1,7 @@
 package com.enterprise.ai.control.automation;
 
+import com.enterprise.ai.control.identity.PlatformPrincipal;
+
 import com.enterprise.ai.control.identity.PlatformAuthenticatedSession;
 import com.enterprise.ai.control.identity.PlatformPermissionGrant;
 import com.enterprise.ai.control.identity.PlatformRequestAuthorization;
@@ -48,7 +50,7 @@ class AutomationManagementAccessTest {
         PlatformUserEntity user = new PlatformUserEntity();
         user.setId(7L);
         return new PlatformAuthenticatedSession(
-                user,
+                PlatformPrincipal.fromUser(user),
                 "session",
                 LocalDateTime.now().plusHours(1),
                 List.of("PROJECT_OWNER"),

@@ -1,5 +1,7 @@
 package com.enterprise.ai.control.context;
 
+import com.enterprise.ai.control.identity.PlatformPrincipal;
+
 import com.enterprise.ai.control.identity.PlatformAuthAuditService;
 import com.enterprise.ai.control.identity.PlatformAuthenticatedSession;
 import com.enterprise.ai.control.identity.PlatformAuthorizationService;
@@ -108,7 +110,7 @@ class MemoryErasureControllerTest {
         PlatformUserEntity user = new PlatformUserEntity();
         user.setId(42L);
         return new PlatformAuthenticatedSession(
-                user, "platform-session", LocalDateTime.now().plusHours(1),
+                PlatformPrincipal.fromUser(user), "platform-session", LocalDateTime.now().plusHours(1),
                 List.of("PLATFORM_ADMIN"), List.of("*"), List.of());
     }
 

@@ -4484,19 +4484,13 @@
   gap: 0;
   padding: 15px 12px;
   overflow-y: auto;
-  scrollbar-width: none;
+  scrollbar-gutter: stable;
   border-right: 1px solid var(--border-divider);
   background: linear-gradient(
     180deg,
     color-mix(in srgb, var(--surface-solid-control) 58%, var(--surface-solid-panel)),
     color-mix(in srgb, var(--surface-solid-control) 74%, transparent)
   );
-}
-
-.page-access-scope::-webkit-scrollbar,
-.page-access-card-list::-webkit-scrollbar {
-  width: 0;
-  height: 0;
 }
 
 .page-access-scope__heading,
@@ -4718,7 +4712,7 @@
   gap: 9px;
   padding: 1px 0 14px;
   overflow-y: auto;
-  scrollbar-width: none;
+  scrollbar-gutter: stable;
 }
 
 .page-access-card {
@@ -5025,7 +5019,7 @@
   flex: 1;
   min-height: 0;
   padding-bottom: 14px;
-  scrollbar-width: none;
+  scrollbar-gutter: stable;
 }
 
 .page-journey {
@@ -8078,8 +8072,11 @@
   );
 }
 
-.operation-contract-tabs button {
+.operation-contract-tabs > span,
+.operation-contract-tabs > button {
+  display: inline-flex;
   min-height: 32px;
+  align-items: center;
   padding: 0 12px;
   border: 0;
   border-radius: 8px;
@@ -8088,10 +8085,13 @@
   font: inherit;
   font-size: 9px;
   font-weight: 720;
+}
+
+.operation-contract-tabs > button {
   cursor: pointer;
 }
 
-.operation-contract-tabs button.is-active {
+.operation-contract-tabs > .is-active {
   background: var(--surface-solid-panel, #fff);
   box-shadow: var(--shadow-soft);
   color: var(--brand-active);

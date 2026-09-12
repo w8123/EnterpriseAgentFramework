@@ -23,7 +23,7 @@ export interface ToolInfo {
   title: string
   description: string
   parameters: ToolParameter[]
-  source: 'code' | 'scanner' | 'manual'
+  source: 'code' | 'scanner' | 'sdk' | 'manual'
   sourceLocation?: string | null
   httpMethod?: string | null
   baseUrl?: string | null
@@ -40,6 +40,9 @@ export interface ToolInfo {
   aiDescription?: string | null
   /** @ReachCapability 扫描得到的能力声明元数据 JSON */
   capabilityMetadataJson?: string | null
+  /** 调用副作用等级：NONE / READ_ONLY / IDEMPOTENT_WRITE / WRITE / IRREVERSIBLE */
+  sideEffect?: string | null
+  sourceAvailability?: string
   enabled: boolean
   /** 项目 API 目录镜像行 ID（若有） */
   catalogScanToolId?: number | null
@@ -53,7 +56,7 @@ export interface ToolUpsertRequest {
   title: string
   description: string
   parameters: ToolParameter[]
-  source: 'code' | 'scanner' | 'manual'
+  source: 'code' | 'scanner' | 'sdk' | 'manual'
   sourceLocation?: string | null
   httpMethod?: string | null
   baseUrl?: string | null

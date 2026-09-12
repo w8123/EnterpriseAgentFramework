@@ -15,8 +15,12 @@ public class KnowledgeBase {
     /** 知识库名称 */
     private String name;
 
-    /** 知识库编码（对应 Milvus collection 名称） */
+    /** 知识库业务编码，可在删除后重新使用。 */
     private String code;
+
+    /** 本知识库独占的物理向量集合，创建后不再修改或复用。 */
+    @TableField(updateStrategy = FieldStrategy.NEVER)
+    private String vectorCollectionName;
 
     /** 描述 */
     private String description;

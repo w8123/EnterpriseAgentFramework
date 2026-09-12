@@ -5,14 +5,11 @@ import com.enterprise.ai.domain.entity.Chunk;
 import com.enterprise.ai.domain.entity.FileInfo;
 import com.enterprise.ai.domain.entity.KnowledgeBase;
 import com.enterprise.ai.embedding.EmbeddingService;
-import com.enterprise.ai.pipeline.document.artifact.DocumentArtifactStore;
 import com.enterprise.ai.repository.ChunkRepository;
 import com.enterprise.ai.repository.FileInfoRepository;
 import com.enterprise.ai.repository.KnowledgeBaseRepository;
+import com.enterprise.ai.repository.KnowledgeBaseLookup;
 import com.enterprise.ai.repository.KnowledgeHitLogRepository;
-import com.enterprise.ai.repository.KnowledgeQuestionRepository;
-import com.enterprise.ai.repository.KnowledgeTagRepository;
-import com.enterprise.ai.service.impl.KnowledgeServiceImpl;
 import com.enterprise.ai.vector.VectorSearchRequest;
 import com.enterprise.ai.vector.VectorSearchResult;
 import com.enterprise.ai.vector.VectorService;
@@ -64,18 +61,39 @@ class KnowledgeRetrievalCoreBehaviorTest {
         embeddingService = mock(EmbeddingService.class);
         vectorService = mock(VectorService.class);
         modelServiceClient = mock(ModelServiceClient.class);
-        KnowledgeServiceImpl engine = new KnowledgeServiceImpl(
-                knowledgeBaseRepository,
+        // These existing cases isolate scoring/materialization. Real grant checks have database tests.
+        var authorization = mock(KnowledgeRetrievalAuthorization.class);
+        var grants = Map.of(1L, new com.enterprise.ai.security.FileAccessSnapshot.Grant(1L, "a".repeat(32), 1L, "b".repeat(32), 1L, "f1", "physical"),
+                2L, new com.enterprise.ai.security.FileAccessSnapshot.Grant(2L, "c".repeat(32), 2L, "d".repeat(32), 1L, "f2", "physical"));
+        when(authorization.capture(any())).thenReturn(new com.enterprise.ai.security.FileAccessSnapshot("u1", grants));
+        when(authorization.filter(any())).thenReturn("file_id in [\"f1\",\"f2\"]");
+        when(authorization.retain(any(), anyList())).thenAnswer(inv -> inv.getArgument(1));
+        DefaultKnowledgeRetrievalEngine engine = new DefaultKnowledgeRetrievalEngine(
+                new KnowledgeBaseLookup(knowledgeBaseRepository),
                 fileInfoRepository,
                 chunkRepository,
-                mock(KnowledgeTagRepository.class),
-                mock(KnowledgeQuestionRepository.class),
                 mock(KnowledgeHitLogRepository.class),
                 embeddingService,
                 modelServiceClient,
-                vectorService,
-                mock(DocumentArtifactStore.class));
-        core = new KnowledgeRetrievalCore(engine);
+                vectorService, authorization);
+        core = new KnowledgeRetrievalCore(engine, authorization);
+    }
+
+    @Test
+    void orphanVectorCannotReturnUnpublishedContentOrBorrowAnotherChunk() {
+        KnowledgeBase kb = kb("kb_orphan");
+        when(knowledgeBaseRepository.selectList(any())).thenReturn(List.of(kb));
+        when(embeddingService.embed(anyString(), anyString())).thenReturn(List.of(0.1f));
+        when(vectorService.search(any())).thenReturn(List.of(result("orphan", 0.9f, "f1", "unpublished")));
+        when(chunkRepository.selectOne(any())).thenReturn(null);
+        var request = KnowledgeRetrievalCoreRequest.builder().query("text")
+                .knowledgeBaseCodes(List.of("kb_orphan")).searchMode("vector").topK(5)
+                .scoreThreshold(0.1f).rerankEnabled(false).recordHit(false).build();
+        assertTrue(core.retrieve(request).getItems().isEmpty());
+
+        when(chunkRepository.selectOne(any())).thenReturn(null,
+                chunk(10L, kb.getId(), "f1", "unpublished", "different-vector"));
+        assertTrue(core.retrieve(request).getItems().isEmpty());
     }
 
     @Test
@@ -184,7 +202,7 @@ class KnowledgeRetrievalCoreBehaviorTest {
         // Simpler: fail vectorService for one collection
         when(vectorService.search(any(VectorSearchRequest.class))).thenAnswer(inv -> {
             VectorSearchRequest req = inv.getArgument(0);
-            if ("kb_bad".equals(req.getCollectionName())) {
+            if ("physical_kb_bad".equals(req.getCollectionName())) {
                 throw new RuntimeException("vector down");
             }
             return List.of(result("v-ok", 0.95f, "f1", "ok-hit"));
@@ -342,7 +360,7 @@ class KnowledgeRetrievalCoreBehaviorTest {
     private static KnowledgeBase kb(String code) {
         KnowledgeBase kb = new KnowledgeBase();
         kb.setId((long) Math.abs(code.hashCode() % 10_000) + 1L);
-        kb.setCode(code);
+        kb.setCode(code); kb.setVectorCollectionName("physical_" + code);
         kb.setStatus(1);
         kb.setEmbeddingModelInstanceId("emb-" + code);
         kb.setVectorWeight(0.7f);

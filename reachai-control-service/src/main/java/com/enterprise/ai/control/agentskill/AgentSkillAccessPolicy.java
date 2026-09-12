@@ -97,6 +97,30 @@ public class AgentSkillAccessPolicy {
                 && skill.projectCode().trim().equals(agentProjectCode.trim());
     }
 
+    /**
+     * Project AI Coding credentials do not carry a human owner identity. They
+     * may bind shared/public packages and project packages from the exact same
+     * project, but can never discover or bind a user's PRIVATE package.
+     */
+    public boolean canBindWithProjectCredential(SkillSummary skill, String agentProjectCode) {
+        if (skill == null) return false;
+        return switch (normalizedVisibility(skill.visibility())) {
+            case "PROJECT" -> StringUtils.hasText(skill.projectCode())
+                    && StringUtils.hasText(agentProjectCode)
+                    && skill.projectCode().trim().equals(agentProjectCode.trim());
+            case "SHARED", "PUBLIC" -> true;
+            default -> false;
+        };
+    }
+
+    public void requireProjectCredentialBind(SkillSummary skill, String agentProjectCode) {
+        if (!canBindWithProjectCredential(skill, agentProjectCode)) {
+            // Keep PRIVATE and out-of-project package identities undiscoverable.
+            throw AgentSkillException.notFound(
+                    "Skill not found in the AI Coding project's bindable scope");
+        }
+    }
+
     private boolean hasAnyPermission(PlatformAuthenticatedSession session, String permission) {
         return session != null && session.permissions() != null
                 && (session.permissions().contains(permission) || session.permissions().contains("*"));

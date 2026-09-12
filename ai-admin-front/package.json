@@ -32,6 +32,7 @@
     "test:auth": "vitest run --config vitest.auth.config.ts",
     "test:knowledge": "vitest run --config vitest.knowledge.config.ts",
     "test:dashboard": "vitest run --config vitest.dashboard.config.ts",
+    "test:runops": "vitest run --config vitest.runops.config.ts",
     "test:mcp": "vitest run --config vitest.mcp.config.ts",
     "preview": "vite preview"
   },

@@ -1,10 +1,10 @@
 package com.enterprise.ai.runtime.a2a;
 
+import com.enterprise.ai.runtime.execution.RuntimeAgentExecutionEventSink;
 import com.enterprise.ai.runtime.execution.RuntimeAgentExecutionCancellation;
-import com.enterprise.ai.runtime.execution.RuntimeAgentExecutionService;
-import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
+import com.enterprise.ai.runtime.execution.RuntimePublishedAgentExecutionPort;
+import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
 import com.enterprise.ai.runtime.internalauth.VerifiedInternalServiceAuth;
-import com.enterprise.ai.runtime.execution.SupervisorRuntimeAdapter;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.util.StringUtils;
@@ -13,12 +13,10 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.bind.annotation.ExceptionHandler;
-
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-
 import static com.enterprise.ai.common.internalauth.InternalServiceAuthHeaders.IDENTITY_SOURCE_A2A_REMOTE_AGENT;
 
 /** Dedicated, HMAC-authenticated Control→Runtime contract for inbound A2A Tasks. */
@@ -28,11 +26,11 @@ public class RuntimeA2aExecutionInternalController {
     public static final String EXECUTE_PATH = "/internal/runtime/a2a/executions";
     public static final String CANCEL_PATH_PREFIX = "/internal/runtime/a2a/executions/";
 
-    private final RuntimeAgentExecutionService executionService;
+    private final RuntimePublishedAgentExecutionPort executionService;
     private final RuntimeA2aExecutionRegistry registry;
 
     public RuntimeA2aExecutionInternalController(
-            RuntimeAgentExecutionService executionService,
+            RuntimePublishedAgentExecutionPort executionService,
             RuntimeA2aExecutionRegistry registry) {
         this.executionService = executionService;
         this.registry = registry;
@@ -93,7 +91,7 @@ public class RuntimeA2aExecutionInternalController {
             body.put("metadata", metadata);
             Map<String, Object> result = executionService.executePublishedConfig(
                     agentId, request.agentConfigVersionId(), body, false,
-                    SupervisorRuntimeAdapter.SupervisorEventSink.NOOP,
+                    RuntimeAgentExecutionEventSink.NOOP,
                     cancellation, identity);
             return ResponseEntity.ok(result == null ? Map.of("success", false) : result);
         } finally {

@@ -1,18 +1,16 @@
 package com.enterprise.ai.runtime.a2a;
 
+import com.enterprise.ai.runtime.execution.RuntimeAgentExecutionEventSink;
 import com.enterprise.ai.runtime.execution.RuntimeAgentExecutionCancellation;
-import com.enterprise.ai.runtime.execution.RuntimeAgentExecutionService;
-import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
+import com.enterprise.ai.runtime.execution.RuntimePublishedAgentExecutionPort;
+import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
 import com.enterprise.ai.runtime.internalauth.VerifiedInternalServiceAuth;
-import com.enterprise.ai.runtime.execution.SupervisorRuntimeAdapter;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.mock.web.MockHttpServletRequest;
-
 import java.util.List;
 import java.util.Map;
-
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
@@ -23,14 +21,14 @@ import static org.mockito.Mockito.when;
 
 class RuntimeA2aExecutionInternalControllerTest {
 
-    private RuntimeAgentExecutionService executionService;
+    private RuntimePublishedAgentExecutionPort executionService;
     private RuntimeA2aExecutionRegistry registry;
     private RuntimeA2aExecutionInternalController controller;
     private MockHttpServletRequest request;
 
     @BeforeEach
     void setUp() {
-        executionService = mock(RuntimeAgentExecutionService.class);
+        executionService = mock(RuntimePublishedAgentExecutionPort.class);
         registry = new RuntimeA2aExecutionRegistry();
         controller = new RuntimeA2aExecutionInternalController(executionService, registry);
         request = new MockHttpServletRequest();
@@ -58,7 +56,7 @@ class RuntimeA2aExecutionInternalControllerTest {
                 ArgumentCaptor.forClass(WorkflowExecutionIdentity.class);
         verify(executionService).executePublishedConfig(
                 eq("agent-1"), eq(42L), input.capture(), eq(false),
-                eq(SupervisorRuntimeAdapter.SupervisorEventSink.NOOP),
+                eq(RuntimeAgentExecutionEventSink.NOOP),
                 cancellation.capture(), identity.capture());
         assertThat(input.getValue())
                 .containsEntry("sessionId", "ctx-1")
