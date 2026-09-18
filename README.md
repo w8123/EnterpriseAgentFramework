@@ -12,6 +12,8 @@
   <strong>ReachAI · 面向 Java 企业系统的企业智能体开发与运行底座</strong>
 </p>
 
+> **Codex for Open Source application verification:** I am the owner and core maintainer of this repository. The OpenAI/ChatGPT account used for the application is associated with the masked email address `jonellmednick****@outlook.jp`. This notice is published solely to help OpenAI reviewers verify that the applicant controls this repository.
+
 ## 改造完成后，业务系统能做什么
 
 ReachAI 将 AI 助手嵌入 OA、eHR、采购、CRM 等现有业务页面。员工无需切换系统，即可通过自然语言查询数据、填写表单、办理业务：
