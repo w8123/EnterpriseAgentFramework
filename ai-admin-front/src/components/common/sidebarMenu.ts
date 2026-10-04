@@ -62,6 +62,20 @@ export const sidebarMenu: SidebarEntry[] = [
   },
   {
     kind: 'item',
+    index: '/business-methods',
+    label: '业务方法',
+    icon: Grid,
+    requiredPermissions: [PLATFORM_PERMISSION_READ],
+  },
+  {
+    kind: 'item',
+    index: '/apis',
+    label: 'API',
+    icon: Grid,
+    requiredPermissions: [PLATFORM_PERMISSION_READ],
+  },
+  {
+    kind: 'item',
     index: '/workflows',
     label: 'Workflow',
     icon: Share,
@@ -241,6 +255,8 @@ export function resolveActiveMenu(path: string, metaActiveMenu?: unknown): strin
   if (path.startsWith('/model/instances')) return '/model/instances'
   if (path.startsWith('/model')) return '/model/instances'
   if (path.startsWith('/tool/retrieval')) return '/tool/retrieval'
+  if (path.startsWith('/business-methods')) return '/business-methods'
+  if (path.startsWith('/apis')) return '/apis'
   if (path.startsWith('/settings/platform-users')) return '/settings/platform-users'
   if (path.startsWith('/settings/personal-memory')) return '/settings/personal-memory'
   if (path.startsWith('/settings/memory-erasure')) return '/settings/memory-erasure'

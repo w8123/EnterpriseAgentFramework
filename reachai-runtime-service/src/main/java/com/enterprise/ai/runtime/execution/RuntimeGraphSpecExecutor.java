@@ -54,6 +54,17 @@ public final class RuntimeGraphSpecExecutor {
                 knowledgeClient, httpClient, null);
     }
 
+    public RuntimeGraphSpecExecutor(ObjectMapper objectMapper,
+                                    RuntimeModelServiceClient modelServiceClient,
+                                    RuntimeCapabilityCatalogClient capabilityClient,
+                                    RuntimeControlCatalogClient controlClient,
+                                    RuntimeKnowledgeRetrievalClient knowledgeClient,
+                                    WorkflowHttpClient httpClient,
+                                    RuntimeBusinessMemoryHydrationPort businessMemoryHydrationPort) {
+        this(objectMapper, modelServiceClient, capabilityClient, controlClient,
+                knowledgeClient, httpClient, businessMemoryHydrationPort, null);
+    }
+
     @Autowired
     public RuntimeGraphSpecExecutor(ObjectMapper objectMapper,
                                     RuntimeModelServiceClient modelServiceClient,
@@ -62,7 +73,8 @@ public final class RuntimeGraphSpecExecutor {
                                     @Autowired(required = false) RuntimeKnowledgeRetrievalClient knowledgeClient,
                                     @Autowired(required = false) WorkflowHttpClient httpClient,
                                     @Autowired(required = false)
-                                    RuntimeBusinessMemoryHydrationPort businessMemoryHydrationPort) {
+                                    RuntimeBusinessMemoryHydrationPort businessMemoryHydrationPort,
+                                    @Autowired(required = false) RuntimeHttpApiToolExecutionPort httpApis) {
         this.engine = new RuntimeGraphSpecExecutionEngine(
                 objectMapper,
                 modelServiceClient,
@@ -70,7 +82,8 @@ public final class RuntimeGraphSpecExecutor {
                 controlClient,
                 knowledgeClient,
                 httpClient,
-                businessMemoryHydrationPort);
+                businessMemoryHydrationPort,
+                httpApis);
     }
 
     public static Set<String> handledNodeTypes() {

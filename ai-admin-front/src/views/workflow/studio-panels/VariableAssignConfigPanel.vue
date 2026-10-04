@@ -32,6 +32,8 @@
         <el-select
           v-model="item.textValue"
           filterable
+          :fit-input-width="true"
+          popper-class="workflow-variable-assign-options"
           allow-create
           default-first-option
           placeholder="表达式/模板字符串，如 input 或 {{ params.q }}"
@@ -39,9 +41,9 @@
         >
           <el-option
             v-for="option in normalizedVariableOptions"
-            :key="option"
-            :label="option"
-            :value="option"
+            :key="option.value"
+            :label="option.label"
+            :value="option.value"
           />
         </el-select>
       </template>
@@ -93,7 +95,9 @@ const jsonError = ref('')
 
 const normalizedVariableOptions = computed(() => {
   const options = props.variableOptions || []
-  return options.map((item) => (typeof item === 'string' ? item : item.value)).filter(Boolean)
+  return options
+    .map((item) => (typeof item === 'string' ? { value: item, label: item } : item))
+    .filter((item) => Boolean(item.value))
 })
 
 function detectKind(value: unknown): VariableAssignValueKind {
@@ -173,6 +177,23 @@ function removeAssignment(index: number) {
   gap: 8px;
   margin-bottom: 8px;
   align-items: center;
+  min-width: 0;
+}
+.assign-row > * {
+  min-width: 0;
+}
+:global(.workflow-variable-assign-options .el-select-dropdown__item) {
+  height: auto;
+  min-height: var(--el-component-size);
+  line-height: 1.5;
+  padding-block: 6px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 760px) {
+  .assign-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 .panel-empty-row {
   color: var(--el-text-color-secondary);

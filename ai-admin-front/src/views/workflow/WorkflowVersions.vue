@@ -51,10 +51,23 @@
       </div>
     </section>
 
-    <el-table :data="versions" v-loading="loading" stripe>
+    <section v-if="route.query.versionId" class="reference-location" aria-labelledby="workflow-reference-heading" role="status">
+      <h2 id="workflow-reference-heading">引用版本位置</h2>
+      <template v-if="referenceVersion">
+        <p><strong>{{ referenceVersion.version }}</strong> · 版本 ID {{ referenceVersion.id }} · {{ referenceVersion.status === 'ACTIVE' ? '当前生效' : '历史版本' }}</p>
+        <p v-if="referenceNode">节点 {{ referenceNode.id }} · {{ referenceNode.name || referenceNode.type }}</p>
+        <p v-else-if="referenceNodeId">未能在此版本读取节点 {{ referenceNodeId }}；请核对引用证据，不自动转到当前版本。</p>
+        <p v-if="referenceNode?.ref?.contractHash">固定契约 hash：<code>{{ referenceNode.ref.contractHash }}</code></p>
+        <router-link v-if="canWriteWorkflow" :to="{ name: 'WorkflowStudio', params: { workflowId }, query: referenceNodeId ? { nodeId: referenceNodeId } : {} }">打开草稿处理变化</router-link>
+        <p>此处只定位已有版本，不修改草稿、固定契约或开放发布。</p>
+      </template>
+      <p v-else>{{ loading ? '正在定位引用版本…' : '未查到指定引用版本；请刷新或核对使用位置，不自动转到其他版本。' }}</p>
+    </section>
+
+    <el-table ref="versionsTable" :data="versions" v-loading="loading" stripe row-key="id" highlight-current-row>
       <el-table-column prop="version" label="版本" min-width="160">
         <template #default="{ row }">
-          <strong>{{ row.version }}</strong>
+          <strong :data-version-id="row.id">{{ row.version }}</strong>
           <el-tag v-if="row.status === 'ACTIVE'" class="active-tag" size="small" type="success">
             当前生效
           </el-tag>
@@ -107,7 +120,7 @@
 
 <script setup lang="ts">
 import AppDialog from '@/components/common/AppDialog.vue'
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowLeft, CircleCheck, Upload } from '@element-plus/icons-vue'
@@ -150,6 +163,23 @@ const rollingBackId = ref<number | null>(null)
 const publishOpen = ref(false)
 const workflow = ref<WorkflowWorkingCopy | null>(null)
 const versions = ref<WorkflowVersion[]>([])
+const versionsTable = ref<{ setCurrentRow: (row?: WorkflowVersion) => void } | null>(null)
+const referenceVersionId = computed(() => typeof route.query.versionId === 'string' && /^\d+$/.test(route.query.versionId) ? Number(route.query.versionId) : null)
+const referenceNodeId = computed(() => typeof route.query.nodeId === 'string' ? route.query.nodeId : '')
+const referenceVersion = computed(() => versions.value.find(version => version.id === referenceVersionId.value))
+const referenceNode = computed(() => {
+  if (!referenceVersion.value || !referenceNodeId.value) return null
+  try {
+    const version = referenceVersion.value
+    const snapshotGraph = version.graphSpecSnapshotJson || JSON.parse(version.snapshotJson || '{}').graphSpec
+    const graph = typeof snapshotGraph === 'string' ? JSON.parse(snapshotGraph) : snapshotGraph
+    return Array.isArray(graph?.nodes) ? graph.nodes.find((node: { id?: string }) => node.id === referenceNodeId.value) || null : null
+  } catch { return null }
+})
+watch(referenceVersion, async version => {
+  await nextTick()
+  versionsTable.value?.setCurrentRow(version)
+})
 const validation = ref<WorkflowReleaseValidationResult | null>(null)
 const releaseError = ref('')
 const publishForm = reactive<WorkflowPublishRequest>({
@@ -320,5 +350,16 @@ function releaseFailure(error: unknown) {
 .active-tag {
   margin-left: 8px;
 }
+
+.reference-location {
+  padding: 16px;
+  margin-bottom: 16px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: var(--el-border-radius-base);
+  background: var(--el-bg-color);
+  overflow-wrap: anywhere;
+}
+.reference-location h2 { margin: 0; font-size: 16px; }
+.reference-location a { color: var(--brand-active); }
 
 </style>

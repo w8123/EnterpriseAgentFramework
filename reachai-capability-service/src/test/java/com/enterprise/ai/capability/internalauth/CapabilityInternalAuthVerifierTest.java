@@ -158,6 +158,39 @@ class CapabilityInternalAuthVerifierTest {
     }
 
     @Test
+    void controlCatalogReadVerifierRequiresAnExactGetReadRoute() {
+        byte[] body = new byte[0];
+        String path = CapabilityInternalAuthFilter.CAPABILITY_CATALOG_PATH;
+        String timestamp = String.valueOf(System.currentTimeMillis());
+        String nonce = UUID.randomUUID().toString();
+        String digest = InternalServiceHmac.bodySha256Hex(body);
+        String canonical = InternalServiceHmac.canonical(
+                "GET", path, InternalServiceAuthHeaders.CALLER_CONTROL,
+                InternalServiceAuthHeaders.IDENTITY_SOURCE_PLATFORM_SESSION, "42",
+                timestamp, nonce, digest);
+        String signature = InternalServiceHmac.sign(SECRET, canonical);
+
+        assertTrue(verifier.verifyCatalogRead(
+                "GET", path, InternalServiceAuthHeaders.CALLER_CONTROL,
+                InternalServiceAuthHeaders.IDENTITY_SOURCE_PLATFORM_SESSION, "42",
+                timestamp, nonce, digest, signature, body, System.currentTimeMillis()).isPresent());
+        assertTrue(verifier.verifyCatalogRead(
+                "POST", path, InternalServiceAuthHeaders.CALLER_CONTROL,
+                InternalServiceAuthHeaders.IDENTITY_SOURCE_PLATFORM_SESSION, "42",
+                timestamp, UUID.randomUUID().toString(), digest,
+                InternalServiceHmac.sign(SECRET, InternalServiceHmac.canonical(
+                        "POST", path, InternalServiceAuthHeaders.CALLER_CONTROL,
+                        InternalServiceAuthHeaders.IDENTITY_SOURCE_PLATFORM_SESSION, "42",
+                        timestamp, UUID.randomUUID().toString(), digest)),
+                body, System.currentTimeMillis()).isEmpty());
+        assertTrue(verifier.verifyCatalogRead(
+                "GET", "/api/tools/orders_read/extra", InternalServiceAuthHeaders.CALLER_CONTROL,
+                InternalServiceAuthHeaders.IDENTITY_SOURCE_PLATFORM_SESSION, "42",
+                timestamp, UUID.randomUUID().toString(), digest, signature,
+                body, System.currentTimeMillis()).isEmpty());
+    }
+
+    @Test
     void projectCredentialVerificationBindsInternalIdentityToBody() {
         byte[] body = ("{\"projectCode\":\"orders\",\"appKey\":\"rak_orders\"," +
                 "\"method\":\"POST\",\"path\":\"/api/knowledge-ingress/projects/orders/biz-index/orders_idx/batch\"}")

@@ -31,6 +31,8 @@ import com.enterprise.ai.agent.registry.RegistrySecurityService;
 import com.enterprise.ai.agent.registry.RegistryEnrollmentService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -75,13 +77,36 @@ class CapabilityRegistryServiceTest {
             scanProjectToolMapper, toolDefinitionMapper, registryJson, policy);
     private final CapabilityReviewEvidenceStore evidence = new CapabilityReviewEvidenceStore(
             snapshotMapper, diffItemMapper, applyRecordMapper);
+    private final StarterMvcHttpApiIntakeService httpApiIntake = mock(StarterMvcHttpApiIntakeService.class);
     private final CapabilitySourceIntakeService intake = new CapabilitySourceIntakeService(
             scanProjectMapper, scanProjectToolMapper, toolDefinitionMapper, syncLogMapper, snapshotMapper,
-            diffItemMapper, registryJson, policy, lifecycle, projections, evidence);
+            diffItemMapper, registryJson, policy, lifecycle, projections, evidence, httpApiIntake);
     private final CapabilityRegistryService service = new CapabilityRegistryService(
             scanProjectMapper, snapshotMapper, diffItemMapper, registrySecurityService, new RegistryProjectRegistrationService(scanProjectMapper, registrySecurityService, registryEnrollmentService),
             registryJson, policy, lifecycle, projections,
             new RegistryInstanceLifecycleService(instanceMapper, registryJson), intake, evidence);
+
+    @org.junit.jupiter.api.BeforeEach
+    void defaultLegacyHttpApiPlan() {
+        when(httpApiIntake.prepare(any(), any(), any())).thenReturn(
+                new StarterMvcHttpApiIntakeService.Plan(false, null, List.of()));
+    }
+
+    @Test
+    void sourceObservationEntryPointsDeclareReadCommittedOnTheirOuterTransaction() throws Exception {
+        assertReadCommitted("sync", String.class, CapabilitySyncRequest.class);
+        assertReadCommitted("syncFromProject", String.class, CapabilitySyncRequest.class,
+                RegistrySecurityService.RegistrySignatureHeaders.class);
+        assertReadCommitted("apply", String.class, CapabilitySyncRequest.class);
+    }
+
+    private static void assertReadCommitted(String methodName, Class<?>... parameterTypes) throws Exception {
+        Transactional transaction = CapabilityRegistryService.class.getMethod(methodName, parameterTypes)
+                .getAnnotation(Transactional.class);
+        assertNotNull(transaction, methodName + " must declare its transaction boundary");
+        assertEquals(Isolation.READ_COMMITTED, transaction.isolation(),
+                methodName + " must begin HTTP source observation at READ_COMMITTED");
+    }
 
     @Test
     void registersProjectIntoScanProjectAndCredentialTables() {

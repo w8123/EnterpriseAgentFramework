@@ -21,6 +21,43 @@ final class RuntimeNodeValueResolver {
 
     private static final Pattern TEMPLATE_TOKEN = Pattern.compile("\\{\\{\\s*([A-Za-z0-9_.-]+)\\s*}}");
 
+    record PresentValue(boolean present, Object value) {
+        static PresentValue missing() { return new PresentValue(false, null); }
+    }
+
+    /** API binding is own-key based: an absent optional input differs from an explicit null. */
+    PresentValue renderPresentInputValue(Object value, Map<String, Object> context) {
+        if (value instanceof String expression) {
+            if (expression.isBlank()) return PresentValue.missing(); // unconfigured author mapping
+            Matcher token = TEMPLATE_TOKEN.matcher(expression);
+            if (token.matches()) return presentContextValue(token.group(1), context);
+            if (!expression.contains("{{") && isContextExpression(expression, context)) {
+                return presentContextValue(expression, context);
+            }
+            while (token.find()) if (!presentContextValue(token.group(1), context).present()) return PresentValue.missing();
+        }
+        return new PresentValue(true, renderInputValue(value, context));
+    }
+
+    private PresentValue presentContextValue(String expression, Map<String, Object> context) {
+        String path = expression.trim();
+        if (path.startsWith("$.")) path = path.substring(2);
+        if (context.containsKey(path)) return new PresentValue(true, context.get(path));
+        if (!path.contains(".") && !WorkflowVariableNamespaces.isReservedRoot(path)) {
+            String alias = WorkflowVariableNamespaces.VAR_ROOT + "." + path;
+            if (context.containsKey(alias)) return new PresentValue(true, context.get(alias));
+            if (context.get(WorkflowVariableNamespaces.VAR_ROOT) instanceof Map<?, ?> variables && variables.containsKey(path)) {
+                return new PresentValue(true, variables.get(path));
+            }
+        }
+        Object current = context;
+        for (String part : path.split("\\.")) {
+            if (!(current instanceof Map<?, ?> map) || !map.containsKey(part)) return PresentValue.missing();
+            current = map.get(part);
+        }
+        return new PresentValue(true, current);
+    }
+
     Object renderInputValue(Object value, Map<String, Object> context) {
         if (value instanceof Map<?, ?> rawMap) {
             Map<String, Object> rendered = new LinkedHashMap<>();

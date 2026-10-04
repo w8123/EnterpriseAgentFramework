@@ -71,11 +71,11 @@ export function useScanProjectToolDetails(deps: UseScanProjectToolDetailsDeps) {
 
   function toolLinkLabel(row: ProjectToolInfo) {
     const labels: Record<string, string> = {
-      NOT_LINKED: '未纳管',
-      IN_SYNC: '已纳管',
-      PENDING_UPDATE: '待更新',
+      NOT_LINKED: '无历史关联',
+      IN_SYNC: '历史投影一致',
+      PENDING_UPDATE: '历史投影差异',
       API_REMOVED_STALE: '源已移除',
-      GLOBAL_MISSING: '目录定义缺失',
+      GLOBAL_MISSING: '历史投影缺失',
     }
     const status = row.toolLinkStatus || 'NOT_LINKED'
     return labels[status] || status

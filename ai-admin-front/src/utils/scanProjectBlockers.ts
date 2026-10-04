@@ -2,11 +2,11 @@ import type { ScanProjectBlockers } from '@/types/scanProject'
 
 export function formatScanProjectBlockersMessage(b: ScanProjectBlockers): string {
   const lines: string[] = [
-    '本扫描项目已有接口纳入能力目录，并仍被以下 Agent 的已发布配置引用。请先移除对应调用引用，再执行删除或重新扫描。',
+    '本项目的历史调用投影仍被以下 Agent 的已发布配置引用。请在所属业务方法/API 目录核对状态，显式更新并发布相关引用后，再执行受保护的删除或重新扫描；这里不修改调用契约。',
     '',
   ]
   if (b.toolNames?.length) {
-    lines.push(`· 工具名：${b.toolNames.join('、')}`)
+    lines.push(`· 历史引用：${b.toolNames.join('、')}`)
   }
   if (b.agents?.length) {
     lines.push(`· 涉及 Agent：${b.agents.map((a) => a.name).join('、')}`)

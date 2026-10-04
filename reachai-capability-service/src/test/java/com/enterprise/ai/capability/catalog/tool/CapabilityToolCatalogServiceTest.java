@@ -10,7 +10,6 @@ import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectToolMapper;
 import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionEntity;
 import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionMapper;
 import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionParameter;
-import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionUpsertRequest;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeAll;
@@ -21,8 +20,6 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -69,101 +66,61 @@ class CapabilityToolCatalogServiceTest {
     }
 
     @Test
-    void createsManualToolDefinitionWithoutRuntimeRegistration() {
-        AtomicReference<ToolDefinitionEntity> inserted = new AtomicReference<>();
-        when(toolMapper.selectOne(any())).thenReturn(null);
-        when(toolMapper.insert(any())).thenAnswer(invocation -> {
-            ToolDefinitionEntity entity = invocation.getArgument(0);
-            entity.setId(11L);
-            inserted.set(entity);
-            return 1;
+    void pagesBusinessMethodsWithAssetTypeInsideTheDatabasePaginationQuery() {
+        ToolDefinitionEntity businessMethod = tool("orders_create", "Create order");
+        businessMethod.setAssetType("BUSINESS_METHOD");
+        Page<ToolDefinitionEntity> page = new Page<>(2, 100, 1);
+        page.setRecords(List.of(businessMethod));
+        AtomicReference<Wrapper<ToolDefinitionEntity>> capturedQuery = new AtomicReference<>();
+        when(toolMapper.selectPage(any(), any())).thenAnswer(invocation -> {
+            capturedQuery.set(invocation.getArgument(1));
+            return page;
         });
 
-        ToolDefinitionEntity created = service.create(toolRequest("orders_create"));
+        IPage<ToolDefinitionEntity> result = service.pageBusinessMethods(
+                2, 500, "order", true, 7L);
 
-        assertEquals(11L, created.getId());
-        ToolDefinitionEntity entity = inserted.get();
-        assertNotNull(entity);
-        assertEquals("orders_create", entity.getName());
-        assertEquals("manual", entity.getSource());
-        assertEquals("WRITE", entity.getSideEffect());
-        assertNotNull(entity.getCreateTime());
-        assertNotNull(entity.getUpdateTime());
+        assertEquals(1, result.getRecords().size());
+        assertTrue(capturedQuery.get().getSqlSegment().toLowerCase().contains("asset_type"));
+        assertTrue(((com.baomidou.mybatisplus.core.conditions.AbstractWrapper<?, ?, ?>) capturedQuery.get())
+                .getParamNameValuePairs().containsValue("BUSINESS_METHOD"));
+        verify(toolMapper).selectPage(any(), any());
     }
 
     @Test
-    void rejectsDuplicateToolNameOnCreate() {
-        when(toolMapper.selectOne(any())).thenReturn(tool("orders_create", "Create order"));
+    void findsBusinessMethodsByLegacyNameOrStableQualifiedNameOnlyWhenTheirStoredProjectionTypeMatches() {
+        ToolDefinitionEntity businessMethod = tool("orders_create", "Create order");
+        businessMethod.setAssetType("BUSINESS_METHOD");
+        AtomicReference<Wrapper<ToolDefinitionEntity>> capturedQuery = new AtomicReference<>();
+        when(toolMapper.selectOne(any())).thenAnswer(invocation -> {
+            capturedQuery.set(invocation.getArgument(0));
+            return businessMethod;
+        });
 
-        assertThrows(IllegalArgumentException.class, () -> service.create(toolRequest("orders_create")));
+        Optional<ToolDefinitionEntity> found = service.findBusinessMethodByName(" orders_create ");
+
+        assertEquals("orders_create", found.orElseThrow().getName());
+        assertTrue(capturedQuery.get().getSqlSegment().toLowerCase().contains("asset_type"));
+        assertTrue(capturedQuery.get().getSqlSegment().toLowerCase().contains("qualified_name"));
+        assertTrue(((com.baomidou.mybatisplus.core.conditions.AbstractWrapper<?, ?, ?>) capturedQuery.get())
+                .getParamNameValuePairs().containsValue("BUSINESS_METHOD"));
+
+        service.findBusinessMethodByName("orders:orders_create");
+        assertTrue(capturedQuery.get().getSqlSegment().toLowerCase().contains("qualified_name"));
+        assertTrue(((com.baomidou.mybatisplus.core.conditions.AbstractWrapper<?, ?, ?>) capturedQuery.get())
+                .getParamNameValuePairs().containsValue("orders:orders_create"));
     }
 
     @Test
-    void sourceOwnedProjectionCannotBeEditedToggledOrDeletedThroughGenericCatalog() {
+    void recognizesTrustedSdkBindingWithoutCreatingOrEditingProjection() {
         ToolDefinitionEntity owned = tool("orders_create", "Create order");
         owned.setSourceQualifiedName("orders:create");
+        owned.setAssetType("BUSINESS_METHOD");
         owned.setSourceLocation(null);
-        when(toolMapper.selectOne(any())).thenReturn(owned);
+
         assertTrue(service.isSdkBackedTool(owned));
-        assertThrows(IllegalArgumentException.class, () -> service.update("orders_create", toolRequest("orders_create")));
-        assertThrows(IllegalArgumentException.class, () -> service.toggle("orders_create", false));
-        assertThrows(IllegalArgumentException.class, () -> service.delete("orders_create"));
-        verify(toolMapper, org.mockito.Mockito.never()).updateById(any());
-        verify(toolMapper, org.mockito.Mockito.never()).deleteById(owned.getId());
-    }
-
-    @Test
-    void updatesExistingToolWhileKeepingStoredNameAndSource() {
-        ToolDefinitionEntity existing = tool("orders_create", "Old");
-        existing.setId(11L);
-        existing.setSource("scanner");
-        when(toolMapper.selectOne(any())).thenReturn(existing);
-        AtomicReference<ToolDefinitionEntity> updated = new AtomicReference<>();
-        when(toolMapper.updateById(any())).thenAnswer(invocation -> {
-            updated.set(invocation.getArgument(0));
-            return 1;
-        });
-
-        ToolDefinitionEntity result = service.update("orders_create", toolRequest("ignored_new_name"));
-
-        assertEquals(11L, result.getId());
-        assertEquals("orders_create", result.getName());
-        assertEquals("scanner", result.getSource());
-        assertEquals("Create order", updated.get().getDescription());
-        assertNotNull(updated.get().getUpdateTime());
-    }
-
-    @Test
-    void togglesEnabledFlag() {
-        ToolDefinitionEntity existing = tool("orders_create", "Create order");
-        existing.setEnabled(true);
-        when(toolMapper.selectOne(any())).thenReturn(existing);
-
-        ToolDefinitionEntity toggled = service.toggle("orders_create", false);
-
-        assertEquals(false, toggled.getEnabled());
-        verify(toolMapper).updateById(existing);
-    }
-
-    @Test
-    void refusesToDeleteCodeOwnedTool() {
-        ToolDefinitionEntity existing = tool("code_tool", "Code tool");
-        existing.setSource("code");
-        when(toolMapper.selectOne(any())).thenReturn(existing);
-
-        assertThrows(IllegalArgumentException.class, () -> service.delete("code_tool"));
-    }
-
-    @Test
-    void deletesNonCodeTool() {
-        ToolDefinitionEntity existing = tool("orders_create", "Create order");
-        existing.setId(11L);
-        existing.setSource("manual");
-        when(toolMapper.selectOne(any())).thenReturn(existing);
-        when(toolMapper.deleteById(11L)).thenReturn(1);
-
-        assertTrue(service.delete("orders_create"));
-        verify(toolMapper).deleteById(11L);
+        assertEquals("BUSINESS_METHOD", owned.getAssetType());
+        org.mockito.Mockito.verifyNoInteractions(toolMapper);
     }
 
     @Test
@@ -185,9 +142,10 @@ class CapabilityToolCatalogServiceTest {
                     "query": {
                       "type": "object",
                       "title": "Query filters",
+                      "sourceHint": "由订单上下文提供",
                       "properties": {
-                        "pageIndex": {"type": "integer"},
-                        "pageSize": {"type": ["integer", "null"]}
+                        "pageIndex": {"type": "integer", "default": 1, "minimum": 1},
+                        "pageSize": {"type": ["integer", "null"], "example": 20, "maximum": 100}
                       },
                       "required": ["pageIndex"]
                     }
@@ -203,10 +161,15 @@ class CapabilityToolCatalogServiceTest {
         assertEquals("object", query.type());
         assertEquals("Query filters", query.description());
         assertEquals(true, query.required());
+        assertEquals("由订单上下文提供", ((java.util.Map<?, ?>) query.metadata()).get("sourceHint"));
         assertEquals(2, query.children().size());
         assertEquals("pageIndex", query.children().get(0).name());
         assertEquals(true, query.children().get(0).required());
+        assertEquals(1, ((java.util.Map<?, ?>) query.children().get(0).metadata()).get("default"));
+        assertEquals(1, ((java.util.Map<?, ?>) query.children().get(0).metadata()).get("minimum"));
         assertEquals("integer", query.children().get(1).type());
+        assertEquals(20, ((java.util.Map<?, ?>) query.children().get(1).metadata()).get("example"));
+        assertEquals(100, ((java.util.Map<?, ?>) query.children().get(1).metadata()).get("maximum"));
     }
 
     @Test
@@ -240,24 +203,4 @@ class CapabilityToolCatalogServiceTest {
         return entity;
     }
 
-    private ToolDefinitionUpsertRequest toolRequest(String name) {
-        return new ToolDefinitionUpsertRequest(
-                name,
-                "创建订单",
-                "Create order",
-                List.of(new ToolDefinitionParameter("orderId", "string", "Order id", true, "body")),
-                "manual",
-                "manual",
-                "POST",
-                "http://orders.local",
-                "/orders",
-                "/create",
-                "JSON",
-                "JSON",
-                7L,
-                "orders",
-                "orders:createOrder",
-                true
-        );
-    }
 }

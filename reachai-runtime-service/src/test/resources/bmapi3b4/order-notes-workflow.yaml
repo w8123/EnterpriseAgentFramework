@@ -1,0 +1,45 @@
+openapi: 3.0.3
+info: {title: Isolated source-declared sensitive order notes, version: '1'}
+paths:
+  /orders/{orderId}/notes:
+    post:
+      operationId: appendSensitiveOrderNote
+      security: [{ProjectApiKey: []}]
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 40}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [note, apiKey]
+              properties:
+                note: {type: string, minLength: 1, maxLength: 120}
+                apiKey: {type: string, minLength: 1, maxLength: 80}
+                accessCode: {type: string, minLength: 1, maxLength: 80, format: password}
+                deliveryMark: {type: string, minLength: 1, maxLength: 80, writeOnly: true}
+                priority: {type: integer, minimum: 1, maximum: 3, default: 2}
+                quantity: {type: integer, minimum: 0, maximum: 10}
+                rate: {type: number, minimum: 0, maximum: 1}
+                caption: {type: string, maxLength: 80}
+                notify: {type: boolean, default: true}
+                kind: {type: string, enum: [COMMENT]}
+      responses:
+        '200':
+          description: Actual append and neutral-field echo in the isolated fixture
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  state: {type: string}
+                  noteCount: {type: integer}
+                  orderId: {type: string}
+components:
+  securitySchemes:
+    ProjectApiKey: {type: apiKey, in: header, name: X-API-Key}

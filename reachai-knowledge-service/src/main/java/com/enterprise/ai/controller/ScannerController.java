@@ -25,9 +25,10 @@ public class ScannerController {
     @PostMapping("/openapi")
     public ApiResult<ToolManifest> scanOpenApi(@RequestBody ScannerRequestBody request) {
         ProjectMetadata metadata = toMetadata(request);
+        Path scanRoot = Path.of(request.getScanPath());
         Path specPath = resolveTargetPath(request.getScanPath(), request.getSpecFile());
         return ApiResult.ok(openApiScanner.scan(
-                specPath, metadata, request.getOptions(), request.getIncrementalSinceEpochMs()));
+                scanRoot, specPath, metadata, request.getOptions(), request.getIncrementalSinceEpochMs()));
     }
 
     @PostMapping("/controller")

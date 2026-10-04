@@ -27,6 +27,8 @@ public final class PlatformConsoleRoutePolicy {
             "/api/runtime/agents/execute/**");
 
     public static final List<String> PROTECTED_PATH_PATTERNS = List.of(
+            "/model/instances",
+            "/model/instances/**",
             "/api/platform/**",
             "/api/knowledge/**",
             "/api/ai-coding-console/**",
@@ -59,6 +61,10 @@ public final class PlatformConsoleRoutePolicy {
             "/api/capability-review/**",
             "/api/api-market/**",
             "/api/tools/**",
+            "/api/business-methods/**",
+            "/api/business-method-invocations/**",
+            "/api/apis/**",
+            "/api/api-invocations/**",
             "/api/api-graph/**",
             "/api/tool-retrieval/**",
             "/api/scan-projects/**",

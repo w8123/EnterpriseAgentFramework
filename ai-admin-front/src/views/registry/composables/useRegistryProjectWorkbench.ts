@@ -50,7 +50,7 @@ export function useRegistryProjectWorkbench(deps: UseRegistryProjectWorkbenchDep
       items: [
         {
           title: '后端接口管理',
-          desc: '管理扫描接口、模块列表和接口图谱，处理能力目录纳管与语义文档。',
+          desc: '查看来源接口、模块与语义证据；到业务方法/API 目录接纳契约并受控调用。',
           icon: Grid,
           tone: 'blue',
           disabled: !deps.project.value?.id,

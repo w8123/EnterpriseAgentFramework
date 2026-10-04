@@ -24,6 +24,8 @@ export const PLATFORM_PERMISSION_WORKFLOW_PUBLISH = 'workflow:publish'
 export const PLATFORM_PERMISSION_WORKFLOW_CREDENTIAL_MANAGE = 'workflow:credential:manage'
 export const PLATFORM_PERMISSION_RUNOPS_READ = 'runops:read'
 export const PLATFORM_PERMISSION_RUNOPS_OPERATE = 'runops:operate'
+/** Console-only permission; server still verifies project scope and Tool ACL. */
+export const PLATFORM_PERMISSION_CAPABILITY_INVOKE = 'capability:invoke'
 
 export type PlatformWorkspace = 'BUILD' | 'OPERATE'
 

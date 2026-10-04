@@ -1,5 +1,6 @@
 package com.enterprise.ai.control.identity;
 
+import com.enterprise.ai.control.internalauth.InternalServiceAuthRequestAttributes;
 import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
@@ -87,6 +88,10 @@ class PlatformConsoleAuthInterceptorTest {
                 session,
                 request.getAttribute(
                         PlatformConsoleAuthInterceptor.SESSION_REQUEST_ATTRIBUTE));
+        assertEquals(
+                "7",
+                request.getAttribute(
+                        InternalServiceAuthRequestAttributes.PLATFORM_SESSION_ACTOR_ID));
     }
 
     @Test

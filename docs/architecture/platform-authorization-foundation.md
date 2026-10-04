@@ -122,6 +122,17 @@ P2 已把核心 Runtime 管理面拆为以下稳定权限：
 
 Capability、Knowledge、Model、Context、MCP 等其它业务域仍有部分粗粒度 `platform:read` / `platform:write` 授权。本阶段不把核心 Runtime 管理面闭环误报为全站资源级 RBAC 已全部完成。
 
+### Capability 目录读取边界
+
+`GET /api/tools` 与 `GET /api/tools/{name}` 是 Control 提供的平台会话兼容入口，由
+`CapabilityCatalogConsoleController` 负责读取授权；旧 Capability 通用代理不再透传这两条路径或其写入／未知子路径。
+
+- 无 `projectId` 的列表请求必须拥有 GLOBAL `platform:read`，任一 PROJECT grant 不能放行全目录；带 `projectId` 时，Control 先通过 Capability owner 的签名 by-id 查询确认项目 ID，再用 owner 返回的 canonical `projectCode` 检查该项目的 `platform:read`。
+- 单项定义先由 Capability owner 返回真实 `name`、`projectId` 和 `projectCode`，再执行归属授权；`projectId` 与编码冲突返回 `409 CAPABILITY_PROJECT_IDENTITY_MISMATCH`，只有编码而没有 ID 返回 `409 CAPABILITY_PROJECT_IDENTITY_UNCONFIRMED`，不能把未确认归属当作平台级。
+- `projectId` 与 `projectCode` 均为空的定义仅允许 GLOBAL `platform:read`；已确认存在但编码为空的项目列表／定义也只允许 GLOBAL grant，不得把缺失编码解释为任意项目授权。
+- Control 到 Capability 的目录、项目解析和既有评审调用都复用精确字节 V1 HMAC；查询参数仅允许 `current`、`size`、`keyword`、`source`、`enabled`、`projectId`，并按 URI 规则编码，`enabled=false` 不得丢失。下游响应形状、身份不一致和 owner 不可用均 fail-closed，不返回目录正文。
+- 该目录读取授权不等同于能力调用授权；Runtime、MCP、Tool ACL 和执行边界继续由各自 owning service 的协议与策略负责。
+
 ## 6. 工作区产品规则
 
 工作区切换器在权限底座稳定后实现，并遵守：

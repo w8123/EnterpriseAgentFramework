@@ -1,0 +1,38 @@
+openapi: 3.0.3
+info:
+  title: Isolated order query
+  version: '1'
+components:
+  securitySchemes:
+    OrderKey:
+      type: apiKey
+      in: header
+      name: X-API-Key
+paths:
+  /orders/{orderId}:
+    get:
+      security:
+        - OrderKey: []
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: expanded
+          in: query
+          required: false
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: Order document
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  orderId:
+                    type: string
+                  state:
+                    type: string

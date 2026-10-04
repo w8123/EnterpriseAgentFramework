@@ -56,7 +56,12 @@ export function createApiMarketIntegration(
   return controlRequest.post<ApiMarketIntegration>(
     `/api/api-market/entries/${encodeURIComponent(entryKey)}/integrations`,
     data,
+    { errorFeedback: 'local' },
   )
+}
+
+export function getApiMarketIntegration(id: number) {
+  return controlRequest.get<ApiMarketIntegration>(`/api/api-market/integrations/${id}`)
 }
 
 export function updateApiMarketIntegrationStatus(

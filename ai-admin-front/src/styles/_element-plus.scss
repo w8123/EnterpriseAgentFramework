@@ -194,6 +194,19 @@ html[data-theme='dark'] {
   outline-offset: 2px;
 }
 
+// AppDrawer owns modal keyboard navigation; use the same theme focus treatment
+// for its native close button and navigable links (not pointer-only focus).
+.app-drawer.el-drawer .el-drawer__close-btn:focus-visible,
+.app-drawer.el-drawer .el-link:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+// Links can sit flush against clipped tab content; keep their focus ring inside.
+.app-drawer.el-drawer .el-link:focus-visible {
+  outline-offset: -2px;
+}
+
 .el-loading-mask {
   background-color: color-mix(in srgb, var(--surface-solid-page) 78%, transparent);
 }

@@ -1,6 +1,6 @@
-export type RunType = 'AGENT' | 'WORKFLOW' | 'MCP'
+export type RunType = 'AGENT' | 'WORKFLOW' | 'MCP' | 'CONSOLE_HTTP_API' | 'CONSOLE_CAPABILITY'
 
-export type RunEntryType = 'DEBUG' | 'EMBED' | 'GATEWAY' | 'EVAL' | 'REPLAY' | 'API' | 'AUTOMATION' | 'MCP'
+export type RunEntryType = 'DEBUG' | 'EMBED' | 'GATEWAY' | 'EVAL' | 'REPLAY' | 'API' | 'AUTOMATION' | 'MCP' | 'CONSOLE' | 'STUDIO_READ_ONLY_TRIAL'
 
 export type RunStatus =
   | 'RUNNING'
@@ -98,6 +98,9 @@ export interface RunSpanMetadata extends Record<string, unknown> {
   fallbackNodeId?: string
   outcomeClass?: string
   businessOutcome?: string
+  sideEffect?: string
+  dispatchStage?: string
+  nonRecoverableWrite?: boolean
   interactionId?: string
   interactionType?: string
 }

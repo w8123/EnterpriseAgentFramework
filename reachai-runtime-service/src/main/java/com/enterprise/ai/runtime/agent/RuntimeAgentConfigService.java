@@ -252,6 +252,7 @@ public class RuntimeAgentConfigService {
         }
         validatePublishable(target);
         if (refreshAllWorkflowPins) pinWorkflowVersions(target);
+        validatePinnedApiRisk(target);
         validateSkillBindings(target, agent.getProjectCode());
         validateRemoteAgentBindings(target);
         List<RuntimeAgentConfigVersionEntity> activeVersions = configMapper.selectList(
@@ -627,9 +628,12 @@ public class RuntimeAgentConfigService {
         entity.setDescriptionOverride(trimToNull(request.descriptionOverride()));
         entity.setInputSchemaOverrideJson(trimToNull(request.inputSchemaOverrideJson()));
         entity.setOutputSchemaOverrideJson(trimToNull(request.outputSchemaOverrideJson()));
-        entity.setRiskLevel(firstText(request.riskLevel(), Boolean.FALSE.equals(request.readOnly()) ? "WRITE" : "READ"));
+        String ownerFloor = entry.version().httpApiRiskFloor();
+        assertApiRisk(ownerFloor, request.riskLevel(), request.readOnly());
+        entity.setRiskLevel(firstText(request.riskLevel(), "WRITE".equals(ownerFloor) || Boolean.FALSE.equals(request.readOnly()) ? "WRITE" : "READ"));
         entity.setPermissionKey(firstText(request.permissionKey(), "workflow:" + workflow.keySlug()));
-        entity.setReadOnly(request.readOnly() == null ? !"WRITE".equalsIgnoreCase(entity.getRiskLevel()) : request.readOnly());
+        entity.setReadOnly(request.readOnly() == null ? !("WRITE".equalsIgnoreCase(entity.getRiskLevel())
+                || "IRREVERSIBLE".equalsIgnoreCase(entity.getRiskLevel())) : request.readOnly());
         entity.setEnabled(request.enabled() == null || request.enabled());
         entity.setPriority(priority);
         LocalDateTime now = LocalDateTime.now();
@@ -1238,8 +1242,37 @@ public class RuntimeAgentConfigService {
                         "Agent Workflow Tool requires an executable published Workflow version: " + tool.getWorkflowId());
             }
             tool.setWorkflowVersionId(entry.version().id());
+            assertApiRisk(entry.version().httpApiRiskFloor(), firstText(tool.getRiskLevel(), "READ"), tool.getReadOnly());
             tool.setUpdatedAt(LocalDateTime.now());
             toolMapper.updateById(tool);
+        }
+    }
+
+    private static void assertApiRisk(String ownerFloor, String risk, Boolean readOnly) {
+        if ("WRITE".equals(ownerFloor) && (Boolean.TRUE.equals(readOnly)
+                || risk != null && !("WRITE".equalsIgnoreCase(risk) || "IRREVERSIBLE".equalsIgnoreCase(risk)))) {
+            throw new HttpApiRiskDowngradeException();
+        }
+    }
+
+    public static final class HttpApiRiskDowngradeException extends IllegalArgumentException {
+        public HttpApiRiskDowngradeException() {
+            super("HTTP_API_WORKFLOW_RISK_DOWNGRADE: WRITE API Workflow cannot be read-only");
+        }
+    }
+
+    private void validatePinnedApiRisk(RuntimeAgentConfigVersionEntity target) {
+        var tools = toolMapper.selectList(Wrappers.<RuntimeAgentWorkflowToolEntity>lambdaQuery()
+                .eq(RuntimeAgentWorkflowToolEntity::getAgentConfigVersionId, target.getId())
+                .eq(RuntimeAgentWorkflowToolEntity::getEnabled, true));
+        var catalog = workflowCatalog.pinned(tools.stream()
+                .map(tool -> new Reference(tool.getWorkflowId(), tool.getWorkflowVersionId())).toList());
+        for (var tool : tools) {
+            var entry = catalog.get(new Reference(tool.getWorkflowId(), tool.getWorkflowVersionId()));
+            if (entry == null || entry.version() == null || !entry.version().executable()) {
+                throw new IllegalArgumentException("Agent Workflow Tool requires an executable pinned Workflow version");
+            }
+            assertApiRisk(entry.version().httpApiRiskFloor(), firstText(tool.getRiskLevel(), "READ"), tool.getReadOnly());
         }
     }
 

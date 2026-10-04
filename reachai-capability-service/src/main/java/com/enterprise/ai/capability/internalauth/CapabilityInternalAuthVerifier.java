@@ -71,6 +71,22 @@ public class CapabilityInternalAuthVerifier {
                 caller, "PLATFORM_SESSION", null, userId.trim()));
     }
 
+    /** Control -> Capability V1 request for the read-only catalog facade. */
+    public Optional<CapabilityVerifiedInternalServiceAuth> verifyCatalogRead(
+            String method, String path,
+            String caller, String source, String userId,
+            String timestamp, String nonce,
+            String bodyDigest, String signature,
+            byte[] body, long nowMillis) {
+        if (!"GET".equalsIgnoreCase(method)
+                || (!CapabilityInternalAuthFilter.isCapabilityCatalogReadPath(path)
+                && !CapabilityInternalAuthFilter.isCapabilityProjectLookupPath(path))) {
+            return Optional.empty();
+        }
+        return verify(method, path, caller, source, userId, timestamp, nonce,
+                bodyDigest, signature, body, nowMillis);
+    }
+
     /** Runtime -> Capability Tool execution protocol (V2 canonical form + body identity binding). */
     public Optional<CapabilityVerifiedInternalServiceAuth> verifyToolExecution(
             String method, String path,
@@ -87,7 +103,9 @@ public class CapabilityInternalAuthVerifier {
         if (!properties.secretConfigured()
                 || !"POST".equalsIgnoreCase(method)
                 || (!CapabilityInternalAuthFilter.isToolExecutionPath(path)
-                && !CapabilityInternalAuthFilter.CAPABILITY_INVOCATION_PATH.equals(path))
+                && !CapabilityInternalAuthFilter.CAPABILITY_INVOCATION_PATH.equals(path)
+                && !CapabilityInternalAuthFilter.isHttpApiExecutionPath(path)
+                && !CapabilityInternalAuthFilter.isBusinessMethodExecutionPath(path))
                 || !InternalServiceAuthHeaders.CALLER_RUNTIME.equals(normalized(caller))
                 || (!trusted && !tenantTrusted && !untrusted)
                 || (trusted && !StringUtils.hasText(normalizedUser))

@@ -29,16 +29,16 @@
       <el-collapse model-value="errors" class="release-check-collapse">
         <el-collapse-item v-if="releaseErrors.length" title="阻断项" name="errors">
           <div v-for="item in releaseErrors" :key="releaseValidationKey(item)" class="check-item error">
-            <el-tag size="small" type="danger">{{ item.code }}</el-tag>
+            <el-tag class="check-code" size="small" type="danger">{{ item.code }}</el-tag>
             <span v-if="item.nodeId" class="check-node">{{ item.nodeId }}</span>
-            <span>{{ item.message }}</span>
+            <span class="check-message">{{ item.message }}</span>
           </div>
         </el-collapse-item>
         <el-collapse-item v-if="releaseWarnings.length" title="提醒项" name="warnings">
           <div v-for="item in releaseWarnings" :key="releaseValidationKey(item)" class="check-item warn">
-            <el-tag size="small" type="warning">{{ item.code }}</el-tag>
+            <el-tag class="check-code" size="small" type="warning">{{ item.code }}</el-tag>
             <span v-if="item.nodeId" class="check-node">{{ item.nodeId }}</span>
-            <span>{{ item.message }}</span>
+            <span class="check-message">{{ item.message }}</span>
           </div>
         </el-collapse-item>
       </el-collapse>
@@ -125,6 +125,7 @@ const open = defineModel<boolean>('open', { required: true })
 
 .release-check-panel {
   display: grid;
+  min-width: 0;
   gap: 10px;
   margin-bottom: 14px;
   padding: 12px;
@@ -135,6 +136,7 @@ const open = defineModel<boolean>('open', { required: true })
 
 .release-check-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
@@ -152,24 +154,46 @@ const open = defineModel<boolean>('open', { required: true })
 }
 
 .release-check-collapse {
+  min-width: 0;
   --el-collapse-header-bg-color: transparent;
   --el-collapse-content-bg-color: transparent;
 }
 
 .check-item {
-  display: grid;
-  grid-template-columns: auto auto 1fr;
-  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  min-width: 0;
   gap: 8px;
   padding: 6px 0;
   font-size: 12px;
 }
 
+.check-code {
+  max-width: 100%;
+  height: auto;
+  line-height: 1.5;
+  white-space: normal;
+}
+
+.check-code :deep(.el-tag__content) {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .check-node {
+  max-width: 100%;
+  overflow-wrap: anywhere;
   padding: 2px 6px;
   border-radius: 4px;
   background: var(--el-fill-color);
   color: var(--el-text-color-secondary);
   font-family: Consolas, Monaco, 'Courier New', monospace;
+}
+
+.check-message {
+  flex-basis: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 </style>

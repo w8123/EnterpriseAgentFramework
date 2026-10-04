@@ -35,6 +35,9 @@ public class ToolDefinitionEntity {
     /** capability_source_state.qualified_name；独立于展示位置和可调用名称的来源归属。 */
     private String sourceQualifiedName;
 
+    /** 来源资产类型投影：BUSINESS_METHOD / HTTP_API / UNCLASSIFIED。 */
+    private String assetType;
+
     private String httpMethod;
 
     private String baseUrl;

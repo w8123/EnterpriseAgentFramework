@@ -1,9 +1,8 @@
 ﻿import { controlRequest } from './request'
+import type { AxiosRequestConfig } from 'axios'
 import type {
-  BatchPromoteToToolsResult,
   AiCodingGatewayManifest,
   ProjectToolInfo,
-  PromotedGlobalTool,
   ScanProject,
   ScanProjectAuthSaveRequest,
   AiOnboardingManifest,
@@ -19,7 +18,6 @@ import type {
   SensitiveScanTask,
   ToolReconcileSummary,
 } from '@/types/scanProject'
-import type { ToolTestResult, ToolUpsertRequest } from '@/types/tool'
 import type { SemanticLlmParams } from '@/api/semanticDoc'
 
 export interface ScanDiffSummary {
@@ -41,9 +39,10 @@ export interface ScanProjectListQuery {
   status?: ScanProject['status'] | ''
 }
 
-export function getScanProjects(query: ScanProjectListQuery = {}) {
+export function getScanProjects(query: ScanProjectListQuery = {}, config?: AxiosRequestConfig) {
   const keyword = query.keyword?.trim()
   return controlRequest.get<ScanProject[]>('/api/scan-projects', {
+    ...config,
     params: {
       keyword: keyword || undefined,
       projectKind: query.projectKind || undefined,
@@ -137,7 +136,7 @@ export function getScanProjectTool(projectId: number, scanToolId: number) {
   return controlRequest.get<ProjectToolInfo>(`/api/scan-projects/${projectId}/scan-tools/${scanToolId}`)
 }
 
-/** 补齐 SDK 镜像并汇总 API 的能力纳管状态。 */
+/** 只读核对来源与历史投影关联，不创建或修改执行定义。 */
 export function reconcileScanProjectTools(projectId: number) {
   return controlRequest.post<ToolReconcileSummary>(`/api/scan-projects/${projectId}/tools/reconcile`)
 }
@@ -146,48 +145,6 @@ export function getScanProjectDiffSummary(id: number) {
   return controlRequest.get<ScanDiffSummary>(`/api/scan-projects/${id}/diff-summary`)
 }
 
-export function updateScanProjectTool(projectId: number, scanToolId: number, data: ToolUpsertRequest) {
-  return controlRequest.put<ProjectToolInfo>(`/api/scan-projects/${projectId}/scan-tools/${scanToolId}`, data)
-}
-
-export function toggleScanProjectTool(projectId: number, scanToolId: number, enabled: boolean) {
-  return controlRequest.put<ProjectToolInfo>(`/api/scan-projects/${projectId}/scan-tools/${scanToolId}/toggle`, {
-    enabled,
-  })
-}
-
-export function testScanProjectTool(projectId: number, scanToolId: number, args: Record<string, unknown>) {
-  return controlRequest.post<ToolTestResult>(`/api/scan-projects/${projectId}/scan-tools/${scanToolId}/test`, {
-    args,
-  })
-}
-
-export function promoteScanProjectToolToGlobal(projectId: number, scanToolId: number) {
-  return controlRequest.post<PromotedGlobalTool>(
-    `/api/scan-projects/${projectId}/scan-tools/${scanToolId}/promote-to-tool`,
-  )
-}
-
-/** 从能力目录移除运行时执行定义并解除关联。 */
-export function unpromoteScanProjectToolFromGlobal(projectId: number, scanToolId: number) {
-  return controlRequest.post<ProjectToolInfo>(
-    `/api/scan-projects/${projectId}/scan-tools/${scanToolId}/unpromote-from-global`,
-  )
-}
-
-/** 用当前扫描行更新已关联的运行时执行定义。 */
-export function pushScanProjectToolToGlobalTool(projectId: number, scanToolId: number) {
-  return controlRequest.post<ProjectToolInfo>(
-    `/api/scan-projects/${projectId}/scan-tools/${scanToolId}/push-to-global-tool`,
-  )
-}
-
-/** 将某模块下或未关联模块的扫描接口纳入能力目录。 */
-export function promoteScanModuleToolsToGlobal(projectId: number, moduleId: number | null) {
-  return controlRequest.post<BatchPromoteToToolsResult>(`/api/scan-projects/${projectId}/scan-tools/promote-by-module`, {
-    moduleId,
-  })
-}
 
 /** 与 AI 生成功能共享的 LLM 参数。 */
 function sensitiveScanLlmQuery(llm?: SemanticLlmParams): Record<string, string> {

@@ -2,6 +2,7 @@ package com.enterprise.ai.common.capability;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -44,6 +45,22 @@ class CapabilityInvocationContractTest {
                 4L, 1, null,
                 Map.of("statusCode", 200, "Authorization", "must-not-leak", "headers", Map.of()));
         assertEquals(Map.of("statusCode", 200), response.safeMetadata());
+    }
+
+    @Test
+    void responseMetadataAllowsOnlyBoundedInputDiagnosticPathAndReason() {
+        CapabilityInvocationResponse response = new CapabilityInvocationResponse(
+                1, "inv-2", "orders:query", "query", "Query",
+                CapabilityInvocationStatus.REJECTED, false, null,
+                "CAPABILITY_INPUT_INVALID", "safe", CapabilityInvocationFailureCategory.POLICY_REJECTED, false,
+                1L, 1, null,
+                Map.of("inputDiagnostics", List.of(
+                        Map.of("path", "request.phone", "reason", "REQUIRED", "value", "sentinel"),
+                        Map.of("path", "request.phone", "reason", "BAD reason with raw sentinel"))));
+
+        assertEquals(List.of(Map.of("path", "request.phone", "reason", "REQUIRED")),
+                response.safeMetadata().get("inputDiagnostics"));
+        assertFalse(response.safeMetadata().toString().contains("sentinel"));
     }
 
     @Test

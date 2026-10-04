@@ -32,6 +32,13 @@ public class RuntimeProxyExceptionHandler {
             "transfer-encoding",
             "upgrade");
 
+    @ExceptionHandler(FeignException.BadRequest.class)
+    public ResponseEntity<byte[]> handleBadRequest(FeignException.BadRequest exception) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .headers(copyResponseHeaders(exception.responseHeaders()))
+                .body(copyResponseBody(exception));
+    }
+
     @ExceptionHandler(FeignException.Conflict.class)
     public ResponseEntity<byte[]> handleConflict(FeignException.Conflict exception) {
         return ResponseEntity.status(HttpStatus.CONFLICT)

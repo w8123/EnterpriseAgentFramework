@@ -1,0 +1,36 @@
+openapi: 3.0.3
+info: {title: Isolated order touch with required JSON object, version: '1'}
+paths:
+  /orders/{orderId}/touch:
+    post:
+      operationId: touchOrder
+      security: [{ProjectApiKey: []}]
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema: {type: string, minLength: 1}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                caption: {type: string, default: not-auto-filled}
+                notify: {type: boolean, default: true}
+                quantity: {type: integer, minimum: 0}
+      responses:
+        '200':
+          description: Actual touch recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  state: {type: string}
+                  noteCount: {type: integer}
+components:
+  securitySchemes:
+    ProjectApiKey: {type: apiKey, in: header, name: X-API-Key}

@@ -39,6 +39,11 @@ public class RuntimeTraceRootService {
         return start(request, Set.of("MCP_TOOLS_CALL"), true);
     }
 
+    /** Console trial calls are independently auditable roots, not MCP or Workflow executions. */
+    public Handle startConsoleCapability(Start request) {
+        return start(request, Set.of("CONSOLE_CAPABILITY"), true);
+    }
+
     private Handle start(Start request, Set<String> rootTypes, boolean requirePersistence) {
         Objects.requireNonNull(request, "request");
         required(request.traceId(), "traceId");
@@ -102,6 +107,21 @@ public class RuntimeTraceRootService {
     public boolean finishMcp(Handle handle, Completion completion) {
         Objects.requireNonNull(completion, "completion");
         return finish(handle, completion, Set.of("MCP_TOOLS_CALL"), Set.of("SUCCESS", "ERROR", "TIMED_OUT"),
+                WorkflowTraceSanitizer.sanitizeRejectionSummary(completion.code()));
+    }
+
+    public boolean finishConsoleCapability(Handle handle, Completion completion) {
+        Objects.requireNonNull(completion, "completion");
+        // Console invocation records persist the trace/span identity, not an in-memory Handle.
+        // Resolve that identity under the caller transaction before terminalizing; a null-id
+        // best-effort handle must never silently leave a durable Console root RUNNING.
+        if (handle != null && handle.id() == null) {
+            RuntimeTraceSpanEntity root = spans.selectByIdentityForUpdate(handle.traceId(), handle.spanId());
+            if (!matches(root, handle, Set.of("CONSOLE_CAPABILITY"))) return false;
+            handle = handle(root);
+        }
+        return finish(handle, completion, Set.of("CONSOLE_CAPABILITY"),
+                Set.of("SUCCESS", "FAILED", "ERROR", "TIMEOUT"),
                 WorkflowTraceSanitizer.sanitizeRejectionSummary(completion.code()));
     }
 

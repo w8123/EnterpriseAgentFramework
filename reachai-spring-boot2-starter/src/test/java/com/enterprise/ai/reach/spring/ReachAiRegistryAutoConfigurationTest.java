@@ -128,9 +128,9 @@ class ReachAiRegistryAutoConfigurationTest {
                         "reachai.capability.exclude-packages[0]=" + FrameworkController.class.getName())
                 .run(context -> {
                     ReachCapabilityBeanScanner scanner = context.getBean(ReachCapabilityBeanScanner.class);
-                    List<ReachCapabilityDescriptor> descriptors = scanner.scan();
-                    assertEquals(1, descriptors.size());
-                    assertEquals("business_ping", descriptors.get(0).getName());
+                    assertEquals(0, scanner.scan().size());
+                    assertEquals(1, scanner.scanHttpApis().size());
+                    assertEquals("/business/ping", scanner.scanHttpApis().get(0).getEndpointPath());
                 });
     }
 

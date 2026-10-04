@@ -239,6 +239,9 @@ public final class WorkflowTraceSanitizer {
         putScalar(node, "failureCode", trace.get("failureCode"));
         putScalar(node, "failureCategory", trace.get("failureCategory"));
         putScalar(node, "retryableFailure", trace.get("retryableFailure"));
+        for (String key : Set.of("sideEffect", "dispatchStage", "nonRecoverableWrite", "httpStatus", "inputField")) {
+            putScalar(node, key, trace.get(key));
+        }
         putScalar(node, "fallbackNodeId", trace.get("fallbackNodeId"));
         putScalar(node, "nextNodeId", trace.get("nextNodeId"));
         putScalar(node, "interactionId", trace.get("interactionId"));

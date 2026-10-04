@@ -1,5 +1,6 @@
 import { computed, type Ref } from 'vue'
 import type { CanvasEdge, CanvasNode } from '@/types/studio'
+import { BUSINESS_METHOD_SCALAR_TRIAL_OUTPUT } from '@/views/workflow/businessMethodWorkflow'
 import {
   isRouteCondition,
   isSupportedCanvasCondition,
@@ -28,6 +29,7 @@ export type WorkflowStudioGraphVariable = {
 export interface UseWorkflowStudioGraphAnalysisDeps {
   nodes: Ref<CanvasNode[]>
   edges: Ref<CanvasEdge[]>
+  workflowInputSchemaJson?: Ref<string | null | undefined>
   decorateWorkflowNode: (node: CanvasNode) => CanvasNode
   markCanvasDirty: () => void
   syncJsonFromCanvas: () => void
@@ -46,6 +48,20 @@ function isProbablyVariableReference(source: string) {
   if (!value || value.startsWith('const:') || value.startsWith('"') || value.startsWith("'")) return false
   if (['true', 'false', 'null'].includes(value)) return false
   return Number.isNaN(Number(value))
+}
+
+function declaredWorkflowInputNames(inputSchemaJson: string | null | undefined) {
+  if (!inputSchemaJson) return []
+  try {
+    const schema = JSON.parse(inputSchemaJson) as { properties?: unknown }
+    if (!schema || typeof schema !== 'object' || Array.isArray(schema.properties)) return []
+    if (!schema.properties || typeof schema.properties !== 'object') return []
+    return Object.keys(schema.properties)
+      .map((name) => name.trim())
+      .filter(Boolean)
+  } catch {
+    return []
+  }
 }
 
 function normalizedEdgeRoute(edge: CanvasEdge) {
@@ -71,11 +87,16 @@ function isKnownVariableReference(
   if (value.startsWith('params.') || value.startsWith('sys.')) return true
   if (value.startsWith('nodeOutput.')) {
     const nodeId = value.slice('nodeOutput.'.length).split('.', 1)[0]
-    return nodes.some((node) => node.id === nodeId)
+    // Output declarations power candidate hints only. Existing generic Tools
+    // may legitimately traverse dynamic JSON once the producer node exists.
+    return Boolean(nodeId) && nodes.some((node) => node.id === nodeId)
   }
   if (value.startsWith('var.')) {
     const alias = value.slice('var.'.length).split('.', 1)[0]
-    return graphVariables.some((item) => item.name === alias)
+    const root = `var.${alias}`
+    // A business-method declaration must not narrow the legacy dynamic value
+    // contract. Removing or renaming the alias root still remains an error.
+    return Boolean(alias) && graphVariables.some((item) => item.name === root || item.name === alias)
   }
   const alias = value.split('.', 1)[0]
   return graphVariables.some((item) => item.name === alias || item.nodeId === alias) || alias === currentNodeId
@@ -89,6 +110,16 @@ export function useWorkflowStudioGraphAnalysis(deps: UseWorkflowStudioGraphAnaly
 
   const graphVariables = computed<WorkflowStudioGraphVariable[]>(() => {
     const vars: WorkflowStudioGraphVariable[] = []
+    for (const name of declaredWorkflowInputNames(deps.workflowInputSchemaJson?.value)) {
+      vars.push({
+        name,
+        source: 'Workflow 输入',
+        nodeId: 'workflow-input',
+        label: `Workflow 输入 · ${name}`,
+        group: 'Workflow 输入',
+        description: name,
+      })
+    }
     for (const node of deps.nodes.value) {
       if (node.data.kind === 'start' || node.data.kind === 'end') continue
       if (node.data.kind === 'userInput') {
@@ -140,6 +171,38 @@ export function useWorkflowStudioGraphAnalysis(deps: UseWorkflowStudioGraphAnaly
           group: '业务变量',
           description: `规范路径：${varPath}`,
         })
+        const declaredFields = (node.data.outputs || [])
+          .map((port) => String(port.id || port.name || '').trim())
+          .filter((port) => port.startsWith(`${alias}.`))
+          .map((port) => port.slice(`${alias}.`.length))
+          .filter(Boolean)
+        for (const field of [...new Set(declaredFields)]) {
+          const declaration = (node.data.outputs || []).find((port) => port.id === `${alias}.${field}`)
+          const isScalarTrial = declaration?.source === BUSINESS_METHOD_SCALAR_TRIAL_OUTPUT
+          const fieldLabel = declaration?.source && declaration.source !== field
+            ? `${field}（${declaration.source}）`
+            : field
+          // The bounded scalar draft policy accepts only nodeOutput.<method>.data,
+          // not a business alias. Keep that trial-only choice unambiguous.
+          if (!isScalarTrial) vars.push({
+            name: `${varPath}.${field}`,
+            source: node.data.label || node.id,
+            nodeId: node.id,
+            label: `${node.data.label || node.id} · 输出变量 · ${fieldLabel}`,
+            group: '业务变量',
+            description: `规范路径：${varPath}.${field}`,
+          })
+          vars.push({
+            name: `nodeOutput.${node.id}.${field}`,
+            source: node.data.label || node.id,
+            nodeId: node.id,
+            label: isScalarTrial
+              ? `${node.data.label || node.id} · ${BUSINESS_METHOD_SCALAR_TRIAL_OUTPUT}`
+              : `${node.data.label || node.id} · 节点输出 · ${fieldLabel}`,
+            group: '节点输出',
+            description: `节点声明字段：${field}`,
+          })
+        }
       }
       vars.push({
         name: `nodeOutput.${node.id}`,

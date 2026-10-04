@@ -22,12 +22,8 @@ defineProps<{
   sensitiveScanStarting: boolean
   sensitiveTaskPolling: boolean
   exportScanToolsExcelLoading: boolean
-  batchModulePromoteLoading: Record<string, boolean>
   toolDetailLoading: Record<number, boolean>
   rescanSourceLoading: Record<number, boolean>
-  promoteLoading: Record<number, boolean>
-  pushToGlobalLoading: Record<number, boolean>
-  unpromoteLoading: Record<number, boolean>
   parameterRows: (parameters: ToolParameter[] | null | undefined, prefix?: string) => ParameterRow[]
   renderMd: (content: string | null | undefined) => string
   scanToolRowClassName: (data: { row: ProjectToolInfo }) => string
@@ -43,17 +39,9 @@ const interfaceCollapseActive = defineModel<string[]>('interfaceCollapseActive',
 const emit = defineEmits<{
   startSensitiveDataScan: []
   exportExcel: []
-  batchToggle: [enabled: boolean]
-  promoteModuleToGlobal: [group: ToolModuleGroup]
   toolExpandChange: [row: ProjectToolInfo, expanded: boolean]
-  enabledChange: [row: ProjectToolInfo, enabled: boolean]
   openDiff: [row: ProjectToolInfo]
-  openEdit: [row: ProjectToolInfo]
   rescanFromSource: [row: ProjectToolInfo]
-  openTest: [row: ProjectToolInfo]
-  promoteToGlobal: [row: ProjectToolInfo]
-  pushToGlobal: [row: ProjectToolInfo]
-  unpromoteFromGlobal: [row: ProjectToolInfo]
   regenerateTool: [row: ProjectToolInfo]
   openEditDoc: [doc: SemanticDoc]
   showMoreGroups: []
@@ -70,7 +58,7 @@ function onToolExpandChange(row: ProjectToolInfo, expandedRows: ProjectToolInfo[
 <template>
   <section class="scan-detail-top-item merged-tools-card">
     <div class="scan-detail-card-header tools-header">
-      <span>API 接口目录与 AI 语义</span>
+      <span>来源发现记录与 AI 语义</span>
       <div v-if="tools.length > 0" class="tools-actions">
         <el-button
           size="small"
@@ -89,8 +77,6 @@ function onToolExpandChange(row: ProjectToolInfo, expandedRows: ProjectToolInfo[
         >
           导出 EXCEL
         </el-button>
-        <el-button size="small" @click="emit('batchToggle', false)">全部禁用</el-button>
-        <el-button size="small" type="primary" @click="emit('batchToggle', true)">全部启用</el-button>
       </div>
     </div>
 
@@ -126,15 +112,6 @@ function onToolExpandChange(row: ProjectToolInfo, expandedRows: ProjectToolInfo[
                 <span class="collapse-module-title">{{ g.label }}</span>
                 <el-tag size="small" type="info" class="module-tool-count">{{ g.tools.length }} 个接口</el-tag>
               </div>
-              <el-button
-                v-if="g.tools.length > 0 && g.tools.some((t) => !t.globalToolDefinitionId && !t.removedFromSource)"
-                type="primary"
-                size="small"
-                :loading="batchModulePromoteLoading[g.key] ?? false"
-                @click.stop="emit('promoteModuleToGlobal', g)"
-              >
-                纳入能力目录
-              </el-button>
             </div>
           </template>
           <el-table
@@ -263,16 +240,12 @@ function onToolExpandChange(row: ProjectToolInfo, expandedRows: ProjectToolInfo[
                 </el-tooltip>
               </template>
             </el-table-column>
-            <el-table-column label="启用" width="78" align="center">
+            <el-table-column label="来源状态" width="110">
               <template #default="{ row }">
-                <el-switch
-                  :model-value="row.enabled"
-                  :disabled="row.removedFromSource"
-                  @change="emit('enabledChange', row, $event as boolean)"
-                />
+                <el-tag size="small" :type="row.removedFromSource ? 'danger' : 'info'">{{ row.removedFromSource ? '来源已移除' : '已发现' }}</el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="能力目录状态" min-width="150">
+            <el-table-column label="历史投影关联" min-width="150">
               <template #default="{ row }">
                 <div class="tool-link-cell">
                   <el-tag :type="toolLinkTagType(row)" size="small">{{ toolLinkLabel(row) }}</el-tag>
@@ -292,58 +265,25 @@ function onToolExpandChange(row: ProjectToolInfo, expandedRows: ProjectToolInfo[
                 <div v-if="row.toolLinkMessage" class="tool-link-hint">{{ row.toolLinkMessage }}</div>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="520" fixed="right" align="right" header-align="right">
+            <el-table-column label="来源操作" width="320" fixed="right" align="right" header-align="right">
               <template #default="{ row }">
                 <div class="merged-ops-wrap">
-                  <el-button link type="primary" size="small" :disabled="row.removedFromSource" @click="emit('openEdit', row)">编辑</el-button>
                   <el-tooltip
                     effect="dark"
-                    content="从源码或 OpenAPI 重新解析并更新本行（保留接口标识与开关；已纳入能力目录时请再点「更新能力定义」同步）"
+                    content="仅刷新这条来源展示记录；API 的接纳状态在所属项目 API 目录查看。SDK 来源通过项目同步更新。"
                     placement="top"
                   >
                     <el-button
                       link
                       type="primary"
                       size="small"
-                      :disabled="row.removedFromSource"
+                      :disabled="row.removedFromSource || row.sourceLocation?.toLowerCase().startsWith('sdk:')"
                       :loading="rescanSourceLoading[row.scanToolId]"
                       @click="emit('rescanFromSource', row)"
                     >
                       扫描更新
                     </el-button>
                   </el-tooltip>
-                  <el-button link type="primary" size="small" :disabled="row.removedFromSource" @click="emit('openTest', row)">测试</el-button>
-                  <el-button
-                    v-if="!row.globalToolDefinitionId && !row.removedFromSource"
-                    link
-                    type="success"
-                    size="small"
-                    :loading="promoteLoading[row.scanToolId]"
-                    @click="emit('promoteToGlobal', row)"
-                  >
-                    纳入能力目录
-                  </el-button>
-                  <el-button
-                    v-if="row.globalToolDefinitionId && row.globalToolOutOfSync"
-                    link
-                    type="warning"
-                    size="small"
-                    :loading="pushToGlobalLoading[row.scanToolId]"
-                    @click="emit('pushToGlobal', row)"
-                  >
-                    更新能力定义
-                  </el-button>
-                  <el-button
-                    v-if="row.globalToolDefinitionId"
-                    link
-                    type="danger"
-                    size="small"
-                    :loading="unpromoteLoading[row.scanToolId]"
-                    @click="emit('unpromoteFromGlobal', row)"
-                  >
-                    移出能力目录
-                  </el-button>
-                  <span class="merged-ops-sep" aria-hidden="true" />
                   <el-button link size="small" type="primary" @click="emit('regenerateTool', row)">重新生成 AI</el-button>
                   <el-button link size="small" :disabled="!toolDocMap[row.scanToolId]" @click="emit('openEditDoc', toolDocMap[row.scanToolId])">编辑 AI 文档</el-button>
                 </div>

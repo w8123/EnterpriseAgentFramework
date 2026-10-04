@@ -35,6 +35,7 @@ public final class RuntimeExecutionEventBridgeSink implements RuntimeGraphSpecEx
             "businessOutcome",
             "failureCategory",
             "retryableFailure",
+            "sideEffect", "dispatchStage", "nonRecoverableWrite", "httpStatus", "inputField",
             "interactionId",
             "interactionType",
             "deltaChars");

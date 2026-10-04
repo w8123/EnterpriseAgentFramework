@@ -1890,6 +1890,19 @@ const darkElementPlusMappings = {
   '--el-color-info-dark-2': 'color-mix(in srgb, var(--status-info) 82%, white)',
 }
 
+const appDrawerFocusMappings = [
+  {
+    selector: '.app-drawer.el-drawer .el-drawer__close-btn:focus-visible, .app-drawer.el-drawer .el-link:focus-visible',
+    label: 'AppDrawer close and link focus mapping',
+    declarations: { outline: '2px solid var(--border-focus)', 'outline-offset': '2px' },
+  },
+  {
+    selector: '.app-drawer.el-drawer .el-link:focus-visible',
+    label: 'AppDrawer clipped link focus mapping',
+    declarations: { 'outline-offset': '-2px' },
+  },
+]
+
 const componentElementPlusMappings = [
   {
     selector: '.el-table',
@@ -2009,7 +2022,53 @@ const componentElementPlusMappings = [
         'color-mix(in srgb, var(--surface-solid-page) 78%, transparent)',
     },
   },
+  ...appDrawerFocusMappings,
 ]
+
+function appDrawerFocusContractFailures(source) {
+  const start = failures.length
+  const { rules, statements } = enumerateTopLevelRules(source, 'AppDrawer focus proof')
+  expectExactTopLevelStatements(statements, [], 'AppDrawer focus proof')
+  expectClosedWorldTopLevelRules(rules, [
+    ":root, html[data-theme='dark']", "html[data-theme='dark']",
+    ...componentElementPlusMappings.map(({ selector }) => selector),
+  ], 'AppDrawer focus proof')
+  for (const { selector, label, declarations } of appDrawerFocusMappings) {
+    expectExactDeclarationOracle(topLevelRuleBody(rules, selector), declarations, label)
+  }
+  return failures.splice(start)
+}
+
+function runAppDrawerFocusProofs(source) {
+  const baseline = appDrawerFocusContractFailures(source)
+  if (baseline.length) {
+    failures.push(`AppDrawer focus positive proof failed: ${baseline.join(' | ')}`)
+    return
+  }
+  console.log('POSITIVE_PROOF app-drawer-current-focus=1')
+  const closeRule = /\.app-drawer\.el-drawer \.el-drawer__close-btn:focus-visible,\s*\.app-drawer\.el-drawer \.el-link:focus-visible\s*\{[^}]*\}/
+  const linkRule = /\.app-drawer\.el-drawer \.el-link:focus-visible\s*\{\s*outline-offset:\s*-2px;\s*\}/
+  const mutateClose = transform => source.replace(closeRule, transform)
+  const mutants = [
+    ['missing-close-focus', source.replace(closeRule, '')],
+    ['missing-clipped-link-focus', source.replace(linkRule, '')],
+    ['wrong-close-offset', mutateClose(rule => rule.replace('outline-offset: 2px', 'outline-offset: 0'))],
+    ['wrong-link-offset', source.replace(linkRule, rule => rule.replace('-2px', '2px'))],
+    ['hard-coded-focus-color', mutateClose(rule => rule.replace('var(--border-focus)', '#123456'))],
+    ['wrong-focus-selector', mutateClose(rule => rule.replace('.app-drawer.el-drawer', '.app-drawer'))],
+    ['extra-focus-rule', `${source}\n.app-drawer.el-drawer .rogue:focus-visible { outline: none; }`],
+    ['duplicate-focus-color', mutateClose(rule => rule.replace('outline-offset:', 'outline: none; outline-offset:'))],
+  ]
+  for (const [name, mutated] of mutants) {
+    if (mutated === source || appDrawerFocusContractFailures(mutated).length === 0) {
+      failures.push(`AppDrawer focus mutation ${name} must change the source and be rejected`)
+    } else console.log(`MUTATION_PROOF app-drawer-${name}=1`)
+  }
+  const safe = mutateClose(rule => rule.replace('outline:', '/* focus token is canonical */\n  outline:'))
+  const safeFailures = appDrawerFocusContractFailures(safe)
+  if (safe === source || safeFailures.length) failures.push(`AppDrawer focus safe comment proof failed: ${safeFailures.join(' | ')}`)
+  else console.log('SAFE_PROOF app-drawer-focus-comment=1')
+}
 
 const allowedElementPlusHeaders = [
   ":root, html[data-theme='dark']",
@@ -2169,6 +2228,8 @@ const extractedThemeDeclarations = new Set([
 for (const declaration of extractedThemeDeclarations) {
   expectNoDeclaration(themeWithoutComments, declaration, 'theme.scss')
 }
+
+runAppDrawerFocusProofs(elementPlus)
 failures.push(...forbiddenLegacySpacingTokenFailures(theme, 'src/styles/theme.scss'))
 runFinalSpacingMutationProofs()
 

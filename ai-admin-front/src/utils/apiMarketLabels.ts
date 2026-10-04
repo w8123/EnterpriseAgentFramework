@@ -90,7 +90,7 @@ export function apiMarketSideEffectTone(value?: string | null): StatusTone {
 export function formatApiMarketIntegrationStatus(value?: string | null) {
   const labels: Record<string, string> = {
     CONFIGURING: '待配置',
-    READY: '可使用',
+    READY: '来源已选择',
     BROKEN: '异常',
     DISABLED: '已停用',
   }
@@ -98,7 +98,7 @@ export function formatApiMarketIntegrationStatus(value?: string | null) {
 }
 
 export function apiMarketIntegrationTone(value?: string | null): StatusTone {
-  if (value === 'READY') return 'success'
+  if (value === 'READY') return 'neutral'
   if (value === 'BROKEN') return 'danger'
   if (value === 'CONFIGURING') return 'warning'
   return 'neutral'

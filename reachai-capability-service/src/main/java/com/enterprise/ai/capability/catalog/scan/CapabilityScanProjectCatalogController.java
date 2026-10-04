@@ -267,52 +267,21 @@ public class CapabilityScanProjectCatalogController {
     }
 
     @PutMapping("/{projectId}/scan-tools/{scanToolId}")
-    public ResponseEntity<ProjectToolDTO> updateTool(@PathVariable Long projectId,
-                                                     @PathVariable Long scanToolId,
-                                                     @RequestBody ScanProjectToolUpsertRequest request) {
-        try {
-            return ResponseEntity.ok(toToolDto(
-                    scanProjectCatalogService.updateTool(projectId, scanToolId, request.toServiceRequest()),
-                    "full"));
-        } catch (IllegalArgumentException ex) {
-            return ResponseEntity.badRequest().build();
-        }
+    public ResponseEntity<?> updateTool(@PathVariable Long projectId,
+                                             @PathVariable Long scanToolId) {
+        return retiredSourceEntry(projectId, scanToolId);
     }
 
     @PutMapping("/{projectId}/scan-tools/{scanToolId}/toggle")
-    public ResponseEntity<ProjectToolDTO> toggleTool(@PathVariable Long projectId,
-                                                     @PathVariable Long scanToolId,
-                                                     @RequestBody ScanProjectToolToggleRequest request) {
-        try {
-            boolean enabled = request != null && Boolean.TRUE.equals(request.enabled());
-            return ResponseEntity.ok(toToolDto(scanProjectCatalogService.toggleTool(projectId, scanToolId, enabled), "full"));
-        } catch (IllegalArgumentException ex) {
-            return ResponseEntity.notFound().build();
-        }
+    public ResponseEntity<?> toggleTool(@PathVariable Long projectId,
+                                             @PathVariable Long scanToolId) {
+        return retiredSourceEntry(projectId, scanToolId);
     }
 
     @PostMapping("/{projectId}/scan-tools/{scanToolId}/test")
-    public ResponseEntity<ToolTestResult> testTool(@PathVariable Long projectId,
-                                                   @PathVariable Long scanToolId,
-                                                   @RequestBody(required = false) ToolTestRequest request) {
-        long start = System.nanoTime();
-        try {
-            Map<String, Object> args = request == null || request.args() == null ? Map.of() : request.args();
-            Map<String, Object> response = scanProjectCatalogService.testTool(projectId, scanToolId, args);
-            return ResponseEntity.ok(new ToolTestResult(
-                    true,
-                    String.valueOf(response == null ? null : response.get("data")),
-                    null,
-                    elapsedMs(start)
-            ));
-        } catch (RuntimeException ex) {
-            return ResponseEntity.ok(new ToolTestResult(
-                    false,
-                    "",
-                    ex.getMessage(),
-                    elapsedMs(start)
-            ));
-        }
+    public ResponseEntity<?> testTool(@PathVariable Long projectId,
+                                             @PathVariable Long scanToolId) {
+        return retiredSourceEntry(projectId, scanToolId);
     }
 
     @PostMapping("/{projectId}/tools/reconcile")
@@ -326,46 +295,26 @@ public class CapabilityScanProjectCatalogController {
     }
 
     @PostMapping("/{projectId}/scan-tools/{scanToolId}/promote-to-tool")
-    public ResponseEntity<CapabilityScanProjectCatalogService.PromotedGlobalTool> promoteTool(
-            @PathVariable Long projectId,
-            @PathVariable Long scanToolId) {
-        try {
-            return ResponseEntity.ok(scanProjectCatalogService.promoteTool(projectId, scanToolId));
-        } catch (IllegalArgumentException ex) {
-            return ResponseEntity.badRequest().build();
-        }
+    public ResponseEntity<?> promoteTool(@PathVariable Long projectId,
+                                             @PathVariable Long scanToolId) {
+        return retiredSourceEntry(projectId, scanToolId);
     }
 
     @PostMapping("/{projectId}/scan-tools/{scanToolId}/unpromote-from-global")
-    public ResponseEntity<ProjectToolDTO> unpromoteTool(@PathVariable Long projectId,
-                                                        @PathVariable Long scanToolId) {
-        try {
-            return ResponseEntity.ok(toToolDto(scanProjectCatalogService.unpromoteTool(projectId, scanToolId), "full"));
-        } catch (IllegalArgumentException ex) {
-            return ResponseEntity.badRequest().build();
-        }
+    public ResponseEntity<?> unpromoteTool(@PathVariable Long projectId,
+                                             @PathVariable Long scanToolId) {
+        return retiredSourceEntry(projectId, scanToolId);
     }
 
     @PostMapping("/{projectId}/scan-tools/{scanToolId}/push-to-global-tool")
-    public ResponseEntity<ProjectToolDTO> pushToolToGlobal(@PathVariable Long projectId,
-                                                           @PathVariable Long scanToolId) {
-        try {
-            return ResponseEntity.ok(toToolDto(scanProjectCatalogService.pushToolToGlobal(projectId, scanToolId), "full"));
-        } catch (IllegalArgumentException ex) {
-            return ResponseEntity.badRequest().build();
-        }
+    public ResponseEntity<?> pushToolToGlobal(@PathVariable Long projectId,
+                                             @PathVariable Long scanToolId) {
+        return retiredSourceEntry(projectId, scanToolId);
     }
 
     @PostMapping("/{projectId}/scan-tools/promote-by-module")
-    public ResponseEntity<CapabilityScanProjectCatalogService.BatchPromoteToToolsResult> promoteModuleTools(
-            @PathVariable Long projectId,
-            @RequestBody(required = false) PromoteModuleToolsRequest request) {
-        try {
-            Long moduleId = request == null ? null : request.moduleId();
-            return ResponseEntity.ok(scanProjectCatalogService.promoteModuleTools(projectId, moduleId));
-        } catch (IllegalArgumentException ex) {
-            return ResponseEntity.badRequest().build();
-        }
+    public ResponseEntity<?> promoteModuleTools(@PathVariable Long projectId) {
+        return retiredSourceEntry(projectId, null);
     }
 
     @GetMapping("/{id}/diff-summary")
@@ -582,50 +531,8 @@ public class CapabilityScanProjectCatalogController {
         }
     }
 
-    record ScanProjectToolUpsertRequest(
-            String name,
-            String title,
-            String description,
-            List<ToolDefinitionParameter> parameters,
-            String source,
-            String sourceLocation,
-            String httpMethod,
-            String baseUrl,
-            String contextPath,
-            String endpointPath,
-            String requestBodyType,
-            String responseType,
-            Boolean enabled
-    ) {
-        CapabilityScanProjectCatalogService.ScanProjectToolUpsertRequest toServiceRequest() {
-            return new CapabilityScanProjectCatalogService.ScanProjectToolUpsertRequest(
-                    name,
-                    title,
-                    description,
-                    parameters,
-                    source,
-                    sourceLocation,
-                    httpMethod,
-                    baseUrl,
-                    contextPath,
-                    endpointPath,
-                    requestBodyType,
-                    responseType,
-                    enabled
-            );
-        }
-    }
-
-    record ScanProjectToolToggleRequest(Boolean enabled) {
-    }
-
-    record ToolTestRequest(Map<String, Object> args) {
-    }
-
-    record ToolTestResult(boolean success, String result, String errorMessage, long durationMs) {
-    }
-
-    record PromoteModuleToolsRequest(Long moduleId) {
+    record RetiredSourceEntry(String code, String message, String projectCode,
+                              String apiDirectory, String businessMethodDirectory) {
     }
 
     record ScanResultDTO(Long projectId, String projectName, int toolCount, List<String> toolNames) {
@@ -789,8 +696,20 @@ public class CapabilityScanProjectCatalogController {
     record DuplicateStableKeyDTO(String stableKey, List<Long> scanToolIds) {
     }
 
-    private long elapsedMs(long start) {
-        return Math.max(0, (System.nanoTime() - start) / 1_000_000);
+    private ResponseEntity<?> retiredSourceEntry(Long projectId, Long scanToolId) {
+        try {
+            // Resolve only within the requested project before exposing replacement context.
+            ScanProjectEntity project = scanProjectCatalogService.get(projectId);
+            if (scanToolId != null) {
+                scanProjectCatalogService.getTool(projectId, scanToolId);
+            }
+            return ResponseEntity.status(HttpStatus.GONE).body(new RetiredSourceEntry(
+                    "SCAN_EXECUTION_ENTRY_RETIRED",
+                    "扫描视图仅用于来源发现。请在所属项目业务方法/API 目录接纳来源、配置连接并受控试调用；Workflow 使用“选择业务方法”或“选择 API”。旧引用不会自动迁移。",
+                    project.getProjectCode(), "/apis", "/business-methods"));
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.notFound().build();
+        }
     }
 
 }

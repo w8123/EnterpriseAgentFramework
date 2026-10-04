@@ -272,6 +272,8 @@ function canvasNodeToGraphNode(node: CanvasNode, base: AgentForm): WorkflowGraph
   }
   if (canvasKindValue(node.data.kind) === 'tool') {
     const tool = node.data.toolConfig || defaultToolConfig()
+    const { inputMapping: _canvasInputMapping, ...toolCommon } = common
+    const runtimeInput = tool.inputMapping || {}
     return {
       id: node.id,
       type: 'TOOL',
@@ -284,12 +286,16 @@ function canvasNodeToGraphNode(node: CanvasNode, base: AgentForm): WorkflowGraph
         projectCode: tool.projectCode,
       },
       config: {
-        ...common,
-        inputMapping: tool.inputMapping || {},
+        ...tool.runtimeConfigExtras,
+        ...toolCommon,
+        ...(tool.httpApiAssetId ? { httpApiAssetId: tool.httpApiAssetId } : {}),
+        ...(tool.argumentSource === 'args'
+          ? { args: runtimeInput }
+          : { inputMapping: runtimeInput }),
         mappingNote: tool.mappingNote,
         maxRequestTimeMs: tool.maxRequestTimeMs || 180000,
         credentialRef: tool.credentialRef,
-        toolConfig: tool,
+        toolConfig: graphToolConfig(tool),
       },
     }
   }
@@ -886,16 +892,31 @@ function graphConfigToNodeData(
       configuredReferenceValue(nested.ref),
       nested.toolName,
     )
+    const topLevelInputMapping = objectRecordValue(config.inputMapping)
+    const topLevelArgs = objectRecordValue(config.args)
+    // Legacy Tool definitions used non-empty args as a generic mapping alias.
+    // Only a deliberately empty args object carries the zero-parameter Runtime
+    // contract and must survive as args={} rather than the legacy fallback.
+    const usesArgs = Object.prototype.hasOwnProperty.call(config, 'args')
+      && Object.keys(topLevelArgs).length === 0
+      && (!Object.prototype.hasOwnProperty.call(config, 'inputMapping') || Object.keys(topLevelInputMapping).length === 0)
     return {
       ...common,
       toolConfig: {
         ref: firstNonEmptyText(ref?.name, ref?.qualifiedName, configuredRef),
         qualifiedName: resolvedQualifiedName || null,
-        projectCode: ref?.projectCode || null,
-        credentialRef: stringValue(config.credentialRef),
+        projectCode: firstNonEmptyText(ref?.projectCode, config.projectCode, nested.projectCode) || null,
+        ...(typeof config.httpApiAssetId === 'number' && Number.isInteger(config.httpApiAssetId)
+          && config.httpApiAssetId > 0 ? { httpApiAssetId: config.httpApiAssetId } : {}),
+        credentialRef: firstNonEmptyText(config.credentialRef, nested.credentialRef),
         maxRequestTimeMs: numberValue(config.maxRequestTimeMs, 180000),
-        inputMapping: firstRecordValue(config.inputMapping, config.args),
+        inputMapping: usesArgs
+          ? topLevelArgs
+          : firstRecordValue(config.inputMapping, config.args, nested.inputMapping, nested.args),
         mappingNote: stringValue(config.mappingNote),
+        argumentSource: usesArgs ? 'args' : 'inputMapping',
+        runtimeConfigExtras: toolRuntimeConfigExtras(config),
+        nestedConfigExtras: toolNestedConfigExtras(nested),
       } satisfies ToolNodeConfig,
     }
   }
@@ -1406,6 +1427,50 @@ function defaultToolConfig(): ToolNodeConfig {
     maxRequestTimeMs: 180000,
     inputMapping: {},
     mappingNote: '',
+    argumentSource: 'inputMapping',
+  }
+}
+
+const TOOL_RUNTIME_CONFIG_FIELDS = new Set([
+  'configVersion', 'inputMapping', 'args', 'outputAlias', 'needsConfiguration',
+  'placeholderReason', 'marketRef', 'description', 'mappingNote',
+  'maxRequestTimeMs', 'credentialRef', 'toolConfig', 'ref', 'toolName',
+  'qualifiedName', 'projectCode',
+  'httpApiAssetId',
+])
+const TOOL_NESTED_CONFIG_FIELDS = new Set([
+  'ref', 'toolName', 'qualifiedName', 'projectCode', 'credentialRef',
+  'maxRequestTimeMs', 'inputMapping', 'args', 'mappingNote', 'argumentSource',
+  'runtimeConfigExtras', 'nestedConfigExtras',
+])
+function toolExtraFields(value: Record<string, unknown>, knownFields: Set<string>) {
+  const extras: Record<string, unknown> = {}
+  for (const [key, raw] of Object.entries(value)) {
+    if (knownFields.has(key)) continue
+    extras[key] = raw
+  }
+  return extras
+}
+
+/** Preserves unowned Runtime fields for legacy Tool/API refs without giving them a new UI owner. */
+function toolRuntimeConfigExtras(config: Record<string, unknown>) {
+  return toolExtraFields(config, TOOL_RUNTIME_CONFIG_FIELDS)
+}
+
+function toolNestedConfigExtras(config: Record<string, unknown>) {
+  return toolExtraFields(config, TOOL_NESTED_CONFIG_FIELDS)
+}
+
+function graphToolConfig(tool: ToolNodeConfig): Record<string, unknown> {
+  return {
+    ...(tool.nestedConfigExtras || {}),
+    ref: tool.ref,
+    qualifiedName: tool.qualifiedName || null,
+    projectCode: tool.projectCode || null,
+    credentialRef: tool.credentialRef,
+    maxRequestTimeMs: tool.maxRequestTimeMs || 180000,
+    inputMapping: tool.inputMapping || {},
+    mappingNote: tool.mappingNote,
   }
 }
 

@@ -12,9 +12,10 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
-@RequestMapping("/api/api-market")
+@RequestMapping({"/api/api-market", "/internal/capability/api-market"})
 @RequiredArgsConstructor
 public class ExternalApiCatalogController {
 
@@ -63,17 +64,30 @@ public class ExternalApiCatalogController {
         return ResponseEntity.ok(catalogService.listIntegrations(projectId, projectCode, status));
     }
 
+    @GetMapping("/integrations/{integrationId}")
+    public ResponseEntity<ExternalApiCatalogViews.IntegrationView> integration(@PathVariable Long integrationId) {
+        return ResponseEntity.ok(catalogService.getIntegration(integrationId));
+    }
+
     @PostMapping("/entries/{entryKey}/integrations")
     public ResponseEntity<ExternalApiCatalogViews.IntegrationView> createIntegration(
             @PathVariable String entryKey,
-            @RequestBody ExternalApiCatalogViews.IntegrationCreateRequest request) {
-        return ResponseEntity.ok(catalogService.createIntegration(entryKey, request));
+            @RequestBody Map<String, Object> request) {
+        try { return ResponseEntity.ok(catalogService.createIntegration(entryKey, ExternalApiCatalogViews.IntegrationCreateRequest.fromWire(request))); }
+        catch (IllegalArgumentException invalid) { throw new ExternalApiCatalogException(org.springframework.http.HttpStatus.BAD_REQUEST,
+                "API_MARKET_REQUEST_INVALID", "只接受项目、环境、版本和 Operation 选择，不能提交 owner、hash、origin、认证或验证 proof"); }
     }
 
     @PutMapping("/integrations/{integrationId}/status")
     public ResponseEntity<ExternalApiCatalogViews.IntegrationView> updateIntegrationStatus(
             @PathVariable Long integrationId,
-            @RequestBody ExternalApiCatalogViews.IntegrationStatusRequest request) {
-        return ResponseEntity.ok(catalogService.updateIntegrationStatus(integrationId, request));
+            @RequestBody Map<String, Object> request) {
+        if (request == null || !java.util.Set.of("status", "note").containsAll(request.keySet())
+                || !(request.get("status") instanceof String status)
+                || request.get("note") != null && !(request.get("note") instanceof String)) {
+            throw new ExternalApiCatalogException(org.springframework.http.HttpStatus.BAD_REQUEST, "API_MARKET_REQUEST_INVALID", "接入状态请求格式无效，不能提交验证 proof");
+        }
+        return ResponseEntity.ok(catalogService.updateIntegrationStatus(integrationId,
+                new ExternalApiCatalogViews.IntegrationStatusRequest(status, (String)request.get("note"))));
     }
 }

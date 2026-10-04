@@ -20,6 +20,11 @@ public class RuntimeCapabilityInternalAuthSigner {
     public static final String CAPABILITY_INVOCATION_PATH =
             "/internal/capability/invocations";
 
+    public static String httpApiExecutionPath(Long apiId) {
+        if (apiId == null || apiId <= 0) throw new IllegalArgumentException("apiId must be positive");
+        return "/internal/capability/http-apis/" + apiId + "/execution-context";
+    }
+
     private static final Pattern QUALIFIED_NAME = Pattern.compile("[A-Za-z0-9._:-]{1,200}");
     private static final int MAX_IDENTITY_LENGTH = 256;
 
@@ -45,6 +50,22 @@ public class RuntimeCapabilityInternalAuthSigner {
                                               byte[] exactBody) {
         return sign(CAPABILITY_INVOCATION_PATH, identitySource,
                 identityTenantId, identityUserId, exactBody);
+    }
+
+    public Map<String, String> signHttpApiExecution(Long apiId, String projectCode, byte[] exactBody) {
+        return sign(httpApiExecutionPath(apiId),
+                InternalServiceAuthHeaders.IDENTITY_SOURCE_RUNTIME_TENANT_TRUSTED,
+                projectCode, "", exactBody);
+    }
+
+    public static String businessMethodExecutionPath(String qualifiedName) {
+        toolExecutePath(qualifiedName); // Same bounded stable-reference character policy.
+        return "/internal/capability/business-methods/" + qualifiedName + "/execution-context";
+    }
+
+    public Map<String, String> signBusinessMethodExecution(String qualifiedName, String projectCode, byte[] exactBody) {
+        return sign(businessMethodExecutionPath(qualifiedName),
+                InternalServiceAuthHeaders.IDENTITY_SOURCE_RUNTIME_TENANT_TRUSTED, projectCode, "", exactBody);
     }
 
     private Map<String, String> sign(String path,

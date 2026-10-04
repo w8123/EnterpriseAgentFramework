@@ -39,12 +39,178 @@ class RuntimeCapabilityCatalogGatewayTest {
     private static final String SECRET = "runtime-capability-contract-secret-32bytes";
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    private com.enterprise.ai.common.capability.ConsoleCapabilityInvocationContracts.InvocationCommand consoleCommand(boolean confirmed) {
+        return new com.enterprise.ai.common.capability.ConsoleCapabilityInvocationContracts.InvocationCommand(1,
+                "123e4567-e89b-42d3-a456-426614174000", "42", 41L, "orders", "orders:append",
+                "a".repeat(64), Map.of("note", "append-once"), java.util.List.of(), "WRITE", confirmed,
+                System.currentTimeMillis() + 30_000);
+    }
+
+    private Map<String, Object> consoleRequest() {
+        var command = consoleCommand(true);
+        return new LinkedHashMap<>(Map.of("invocationId", command.invocationId(), "input", command.input(),
+                "context", Map.of("externalUserId", "platform:42", "roles", java.util.List.of("ADMIN")),
+                RuntimeCapabilityCatalogClient.TRUSTED_CONSOLE_INVOCATION_ATTRIBUTE, command));
+    }
+
+    @Test void attestedConsoleWriteUsesSameSignedTransportWithoutAnyBusinessIdentity() throws Exception {
+        var transport = mock(RuntimeCapabilityCatalogFeignClient.class);
+        when(transport.invokeCapability(anyMap(), any(byte[].class))).thenAnswer(call -> successResponse(call.getArgument(1)));
+        var gateway = new RuntimeCapabilityCatalogGateway(transport, new RuntimeCapabilityInternalAuthSigner(SECRET), objectMapper);
+        gateway.invokeTool("orders:append", consoleRequest());
+        var headers = ArgumentCaptor.forClass(Map.class); var body = ArgumentCaptor.forClass(byte[].class);
+        verify(transport).invokeCapability(headers.capture(), body.capture());
+        var wire = objectMapper.readTree(body.getValue()); var auth = headers.getValue();
+        assertEquals("RUNTIME_UNTRUSTED", auth.get(InternalServiceAuthHeaders.IDENTITY_SOURCE));
+        assertEquals("", auth.get(InternalServiceAuthHeaders.IDENTITY_USER_ID));
+        assertEquals("", auth.get(InternalServiceAuthHeaders.IDENTITY_TENANT_ID));
+        assertTrue(wire.path("context").isEmpty());
+        assertFalse(wire.has(RuntimeCapabilityCatalogClient.TRUSTED_CONSOLE_INVOCATION_ATTRIBUTE));
+        assertFalse(new String(body.getValue(), java.nio.charset.StandardCharsets.UTF_8).contains("platform:42"));
+        assertTrue(wire.path("constraints").path("consoleCapabilityInvocation").asBoolean());
+        assertEquals("a".repeat(64), wire.path("constraints").path("expectedContractHash").asText());
+    }
+
+    @Test void aJsonConsoleMarkerOrFlagCannotBypassTheDebugBusinessMethodGuard() {
+        for (boolean marker : java.util.List.of(false, true)) {
+            var transport = mock(RuntimeCapabilityCatalogFeignClient.class);
+            when(transport.getToolDefinition("orders:append")).thenReturn(Map.of("assetType", "BUSINESS_METHOD"));
+            var gateway = new RuntimeCapabilityCatalogGateway(transport, new RuntimeCapabilityInternalAuthSigner(SECRET), objectMapper);
+            var request = new LinkedHashMap<String, Object>(); request.put("input", Map.of("note", "forged"));
+            request.put("constraints", Map.of("consoleCapabilityInvocation", true, "confirmedSideEffect", true));
+            if (marker) request.put(RuntimeCapabilityCatalogClient.TRUSTED_CONSOLE_INVOCATION_ATTRIBUTE,
+                    objectMapper.convertValue(consoleCommand(true), Map.class));
+            assertThrows(IllegalStateException.class, () -> gateway.invokeTool("orders:append", request));
+            org.mockito.Mockito.verify(transport, org.mockito.Mockito.never()).invokeCapability(anyMap(), any(byte[].class));
+        }
+    }
+
+    @Test void consoleGrantRejectsDifferentTargetIdInputMissingConfirmationAndMixedAuthority() {
+        for (String mutation : java.util.List.of("target", "id", "input", "confirmation", "identity", "eval")) {
+            var transport = mock(RuntimeCapabilityCatalogFeignClient.class);
+            var gateway = new RuntimeCapabilityCatalogGateway(transport, new RuntimeCapabilityInternalAuthSigner(SECRET), objectMapper);
+            var request = consoleRequest();
+            if (mutation.equals("id")) request.put("invocationId", "223e4567-e89b-42d3-a456-426614174000");
+            if (mutation.equals("input")) request.put("input", Map.of("note", "changed"));
+            if (mutation.equals("confirmation")) request.put(RuntimeCapabilityCatalogClient.TRUSTED_CONSOLE_INVOCATION_ATTRIBUTE, consoleCommand(false));
+            if (mutation.equals("identity")) request.put(RuntimeCapabilityCatalogClient.TRUSTED_IDENTITY_ATTRIBUTE, WorkflowExecutionIdentity.untrustedDebug());
+            if (mutation.equals("eval")) request.put(RuntimeCapabilityCatalogClient.TRUSTED_EVAL_CONTEXT_ATTRIBUTE, RuntimeEvalExecutionContext.readOnly("e1", "t1", "fingerprint"));
+            assertThrows(IllegalStateException.class, () -> gateway.invokeTool(mutation.equals("target") ? "orders:other" : "orders:append", request));
+            org.mockito.Mockito.verifyNoInteractions(transport);
+        }
+    }
+
+    @Test
+    void ordinaryDebugAndMapIdentityCannotDispatchAnOwnerTypedBusinessMethod() {
+        for (Object marker : java.util.List.of(WorkflowExecutionIdentity.untrustedDebug(),
+                Map.of("source", "STUDIO_PROJECT_TEST", "projectTrusted", true, "projectCode", "orders"))) {
+            var transport = mock(RuntimeCapabilityCatalogFeignClient.class);
+            when(transport.getToolDefinition("orders:normalize")).thenReturn(Map.of("assetType", "BUSINESS_METHOD"));
+            var gateway = new RuntimeCapabilityCatalogGateway(transport, new RuntimeCapabilityInternalAuthSigner(SECRET), objectMapper);
+            assertThrows(IllegalStateException.class, () -> gateway.invokeTool("orders:normalize", Map.of(
+                    "input", Map.of("tenantId", "orders"), "context", Map.of("tenantId", "orders"),
+                    "constraints", Map.of("studioReadOnlyTrial", true),
+                    RuntimeCapabilityCatalogClient.TRUSTED_IDENTITY_ATTRIBUTE, marker)));
+            org.mockito.Mockito.verify(transport, org.mockito.Mockito.never()).invokeCapability(anyMap(), any(byte[].class));
+        }
+    }
+
+    @Test
+    void studioProjectIdentityWithoutRequestLocalMethodPinMustNeverDispatch() {
+        RuntimeCapabilityCatalogFeignClient transport = mock(RuntimeCapabilityCatalogFeignClient.class);
+        when(transport.invokeCapability(anyMap(), any(byte[].class)))
+                .thenAnswer(invocation -> successResponse(invocation.getArgument(1)));
+        RuntimeCapabilityCatalogGateway gateway = new RuntimeCapabilityCatalogGateway(
+                transport, new RuntimeCapabilityInternalAuthSigner(SECRET), objectMapper);
+        var failure = assertThrows(IllegalStateException.class, () -> gateway.invokeTool("orders:query", Map.of(
+                "input", Map.of("orderNo", "O-321"),
+                RuntimeCapabilityCatalogClient.TRUSTED_IDENTITY_ATTRIBUTE,
+                WorkflowExecutionIdentity.fromAttestedStudioProjectTest(41L, "orders", "42"))));
+        assertEquals("BUSINESS_METHOD_TRIAL_SCOPE_REQUIRED", failure.getMessage());
+        org.mockito.Mockito.verifyNoInteractions(transport);
+    }
+
     static java.util.stream.Stream<WorkflowExecutionIdentity> tenantScopedIdentities() {
         return java.util.stream.Stream.of(
                 WorkflowExecutionIdentity.fromMcpRemoteClient("tenant-a", 35L, "bzjs20", "mcp-client-7"),
                 WorkflowExecutionIdentity.fromAutomation("tenant-a", 35L, "bzjs20", "automation-7"),
                 WorkflowExecutionIdentity.fromA2aRemoteAgent("tenant-a", 35L, "bzjs20", "a2a-client-7"),
                 WorkflowExecutionIdentity.fromAgent("tenant-a", 35L, "bzjs20", null));
+    }
+
+    private com.enterprise.ai.common.capability.ConsoleCapabilityInvocationContracts.InvocationContext methodOwner() {
+        return new com.enterprise.ai.common.capability.ConsoleCapabilityInvocationContracts.InvocationContext(1,
+                "orders_normalize", "orders:normalize", "orders:normalize", "BUSINESS_METHOD", 41L, "orders",
+                "a".repeat(64), "a".repeat(64), "a".repeat(64), "READY", true, "READ_ONLY", java.util.List.of(),
+                null, "String", null, null, "UNKNOWN", true, false, true, null, null, 30_000);
+    }
+    private Map<String, Object> methodRequest() {
+        return new LinkedHashMap<>(Map.of("input", Map.of("orderNo", "A-1024"), "context", Map.of(
+                "nodeId", "method", "tenantId", "forged", "externalUserId", "platform:42", "roles", java.util.List.of("ADMIN")),
+                RuntimeCapabilityCatalogClient.TRUSTED_IDENTITY_ATTRIBUTE,
+                WorkflowExecutionIdentity.fromAttestedStudioProjectTest(41L, "orders", "42")));
+    }
+    private com.enterprise.ai.common.capability.WorkflowReadOnlyTrialPolicy.BusinessMethodPin methodPin() {
+        return new com.enterprise.ai.common.capability.WorkflowReadOnlyTrialPolicy.BusinessMethodPin("method", 41L, "orders",
+                methodOwner(), Map.of("orderNo", "A-1024"), System.currentTimeMillis() + 40_000);
+    }
+    @Test
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    void studioPinSignsExactProjectOnlyContextAndContractAndNeverDispatchesTwice() throws Exception {
+        var transport = mock(RuntimeCapabilityCatalogFeignClient.class);
+        when(transport.businessMethodExecutionContext(anyString(), anyMap(), any(byte[].class))).thenReturn(methodOwner());
+        when(transport.invokeCapability(anyMap(), any(byte[].class))).thenAnswer(invocation -> successResponse(invocation.getArgument(1)));
+        var gateway = new RuntimeCapabilityCatalogGateway(transport, new RuntimeCapabilityInternalAuthSigner(SECRET), objectMapper);
+        gateway.withBusinessMethodDraftScope(methodPin(), () -> true, () -> {
+            var response = gateway.invokeTool("orders:normalize", methodRequest());
+            assertEquals(Map.of("data", Map.of("ok", true)), response.data()); assertFalse(response.retryable());
+            assertThrows(IllegalStateException.class, () -> gateway.invokeTool("orders:normalize", methodRequest()));
+            return null;
+        });
+        var headers = ArgumentCaptor.forClass(Map.class); var body = ArgumentCaptor.forClass(byte[].class);
+        verify(transport).invokeCapability(headers.capture(), body.capture());
+        Map<String, String> auth = headers.getValue(); var wire = objectMapper.readTree(body.getValue());
+        assertEquals("RUNTIME_TRUSTED_TENANT", auth.get(InternalServiceAuthHeaders.IDENTITY_SOURCE));
+        assertEquals("orders", auth.get(InternalServiceAuthHeaders.IDENTITY_TENANT_ID));
+        assertEquals("", auth.get(InternalServiceAuthHeaders.IDENTITY_USER_ID));
+        assertEquals(objectMapper.valueToTree(Map.of("tenantId", "orders")), wire.path("context"));
+        assertEquals("a".repeat(64), wire.path("constraints").path("expectedContractHash").asText());
+        assertTrue(wire.path("constraints").path("studioReadOnlyTrial").asBoolean());
+        assertTrue(signatureValid(auth, body.getValue(), "orders:normalize"));
+        assertEquals("BUSINESS_METHOD_TRIAL_SCOPE_REQUIRED", assertThrows(IllegalStateException.class,
+                () -> gateway.invokeTool("orders:normalize", methodRequest())).getMessage());
+    }
+    @Test
+    void wrongTypedIdentityTargetInputNodeAndDraftAreRejectedBeforeCapabilityDispatch() {
+        for (String mutation : java.util.List.of("mapIdentity", "debugIdentity", "project", "target", "input", "node", "revision")) {
+            var transport = mock(RuntimeCapabilityCatalogFeignClient.class);
+            when(transport.businessMethodExecutionContext(anyString(), anyMap(), any(byte[].class))).thenReturn(methodOwner());
+            var gateway = new RuntimeCapabilityCatalogGateway(transport, new RuntimeCapabilityInternalAuthSigner(SECRET), objectMapper);
+            Map<String, Object> request = methodRequest();
+            switch (mutation) {
+                case "mapIdentity" -> request.put(RuntimeCapabilityCatalogClient.TRUSTED_IDENTITY_ATTRIBUTE, Map.of("source", "STUDIO_PROJECT_TEST", "projectTrusted", true));
+                case "debugIdentity" -> request.put(RuntimeCapabilityCatalogClient.TRUSTED_IDENTITY_ATTRIBUTE, WorkflowExecutionIdentity.untrustedDebug());
+                case "project" -> request.put(RuntimeCapabilityCatalogClient.TRUSTED_IDENTITY_ATTRIBUTE, WorkflowExecutionIdentity.fromAttestedStudioProjectTest(99L, "other", "42"));
+                case "input" -> request.put("input", Map.of("orderNo", "changed"));
+                case "node" -> request.put("context", Map.of("nodeId", "other"));
+            }
+            assertThrows(IllegalStateException.class, () -> gateway.withBusinessMethodDraftScope(methodPin(),
+                    () -> !"revision".equals(mutation), () -> gateway.invokeTool("target".equals(mutation) ? "orders:other" : "orders:normalize", request)), mutation);
+            org.mockito.Mockito.verify(transport, org.mockito.Mockito.never()).invokeCapability(anyMap(), any(byte[].class));
+        }
+    }
+    @Test
+    void unconfirmedDispatchHasOneAttemptNoRetryAndScopeIsRemovedEvenOnFailure() {
+        var transport = mock(RuntimeCapabilityCatalogFeignClient.class);
+        when(transport.businessMethodExecutionContext(anyString(), anyMap(), any(byte[].class))).thenReturn(methodOwner());
+        when(transport.invokeCapability(anyMap(), any(byte[].class))).thenThrow(new IllegalStateException("disconnect with upstream-secret"));
+        var gateway = new RuntimeCapabilityCatalogGateway(transport, new RuntimeCapabilityInternalAuthSigner(SECRET), objectMapper);
+        var rejected = assertThrows(IllegalStateException.class, () -> gateway.withBusinessMethodDraftScope(methodPin(), () -> true,
+                () -> gateway.invokeTool("orders:normalize", methodRequest())));
+        assertEquals("BUSINESS_METHOD_TRIAL_RESULT_UNCONFIRMED", rejected.getMessage());
+        assertEquals("BUSINESS_METHOD_TRIAL_SCOPE_REQUIRED", assertThrows(IllegalStateException.class,
+                () -> gateway.invokeTool("orders:normalize", methodRequest())).getMessage());
+        verify(transport).invokeCapability(anyMap(), any(byte[].class));
     }
 
     @ParameterizedTest

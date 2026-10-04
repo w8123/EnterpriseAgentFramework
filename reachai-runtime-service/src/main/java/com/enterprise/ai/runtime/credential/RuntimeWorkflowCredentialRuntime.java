@@ -6,6 +6,11 @@ public record RuntimeWorkflowCredentialRuntime(
         String credentialRef,
         String name,
         String type,
-        Map<String, Object> secret
+        Map<String, Object> secret,
+        String revision
 ) {
+    public RuntimeWorkflowCredentialRuntime(String credentialRef, String name, String type,
+                                            Map<String, Object> secret) {
+        this(credentialRef, name, type, secret, null);
+    }
 }

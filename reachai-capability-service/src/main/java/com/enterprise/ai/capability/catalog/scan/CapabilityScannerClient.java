@@ -2,6 +2,7 @@ package com.enterprise.ai.capability.catalog.scan;
 
 import com.enterprise.ai.common.dto.ApiResult;
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -41,7 +42,18 @@ public interface CapabilityScannerClient {
                        String incrementalMode) {
     }
 
-    record ManifestData(ProjectData project, List<ToolData> tools) {
+    /**
+     * httpApis is null only for a pre-3A-2B1 scanner response. A present empty list plus true
+     * means an explicit complete inventory; false means the scanner intentionally omitted
+     * unsupported or incremental facts and cannot instruct source removal.
+     */
+    record ManifestData(ProjectData project,
+                        List<ToolData> tools,
+                        List<HttpApiData> httpApis,
+                        Boolean httpApiInventoryComplete) {
+        public ManifestData(ProjectData project, List<ToolData> tools) {
+            this(project, tools, null, null);
+        }
     }
 
     record ProjectData(String name, String baseUrl, String contextPath) {
@@ -68,5 +80,42 @@ public interface CapabilityScannerClient {
     }
 
     record ToolSourceData(String scanner, String location) {
+    }
+
+    record HttpApiData(String sourceKey,
+                       String sourceLocation,
+                       String sourceRevision,
+                       String httpMethod,
+                       String contextPath,
+                       String endpointPath,
+                       List<String> consumes,
+                       List<String> produces,
+                       List<HttpApiMappingConditionData> mappingConditions,
+                       List<HttpApiParameterData> parameters,
+                       HttpApiRequestBodyData requestBody,
+                       List<HttpApiResponseData> responses,
+                       String authenticationState,
+                       List<String> authenticationSchemes,
+                       List<String> requiredHeaderNames,
+                       String sideEffect) {
+    }
+
+    record HttpApiMappingConditionData(String kind, String name, String operator, String value) {
+    }
+
+    record HttpApiParameterData(String name,
+                                String location,
+                                Boolean required,
+                                JsonNode schema,
+                                List<String> contentTypes) {
+    }
+
+    record HttpApiRequestBodyData(String location,
+                                  Boolean required,
+                                  JsonNode schema,
+                                  List<String> contentTypes) {
+    }
+
+    record HttpApiResponseData(String status, JsonNode schema, List<String> contentTypes) {
     }
 }

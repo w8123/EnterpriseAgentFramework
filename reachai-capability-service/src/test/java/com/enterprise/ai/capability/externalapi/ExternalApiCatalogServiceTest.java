@@ -28,6 +28,7 @@ class ExternalApiCatalogServiceTest {
     private final ProjectExternalApiOperationMapper integrationOperationMapper =
             mock(ProjectExternalApiOperationMapper.class);
     private final ScanProjectMapper projectMapper = mock(ScanProjectMapper.class);
+    private final ApiMarketHttpApiBindingService apiBindings = mock(ApiMarketHttpApiBindingService.class);
     private final ExternalApiCatalogService service = new ExternalApiCatalogService(
             sourceMapper,
             providerMapper,
@@ -38,7 +39,7 @@ class ExternalApiCatalogServiceTest {
             integrationMapper,
             integrationOperationMapper,
             projectMapper,
-            new ObjectMapper()
+            new ObjectMapper(), apiBindings
     );
 
     @Test
@@ -114,7 +115,8 @@ class ExternalApiCatalogServiceTest {
         assertEquals("READY", result.status());
         assertEquals(false, result.credentialRequired());
         assertEquals("forecast", result.selectedOperations().get(0).operationKey());
-        verify(integrationOperationMapper).insert(any());
+        verify(apiBindings).replace(any(), any(), any(), any(), any());
+        verify(integrationOperationMapper, never()).insert(any());
     }
 
     @Test

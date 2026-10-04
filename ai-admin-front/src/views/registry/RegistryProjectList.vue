@@ -328,7 +328,6 @@ import {
 import { issueRegistryEnrollment } from '@/api/registry'
 import type { ScanProject, ScanProjectUpsertRequest } from '@/types/scanProject'
 import type { RegistryEnrollmentToken, RegistryProjectRegisterRequest } from '@/types/registry'
-import { useProjectStore } from '@/store/project'
 import { useTheme } from '@/composables/useTheme'
 import {
   PROJECT_KIND_SELECT_OPTIONS,
@@ -338,7 +337,6 @@ import {
 } from '@/utils/projectLabels'
 
 const router = useRouter()
-const projectStore = useProjectStore()
 const { theme } = useTheme()
 
 const loading = ref(false)
@@ -545,7 +543,6 @@ async function loadProjects(query: ScanProjectListQuery = buildProjectListQuery(
   try {
     const { data } = await getScanProjects(query)
     projects.value = Array.isArray(data) ? data : []
-    projectStore.projects = projects.value
   } catch {
     projects.value = []
     ElMessage.error('加载项目失败')

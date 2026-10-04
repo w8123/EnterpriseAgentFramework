@@ -19,6 +19,7 @@ public class ProjectExternalApiEntity {
     private Long versionId;
     private String environment;
     private String status;
+    private Long selectionRevision;
     private String note;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

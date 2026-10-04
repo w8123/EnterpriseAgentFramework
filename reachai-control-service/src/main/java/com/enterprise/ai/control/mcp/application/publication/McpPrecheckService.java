@@ -73,6 +73,7 @@ public class McpPrecheckService {
                 source.sourceRef(),
                 source.workflowVersionId(),
                 riskLevel,
-                source.capabilityContractHash());
+                source.capabilityContractHash(),
+                source.minimumRiskLevel());
     }
 }

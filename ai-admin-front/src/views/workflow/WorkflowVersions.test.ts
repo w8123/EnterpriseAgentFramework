@@ -5,7 +5,7 @@ import WorkflowVersions from './WorkflowVersions.vue'
 import { getWorkflow, listWorkflowVersions, publishWorkflowVersion, rollbackWorkflowVersion } from '@/api/workflow'
 
 vi.mock('vue-router', () => ({
-  useRoute: () => ({ params: { workflowId: 'wf-orders' } }),
+  useRoute: () => ({ params: { workflowId: 'wf-orders' }, query: {} }),
   useRouter: () => ({ push: vi.fn() }),
 }))
 vi.mock('@/api/workflow', () => ({

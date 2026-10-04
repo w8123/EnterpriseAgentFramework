@@ -20,6 +20,7 @@ public final class WorkflowExecutionIdentity {
         A2A_REMOTE_AGENT,
         AUTOMATION,
         MCP_REMOTE_CLIENT,
+        STUDIO_PROJECT_TEST,
         DEBUG_UNTRUSTED,
         COMPOSITION_UNTRUSTED
     }
@@ -120,6 +121,17 @@ public final class WorkflowExecutionIdentity {
         return new WorkflowExecutionIdentity(Source.DEBUG_UNTRUSTED, null, null, null, null, false, false);
     }
 
+    /** Internal signed Studio trial only: project credentials, never a business-user identity. */
+    public static WorkflowExecutionIdentity fromAttestedStudioProjectTest(
+            Long projectId, String projectCode, String platformActorId) {
+        if (projectId == null || projectId <= 0 || !StringUtils.hasText(projectCode)
+                || !StringUtils.hasText(platformActorId)) {
+            throw new IllegalArgumentException("Attested Studio project test identity is incomplete");
+        }
+        return new WorkflowExecutionIdentity(Source.STUDIO_PROJECT_TEST, null, projectId,
+                projectCode, "platform:" + platformActorId.trim(), true, false);
+    }
+
     /**
      * A remote MCP Client may execute published platform contracts, but it is
      * never promoted to a ReachAI business user for personal-memory or
@@ -189,6 +201,8 @@ public final class WorkflowExecutionIdentity {
             case MCP_REMOTE_CLIENT -> StringUtils.hasText(userId)
                     ? fromMcpRemoteClient(tenantId, projectId, projectCode, userId)
                     : untrustedDebug();
+            // A request-scoped Studio trust grant must never survive a generic context snapshot.
+            case STUDIO_PROJECT_TEST -> untrustedDebug();
             case COMPOSITION_UNTRUSTED -> untrustedComposition();
             case DEBUG_UNTRUSTED -> untrustedDebug();
         };

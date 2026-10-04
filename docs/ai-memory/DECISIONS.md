@@ -80,11 +80,11 @@
 
 ## Capability 与 Skill 命名
 
-产品和文档默认使用 `Capability / 能力`。
+2026-09-15 用户确认“业务方法”与“API”分别管理，同时服务 Java 接入开发者与 Agent / Workflow 实施人员。在现有 Capability 服务内重构模型和使用流程，复用接入、同步、契约与调用机制；`Capability / 能力` 可继续作为统称、聚合视图或技术身份。本段记录目标决定，实施状态见[实施基线](../plans/业务方法与API重构实施基线.md)和[实施进度](../plans/业务方法与API重构实施进度.md)。
 
 `Skill` 仅用于标准 Agent Skill 包或外部协议字段。ReachAI 禁止重新引入自创的 Skill 业务资产模型；Capability 是业务资产，Tool 是调用协议，Workflow 是 GraphSpec 编排。已退役的 `capability_draft`、`runtime_skill_interaction`、`kind=SKILL` 目录和 GraphSpec `CAPABILITY` 节点不得作为现行资产模型。
 
-通用 Tool 不再作为独立产品资产：管理端移除 Tool 目录和人工 CRUD，旧 `/tool` 重定向到能力目录；扫描 API 使用“纳入能力目录”语义，Agent 产品面使用“可调用 Workflow”。`capability_tool_definition`、`/api/tools/**`、Tool ACL、Tool Call、MCP Tool 和 Workflow-as-Tool 继续保留为运行时投影、协议或兼容技术身份。未来独立的“代码工具 / Code Tools”只对应注解方法（Methods as Tools），在模型正式落地前不复用当前通用目录。
+通用 Tool 不再作为独立产品资产：当前管理端移除 Tool 目录和人工 CRUD，旧 `/tool` 重定向到能力目录；扫描 API 在本决定形成时仍使用“纳入能力目录”语义，BMAPI-5A 已将其改为来源发现到业务方法/API owning object 的导航，旧人工投影/执行入口 scoped 410，Agent 产品面使用“可调用 Workflow”。`capability_tool_definition`、`/api/tools/**`、Tool ACL、Tool Call、MCP Tool 和 Workflow-as-Tool 继续保留为运行时投影、协议或兼容技术身份。“业务方法”替代此前“代码工具 / Code Tools”的预留产品名；目标是源资产唯一维护和调用投影自动衔接，不把现有混合目录整体换名。具体模型与旧入口退场的签收状态以专项批次为准，完成证据统一记入专项进度。
 
 `reachai-knowledge-service` 是 Knowledge / Retrieval 部署单元，不再称为“技能服务”。
 

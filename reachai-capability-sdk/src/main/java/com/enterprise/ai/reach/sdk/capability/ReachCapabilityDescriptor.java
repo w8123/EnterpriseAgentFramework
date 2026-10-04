@@ -20,6 +20,7 @@ public class ReachCapabilityDescriptor {
     private String module;
     private List<String> tags = new ArrayList<String>();
     private ReachSideEffectLevel sideEffect;
+    private ReachCapabilityAssetType assetType;
     private List<String> requiredRoles = new ArrayList<String>();
     private int timeoutMs;
     private int retryLimit;
@@ -85,6 +86,14 @@ public class ReachCapabilityDescriptor {
 
     public void setSideEffect(ReachSideEffectLevel sideEffect) {
         this.sideEffect = sideEffect;
+    }
+
+    public ReachCapabilityAssetType getAssetType() {
+        return assetType;
+    }
+
+    public void setAssetType(ReachCapabilityAssetType assetType) {
+        this.assetType = assetType;
     }
 
     public List<String> getRequiredRoles() {

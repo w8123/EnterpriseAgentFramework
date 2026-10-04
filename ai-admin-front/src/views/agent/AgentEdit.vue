@@ -1002,7 +1002,6 @@ import type {
   A2aRemoteAgent,
   A2aRemoteAgentDetail,
 } from '@/types/a2aHub'
-import { getScanProjects } from '@/api/scanProject'
 import { getModelInstances } from '@/api/model'
 import type { ScanProject } from '@/types/scanProject'
 import type { ModelInstance } from '@/types/model'
@@ -1921,19 +1920,23 @@ async function loadAgentConfig() {
 }
 
 async function loadScanProjects() {
-  try {
-    const { data } = await getScanProjects()
-    scanProjects.value = Array.isArray(data) ? data : []
-    projectStore.projects = scanProjects.value
-    if (isNew) {
-      const queryProjectId = Number(route.query.projectId)
-      form.projectId = Number.isFinite(queryProjectId) && queryProjectId > 0
-        ? queryProjectId
-        : projectStore.currentProjectId ?? null
-      form.projectCode = projectCodeById(form.projectId)
-    }
-  } catch {
+  const loadedProjects = await projectStore.fetchProjects()
+  if (loadedProjects === null) {
     scanProjects.value = []
+    return
+  }
+  scanProjects.value = loadedProjects
+  if (isNew) {
+    if (route.query.scope === 'all') {
+      form.projectId = null
+      form.projectCode = null
+      return
+    }
+    const queryProjectId = Number(route.query.projectId)
+    form.projectId = Number.isFinite(queryProjectId) && queryProjectId > 0
+      ? queryProjectId
+      : projectStore.currentProjectId ?? null
+    form.projectCode = projectCodeById(form.projectId)
   }
 }
 
@@ -2147,7 +2150,7 @@ onUnmounted(() => {
 
 .config-section-nav > button:hover {
   color: var(--brand-active);
-  background: var(--bg-subtle);
+  background: var(--surface-fallback-panel);
 }
 
 .config-section-nav > button.is-active {
@@ -2191,7 +2194,7 @@ onUnmounted(() => {
   place-items: center;
   border-radius: 999px;
   color: var(--text-secondary);
-  background: var(--bg-subtle);
+  background: var(--surface-fallback-panel);
   font-size: 11px;
   font-weight: 700;
 }
@@ -2209,7 +2212,7 @@ onUnmounted(() => {
   padding: 10px;
   border: 1px solid var(--border-divider);
   border-radius: 10px;
-  background: var(--bg-subtle);
+  background: var(--surface-fallback-panel);
 }
 
 .config-section-nav__footer span,
@@ -2528,7 +2531,7 @@ onUnmounted(() => {
   width: 20px;
   flex: 0 0 20px;
   place-items: center;
-  color: var(--text-placeholder);
+  color: var(--text-muted);
   font-size: 16px;
 }
 
@@ -2583,7 +2586,7 @@ onUnmounted(() => {
   padding: 2px 8px;
   border-radius: 999px;
   color: var(--text-secondary);
-  background: var(--bg-subtle);
+  background: var(--surface-fallback-panel);
   font-size: 11px;
   font-weight: 650;
   line-height: 18px;
@@ -2614,7 +2617,7 @@ onUnmounted(() => {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   border-top: 1px solid var(--border-divider);
-  background: var(--bg-subtle);
+  background: var(--surface-fallback-panel);
 }
 
 .config-asset-card__meta > div {
@@ -3032,9 +3035,9 @@ onUnmounted(() => {
   justify-content: space-between;
   gap: 20px;
   padding: 18px 20px;
-  border: 1px dashed var(--border-default);
+  border: 1px dashed var(--border-readable);
   border-radius: var(--radius-lg);
-  background: var(--bg-subtle);
+  background: var(--surface-fallback-panel);
 }
 
 .skill-binding-zero-state strong {
@@ -3174,7 +3177,7 @@ onUnmounted(() => {
   padding: 24px 20px 20px;
   border: 1px dashed color-mix(in srgb, var(--brand-primary) 20%, var(--border-divider));
   border-radius: var(--radius-lg);
-  background: color-mix(in srgb, var(--bg-subtle) 68%, var(--surface-solid-control));
+  background: color-mix(in srgb, var(--surface-fallback-panel) 68%, var(--surface-solid-control));
   text-align: center;
 }
 
@@ -3245,7 +3248,7 @@ onUnmounted(() => {
   place-items: center;
   border-radius: 50%;
   color: var(--text-muted);
-  background: var(--bg-subtle);
+  background: var(--surface-fallback-panel);
   font-size: 11px;
   font-weight: 750;
 }

@@ -72,6 +72,11 @@ public class RuntimeA2aExecutionInternalController {
                     auth.identityTenantId(), null, null, auth.identityUserId());
             Map<String, Object> body = new LinkedHashMap<>();
             body.put("agentId", agentId);
+            // STANDARD Guard consumes tenantId from the server-owned policy input,
+            // not the protocol Message metadata. Preserve only the signed tenant.
+            if (StringUtils.hasText(auth.identityTenantId())) {
+                body.put("tenantId", auth.identityTenantId().trim());
+            }
             body.put("sessionId", contextId);
             body.put("message", request.message().trim());
             body.put("traceId", executionId);

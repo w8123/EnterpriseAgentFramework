@@ -47,6 +47,7 @@ public class CapabilityToolLookupService {
         body.put("capabilityMetadataJson", entity.getCapabilityMetadataJson());
         body.put("parametersJson", entity.getParametersJson());
         body.put("source", entity.getSource());
+        body.put("assetType", entity.getAssetType());
         body.put("sourceLocation", entity.getSourceLocation());
         body.put("httpMethod", entity.getHttpMethod());
         body.put("baseUrl", entity.getBaseUrl());

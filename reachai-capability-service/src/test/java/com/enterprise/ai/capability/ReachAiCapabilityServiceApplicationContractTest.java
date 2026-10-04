@@ -4,6 +4,8 @@ import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.MybatisSqlSessionFactoryBuilder;
 import com.enterprise.ai.capability.registry.CapabilitySourceStateMapper;
 import com.enterprise.ai.capability.registry.CapabilitySyncReceiptMapper;
+import com.enterprise.ai.capability.catalog.httpapi.HttpApiAssetMapper;
+import com.enterprise.ai.capability.catalog.httpapi.HttpApiSourceBindingMapper;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.mapping.Environment;
 import org.apache.ibatis.session.SqlSessionFactory;
@@ -44,6 +46,7 @@ class ReachAiCapabilityServiceApplicationContractTest {
                 "com.enterprise.ai.agent.capability",
                 "com.enterprise.ai.capability.registry",
                 "com.enterprise.ai.capability.catalog.retrieval",
+                "com.enterprise.ai.capability.catalog.httpapi",
                 "com.enterprise.ai.capability.externalapi"
         }, mapperScan.value());
         assertEquals(Mapper.class, mapperScan.annotationClass());
@@ -59,7 +62,7 @@ class ReachAiCapabilityServiceApplicationContractTest {
     }
 
     @Test
-    void registersSourceStateAndSyncReceiptMappersThroughApplicationConfiguration() {
+    void registersRegistryAndHttpApiMappersThroughApplicationConfiguration() {
         MybatisConfiguration configuration = new MybatisConfiguration();
         configuration.setEnvironment(new Environment("mapper-registration", new JdbcTransactionFactory(),
                 new DriverManagerDataSource("jdbc:h2:mem:capability_mapper_registration")));
@@ -73,6 +76,8 @@ class ReachAiCapabilityServiceApplicationContractTest {
 
             assertNotNull(context.getBean(CapabilitySourceStateMapper.class));
             assertNotNull(context.getBean(CapabilitySyncReceiptMapper.class));
+            assertNotNull(context.getBean(HttpApiAssetMapper.class));
+            assertNotNull(context.getBean(HttpApiSourceBindingMapper.class));
         }
     }
 }

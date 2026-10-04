@@ -15,6 +15,41 @@ import java.util.Map;
 @FeignClient(name = "reachai-runtime-proxy", url = "${services.runtime-service.url:http://localhost:18604}")
 public interface RuntimeProxyClient {
 
+    @RequestMapping(method = RequestMethod.POST,
+            path = "/internal/runtime/workflows/studio/read-only-trials", consumes = "application/json")
+    ResponseEntity<Object> runReadOnlyApiDraftTrial(@RequestHeader Map<String, String> headers,
+                                                    @RequestBody byte[] exactBody);
+
+    @RequestMapping(method = RequestMethod.POST, path = "/internal/runtime/http-api-catalog-states", consumes = "application/json")
+    ResponseEntity<Object> readHttpApiCatalogStates(@RequestHeader Map<String, String> headers,
+                                                    @RequestBody byte[] exactBody);
+
+    @RequestMapping(method = RequestMethod.POST, path = "/internal/runtime/http-api-connections", consumes = "application/json")
+    ResponseEntity<Object> readHttpApiConnection(@RequestHeader Map<String, String> headers,
+                                                 @RequestBody byte[] exactBody);
+
+    @RequestMapping(method = RequestMethod.PUT, path = "/internal/runtime/http-api-connections", consumes = "application/json")
+    ResponseEntity<Object> saveHttpApiConnection(@RequestHeader Map<String, String> headers,
+                                                 @RequestBody byte[] exactBody);
+
+    @RequestMapping(method = RequestMethod.POST, path = "/internal/runtime/http-api-invocations", consumes = "application/json")
+    ResponseEntity<Object> invokeHttpApi(@RequestHeader Map<String, String> headers, @RequestBody byte[] exactBody);
+
+    @RequestMapping(method = RequestMethod.GET, path = "/internal/runtime/http-api-invocations/{invocationId}")
+    ResponseEntity<Object> getHttpApiInvocation(@PathVariable("invocationId") String invocationId,
+                                                @RequestHeader Map<String, String> headers);
+
+    @RequestMapping(method = RequestMethod.POST, path = "/internal/runtime/console-capability-invocations",
+            consumes = "application/json")
+    ResponseEntity<Object> invokeConsoleCapability(
+            @org.springframework.web.bind.annotation.RequestHeader Map<String, String> headers,
+            @RequestBody byte[] exactBody);
+
+    @RequestMapping(method = RequestMethod.GET, path = "/internal/runtime/console-capability-invocations/{invocationId}")
+    ResponseEntity<Object> getConsoleCapabilityInvocation(
+            @PathVariable("invocationId") String invocationId,
+            @org.springframework.web.bind.annotation.RequestHeader Map<String, String> headers);
+
     @RequestMapping(method = RequestMethod.POST, path = "/internal/runtime/capability-references",
             consumes = "application/json")
     Map<String, Object> capabilityReferences(

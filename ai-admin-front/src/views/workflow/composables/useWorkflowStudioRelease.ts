@@ -241,7 +241,7 @@ export function useWorkflowStudioRelease({
         rolloutPercent: 100,
         note: publishForm.note,
         baseRevision,
-      })
+      }, { errorFeedback: 'local' })
       let pageAssistantSynced = false
       if (syncPublishedPageAssistant) {
         try {
@@ -278,6 +278,8 @@ export function useWorkflowStudioRelease({
         ).then(() => {
           if (isCurrentPublishingWorkingCopy() && studio.value === conflictedStudio) void loadStudio()
         }).catch(() => undefined)
+      } else if (error.response?.status === 400 && error.response.data?.message === 'HTTP_API_SOURCE_NOT_READY') {
+        ElMessage.error('发布已取消，本次未产生新版本。引用的 API 来源冲突或未确认，请到 API 详情核对来源，修正并重新扫描后再发布。')
       } else {
         ElMessage.error('发布 Workflow 失败：' + (error.response?.data?.message || error.message || '服务请求失败'))
       }

@@ -15,7 +15,9 @@ import java.util.Set;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record ToolManifest(
         ProjectMetadata project,
-        List<ToolDefinition> tools
+        List<ToolDefinition> tools,
+        List<HttpApiOperation> httpApis,
+        Boolean httpApiInventoryComplete
 ) {
     private static final ObjectMapper YAML_MAPPER = new ObjectMapper(
             YAMLFactory.builder()
@@ -25,6 +27,20 @@ public record ToolManifest(
 
     public ToolManifest {
         tools = tools == null ? List.of() : List.copyOf(tools);
+        // null is an intentional old-wire marker. A present empty list is a complete inventory
+        // when httpApiInventoryComplete is true and can therefore carry a removal instruction.
+        httpApis = httpApis == null ? null : List.copyOf(httpApis);
+        if (httpApis == null && httpApiInventoryComplete != null) {
+            throw new IllegalArgumentException("httpApiInventoryComplete requires httpApis");
+        }
+        if (httpApis != null && httpApiInventoryComplete == null) {
+            throw new IllegalArgumentException("httpApis requires httpApiInventoryComplete");
+        }
+    }
+
+    /** Compatibility constructor for callers and YAML fixtures predating the HTTP inventory. */
+    public ToolManifest(ProjectMetadata project, List<ToolDefinition> tools) {
+        this(project, tools, null, null);
     }
 
     public void validate() {

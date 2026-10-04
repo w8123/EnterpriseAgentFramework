@@ -78,10 +78,6 @@ public class CapabilityCompatibilityProxyController {
      * PlatformConsoleAuthInterceptor before this proxy is entered.
      */
     @RequestMapping(path = {
-            "/api/api-market",
-            "/api/api-market/{*path}",
-            "/api/tools",
-            "/api/tools/{*path}",
             "/api/api-graph",
             "/api/api-graph/{*path}",
             "/api/tool-retrieval",

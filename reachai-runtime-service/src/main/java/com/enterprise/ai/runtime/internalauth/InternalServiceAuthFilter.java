@@ -26,6 +26,7 @@ public class InternalServiceAuthFilter extends OncePerRequestFilter {
 
     private static final Set<String> PROTECTED_PATHS = Set.of(
             "/internal/runtime/capability-references",
+            "/internal/runtime/workflows/studio/read-only-trials",
             "/internal/runtime/agents/execute",
             "/internal/runtime/agents/execute/stream");
 
@@ -51,6 +52,8 @@ public class InternalServiceAuthFilter extends OncePerRequestFilter {
                 && !path.startsWith("/internal/runtime/automations")
                 && !path.startsWith("/internal/runtime/session-retention/")
                 && !path.startsWith("/internal/runtime/mcp/tool-executions")
+                && !isConsoleCapabilityInvocationPath(path)
+                && !isHttpApiConsolePath(path)
                 && !("DELETE".equalsIgnoreCase(request.getMethod())
                 && path.startsWith("/internal/runtime/agents/sessions/"));
     }
@@ -81,7 +84,10 @@ public class InternalServiceAuthFilter extends OncePerRequestFilter {
                 cached.getHeader(InternalServiceAuthHeaders.SIGNATURE),
                 bodyBytes,
                 System.currentTimeMillis());
-        if (verified.isEmpty() || (("/internal/runtime/capability-references".equals(path) || isWorkflowReleasePath(path) || isDebugSessionPath(path))
+        if (verified.isEmpty() || (("/internal/runtime/capability-references".equals(path)
+                || "/internal/runtime/workflows/studio/read-only-trials".equals(path) || isWorkflowReleasePath(path)
+                || isDebugSessionPath(path) || isConsoleCapabilityInvocationPath(path)
+                || isHttpApiConsolePath(path))
                 && !InternalServiceAuthHeaders.IDENTITY_SOURCE_PLATFORM_SESSION.equals(verified.get().identitySource()))) {
             writeUnauthorized(response);
             return;
@@ -105,6 +111,18 @@ public class InternalServiceAuthFilter extends OncePerRequestFilter {
 
     private static boolean isDebugSessionPath(String path) {
         return path.equals("/api/runtime/debug-sessions") || path.startsWith("/api/runtime/debug-sessions/");
+    }
+
+    private static boolean isConsoleCapabilityInvocationPath(String path) {
+        return "/internal/runtime/console-capability-invocations".equals(path)
+                || (path != null && path.matches("^/internal/runtime/console-capability-invocations/[0-9a-fA-F-]{36}$"));
+    }
+
+    private static boolean isHttpApiConsolePath(String path) {
+        return "/internal/runtime/http-api-catalog-states".equals(path)
+                || "/internal/runtime/http-api-connections".equals(path)
+                || "/internal/runtime/http-api-invocations".equals(path)
+                || (path != null && path.matches("^/internal/runtime/http-api-invocations/[0-9a-fA-F-]{36}$"));
     }
 
     private static String normalizePath(HttpServletRequest request) {

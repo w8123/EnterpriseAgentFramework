@@ -1,6 +1,7 @@
 package com.enterprise.ai.agent.registry;
 
 import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionParameter;
+import com.fasterxml.jackson.databind.JsonNode;
 
 import java.util.List;
 import java.util.Map;
@@ -47,8 +48,14 @@ public final class RegistryContracts {
             String syncId,
             String source,
             Boolean apply,
-            List<CapabilityRegistration> capabilities
+            List<CapabilityRegistration> capabilities,
+            List<HttpApiRegistration> httpApis
     ) {
+        /** Compatibility constructor for source clients that predate the HTTP API inventory. */
+        public CapabilitySyncRequest(String syncId, String source, Boolean apply,
+                                     List<CapabilityRegistration> capabilities) {
+            this(syncId, source, apply, capabilities, null);
+        }
     }
 
     public record CapabilityRegistration(
@@ -79,6 +86,59 @@ public final class RegistryContracts {
     ) {
     }
 
+    /** A separately scoped HTTP API source fact; it is never a business-method declaration. */
+    public record HttpApiRegistration(
+            String sourceKey,
+            String sourceLocation,
+            String httpMethod,
+            String contextPath,
+            String endpointPath,
+            List<String> consumes,
+            List<String> produces,
+            List<HttpApiMappingConditionRegistration> mappingConditions,
+            List<HttpApiParameterRegistration> parameters,
+            HttpApiRequestBodyRegistration requestBody,
+            List<HttpApiResponseRegistration> responses,
+            String authenticationState,
+            List<String> authenticationSchemes,
+            List<String> requiredHeaderNames,
+            String sideEffect
+    ) {
+    }
+
+    public record HttpApiMappingConditionRegistration(
+            String kind,
+            String name,
+            String operator,
+            String value
+    ) {
+    }
+
+    public record HttpApiParameterRegistration(
+            String name,
+            String location,
+            Boolean required,
+            JsonNode schema,
+            List<String> contentTypes
+    ) {
+    }
+
+    /** BODY is fixed here so a wire client cannot quietly treat an unknown parameter as a body. */
+    public record HttpApiRequestBodyRegistration(
+            String location,
+            Boolean required,
+            JsonNode schema,
+            List<String> contentTypes
+    ) {
+    }
+
+    public record HttpApiResponseRegistration(
+            String status,
+            JsonNode schema,
+            List<String> contentTypes
+    ) {
+    }
+
     public record CapabilityDiffItem(
             String qualifiedName,
             String name,
@@ -99,7 +159,23 @@ public final class RegistryContracts {
             int changed,
             int unchanged,
             int applied,
-            List<CapabilityDiffItem> items
+            List<CapabilityDiffItem> items,
+            HttpApiSyncSummary httpApis
+    ) {
+        public CapabilitySyncResponse(String syncId, Long projectId, String projectCode,
+                                      int received, int added, int changed, int unchanged, int applied,
+                                      List<CapabilityDiffItem> items) {
+            this(syncId, projectId, projectCode, received, added, changed, unchanged, applied, items,
+                    new HttpApiSyncSummary(false, 0, 0, 0));
+        }
+    }
+
+    /** Separate receipt summary for the HTTP API inventory within the same registry sync. */
+    public record HttpApiSyncSummary(
+            boolean supported,
+            int received,
+            int observed,
+            int removed
     ) {
     }
 

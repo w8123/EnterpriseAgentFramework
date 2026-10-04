@@ -1,14 +1,17 @@
 package com.enterprise.ai.capability.internal;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectToolEntity;
 import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionEntity;
 import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionMapper;
 import com.enterprise.ai.agent.registry.RegistryCredentialEntity;
 import com.enterprise.ai.agent.registry.RegistrySecurityService;
+import com.enterprise.ai.capability.catalog.businessmethod.ConsoleBusinessMethodDeclaration;
 import com.enterprise.ai.common.response.BusinessResponseEnvelope;
+import com.enterprise.ai.common.capability.WorkflowReadOnlyTrialPolicy;
 import com.enterprise.ai.reach.sdk.auth.ReachAiInvocationClaims;
 import com.enterprise.ai.reach.sdk.auth.ReachAiInvocationToken;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -26,6 +29,8 @@ import java.util.Optional;
 public class CapabilityToolExecutionService {
 
     private static final String SIGNED_EVAL_POLICY_FIELD = "evaluationPolicy";
+    private static final String CONSOLE_INVOCATION_FIELD = "consoleCapabilityInvocation";
+    private static final ObjectMapper METADATA_MAPPER = new ObjectMapper();
 
     private final ToolDefinitionMapper toolDefinitionMapper;
     private final CapabilityHttpToolInvoker invoker;
@@ -50,9 +55,13 @@ public class CapabilityToolExecutionService {
         }
         validateEvaluationPolicy(tool, request);
         validateExecutionConstraints(tool, request);
-        sourceContractGuard.validate(tool, mapValue(request == null ? null : request.get("constraints")));
+        Map<String, Object> constraints = mapValue(request == null ? null : request.get("constraints"));
+        sourceContractGuard.validate(tool, constraints);
+        validateStudioInvocation(tool, request, constraints);
+        validateConsoleInvocation(tool, request, constraints);
         Map<String, Object> input = mapValue(request == null ? null : request.get("input"));
         input = input == null ? Map.of() : input;
+        ConsoleBusinessMethodInputValidator.ValidationResult inputValidation = validateConsoleInput(tool, input, constraints);
         String method = StringUtils.hasText(tool.getHttpMethod()) ? tool.getHttpMethod().trim().toUpperCase() : "POST";
         String url = buildUrl(tool);
         if (!StringUtils.hasText(url)) {
@@ -75,52 +84,15 @@ public class CapabilityToolExecutionService {
         response.put("toolName", tool.getName());
         response.put("toolTitle", titleOrName(tool.getTitle(), tool.getName()));
         applyInvocationResult(response, invoked);
+        if (!inputValidation.safeMetadata().isEmpty()) {
+            Map<String, Object> currentMetadata = mapValue(response.get("metadata"));
+            Map<String, Object> metadata = new LinkedHashMap<>(currentMetadata == null ? Map.of() : currentMetadata);
+            metadata.putAll(inputValidation.safeMetadata());
+            response.put("metadata", metadata);
+        }
         return response;
     }
 
-    public Map<String, Object> execute(ScanProjectToolEntity tool, Map<String, Object> request) {
-        if (tool == null) {
-            throw new IllegalArgumentException("Scan project tool not found");
-        }
-        if (!Boolean.TRUE.equals(tool.getEnabled())) {
-            throw new IllegalStateException("Scan project tool is disabled: " + tool.getId());
-        }
-        Map<String, Object> input = mapValue(request == null ? null : request.get("input"));
-        input = input == null ? Map.of() : input;
-        String method = StringUtils.hasText(tool.getHttpMethod()) ? tool.getHttpMethod().trim().toUpperCase() : "POST";
-        String url = buildUrl(tool);
-        if (!StringUtils.hasText(url)) {
-            throw new IllegalStateException("Scan project tool endpoint is missing: " + tool.getId());
-        }
-        if ("GET".equals(method) && !input.isEmpty()) {
-            url = appendQuery(url, input);
-        }
-        ToolDefinitionEntity linkedTool = linkedToolForInvocation(tool, method, buildUrl(tool));
-        if (linkedTool != null) {
-            sourceContractGuard.validate(linkedTool, mapValue(request == null ? null : request.get("constraints")));
-        }
-        Map<String, Object> metadata = linkedTool == null
-                ? new LinkedHashMap<>()
-                : invocationMetadata(linkedTool, request);
-        metadata.put("scanToolId", tool.getId());
-        metadata.put("toolName", tool.getName());
-        metadata.put("toolTitle", titleOrName(tool.getTitle(), tool.getName()));
-        metadata.put("requestBodyType", nullToEmpty(tool.getRequestBodyType()));
-        metadata.put("responseType", nullToEmpty(tool.getResponseType()));
-        CapabilityHttpToolInvocation invocation = new CapabilityHttpToolInvocation(
-                method,
-                url,
-                "GET".equals(method) ? Map.of() : input,
-                metadata);
-        Map<String, Object> invoked = invoker.invoke(invocation);
-
-        Map<String, Object> response = new LinkedHashMap<>();
-        response.put("scanToolId", tool.getId());
-        response.put("toolName", tool.getName());
-        response.put("toolTitle", titleOrName(tool.getTitle(), tool.getName()));
-        applyInvocationResult(response, invoked);
-        return response;
-    }
 
     /**
      * Runtime business-memory hydration uses these constraints to turn a mutable
@@ -172,6 +144,94 @@ public class CapabilityToolExecutionService {
         }
     }
 
+    /**
+     * This constraint is created only by the attested Console→Runtime path. It never
+     * converts the platform session into a business identity; the subsequent signed
+     * SDK invocation therefore has project credentials and no user/role claims.
+     */
+    private void validateConsoleInvocation(ToolDefinitionEntity tool,
+                                           Map<String, Object> request,
+                                           Map<String, Object> constraints) {
+        if (constraints == null || !Boolean.TRUE.equals(booleanValue(constraints.get(CONSOLE_INVOCATION_FIELD)))) {
+            return;
+        }
+        sourceContractGuard.validateConsoleAcceptedBusinessMethod(tool, constraints);
+        if (Boolean.TRUE.equals(booleanValue(constraints.get("requireUserIdentity")))
+                || ConsoleBusinessMethodDeclaration.hasRequiredRoles(tool, METADATA_MAPPER)) {
+            throw new CapabilityInvocationPolicyException("CAPABILITY_BUSINESS_IDENTITY_REQUIRED",
+                    com.enterprise.ai.common.capability.CapabilityInvocationFailureCategory.IDENTITY_REQUIRED,
+                    "该业务方法要求业务用户身份，控制台试调用不会转发平台身份");
+        }
+        Map<String, Object> context = mapValue(request == null ? null : request.get("context"));
+        if (context != null && !context.isEmpty()) {
+            throw new CapabilityInvocationPolicyException("CAPABILITY_CONSOLE_IDENTITY_FORBIDDEN",
+                    com.enterprise.ai.common.capability.CapabilityInvocationFailureCategory.POLICY_REJECTED,
+                    "控制台试调用不允许携带业务身份或上下文");
+        }
+        if (registrySecurityService == null || !StringUtils.hasText(tool.getProjectCode())
+                || registrySecurityService.findPrimaryActiveCredential(tool.getProjectCode())
+                .filter(credential -> StringUtils.hasText(credential.getAppKey())
+                        && StringUtils.hasText(credential.getAppSecret()))
+                .isEmpty()) {
+            throw new CapabilityInvocationPolicyException("CAPABILITY_PROJECT_CREDENTIAL_REQUIRED",
+                    com.enterprise.ai.common.capability.CapabilityInvocationFailureCategory.CONFIGURATION_INVALID,
+                    "项目签名凭证不可用");
+        }
+    }
+
+    private ConsoleBusinessMethodInputValidator.ValidationResult validateConsoleInput(ToolDefinitionEntity tool,
+                                                                                       Map<String, Object> input,
+                                                                                       Map<String, Object> constraints) {
+        if (constraints == null || !Boolean.TRUE.equals(booleanValue(constraints.get(CONSOLE_INVOCATION_FIELD)))
+                && !Boolean.TRUE.equals(booleanValue(constraints.get(WorkflowReadOnlyTrialPolicy.STUDIO_CONSTRAINT)))) {
+            return ConsoleBusinessMethodInputValidator.ValidationResult.empty();
+        }
+        try {
+            return ConsoleBusinessMethodInputValidator.validate(tool, input);
+        } catch (ConsoleBusinessMethodInputValidator.InvalidInputException invalid) {
+            throw new CapabilityInvocationPolicyException("CAPABILITY_INPUT_INVALID",
+                    com.enterprise.ai.common.capability.CapabilityInvocationFailureCategory.POLICY_REJECTED,
+                    invalid.getMessage(), invalid.safeMetadata());
+        } catch (IllegalArgumentException invalidDeclaration) {
+            throw new CapabilityInvocationPolicyException("CAPABILITY_INPUT_CONTRACT_INVALID",
+                    com.enterprise.ai.common.capability.CapabilityInvocationFailureCategory.CONFIGURATION_INVALID,
+                    "业务方法参数声明不可用于控制台试调用",
+                    Map.of("inputDiagnostics", List.of(Map.of("path", "input", "reason", "DECLARATION_INVALID"))));
+        }
+    }
+
+    private void validateStudioInvocation(ToolDefinitionEntity tool, Map<String, Object> request,
+                                          Map<String, Object> constraints) {
+        if (constraints == null || !Boolean.TRUE.equals(booleanValue(constraints.get(WorkflowReadOnlyTrialPolicy.STUDIO_CONSTRAINT)))) return;
+        sourceContractGuard.validateConsoleAcceptedBusinessMethod(tool, constraints);
+        Map<String, Object> context = mapValue(request == null ? null : request.get("context"));
+        if (context == null || !context.keySet().equals(java.util.Set.of("tenantId"))
+                || !Objects.equals(tool.getProjectCode(), context.get("tenantId"))
+                || !Objects.equals(tool.getQualifiedName(), constraints.get("expectedQualifiedName"))
+                || !Objects.equals(tool.getProjectCode(), constraints.get("expectedProjectCode"))
+                || !Boolean.TRUE.equals(booleanValue(constraints.get("requireSignedInvocation")))) {
+            throw new CapabilityInvocationPolicyException("CAPABILITY_STUDIO_PROJECT_IDENTITY_REQUIRED",
+                    com.enterprise.ai.common.capability.CapabilityInvocationFailureCategory.IDENTITY_REQUIRED,
+                    "Studio 只读试运行要求与业务方法一致的签名项目范围，不接受业务用户身份");
+        }
+        if (!"READ_ONLY".equals(tool.getSideEffect())) {
+            throw new CapabilityInvocationPolicyException("CAPABILITY_STUDIO_READ_ONLY_REQUIRED",
+                    com.enterprise.ai.common.capability.CapabilityInvocationFailureCategory.POLICY_REJECTED,
+                    "Studio 只读试运行只允许明确 READ_ONLY 的业务方法");
+        }
+        if (ConsoleBusinessMethodDeclaration.hasRequiredRoles(tool, METADATA_MAPPER)) {
+            throw new CapabilityInvocationPolicyException("CAPABILITY_BUSINESS_IDENTITY_REQUIRED",
+                    com.enterprise.ai.common.capability.CapabilityInvocationFailureCategory.IDENTITY_REQUIRED,
+                    "业务方法要求业务用户身份，项目测试身份不可调用");
+        }
+        if (registrySecurityService == null || registrySecurityService.findPrimaryActiveCredential(tool.getProjectCode())
+                .filter(credential -> StringUtils.hasText(credential.getAppKey()) && StringUtils.hasText(credential.getAppSecret())).isEmpty()) {
+            throw new CapabilityInvocationPolicyException("CAPABILITY_PROJECT_CREDENTIAL_REQUIRED",
+                    com.enterprise.ai.common.capability.CapabilityInvocationFailureCategory.CONFIGURATION_INVALID,
+                    "项目签名凭证不可用");
+        }
+    }
+
     private void validateInvocationConstraints(Map<String, Object> request,
                                                Map<String, Object> invocationMetadata) {
         Map<String, Object> constraints = mapValue(request == null ? null : request.get("constraints"));
@@ -186,63 +246,6 @@ public class CapabilityToolExecutionService {
         }
     }
 
-    private ToolDefinitionEntity linkedToolForInvocation(ScanProjectToolEntity scanTool,
-                                                          String scanMethod,
-                                                          String scanUrl) {
-        if (scanTool.getGlobalToolDefinitionId() == null) {
-            if (StringUtils.hasText(scanTool.getSourceQualifiedName())
-                    || normalizedText(scanTool.getSourceLocation()).startsWith("sdk:")) {
-                throw new IllegalStateException(
-                        "SDK Tool is not linked to the signed Tool catalog; synchronize it before testing: "
-                                + scanTool.getId());
-            }
-            return null;
-        }
-        ToolDefinitionEntity linkedTool = toolDefinitionMapper.selectById(scanTool.getGlobalToolDefinitionId());
-        if (linkedTool == null) {
-            throw new IllegalStateException("Linked Tool definition is missing; synchronize the scan Tool before testing: "
-                    + scanTool.getId());
-        }
-
-        List<String> mismatches = new java.util.ArrayList<>();
-        if (!Objects.equals(scanTool.getSourceQualifiedName(), linkedTool.getSourceQualifiedName())) {
-            mismatches.add("sourceQualifiedName");
-        }
-        if (!Boolean.TRUE.equals(linkedTool.getEnabled())) {
-            mismatches.add("enabled");
-        }
-        if (scanTool.getProjectId() == null || linkedTool.getProjectId() == null
-                || !Objects.equals(scanTool.getProjectId(), linkedTool.getProjectId())) {
-            mismatches.add("projectId");
-        }
-        if (!Objects.equals(normalizedText(scanTool.getName()), normalizedText(linkedTool.getName()))) {
-            mismatches.add("name");
-        }
-        if (!Objects.equals(normalizedText(scanTool.getSourceLocation()), normalizedText(linkedTool.getSourceLocation()))) {
-            mismatches.add("sourceLocation");
-        }
-        String sourceLocation = normalizedText(scanTool.getSourceLocation());
-        if (sourceLocation.startsWith("sdk:")
-                && (!StringUtils.hasText(linkedTool.getProjectCode())
-                || !sourceLocation.startsWith("sdk:" + linkedTool.getProjectCode().trim() + ":"))) {
-            mismatches.add("projectCode");
-        }
-        String linkedMethod = StringUtils.hasText(linkedTool.getHttpMethod())
-                ? linkedTool.getHttpMethod().trim().toUpperCase()
-                : "POST";
-        if (!Objects.equals(scanMethod, linkedMethod)) {
-            mismatches.add("httpMethod");
-        }
-        if (!Objects.equals(scanUrl, buildUrl(linkedTool))) {
-            mismatches.add("endpoint");
-        }
-        if (!mismatches.isEmpty()) {
-            throw new IllegalStateException("Linked Tool definition is out of sync ("
-                    + String.join(", ", mismatches)
-                    + "); synchronize it before signed testing: " + scanTool.getId());
-        }
-        return linkedTool;
-    }
 
     private void applyInvocationResult(Map<String, Object> response, Map<String, Object> invoked) {
         Object businessBody = invoked == null ? null : invoked.get("body");
@@ -363,13 +366,6 @@ public class CapabilityToolExecutionService {
         return StringUtils.hasText(title) ? title.trim() : nullToEmpty(name);
     }
 
-    private String buildUrl(ScanProjectToolEntity tool) {
-        StringBuilder url = new StringBuilder();
-        appendUrlPart(url, tool.getBaseUrl());
-        appendUrlPart(url, tool.getContextPath());
-        appendUrlPart(url, tool.getEndpointPath());
-        return url.toString();
-    }
 
     private void appendUrlPart(StringBuilder url, String part) {
         if (!StringUtils.hasText(part)) {
@@ -429,9 +425,6 @@ public class CapabilityToolExecutionService {
         return value == null ? "" : value;
     }
 
-    private String normalizedText(String value) {
-        return StringUtils.hasText(value) ? value.trim() : "";
-    }
 
     private String text(Object value) {
         if (value == null) return null;

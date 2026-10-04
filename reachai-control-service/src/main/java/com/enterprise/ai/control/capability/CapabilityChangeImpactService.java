@@ -36,6 +36,26 @@ public class CapabilityChangeImpactService {
         List<Map<String, Object>> keys = records.stream().map(row -> Map.<String, Object>of(
                 "qualifiedName", Objects.toString(row.get("qualifiedName"), ""),
                 "storageName", Objects.toString(row.get("storageName"), ""))).distinct().toList();
+        var evidence = inspectReferences(keys, projectCode, actorId);
+        for (var record : records) {
+            Map<String, Object> impact;
+            try { impact = mapper.readValue(String.valueOf(record.get("impactJson")), new com.fasterxml.jackson.core.type.TypeReference<>() { }); }
+            catch (Exception invalid) { impact = new LinkedHashMap<>(); }
+            if (impact == null) impact = new LinkedHashMap<>();
+            impact.putAll(evidence.get(String.valueOf(record.get("qualifiedName"))));
+            try { record.put("impactJson", mapper.writeValueAsString(impact)); }
+            catch (Exception invalid) { throw new IllegalStateException("能力影响无法序列化", invalid); }
+        }
+        page.put("records", records);
+        return ResponseEntity.status(response.getStatusCode()).body(page);
+    }
+
+    public Map<String, Object> references(String projectCode, String qualifiedName, String storageName, String actorId) {
+        return inspectReferences(List.of(Map.of("qualifiedName", qualifiedName, "storageName", storageName)),
+                projectCode, actorId).get(qualifiedName);
+    }
+
+    private Map<String, Map<String, Object>> inspectReferences(List<Map<String, Object>> keys, String projectCode, String actorId) {
         var publishedMcp = new McpPublishedReferenceQuery.Evidence(false, List.of());
         var publishedA2a = new A2aPublishedReferenceQuery.Evidence(false, List.of());
         String publicationState = "COMPLETE";
@@ -73,8 +93,8 @@ public class CapabilityChangeImpactService {
                 .collect(Collectors.groupingBy(binding -> String.valueOf(binding.workflowVersionId())));
         var pinnedA2a = publishedA2a.bindings().stream().collect(Collectors.groupingBy(binding ->
                 binding.agentId() + "#" + binding.agentConfigVersionId()));
-        List<Map<String, Object>> enriched = new ArrayList<>();
-        for (Map<String, Object> record : records) {
+        Map<String, Map<String, Object>> result = new LinkedHashMap<>();
+        for (Map<String, Object> record : keys) {
             String name = String.valueOf(record.get("qualifiedName"));
             List<Map<String, Object>> usages = byCapability.getOrDefault(name, List.of());
             List<Map<String, Object>> references = new ArrayList<>(usages);
@@ -92,26 +112,25 @@ public class CapabilityChangeImpactService {
                                     "name", Objects.toString(binding.name(), String.valueOf(binding.publicationId())), "stage", "PUBLISHED")));
                 }
             }
-            Map<String, Object> impact;
-            try { impact = mapper.readValue(String.valueOf(record.get("impactJson")), new com.fasterxml.jackson.core.type.TypeReference<>() { }); }
-            catch (Exception invalid) { impact = new LinkedHashMap<>(); }
-            if (impact == null) impact = new LinkedHashMap<>();
+            Map<String, Object> impact = new LinkedHashMap<>();
             impact.put("runtimeEvidence", runtimeEvidence.get("state"));
             impact.put("publicationEvidence", publicationState);
             impact.put("references", references.stream().distinct().toList());
             impact.put("checkedAt", Instant.now().toString());
-            try { record.put("impactJson", mapper.writeValueAsString(impact)); }
-            catch (Exception invalid) { throw new IllegalStateException("能力影响无法序列化", invalid); }
-            enriched.add(record);
+            result.put(name, impact);
         }
-        page.put("records", enriched);
-        return ResponseEntity.status(response.getStatusCode()).body(page);
+        return result;
     }
 
     private static Map<String, Object> mcpReference(McpPublishedReferenceQuery.Binding binding) {
-        return Map.of("kind", "MCP", "id", binding.publicationId(),
+        Map<String, Object> reference = new LinkedHashMap<>(Map.of("kind", "MCP", "id", binding.publicationId(),
                 "name", Objects.toString(binding.publicationName(), String.valueOf(binding.publicationId())),
-                "stage", "PUBLISHED", "version", "修订 " + binding.revisionNo());
+                "stage", "PUBLISHED", "version", "修订 " + binding.revisionNo()));
+        if ("WORKFLOW".equals(binding.sourceKind())) {
+            reference.put("workflowId", binding.sourceRef());
+            reference.put("versionId", binding.workflowVersionId());
+        }
+        return reference;
     }
 
     private static Map<String, Object> copy(Map<?, ?> map) {

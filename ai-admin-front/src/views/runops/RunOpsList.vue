@@ -80,6 +80,8 @@
           <el-option label="智能体" value="AGENT" />
           <el-option label="工作流" value="WORKFLOW" />
           <el-option label="MCP 工具调用" value="MCP" />
+          <el-option label="业务方法试调用" value="CONSOLE_CAPABILITY" />
+          <el-option label="API 试调用" value="CONSOLE_HTTP_API" />
         </el-select>
         <el-select
           v-model="draftFilters.entryType"
@@ -286,9 +288,9 @@
             :data="pagedRuns"
             stripe
           >
-            <el-table-column label="状态" width="84">
+            <el-table-column label="状态" width="108">
               <template #default="{ row }">
-                <el-tag :type="statusTagType(row.status)" size="small" effect="light">
+                <el-tag :type="isHttpApiWriteResultUnconfirmed(row) ? 'warning' : statusTagType(row.status)" size="small" effect="light">
                   {{ runStatusLabel(row) }}
                 </el-tag>
               </template>
@@ -425,6 +427,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Refresh, Search } from '@element-plus/icons-vue'
 import { getRecentRunOps, getRunOpsDiagnostics } from '@/api/runops'
+import { isHttpApiWriteResultUnconfirmed } from './httpApiWriteOutcome'
 import type {
   FailureCluster,
   RunDiagnostics,
@@ -475,7 +478,7 @@ const showMoreFilters = ref(false)
 const runs = ref<RunSummary[]>([])
 const currentPage = ref(1)
 const pageSize = ref(10)
-const entryTypes: RunEntryType[] = ['DEBUG', 'EMBED', 'GATEWAY', 'EVAL', 'REPLAY', 'API', 'AUTOMATION', 'MCP']
+const entryTypes: RunEntryType[] = ['DEBUG', 'STUDIO_READ_ONLY_TRIAL', 'EMBED', 'GATEWAY', 'EVAL', 'REPLAY', 'API', 'AUTOMATION', 'MCP', 'CONSOLE']
 const diagnostics = ref<RunDiagnostics>({ failureClusters: [], versionComparisons: [] })
 
 type FilterState = {
@@ -504,7 +507,7 @@ const draftFilters = reactive<FilterState>({
   entryType: '',
   agentId: typeof route.query.agentId === 'string' ? route.query.agentId.trim() : '',
   userId: '',
-  keyword: '',
+  keyword: typeof route.query.keyword === 'string' ? route.query.keyword.trim() : '',
   days: 7,
 })
 
@@ -639,6 +642,8 @@ function resetFilters() {
 function runObjectLabel(run: RunSummary) {
   if (run.runType === 'AGENT') return run.agentName || run.agentKeySlug || run.agentId || '-'
   if (run.runType === 'WORKFLOW') return run.workflowName || run.workflowKeySlug || run.workflowId || '-'
+  if (run.runType === 'CONSOLE_CAPABILITY') return '业务方法试调用'
+  if (run.runType === 'CONSOLE_HTTP_API') return 'API 试调用'
   return run.workflowName || run.workflowKeySlug || run.workflowId
     || (run.runtimeType === 'CAPABILITY' ? 'MCP Capability 调用' : 'MCP 工具调用')
 }
@@ -672,6 +677,8 @@ function runTypeLabel(runType?: string) {
     AGENT: '智能体',
     WORKFLOW: '工作流',
     MCP: 'MCP 工具调用',
+    CONSOLE_CAPABILITY: '业务方法试调用',
+    CONSOLE_HTTP_API: 'API 试调用',
   }
   return runType ? labels[runType] || runType : '-'
 }
@@ -702,6 +709,7 @@ function errorTooltip(row: { errorCode?: string; errorType?: string; errorMessag
 function entryTypeLabel(entryType?: RunEntryType) {
   const labels: Record<RunEntryType, string> = {
     DEBUG: '调试',
+    STUDIO_READ_ONLY_TRIAL: 'Studio 只读真实试运行',
     EMBED: '嵌入',
     GATEWAY: '网关',
     EVAL: '评测',
@@ -709,6 +717,7 @@ function entryTypeLabel(entryType?: RunEntryType) {
     AUTOMATION: '自动化',
     API: 'API',
     MCP: 'MCP',
+    CONSOLE: '控制台',
   }
   return entryType ? labels[entryType] : '-'
 }
@@ -726,6 +735,7 @@ function statusLabel(status: RunStatus) {
 }
 
 function runStatusLabel(run: RunSummary) {
+  if (isHttpApiWriteResultUnconfirmed(run)) return '结果未确认'
   if (run.status !== 'SUSPENDED') return statusLabel(run.status)
   if (run.suspensionReason === 'APPROVAL') return '等待审批'
   if (run.suspensionReason === 'USER_INPUT') return '等待用户交互'

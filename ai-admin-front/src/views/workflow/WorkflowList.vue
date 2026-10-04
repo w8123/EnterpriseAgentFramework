@@ -10,22 +10,26 @@
       >
         <template #tags>
           <el-tag effect="light">{{ workflowScopeLabel }}</el-tag>
-          <el-tag type="success" effect="light">当前 {{ workflows.length }} 个 Workflow</el-tag>
+          <el-tag v-if="workflowListStatus === 'success'" type="success" effect="light">
+            当前 {{ workflows.length }} 个 Workflow
+          </el-tag>
           <el-tag type="info" effect="light">GraphSpec 可编排</el-tag>
         </template>
         <template #actions>
           <el-button v-if="projectScoped" @click="backToProject">返回项目</el-button>
-          <el-button v-if="projectScoped && canReadAllWorkflows" @click="openGlobalWorkflows">
-            全部 Workflow
-          </el-button>
-          <el-button v-if="canCreateWorkflowInCurrentScope" type="primary" :icon="Plus" @click="openCreateDialog">
+          <el-button
+            v-if="scopeCanLoadData && canCreateWorkflowInCurrentScope"
+            type="primary"
+            :icon="Plus"
+            @click="openCreateDialog"
+          >
             新建 Workflow
           </el-button>
         </template>
       </PageHeader>
 
       <template #summary>
-        <div class="metric-strip">
+        <div v-if="workflowListStatus === 'success'" class="metric-strip">
           <template v-for="(metric, index) in metrics" :key="metric.label">
             <div v-if="index > 0" class="metric-divider" aria-hidden="true" />
             <div class="metric-segment">
@@ -44,26 +48,31 @@
       </template>
     </CollapsibleHeaderRegion>
 
-    <el-card class="workflow-card workbench-list-surface" :class="{ 'has-context-filter': projectScoped || !canReadAllWorkflows }" shadow="never">
-      <div v-if="projectScoped || !canReadAllWorkflows" class="context-filter">
-        当前仅展示授权项目 {{ filters.projectCode }} 下的 Workflow。
-        <el-button v-if="canReadAllWorkflows" link type="primary" @click="openGlobalWorkflows">
-          查看全部 Workflow
-        </el-button>
-      </div>
+    <section
+      v-if="!scopeCanLoadData"
+      class="workflow-scope-panel glass-surface-panel"
+      :aria-label="workflowScopeLabel"
+    >
+      <ProjectScopeState
+        :title="scopeStateTitle"
+        :message="scopeFeedbackMessage"
+        :status="scopeStatus"
+        :show-select-project="scopeNeedsChoice && appStore.sidebarCollapsed"
+        :can-retry="scopeCanRetry"
+        :retrying="scopeRetrying"
+        :retry-label="scopeRecoveryLabel"
+        @select-project="openScopeSelector"
+        @retry="retryScope"
+      />
+    </section>
 
+    <el-card v-else class="workflow-card workbench-list-surface" shadow="never">
       <div class="toolbar">
         <el-input
           v-model="keyword"
           class="search-input"
           clearable
           placeholder="搜索 Workflow 名称、Key、描述、项目"
-        />
-        <el-input
-          v-model="filters.projectCode"
-          clearable
-          :disabled="projectScoped"
-          placeholder="项目编码"
         />
         <el-select v-model="filters.workflowKind" clearable placeholder="Workflow 形态">
           <el-option
@@ -92,7 +101,13 @@
         </el-button>
       </div>
 
-      <div class="workflow-table-shell">
+      <div v-if="workflowListStatus === 'error'" class="workflow-list-error" role="alert" aria-live="polite">
+        <h3>Workflow 列表加载失败</h3>
+        <p>{{ workflowErrorMessage }}</p>
+        <el-button type="primary" :loading="loading" @click="loadWorkflows">重试</el-button>
+      </div>
+
+      <div v-else ref="workflowTableShellRef" class="workflow-table-shell">
         <el-table
           v-loading="loading"
           :data="pagedWorkflows"
@@ -176,7 +191,7 @@
           </el-table-column>
 
           <template #empty>
-            <div v-if="!loading" class="workflow-table-empty-state">
+            <div v-if="workflowListStatus === 'success'" class="workflow-table-empty-state">
               <div class="empty-main">
                 <div class="empty-illustration" aria-hidden="true">
                   <img class="empty-illustration-img" src="/智能化.svg" alt="" />
@@ -184,7 +199,7 @@
                 <div class="empty-body">
                   <div class="empty-copy">
                     <h3>还没有匹配的 Workflow</h3>
-                    <p>可以调整项目、类型或状态筛选，也可以新建一个可执行图资产。</p>
+                    <p>可以调整名称、类型或状态筛选，也可以新建一个可执行图资产。</p>
                   </div>
                   <div class="empty-actions">
                     <el-button
@@ -195,7 +210,7 @@
                     >
                       新建 Workflow
                     </el-button>
-                    <el-button @click="showAllWorkflows">查看全部</el-button>
+                    <el-button @click="resetFilters">重置筛选</el-button>
                   </div>
                 </div>
               </div>
@@ -204,7 +219,7 @@
         </el-table>
       </div>
 
-      <div v-if="filteredWorkflows.length > 0" class="table-footer">
+      <div v-if="workflowListStatus === 'success' && filteredWorkflows.length > 0" class="table-footer">
         <span>共 {{ filteredWorkflows.length }} 条</span>
         <el-pagination
           v-model:current-page="currentPage"
@@ -241,12 +256,41 @@
           />
         </el-form-item>
         <el-form-item label="项目">
-          <el-input
-            v-model="createForm.projectCode"
-            clearable
-            :disabled="projectScoped"
-            placeholder="projectCode"
-          />
+          <el-select
+            v-model="createForm.projectId"
+            class="create-project-select"
+            :clearable="canCreatePlatformWorkflow"
+            :disabled="createProjectSelectDisabled"
+            :placeholder="createProjectPlaceholder"
+            :value-on-clear="null"
+            @update:model-value="handleCreateProjectSelection"
+            @clear="clearCreateProjectSelection"
+          >
+            <el-option
+              v-for="project in createProjectOptions"
+              :key="project.id"
+              :label="`${project.name} · ${project.projectCode}`"
+              :value="project.id"
+            >
+              <div class="create-project-option">
+                <span>{{ project.name }}</span>
+                <small>{{ project.projectCode }}</small>
+              </div>
+            </el-option>
+          </el-select>
+          <div v-if="createProjectHint || createCatalogRetryAvailable" class="create-project-feedback" aria-live="polite">
+            <p v-if="createProjectHint" class="create-project-hint">{{ createProjectHint }}</p>
+            <el-button
+              v-if="createCatalogRetryAvailable"
+              class="create-project-retry"
+              text
+              type="primary"
+              :loading="createCatalogRetrying"
+              @click="retryCreateCatalog"
+            >
+              重试加载项目目录
+            </el-button>
+          </div>
         </el-form-item>
         <div class="create-form-grid">
           <el-form-item label="类型">
@@ -277,8 +321,13 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="createDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="creating" @click="submitCreateWorkflow">
+        <el-button :disabled="creating" @click="createDialogVisible = false">取消</el-button>
+        <el-button
+          type="primary"
+          :disabled="createSubmitDisabled"
+          :loading="creating"
+          @click="submitCreateWorkflow"
+        >
           创建并进入编排
         </el-button>
       </template>
@@ -289,20 +338,20 @@
 <script setup lang="ts">
 import AppDialog from '@/components/common/AppDialog.vue'
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import {
-  Plus,
-  Search,
-} from '@element-plus/icons-vue'
+import { Plus, Search } from '@element-plus/icons-vue'
 import CollapsibleHeaderRegion from '@/components/common/CollapsibleHeaderRegion.vue'
 import MetricIconBg from '@/components/common/MetricIconBg.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
+import ProjectScopeState from '@/components/common/ProjectScopeState.vue'
 import { createWorkflow, deleteWorkflow, listWorkflows } from '@/api/workflow'
-import { getScanProjects } from '@/api/scanProject'
-import type { WorkflowWorkingCopy } from '@/types/workflow'
+import type { WorkflowWorkingCopy, WorkflowWorkingCopyInput } from '@/types/workflow'
+import type { ScanProject } from '@/types/scanProject'
 import { useTheme } from '@/composables/useTheme'
+import { useAppStore } from '@/store/app'
 import { useCollapsiblePageHeader } from '@/composables/useCollapsiblePageHeader'
+import { usePageProjectScope } from '@/composables/usePageProjectScope'
 import {
   WORKFLOW_STATUS_SELECT_OPTIONS,
   WORKFLOW_KIND_SELECT_OPTIONS,
@@ -315,15 +364,56 @@ import {
 import {
   hasPlatformGlobalPermissionGrant,
   hasPlatformResourcePermission,
-  platformProjectPermissionScopes,
-  PLATFORM_PERMISSION_WORKFLOW_READ,
   PLATFORM_PERMISSION_WORKFLOW_WRITE,
 } from '@/auth/platformAccess'
-import { platformSessionUser } from '@/auth/platformSession'
+import { platformSessionId, platformSessionUser } from '@/auth/platformSession'
+import type {
+  ProjectScopeQueryReference,
+  ResolvedProjectScope,
+  ResolvedProjectScopeSuccess,
+} from '@/utils/projectScope'
 
-const route = useRoute()
+type WorkflowListStatus = 'idle' | 'loading' | 'success' | 'error'
+type WorkflowListParams = {
+  projectId?: number
+  projectCode?: string
+  workflowKind?: string
+  status?: string
+}
+type WorkflowCreateScopeSnapshot = {
+  requestKey: string
+  sessionId: string
+  reference: ProjectScopeQueryReference
+  resolution: ResolvedProjectScopeSuccess
+}
+type WorkflowCreateProjectIdentity = {
+  id: number
+  projectCode: string
+}
+
 const router = useRouter()
+const appStore = useAppStore()
 const { theme } = useTheme()
+const pageProjectScope = usePageProjectScope({ required: true })
+const scopeCanLoadData = pageProjectScope.canLoadData
+const scopeStatus = pageProjectScope.status
+const scopeFeedbackMessage = pageProjectScope.feedbackMessage
+const scopeRecoveryLabel = pageProjectScope.recoveryLabel
+const scopeRetrying = ref(false)
+const createCatalogRetrying = ref(false)
+
+const scopeStateTitle = computed(() => (
+  scopeStatus.value === 'pending' ? '正在确认项目范围' : '需要确认项目范围'
+))
+const scopeNeedsChoice = computed(() => (
+  pageProjectScope.status.value === 'blocked'
+    && pageProjectScope.recoveryAction.value === 'select-project'
+))
+const scopeCanRetry = computed(() => (
+  (pageProjectScope.recoveryAction.value === 'retry-catalog'
+    || pageProjectScope.recoveryAction.value === 'retry-normalization')
+    && !pageProjectScope.isCatalogLoading.value
+))
 
 function canUseWorkflowPermission(permission: string, projectCode?: string | null) {
   return hasPlatformResourcePermission(
@@ -335,22 +425,33 @@ function canUseWorkflowPermission(permission: string, projectCode?: string | nul
   )
 }
 
-const canReadAllWorkflows = computed(() => hasPlatformGlobalPermissionGrant(
-  platformSessionUser.value?.permissionGrants,
-  PLATFORM_PERMISSION_WORKFLOW_READ,
-))
-const readableWorkflowProjects = computed(() => platformProjectPermissionScopes(
-  platformSessionUser.value?.permissionGrants,
-  PLATFORM_PERMISSION_WORKFLOW_READ,
-))
-const writableWorkflowProjects = computed(() => platformProjectPermissionScopes(
+const canCreatePlatformWorkflow = computed(() => hasPlatformGlobalPermissionGrant(
   platformSessionUser.value?.permissionGrants,
   PLATFORM_PERMISSION_WORKFLOW_WRITE,
 ))
-const initialWorkflowProjectCode = String(route.query.projectCode || '').trim()
-  || (canReadAllWorkflows.value ? '' : readableWorkflowProjects.value[0] || '')
 
-const loading = ref(false)
+const canCreateWorkflowInCurrentScope = computed(() => {
+  if (!scopeCanLoadData.value) return false
+  const resolution = pageProjectScope.resolution.value
+  if (resolution?.kind === 'all') {
+    return canCreatePlatformWorkflow.value
+      || pageProjectScope.readableProjects.value.some((project) => (
+        Boolean(project.projectCode?.trim())
+        && canUseWorkflowPermission(PLATFORM_PERMISSION_WORKFLOW_WRITE, project.projectCode)
+      ))
+  }
+  return resolution?.kind === 'project'
+    && Boolean(resolution.project.projectCode)
+    && canUseWorkflowPermission(PLATFORM_PERMISSION_WORKFLOW_WRITE, resolution.project.projectCode)
+})
+
+function canWriteWorkflow(row: WorkflowWorkingCopy) {
+  return canUseWorkflowPermission(PLATFORM_PERMISSION_WORKFLOW_WRITE, row.projectCode)
+}
+
+const workflowListStatus = ref<WorkflowListStatus>('idle')
+const loading = computed(() => workflowListStatus.value === 'loading')
+const workflowErrorMessage = ref('')
 const creating = ref(false)
 const deletingId = ref('')
 const createDialogVisible = ref(false)
@@ -360,65 +461,51 @@ const appliedKeyword = ref('')
 const currentPage = ref(1)
 const pageSize = ref(10)
 const workflowTableMaxHeight = ref(480)
+const workflowTableShellRef = ref<HTMLElement | null>(null)
 const filters = reactive({
-  projectCode: initialWorkflowProjectCode,
   workflowKind: '',
   status: '',
 })
 const appliedFilters = reactive({
-  projectCode: initialWorkflowProjectCode,
   workflowKind: '',
   status: '',
 })
-const createForm = reactive({
+const createForm = reactive<{
+  name: string
+  keySlug: string
+  projectId: number | null
+  workflowKind: string
+  executionEngine: string
+  description: string
+}>({
   name: '',
   keySlug: '',
-  projectCode: '',
+  projectId: null,
   workflowKind: 'GENERAL',
   executionEngine: 'GRAPH_SPEC',
   description: '',
 })
+const createScopeSnapshot = ref<WorkflowCreateScopeSnapshot | null>(null)
+const createTargetIdentity = ref<WorkflowCreateProjectIdentity | null>(null)
 
-const canCreateWorkflowInCurrentScope = computed(() => {
-  const projectCode = filters.projectCode.trim()
-  return hasPlatformGlobalPermissionGrant(
-    platformSessionUser.value?.permissionGrants,
-    PLATFORM_PERMISSION_WORKFLOW_WRITE,
-  ) || (Boolean(projectCode) && writableWorkflowProjects.value.includes(projectCode))
-})
-
-function canWriteWorkflow(row: WorkflowWorkingCopy) {
-  return canUseWorkflowPermission(PLATFORM_PERMISSION_WORKFLOW_WRITE, row.projectCode)
-}
-
-let tableHeightRaf = 0
-
-const {
-  collapsed: isWorkflowHeaderCollapsed,
-  refreshScrollTargets: refreshWorkflowHeaderScrollTargets,
-} = useCollapsiblePageHeader({
-  rootSelector: '.workflow-list-page',
-  scrollSelectors: [
-    '.workflow-table .el-scrollbar__wrap',
-    '.workflow-table .el-table__body-wrapper',
-  ],
-  onScroll: scheduleUpdateWorkflowTableMaxHeight,
-  onLayoutChange: scheduleUpdateWorkflowTableMaxHeight,
-})
-
-const routeProjectCode = computed(() => String(route.query.projectCode || '').trim())
-const projectScoped = computed(() => !!routeProjectCode.value)
-const workflowScopeLabel = computed(() => (
-  projectScoped.value ? '项目上下文' : (canReadAllWorkflows.value ? '全量视图' : '授权项目视图')
+const projectScoped = computed(() => (
+  scopeCanLoadData.value && pageProjectScope.resolution.value?.kind === 'project'
 ))
+const workflowScopeLabel = computed(() => {
+  if (!scopeCanLoadData.value) return '范围未确认'
+  const resolution = pageProjectScope.resolution.value
+  if (resolution?.kind === 'all') return '全部 Workflow'
+  if (resolution?.kind === 'project') return resolution.project.name
+  return '范围未确认'
+})
 const pageTitle = computed(() => (
-  projectScoped.value || !canReadAllWorkflows.value ? '项目 Workflow' : 'Workflow 编排'
+  projectScoped.value ? '项目 Workflow' : 'Workflow 编排'
 ))
-const pageDescription = computed(() =>
-  projectScoped.value || !canReadAllWorkflows.value
+const pageDescription = computed(() => (
+  projectScoped.value
     ? '当前项目下的可执行 Workflow 资产。'
-    : '面向通用流程、页面助手和 SDK 同步图的可执行 Workflow 资产。',
-)
+    : '面向通用流程、页面助手和 SDK 同步图的可执行 Workflow 资产。'
+))
 
 const filteredWorkflows = computed(() => {
   const text = appliedKeyword.value.trim().toLowerCase()
@@ -492,33 +579,53 @@ const metrics = computed(() => {
   ]
 })
 
+let tableHeightRaf = 0
+let tableShellObserver: ResizeObserver | null = null
+let workflowDataGeneration = 0
+let isUnmounted = false
+
+const {
+  collapsed: isWorkflowHeaderCollapsed,
+  refreshScrollTargets: refreshWorkflowHeaderScrollTargets,
+} = useCollapsiblePageHeader({
+  rootSelector: '.workflow-list-page',
+  scrollSelectors: [
+    '.workflow-table .el-scrollbar__wrap',
+    '.workflow-table .el-table__body-wrapper',
+  ],
+  onScroll: scheduleUpdateWorkflowTableMaxHeight,
+  onLayoutChange: scheduleUpdateWorkflowTableMaxHeight,
+})
+
 onMounted(() => {
-  loadWorkflows().finally(() => {
-    nextTick(() => {
-      refreshWorkflowHeaderScrollTargets()
-      scheduleUpdateWorkflowTableMaxHeight()
-    })
-  })
   window.addEventListener('resize', scheduleUpdateWorkflowTableMaxHeight)
+  nextTick(() => {
+    refreshWorkflowHeaderScrollTargets()
+    bindWorkflowTableShellObserver()
+    scheduleUpdateWorkflowTableMaxHeight()
+  })
 })
 
 onUnmounted(() => {
+  isUnmounted = true
+  workflowDataGeneration += 1
   window.removeEventListener('resize', scheduleUpdateWorkflowTableMaxHeight)
+  tableShellObserver?.disconnect()
+  tableShellObserver = null
   if (tableHeightRaf) cancelAnimationFrame(tableHeightRaf)
 })
 
 watch(
-  () => route.query.projectCode,
-  (value) => {
-    const requestedProjectCode = String(value || '').trim()
-    const effectiveProjectCode = requestedProjectCode
-      || (canReadAllWorkflows.value ? '' : readableWorkflowProjects.value[0] || '')
-    filters.projectCode = effectiveProjectCode
-    appliedFilters.projectCode = effectiveProjectCode
-    appliedKeyword.value = keyword.value
-    currentPage.value = 1
-    void loadWorkflows()
+  () => [
+    pageProjectScope.requestKey.value,
+    pageProjectScope.canLoadData.value,
+    pageProjectScope.isActive.value,
+  ] as const,
+  () => {
+    invalidateWorkflowData()
+    if (pageProjectScope.canLoadData.value) void loadWorkflows()
   },
+  { immediate: true },
 )
 
 watch(pageSize, () => {
@@ -534,6 +641,22 @@ watch(
   },
 )
 
+watch(
+  workflowTableShellRef,
+  () => {
+    bindWorkflowTableShellObserver()
+    nextTick(scheduleUpdateWorkflowTableMaxHeight)
+  },
+  { flush: 'post', immediate: true },
+)
+
+watch(createDialogVisible, (visible) => {
+  if (!visible) {
+    createScopeSnapshot.value = null
+    createTargetIdentity.value = null
+  }
+})
+
 function scheduleUpdateWorkflowTableMaxHeight() {
   if (typeof window === 'undefined') return
   if (tableHeightRaf) return
@@ -541,6 +664,14 @@ function scheduleUpdateWorkflowTableMaxHeight() {
     tableHeightRaf = 0
     updateWorkflowTableMaxHeight()
   })
+}
+
+function bindWorkflowTableShellObserver() {
+  tableShellObserver?.disconnect()
+  tableShellObserver = null
+  if (typeof ResizeObserver === 'undefined' || !workflowTableShellRef.value) return
+  tableShellObserver = new ResizeObserver(() => scheduleUpdateWorkflowTableMaxHeight())
+  tableShellObserver.observe(workflowTableShellRef.value)
 }
 
 function updateWorkflowTableMaxHeight() {
@@ -568,56 +699,115 @@ function updateWorkflowTableMaxHeight() {
       bottomLimit = footerTop - 12
     }
   }
-  const h = bottomLimit - tableTop
-  workflowTableMaxHeight.value = Math.max(260, Math.floor(h))
+  workflowTableMaxHeight.value = Math.max(260, Math.floor(bottomLimit - tableTop))
+}
+
+function invalidateWorkflowData() {
+  workflowDataGeneration += 1
+  workflows.value = []
+  workflowListStatus.value = 'idle'
+  workflowErrorMessage.value = ''
+  deletingId.value = ''
+  currentPage.value = 1
+}
+
+function isCurrentWorkflowRequest(generation: number, scopeKey: string) {
+  return !isUnmounted
+    && generation === workflowDataGeneration
+    && pageProjectScope.canLoadData.value
+    && pageProjectScope.requestKey.value === scopeKey
+}
+
+function currentWorkflowListParams(): WorkflowListParams {
+  const params: WorkflowListParams = {
+    ...(pageProjectScope.requestParams.value || {}),
+  }
+  if (appliedFilters.workflowKind) params.workflowKind = appliedFilters.workflowKind
+  if (appliedFilters.status) params.status = appliedFilters.status
+  return params
 }
 
 async function loadWorkflows() {
-  const projectCode = appliedFilters.projectCode.trim()
-  if (!canUseWorkflowPermission(PLATFORM_PERMISSION_WORKFLOW_READ, projectCode || null)) {
+  const scopeKey = pageProjectScope.requestKey.value
+  const generation = ++workflowDataGeneration
+  deletingId.value = ''
+  if (!pageProjectScope.canLoadData.value) {
     workflows.value = []
+    workflowListStatus.value = 'idle'
+    workflowErrorMessage.value = ''
     return
   }
-  loading.value = true
+
+  const params = currentWorkflowListParams()
+  workflowListStatus.value = 'loading'
+  workflowErrorMessage.value = ''
+  workflows.value = []
   try {
-    const { data } = await listWorkflows({
-      projectCode: appliedFilters.projectCode || undefined,
-      workflowKind: appliedFilters.workflowKind || undefined,
-      status: appliedFilters.status || undefined,
-    })
-    workflows.value = Array.isArray(data) ? data : []
+    const response = await listWorkflows(params)
+    if (!isCurrentWorkflowRequest(generation, scopeKey)) return
+    if (!Array.isArray(response.data)) {
+      workflowListStatus.value = 'error'
+      workflowErrorMessage.value = 'Workflow 列表返回数据格式异常，请重试'
+      return
+    }
+    workflows.value = response.data as WorkflowWorkingCopy[]
+    workflowListStatus.value = 'success'
+  } catch (error) {
+    if (!isCurrentWorkflowRequest(generation, scopeKey)) return
+    workflows.value = []
+    workflowListStatus.value = 'error'
+    workflowErrorMessage.value = error instanceof Error && error.message
+      ? error.message
+      : 'Workflow 列表加载失败，请重试'
   } finally {
-    loading.value = false
-    nextTick(scheduleUpdateWorkflowTableMaxHeight)
+    if (isCurrentWorkflowRequest(generation, scopeKey)) {
+      nextTick(() => {
+        refreshWorkflowHeaderScrollTargets()
+        bindWorkflowTableShellObserver()
+        scheduleUpdateWorkflowTableMaxHeight()
+      })
+    }
   }
 }
 
 function searchWorkflows() {
   appliedKeyword.value = keyword.value
-  appliedFilters.projectCode = filters.projectCode.trim()
   appliedFilters.workflowKind = filters.workflowKind
   appliedFilters.status = filters.status
   currentPage.value = 1
   void loadWorkflows()
 }
 
-function showAllWorkflows() {
+function resetFilters() {
   keyword.value = ''
   appliedKeyword.value = ''
-  filters.projectCode = routeProjectCode.value || ''
   filters.workflowKind = ''
   filters.status = ''
-  appliedFilters.projectCode = filters.projectCode
   appliedFilters.workflowKind = ''
   appliedFilters.status = ''
   currentPage.value = 1
   void loadWorkflows()
 }
 
+function openScopeSelector() {
+  if (appStore.sidebarCollapsed) appStore.toggleSidebar()
+}
+
+async function retryScope() {
+  if (!scopeCanRetry.value || scopeRetrying.value) return
+  scopeRetrying.value = true
+  try {
+    await pageProjectScope.retryScope()
+  } finally {
+    scopeRetrying.value = false
+  }
+}
+
 function openStudio(id: string) {
+  if (!scopeCanLoadData.value) return
   const workflow = workflows.value.find((item) => item.id === id)
   if (workflow && !canWriteWorkflow(workflow)) return
-  router.push(`/workflows/${id}/studio`)
+  void router.push(`/workflows/${id}/studio`)
 }
 
 function openWorkflow(row: WorkflowWorkingCopy) {
@@ -629,7 +819,8 @@ function openWorkflow(row: WorkflowWorkingCopy) {
 }
 
 function openVersions(id: string) {
-  router.push(`/workflows/${id}/versions`)
+  if (!scopeCanLoadData.value) return
+  void router.push(`/workflows/${id}/versions`)
 }
 
 function canDeleteWorkflow(row: WorkflowWorkingCopy) {
@@ -637,6 +828,9 @@ function canDeleteWorkflow(row: WorkflowWorkingCopy) {
 }
 
 async function confirmDeleteWorkflow(row: WorkflowWorkingCopy) {
+  if (!scopeCanLoadData.value || !canDeleteWorkflow(row)) return
+  const operationScopeKey = pageProjectScope.requestKey.value
+  const operationGeneration = workflowDataGeneration
   try {
     await ElMessageBox.confirm(
       `确认删除草稿 Workflow「${row.name}」吗？删除后不可恢复。`,
@@ -646,34 +840,283 @@ async function confirmDeleteWorkflow(row: WorkflowWorkingCopy) {
   } catch {
     return
   }
+  if (
+    !isCurrentWorkflowRequest(operationGeneration, operationScopeKey)
+    || !canDeleteWorkflow(row)
+  ) return
+
   deletingId.value = row.id
   try {
     await deleteWorkflow(row.id)
+    if (!isCurrentWorkflowRequest(operationGeneration, operationScopeKey)) return
     ElMessage.success('Workflow 已删除')
-    await loadWorkflows()
-  } catch {
-    // 错误提示由 request 拦截器处理
+    void loadWorkflows()
+  } catch (error) {
+    if (isCurrentWorkflowRequest(operationGeneration, operationScopeKey)) {
+      ElMessage.error(error instanceof Error && error.message ? error.message : '删除 Workflow 失败')
+    }
   } finally {
-    deletingId.value = ''
+    if (
+      isCurrentWorkflowRequest(operationGeneration, operationScopeKey)
+      && deletingId.value === row.id
+    ) deletingId.value = ''
   }
 }
 
 function backToProject() {
-  if (!routeProjectCode.value) return
-  router.push({ name: 'RegistryProjectDetail', params: { projectCode: routeProjectCode.value } })
+  const resolution = pageProjectScope.resolution.value
+  if (!scopeCanLoadData.value || resolution?.kind !== 'project' || !resolution.project.projectCode) return
+  void router.push({
+    name: 'RegistryProjectDetail',
+    params: { projectCode: resolution.project.projectCode },
+  })
 }
 
-function openGlobalWorkflows() {
-  if (!canReadAllWorkflows.value) return
-  filters.projectCode = ''
-  router.push({ name: 'WorkflowList' })
+function snapshotResolution(resolution: ResolvedProjectScopeSuccess): ResolvedProjectScopeSuccess {
+  if (resolution.kind === 'all') return { kind: 'all' }
+  return {
+    kind: 'project',
+    project: { ...resolution.project },
+  }
+}
+
+function sameResolvedScope(
+  current: ResolvedProjectScope | null,
+  snapshot: ResolvedProjectScopeSuccess,
+) {
+  if (
+    !current
+    || (current.kind !== 'all' && current.kind !== 'project')
+    || current.kind !== snapshot.kind
+  ) return false
+  if (current.kind === 'all' && snapshot.kind === 'all') return true
+  return current.kind === 'project'
+    && snapshot.kind === 'project'
+    && current.project.id === snapshot.project.id
+    && current.project.projectCode === snapshot.project.projectCode
+}
+
+function snapshotScopeReference(reference: ProjectScopeQueryReference): ProjectScopeQueryReference {
+  if (reference.kind === 'project') {
+    return {
+      kind: 'project',
+      ...(reference.projectId !== undefined ? { projectId: reference.projectId } : {}),
+      ...(reference.projectCode !== undefined ? { projectCode: reference.projectCode } : {}),
+    }
+  }
+  if (reference.kind === 'invalid') return { kind: 'invalid', reason: reference.reason }
+  return { kind: reference.kind }
+}
+
+function sameScopeReference(
+  current: ProjectScopeQueryReference | null,
+  snapshot: ProjectScopeQueryReference,
+) {
+  if (!current || current.kind !== snapshot.kind) return false
+  if (current.kind === 'project' && snapshot.kind === 'project') {
+    return current.projectId === snapshot.projectId && current.projectCode === snapshot.projectCode
+  }
+  if (current.kind === 'invalid' && snapshot.kind === 'invalid') return current.reason === snapshot.reason
+  return true
+}
+
+const createProjectOptions = computed(() => {
+  const snapshot = createScopeSnapshot.value
+  if (!snapshot) return [] as ScanProject[]
+  const readableProjects = pageProjectScope.readableProjects.value
+    .filter((project) => Boolean(project.projectCode?.trim()))
+    .filter((project) => canUseWorkflowPermission(PLATFORM_PERMISSION_WORKFLOW_WRITE, project.projectCode))
+  const snapshotResolution = snapshot.resolution
+  if (snapshotResolution.kind === 'project') {
+    return readableProjects.filter((project) => (
+      project.id === snapshotResolution.project.id
+      && project.projectCode?.trim() === snapshotResolution.project.projectCode
+    ))
+  }
+  return readableProjects
+})
+
+const createTargetProject = computed(() => (
+  createForm.projectId === null
+    ? null
+    : pageProjectScope.readableProjects.value.find((project) => project.id === createForm.projectId) || null
+))
+const createScopeAddressIsCurrent = computed(() => {
+  const snapshot = createScopeSnapshot.value
+  return Boolean(
+    createDialogVisible.value
+      && snapshot
+      && !isUnmounted
+      && platformSessionId.value === snapshot.sessionId
+      && pageProjectScope.isActive.value
+      && sameScopeReference(pageProjectScope.reference.value, snapshot.reference),
+  )
+})
+const createScopeIsCurrent = computed(() => {
+  if (!createScopeAddressIsCurrent.value) return false
+  if (pageProjectScope.isCatalogLoading.value || pageProjectScope.hasCatalogError.value) return true
+  return pageProjectScope.requestKey.value === createScopeSnapshot.value!.requestKey
+    && sameResolvedScope(pageProjectScope.resolution.value, createScopeSnapshot.value!.resolution)
+})
+const createTargetIdentityMatches = computed(() => {
+  const identity = createTargetIdentity.value
+  const project = createTargetProject.value
+  return Boolean(
+    identity
+      && project
+      && project.id === identity.id
+      && project.projectCode?.trim() === identity.projectCode,
+  )
+})
+const createProjectSelectDisabled = computed(() => (
+  creating.value || createScopeSnapshot.value?.resolution.kind === 'project'
+))
+const createProjectPlaceholder = computed(() => {
+  if (createScopeSnapshot.value?.resolution.kind === 'project') {
+    return createTargetProject.value?.name || '当前项目'
+  }
+  return createProjectOptions.value.length ? '可选项目' : '暂无可写项目'
+})
+const createProjectHint = computed(() => {
+  const snapshot = createScopeSnapshot.value
+  if (!snapshot) return ''
+  if (!createScopeAddressIsCurrent.value) {
+    return '项目地址或登录会话已变化，请关闭此窗口后重新打开。'
+  }
+  if (pageProjectScope.isCatalogLoading.value) {
+    return '正在刷新项目目录，已保留输入；完成后可继续创建。'
+  }
+  if (pageProjectScope.hasCatalogError.value) {
+    return '项目目录暂时不可用，已保留输入；可在此重试目录后继续创建。'
+  }
+  if (!createScopeIsCurrent.value) {
+    const currentResolution = pageProjectScope.resolution.value
+    if (snapshot.resolution.kind === 'project' && currentResolution?.kind === 'blocked') {
+      if (currentResolution.reason === 'project-not-found') {
+        return '当前项目已不在项目目录中，请关闭窗口后重新打开。'
+      }
+      if (currentResolution.reason === 'invalid-reference' || currentResolution.reason === 'project-code-missing') {
+        return '当前项目编码已变化或缺失，请关闭窗口后重新打开。'
+      }
+      if (currentResolution.reason === 'project-forbidden') {
+        return '当前项目的 Workflow 范围权限已变化，请关闭窗口后重新打开。'
+      }
+    }
+    return '项目范围已变化，请关闭此窗口后重新打开。'
+  }
+  if (snapshot.resolution.kind === 'project') {
+    const project = createTargetProject.value
+    if (!project) return '当前项目已不在项目目录中，请关闭窗口后重新打开。'
+    if (project.projectCode?.trim() !== snapshot.resolution.project.projectCode) {
+      return '当前项目编码已变化，请关闭窗口后重新打开。'
+    }
+    if (!canUseWorkflowPermission(PLATFORM_PERMISSION_WORKFLOW_WRITE, project.projectCode)) {
+      return '当前项目的 Workflow 写权限已变化，请关闭窗口后重新打开。'
+    }
+    return `仅可创建到当前项目：${snapshot.resolution.project.name}`
+  }
+  if (createForm.projectId !== null) {
+    if (!createTargetIdentity.value) return '请重新选择一个有 Workflow 写权限的项目。'
+    if (!createTargetProject.value) return '所选项目已不在项目目录中，请重新选择项目。'
+    if (!createTargetIdentityMatches.value) return '所选项目编码已变化，请重新选择项目。'
+    if (!canUseWorkflowPermission(PLATFORM_PERMISSION_WORKFLOW_WRITE, createTargetProject.value.projectCode)) {
+      return '所选项目的 Workflow 写权限已变化，请重新选择项目。'
+    }
+  }
+  if (canCreatePlatformWorkflow.value) return '留空创建平台级 Workflow，不归属项目。'
+  return '请选择一个有 Workflow 写权限的项目。'
+})
+const createCatalogRetryAvailable = computed(() => (
+  createScopeAddressIsCurrent.value
+    && (pageProjectScope.hasCatalogError.value || createCatalogRetrying.value)
+))
+const createTargetPermissionValid = computed(() => {
+  const snapshot = createScopeSnapshot.value
+  if (!snapshot || !createScopeIsCurrent.value) return false
+  if (snapshot.resolution.kind === 'project') {
+    const project = createTargetProject.value
+    return createForm.projectId === snapshot.resolution.project.id
+      && project?.projectCode?.trim() === snapshot.resolution.project.projectCode
+      && canUseWorkflowPermission(PLATFORM_PERMISSION_WORKFLOW_WRITE, project?.projectCode)
+  }
+  if (createForm.projectId === null) return canCreatePlatformWorkflow.value
+  const project = createTargetProject.value
+  return Boolean(
+    createTargetIdentityMatches.value
+      && project?.projectCode?.trim()
+      && canUseWorkflowPermission(PLATFORM_PERMISSION_WORKFLOW_WRITE, project.projectCode),
+  )
+})
+const createSubmitDisabled = computed(() => (
+  creating.value
+    || !createTargetPermissionValid.value
+    || pageProjectScope.isCatalogLoading.value
+    || pageProjectScope.hasCatalogError.value
+))
+
+function normalizeCreateProjectId(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null
+  if (typeof value === 'number') {
+    return Number.isSafeInteger(value) && value > 0 ? value : null
+  }
+  if (typeof value === 'string' && /^\d+$/.test(value)) {
+    const projectId = Number(value)
+    return Number.isSafeInteger(projectId) && projectId > 0 ? projectId : null
+  }
+  return null
+}
+
+function handleCreateProjectSelection(value: unknown) {
+  if (createScopeSnapshot.value?.resolution.kind === 'project') return
+  const projectId = normalizeCreateProjectId(value)
+  createForm.projectId = projectId
+  if (projectId === null) {
+    createTargetIdentity.value = null
+    return
+  }
+
+  const project = pageProjectScope.readableProjects.value.find((item) => item.id === projectId)
+  const projectCode = project?.projectCode?.trim()
+  if (!project || !projectCode || !canUseWorkflowPermission(PLATFORM_PERMISSION_WORKFLOW_WRITE, projectCode)) {
+    createTargetIdentity.value = null
+    return
+  }
+  createTargetIdentity.value = { id: project.id, projectCode }
+}
+
+function clearCreateProjectSelection() {
+  if (createScopeSnapshot.value?.resolution.kind === 'project') return
+  createForm.projectId = null
+  createTargetIdentity.value = null
+}
+
+async function retryCreateCatalog() {
+  if (!createCatalogRetryAvailable.value || createCatalogRetrying.value) return
+  createCatalogRetrying.value = true
+  try {
+    await pageProjectScope.refreshCatalog()
+  } finally {
+    createCatalogRetrying.value = false
+  }
 }
 
 function openCreateDialog() {
   if (!canCreateWorkflowInCurrentScope.value) return
+  const resolution = pageProjectScope.resolution.value
+  const reference = pageProjectScope.reference.value
+  if (!resolution || (resolution.kind !== 'all' && resolution.kind !== 'project') || !reference) return
+  createScopeSnapshot.value = {
+    requestKey: pageProjectScope.requestKey.value,
+    sessionId: platformSessionId.value,
+    reference: snapshotScopeReference(reference),
+    resolution: snapshotResolution(resolution),
+  }
   createForm.name = ''
   createForm.keySlug = ''
-  createForm.projectCode = routeProjectCode.value || filters.projectCode || ''
+  createForm.projectId = resolution.kind === 'project' ? resolution.project.id : null
+  createTargetIdentity.value = resolution.kind === 'project' && resolution.project.projectCode
+    ? { id: resolution.project.id, projectCode: resolution.project.projectCode }
+    : null
   createForm.workflowKind = 'GENERAL'
   createForm.executionEngine = 'GRAPH_SPEC'
   createForm.description = ''
@@ -707,52 +1150,128 @@ function validateCreateForm() {
   return true
 }
 
+function resolveCreateTarget() {
+  const snapshot = createScopeSnapshot.value
+  const resolution = pageProjectScope.resolution.value
+  if (!snapshot || !createScopeAddressIsCurrent.value) {
+    ElMessage.warning('项目地址或登录会话已变化，请关闭窗口后重新打开')
+    return null
+  }
+  if (pageProjectScope.isCatalogLoading.value || pageProjectScope.hasCatalogError.value) {
+    ElMessage.warning('项目目录暂时不可用，请恢复后再试')
+    return null
+  }
+  if (!resolution || !createScopeIsCurrent.value || !sameResolvedScope(resolution, snapshot.resolution)) {
+    ElMessage.warning(createProjectHint.value || '项目范围已变化，请关闭窗口后重新打开')
+    return null
+  }
+  if (snapshot.resolution.kind === 'project') {
+    const project = createTargetProject.value
+    if (!project) {
+      ElMessage.warning('当前项目已不在项目目录中，请关闭窗口后重新打开')
+      return null
+    }
+    if (
+      createForm.projectId !== snapshot.resolution.project.id
+      || project.projectCode?.trim() !== snapshot.resolution.project.projectCode
+    ) {
+      ElMessage.warning('当前项目编码已变化，请关闭窗口后重新打开')
+      return null
+    }
+    if (!canUseWorkflowPermission(PLATFORM_PERMISSION_WORKFLOW_WRITE, project.projectCode)) {
+      ElMessage.warning('当前项目的 Workflow 写权限已变化，请关闭窗口后重新打开')
+      return null
+    }
+    return { projectId: project.id, projectCode: project.projectCode.trim() }
+  }
+
+  if (createForm.projectId === null) {
+    if (!canCreatePlatformWorkflow.value) {
+      ElMessage.warning('请选择一个有 Workflow 写权限的项目')
+      return null
+    }
+    return { projectId: null, projectCode: null }
+  }
+
+  const project = createTargetProject.value
+  if (!createTargetIdentity.value) {
+    ElMessage.warning('请重新选择一个有 Workflow 写权限的项目')
+    return null
+  }
+  if (!project) {
+    ElMessage.warning('所选项目已不在项目目录中，请重新选择项目')
+    return null
+  }
+  if (project.projectCode?.trim() !== createTargetIdentity.value.projectCode) {
+    ElMessage.warning('所选项目编码已变化，请重新选择项目')
+    return null
+  }
+  if (!canUseWorkflowPermission(PLATFORM_PERMISSION_WORKFLOW_WRITE, project.projectCode)) {
+    ElMessage.warning('所选项目的 Workflow 写权限已变化，请重新选择项目')
+    return null
+  }
+  return { projectId: project.id, projectCode: project.projectCode.trim() }
+}
+
+function isCreateOperationCurrent(
+  snapshot: WorkflowCreateScopeSnapshot,
+  target: { projectId: number | null; projectCode: string | null },
+) {
+  if (
+    !createScopeIsCurrent.value
+      || createScopeSnapshot.value !== snapshot
+      || pageProjectScope.requestKey.value !== snapshot.requestKey
+      || pageProjectScope.isCatalogLoading.value
+      || pageProjectScope.hasCatalogError.value
+  ) return false
+  const resolution = pageProjectScope.resolution.value
+  if (!resolution || !sameResolvedScope(resolution, snapshot.resolution)) return false
+  if (target.projectId === null) return canCreatePlatformWorkflow.value
+  const project = pageProjectScope.readableProjects.value.find((item) => item.id === target.projectId)
+  return Boolean(
+    project
+      && createTargetIdentity.value?.id === target.projectId
+      && createTargetIdentity.value.projectCode === target.projectCode
+      && project.projectCode?.trim() === target.projectCode
+      && canUseWorkflowPermission(PLATFORM_PERMISSION_WORKFLOW_WRITE, target.projectCode),
+  )
+}
+
 async function submitCreateWorkflow() {
-  if (!validateCreateForm()) return
-  const requestedProjectCode = createForm.projectCode.trim()
-  if (!canUseWorkflowPermission(
-    PLATFORM_PERMISSION_WORKFLOW_WRITE,
-    requestedProjectCode || null,
-  )) {
-    ElMessage.warning('当前账号没有该项目的 Workflow 写权限')
-    return
+  if (creating.value || !validateCreateForm()) return
+  const target = resolveCreateTarget()
+  if (!target) return
+  const snapshot = createScopeSnapshot.value
+  if (!snapshot) return
+
+  const payload: WorkflowWorkingCopyInput = {
+    name: createForm.name.trim(),
+    keySlug: createForm.keySlug.trim(),
+    projectId: target.projectId,
+    projectCode: target.projectCode,
+    workflowKind: createForm.workflowKind,
+    executionEngine: 'GRAPH_SPEC',
+    definitionAuthority: 'USER',
+    creationChannel: 'STUDIO',
+    description: createForm.description.trim() || null,
+    status: 'DRAFT',
+    graphSpecJson: '{"schemaVersion":2,"nodes":[],"edges":[],"entryNodeId":"","exitNodeIds":[]}',
+    canvasJson: '{"schemaVersion":1,"layoutVersion":1,"nodes":[],"edges":[]}',
   }
   creating.value = true
   try {
-    const projectCode = createForm.projectCode.trim()
-    const projectId = await resolveCreateProjectId(projectCode)
-    const { data } = await createWorkflow({
-      name: createForm.name.trim(),
-      keySlug: createForm.keySlug.trim(),
-      projectId,
-      projectCode: projectCode || null,
-      workflowKind: createForm.workflowKind,
-      executionEngine: createForm.executionEngine,
-      definitionAuthority: 'USER',
-      creationChannel: 'STUDIO',
-      description: createForm.description.trim() || null,
-      status: 'DRAFT',
-      graphSpecJson: '{"schemaVersion":2,"nodes":[],"edges":[],"entryNodeId":"","exitNodeIds":[]}',
-      canvasJson: '{"schemaVersion":1,"layoutVersion":1,"nodes":[],"edges":[]}',
-    })
+    const { data } = await createWorkflow(payload)
+    if (!data?.id || !isCreateOperationCurrent(snapshot, target)) return
     createDialogVisible.value = false
     ElMessage.success('Workflow 已创建')
-    router.push(`/workflows/${data.id}/studio`)
-  } catch (err) {
-    ElMessage.error((err as Error).message || '创建 Workflow 失败')
+    void router.push(`/workflows/${data.id}/studio`)
+  } catch (error) {
+    if (isCreateOperationCurrent(snapshot, target)) {
+      ElMessage.error(error instanceof Error && error.message ? error.message : '创建 Workflow 失败')
+    }
   } finally {
-    creating.value = false
+    if (!isUnmounted) creating.value = false
   }
-}
-
-async function resolveCreateProjectId(projectCode: string) {
-  if (!projectCode) return null
-  const { data } = await getScanProjects({ keyword: projectCode })
-  const project = (data || []).find((item) => item.projectCode?.trim() === projectCode)
-  if (!project) {
-    throw new Error(`未找到项目编码“${projectCode}”，请先从项目中心创建或选择有效项目`)
-  }
-  return project.id
 }
 
 function workflowInitial(value?: string | null) {
@@ -958,15 +1477,9 @@ function workflowStatusClass(status?: string | null) {
   }
 }
 
-.workflow-card.has-context-filter {
-  .toolbar {
-    margin-top: 12px;
-  }
-}
-
 .toolbar {
   display: grid;
-  grid-template-columns: minmax(340px, 2.4fr) minmax(170px, 0.95fr) repeat(2, minmax(170px, 1fr)) minmax(96px, auto);
+  grid-template-columns: minmax(340px, 2.4fr) repeat(2, minmax(170px, 1fr)) minmax(96px, auto);
   align-items: center;
   gap: 12px;
   margin: 28px 28px 0;
@@ -1029,18 +1542,45 @@ function workflowStatusClass(status?: string | null) {
   background: linear-gradient(135deg, var(--brand-hover), var(--brand-primary));
 }
 
-.context-filter {
-  display: flex;
-  align-items: center;
+.workflow-scope-panel {
+  display: grid;
+  min-width: 0;
+  min-height: 260px;
+  flex: 1 1 auto;
+  place-items: center;
+  padding: clamp(24px, 4vw, 48px);
+  border-radius: var(--radius-lg);
+}
+
+.workflow-list-error {
+  display: grid;
+  width: min(620px, 100%);
+  min-height: 210px;
+  place-items: center;
+  align-content: center;
   gap: 8px;
-  margin: 28px 28px 0;
-  padding: 9px 14px;
-  border: 1px solid rgb(var(--brand-primary-rgb) / 0.12);
-  border-radius: 10px;
-  color: var(--brand-primary);
-  background: rgb(var(--brand-selected-rgb) / 0.46);
-  font-size: 13px;
-  flex-shrink: 0;
+  margin: 22px 28px 0;
+  padding: 26px;
+  border: 1px dashed color-mix(in srgb, var(--el-color-danger) 28%, var(--border-readable));
+  border-radius: var(--radius-lg);
+  text-align: center;
+  background: color-mix(in srgb, var(--surface-solid-panel) 84%, transparent);
+
+  h3,
+  p {
+    margin: 0;
+  }
+
+  h3,
+  p {
+    color: var(--el-color-danger);
+  }
+
+  p {
+    max-width: 520px;
+    font-size: 13px;
+    line-height: 1.6;
+  }
 }
 
 .workflow-table-shell {
@@ -1056,8 +1596,8 @@ function workflowStatusClass(status?: string | null) {
 }
 
 .workflow-table {
-  --el-table-header-bg-color: color-mix(in srgb, var(--brand-selected-bg) 42%, #f1f5fb);
-  --el-table-row-hover-bg-color: rgba(255, 255, 255, 0.72);
+  --el-table-header-bg-color: color-mix(in srgb, var(--brand-selected-bg) 42%, var(--surface-fallback-panel));
+  --el-table-row-hover-bg-color: color-mix(in srgb, var(--brand-primary) 8%, var(--surface-fallback-panel));
   --el-table-border-color: rgb(var(--brand-primary-rgb) / 0.1);
   width: 100%;
   flex: 1;
@@ -1080,7 +1620,7 @@ function workflowStatusClass(status?: string | null) {
   :deep(th.el-table__cell) {
     height: 44px;
     color: var(--brand-active);
-    background: color-mix(in srgb, var(--brand-selected-bg) 42%, #f1f5fb) !important;
+    background: color-mix(in srgb, var(--brand-selected-bg) 42%, var(--surface-fallback-panel)) !important;
     font-size: 12px;
     font-weight: 700;
     line-height: 16px;
@@ -1089,28 +1629,28 @@ function workflowStatusClass(status?: string | null) {
   :deep(td.el-table__cell) {
     height: 58px;
     color: #334155;
-    background: rgba(255, 255, 255, 0.72) !important;
+    background: var(--surface-fallback-panel) !important;
     border-bottom-color: rgb(var(--brand-primary-rgb) / 0.1);
   }
 
   :deep(.el-table__row:hover > td.el-table__cell),
   :deep(.el-table__body tr.hover-row > td.el-table__cell) {
-    background: rgba(255, 255, 255, 0.72) !important;
+    background: color-mix(in srgb, var(--brand-primary) 8%, var(--surface-fallback-panel)) !important;
   }
 
   :deep(.el-table-fixed-column--right),
   :deep(.el-table-fixed-column--left) {
-    background-color: rgba(255, 255, 255, 0.88) !important;
+    background-color: var(--surface-fallback-panel) !important;
   }
 
   :deep(th.el-table-fixed-column--right),
   :deep(th.el-table-fixed-column--left) {
-    background-color: rgb(var(--brand-selected-rgb) / 0.34) !important;
+    background-color: color-mix(in srgb, var(--brand-selected-bg) 42%, var(--surface-fallback-panel)) !important;
   }
 
   :deep(td.el-table-fixed-column--right),
   :deep(td.el-table-fixed-column--left) {
-    background-color: rgba(255, 255, 255, 0.88) !important;
+    background-color: var(--surface-fallback-panel) !important;
   }
 
   :deep(.el-table__row:hover > td.el-table-fixed-column--right),
@@ -1119,17 +1659,17 @@ function workflowStatusClass(status?: string | null) {
   :deep(.el-table__body tr.hover-row > td.el-table-fixed-column--left),
   :deep(.el-table__body tr.current-row > td.el-table-fixed-column--right),
   :deep(.el-table__body tr.current-row > td.el-table-fixed-column--left) {
-    background-color: rgba(255, 255, 255, 0.88) !important;
+    background-color: color-mix(in srgb, var(--brand-primary) 8%, var(--surface-fallback-panel)) !important;
   }
 
   :deep(.el-table__fixed-right-patch) {
-    background-color: rgba(255, 255, 255, 0.88) !important;
+    background-color: var(--surface-fallback-panel) !important;
   }
 
   :deep(.el-table__empty-block) {
     width: 100% !important;
     min-height: 320px;
-    background: rgba(255, 255, 255, 0.46);
+    background: var(--surface-fallback-panel);
   }
 
   :deep(.el-table__empty-text) {
@@ -1346,6 +1886,48 @@ function workflowStatusClass(status?: string | null) {
   gap: 12px;
 }
 
+.create-project-select {
+  width: 100%;
+}
+
+.create-project-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+
+  span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  small {
+    flex: 0 0 auto;
+    color: var(--text-muted);
+  }
+}
+
+.create-project-hint {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.create-project-feedback {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.create-project-retry {
+  flex: 0 0 auto;
+  min-height: 24px;
+  padding: 0;
+  font-size: 12px;
+}
+
 .workflow-list-page.is-dark {
   background: transparent;
 
@@ -1425,12 +2007,6 @@ function workflowStatusClass(status?: string | null) {
     }
   }
 
-  .context-filter {
-    color: var(--brand-selected-bg);
-    background: rgb(var(--brand-primary-rgb) / 0.12);
-    border-color: rgb(var(--brand-primary-rgb) / 0.22);
-  }
-
   .workflow-table-shell {
     border-color: rgba(255, 255, 255, 0.06);
     background: rgba(255, 255, 255, 0.025);
@@ -1439,8 +2015,8 @@ function workflowStatusClass(status?: string | null) {
   .workflow-table {
     --el-table-bg-color: transparent;
     --el-table-tr-bg-color: transparent;
-    --el-table-header-bg-color: rgba(255, 255, 255, 0.045);
-    --el-table-row-hover-bg-color: rgb(var(--brand-primary-rgb) / 0.08);
+    --el-table-header-bg-color: color-mix(in srgb, var(--brand-selected-bg) 42%, var(--surface-fallback-panel));
+    --el-table-row-hover-bg-color: color-mix(in srgb, var(--brand-primary) 12%, var(--surface-fallback-panel));
     --el-table-border-color: rgba(255, 255, 255, 0.06);
     --el-table-text-color: #cbd5e1;
     --el-table-header-text-color: #94a3b8;
@@ -1454,18 +2030,18 @@ function workflowStatusClass(status?: string | null) {
 
     :deep(th.el-table__cell) {
       color: #94a3b8;
-      background: rgba(255, 255, 255, 0.045) !important;
+      background: color-mix(in srgb, var(--brand-selected-bg) 42%, var(--surface-fallback-panel)) !important;
     }
 
     :deep(td.el-table__cell) {
       color: #cbd5e1;
-      background: rgba(255, 255, 255, 0.015) !important;
+      background: var(--surface-fallback-panel) !important;
       border-bottom-color: rgba(255, 255, 255, 0.06);
     }
 
     :deep(.el-table__row:hover > td.el-table__cell),
     :deep(.el-table__body tr.hover-row > td.el-table__cell) {
-      background: rgb(var(--brand-primary-rgb) / 0.08) !important;
+      background: color-mix(in srgb, var(--brand-primary) 12%, var(--surface-fallback-panel)) !important;
     }
 
     :deep(.el-table__inner-wrapper),
@@ -1476,17 +2052,17 @@ function workflowStatusClass(status?: string | null) {
 
     :deep(.el-table-fixed-column--right),
     :deep(.el-table-fixed-column--left) {
-      background-color: var(--bg-secondary) !important;
+      background-color: var(--surface-fallback-panel) !important;
     }
 
     :deep(th.el-table-fixed-column--right),
     :deep(th.el-table-fixed-column--left) {
-      background-color: #1c1c2a !important;
+      background-color: color-mix(in srgb, var(--brand-selected-bg) 42%, var(--surface-fallback-panel)) !important;
     }
 
     :deep(td.el-table-fixed-column--right),
     :deep(td.el-table-fixed-column--left) {
-      background-color: var(--bg-secondary) !important;
+      background-color: var(--surface-fallback-panel) !important;
     }
 
     :deep(.el-table__row:hover > td.el-table-fixed-column--right),
@@ -1495,11 +2071,11 @@ function workflowStatusClass(status?: string | null) {
     :deep(.el-table__body tr.hover-row > td.el-table-fixed-column--left),
     :deep(.el-table__body tr.current-row > td.el-table-fixed-column--right),
     :deep(.el-table__body tr.current-row > td.el-table-fixed-column--left) {
-      background-color: #252538 !important;
+      background-color: color-mix(in srgb, var(--brand-primary) 12%, var(--surface-fallback-panel)) !important;
     }
 
     :deep(.el-table__fixed-right-patch) {
-      background-color: var(--bg-secondary) !important;
+      background-color: var(--surface-fallback-panel) !important;
     }
 
     :deep(.el-tag.el-tag--light) {
@@ -1540,6 +2116,10 @@ function workflowStatusClass(status?: string | null) {
     }
   }
 
+  .workflow-list-error {
+    background: color-mix(in srgb, var(--surface-fallback-panel) 84%, transparent);
+  }
+
   .table-footer {
     color: #94a3b8;
     border-top-color: rgba(255, 255, 255, 0.06);
@@ -1574,23 +2154,29 @@ function workflowStatusClass(status?: string | null) {
 
 @media (max-width: 1200px) {
   .metric-strip {
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     max-height: none;
   }
 
   .metric-divider {
-    width: auto;
-    height: 1px;
-    align-self: stretch;
-    margin: 0 22px;
+    display: none;
   }
 
   .metric-segment {
     min-height: 92px;
+    padding: 14px 16px;
+    gap: 12px;
   }
 
   .toolbar {
-    grid-template-columns: minmax(240px, 1fr) repeat(2, minmax(150px, 1fr));
+    grid-template-columns: minmax(0, 2fr) repeat(2, minmax(0, 1fr));
+  }
+
+  .toolbar-search {
+    grid-column: 1 / -1;
+    justify-self: end;
+    min-width: 96px;
   }
 
   .empty-main {
@@ -1614,6 +2200,23 @@ function workflowStatusClass(status?: string | null) {
     width: min(100%, 240px);
     height: 200px;
     min-height: 0;
+  }
+}
+
+@media (max-width: 1400px) {
+  .metric-line {
+    justify-content: flex-start;
+    gap: 0;
+  }
+
+  .metric-label {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+  }
+
+  .metric-delta {
+    display: none;
   }
 }
 

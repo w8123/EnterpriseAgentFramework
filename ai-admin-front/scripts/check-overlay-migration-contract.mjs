@@ -14,10 +14,7 @@ const rawOverlayAllowlist = new Set([
   'src/views/scan/components/scan-project/ScanProjectOpsDrawer.vue',
   'src/views/scan/components/scan-project/ScanProjectSemanticDialogs.vue',
   'src/views/scan/components/scan-project/ScanProjectToolDiffDialog.vue',
-  'src/views/scan/components/scan-project/ScanProjectToolEditDialog.vue',
   'src/views/workflow/WorkflowStudio.vue',
-  'src/views/workflow/studio-panels/CredentialSelect.vue',
-  'src/views/workflow/studio-panels/InteractionConfigPanel.vue',
   'src/views/workflow/studio-panels/ToolConfigPanel.vue',
 ])
 

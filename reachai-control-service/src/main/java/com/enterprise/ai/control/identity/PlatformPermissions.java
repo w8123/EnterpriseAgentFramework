@@ -13,6 +13,7 @@ public final class PlatformPermissions {
     public static final String PLATFORM_READ = "platform:read";
     public static final String PLATFORM_WRITE = "platform:write";
     public static final String PLATFORM_ADMIN = "platform:admin";
+    public static final String CAPABILITY_INVOKE = "capability:invoke";
 
     public static final String BUILD_WORKSPACE_ACCESS = "workspace:build:access";
     public static final String OPERATE_WORKSPACE_ACCESS = "workspace:operate:access";

@@ -160,6 +160,33 @@ class CapabilityReviewConsoleControllerTest {
         return controller(gateway, mock(PlatformAuthorizationService.class));
     }
 
+    @Test void capabilityReferencesResolveAliasesFromTheOwningCatalog() {
+        var gateway = mock(CapabilityReviewGateway.class);
+        var authorization = mock(PlatformAuthorizationService.class);
+        var impacts = mock(CapabilityChangeImpactService.class);
+        var controller = new CapabilityReviewConsoleController(gateway, new PlatformRequestAuthorization(authorization), impacts);
+        when(gateway.getCapability("orders_read", "7")).thenReturn(ResponseEntity.ok(Map.of(
+                "projectCode", "orders", "qualifiedName", "orders:read", "name", "orders_read")));
+        when(impacts.references("orders", "orders:read", "orders_read", "7")).thenReturn(Map.of("runtimeEvidence", "UNKNOWN"));
+        assertEquals("UNKNOWN", ((Map<?, ?>) controller.capabilityReferences(authenticatedRequest("alice"), "orders", "orders_read").getBody()).get("runtimeEvidence"));
+        verify(authorization).requireResourcePermission(any(), eq(PlatformPermissions.PLATFORM_READ), eq("PROJECT"), isNull(), eq("orders"));
+        verify(impacts).references("orders", "orders:read", "orders_read", "7");
+        assertThrows(ResponseStatusException.class, () -> controller.capabilityReferences(new MockHttpServletRequest(), "orders", "orders_read"));
+        verify(gateway, times(1)).getCapability("orders_read", "7");
+    }
+
+    @Test void capabilityReferencesRejectCrossProjectAliasesAndPropagateLookupFailures() {
+        var gateway = mock(CapabilityReviewGateway.class);
+        var impacts = mock(CapabilityChangeImpactService.class);
+        var controller = new CapabilityReviewConsoleController(gateway, new PlatformRequestAuthorization(mock(PlatformAuthorizationService.class)), impacts);
+        when(gateway.getCapability("foreign", "7")).thenReturn(ResponseEntity.ok(Map.of("projectCode", "other", "qualifiedName", "other:read", "name", "foreign")));
+        var error = assertThrows(ResponseStatusException.class, () -> controller.capabilityReferences(authenticatedRequest("alice"), "orders", "foreign"));
+        assertEquals(HttpStatus.NOT_FOUND, error.getStatusCode());
+        when(gateway.getCapability("foreign", "7")).thenReturn(ResponseEntity.status(503).build());
+        assertEquals(HttpStatus.SERVICE_UNAVAILABLE, controller.capabilityReferences(authenticatedRequest("alice"), "orders", "foreign").getStatusCode());
+        verifyNoInteractions(impacts);
+    }
+
     private static CapabilityReviewConsoleController controller(CapabilityReviewGateway gateway,
                                                                   PlatformAuthorizationService authorizationService) {
         PlatformRequestAuthorization authorization = new PlatformRequestAuthorization(

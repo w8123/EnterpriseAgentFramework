@@ -38,6 +38,20 @@ class CapabilityInternalAuthFilterTest {
                 "GET", "/internal/capability/tools/bzjs20:team.memory.resolve");
         MockHttpServletRequest invocation = new MockHttpServletRequest(
                 "POST", "/internal/capability/invocations");
+        MockHttpServletRequest catalog = new MockHttpServletRequest(
+                "GET", "/api/tools");
+        MockHttpServletRequest catalogItem = new MockHttpServletRequest(
+                "GET", "/api/tools/orders_read");
+        MockHttpServletRequest businessMethodCatalog = new MockHttpServletRequest(
+                "GET", "/internal/capability/business-methods");
+        MockHttpServletRequest businessMethodItem = new MockHttpServletRequest(
+                "GET", "/internal/capability/business-methods/orders_create");
+        MockHttpServletRequest businessMethodInvocationContext = new MockHttpServletRequest(
+                "GET", "/internal/capability/business-methods/orders_create/invocation-context");
+        MockHttpServletRequest projectLookup = new MockHttpServletRequest(
+                "GET", "/internal/capability/projects/by-id/7");
+        MockHttpServletRequest unknownCatalogPath = new MockHttpServletRequest(
+                "GET", "/api/tools/orders_read/extra");
         MockHttpServletRequest projectVerification = new MockHttpServletRequest(
                 "POST", "/internal/capability/registry/project-requests/verify");
         MockHttpServletRequest capabilityReview = new MockHttpServletRequest(
@@ -56,6 +70,18 @@ class CapabilityInternalAuthFilterTest {
         assertFalse(filter.shouldNotFilter(plain));
         assertFalse(filter.shouldNotFilter(encoded));
         assertFalse(filter.shouldNotFilter(invocation));
+        assertFalse(filter.shouldNotFilter(catalog));
+        assertFalse(filter.shouldNotFilter(catalogItem));
+        assertFalse(filter.shouldNotFilter(businessMethodCatalog));
+        assertFalse(filter.shouldNotFilter(businessMethodItem));
+        assertFalse(filter.shouldNotFilter(businessMethodInvocationContext));
+        for (String path : List.of("/internal/capability/business-methods/orders:normalize/execution-context",
+                "/internal/capability/business-methods/orders%3Anormalize/execution-context",
+                "/internal/capability//business-methods/./orders:normalize;ignored=x/execution-context")) {
+            assertFalse(filter.shouldNotFilter(new MockHttpServletRequest("POST", path)));
+        }
+        assertFalse(filter.shouldNotFilter(projectLookup));
+        assertTrue(filter.shouldNotFilter(unknownCatalogPath));
         assertTrue(filter.shouldNotFilter(lookup));
         assertFalse(filter.shouldNotFilter(projectVerification));
         assertFalse(filter.shouldNotFilter(capabilityReview));
@@ -98,6 +124,25 @@ class CapabilityInternalAuthFilterTest {
         assertEquals(401, response.getStatus());
         assertTrue(response.getContentAsString().contains("CAPABILITY_INTERNAL_AUTH_REQUIRED"));
         verifyNoInteractions(chain);
+    }
+
+    @Test
+    void unsignedCatalogReadAndProjectLookupAreRejectedBeforeController() throws Exception {
+        CapabilityInternalAuthFilter filter = filter();
+        for (String path : List.of("/api/tools", "/api/tools/orders_read",
+                "/internal/capability/business-methods",
+                "/internal/capability/business-methods/orders_create",
+                "/internal/capability/projects/by-id/7")) {
+            MockHttpServletRequest request = new MockHttpServletRequest("GET", path);
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            FilterChain chain = mock(FilterChain.class);
+
+            filter.doFilter(request, response, chain);
+
+            assertEquals(401, response.getStatus(), path);
+            assertTrue(response.getContentAsString().contains("CAPABILITY_INTERNAL_AUTH_REQUIRED"), path);
+            verifyNoInteractions(chain);
+        }
     }
 
     @Test
@@ -163,6 +208,76 @@ class CapabilityInternalAuthFilterTest {
         verify(chain).doFilter(any(), same(response));
     }
 
+    @Test
+    void signedCatalogReadAndProjectLookupUseExactReadOnlyPaths() throws Exception {
+        CapabilityInternalAuthFilter filter = filter();
+        for (String path : List.of("/api/tools", "/api/tools/orders_read",
+                "/internal/capability/business-methods",
+                "/internal/capability/business-methods/orders_create",
+                "/internal/capability/projects/by-id/7")) {
+            MockHttpServletRequest request = new MockHttpServletRequest("GET", path);
+            byte[] body = new byte[0];
+            signedControlHeaders("GET", path, body).forEach(request::addHeader);
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            FilterChain chain = mock(FilterChain.class);
+
+            filter.doFilter(request, response, chain);
+
+            assertEquals(200, response.getStatus(), path);
+            verify(chain).doFilter(any(), same(response));
+        }
+    }
+
+    @Test
+    void signedBusinessMethodInvocationContextBindsTheExactPathAndActor() throws Exception {
+        String path = "/internal/capability/business-methods/orders.lookup/invocation-context";
+        byte[] body = new byte[0];
+        CapabilityInternalAuthFilter filter = filter();
+        MockHttpServletRequest accepted = new MockHttpServletRequest("GET", path);
+        signedControlHeaders("GET", path, body).forEach(accepted::addHeader);
+        MockHttpServletResponse acceptedResponse = new MockHttpServletResponse();
+        FilterChain acceptedChain = mock(FilterChain.class);
+        filter.doFilter(accepted, acceptedResponse, acceptedChain);
+        assertEquals(200, acceptedResponse.getStatus());
+        verify(acceptedChain).doFilter(any(), same(acceptedResponse));
+
+        MockHttpServletRequest forgedPath = new MockHttpServletRequest("GET",
+                "/internal/capability/business-methods/other.lookup/invocation-context");
+        signedControlHeaders("GET", path, body).forEach(forgedPath::addHeader);
+        MockHttpServletResponse forgedPathResponse = new MockHttpServletResponse();
+        filter.doFilter(forgedPath, forgedPathResponse, mock(FilterChain.class));
+        assertEquals(401, forgedPathResponse.getStatus());
+
+        MockHttpServletRequest forgedActor = new MockHttpServletRequest("GET", path);
+        signedControlHeaders("GET", path, body).forEach((name, value) -> {
+            if (!InternalServiceAuthHeaders.IDENTITY_USER_ID.equals(name)) forgedActor.addHeader(name, value);
+        });
+        forgedActor.addHeader(InternalServiceAuthHeaders.IDENTITY_USER_ID, "43");
+        MockHttpServletResponse forgedActorResponse = new MockHttpServletResponse();
+        filter.doFilter(forgedActor, forgedActorResponse, mock(FilterChain.class));
+        assertEquals(401, forgedActorResponse.getStatus());
+    }
+
+    @Test
+    void marketPublicAliasesAndOwnerRoutesRequireSignedControlRequests() throws Exception {
+        var cases = List.of(new RequestCase("GET", "/api/api-market/entries", "/api/api-market/entries"),
+                new RequestCase("POST", "/api/api-market/entries/orders/integrations", "/api/api-market/entries/orders/integrations"),
+                new RequestCase("GET", "/internal/capability/api-market/integrations/1", "/internal/capability/api-market/integrations/1"),
+                new RequestCase("PUT", "/internal/capability/api-market/integrations/1/status", "/internal/capability/api-market/integrations/1/status"));
+        for (var route : cases) {
+            byte[] body = "GET".equals(route.method()) ? new byte[0] : "{\"projectId\":41}".getBytes(StandardCharsets.UTF_8);
+            var unsigned = new MockHttpServletRequest(route.method(), route.uri()); unsigned.setContent(body);
+            var refused = new MockHttpServletResponse(); var refusedChain = mock(FilterChain.class);
+            filter().doFilter(unsigned, refused, refusedChain);
+            assertEquals(401, refused.getStatus(), route.uri()); verifyNoInteractions(refusedChain);
+            var signed = new MockHttpServletRequest(route.method(), route.uri()); signed.setContent(body);
+            signedControlHeaders(route.method(), route.canonicalPath(), body).forEach(signed::addHeader);
+            var accepted = new MockHttpServletResponse(); var acceptedChain = mock(FilterChain.class);
+            filter().doFilter(signed, accepted, acceptedChain);
+            assertEquals(200, accepted.getStatus(), route.uri()); verify(acceptedChain).doFilter(any(), same(accepted));
+        }
+    }
+
     private CapabilityInternalAuthFilter filter() {
         CapabilityInternalAuthProperties properties = new CapabilityInternalAuthProperties(
                 SECRET, 300, 600, 10_000, 1_048_576);
@@ -175,11 +290,15 @@ class CapabilityInternalAuthFilterTest {
     }
 
     private Map<String, String> signedReviewHeaders(String path, byte[] body) {
+        return signedControlHeaders("POST", path, body);
+    }
+
+    private Map<String, String> signedControlHeaders(String method, String path, byte[] body) {
         String timestamp = String.valueOf(System.currentTimeMillis());
         String nonce = UUID.randomUUID().toString();
         String digest = InternalServiceHmac.bodySha256Hex(body);
         String canonical = InternalServiceHmac.canonical(
-                "POST",
+                method,
                 path,
                 InternalServiceAuthHeaders.CALLER_CONTROL,
                 InternalServiceAuthHeaders.IDENTITY_SOURCE_PLATFORM_SESSION,

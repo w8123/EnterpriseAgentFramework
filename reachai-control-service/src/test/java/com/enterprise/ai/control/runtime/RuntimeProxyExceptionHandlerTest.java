@@ -29,6 +29,27 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class RuntimeProxyExceptionHandlerTest {
 
     @Test
+    void preservesRuntimeSourceBadRequestForWorkflowReleaseValidation() throws Exception {
+        RuntimeProxyClient runtimeClient = mock(RuntimeProxyClient.class);
+        byte[] body = "{\"message\":\"HTTP_API_SOURCE_NOT_READY\"}".getBytes(StandardCharsets.UTF_8);
+        when(runtimeClient.validateWorkflowVersion("wf-source-conflict"))
+                .thenThrow(new FeignException.BadRequest(
+                        "upstream-private-address", Request.create(Request.HttpMethod.POST,
+                        "/api/workflows/wf-source-conflict/versions/validate", Map.of(), null,
+                        StandardCharsets.UTF_8, null), body,
+                        Map.of(HttpHeaders.CONTENT_TYPE, List.of(MediaType.APPLICATION_JSON_VALUE),
+                                HttpHeaders.CONNECTION, List.of("close"),
+                                HttpHeaders.CONTENT_LENGTH, List.of("999"))));
+
+        mockMvc(runtimeClient).perform(post("/api/workflows/wf-source-conflict/versions/validate"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(content().bytes(body))
+                .andExpect(jsonPath("$.message").value("HTTP_API_SOURCE_NOT_READY"))
+                .andExpect(header().doesNotExist(HttpHeaders.CONNECTION));
+    }
+
+    @Test
     void preservesEmptyNotFoundAfterAgentDeletion() throws Exception {
         RuntimeProxyClient runtimeClient = mock(RuntimeProxyClient.class);
         when(runtimeClient.getAgent("deleted-agent")).thenThrow(new FeignException.NotFound(

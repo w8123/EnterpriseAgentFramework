@@ -19,11 +19,19 @@ public record McpToolProjection(
         String sourceRef,
         Long workflowVersionId,
         String riskLevel,
-        String capabilityContractHash) {
+        String capabilityContractHash,
+        String minimumRiskLevel) {
+
+    public McpToolProjection(String name, String description, String inputSchemaJson,
+            McpPublicationItemKind sourceKind, String sourceRef, Long workflowVersionId,
+            String riskLevel, String capabilityContractHash) {
+        this(name, description, inputSchemaJson, sourceKind, sourceRef, workflowVersionId,
+                riskLevel, capabilityContractHash, null);
+    }
 
     public McpToolProjection(String name, String description, String inputSchemaJson,
             McpPublicationItemKind sourceKind, String sourceRef, Long workflowVersionId, String riskLevel) {
-        this(name, description, inputSchemaJson, sourceKind, sourceRef, workflowVersionId, riskLevel, null);
+        this(name, description, inputSchemaJson, sourceKind, sourceRef, workflowVersionId, riskLevel, null, null);
     }
 
     private static final Pattern NAME_PATTERN = Pattern.compile("[a-zA-Z][a-zA-Z0-9_-]{0,127}");
@@ -44,6 +52,10 @@ public record McpToolProjection(
         }
         sourceRef = McpDomainText.requireText(sourceRef, "sourceRef");
         riskLevel = McpDomainText.optionalText(riskLevel);
+        minimumRiskLevel = McpDomainText.optionalText(minimumRiskLevel);
+        if ("WRITE".equals(minimumRiskLevel) && !("WRITE".equals(riskLevel) || "IRREVERSIBLE".equals(riskLevel))) {
+            throw new McpDomainException("MCP_WORKFLOW_RISK_DOWNGRADE", "WRITE API Workflow cannot be projected as read-only");
+        }
         if (sourceKind == McpPublicationItemKind.WORKFLOW && workflowVersionId == null) {
             throw new McpDomainException("MCP_WORKFLOW_VERSION_REQUIRED",
                     "WORKFLOW projection " + name + " requires a pinned workflow version");

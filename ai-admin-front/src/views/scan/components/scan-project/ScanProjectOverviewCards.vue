@@ -6,8 +6,8 @@ import type { ApiGovernanceStage } from '@/views/scan/composables/useScanProject
 const fallbackGovernanceStages: ApiGovernanceStage[] = [
   { key: 'discover', label: '发现 API', value: '-', desc: '先完成扫描或 SDK 同步', status: 'active' },
   { key: 'semantic', label: '补全 AI 语义', value: '-', desc: '等待接口目录生成', status: 'todo' },
-  { key: 'tool', label: '纳入能力目录', value: '-', desc: '等待项目接口', status: 'todo' },
-  { key: 'agent', label: '用于 Agent', value: '-', desc: '纳管后开放给 Agent', status: 'todo' },
+  { key: 'owner', label: '查看所属目录', value: '-', desc: '发现后核对接纳与连接', status: 'todo' },
+  { key: 'workflow', label: '受控调用与编排', value: '-', desc: '显式选择资产并保存发布', status: 'todo' },
 ]
 
 const props = defineProps<{
@@ -20,8 +20,8 @@ const governanceEntries = computed(() => (props.stages.length ? props.stages : f
 const stageIconKeyMap: Record<string, string> = {
   discover: 'api-discovery',
   semantic: 'ai-semantic',
-  tool: 'tool-publish',
-  agent: 'agent-ready',
+  owner: 'tool-publish',
+  workflow: 'agent-ready',
 }
 
 const stageStatusTextMap: Record<ApiGovernanceStage['status'], string> = {

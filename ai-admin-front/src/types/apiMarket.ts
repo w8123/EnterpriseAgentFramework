@@ -61,6 +61,8 @@ export interface ApiMarketOperation {
   authRequired: boolean
   requestSchema?: Record<string, unknown> | null
   responseSchema?: Record<string, unknown> | null
+  responseContentType?: string | null
+  responseStatus?: number | null
   exampleParams: Record<string, unknown>
   status: string
 }
@@ -135,6 +137,8 @@ export interface ApiMarketIntegration {
   version?: ApiMarketVersion | null
   selectedOperations: ApiMarketOperation[]
   credentialRequired: boolean
+  apiBindings?: Array<{ operationId: number; apiId: number; qualifiedName: string;
+    environment: string; blockingReason: string | null }>
 }
 
 export interface ApiMarketIntegrationCreateRequest {

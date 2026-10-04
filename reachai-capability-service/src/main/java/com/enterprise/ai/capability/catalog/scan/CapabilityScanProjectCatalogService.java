@@ -27,12 +27,12 @@ import com.enterprise.ai.agent.registry.RegistryCredentialMapper;
 import com.enterprise.ai.agent.registry.RegistrySecurityService;
 import com.enterprise.ai.capability.aicoding.AiCodingAccessKeys;
 import com.enterprise.ai.capability.catalog.CapabilitySourceOwnership;
-import com.enterprise.ai.capability.internal.CapabilityToolExecutionService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
@@ -57,12 +57,13 @@ public class CapabilityScanProjectCatalogService {
     private final RegistryCredentialMapper registryCredentialMapper;
     private final RegistrySecurityService registrySecurityService;
     private final CapabilityScanProjectBlockerService scanProjectBlockerService;
-    private final CapabilityToolExecutionService toolExecutionService;
     private final ToolDefinitionMapper toolDefinitionMapper;
     private final CapabilityScannerClient scannerClient;
     private final ProjectInstanceMapper projectInstanceMapper;
     private final CapabilitySnapshotMapper capabilitySnapshotMapper;
     private final ObjectMapper objectMapper;
+    private final ControllerScanHttpApiIntakeService controllerHttpApiIntake;
+    private final OpenApiScanHttpApiIntakeService openApiHttpApiIntake;
 
     public List<ScanProjectEntity> list() {
         return list(null, null, null);
@@ -390,43 +391,8 @@ public class CapabilityScanProjectCatalogService {
         return tool;
     }
 
-    @Transactional
-    public ScanProjectToolEntity updateTool(Long projectId, Long scanToolId, ScanProjectToolUpsertRequest request) {
-        scanProjectMapper.lockCapabilityChanges(projectId);
-        validateToolRequest(request);
-        ScanProjectToolEntity tool = getTool(projectId, scanToolId, true);
-        requireCatalogWritable(tool);
-        CapabilitySourceOwnership.requireUnmanagedLocation(request.sourceLocation());
-        tool.setName(request.name().trim());
-        tool.setTitle(request.title().trim());
-        tool.setDescription(request.description().trim());
-        tool.setParametersJson(writeJson(request.parameters() == null ? List.of() : request.parameters()));
-        tool.setSource(StringUtils.hasText(request.source()) ? request.source().trim() : "code");
-        tool.setSourceLocation(trimToNull(request.sourceLocation()));
-        tool.setHttpMethod(StringUtils.hasText(request.httpMethod())
-                ? request.httpMethod().trim().toUpperCase(Locale.ROOT)
-                : null);
-        tool.setBaseUrl(trimToNull(request.baseUrl()));
-        tool.setContextPath(normalizeContextPath(request.contextPath()));
-        tool.setEndpointPath(trimToNull(request.endpointPath()));
-        tool.setRequestBodyType(trimToNull(request.requestBodyType()));
-        tool.setResponseType(trimToNull(request.responseType()));
-        tool.setEnabled(Boolean.TRUE.equals(request.enabled()));
-        scanProjectToolMapper.updateById(tool);
-        return tool;
-    }
 
-    @Transactional
-    public ScanProjectToolEntity toggleTool(Long projectId, Long scanToolId, boolean enabled) {
-        scanProjectMapper.lockCapabilityChanges(projectId);
-        ScanProjectToolEntity tool = getTool(projectId, scanToolId, true);
-        requireCatalogWritable(tool);
-        tool.setEnabled(enabled);
-        scanProjectToolMapper.updateById(tool);
-        return tool;
-    }
-
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public ScanResult scan(Long projectId) {
         scanProjectMapper.lockCapabilityChanges(projectId);
         ScanProjectEntity project = get(projectId);
@@ -436,7 +402,7 @@ public class CapabilityScanProjectCatalogService {
         return performScan(project, false);
     }
 
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public ScanResult rescan(Long projectId) {
         scanProjectMapper.lockCapabilityChanges(projectId);
         ScanProjectEntity project = get(projectId);
@@ -475,10 +441,6 @@ public class CapabilityScanProjectCatalogService {
         scanProjectMapper.updateById(project);
     }
 
-    public Map<String, Object> testTool(Long projectId, Long scanToolId, Map<String, Object> args) {
-        ScanProjectToolEntity tool = getTool(projectId, scanToolId);
-        return toolExecutionService.execute(tool, Map.of("input", args == null ? Map.of() : args));
-    }
 
     public ToolReconcileSummary reconcileTools(Long projectId) {
         List<ScanProjectToolEntity> tools = listTools(projectId);
@@ -489,7 +451,8 @@ public class CapabilityScanProjectCatalogService {
         int apiRemovedStale = 0;
         int globalMissing = 0;
         for (ScanProjectToolEntity tool : tools) {
-            ToolLinkStatus status = resolveToolLink(tool, globals.get(tool.getGlobalToolDefinitionId()));
+            Long globalId = tool.getGlobalToolDefinitionId();
+            ToolLinkStatus status = resolveToolLink(tool, globalId == null ? null : globals.get(globalId));
             switch (status.status()) {
                 case "IN_SYNC" -> inSync++;
                 case "PENDING_UPDATE" -> pendingUpdate++;
@@ -515,92 +478,6 @@ public class CapabilityScanProjectCatalogService {
         return resolveToolLink(tool, toolDefinitionMapper.selectById(tool.getGlobalToolDefinitionId()));
     }
 
-    @Transactional
-    public PromotedGlobalTool promoteTool(Long projectId, Long scanToolId) {
-        scanProjectMapper.lockCapabilityChanges(projectId);
-        ScanProjectEntity project = get(projectId);
-        ScanProjectToolEntity scanTool = getTool(projectId, scanToolId, true);
-        requireCatalogWritable(scanTool);
-        if (Boolean.TRUE.equals(scanTool.getRemovedFromSource())) {
-            throw new IllegalArgumentException("Removed scan tool cannot be promoted: " + scanToolId);
-        }
-        if (scanTool.getGlobalToolDefinitionId() != null) {
-            ToolDefinitionEntity existing = toolDefinitionMapper.selectById(scanTool.getGlobalToolDefinitionId());
-            if (existing != null) {
-                return new PromotedGlobalTool(existing.getId(), existing.getName());
-            }
-        }
-        ToolDefinitionEntity globalTool = new ToolDefinitionEntity();
-        applyScanToolToGlobalTool(project, scanTool, globalTool);
-        LocalDateTime now = LocalDateTime.now();
-        globalTool.setCreateTime(now);
-        globalTool.setUpdateTime(now);
-        toolDefinitionMapper.insert(globalTool);
-        scanTool.setGlobalToolDefinitionId(globalTool.getId());
-        scanProjectToolMapper.updateById(scanTool);
-        return new PromotedGlobalTool(globalTool.getId(), globalTool.getName());
-    }
-
-    @Transactional
-    public ScanProjectToolEntity pushToolToGlobal(Long projectId, Long scanToolId) {
-        scanProjectMapper.lockCapabilityChanges(projectId);
-        ScanProjectEntity project = get(projectId);
-        ScanProjectToolEntity scanTool = getTool(projectId, scanToolId, true);
-        requireCatalogWritable(scanTool);
-        if (scanTool.getGlobalToolDefinitionId() == null) {
-            throw new IllegalArgumentException("Scan project tool is not linked to global Tool: " + scanToolId);
-        }
-        ToolDefinitionEntity globalTool = toolDefinitionMapper.selectById(scanTool.getGlobalToolDefinitionId());
-        if (globalTool == null) {
-            throw new IllegalArgumentException("Linked global Tool does not exist: " + scanTool.getGlobalToolDefinitionId());
-        }
-        applyScanToolToGlobalTool(project, scanTool, globalTool);
-        globalTool.setUpdateTime(LocalDateTime.now());
-        toolDefinitionMapper.updateById(globalTool);
-        return scanTool;
-    }
-
-    @Transactional
-    public ScanProjectToolEntity unpromoteTool(Long projectId, Long scanToolId) {
-        scanProjectMapper.lockCapabilityChanges(projectId);
-        ScanProjectToolEntity scanTool = getTool(projectId, scanToolId, true);
-        requireCatalogWritable(scanTool);
-        Long globalToolId = scanTool.getGlobalToolDefinitionId();
-        if (globalToolId != null) {
-            toolDefinitionMapper.deleteById(globalToolId);
-        }
-        scanTool.setGlobalToolDefinitionId(null);
-        scanProjectToolMapper.updateById(scanTool);
-        return scanTool;
-    }
-
-    @Transactional
-    public BatchPromoteToToolsResult promoteModuleTools(Long projectId, Long moduleId) {
-        scanProjectMapper.lockCapabilityChanges(projectId);
-        ScanProjectEntity project = get(projectId);
-        List<PromotedGlobalTool> promoted = new ArrayList<>();
-        List<ScanProjectToolEntity> tools = listTools(projectId);
-        tools.stream().filter(tool -> Objects.equals(moduleId, tool.getModuleId()))
-                .forEach(this::requireCatalogWritable);
-        for (ScanProjectToolEntity scanTool : tools) {
-            if (!Objects.equals(moduleId, scanTool.getModuleId())) {
-                continue;
-            }
-            if (scanTool.getGlobalToolDefinitionId() != null || Boolean.TRUE.equals(scanTool.getRemovedFromSource())) {
-                continue;
-            }
-            ToolDefinitionEntity globalTool = new ToolDefinitionEntity();
-            applyScanToolToGlobalTool(project, scanTool, globalTool);
-            LocalDateTime now = LocalDateTime.now();
-            globalTool.setCreateTime(now);
-            globalTool.setUpdateTime(now);
-            toolDefinitionMapper.insert(globalTool);
-            scanTool.setGlobalToolDefinitionId(globalTool.getId());
-            scanProjectToolMapper.updateById(scanTool);
-            promoted.add(new PromotedGlobalTool(globalTool.getId(), globalTool.getName()));
-        }
-        return new BatchPromoteToToolsResult(promoted.size(), promoted);
-    }
 
     public ScanProjectBlockers operationBlockers(Long projectId) {
         if (scanProjectMapper.selectById(projectId) == null) {
@@ -610,9 +487,27 @@ public class CapabilityScanProjectCatalogService {
     }
 
     private ScanResult performScan(ScanProjectEntity project, boolean merge) {
-        Long sinceMs = merge ? toEpochMs(project.getLastScannedAt()) : null;
+        boolean controllerScan = usesControllerScanner(project);
+        // Both Controller and OpenAPI HTTP facts reconcile only from a full inventory. Legacy Tool
+        // rows remain on their own path; a partial/unchanged document delta must never tombstone
+        // an unreported source binding.
+        Long sinceMs = null;
         CapabilityScannerClient.ManifestData manifest = scanManifest(project, sinceMs);
-        List<String> toolNames = persistManifestTools(project, manifest, merge);
+        List<String> toolNames;
+        if (controllerScan) {
+            ControllerScanHttpApiIntakeService.Plan httpApiPlan = controllerHttpApiIntake.prepare(
+                    project, manifest.httpApis(), manifest.httpApiInventoryComplete());
+            toolNames = persistManifestTools(project, manifest, merge);
+            // prepare() validates all candidates before legacy scan rows mutate; observe() participates
+            // in this same project-lock transaction, so a binding failure rolls the whole scan back.
+            controllerHttpApiIntake.observe(httpApiPlan);
+        } else {
+            OpenApiScanHttpApiIntakeService.Plan httpApiPlan = openApiHttpApiIntake.prepare(
+                    project, manifest.httpApis(), manifest.httpApiInventoryComplete());
+            toolNames = persistManifestTools(project, manifest, merge);
+            // The same prevalidation and outer READ_COMMITTED transaction apply to OPENAPI_SCAN.
+            openApiHttpApiIntake.observe(httpApiPlan);
+        }
         project.setToolCount(toolNames.size());
         project.setLastScannedAt(LocalDateTime.now(ZoneId.systemDefault()));
         bootstrapModulesFromTools(project.getId());
@@ -632,9 +527,7 @@ public class CapabilityScanProjectCatalogService {
                 incrementalSinceMs);
         String type = normalizeScanType(project.getScanType());
         ApiResult<CapabilityScannerClient.ManifestData> response;
-        if ("controller".equals(type)) {
-            response = scannerClient.scanController(request);
-        } else if ("auto".equals(type) && shouldAutoUseController(project)) {
+        if (usesControllerScanner(project)) {
             response = scannerClient.scanController(request);
         } else {
             response = scannerClient.scanOpenApi(request);
@@ -649,6 +542,11 @@ public class CapabilityScanProjectCatalogService {
             throw new IllegalArgumentException("Scanner service returned empty manifest");
         }
         return response.getData();
+    }
+
+    private boolean usesControllerScanner(ScanProjectEntity project) {
+        String type = normalizeScanType(project.getScanType());
+        return "controller".equals(type) || ("auto".equals(type) && shouldAutoUseController(project));
     }
 
     private List<String> persistManifestTools(ScanProjectEntity project,
@@ -1137,30 +1035,6 @@ public class CapabilityScanProjectCatalogService {
         }
     }
 
-    private void applyScanToolToGlobalTool(ScanProjectEntity project,
-                                           ScanProjectToolEntity scanTool,
-                                           ToolDefinitionEntity globalTool) {
-        globalTool.setName(scanTool.getName());
-        globalTool.setTitle(scanTool.getTitle());
-        globalTool.setDescription(scanTool.getDescription());
-        globalTool.setAiDescription(scanTool.getAiDescription());
-        globalTool.setCapabilityMetadataJson(scanTool.getCapabilityMetadataJson());
-        globalTool.setParametersJson(scanTool.getParametersJson());
-        globalTool.setSource("scanner");
-        globalTool.setSourceLocation(scanTool.getSourceLocation());
-        globalTool.setHttpMethod(scanTool.getHttpMethod());
-        globalTool.setBaseUrl(scanTool.getBaseUrl());
-        globalTool.setContextPath(scanTool.getContextPath());
-        globalTool.setEndpointPath(scanTool.getEndpointPath());
-        globalTool.setRequestBodyType(scanTool.getRequestBodyType());
-        globalTool.setResponseType(scanTool.getResponseType());
-        globalTool.setProjectId(project.getId());
-        globalTool.setProjectCode(project.getProjectCode());
-        globalTool.setQualifiedName(project.getProjectCode() + ":" + scanTool.getName());
-        globalTool.setModuleId(scanTool.getModuleId());
-        globalTool.setEnabled(Boolean.TRUE.equals(scanTool.getEnabled()));
-        globalTool.setSideEffect("WRITE");
-    }
 
     private java.util.Optional<ScanProjectEntity> findByName(String name) {
         if (!StringUtils.hasText(name)) {
@@ -1193,20 +1067,6 @@ public class CapabilityScanProjectCatalogService {
         normalizeScanType(request.scanType());
     }
 
-    private void validateToolRequest(ScanProjectToolUpsertRequest request) {
-        if (request == null) {
-            throw new IllegalArgumentException("Tool request is required");
-        }
-        if (!StringUtils.hasText(request.name())) {
-            throw new IllegalArgumentException("Tool name is required");
-        }
-        if (!StringUtils.hasText(request.title())) {
-            throw new IllegalArgumentException("Tool title is required");
-        }
-        if (!StringUtils.hasText(request.description())) {
-            throw new IllegalArgumentException("Tool description is required");
-        }
-    }
 
     private ScanProjectEntity applyRequest(ScanProjectEntity entity, ScanProjectUpsertRequest request) {
         entity.setName(request.name().trim());
@@ -1340,22 +1200,6 @@ public class CapabilityScanProjectCatalogService {
     public record ScanProjectRegistryCredentialSaveRequest(String appKey, String appSecret) {
     }
 
-    public record ScanProjectToolUpsertRequest(
-            String name,
-            String title,
-            String description,
-            List<ToolDefinitionParameter> parameters,
-            String source,
-            String sourceLocation,
-            String httpMethod,
-            String baseUrl,
-            String contextPath,
-            String endpointPath,
-            String requestBodyType,
-            String responseType,
-            Boolean enabled
-    ) {
-    }
 
     public record ToolLinkStatus(String status, String message, List<String> diffFields) {
     }
@@ -1369,11 +1213,7 @@ public class CapabilityScanProjectCatalogService {
                                        int sdkReviewPendingRows) {
     }
 
-    public record PromotedGlobalTool(Long globalToolId, String globalToolName) {
-    }
 
-    public record BatchPromoteToToolsResult(int promotedCount, List<PromotedGlobalTool> items) {
-    }
 
     public record ScanResult(Long projectId, String projectName, int toolCount, List<String> toolNames) {
     }

@@ -460,5 +460,5 @@ Codex、Trae、Cursor、Claude Code 等工具进入仓库后，请按以下顺�
 [MIT License](LICENSE)
 
 <p align="center">
-  <img src="docs/系统截图/ReachAI学习交流群.png" alt="ReachAI 学习交流群" width="240" />
+  <img src="docs/系统截图/ReachAI学习交流群.jpg" alt="ReachAI 学习交流群" width="240" />
 </p>

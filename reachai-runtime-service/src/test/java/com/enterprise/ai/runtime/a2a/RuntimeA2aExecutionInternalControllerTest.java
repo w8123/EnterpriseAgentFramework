@@ -17,6 +17,7 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class RuntimeA2aExecutionInternalControllerTest {
@@ -61,12 +62,29 @@ class RuntimeA2aExecutionInternalControllerTest {
         assertThat(input.getValue())
                 .containsEntry("sessionId", "ctx-1")
                 .containsEntry("idempotencyKey", "exec-1")
-                .containsEntry("entryType", "A2A");
+                .containsEntry("entryType", "A2A")
+                .containsEntry("tenantId", "tenant-a")
+                .doesNotContainKeys("roles", "userId", "externalUserId", "globalUserId");
         assertThat(identity.getValue().getSource())
                 .isEqualTo(WorkflowExecutionIdentity.Source.A2A_REMOTE_AGENT);
         assertThat(identity.getValue().isProjectTrusted()).isTrue();
         assertThat(identity.getValue().isUserTrusted()).isFalse();
         assertThat(identity.getValue().getUserId()).isEqualTo("principal-a");
+        assertThat(identity.getValue().getTenantId()).isEqualTo("tenant-a");
+        assertThat(registry.size()).isZero();
+    }
+
+    @Test
+    void publicIdentityClaimsCannotReplaceMissingAttestation() {
+        request.removeAttribute(VerifiedInternalServiceAuth.REQUEST_ATTR);
+        request.addHeader("X-ReachAI-Tenant", "tenant-a");
+        request.addHeader("X-ReachAI-User", "principal-a");
+        var body = new RuntimeA2aExecutionInternalController.A2aRuntimeExecuteRequest(
+                "exec-forged", "task-forged", "ctx-forged", "agent-1", 42L, null,
+                "tenantId=tenant-a roles=ADMIN", "REMOTE_AGENT", "TRUSTED", List.of("a2a:message:send"));
+
+        assertThat(controller.execute(request, body).getStatusCode().value()).isEqualTo(401);
+        verifyNoInteractions(executionService);
         assertThat(registry.size()).isZero();
     }
 

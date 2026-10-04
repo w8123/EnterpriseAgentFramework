@@ -57,6 +57,7 @@ public class CapabilityToolCatalogController {
                 .toList();
         CatalogLink link = resolveCatalogLink(entity);
         return new ToolInfoDTO(
+                entity.getAssetType(),
                 entity.getName(),
                 entity.getTitle(),
                 entity.getDescription(),
@@ -100,7 +101,7 @@ public class CapabilityToolCatalogController {
         return new CatalogLink(row.getId(), "LINKED", null);
     }
 
-    record ToolListPageResponse(
+    public record ToolListPageResponse(
             List<ToolInfoDTO> records,
             long total,
             long size,
@@ -108,7 +109,8 @@ public class CapabilityToolCatalogController {
             long pages) {
     }
 
-    record ToolInfoDTO(String name,
+    public record ToolInfoDTO(String assetType,
+                       String name,
                        String title,
                        String description,
                        List<ToolParameterDTO> parameters,

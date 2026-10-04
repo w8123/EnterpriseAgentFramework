@@ -33,6 +33,32 @@ import static org.mockito.Mockito.when;
 
 class WorkflowExecutionIdentityTest {
 
+    @Test
+    void attestedStudioTrialIsProjectOnlyAndCannotBeRestoredAsTrustedOrCrossProjects() throws Exception {
+        var identity = WorkflowExecutionIdentity.fromAttestedStudioProjectTest(41L, "orders", "42");
+        assertTrue(identity.canResolveProjectCredential());
+        assertTrue(identity.authorizeProjectCredential(41L, "orders"));
+        assertFalse(identity.authorizeProjectCredential(42L, "orders"));
+        assertFalse(identity.authorizeProjectCredential(41L, "other"));
+        assertFalse(identity.userTrusted());
+        assertFalse(identity.canResolveUserAcl());
+        assertFalse(WorkflowExecutionIdentity.restoreFromContextMap(Map.of("source", "STUDIO_PROJECT_TEST",
+                "projectId", 41L, "projectCode", "orders", "userId", "42", "projectTrusted", true,
+                "userTrusted", true)).canResolveProjectCredential());
+        assertFalse(WorkflowExecutionIdentity.forAgentExecution(42L, "other", identity).projectTrusted());
+        when(credentialMapper.selectOne(any())).thenReturn(projectCredential(41L, "orders"));
+        assertTrue(credentialService.resolve("cred_proj", identity).isPresent());
+        when(credentialMapper.selectOne(any())).thenReturn(projectCredential(42L, "other"));
+        assertTrue(credentialService.resolve("cred_proj", identity).isEmpty());
+        var retrieval = executor.execute("""
+                {"entryNodeId":"kr","exitNodeIds":["kr"],"nodes":[{"id":"kr","type":"KNOWLEDGE_RETRIEVAL","config":{
+                  "knowledgeBaseCodes":["kb1"],"query":"input"}}]}
+                """, Map.of("message", "q", "userId", "forged-user"), identity);
+        assertFalse(retrieval.success());
+        assertEquals("RUNTIME_KNOWLEDGE_USER_IDENTITY_REQUIRED", retrieval.code());
+        org.mockito.Mockito.verifyNoInteractions(knowledgeClient);
+    }
+
     private final ObjectMapper objectMapper = new ObjectMapper();
     private RuntimeWorkflowCredentialMapper credentialMapper;
     private RuntimeWorkflowCredentialService credentialService;

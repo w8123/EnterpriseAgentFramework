@@ -18,6 +18,8 @@ export function isToolInputParameter(parameter: ToolParameter): boolean {
 
 /** 已注册 Tool 信息 */
 export interface ToolInfo {
+  /** 来源资产投影：业务方法、API 或尚未分类的存量定义。 */
+  assetType?: 'BUSINESS_METHOD' | 'HTTP_API' | 'UNCLASSIFIED' | string | null
   name: string
   /** 面向用户展示的简短名称；name 仍是稳定机器标识 */
   title: string
@@ -25,6 +27,8 @@ export interface ToolInfo {
   parameters: ToolParameter[]
   source: 'code' | 'scanner' | 'sdk' | 'manual'
   sourceLocation?: string | null
+  /** 由来源治理维护的稳定来源标识，不能由目录编辑改变。 */
+  sourceQualifiedName?: string | null
   httpMethod?: string | null
   baseUrl?: string | null
   contextPath?: string | null

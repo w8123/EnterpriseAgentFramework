@@ -14,6 +14,14 @@
 
 第一阶段保持同一个 MySQL 库，不拆库。旧 `ai-agent-service` module 已删除；当前基线面向新库重建，不兼容旧表名，也不提供旧数据迁移脚本。
 
+2026-09-24 新增 [API Workflow 发布 pin 升级](./upgrade-20260924-workflow-http-api-pin.sql)：在 Runtime 自有表保存已发布 API owner 契约、来源集合及连接/凭据修订，不保存 origin、凭据引用或秘密；历史版本不回填，须重新发布。已有开发/测试库应先完成 2026-09-23 的 HTTP API Console 升级，备份并停止 Runtime 写入后执行，再按脚本回读表和索引。本批未在开发库执行。
+
+2026-09-15 新增 [来源资产类型投影升级](./upgrade-20260915-capability-asset-type.sql)：为 Capability 的扫描目录和调用投影增加 `asset_type` 及 `(project_id, asset_type)` 索引。显式业务方法与 MVC API 分别由新 SDK 同步为 `BUSINESS_METHOD` 和 `HTTP_API`；旧 SDK 缺少该 metadata 时只投影为 `UNCLASSIFIED`，不回填或改写历史 metadata、来源指纹或已接受契约。该脚本尚未在当前开发库执行；执行前须备份并停止 Capability 写入，执行后按脚本回读两张表的类型分布。
+
+2026-09-16 新增 [控制台业务方法试调用升级](./upgrade-20260916-console-capability-invocation.sql)：新增 Runtime 独占的 `runtime_console_capability_invocation`，以 UUID 在出站前持久化认领、保留脱敏限长结果 24 小时，并将出站后无确认的情况收口为 `UNKNOWN`，绝不自动重发。脚本同时登记 `capability:invoke` 权限，但不会给任何既有角色自动授予该权限；部署后须由平台管理员按项目范围显式配置权限和 Tool ACL。此轮未执行开发库升级。
+
+2026-09-20 新增 [HTTP API 资产与来源关系基础升级](./upgrade-20260920-http-api-asset-foundation.sql)：新增 Capability 独占的 `capability_http_api_asset` 与 `capability_http_api_source_binding`，保存规范化 scope、HTTP 操作 identity、无秘密的来源契约与来源生命周期。面向引用的稳定 scope 只使用 `projectCode + environment`；`projectId` 只保留为库内隔离键，不进入 hash 或 qualified name。脚本不回填历史扫描/注册记录，不接入 Starter 或 Scanner 写链，不接受契约、不生成 Tool 投影、不执行 HTTP，也不保存 base URL、credentialRef 或调用凭据。已有开发/测试库执行前须备份并停止 Capability 写入；执行后仅按脚本回读两表、唯一索引与状态分布。本轮未执行开发库升级。
+
 ## 本轮开发库执行记录
 
 2026-09-11 已执行 [Supervisor 确认续跑期限说明升级](./upgrade-20260911-supervisor-approval-resume-deadline.sql)：复用现有 `resume_deadline_at` 和索引，只把字段注释扩展到 Supervisor，不修改业务数据。执行时 Runtime 已停止，目标交互表为空，完整表定义已备份；两遍执行、30 项检查及中文回读通过，四张交互／事件／运行／轨迹表的全部字段摘要一致，累计 **22 份升级已执行**，见 [执行日志](../output/tasks/architecture-audit-20260905/supervisor-resume-deadline-development-migration.log)。其他环境须先执行 Workflow 恢复期限升级，核对无期限的旧确认续跑并人工收尾。本脚本不推断旧尝试结果；新认领超时保存“结果未知、需核对”的终态，禁止自动重试。
@@ -49,6 +57,14 @@
 2026-09-07，本轮架构整理涉及的 10 份 `upgrade-20260905-*`、`upgrade-20260906-*`、`upgrade-20260907-*` 脚本已在当前 `reach_ai` 开发库执行两遍，结构、回填、UTF-8 和幂等验证通过，执行前全库备份已验证完整性。详见[执行记录](../output/tasks/architecture-audit-20260905/development-database-upgrade-notes.md)。该结果仅适用于本次确认的开发库；其他环境仍按下列依赖顺序执行，不要重复初始化现有库。
 
 ## 执行方式
+
+### BMAPI-3D 市场受控 HTTP API 绑定（未执行）
+
+[upgrade-20261001-api-market-http-api-binding.sql](./upgrade-20261001-api-market-http-api-binding.sql) 与 `initV2.sql` 同步：Capability 自有项目接入增加 `selection_revision`，所选 Operation 关系增加可空 `api_asset_id` 及索引，目录 Operation 增加可空 `response_content_type` 和 `response_status`。稳定逻辑身份使用可信 `api-market:<entryKey>` 范围；版本、地址、凭据及库内 ID 不进入 identity。内部 scope 字节保持原样。
+
+已有库应在备份并停止 Capability 写入后，先有 HTTP API asset/来源/接纳基线，再执行本脚本并配套部署 Capability、Control、Runtime 和前端。旧接入不回填成功 owner、接纳、连接、ACL、Console proof 或发布 pin；须显式重选。旧目录缺明确响应媒体/成功状态、参数位置或支持的认证/schema 时阻断，不从历史示例猜测。MySQL 5.7/8 使用 information_schema 判空，执行后回读四列与关系索引并验证二遍幂等；本批未执行开发库升级，H2 测试不替代 MySQL 验收。
+
+Runtime 不新增验证表或响应副本，直接从既有 Console ledger 与 Run snapshot 派生当前 binding proof。原始 HTTP_REQUEST+marketRef 保留工作副本，但最终发布/执行拒绝并提示改选项目 API；普通 HTTP_REQUEST 不在本脚本改造。
 
 Runtime 调试会话使用现有 `runtime_executable_debug_session.result_json` 保存带 `completionSchema` 的执行完成回执，状态投影成功后恢复为结果摘要。2026-09-07 的调整只改变 JSON 写入约定和基线字段说明，表、列、索引均不变，已有开发／测试库无需执行 DDL。旧结果摘要不会被当作未投影回执，也不回填历史会话。
 
@@ -159,6 +175,17 @@ Workflow 恢复期限需要 [恢复期限升级](./upgrade-20260906-workflow-res
 - `README.md`：执行和清理规则。
 
 ## 当前合并升级
+
+### BMAPI-3B1 HTTP API 目录与试调用（未执行）
+
+本批新库结构已进入 `initV2.sql`。已有开发/测试库在确认备份、停止旧 Capability/Runtime 写入后，
+先执行 `upgrade-20260923-http-api-inventory-acceptance.sql`，再执行
+`upgrade-20260923-http-api-console.sql`，然后部署对应服务。前者不把历史 HTTP API
+来源回填为“已确认”，必须重新扫描或同步；后者只增加 Runtime 的项目连接表、Console
+尝试目标类型/修订列及按项目/账号查询目录历史状态的索引，不回填连接、不重发历史调用，
+也不自动授予试调用权限。
+两份脚本均以 `information_schema` 回读目标结构；本批未在开发库执行升级，真实库还需
+由部署人员核对库名、MySQL 版本、备份及回读结果。
 
 `upgrade-20260830-platform-consolidated.sql` 按以下固定顺序合并了尚未提交 GitHub 的 14 份脚本：
 

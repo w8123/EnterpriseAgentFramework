@@ -179,6 +179,11 @@ public final class RuntimeExecutionTraceProjector implements RuntimeGraphSpecExe
         private String qualifiedName;
         private String failureCategory;
         private Boolean retryableFailure;
+        private String sideEffect;
+        private String dispatchStage;
+        private Boolean nonRecoverableWrite;
+        private Integer httpStatus;
+        private String inputField;
         private String interactionId;
         private String interactionType;
 
@@ -207,6 +212,11 @@ public final class RuntimeExecutionTraceProjector implements RuntimeGraphSpecExe
             qualifiedName = text(attributes.get("qualifiedName"));
             failureCategory = text(attributes.get("failureCategory"));
             retryableFailure = bool(attributes.get("retryableFailure"));
+            sideEffect = text(attributes.get("sideEffect"));
+            dispatchStage = text(attributes.get("dispatchStage"));
+            nonRecoverableWrite = bool(attributes.get("nonRecoverableWrite"));
+            httpStatus = integer(attributes.get("httpStatus"));
+            inputField = text(attributes.get("inputField"));
             interactionId = text(attributes.get("interactionId"));
             interactionType = text(attributes.get("interactionType"));
         }
@@ -232,6 +242,11 @@ public final class RuntimeExecutionTraceProjector implements RuntimeGraphSpecExe
             if (qualifiedName != null) trace.put("qualifiedName", qualifiedName);
             if (failureCategory != null) trace.put("failureCategory", failureCategory);
             if (retryableFailure != null) trace.put("retryableFailure", retryableFailure);
+            if (sideEffect != null) trace.put("sideEffect", sideEffect);
+            if (dispatchStage != null) trace.put("dispatchStage", dispatchStage);
+            if (nonRecoverableWrite != null) trace.put("nonRecoverableWrite", nonRecoverableWrite);
+            if (httpStatus != null) trace.put("httpStatus", httpStatus);
+            if (inputField != null) trace.put("inputField", inputField);
             if (interactionId != null) trace.put("interactionId", interactionId);
             if (interactionType != null) trace.put("interactionType", interactionType);
             if (failureCode != null) trace.put("failureCode", failureCode);

@@ -46,9 +46,11 @@ import AppBreadcrumb from '@/components/common/AppBreadcrumb.vue'
 import ExplorationStageDialog from '@/components/common/ExplorationStageDialog.vue'
 import AppPageBackground from '@/components/common/AppPageBackground.vue'
 import AppSidebar from '@/components/common/AppSidebar.vue'
+import { providePageProjectScope } from '@/composables/usePageProjectScope'
 
 const { theme } = useTheme()
 const appStore = useAppStore()
+providePageProjectScope()
 
 const route = useRoute()
 

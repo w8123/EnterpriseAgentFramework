@@ -338,10 +338,18 @@ export interface ToolNodeConfig {
   ref?: string
   qualifiedName?: string | null
   projectCode?: string | null
+  /** Capability-owned HTTP API asset identity; not a Runtime Tool definition pin. */
+  httpApiAssetId?: number | null
   credentialRef?: string
   maxRequestTimeMs?: number
   inputMapping: Record<string, unknown>
   mappingNote?: string
+  /** Internal canvas state: preserve explicit Runtime args={} semantics on reload. */
+  argumentSource?: 'inputMapping' | 'args'
+  /** Existing Runtime config fields not edited by Studio's Tool panel. */
+  runtimeConfigExtras?: Record<string, unknown>
+  /** Existing nested toolConfig fields not owned by the current editor. */
+  nestedConfigExtras?: Record<string, unknown>
 }
 
 export interface CanvasNodeData {

@@ -2,6 +2,7 @@ package com.enterprise.ai.reach.spring;
 
 import com.enterprise.ai.reach.sdk.annotation.ReachCapability;
 import com.enterprise.ai.reach.sdk.capability.ReachCapabilityDescriptor;
+import com.enterprise.ai.reach.sdk.capability.ReachHttpApiDescriptor;
 import org.junit.jupiter.api.Test;
 import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.context.support.GenericApplicationContext;
@@ -13,6 +14,7 @@ import java.util.Arrays;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ReachCapabilityBeanScannerTest {
 
@@ -31,16 +33,17 @@ class ReachCapabilityBeanScannerTest {
     }
 
     @Test
-    void directBeanScanInfersMvcEndpointsWithoutDuplicatingExplicitMethods() {
+    void directBeanScanSeparatesBusinessMethodsAndMvcOperationsIncludingDualDeclarations() {
         ReachCapabilityBeanScanner scanner = new ReachCapabilityBeanScanner(new Object[]{new DemoController()});
 
-        List<ReachCapabilityDescriptor> result = scanner.scan();
+        ReachCapabilityBeanScanner.ScanResult result = scanner.scanResult();
 
-        assertEquals(2, result.size());
-        assertEquals(1, withMethodName(result, "demo").size());
-        ReachCapabilityDescriptor explicit = findByName(result, "explicit.demo");
+        assertEquals(1, result.getBusinessMethods().size());
+        ReachCapabilityDescriptor explicit = findByName(result.getBusinessMethods(), "explicit.demo");
         assertEquals("demo", explicit.getMethodName());
-        assertEquals("GET", findByMethodName(result, "other").getHttpMethod());
+        assertEquals(2, result.getHttpApis().size());
+        assertEquals(1, httpWithPath(result.getHttpApis(), "/demo").size());
+        assertEquals("GET", httpWithPath(result.getHttpApis(), "/other").get(0).getHttpMethod());
     }
 
     @Test
@@ -69,11 +72,11 @@ class ReachCapabilityBeanScannerTest {
             properties.getCapability().setScanMode(ReachAiRegistryProperties.ScanMode.ANNOTATED_ONLY);
             ReachCapabilityBeanScanner scanner = new ReachCapabilityBeanScanner(context, properties);
 
-            List<ReachCapabilityDescriptor> result = scanner.scan();
+            ReachCapabilityBeanScanner.ScanResult result = scanner.scanResult();
 
-            assertEquals(1, result.size());
-            findByName(result, "mixed.explicit");
-            assertEquals(0, withMethodName(result, "plain").size());
+            assertEquals(1, result.getBusinessMethods().size());
+            findByName(result.getBusinessMethods(), "mixed.explicit");
+            assertEquals(0, result.getHttpApis().size());
         } finally {
             context.close();
         }
@@ -91,13 +94,13 @@ class ReachCapabilityBeanScannerTest {
             properties.getCapability().setExcludePackages(Arrays.asList(ExcludedController.class.getName()));
             ReachCapabilityBeanScanner scanner = new ReachCapabilityBeanScanner(context, properties);
 
-            List<ReachCapabilityDescriptor> result = scanner.scan();
+            ReachCapabilityBeanScanner.ScanResult result = scanner.scanResult();
 
-            findByName(result, "included.explicit");
-            findByName(result, "excluded.explicit");
-            assertEquals(1, withMethodName(result, "inc").size());
-            assertEquals(0, withMethodName(result, "exc").size());
-            assertEquals(3, result.size());
+            findByName(result.getBusinessMethods(), "included.explicit");
+            findByName(result.getBusinessMethods(), "excluded.explicit");
+            assertEquals(1, httpWithPath(result.getHttpApis(), "/inc").size());
+            assertEquals(0, httpWithPath(result.getHttpApis(), "/exc").size());
+            assertEquals(2, result.getBusinessMethods().size());
         } finally {
             context.close();
         }
@@ -112,10 +115,10 @@ class ReachCapabilityBeanScannerTest {
 
         ReachCapabilityBeanScanner scanner = new ReachCapabilityBeanScanner(new Object[]{proxy});
 
-        List<ReachCapabilityDescriptor> result = scanner.scan();
+        List<ReachHttpApiDescriptor> result = scanner.scanHttpApis();
 
         assertEquals(1, result.size());
-        assertEquals(ProxiedController.class.getName(), result.get(0).getClassName());
+        assertTrue(result.get(0).getSourceLocation().contains(ProxiedController.class.getName()));
         assertEquals("/proxy", result.get(0).getEndpointPath());
     }
 
@@ -128,19 +131,10 @@ class ReachCapabilityBeanScannerTest {
         throw new AssertionError("No descriptor with name=" + name);
     }
 
-    private static ReachCapabilityDescriptor findByMethodName(List<ReachCapabilityDescriptor> descriptors, String methodName) {
-        for (ReachCapabilityDescriptor descriptor : descriptors) {
-            if (methodName.equals(descriptor.getMethodName())) {
-                return descriptor;
-            }
-        }
-        throw new AssertionError("No descriptor with methodName=" + methodName);
-    }
-
-    private static List<ReachCapabilityDescriptor> withMethodName(List<ReachCapabilityDescriptor> descriptors, String methodName) {
-        List<ReachCapabilityDescriptor> matches = new ArrayList<ReachCapabilityDescriptor>();
-        for (ReachCapabilityDescriptor descriptor : descriptors) {
-            if (methodName.equals(descriptor.getMethodName())) {
+    private static List<ReachHttpApiDescriptor> httpWithPath(List<ReachHttpApiDescriptor> descriptors, String endpointPath) {
+        List<ReachHttpApiDescriptor> matches = new ArrayList<ReachHttpApiDescriptor>();
+        for (ReachHttpApiDescriptor descriptor : descriptors) {
+            if (endpointPath.equals(descriptor.getEndpointPath())) {
                 matches.add(descriptor);
             }
         }

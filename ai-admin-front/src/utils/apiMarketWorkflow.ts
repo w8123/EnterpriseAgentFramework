@@ -1,232 +1,71 @@
-import type {
-  ApiMarketEntryDetail,
-  ApiMarketOperation,
-  ApiMarketVersion,
-} from '@/types/apiMarket'
+import type { HttpApiConnection, HttpApiDetail } from '@/types/httpApi'
 import type { WorkflowWorkingCopyInput } from '@/types/workflow'
-import type { WorkflowGraphNode } from '@/types/agent'
-
-interface RequestField {
-  name: string
-  type: string
-  required: boolean
-  description: string
-  location: 'path' | 'query' | 'header' | 'body'
-  defaultValue?: unknown
-}
+import type { ToolNodeConfig } from '@/types/studio'
+import { applyHttpApiSelection, httpApiInputTargets, httpApiOutputFields, httpApiOutputPorts,
+  httpApiReadinessReason } from '@/views/workflow/httpApiWorkflow'
 
 export interface ApiMarketWorkflowDraftOptions {
   name: string
   keySlug: string
   projectId: number
   projectCode: string
-  integrationId: number
+  environment: string
 }
 
-export function buildApiMarketWorkflowDraft(
-  detail: ApiMarketEntryDetail,
-  version: ApiMarketVersion,
-  operation: ApiMarketOperation,
-  options: ApiMarketWorkflowDraftOptions,
-): WorkflowWorkingCopyInput {
-  const fields = requestFields(operation)
-  const inputNodeId = 'api_input'
-  const httpNodeId = `api_${safeIdentifier(operation.operationKey || operation.operationId || 'request')}`
-  const httpConfig = invocationConfig(detail, version, operation, fields)
-  const nodes: WorkflowGraphNode[] = []
-
-  if (fields.length) {
-    const userInputConfig = {
-      outputAlias: 'params',
-      fields: fields.map(field => ({
-        name: field.name,
-        type: field.type,
-        required: field.required,
-        description: field.description,
-        source: field.name,
-        defaultValue: field.defaultValue,
-      })),
-    }
-    nodes.push({
-      id: inputNodeId,
-      type: 'USER_INPUT',
-      name: 'API 请求参数',
-      description: '收集调用外部 API 所需的参数，写入 params 命名空间。',
-      inputSchema: inputSchema(fields),
-      config: {
-        ...userInputConfig,
-        userInputConfig,
-      },
-    })
+/** Author only from the server-owned accepted API. Catalog URL/marketRef is never executable proof. */
+export function buildApiMarketWorkflowDraft(detail: HttpApiDetail, connection: HttpApiConnection,
+  options: ApiMarketWorkflowDraftOptions): WorkflowWorkingCopyInput {
+  const reason = httpApiReadinessReason(detail.summary, detail, connection, options)
+  if (reason) throw new Error(reason)
+  if (!detail.summary.sourceKinds.includes('API_MARKET_OPERATION')) throw new Error('该 API 不属于固定市场来源')
+  const targets = httpApiInputTargets(detail.acceptedContract)
+  const counts = new Map<string, number>()
+  targets.forEach(target => counts.set(target.name, (counts.get(target.name) || 0) + 1))
+  const inputName = (target: (typeof targets)[number]) => counts.get(target.name) === 1
+    ? target.name : `${target.location.toLowerCase()}_${target.name}`
+  if (targets.some(target => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(inputName(target)))) {
+    throw new Error('当前参数名称不支持自动草稿映射，请在 API 选择器中显式映射')
   }
-
-  nodes.push({
-    id: httpNodeId,
-    type: 'HTTP_REQUEST',
-    name: operation.title || detail.entry.title,
-    description: operation.description || detail.entry.summary,
-    config: {
-      ...httpConfig,
-      httpConfig,
-      marketRef: {
-        entryKey: detail.entry.entryKey,
-        versionKey: version.versionKey,
-        operationKey: operation.operationKey,
-        operationId: operation.operationId,
-        integrationId: options.integrationId,
-        credentialRequired: operation.authRequired,
-        specHash: version.specHash,
-        sourceKey: detail.entry.source?.sourceKey,
-      },
-      needsConfiguration: operation.authRequired,
-      placeholderReason: operation.authRequired ? '请在 Workflow Studio 中选择项目凭据' : undefined,
-    },
-  })
-
-  const entryNodeId = fields.length ? inputNodeId : httpNodeId
-  const graphSpec = {
-    schemaVersion: 2 as const,
-    inputSchema: inputSchema(fields),
-    nodes,
-    edges: fields.length
-      ? [{ id: `${inputNodeId}_${httpNodeId}`, from: inputNodeId, to: httpNodeId }]
-      : [],
-    entryNodeId,
-    exitNodeIds: [httpNodeId],
-  }
-
-  return {
-    name: options.name.trim(),
-    keySlug: options.keySlug.trim(),
-    projectId: options.projectId,
-    projectCode: options.projectCode,
-    workflowKind: 'GENERAL',
-    executionEngine: 'GRAPH_SPEC',
-    definitionAuthority: 'USER',
-    creationChannel: 'STUDIO',
-    description: `通过 API 市场接入 ${detail.entry.title} · ${operation.title}`,
-    status: 'DRAFT',
-    graphSpec,
-    canvasJson: JSON.stringify({
-      schemaVersion: 1,
-      layoutVersion: 1,
-      nodes: fields.length
-        ? [
-            { id: inputNodeId, position: { x: 120, y: 180 } },
-            { id: httpNodeId, position: { x: 500, y: 180 } },
-          ]
-        : [{ id: httpNodeId, position: { x: 280, y: 180 } }],
-      edges: fields.length ? [{ id: `${inputNodeId}_${httpNodeId}` }] : [],
-    }),
-    inputSchemaJson: JSON.stringify(inputSchema(fields)),
-  }
-}
-
-function requestFields(operation: ApiMarketOperation): RequestField[] {
-  const schema = isObject(operation.requestSchema) ? operation.requestSchema : {}
-  const properties = isObject(schema.properties) ? schema.properties : {}
-  const required = new Set(Array.isArray(schema.required) ? schema.required.map(String) : [])
-  const examples = operation.exampleParams || {}
-  const names = new Set([...Object.keys(properties), ...Object.keys(examples)])
-  return [...names]
-    .filter(name => /^[A-Za-z_][A-Za-z0-9_]*$/.test(name))
-    .map((name) => {
-      const property = isObject(properties[name]) ? properties[name] : {}
-      return {
-        name,
-        type: inputType(property.type ?? typeof examples[name]),
-        required: required.has(name) || property.required === true,
-        description: String(property.description || property.title || name),
-        location: parameterLocation(name, property.location, operation),
-        defaultValue: property.default ?? examples[name],
-      }
-    })
-}
-
-function invocationConfig(
-  detail: ApiMarketEntryDetail,
-  version: ApiMarketVersion,
-  operation: ApiMarketOperation,
-  fields: RequestField[],
-) {
-  let path = operation.path || ''
-  const queryParams: Record<string, string> = {}
-  const headers: Record<string, string> = {}
-  const bodyValues: Record<string, string> = {}
-  for (const field of fields) {
-    const template = `{{params.${field.name}}}`
-    if (field.location === 'path') {
-      path = path.split(`{${field.name}}`).join(template)
-    } else if (field.location === 'header') {
-      headers[field.name] = template
-    } else if (field.location === 'body') {
-      bodyValues[field.name] = template
-    } else {
-      queryParams[field.name] = template
-    }
-  }
-  const method = (operation.httpMethod || 'GET').toUpperCase()
-  const bodyType = Object.keys(bodyValues).length ? 'json' : 'none'
-  return {
-    method,
-    url: joinUrl(version.baseUrl, path),
-    queryParams,
-    headers,
-    bodyType,
-    body: bodyType === 'json' ? JSON.stringify(bodyValues) : '',
-    timeoutMs: 30000,
-    credentialRef: '',
-    responseType: 'json',
-    provider: detail.entry.provider?.name || '',
-  }
-}
-
-function inputSchema(fields: RequestField[]) {
-  const properties = Object.fromEntries(fields.map(field => [field.name, {
-    type: jsonSchemaType(field.type),
-    description: field.description,
-    ...(field.defaultValue === undefined ? {} : { default: field.defaultValue }),
-  }]))
-  return {
+  const config: ToolNodeConfig = { inputMapping: {} }
+  applyHttpApiSelection(config, detail)
+  config.inputMapping = Object.fromEntries(targets.map(target => [target.key, `params.${inputName(target)}`]))
+  const fields = httpApiOutputFields(detail.acceptedContract)
+  const output = fields.includes('state') ? 'nodeOutput.api-node.state' : 'nodeOutput.api-node'
+  const inputSchema = {
     type: 'object',
-    properties,
-    required: fields.filter(field => field.required).map(field => field.name),
+    properties: Object.fromEntries(targets.map(target => [inputName(target), { type: target.type }])),
+    required: targets.filter(target => target.required).map(inputName),
     additionalProperties: false,
   }
-}
-
-function parameterLocation(
-  name: string,
-  configured: unknown,
-  operation: ApiMarketOperation,
-): RequestField['location'] {
-  const value = String(configured || '').toLowerCase()
-  if (value === 'path' || value === 'query' || value === 'header' || value === 'body') return value
-  if ((operation.path || '').includes(`{${name}}`)) return 'path'
-  return ['GET', 'HEAD', 'DELETE', 'OPTIONS'].includes((operation.httpMethod || '').toUpperCase())
-    ? 'query'
-    : 'body'
-}
-
-function inputType(value: unknown) {
-  const type = String(value || 'string').toLowerCase()
-  if (['string', 'number', 'integer', 'boolean', 'object', 'array', 'file'].includes(type)) return type
-  return 'string'
-}
-
-function jsonSchemaType(value: string) {
-  return value === 'file' ? 'string' : value
-}
-
-function safeIdentifier(value: string) {
-  const normalized = value.toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '')
-  return normalized || 'request'
-}
-
-function joinUrl(baseUrl: string, path: string) {
-  return `${baseUrl.replace(/\/$/, '')}/${path.replace(/^\//, '')}`
-}
-
-function isObject(value: unknown): value is Record<string, any> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+  return {
+    name: options.name.trim(), keySlug: options.keySlug.trim(), projectId: options.projectId,
+    projectCode: options.projectCode, workflowKind: 'GENERAL', executionEngine: 'GRAPH_SPEC',
+    definitionAuthority: 'USER', creationChannel: 'STUDIO', status: 'DRAFT',
+    description: `通过已接纳项目 API ${detail.summary.httpMethod} ${detail.summary.routeTemplate}`,
+    graphSpec: {
+      schemaVersion: 2,
+      nodes: [
+        { id: 'api-node', type: 'TOOL', name: `${detail.summary.httpMethod} ${detail.summary.routeTemplate}`,
+          ref: { kind: 'TOOL', name: detail.summary.qualifiedName, qualifiedName: detail.summary.qualifiedName,
+            projectCode: detail.summary.projectCode },
+          inputs: targets.map(target => ({ id: target.key, name: target.name, type: 'any', required: target.required,
+            source: `params.${inputName(target)}` })),
+          outputs: httpApiOutputPorts('api_output', detail.acceptedContract), config: { ...config, outputAlias: 'api_output', configVersion: 2 } },
+        { id: 'api-variable', type: 'VARIABLE_ASSIGN', name: 'API 结果变量',
+          config: { assignments: { api_result: output }, outputAlias: 'variable_output' } },
+      ],
+      edges: [{ id: 'api-to-variable', from: 'api-node', to: 'api-variable', condition: 'always' }],
+      entryNodeId: 'api-node', exitNodeIds: ['api-variable'],
+    },
+    canvasJson: JSON.stringify({ schemaVersion: 1, layoutVersion: 1,
+      nodes: [
+        { id: 'start', position: { x: 48, y: 180 } },
+        { id: 'api-node', position: { x: 330, y: 180 } },
+        { id: 'api-variable', position: { x: 680, y: 180 } },
+        { id: 'end', position: { x: 1030, y: 180 } },
+      ],
+      edges: [{ id: 'graph-entry-api-node' }, { id: 'api-to-variable' }, { id: 'graph-exit-api-variable' }],
+    }),
+    inputSchemaJson: JSON.stringify(inputSchema), outputSchemaJson: JSON.stringify({ type: 'object' }),
+  }
 }

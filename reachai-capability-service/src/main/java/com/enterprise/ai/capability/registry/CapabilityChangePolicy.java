@@ -69,6 +69,7 @@ public class CapabilityChangePolicy {
             }
             Map<String, Object> metadata = new LinkedHashMap<>(item.metadata() == null ? Map.of() : item.metadata());
             metadata.remove("sideEffect"); // Dedicated declaration is the single owner of this value.
+            CapabilityAssetType.fromMetadata(metadata);
             result.add(new CapabilityRegistration(name, first(item.title(), name),
                     first(item.description(), item.title(), name), first(item.httpMethod(), "POST").toUpperCase(Locale.ROOT),
                     address, first(item.contextPath(), project.getContextPath()), text(item.endpointPath()),
@@ -216,6 +217,12 @@ public class CapabilityChangePolicy {
             metadata.put("sideEffect", registration.sideEffect().trim());
         }
         return metadata.isEmpty() ? null : metadata;
+    }
+
+    public CapabilityAssetType assetType(CapabilityRegistration registration) {
+        return registration == null
+                ? CapabilityAssetType.UNCLASSIFIED
+                : CapabilityAssetType.fromMetadata(registration.metadata());
     }
 
     public static String sideEffect(String value) {

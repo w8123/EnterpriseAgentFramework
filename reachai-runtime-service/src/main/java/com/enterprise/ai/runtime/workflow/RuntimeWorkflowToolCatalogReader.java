@@ -65,8 +65,15 @@ public class RuntimeWorkflowToolCatalogReader implements RuntimeWorkflowToolCata
         var contract = version == null ? null : new Version(version.getId(), version.getVersion(),
                 StringUtils.hasText(version.getGraphSpecSnapshotJson()),
                 RuntimeWorkflowSchemaResolver.inputSchemaJson(json, null, version),
-                RuntimeWorkflowSchemaResolver.outputSchemaJson(json, null, version));
+                RuntimeWorkflowSchemaResolver.outputSchemaJson(json, null, version), httpApiRiskFloor(version));
         return new Entry(metadata, contract);
+    }
+
+    private String httpApiRiskFloor(RuntimeWorkflowVersionEntity version) {
+        if (version == null || !StringUtils.hasText(version.getSnapshotJson())) return null;
+        try {
+            return "WRITE".equals(json.readTree(version.getSnapshotJson()).path("httpApiRiskFloor").asText()) ? "WRITE" : null;
+        } catch (Exception invalid) { throw new IllegalArgumentException("WORKFLOW_PUBLISHED_RISK_INVALID", invalid); }
     }
 
     private boolean isPublished(RuntimeWorkflowVersionEntity version) {

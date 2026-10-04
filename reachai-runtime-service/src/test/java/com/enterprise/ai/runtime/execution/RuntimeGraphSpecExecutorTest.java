@@ -117,6 +117,62 @@ class RuntimeGraphSpecExecutorTest {
     }
 
     @Test
+    void userInputMessageDefaultPreservesPublishedNamedJsonParameters() {
+        Map<String, Object> request = Map.of("customerCode", "BM5B-FLOW-001", "quantity", 4);
+        Map<String, Object> parameters = new java.util.LinkedHashMap<>();
+        parameters.put("request", request);
+        parameters.put("items", List.of());
+        parameters.put("enabled", false);
+        parameters.put("quantity", 0);
+        parameters.put("body", null);
+        var snapshot = new com.enterprise.ai.runtime.workflow.RuntimePublishedWorkflowSnapshot(
+                "workflow", 2L, "{}", "WORKFLOW", 1L, "bmapi5b-primary", null, null);
+
+        RuntimeGraphSpecExecutionResult result = executor.execute("""
+                {
+                  "entryNodeId":"input", "exitNodeIds":["method"],
+                  "nodes":[
+                    {"id":"input","type":"USER_INPUT","config":{"userInputConfig":{
+                      "outputAlias":"params","fields":[
+                        {"name":"request","type":"object","required":true,"source":"input.message"},
+                        {"name":"items","type":"array","source":"input.message"},
+                        {"name":"enabled","type":"boolean","source":"input.message"},
+                        {"name":"quantity","type":"integer","source":"input.message"},
+                        {"name":"body","type":"object","source":"input.message"}
+                      ]
+                    }}},
+                    {"id":"method","type":"TOOL","ref":{"qualifiedName":"orders:query"},
+                     "config":{"inputMapping":{"request":"params.request","items":"params.items",
+                       "enabled":"params.enabled","quantity":"params.quantity","body":"params.body"}}}
+                  ], "edges":[{"from":"input","to":"method","condition":"always"}]
+                }
+                """, snapshot.executionInput(parameters));
+
+        assertTrue(result.success());
+        assertEquals(parameters, capabilityClient.requests.get(0).get("input"));
+    }
+
+    @Test
+    void explicitUserInputSourceStillOverridesExistingNamedParameter() {
+        RuntimeGraphSpecExecutionResult result = executor.execute("""
+                {
+                  "entryNodeId":"input", "exitNodeIds":["method"],
+                  "nodes":[
+                    {"id":"input","type":"USER_INPUT","config":{"outputAlias":"params",
+                      "fields":[{"name":"request","type":"object","source":"input.alternative"}]}},
+                    {"id":"method","type":"TOOL","ref":{"qualifiedName":"orders:query"},
+                     "config":{"inputMapping":{"request":"params.request"}}}
+                  ], "edges":[{"from":"input","to":"method","condition":"always"}]
+                }
+                """, Map.of("params", Map.of("request", Map.of("value", "existing")),
+                        "input", Map.of("alternative", Map.of("value", "explicit"))));
+
+        assertTrue(result.success());
+        assertEquals(Map.of("request", Map.of("value", "explicit")),
+                capabilityClient.requests.get(0).get("input"));
+    }
+
+    @Test
     void executesLlmEntryNodeThroughModelGateway() {
         RuntimeGraphSpecExecutionResult result = executor.execute("""
                 {
@@ -985,6 +1041,25 @@ class RuntimeGraphSpecExecutorTest {
                         "query", "business memory canary team",
                         "scope", "authorized"),
                 capabilityClient.requests.get(0).get("input"));
+    }
+
+    @Test
+    void explicitEmptyToolArgsDoNotFallBackToLegacyInput() {
+        RuntimeGraphSpecExecutionResult result = executor.execute("""
+                {
+                  "entryNodeId":"health",
+                  "exitNodeIds":["health"],
+                  "nodes":[{
+                    "id":"health",
+                    "type":"TOOL",
+                    "ref":{"qualifiedName":"orders:healthCheck"},
+                    "config":{"args":{}}
+                  }]
+                }
+                """, Map.of("input", "legacy input", "message", "legacy message"));
+
+        assertTrue(result.success());
+        assertEquals(Map.of(), capabilityClient.requests.get(0).get("input"));
     }
 
     @Test

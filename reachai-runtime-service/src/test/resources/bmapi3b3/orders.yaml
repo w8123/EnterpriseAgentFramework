@@ -1,0 +1,21 @@
+openapi: 3.0.3
+info: {title: Orders, version: '1'}
+paths:
+  /orders/{orderId}:
+    get:
+      description: Read the same order operation exposed by the Controller
+      parameters:
+        - {name: orderId, in: path, required: true, schema: {type: string}}
+        - {name: detailLevel, in: query, required: false, schema: {type: string}}
+      responses:
+        default:
+          description: Controller does not narrow the status code
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  orderId: {type: string}
+                  detailLevel: {type: string}
+                  state: {type: string}
+                  apiKey: {type: string}

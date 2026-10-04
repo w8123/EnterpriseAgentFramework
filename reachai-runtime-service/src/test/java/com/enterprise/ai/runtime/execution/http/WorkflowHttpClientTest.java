@@ -75,6 +75,38 @@ class WorkflowHttpClientTest {
     }
 
     @Test
+    void singleDispatchWriteDoesNotFollowActual307OrRetryActual503() throws Exception {
+        AtomicInteger writes = new AtomicInteger();
+        AtomicInteger redirectedWrites = new AtomicInteger();
+        AtomicInteger failedWrites = new AtomicInteger();
+        WorkflowHttpClient singleClient = new WorkflowHttpClient(objectMapper,
+                WorkflowHttpEgressPolicy.permissiveForTests(host -> new InetAddress[]{InetAddress.getByName("127.0.0.1")}),
+                null);
+        server.createContext("/write-redirect", exchange -> {
+            assertEquals("POST", exchange.getRequestMethod());
+            assertEquals("{\"note\":\"one\"}", new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            writes.incrementAndGet();
+            exchange.getResponseHeaders().add("Location", url("/write-again"));
+            respond(exchange, 307, "already changed state");
+        });
+        server.createContext("/write-again", exchange -> { redirectedWrites.incrementAndGet(); respond(exchange, 200, "{}"); });
+        server.createContext("/write-failed", exchange -> { failedWrites.incrementAndGet(); respond(exchange, 503, "already changed state"); });
+        server.start();
+        var redirected = singleClient.execute(new WorkflowHttpClient.HttpExecutionRequest("POST", url("/write-redirect"),
+                Map.of(), Map.of("Content-Type", "application/json"), "JSON", "{\"note\":\"one\"}",
+                1000, null, WorkflowExecutionIdentity.untrustedDebug(), null, false));
+        assertEquals(1, writes.get());
+        assertEquals(0, redirectedWrites.get(), "a redirect must never re-dispatch a Console write");
+        assertEquals(307, redirected.statusCode(), "retain the real HTTP response, not a pre-dispatch claim");
+        assertFalse(redirected.retryableFailure());
+        var failed = singleClient.execute(new WorkflowHttpClient.HttpExecutionRequest("POST", url("/write-failed"),
+                Map.of(), Map.of(), "JSON", "{}", 1000, null, WorkflowExecutionIdentity.untrustedDebug(), null, false));
+        assertEquals(503, failed.statusCode());
+        assertEquals(1, failedWrites.get());
+        assertFalse(failed.retryableFailure());
+    }
+
+    @Test
     void dnsResolvedOncePerRequestEvenWhenResolverWouldReturnDifferentSecondResult() throws Exception {
         server.createContext("/once", exchange -> respond(exchange, 200, "ok"));
         server.start();
@@ -83,6 +115,23 @@ class WorkflowHttpClientTest {
         WorkflowHttpClient.HttpExecutionResult result = client.execute(getRequest(baseUrl, null));
         assertTrue(result.success(), result.code() + " " + result.body());
         assertEquals(1, resolveCalls.get(), "must pin the first resolution; no second getAllByName");
+    }
+
+    @Test
+    void singleDispatchTimeoutAfterStateChangeHasNoRetryHintOrSecondPost() throws Exception {
+        AtomicInteger writes = new AtomicInteger();
+        WorkflowHttpClient singleClient = new WorkflowHttpClient(objectMapper, WorkflowHttpEgressPolicy.permissiveForTests(), null);
+        server.createContext("/write-timeout", exchange -> {
+            assertEquals("POST", exchange.getRequestMethod()); exchange.getRequestBody().readAllBytes(); writes.incrementAndGet();
+            try { Thread.sleep(2000); respond(exchange, 200, "{}"); }
+            catch (InterruptedException ex) { Thread.currentThread().interrupt(); }
+            catch (IOException ignored) { exchange.close(); } // the caller timed out after the state change
+        });
+        server.start();
+        var result = singleClient.execute(new WorkflowHttpClient.HttpExecutionRequest("POST", url("/write-timeout"),
+                Map.of(), Map.of(), "JSON", "{}", 1000, null, WorkflowExecutionIdentity.untrustedDebug(), null, false));
+        assertEquals(1, writes.get()); assertEquals(0, result.statusCode()); assertFalse(result.success());
+        assertFalse(result.retryableFailure());
     }
 
     @Test

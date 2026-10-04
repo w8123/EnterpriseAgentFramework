@@ -8,6 +8,7 @@ import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionResult;
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutor;
 import com.enterprise.ai.runtime.execution.WorkflowExecutionStatus;
 import com.enterprise.ai.runtime.execution.policy.RuntimeEvalExecutionContext;
+import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
 import com.enterprise.ai.runtime.trace.WorkflowTraceSanitizer;
 import com.enterprise.ai.runtime.runops.RuntimeRunLifecycleService;
 import com.enterprise.ai.runtime.runops.RuntimeRunSnapshots;
@@ -93,6 +94,19 @@ public class RuntimeWorkflowDebugService {
         return executeSnapshot(definition, input, run, null, false, eventSink, cancellation);
     }
 
+    /** Only the signed internal trial service may provide this server-built identity and audit. */
+    public DebugRunResult runReadOnlyTrial(DebugDefinition definition, Map<String, Object> params,
+                                           WorkflowExecutionIdentity identity, TrialAudit audit) {
+        if (definition == null || audit == null || identity == null
+                || identity.source() != WorkflowExecutionIdentity.Source.STUDIO_PROJECT_TEST
+                || !identity.authorizeProjectCredential(definition.projectId(), definition.projectCode())) {
+            throw new IllegalArgumentException("HTTP_API_TRIAL_IDENTITY_INVALID");
+        }
+        return executeSnapshot(definition, new DebugInput(null, Map.of("params", params), Map.of()),
+                DebugRunReference.fresh(), null, false, RuntimeGraphSpecExecutionEventSink.NOOP,
+                RuntimeGraphSpecExecutionCancellation.none(), identity, audit);
+    }
+
     /** The session owner supplies the persisted definition, run and checkpoint after claiming its waiting row. */
     public DebugRunResult resumeSessionDebug(DebugDefinition definition, DebugInput input, DebugContinuation continuation,
                                              RuntimeGraphSpecExecutionEventSink eventSink,
@@ -104,6 +118,15 @@ public class RuntimeWorkflowDebugService {
                                            String entryNodeId, boolean resume,
                                            RuntimeGraphSpecExecutionEventSink eventSink,
                                            RuntimeGraphSpecExecutionCancellation cancellation) {
+        return executeSnapshot(definition, actual, run, entryNodeId, resume, eventSink, cancellation,
+                WorkflowExecutionIdentity.untrustedDebug(), null);
+    }
+
+    private DebugRunResult executeSnapshot(DebugDefinition definition, DebugInput actual, DebugRunReference run,
+                                           String entryNodeId, boolean resume,
+                                           RuntimeGraphSpecExecutionEventSink eventSink,
+                                           RuntimeGraphSpecExecutionCancellation cancellation,
+                                           WorkflowExecutionIdentity identity, TrialAudit trial) {
         RuntimeGraphSpecExecutionEventSink sink = eventSink == null
                 ? RuntimeGraphSpecExecutionEventSink.NOOP : eventSink;
         RuntimeGraphSpecExecutionCancellation cancel = cancellation == null
@@ -120,7 +143,8 @@ public class RuntimeWorkflowDebugService {
         GraphSpecResolution resolved = resolveGraphSpec(definition.graphSpecJson());
         WorkflowTraceHandle trace = resume
                 ? continueOrBeginWorkflowTrace(traceId, definition, context)
-                : beginWorkflowTrace(traceId, definition, context);
+                : trial == null ? beginWorkflowTrace(traceId, definition, context)
+                : beginReadOnlyTrialTrace(traceId, definition, context, identity, trial);
 
         if (!resolved.success()) {
             RuntimeGraphSpecExecutionResult failure = failure(resolved.code(), resolved.message(), null, null);
@@ -128,13 +152,18 @@ public class RuntimeWorkflowDebugService {
             return toDebugRunResult(runId, traceId, actual.message(), Map.of(), null, failure, started);
         }
 
-        RuntimeGraphSpecExecutionResult execution = StringUtils.hasText(entryNodeId)
+        RuntimeGraphSpecExecutionResult execution;
+        try {
+            execution = StringUtils.hasText(entryNodeId)
                 ? graphSpecExecutor.executeFromNode(
                         resolved.graphSpecJson(), context, entryNodeId, sink, cancel, evaluation)
                 : graphSpecExecutor.execute(
-                        resolved.graphSpecJson(), context, sink, cancel,
-                        com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity.untrustedDebug(),
-                        evaluation);
+                        resolved.graphSpecJson(), context, sink, cancel, identity, evaluation);
+        } catch (RuntimeException unexpected) {
+            if (trial == null) throw unexpected;
+            execution = failure("HTTP_API_TRIAL_RESULT_UNCONFIRMED",
+                    "试运行结果未确认，请先核对 Run/Trace，勿直接重试", null, null);
+        }
         finishWorkflowTrace(trace, execution);
         return toDebugRunResult(runId, traceId, actual.message(), context, resolved.graph(), execution, started);
     }
@@ -324,7 +353,7 @@ public class RuntimeWorkflowDebugService {
                                                              Map<String, Object> context) {
         var existingRoot = rootSpans.resumeWorkflow(traceId);
         if (existingRoot != null) {
-            return new WorkflowTraceHandle(existingRoot, definition);
+            return new WorkflowTraceHandle(existingRoot, definition, null);
         }
         return beginWorkflowTrace(traceId, definition, context);
     }
@@ -348,7 +377,28 @@ public class RuntimeWorkflowDebugService {
         runLifecycleService.beginWorkflow(traceId, rootSpanId, "WORKFLOW_STUDIO", new RuntimeRunSnapshots.Workflow(
                 definition.workflowId(), definition.workflowKeySlug(), definition.workflowName(), definition.projectId(),
                 definition.projectCode(), definition.executionEngine(), definition.graphSpecJson()), input);
-        return new WorkflowTraceHandle(root, definition);
+        return new WorkflowTraceHandle(root, definition, null);
+    }
+
+    private WorkflowTraceHandle beginReadOnlyTrialTrace(String traceId, DebugDefinition definition,
+                                                       Map<String, Object> input,
+                                                       WorkflowExecutionIdentity identity, TrialAudit trial) {
+        String rootSpanId = compactId(16);
+        Map<String, Object> auditMetadata = trial.metadata();
+        var root = rootSpans.startBestEffort(RuntimeTraceRootService.Start.builder()
+                .traceId(traceId).spanId(rootSpanId).spanType("WORKFLOW")
+                .runtimeType(definition.executionEngine())
+                .agentId(definition.workflowId()).agentName(definition.workflowName()).nodeId(definition.workflowId())
+                .projectCode(definition.projectCode()).appId(definition.projectCode())
+                .input(Map.of("inputKeys", trial.inputKeys()))
+                .metadataJson(json(auditMetadata))
+                .startedAt(LocalDateTime.now()).build());
+        runLifecycleService.beginWorkflowTrial(traceId, rootSpanId,
+                new RuntimeRunSnapshots.Workflow(definition.workflowId(), definition.workflowKeySlug(),
+                        definition.workflowName(), definition.projectId(), definition.projectCode(),
+                        definition.executionEngine(), definition.graphSpecJson()),
+                Map.of("inputKeys", trial.inputKeys()), identity, auditMetadata);
+        return new WorkflowTraceHandle(root, definition, trial);
     }
 
     @SuppressWarnings("unchecked")
@@ -360,8 +410,10 @@ public class RuntimeWorkflowDebugService {
         String workflowName = definition.workflowName();
         LocalDateTime ended = LocalDateTime.now();
         String status = traceSpanStatus(execution);
+        String safeAnswer = trace.trial() == null ? execution.answer()
+                : execution.success() ? "Read-only saved draft trial completed" : execution.code();
         if (!rootSpans.finishBestEffort(trace.root(),
-                new RuntimeTraceRootService.Completion(status, execution.code(), execution.answer(), ended, null))) return;
+                new RuntimeTraceRootService.Completion(status, execution.code(), safeAnswer, ended, null))) return;
         List<Map<String, Object>> nodeTraces = canonicalNodeTraces(execution);
         for (int index = 0; index < nodeTraces.size(); index++) {
             Map<String, Object> nodeTrace = nodeTraces.get(index);
@@ -411,16 +463,17 @@ public class RuntimeWorkflowDebugService {
             } catch (Exception ignored) { }
         }
         Map<String, Object> metadata = new LinkedHashMap<>();
-        metadata.put("sourceType", "WORKFLOW_STUDIO");
+        metadata.put("sourceType", trace.trial() == null ? "WORKFLOW_STUDIO" : "STUDIO_READ_ONLY_TRIAL");
         metadata.put("workflowId", workflowId);
         metadata.put("workflowKeySlug", workflowKeySlug);
         metadata.put("workflowName", workflowName);
         metadata.put("nodeCount", nodeTraces.size());
+        if (trace.trial() != null) metadata.putAll(trace.trial().metadata());
         if (execution.interactionId() != null) {
             metadata.put("interactionId", execution.interactionId());
         }
         runLifecycleService.finishWorkflow(trace.root().traceId(), execution.success(), execution.code(),
-                execution.answer(), nodeTraces.size(), metadata);
+                safeAnswer, nodeTraces.size(), metadata);
     }
 
     private String traceSpanStatus(RuntimeGraphSpecExecutionResult execution) {
@@ -496,7 +549,35 @@ public class RuntimeWorkflowDebugService {
         catch (Exception ex) { return "{}"; }
     }
 
-    private record WorkflowTraceHandle(RuntimeTraceRootService.Handle root, DebugDefinition definition) {
+    private record WorkflowTraceHandle(RuntimeTraceRootService.Handle root, DebugDefinition definition,
+                                       TrialAudit trial) {
+    }
+
+    public record TrialAudit(String actorId, String revision, long apiId, String qualifiedName,
+                             String environment, String acceptedContractHash, String sourceSetRevision,
+                             String graphSha256, List<String> inputKeys, String assetType, String methodName,
+                             String currentContractHash, String sourceContractHash) {
+        public TrialAudit(String actorId, String revision, long apiId, String qualifiedName,
+                          String environment, String acceptedContractHash, String sourceSetRevision,
+                          String graphSha256, List<String> inputKeys) {
+            this(actorId, revision, apiId, qualifiedName, environment, acceptedContractHash, sourceSetRevision,
+                    graphSha256, inputKeys, "HTTP_API", null, null, null);
+        }
+        Map<String, Object> metadata() {
+            if ("BUSINESS_METHOD".equals(assetType)) {
+                return Map.ofEntries(Map.entry("sourceType", "STUDIO_READ_ONLY_TRIAL"),
+                        Map.entry("assetType", assetType), Map.entry("platformActorId", actorId),
+                        Map.entry("identityMode", "STUDIO_PROJECT_TEST"), Map.entry("draftRevision", revision),
+                        Map.entry("methodName", methodName), Map.entry("methodQualifiedName", qualifiedName),
+                        Map.entry("currentContractHash", currentContractHash), Map.entry("acceptedContractHash", acceptedContractHash),
+                        Map.entry("sourceContractHash", sourceContractHash), Map.entry("graphSha256", graphSha256),
+                        Map.entry("inputKeys", inputKeys));
+            }
+            return Map.of("sourceType", "STUDIO_READ_ONLY_TRIAL", "platformActorId", actorId,
+                    "draftRevision", revision, "apiId", apiId, "apiQualifiedName", qualifiedName,
+                    "environment", environment, "acceptedContractHash", acceptedContractHash,
+                    "sourceSetRevision", sourceSetRevision, "graphSha256", graphSha256, "inputKeys", inputKeys);
+        }
     }
 
     private Map<String, Object> inputContext(String message, String modelInstanceId, Map<String, Object> inputParams) {

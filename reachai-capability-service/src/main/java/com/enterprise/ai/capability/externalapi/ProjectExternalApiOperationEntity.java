@@ -15,5 +15,6 @@ public class ProjectExternalApiOperationEntity {
     private Long id;
     private Long integrationId;
     private Long operationId;
+    private Long apiAssetId;
     private LocalDateTime createdAt;
 }

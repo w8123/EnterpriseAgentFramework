@@ -1,90 +1,81 @@
 import { describe, expect, it } from 'vitest'
 import { buildApiMarketWorkflowDraft } from './apiMarketWorkflow'
-import type { ApiMarketEntryDetail } from '@/types/apiMarket'
+import type { HttpApiConnection, HttpApiDetail } from '@/types/httpApi'
 import type { AgentForm, WorkflowCanvasSource } from '@/types/agent'
 import { canvasToDefinition, definitionToCanvas } from './studio'
 
+function fixture() {
+  const ref = 'http-api:orders:dev:market:' + 'a'.repeat(64), hash = 'b'.repeat(64), revision = 'c'.repeat(64)
+  const detail: HttpApiDetail = {
+    summary: { id: 1, qualifiedName: ref, projectId: 41, projectCode: 'orders', environment: 'dev',
+      httpMethod: 'GET', routeTemplate: '/orders/{orderId}', sourceStatus: 'ACCEPTED', sourceConfirmed: true,
+      sourceReason: null, candidateContractHash: hash, acceptedContractHash: hash, sourceSetRevision: revision,
+      activeSourceCount: 1, sourceKinds: ['API_MARKET_OPERATION'], acceptedBy: 'fixture', acceptedAt: null },
+    contract: null, sources: [],
+    acceptedContract: { identity: { method: 'GET', routeTemplate: '/orders/{orderId}' },
+      scope: { projectCode: 'orders', environment: 'dev', externalServiceKey: 'api-market:isolated-orders-alpha' },
+      parameters: [{ name: 'orderId', location: 'PATH', required: true, schema: { type: 'string' }, contentTypes: [] }],
+      requestBody: null, responses: [{ status: '200', schema: { type: 'object', properties: { state: { type: 'string' } } }, contentTypes: ['application/json'] }],
+      authentication: { state: 'NONE', schemes: [], requiredHeaderNames: [] }, sideEffect: 'READ_ONLY' },
+  }
+  const connection: HttpApiConnection = { qualifiedName: ref, projectId: 41, projectCode: 'orders', environment: 'dev',
+    origin: 'http://isolated-origin.invalid', previewUrl: 'http://isolated-origin.invalid/orders/{orderId}',
+    authMode: 'NONE', credentialRef: null, credentialName: null, credentialRevision: null, revision: 1,
+    status: 'CONFIGURED', blockingReason: null,
+    verification: { status: 'VERIFIED', reason: 'Current actual Console', apiId: 1, acceptedContractHash: hash,
+      sourceSetRevision: revision, connectionRevision: 1, credentialRevision: null, invocationId: 'actual-attempt',
+      runId: 7, traceId: 'actual-trace', verifiedAt: '2026-10-01T00:00:00' } }
+  const options = { name: '订单查询', keySlug: 'orders-market', projectId: 41, projectCode: 'orders', environment: 'dev' }
+  return { detail, connection, options }
+}
+
 describe('buildApiMarketWorkflowDraft', () => {
-  it('creates an editable USER_INPUT to HTTP_REQUEST GraphSpec with provenance', () => {
-    const detail: ApiMarketEntryDetail = {
-      entry: {
-        id: 1,
-        entryKey: 'open-meteo',
-        title: 'Open-Meteo',
-        summary: '天气预报',
-        categoryCode: 'WEATHER',
-        tags: ['天气'],
-        authType: 'NONE',
-        pricingType: 'FREE',
-        httpsSupported: true,
-        publicationStatus: 'PUBLISHED',
-        verificationStatus: 'VERIFIED',
-        specStatus: 'VALID',
-        featured: true,
-        popularityScore: 98,
-        source: {
-          id: 1,
-          sourceKey: 'official',
-          name: '官方文档',
-          sourceType: 'OFFICIAL',
-          status: 'ACTIVE',
-          entryCount: 1,
-        },
-      },
-      verifications: [],
-      versions: [{
-        id: 2,
-        versionKey: 'v1',
-        baseUrl: 'https://api.open-meteo.com',
-        specHash: 'sha256:test',
-        publicationStatus: 'PUBLISHED',
-        operations: [{
-          id: 3,
-          operationKey: 'forecast',
-          title: '天气预报',
-          httpMethod: 'GET',
-          path: '/v1/forecast',
-          sideEffect: 'READ_ONLY',
-          authRequired: false,
-          requestSchema: {
-            type: 'object',
-            properties: {
-              latitude: { type: 'number', location: 'query', description: '纬度' },
-            },
-            required: ['latitude'],
-          },
-          exampleParams: { latitude: 39.9 },
-          status: 'ACTIVE',
-        }],
-      }],
+  it('creates API TOOL → variable → END with stable owner mapping and no transport or proof', () => {
+    const f = fixture(), draft = buildApiMarketWorkflowDraft(f.detail, f.connection, f.options)
+    const api = draft.graphSpec!.nodes[0]
+    expect(api.type).toBe('TOOL')
+    expect(api.ref?.qualifiedName).toBe(f.detail.summary.qualifiedName)
+    expect(api.config?.inputMapping).toEqual({ 'pathParams.orderId': 'params.orderId' })
+    expect(api.config?.httpApiAssetId).toBe(1)
+    expect(draft.graphSpec!.nodes[1].config?.assignments).toEqual({ api_result: 'nodeOutput.api-node.state' })
+    expect(draft.graphSpec!.nodes[1].config?.outputAlias).not.toBe('api_result')
+    expect(draft.graphSpec!.nodes[1].config?.outputAlias).toBe('variable_output')
+    expect(draft.canvasJson).toContain('"end"')
+    const stored = JSON.stringify(draft)
+    for (const forbidden of ['isolated-origin', 'marketRef', 'contractHash', 'actual-attempt', 'actual-trace', 'credentialRevision']) {
+      expect(stored).not.toContain(forbidden)
     }
-
-    const version = detail.versions[0]
-    const operation = version.operations[0]
-    const draft = buildApiMarketWorkflowDraft(detail, version, operation, {
-      name: '天气查询',
-      keySlug: 'weather-query',
-      projectId: 7,
-      projectCode: 'demo',
-      integrationId: 9,
-    })
-
-    expect(draft.graphSpec?.entryNodeId).toBe('api_input')
-    expect(draft.graphSpec?.exitNodeIds).toEqual(['api_forecast'])
-    const input = draft.graphSpec?.nodes.find(node => node.type === 'USER_INPUT')
-    const http = draft.graphSpec?.nodes.find(node => node.type === 'HTTP_REQUEST')
-    expect((input?.config?.fields as Array<Record<string, unknown>>)?.[0]?.source).toBe('latitude')
-    expect(http?.config?.url).toBe('https://api.open-meteo.com/v1/forecast')
-    expect(http?.config?.queryParams).toEqual({ latitude: '{{params.latitude}}' })
-    expect((http?.config?.marketRef as Record<string, unknown>).specHash).toBe('sha256:test')
-    expect((http?.config?.marketRef as Record<string, unknown>).integrationId).toBe(9)
-    expect((http?.config?.marketRef as Record<string, unknown>).credentialRequired).toBe(false)
-
     const canvas = definitionToCanvas(draft as unknown as WorkflowCanvasSource)
-    const httpCanvasNode = canvas.nodes.find(node => node.data.kind === 'http')
-    expect(httpCanvasNode?.data.marketRef?.entryKey).toBe('open-meteo')
-    const roundTripped = canvasToDefinition(draft as unknown as AgentForm, canvas)
-    const roundTrippedHttp = roundTripped.graphSpec?.nodes.find(node => node.type === 'HTTP_REQUEST')
-    expect((roundTrippedHttp?.config?.marketRef as Record<string, unknown>).integrationId).toBe(9)
+    const roundTrip = canvasToDefinition(draft as unknown as AgentForm, canvas)
+    expect(roundTrip.graphSpec!.nodes.find(node => node.type === 'TOOL')?.ref?.qualifiedName).toBe(f.detail.summary.qualifiedName)
+    const variable = roundTrip.graphSpec!.nodes.find(node => node.type === 'VARIABLE_ASSIGN')
+    expect(variable?.config?.assignments).toEqual({ api_result: 'nodeOutput.api-node.state' })
+    expect(variable?.config?.outputAlias).toBe('variable_output')
+  })
+  it('refuses configured-only and unknown or failed proof', () => {
+    for (const status of ['UNKNOWN', 'FAILED', 'STALE', 'UNVERIFIED'] as const) {
+      const f = fixture(); f.connection.verification!.status = status
+      expect(() => buildApiMarketWorkflowDraft(f.detail, f.connection, f.options)).toThrow()
+    }
+    const f = fixture(); f.connection.verification = null
+    expect(() => buildApiMarketWorkflowDraft(f.detail, f.connection, f.options)).toThrow('真实 Console')
+  })
+  it('refuses old source, connection, credential and API proofs independently', () => {
+    for (const mutate of [
+      (c: HttpApiConnection) => { c.verification!.sourceSetRevision = 'd'.repeat(64) },
+      (c: HttpApiConnection) => { c.verification!.connectionRevision = 9 },
+      (c: HttpApiConnection) => { c.verification!.credentialRevision = 'd'.repeat(64) },
+      (c: HttpApiConnection) => { c.verification!.apiId = 99 },
+    ]) {
+      const f = fixture(); mutate(f.connection)
+      expect(() => buildApiMarketWorkflowDraft(f.detail, f.connection, f.options)).toThrow()
+    }
+  })
+  it('does not cross project/environment, accept drift, unsupported input or non-market source', () => {
+    const f = fixture()
+    expect(() => buildApiMarketWorkflowDraft(f.detail, f.connection, { ...f.options, projectCode: 'other' })).toThrow()
+    expect(() => buildApiMarketWorkflowDraft(f.detail, f.connection, { ...f.options, environment: 'prod' })).toThrow()
+    f.detail.summary.sourceKinds = ['CONTROLLER_SCAN']
+    expect(() => buildApiMarketWorkflowDraft(f.detail, f.connection, f.options)).toThrow('固定市场来源')
   })
 })

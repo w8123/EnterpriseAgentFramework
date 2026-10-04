@@ -15,6 +15,12 @@
 
 ## 处理规则
 
+### 目录详情与使用位置
+
+能力详情通过 `GET /api/tools/{name}` 重读最新定义。`SOURCE_UNKNOWN`、`SOURCE_MISSING`、`CONTRACT_DRIFT` 与停用状态分别解释，不把 `enabled=true` 等同于可以调用。输入与返回依据参数 `location` 分开呈现；复制输入契约保留来源声明的字段路径、类型与必填属性，不推断业务示例值或 DTO 结构。
+
+`GET /api/capability-review/projects/{projectCode}/capabilities/{name}/references` 提供目录能力的使用位置。Control 先验证当前平台会话的项目读取权限，再向 Capability 读取该能力，校验归属项目，并使用 owning service 返回的 `qualifiedName`、`name` 查询引用。该入口复用 `CapabilityChangeImpactService` 与 Runtime／MCP／A2A 的已有查询，既不访问跨服务表，也不接受浏览器指定别名。返回 `runtimeEvidence`、`publicationEvidence`、`references`、`checkedAt`；两类证据均为 `COMPLETE` 且引用为空时，前端才显示没有引用。原变化评审的 `impactJson` 决策字段保留。
+
 ### 注册项目身份
 
 `capability_scan_project.project_code` 的非 NULL 值由数据库唯一约束维护，是同库中稳定的项目身份；项目名称、首次注册令牌和接入环境不能形成第二个同编码项目。注册入口复用 `RegistryEnrollmentService.normalizeProjectCode`，与令牌绑定采用同一规范化规则。
@@ -49,7 +55,7 @@ Starter 将登记请求和收到凭据后的落盘放在同一客户端串行入
 8. 发布的 Workflow 和直接暴露能力的 MCP 发布固定当时的能力契约；执行前核对当前契约，避免目录人工更新后旧发布静默使用不兼容定义。重新校验与发布后采用新契约；没有契约指纹的旧发布不能跳过保护。
 9. 待处理视图按能力展示当前例外和具体影响，默认隐藏无变化、自动完成与被替代的历史项。历史记录仍可查询，开发诊断单独保留。
 10. 权限仍按项目隔离。入口位于能力目录，避免在导航中把正常使用组织为必须人工评审的流水线。
-11. SDK 能力的扫描行与调用投影以服务端 `source_qualified_name` 绑定 `capability_source_state.qualified_name`。`source_location` 只描述来源位置，清空或改写它不能解除来源保护。旧扫描编辑、启停、重新扫描、纳入、推送和撤销，以及通用调用投影的修改入口，统一拒绝修改来源拥有的能力；SDK 同步和变化处理负责维护契约与启用状态。缺少来源绑定的旧 SDK 投影不能执行，需升级后可信同步。
+11. SDK 能力的扫描行与调用投影以服务端 `source_qualified_name` 绑定 `capability_source_state.qualified_name`。`source_location` 只描述来源位置，清空或改写它不能解除来源保护。SDK 同步和来源变化处理维护契约与启用状态；旧扫描 edit/toggle/test/promote/push/unpromote/module promote 全部 scoped 410，通用目录仅 GET，已删除无消费者的人工 CRUD 回退。来源重扫、模块/语义/敏感字段证据保留，reconcile 只读，不补写投影。缺少来源绑定的旧 SDK 投影仍为 SOURCE_UNKNOWN，需可信同步；无绑定且非 SDK location 的 scanner 人工投影为 LEGACY_SCAN_TOOL_RETIRED，不能执行或重新发布，需在所属 API 目录正常发现/接纳并显式重选发布。已有图与固定引用不自动修改。
 
 ## 验收证据
 

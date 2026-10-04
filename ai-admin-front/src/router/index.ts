@@ -71,6 +71,11 @@ const routes: RouteRecordRaw[] = [
           title: 'Agent',
           layoutMode: 'standard',
           requiredPermissions: [PLATFORM_PERMISSION_AGENT_READ],
+          projectScope: {
+            permission: PLATFORM_PERMISSION_AGENT_READ,
+            resourceLabel: 'Agent',
+            requiresProjectCode: false,
+          },
         },
       },
       {
@@ -131,6 +136,11 @@ const routes: RouteRecordRaw[] = [
           title: 'Workflow 编排',
           layoutMode: 'project-workbench',
           requiredPermissions: [PLATFORM_PERMISSION_WORKFLOW_READ],
+          projectScope: {
+            permission: PLATFORM_PERMISSION_WORKFLOW_READ,
+            resourceLabel: 'Workflow',
+            requiresProjectCode: true,
+          },
         },
       },
       {
@@ -281,6 +291,44 @@ const routes: RouteRecordRaw[] = [
           layoutMode: 'standard',
           requiredPermissions: [PLATFORM_PERMISSION_READ],
           breadcrumb: [{ title: '能力资产' }, { title: '能力目录' }],
+        },
+      },
+      {
+        path: 'business-methods',
+        name: 'BusinessMethodCatalog',
+        component: () => import('@/views/capability/CapabilityKernel.vue'),
+        props: { catalogKind: 'business-method' },
+        meta: {
+          title: '业务方法',
+          layoutMode: 'standard',
+          requiredPermissions: [PLATFORM_PERMISSION_READ],
+          projectScope: {
+            permission: PLATFORM_PERMISSION_READ,
+            resourceLabel: '业务方法',
+            requiresProjectCode: false,
+          },
+          breadcrumb: [{ title: '能力资产' }, { title: '业务方法' }],
+        },
+      },
+      {
+        path: 'apis',
+        name: 'HttpApiCatalog',
+        component: () => import('@/views/api/HttpApiCatalog.vue'),
+        meta: {
+          title: 'API', layoutMode: 'standard', requiredPermissions: [PLATFORM_PERMISSION_READ],
+          projectScope: { permission: PLATFORM_PERMISSION_READ, resourceLabel: 'API', requiresProjectCode: true },
+          breadcrumb: [{ title: '能力资产' }, { title: 'API' }],
+        },
+      },
+      {
+        path: 'apis/:id',
+        name: 'HttpApiDetail',
+        component: () => import('@/views/api/HttpApiDetail.vue'),
+        meta: {
+          title: 'API 详情', layoutMode: 'standard', requiredPermissions: [PLATFORM_PERMISSION_READ],
+          projectScope: { permission: PLATFORM_PERMISSION_READ, resourceLabel: 'API', requiresProjectCode: true },
+          activeMenu: '/apis',
+          breadcrumb: [{ title: '能力资产' }, { title: 'API', path: '/apis' }, { title: 'API 详情' }],
         },
       },
       {

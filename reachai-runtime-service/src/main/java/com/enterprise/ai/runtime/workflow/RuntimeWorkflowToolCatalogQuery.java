@@ -14,7 +14,11 @@ public interface RuntimeWorkflowToolCatalogQuery {
     record Workflow(String id, String keySlug, String name, String description, boolean active) { }
 
     record Version(Long id, String version, boolean executable,
-                   String inputSchemaJson, String outputSchemaJson) { }
+                   String inputSchemaJson, String outputSchemaJson, String httpApiRiskFloor) {
+        public Version(Long id, String version, boolean executable, String inputSchemaJson, String outputSchemaJson) {
+            this(id, version, executable, inputSchemaJson, outputSchemaJson, null);
+        }
+    }
 
     record Entry(Workflow workflow, Version version) {
         public boolean activeWorkflow() {

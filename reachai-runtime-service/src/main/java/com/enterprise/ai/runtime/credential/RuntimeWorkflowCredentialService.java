@@ -10,6 +10,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -110,7 +112,8 @@ public class RuntimeWorkflowCredentialService {
                 entity.getCredentialRef(),
                 entity.getName(),
                 canonicalType,
-                secret));
+                secret,
+                revision(entity)));
     }
 
     /** @deprecated Prefer {@link #resolve(String, WorkflowExecutionIdentity)}. */
@@ -223,6 +226,34 @@ public class RuntimeWorkflowCredentialService {
             return objectMapper.writeValueAsString(value == null ? Map.of() : value);
         } catch (Exception ex) {
             throw new IllegalArgumentException("Invalid credential secret", ex);
+        }
+    }
+
+    /** API Console accepts only an ACTIVE PROJECT credential owned by its attested project. */
+    public Optional<RuntimeWorkflowCredentialRuntime> resolveProjectCredential(
+            String credentialRef, Long projectId, String projectCode) {
+        if (!StringUtils.hasText(credentialRef) || projectId == null || !StringUtils.hasText(projectCode)) {
+            return Optional.empty();
+        }
+        RuntimeWorkflowCredentialEntity entity = mapper.selectOne(Wrappers.<RuntimeWorkflowCredentialEntity>lambdaQuery()
+                .eq(RuntimeWorkflowCredentialEntity::getCredentialRef, credentialRef.trim())
+                .eq(RuntimeWorkflowCredentialEntity::getStatus, "ACTIVE")
+                .eq(RuntimeWorkflowCredentialEntity::getScope, "PROJECT").last("LIMIT 1"));
+        WorkflowExecutionIdentity identity = WorkflowExecutionIdentity.fromAgent(projectId, projectCode);
+        if (entity == null || !isAuthorized(entity, identity)) return Optional.empty();
+        String type = WorkflowCredentialTypes.normalizeType(entity.getType());
+        return Optional.of(new RuntimeWorkflowCredentialRuntime(entity.getCredentialRef(), entity.getName(), type,
+                WorkflowCredentialTypes.validateAndNormalizeSecret(type, readSecret(entity)), revision(entity)));
+    }
+
+    private String revision(RuntimeWorkflowCredentialEntity entity) {
+        try {
+            String material = entity.getId() + ":" + entity.getScope() + ":" + entity.getProjectId()
+                    + ":" + entity.getProjectCode() + ":" + entity.getStatus() + ":" + entity.getSecretJson();
+            return java.util.HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                    .digest(material.getBytes(StandardCharsets.UTF_8)));
+        } catch (Exception failure) {
+            throw new IllegalStateException("Credential revision unavailable", failure);
         }
     }
 

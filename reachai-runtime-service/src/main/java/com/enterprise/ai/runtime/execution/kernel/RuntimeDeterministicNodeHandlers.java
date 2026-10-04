@@ -238,6 +238,13 @@ final class RuntimeDeterministicNodeHandlers {
             if (!StringUtils.hasText(field.name())) {
                 continue;
             }
+            // The editor defaults fields to input.message. Published callers already bind
+            // named JSON values under params; do not replace objects, false/0 or null with text.
+            // Explicit author-selected sources still resolve normally below.
+            if (existing != null && existing.containsKey(field.name())
+                    && "input.message".equals(field.source().trim())) {
+                continue;
+            }
             Object value = resolveUserInputFieldValue(field, context, rawInput);
             if (value == null && field.defaultValue() != null) {
                 value = field.defaultValue();

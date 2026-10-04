@@ -90,13 +90,20 @@ public class ControllerAnnotationToolManifestScanner {
                     tools.addAll(scanFile(javaFile, projectMetadata, classIndex));
                 } catch (IllegalArgumentException ex) {
                     if (isParseFailure(ex)) {
-                        log.warn("Skip unparsable controller source: {}", javaFile, ex);
+                        // JavaParser may embed a source fragment in its diagnostic. Never attach the
+                        // exception/cause to a scan log because a malformed source can contain secrets.
+                        log.warn("Skip unparsable controller source {} [PARSE_FAILURE]",
+                                safeDisplayPath(sourcePath, javaFile));
                         return;
                     }
                     throw ex;
                 }
             });
-            ToolManifest manifest = new ToolManifest(projectMetadata, ensureUniqueToolNames(tools));
+            ControllerHttpApiInventoryExtractor.Result httpInventory =
+                    new ControllerHttpApiInventoryExtractor().extract(sourcePath, allJavaFiles, javaFiles,
+                            projectMetadata, classIndex, s.options);
+            ToolManifest manifest = new ToolManifest(projectMetadata, ensureUniqueToolNames(tools),
+                    httpInventory.operations(), httpInventory.complete());
             manifest.validate();
             return manifest;
         } finally {
@@ -747,6 +754,20 @@ public class ControllerAnnotationToolManifestScanner {
 
     private boolean isParseFailure(IllegalArgumentException ex) {
         return ex.getMessage() != null && ex.getMessage().startsWith("Failed to parse controller source:");
+    }
+
+    private String safeDisplayPath(Path sourcePath, Path javaFile) {
+        try {
+            Path root = Files.isDirectory(sourcePath) ? sourcePath : sourcePath.getParent();
+            if (root != null) {
+                return root.toAbsolutePath().normalize().relativize(javaFile.toAbsolutePath().normalize())
+                        .toString().replace('\\', '/');
+            }
+        } catch (Exception ignored) {
+            // Fall through to a basename. Diagnostics must never expose absolute machine paths.
+        }
+        Path filename = javaFile == null ? null : javaFile.getFileName();
+        return filename == null ? "controller.java" : filename.toString();
     }
 
     private List<ToolDefinition> ensureUniqueToolNames(List<ToolDefinition> tools) {

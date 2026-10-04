@@ -6,6 +6,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestBody;
 
 import java.util.Map;
 
@@ -19,6 +20,9 @@ public interface ControlModelCatalogClient {
 
     @RequestMapping(method = RequestMethod.GET, path = "/model/instances/{id}")
     ResponseEntity<Map<String, Object>> get(@PathVariable("id") String id);
+
+    @RequestMapping(method = RequestMethod.POST, path = "/model/instances")
+    ResponseEntity<Map<String, Object>> create(@RequestBody Map<String, Object> request);
 
     @RequestMapping(method = RequestMethod.GET, path = "/internal/model/instances/{id}")
     ResponseEntity<Map<String, Object>> getInternal(@PathVariable("id") String id);

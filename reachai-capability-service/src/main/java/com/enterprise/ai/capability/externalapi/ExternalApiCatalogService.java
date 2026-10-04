@@ -66,6 +66,7 @@ public class ExternalApiCatalogService {
     private final ProjectExternalApiOperationMapper integrationOperationMapper;
     private final ScanProjectMapper projectMapper;
     private final ObjectMapper objectMapper;
+    private final ApiMarketHttpApiBindingService apiBindings;
 
     public ExternalApiCatalogViews.PageView listEntries(int current,
                                                          int size,
@@ -208,9 +209,16 @@ public class ExternalApiCatalogService {
         }
         ExternalApiEntryEntity entry = requireEntry(entryKey);
         ScanProjectEntity project = requireProject(request.projectId(), request.projectCode());
+        if (request.versionId() == null) throw badRequest("API_MARKET_VERSION_REQUIRED", "请显式选择目录版本");
         ExternalApiVersionEntity version = requireVersion(entry.getId(), request.versionId());
         List<ExternalApiOperationEntity> operations = requireOperations(version.getId(), request.operationIds());
         String environment = normalizeEnvironment(request.environment(), project.getEnvironment());
+        if (!environment.equals(normalizeEnvironment(project.getEnvironment(), null))) {
+            throw badRequest("API_MARKET_PROJECT_ENVIRONMENT_MISMATCH", "接入环境必须与服务器确认的项目环境一致");
+        }
+        // Reject incomplete/unsupported catalog facts before writing any project intent or owner.
+        apiBindings.validateSelection(project, entry, version, operations);
+        projectMapper.lockCapabilityChanges(project.getId());
 
         ProjectExternalApiEntity integration = integrationMapper.selectOne(
                 Wrappers.<ProjectExternalApiEntity>lambdaQuery()
@@ -219,6 +227,14 @@ public class ExternalApiCatalogService {
                         .eq(ProjectExternalApiEntity::getEnvironment, environment)
                         .last("LIMIT 1"));
         LocalDateTime now = LocalDateTime.now().withNano(0);
+        boolean selectionChanged = integration == null || !Objects.equals(integration.getVersionId(), version.getId())
+                || !Set.of("CONFIGURING", "READY").contains(integration.getStatus());
+        if (!selectionChanged) {
+            Set<Long> priorIds = integrationOperationMapper.selectList(Wrappers.<ProjectExternalApiOperationEntity>lambdaQuery()
+                    .eq(ProjectExternalApiOperationEntity::getIntegrationId, integration.getId())).stream()
+                    .map(ProjectExternalApiOperationEntity::getOperationId).collect(Collectors.toSet());
+            selectionChanged = !priorIds.equals(operations.stream().map(ExternalApiOperationEntity::getId).collect(Collectors.toSet()));
+        }
         if (integration == null) {
             integration = new ProjectExternalApiEntity();
             integration.setProjectId(project.getId());
@@ -228,6 +244,8 @@ public class ExternalApiCatalogService {
             integration.setCreatedAt(now);
         }
         integration.setVersionId(version.getId());
+        long beforeRevision = integration.getSelectionRevision() == null ? 0L : integration.getSelectionRevision();
+        integration.setSelectionRevision(beforeRevision == 0 ? 1L : selectionChanged ? beforeRevision + 1 : beforeRevision);
         integration.setStatus(requiresCredential(entry) ? "CONFIGURING" : "READY");
         integration.setNote(trimTo(request.note(), 512));
         integration.setUpdatedAt(now);
@@ -235,16 +253,8 @@ public class ExternalApiCatalogService {
             integrationMapper.insert(integration);
         } else {
             integrationMapper.updateById(integration);
-            integrationOperationMapper.delete(Wrappers.<ProjectExternalApiOperationEntity>lambdaQuery()
-                    .eq(ProjectExternalApiOperationEntity::getIntegrationId, integration.getId()));
         }
-        for (ExternalApiOperationEntity operation : operations) {
-            ProjectExternalApiOperationEntity binding = new ProjectExternalApiOperationEntity();
-            binding.setIntegrationId(integration.getId());
-            binding.setOperationId(operation.getId());
-            binding.setCreatedAt(now);
-            integrationOperationMapper.insert(binding);
-        }
+        apiBindings.replace(integration, project, entry, version, operations);
         return integrationView(integration, project, entry, version, operations);
     }
 
@@ -281,6 +291,9 @@ public class ExternalApiCatalogService {
             throw badRequest("API_MARKET_CREDENTIAL_PROOF_REQUIRED",
                     "需要认证的 API 不能由市场直接标记为 READY，请先在 Workflow Runtime 配置并验证凭据");
         }
+        if ("READY".equals(status) || "CONFIGURING".equals(status)) {
+            throw badRequest("API_MARKET_EXPLICIT_RESELECTION_REQUIRED", "启用必须显式重新选择固定版本/Operation，市场状态不能作为验证 proof");
+        }
         integration.setStatus(status);
         if (request.note() != null) {
             integration.setNote(trimTo(request.note(), 512));
@@ -289,6 +302,8 @@ public class ExternalApiCatalogService {
         integrationMapper.updateById(integration);
         return integrationView(integration);
     }
+
+    public ExternalApiCatalogViews.IntegrationView getIntegration(Long integrationId) { return integrationView(requireIntegration(integrationId)); }
 
     private ExternalApiCatalogViews.IntegrationView integrationView(ProjectExternalApiEntity integration) {
         ScanProjectEntity project = projectMapper.selectById(integration.getProjectId());
@@ -382,7 +397,8 @@ public class ExternalApiCatalogService {
                 entry == null ? null : summary(entry, lookup.providers(), lookup.sources()),
                 version == null ? null : versionView(version, false),
                 operations.stream().map(this::operationView).toList(),
-                entry != null && requiresCredential(entry)
+                entry != null && requiresCredential(entry),
+                apiBindings.views(integration, project)
         );
     }
 
@@ -415,7 +431,9 @@ public class ExternalApiCatalogService {
                 parseJson(operation.getRequestSchemaJson()),
                 parseJson(operation.getResponseSchemaJson()),
                 parseObjectMap(operation.getExampleParamsJson()),
-                operation.getStatus()
+                operation.getStatus(),
+                operation.getResponseContentType(),
+                operation.getResponseStatus()
         );
     }
 

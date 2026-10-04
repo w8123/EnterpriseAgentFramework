@@ -13,12 +13,12 @@
         <el-tag v-if="summary" size="small" effect="plain" :type="summary.runType === 'AGENT' ? 'success' : 'primary'">
           {{ runTypeLabel(summary.runType) }}
         </el-tag>
-        <el-tag v-if="summary" size="small" effect="plain" :type="statusTagType(summary.status)">
+        <el-tag v-if="summary" size="small" effect="plain" :type="runResultUnconfirmed ? 'warning' : statusTagType(summary.status)">
           {{ lifecycleStatusLabel(summary) }}
         </el-tag>
       </template>
       <template #actions>
-        <el-tooltip content="刷新运行详情" placement="top">
+        <el-tooltip content="刷新运行详情" placement="top" :trigger-keys="[]">
           <el-button
             circle
             :icon="Refresh"
@@ -39,7 +39,7 @@
           <template #dropdown>
             <el-dropdown-menu>
               <el-dropdown-item command="context">运行上下文</el-dropdown-item>
-              <el-dropdown-item command="candidate">
+              <el-dropdown-item v-if="canOfferWorkflowCandidate(summary?.runType)" command="candidate">
                 Workflow 候选资格
                 <span class="menu-state">
                   {{ candidateEligibility?.eligible ? '可创建' : `${candidateEligibility?.blockers.length || 0} 项未满足` }}
@@ -50,7 +50,7 @@
           </template>
         </el-dropdown>
         <el-button
-          v-if="canOperateRun && summary?.runType !== 'MCP'"
+          v-if="canOperateRun && canReplayRunType(summary?.runType)"
           type="primary"
           :icon="VideoPlay"
           :loading="replaying"
@@ -74,7 +74,7 @@
                 {{ diagnosticState.label }}
               </el-tag>
               <strong>{{ diagnosticState.title }}</strong>
-              <el-button v-if="failureFocus" link type="danger" @click="focusFailure">定位失败点 →</el-button>
+              <el-button v-if="failureFocus" link :type="runResultUnconfirmed ? 'warning' : 'danger'" @click="focusFailure">{{ runResultUnconfirmed ? '定位未确认点 →' : '定位失败点 →' }}</el-button>
             </div>
             <p>{{ diagnosticState.description }}</p>
           </div>
@@ -367,6 +367,8 @@ import PageHeader from '@/components/common/PageHeader.vue'
 import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
 import RunOpsInvestigationWorkbench from './components/RunOpsInvestigationWorkbench.vue'
 import { toolCallFailed, toolCallStatus } from './toolCallOutcome'
+import { HTTP_API_WRITE_UNCONFIRMED_GUIDANCE, runHasUnconfirmedHttpApiWrite } from './httpApiWriteOutcome'
+import { canOfferWorkflowCandidate, canReplayRunType } from './runOpsActionEligibility'
 import {
   compareRunOpsTrace,
   createTraceWorkflowCandidateTask,
@@ -439,6 +441,7 @@ const replayForm = ref<ReplayRequest>({})
 const replayRoles = ref<string[]>([])
 const investigationWorkbenchRef = ref<InstanceType<typeof RunOpsInvestigationWorkbench> | null>(null)
 const summary = computed(() => detail.value?.summary)
+const runResultUnconfirmed = computed(() => runHasUnconfirmedHttpApiWrite(detail.value))
 const canOperateRun = computed(() => hasPlatformResourcePermission(
   platformSessionUser.value?.permissionGrants,
   PLATFORM_PERMISSION_RUNOPS_OPERATE,
@@ -577,6 +580,10 @@ const diagnosticState = computed<DiagnosticState>(() => {
       description: '完成当前交互后，运行会从暂停位置继续执行。',
     }
   }
+  if (runResultUnconfirmed.value) {
+    return { tone: 'warning', tagType: 'warning', label: '结果未确认', title: '写入结果未确认',
+      description: HTTP_API_WRITE_UNCONFIRMED_GUIDANCE }
+  }
   if (failureFocus.value) {
     return {
       tone: 'danger',
@@ -639,7 +646,8 @@ async function loadDetail() {
   try {
     const { data } = await getRunOpsDetail(traceId.value)
     detail.value = data
-    await Promise.all([loadComparison(), loadCandidateEligibility()])
+    await Promise.all([loadComparison(),
+      canOfferWorkflowCandidate(data.summary?.runType) ? loadCandidateEligibility() : Promise.resolve()])
   } catch {
     detail.value = null
     comparison.value = null
@@ -810,14 +818,14 @@ async function loadComparison() {
 }
 
 function openReplayDialog() {
-  if (!canOperateRun.value) return
+  if (!canOperateRun.value || !canReplayRunType(summary.value?.runType)) return
   replayForm.value = { userId: summary.value?.userId }
   replayRoles.value = []
   replayDialogVisible.value = true
 }
 
 async function replayTrace() {
-  if (!detail.value || !canOperateRun.value) return
+  if (!detail.value || !canOperateRun.value || !canReplayRunType(summary.value?.runType)) return
   replaying.value = true
   try {
     const request: ReplayRequest = { ...replayForm.value, roles: replayRoles.value }
@@ -839,12 +847,16 @@ async function replayTrace() {
 function runObjectLabel(run: RunSummary) {
   if (run.runType === 'AGENT') return run.agentName || run.agentKeySlug || run.agentId || '-'
   if (run.runType === 'WORKFLOW') return run.workflowName || run.workflowKeySlug || run.workflowId || '-'
+  if (run.runType === 'CONSOLE_CAPABILITY') return snapshotText('qualifiedName') || '业务方法试调用'
+  if (run.runType === 'CONSOLE_HTTP_API') return snapshotText('qualifiedName') || 'API 试调用'
   return snapshotText('toolName') || run.workflowName || run.workflowKeySlug || run.workflowId || 'MCP 工具调用'
 }
 
 function runObjectId(run: RunSummary) {
   if (run.runType === 'AGENT') return run.agentKeySlug || run.agentId || '-'
   if (run.runType === 'WORKFLOW') return run.workflowKeySlug || run.workflowId || '-'
+  if (run.runType === 'CONSOLE_CAPABILITY') return snapshotText('qualifiedName') || '-'
+  if (run.runType === 'CONSOLE_HTTP_API') return snapshotText('qualifiedName') || '-'
   return snapshotText('sourceRef') || run.workflowKeySlug || run.workflowId || '-'
 }
 
@@ -865,6 +877,8 @@ function runTypeLabel(runType?: string) {
     AGENT: '智能体',
     WORKFLOW: '工作流',
     MCP: 'MCP 工具调用',
+    CONSOLE_CAPABILITY: '业务方法试调用',
+    CONSOLE_HTTP_API: 'API 试调用',
   }
   return runType ? labels[runType] || runType : '-'
 }
@@ -872,6 +886,7 @@ function runTypeLabel(runType?: string) {
 function entryTypeLabel(entryType?: string) {
   const labels: Record<string, string> = {
     DEBUG: '调试',
+    STUDIO_READ_ONLY_TRIAL: 'Studio 只读真实试运行',
     EMBED: '嵌入',
     GATEWAY: '网关',
     EVAL: '评测',
@@ -879,6 +894,7 @@ function entryTypeLabel(entryType?: string) {
     AUTOMATION: '自动化',
     API: 'API',
     MCP: 'MCP',
+    CONSOLE: '控制台',
   }
   return entryType ? labels[entryType] || entryType : '-'
 }
@@ -970,11 +986,12 @@ function runStatusLabel(run: RunSummary) {
 }
 
 function lifecycleStatusLabel(run: RunSummary) {
+  if (runResultUnconfirmed.value) return '结果未确认'
   return run.status === 'COMPLETED' ? '流程已结束' : runStatusLabel(run)
 }
 
 function isFailureStatus(status?: string) {
-  return status === 'FAILED' || status === 'TIMED_OUT' || status === 'TIMEOUT'
+  return status === 'FAILED' || status === 'ERROR' || status === 'TIMED_OUT' || status === 'TIMEOUT'
 }
 
 function statusTagType(status?: string) {
@@ -986,6 +1003,8 @@ function statusTagType(status?: string) {
 }
 
 function phaseLabel(spanType?: string) {
+  if (summary.value?.runType === 'CONSOLE_CAPABILITY') return '业务方法试调用'
+  if (summary.value?.runType === 'CONSOLE_HTTP_API') return 'API 试调用'
   const labels: Record<string, string> = {
     SUPERVISOR: '调度器',
     PLAN: '规划',

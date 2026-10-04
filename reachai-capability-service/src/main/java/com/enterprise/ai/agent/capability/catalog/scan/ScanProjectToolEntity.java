@@ -39,6 +39,9 @@ public class ScanProjectToolEntity {
     /** 服务端绑定的来源能力标识；由注册治理维护，不能通过目录编辑改变。 */
     private String sourceQualifiedName;
 
+    /** 来源资产类型投影：BUSINESS_METHOD / HTTP_API / UNCLASSIFIED。 */
+    private String assetType;
+
     private String httpMethod;
 
     private String baseUrl;

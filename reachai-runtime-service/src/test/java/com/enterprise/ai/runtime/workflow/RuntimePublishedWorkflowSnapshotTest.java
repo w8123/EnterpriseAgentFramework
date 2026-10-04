@@ -17,7 +17,17 @@ class RuntimePublishedWorkflowSnapshotTest {
         assertTrue(input.containsKey("workflowDefaultModelInstanceId"));
         assertNull(input.get("workflowDefaultModelInstanceId"));
         assertEquals(12, input.get("orderId"));
+        assertEquals(12, ((Map<?, ?>) input.get("params")).get("orderId"));
+        assertFalse(((Map<?, ?>) input.get("params")).containsKey("workflowDefaultModelInstanceId"));
         assertEquals("forged", caller.get("workflowDefaultModelInstanceId"));
+    }
+
+    @Test
+    void explicitAgentParamsKeepTheirOwnValues() {
+        var published = RuntimePublishedWorkflowSnapshot.read(version("{\"defaultModelInstanceId\":null}"));
+        var input = published.executionInput(Map.of("orderId", "root", "params", Map.of("orderId", "agent")));
+        assertEquals("root", input.get("orderId"));
+        assertEquals("agent", ((Map<?, ?>) input.get("params")).get("orderId"));
     }
 
     @ParameterizedTest

@@ -357,30 +357,6 @@ export function resolveStudioNodeSetCreation(
   return { allowed: true, reason: '' }
 }
 
-/** Kinds required by the current INTERACTION-based API query template. */
-export const API_QUERY_TEMPLATE_REQUIRED_KINDS = ['interaction', 'pageAction', 'tool'] as const
-
-export function resolveApiQueryTemplateCapability(
-  descriptors: WorkflowGraphNodeTypeDescriptor[],
-  capabilityLoaded: boolean,
-): StudioNodeCreationDecision {
-  const typeDecision = resolveStudioNodeSetCreation(
-    [...API_QUERY_TEMPLATE_REQUIRED_KINDS],
-    descriptors,
-    capabilityLoaded,
-  )
-  if (!typeDecision.allowed) return typeDecision
-  for (const variant of ['COLLECT_INPUT', 'PRESENT_OUTPUT']) {
-    const variantDecision = resolveStudioNodeCreation(
-      'interaction',
-      descriptors,
-      capabilityLoaded,
-      variant,
-    )
-    if (!variantDecision.allowed) return variantDecision
-  }
-  return { allowed: true, reason: '' }
-}
 
 /**
  * Studio palette openness is fail-closed:

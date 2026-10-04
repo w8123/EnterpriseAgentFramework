@@ -22,6 +22,8 @@ Control 的 Page Workbench 通过自有 `PageWorkbenchObservationPort` 读取 Pl
 
 AI Assist 的 AI Coding access 请求契约已归属 Capability client，不再由 client 反向引用 Controller DTO。`RuntimeTrustedAgentExecutionGateway` 则从 `client` 迁回 `runtime`：它负责可信信封、流式转发和个人记忆观测编排，底层内部 HTTP client 仍留在 `client`。因此 `client -> aiassist/context/runtime` 均已禁止回流。
 
+Control 的 `model` 模块仅承载 [模型实例配置 BFF](../../reachai-control-service/src/main/java/com/enterprise/ai/control/model/ControlModelInstanceController.java)：为已发布 Agent 的正常模型配置提供列表、详情和创建入口。它单向消费 `identity` 的平台会话/项目授权与 `client.model` 的 Model owner API，不读写 Model 表、不解密连接凭据、不改变 Model owner 或扩大为完整模型平台；模块登记不增加循环或持久化引用豁免。
+
 Runtime 的 `execution` 保留 GraphSpec 执行、会话清理、业务记忆 hydration、运行生命周期端口、审批恢复和交互过期规则。Agent 执行编排与 `SupervisorRuntimeAdapter` 归属 `supervisor`，不再让通用执行模块依赖 Agent 配置视图。A2A 通过 `RuntimePublishedAgentExecutionPort` 调用固定版本，事件回调使用执行模块的 `RuntimeAgentExecutionEventSink`；审批授权值归属 `RuntimeSupervisorApprovalPort`。A2A 持久化 binding 在进入 Supervisor 前转换为不可变快照。共享 `USER_INPUT` 语义位于 `graph`，Workflow 发布校验和执行处理器不再互相引用。AgentScope 模型桥接、流式诊断和 answer phase 归属独立的 `agentscope` 基础模块。`execution -> agent/memory/runops/supervisor/workflow`、`a2a -> supervisor`、`workflow -> supervisor` 均禁止回流。
 
 前端 Workflow Studio 保留画布编排 shell，评测、源码编辑、项目 API 查询模板、发布门禁和会话式调试台归属 `views/workflow/studio-overlays/`。状态与业务调用继续由既有 composable 管理，覆盖层只接收显式状态并上抛业务事件；调试台仍保留会话恢复、人工交互、节点轨迹、Trace 回放和 ACTIVE 发布版本对照。`scripts/check-workflow-studio-structure.mjs` 限制 shell 体量并禁止这些实现重新内联回 `WorkflowStudio.vue`。

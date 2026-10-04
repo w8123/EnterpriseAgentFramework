@@ -1,6 +1,8 @@
 package com.enterprise.ai.runtime.client.capability;
 
 import com.enterprise.ai.common.capability.CapabilityInvocationResponse;
+import com.enterprise.ai.common.capability.HttpApiConsoleContracts;
+import com.enterprise.ai.common.capability.ConsoleCapabilityInvocationContracts;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -48,4 +50,18 @@ public interface RuntimeCapabilityCatalogFeignClient {
 
     @GetMapping("/internal/capability/projects/by-id/{projectId}/readiness-facts")
     Map<String, Object> projectReadinessFacts(@PathVariable("projectId") Long projectId);
+
+    @PostMapping(value = "/internal/capability/http-apis/{apiId}/execution-context",
+            consumes = MediaType.APPLICATION_JSON_VALUE)
+    HttpApiConsoleContracts.ExecutionContext httpApiExecutionContext(
+            @PathVariable("apiId") Long apiId,
+            @RequestHeader Map<String, String> internalAuthHeaders,
+            @RequestBody byte[] exactBody);
+
+    @PostMapping(value = "/internal/capability/business-methods/{qualifiedName}/execution-context",
+            consumes = MediaType.APPLICATION_JSON_VALUE)
+    ConsoleCapabilityInvocationContracts.InvocationContext businessMethodExecutionContext(
+            @PathVariable("qualifiedName") String qualifiedName,
+            @RequestHeader Map<String, String> internalAuthHeaders,
+            @RequestBody byte[] exactBody);
 }

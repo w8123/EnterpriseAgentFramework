@@ -97,7 +97,7 @@ class RuntimeWorkflowReleasePersistenceTest {
         when(validation.readGraph(anyString(), any())).thenAnswer(call ->
                 new ObjectMapper().readValue((String) call.getArgument(0), com.enterprise.ai.agent.graph.GraphSpec.class));
         pins = mock(RuntimeCapabilityContractPins.class);
-        when(pins.pin(anyString())).thenAnswer(call -> call.getArgument(0));
+        when(pins.pin(anyString(), any())).thenAnswer(call -> call.getArgument(0));
         releases = new RuntimeWorkflowVersionService(versions, definitions, validation, new ObjectMapper(), pins, events, references);
         tx = new TransactionTemplate(new DataSourceTransactionManager(source));
         var workflow = new RuntimeWorkflowDefinitionEntity();

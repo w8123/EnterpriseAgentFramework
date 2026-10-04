@@ -27,10 +27,9 @@ public class CapabilityChangeLifecycle {
     private final CapabilityChangePolicy policy;
     private final CapabilitySyncReceiptMapper receipts;
 
-    public CapabilitySnapshotEntity findRepeat(Long projectId, String syncId, String mode,
-                                               List<CapabilityRegistration> capabilities) {
+    public CapabilitySnapshotEntity findRepeat(Long projectId, String syncId, String mode, String contentHash) {
         if (syncId.length() > 64) throw new IllegalArgumentException("同步标识不能超过 64 个字符");
-        String hash = policy.hash(capabilities);
+        String hash = contentHash;
         CapabilitySyncReceiptEntity receipt = receipts.selectOne(Wrappers.<CapabilitySyncReceiptEntity>lambdaQuery()
                 .eq(CapabilitySyncReceiptEntity::getProjectId, projectId)
                 .eq(CapabilitySyncReceiptEntity::getSyncId, syncId).last("limit 1 FOR UPDATE"));

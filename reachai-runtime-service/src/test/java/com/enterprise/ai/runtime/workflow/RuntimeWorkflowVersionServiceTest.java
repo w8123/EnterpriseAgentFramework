@@ -328,7 +328,8 @@ class RuntimeWorkflowVersionServiceTest {
 
     private RuntimeCapabilityContractPins passThroughPins() {
         RuntimeCapabilityContractPins pins = org.mockito.Mockito.mock(RuntimeCapabilityContractPins.class);
-        org.mockito.Mockito.when(pins.pin(org.mockito.ArgumentMatchers.anyString()))
+        org.mockito.Mockito.when(pins.pin(org.mockito.ArgumentMatchers.anyString(),
+                        org.mockito.ArgumentMatchers.any()))
                 .thenAnswer(call -> call.getArgument(0));
         return pins;
     }

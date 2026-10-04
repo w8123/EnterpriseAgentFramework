@@ -358,11 +358,14 @@
             <section v-else-if="inspectorTab === 'payload'" class="payload-view">
               <article>
                 <h3>节点输入 <small>application/json</small></h3>
-                <pre>{{ payloadText(selectedSpan?.inputSummary) }}</pre>
+                <pre>{{ payloadText(selectedSpan?.inputSummary, '输入') }}</pre>
               </article>
               <article>
                 <h3>节点输出 <small>{{ selectedTone === 'danger' ? 'error' : 'application/json' }}</small></h3>
-                <pre>{{ payloadText(selectedSpan?.outputSummary) }}</pre>
+                <pre>{{ payloadText(selectedSpan?.outputSummary, '输出') }}</pre>
+                <p v-if="!selectedSpan?.outputSummary" class="payload-absence-note">
+                  此节点未记录输出摘要，不表示没有实际输出。MCP 客户端响应与本次 Trace 的已保存证据分别核对；不会重新发起写入。
+                </p>
               </article>
             </section>
 
@@ -392,6 +395,7 @@ import { computed, ref, watch } from 'vue'
 import { formatRuntimeTypeLabel } from '@/utils/registryLabels'
 import DiffTable from './RunOpsDiffTable.vue'
 import { toolCallStatusLabel, toolCallStatusTone } from '../toolCallOutcome'
+import { HTTP_API_WRITE_UNCONFIRMED_GUIDANCE, isHttpApiWriteResultUnconfirmed } from '../httpApiWriteOutcome'
 import type {
   RunComparison,
   RunDetail,
@@ -487,7 +491,7 @@ const executionRows = computed<ExecutionRow[]>(() => executionItems.value.map((i
   const span = spanForItem(item)
   return {
     key: item.spanId || span?.spanId || `${item.spanType || 'stage'}:${item.nodeId || item.toolName || item.label || index}:${index}`,
-    item,
+    item: isHttpApiWriteResultUnconfirmed(span) ? { ...item, status: 'UNKNOWN' } : item,
     span,
     title: executionPathLabel(item),
   }
@@ -538,6 +542,10 @@ const selectedDiagnostic = computed(() => {
   const span = selectedSpan.value
   const tone = selectedTone.value
   if (!row) return { title: '尚未选择节点', code: '-', description: '请选择左侧执行阶段。' }
+  if (row.item.status === 'UNKNOWN') {
+    return { title: isHttpApiWriteResultUnconfirmed(span) ? '写入结果未确认' : '结果未确认',
+      code: span?.errorCode || 'UNKNOWN', description: HTTP_API_WRITE_UNCONFIRMED_GUIDANCE }
+  }
   if (tone === 'danger') {
     return {
       title: span?.errorCode ? '节点执行失败' : '阶段未成功完成',
@@ -560,13 +568,14 @@ const selectedDiagnostic = computed(() => {
     }
   }
   return {
-    title: '节点已成功完成',
+    title: tone === 'success' ? '节点已成功完成' : '阶段状态待核对',
     code: executionStatusLabel(row.item.status),
     description: compactMessage(span?.outputSummary, '本阶段没有记录错误，可继续核对输入输出与发布证据。'),
   }
 })
 
 const selectedSteps = computed(() => {
+  if (selectedRow.value?.item.status === 'UNKNOWN') return ['先核对原运行和目标业务状态，勿自动重试。', '显式新运行是一次新的调用，不是原记录查询。']
   if (selectedTone.value === 'danger' && props.detail.repairHints.length) return props.detail.repairHints
   if (selectedTone.value === 'warning') return ['完成当前审批或用户交互。', '恢复后刷新运行详情，确认后续执行链。']
   if (selectedTone.value === 'primary') return ['等待当前阶段返回。', '超过阈值后再检查目标服务与连接状态。']
@@ -721,6 +730,7 @@ function semanticDepth(span: RunSpan) {
 }
 
 function phaseLabel(spanType?: string) {
+  if (props.summary.runType === 'CONSOLE_HTTP_API') return 'API 试调用'
   const labels: Record<string, string> = {
     SUPERVISOR: '调度器',
     PLAN: '规划',
@@ -742,7 +752,7 @@ function phaseTagType(spanType?: string) {
 function statusTagType(status?: string) {
   if (status === 'COMPLETED' || status === 'SUCCESS' || status === 'RECORDED') return 'success'
   if (status === 'RUNNING') return 'primary'
-  if (status === 'SUSPENDED' || status === 'WAITING' || status === 'WAITING_APPROVAL' || status === 'WAITING_USER') return 'warning'
+  if (status === 'UNKNOWN' || status === 'SUSPENDED' || status === 'WAITING' || status === 'WAITING_APPROVAL' || status === 'WAITING_USER') return 'warning'
   if (status === 'CANCELLED') return 'info'
   return 'danger'
 }
@@ -750,8 +760,8 @@ function statusTagType(status?: string) {
 function statusTone(status?: string): StatusTone {
   if (status === 'COMPLETED' || status === 'SUCCESS' || status === 'RECORDED') return 'success'
   if (status === 'RUNNING') return 'primary'
-  if (status === 'SUSPENDED' || status === 'WAITING' || status === 'WAITING_APPROVAL' || status === 'WAITING_USER') return 'warning'
-  if (status === 'FAILED' || status === 'TIMED_OUT' || status === 'TIMEOUT') return 'danger'
+  if (status === 'UNKNOWN' || status === 'SUSPENDED' || status === 'WAITING' || status === 'WAITING_APPROVAL' || status === 'WAITING_USER') return 'warning'
+  if (status === 'FAILED' || status === 'ERROR' || status === 'TIMED_OUT' || status === 'TIMEOUT') return 'danger'
   return 'info'
 }
 
@@ -766,6 +776,8 @@ function executionStatusLabel(status?: string) {
     COMPLETED: '已完成',
     SUCCESS: '成功',
     FAILED: '失败',
+    ERROR: '失败',
+    UNKNOWN: '结果未确认',
     CANCELLED: '已取消',
     TIMED_OUT: '已超时',
     TIMEOUT: '已超时',
@@ -868,8 +880,8 @@ function executionSummaryLabel(value?: string) {
   return value
 }
 
-function payloadText(value?: string) {
-  if (!value) return '-'
+function payloadText(value: string | undefined, label: string) {
+  if (!value) return `此运行未记录节点${label}摘要`
   try {
     return JSON.stringify(JSON.parse(value), null, 2)
   } catch {
@@ -1299,6 +1311,7 @@ function guardDigest(guard?: RunGuardDecision) {
 .inspector-footnote { justify-content: space-between; gap: 10px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border-divider); color: var(--text-muted); font-size: 10px; }
 
 .payload-view { display: grid; gap: 10px; }
+.payload-absence-note { margin: 0; padding: 0 10px 10px; color: var(--text-secondary); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
 .payload-view article { overflow: hidden; border: 1px solid var(--border-color); border-radius: 9px; background: var(--card-bg); }
 .payload-view h3 { display: flex; justify-content: space-between; margin: 0; padding: 8px 10px; border-bottom: 1px solid var(--border-divider); color: var(--text-secondary); font-size: 11px; }
 .payload-view h3 small { color: var(--text-muted); font-family: var(--font-mono, Consolas, monospace); font-weight: 500; }

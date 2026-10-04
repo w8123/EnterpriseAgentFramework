@@ -145,9 +145,9 @@
               v-model="integrationFilters.projectId"
               clearable
               filterable
-              placeholder="全部项目"
+              placeholder="请选择项目"
               style="width: 220px"
-              @change="loadIntegrations"
+              @change="changeIntegrationProject"
             >
               <el-option v-for="project in projects" :key="project.id" :label="project.name" :value="project.id" />
             </el-select>
@@ -159,15 +159,19 @@
               @change="loadIntegrations"
             >
               <el-option label="待配置" value="CONFIGURING" />
-              <el-option label="可使用" value="READY" />
+              <el-option label="来源已选择" value="READY" />
               <el-option label="异常" value="BROKEN" />
               <el-option label="已停用" value="DISABLED" />
             </el-select>
           </div>
         </header>
 
+        <el-alert v-if="integrationListError" :title="integrationListError" type="error" :closable="false" show-icon>
+          <template #default><el-button link @click="loadIntegrations">重新读取</el-button></template>
+        </el-alert>
         <div v-loading="loadingIntegrations" class="integration-table-shell">
-          <el-empty v-if="!loadingIntegrations && !integrations.length" description="还没有项目接入外部 API">
+          <el-empty v-if="!loadingIntegrations && !integrations.length"
+            :description="!integrationFilters.projectId ? '选择项目后读取受控接入，不跨项目汇总授权' : integrationListError ? '接入状态未知，请重新读取' : '该项目还没有接入外部 API'">
             <el-button type="primary" @click="switchTab('discover')">去发现 API</el-button>
           </el-empty>
           <el-table v-else :data="integrations" class="integration-table">
@@ -193,11 +197,11 @@
             <el-table-column label="凭据" width="130">
               <template #default="{ row }">
                 <span :class="['credential-state', { 'is-required': row.credentialRequired }]">
-                  {{ row.credentialRequired ? '需在 Workflow 配置' : '无需凭据' }}
+                  {{ row.credentialRequired ? '认证契约待补' : '无需凭据' }}
                 </span>
               </template>
             </el-table-column>
-            <el-table-column label="状态" width="112">
+            <el-table-column label="选择状态" width="140">
               <template #default="{ row }">
                 <StatusTag
                   :label="formatApiMarketIntegrationStatus(row.status)"
@@ -208,11 +212,16 @@
             <el-table-column label="最近更新" width="170">
               <template #default="{ row }">{{ formatDate(row.updatedAt) }}</template>
             </el-table-column>
-            <el-table-column label="操作" fixed="right" width="210">
+            <el-table-column label="操作" fixed="right" width="270">
               <template #default="{ row }">
-                <el-button text type="primary" @click="createWorkflowFromIntegration(row)">创建 Workflow</el-button>
+                <el-button v-for="binding in row.apiBindings || []" :key="binding.apiId" text type="primary"
+                  @click="openOwnerApi(row, binding.apiId)">配置 API</el-button>
+                <el-button text type="primary" :disabled="!canProject(row.projectCode, PLATFORM_PERMISSION_WORKFLOW_WRITE) || creatingWorkflow"
+                  :title="!canProject(row.projectCode, PLATFORM_PERMISSION_WORKFLOW_WRITE) ? '缺少此项目 Workflow 写入权限' : '先核对当前 API 验证，再创建稳定引用草稿'"
+                  @click="createWorkflowFromIntegration(row)">创建 Workflow</el-button>
                 <el-button
-                  v-if="row.status !== 'DISABLED'"
+                  v-if="!['DISABLED', 'BROKEN'].includes(row.status)"
+                  :disabled="!canProject(row.projectCode, PLATFORM_PERMISSION_WRITE)"
                   text
                   type="danger"
                   @click="setIntegrationStatus(row, 'DISABLED')"
@@ -221,8 +230,9 @@
                   v-else
                   text
                   type="success"
-                  @click="setIntegrationStatus(row, row.credentialRequired ? 'CONFIGURING' : 'READY')"
-                >启用</el-button>
+                  :disabled="!canProject(row.projectCode, PLATFORM_PERMISSION_WRITE)"
+                  @click="reselectIntegration(row)"
+                >重新选择</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -304,12 +314,12 @@
 
     <AppDialog
       v-model="integrationDialogVisible"
-      title="接入 API 并生成 Workflow"
+      title="固定市场来源并接入项目 API"
       :description="integrationOperation ? `${selectedDetail?.entry.title} · ${integrationOperation.title}` : '选择项目和 Operation'"
       width="min(720px, 94vw)"
       destroy-on-close
     >
-      <el-form label-position="top" class="integration-form">
+      <el-form label-position="top" class="integration-form" @submit.prevent="submitIntegration">
         <section class="selected-operation" v-if="integrationOperation && integrationVersion">
           <el-tag :type="integrationOperation.httpMethod === 'GET' ? 'success' : 'warning'" effect="dark">
             {{ integrationOperation.httpMethod }}
@@ -317,6 +327,7 @@
           <div>
             <strong>{{ integrationOperation.title }}</strong>
             <code>{{ integrationVersion.baseUrl }}{{ integrationOperation.path }}</code>
+            <small>固定版本 {{ integrationVersion.versionKey }} · {{ integrationOperation.operationKey }}；地址仅为来源建议，不自动配置或授权出口。</small>
           </div>
           <StatusTag
             :label="formatApiMarketSideEffect(integrationOperation.sideEffect)"
@@ -342,7 +353,7 @@
             </el-select>
           </el-form-item>
           <el-form-item label="环境">
-            <el-select v-model="integrationForm.environment">
+            <el-select v-model="integrationForm.environment" disabled aria-label="项目已确认环境">
               <el-option label="开发" value="DEVELOPMENT" />
               <el-option label="测试" value="TEST" />
               <el-option label="预发布" value="STAGING" />
@@ -354,7 +365,7 @@
         <el-alert
           v-if="selectedDetail?.entry.authType !== 'NONE'"
           title="该 API 需要凭据"
-          description="本次只保存项目接入意图。Workflow 创建后，请在 Studio 的 HTTP 节点中选择 Runtime 加密凭据；API Key 不会写入市场目录。"
+          description="当前仅支持明确无认证的只读 GET；需要认证但缺少结构化契约时不能降为 NONE，请先补来源事实。"
           type="warning"
           :closable="false"
           show-icon
@@ -362,35 +373,21 @@
         <el-alert
           v-else
           title="该 Operation 无需认证"
-          description="系统会生成带参数输入和来源追踪的 HTTP_REQUEST Workflow 草稿。"
-          type="success"
+          description="本次只固定来源版本并生成项目 API 候选。仍需显式接纳、配置 Runtime 连接与目标 ACL，并完成真实 Console GET 验证。"
+          type="info"
           :closable="false"
           show-icon
         />
 
-        <el-checkbox v-model="integrationForm.createWorkflow" class="workflow-toggle">
-          同时创建可编辑的 Workflow 草稿
-        </el-checkbox>
-
-        <template v-if="integrationForm.createWorkflow">
-          <div class="integration-form__grid">
-            <el-form-item label="Workflow 名称" required>
-              <el-input v-model="integrationForm.workflowName" maxlength="80" show-word-limit />
-            </el-form-item>
-            <el-form-item label="Workflow Key" required>
-              <el-input v-model="integrationForm.workflowKey" maxlength="128" />
-            </el-form-item>
-          </div>
-          <p class="workflow-hint">
-            草稿会固定市场版本和 Spec Hash，但实际 Method、URL 和参数会作为 GraphSpec 运行语义保存，可在 Studio 中继续调整。
-          </p>
-        </template>
+        <p class="workflow-hint">环境采用所选项目的已确认值；接入不创建连接、凭据、调用权限或成功验证。</p>
+        <el-alert v-if="integrationBlocker || integrationError" :title="integrationError || integrationBlocker"
+          type="warning" :closable="false" show-icon />
       </el-form>
 
       <template #footer>
-        <el-button @click="integrationDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="submittingIntegration" @click="submitIntegration">
-          {{ integrationForm.createWorkflow ? '接入并进入 Workflow Studio' : '保存项目接入' }}
+        <el-button :disabled="submittingIntegration" @click="integrationDialogVisible = false">取消</el-button>
+        <el-button type="primary" :disabled="Boolean(integrationBlocker)" :loading="submittingIntegration" @click="submitIntegration">
+          接入并配置 API
         </el-button>
       </template>
     </AppDialog>
@@ -428,8 +425,12 @@ import {
   listApiMarketSources,
   updateApiMarketIntegrationStatus,
 } from '@/api/apiMarket'
-import { getScanProjects } from '@/api/scanProject'
 import { createWorkflow } from '@/api/workflow'
+import { getHttpApi, getHttpApiConnection } from '@/api/httpApi'
+import { getApiMarketIntegration } from '@/api/apiMarket'
+import { useProjectStore } from '@/store/project'
+import { platformSessionUser } from '@/auth/platformSession'
+import { hasPlatformResourcePermission, PLATFORM_PERMISSION_WRITE, PLATFORM_PERMISSION_WORKFLOW_WRITE } from '@/auth/platformAccess'
 import type {
   ApiMarketEntryDetail,
   ApiMarketEntrySummary,
@@ -453,6 +454,14 @@ import {
 type MarketTab = 'discover' | 'integrations' | 'changes' | 'sources'
 
 const router = useRouter()
+const projectStore = useProjectStore()
+const integrationError = ref('')
+const integrationListError = ref('')
+const creatingWorkflow = ref(false)
+let integrationSequence = 0
+function canProject(code: string, permission: string) {
+  return hasPlatformResourcePermission(platformSessionUser.value?.permissionGrants, permission, 'PROJECT', null, code)
+}
 const tabs = [
   { name: 'discover' as const, label: '发现 API', description: '搜索与评估', icon: markRaw(Collection) },
   { name: 'integrations' as const, label: '我的接入', description: '项目与环境', icon: markRaw(Connection) },
@@ -486,7 +495,7 @@ const filters = reactive({
   source: '',
   specFilter: '' as '' | 'yes' | 'no',
 })
-const integrationFilters = reactive<{ projectId?: number; status?: string }>({})
+const integrationFilters = reactive<{ projectId?: number; status?: string }>({ projectId: projectStore.currentProjectId || undefined })
 
 const detailVisible = ref(false)
 const selectedDetail = ref<ApiMarketEntryDetail | null>(null)
@@ -497,9 +506,17 @@ const integrationForm = reactive({
   projectId: undefined as number | undefined,
   projectCode: '',
   environment: 'DEVELOPMENT',
-  createWorkflow: true,
-  workflowName: '',
-  workflowKey: '',
+})
+
+const integrationBlocker = computed(() => {
+  if (!integrationForm.projectCode) return '请选择具有项目编码的接入项目'
+  if (!canProject(integrationForm.projectCode, PLATFORM_PERMISSION_WRITE)) return '当前账号缺少此项目的写入权限'
+  const operation = integrationOperation.value
+  if (selectedDetail.value?.entry.authType !== 'NONE' || operation?.authRequired !== false) return '当前只支持明确无认证的只读 GET；请补齐结构化认证契约'
+  if (operation?.httpMethod !== 'GET' || !['READ_ONLY', 'NONE'].includes(operation.sideEffect)) return '当前市场受控绑定仅支持明确只读的 GET'
+  if (!operation.responseContentType || !/^application\/(?:[\w.+-]+\+)?json$/.test(operation.responseContentType)
+      || !operation.responseStatus || operation.responseStatus < 200 || operation.responseStatus >= 300) return '目录尚未声明受支持的响应媒体和成功状态，请先补齐来源事实'
+  return ''
 })
 
 const hasActiveFilters = computed(() => Boolean(
@@ -546,21 +563,25 @@ async function loadSources() {
 }
 
 async function loadProjects() {
-  const { data } = await getScanProjects()
+  const data = await projectStore.fetchProjects()
   projects.value = (data || []).filter(project => Boolean(project.projectCode))
 }
 
 async function loadIntegrations() {
+  const sequence = ++integrationSequence, projectId = integrationFilters.projectId
+  integrations.value = []; integrationListError.value = ''
+  if (!projectId) { loadingIntegrations.value = false; return }
   loadingIntegrations.value = true
   try {
-    const { data } = await listApiMarketIntegrations({
-      projectId: integrationFilters.projectId,
-      status: integrationFilters.status,
-    })
-    integrations.value = data || []
-  } finally {
-    loadingIntegrations.value = false
-  }
+    const { data } = await listApiMarketIntegrations({ projectId, status: integrationFilters.status })
+    if (sequence === integrationSequence && projectId === integrationFilters.projectId) integrations.value = data || []
+  } catch {
+    if (sequence === integrationSequence) integrationListError.value = '项目接入读取失败，当前状态未知；请重新读取'
+  } finally { if (sequence === integrationSequence) loadingIntegrations.value = false }
+}
+function changeIntegrationProject() {
+  projectStore.selectCurrentProject(integrationFilters.projectId || null)
+  void loadIntegrations()
 }
 
 async function loadChanges() {
@@ -647,16 +668,11 @@ async function quickIntegrate(entry: ApiMarketEntrySummary) {
 
 function beginIntegration(version: ApiMarketVersion, operation: ApiMarketOperation) {
   if (!selectedDetail.value) return
-  integrationVersion.value = version
-  integrationOperation.value = operation
-  integrationForm.projectId = undefined
-  integrationForm.projectCode = ''
-  integrationForm.environment = 'DEVELOPMENT'
-  integrationForm.createWorkflow = true
-  integrationForm.workflowName = `${selectedDetail.value.entry.title} · ${operation.title}`.slice(0, 80)
-  integrationForm.workflowKey = uniqueWorkflowKey(selectedDetail.value.entry.entryKey, operation.operationKey)
-  detailVisible.value = false
-  integrationDialogVisible.value = true
+  integrationVersion.value = version; integrationOperation.value = operation; integrationError.value = ''
+  integrationForm.projectId = projectStore.currentProjectId || undefined
+  integrationForm.projectCode = ''; integrationForm.environment = 'DEVELOPMENT'
+  if (integrationForm.projectId) applySelectedProject(integrationForm.projectId)
+  detailVisible.value = false; integrationDialogVisible.value = true
 }
 
 function applySelectedProject(projectId: number) {
@@ -666,59 +682,28 @@ function applySelectedProject(projectId: number) {
 }
 
 async function submitIntegration() {
-  const detail = selectedDetail.value
-  const version = integrationVersion.value
-  const operation = integrationOperation.value
-  if (!detail || !version || !operation) return
-  if (!integrationForm.projectId || !integrationForm.projectCode) {
-    ElMessage.warning('请选择具有项目编码的接入项目')
-    return
-  }
-  if (integrationForm.createWorkflow
-      && !/^[A-Za-z0-9][A-Za-z0-9_-]{1,127}$/.test(integrationForm.workflowKey.trim())) {
-    ElMessage.warning('Workflow Key 需为 2-128 位，仅支持字母、数字、下划线或连字符')
-    return
-  }
-  submittingIntegration.value = true
+  const detail = selectedDetail.value, version = integrationVersion.value, operation = integrationOperation.value
+  if (!detail || !version || !operation || submittingIntegration.value || integrationBlocker.value) return
+  submittingIntegration.value = true; integrationError.value = ''
   try {
     const { data: integration } = await createApiMarketIntegration(detail.entry.entryKey, {
-      projectId: integrationForm.projectId,
-      projectCode: integrationForm.projectCode,
-      versionId: version.id,
-      operationIds: [operation.id],
-      environment: integrationForm.environment,
+      projectId: integrationForm.projectId!, projectCode: integrationForm.projectCode,
+      versionId: version.id, operationIds: [operation.id], environment: integrationForm.environment,
       note: `从 API 市场接入 ${operation.title}`,
     })
-    await Promise.all([loadStats(), loadIntegrations()])
-    if (!integrationForm.createWorkflow) {
-      integrationDialogVisible.value = false
-      activeTab.value = 'integrations'
-      ElMessage.success('项目 API 接入已保存')
-      return
-    }
-
-    try {
-      const draft = buildApiMarketWorkflowDraft(detail, version, operation, {
-        name: integrationForm.workflowName.trim(),
-        keySlug: integrationForm.workflowKey.trim(),
-        projectId: integrationForm.projectId,
-        projectCode: integrationForm.projectCode,
-        integrationId: integration.id,
-      })
-      const { data: workflow } = await createWorkflow(draft)
-      integrationDialogVisible.value = false
-      ElMessage.success(integration.credentialRequired
-        ? '接入已保存，请在 Workflow Studio 配置凭据并调试'
-        : 'API 已接入，Workflow 草稿已生成')
-      await router.push(`/workflows/${workflow.id}/studio`)
-    } catch (error) {
-      activeTab.value = 'integrations'
-      integrationDialogVisible.value = false
-      ElMessage.warning(`项目接入已保存，但 Workflow 创建失败：${errorMessage(error)}`)
-    }
-  } finally {
-    submittingIntegration.value = false
-  }
+    integrationFilters.projectId = integration.projectId; projectStore.selectCurrentProject(integration.projectId)
+    await Promise.allSettled([loadStats(), loadIntegrations()])
+    const binding = integration.apiBindings?.find(item => item.operationId === operation.id)
+    integrationDialogVisible.value = false
+    ElMessage.success('来源选择已保存；请在 API 详情接纳、配置连接与权限，并完成真实验证')
+    if (binding) await openOwnerApi(integration, binding.apiId)
+    else { activeTab.value = 'integrations'; ElMessage.warning('所属 API 指针尚不可读取，不能创建执行草稿') }
+  } catch (error) { integrationError.value = errorMessage(error) }
+  finally { submittingIntegration.value = false }
+}
+async function openOwnerApi(row: ApiMarketIntegration, id: number) {
+  projectStore.selectCurrentProject(row.projectId)
+  await router.push({ name: 'HttpApiDetail', params: { id }, query: { projectId: row.projectId, projectCode: row.projectCode } })
 }
 
 async function openIntegrationEntry(row: ApiMarketIntegration) {
@@ -727,31 +712,50 @@ async function openIntegrationEntry(row: ApiMarketIntegration) {
 }
 
 async function createWorkflowFromIntegration(row: ApiMarketIntegration) {
-  if (!row.entry || !row.version || !row.selectedOperations.length) return
+  if (creatingWorkflow.value || !canProject(row.projectCode, PLATFORM_PERMISSION_WORKFLOW_WRITE)) return
+  creatingWorkflow.value = true
+  try {
+    const { data: current } = await getApiMarketIntegration(row.id)
+    if (current.version?.id !== row.version?.id || current.projectId !== row.projectId
+        || current.projectCode !== row.projectCode || current.status !== 'READY'
+        || current.apiBindings?.length !== 1 || row.selectedOperations[0]?.id !== current.selectedOperations[0]?.id) {
+      throw new Error('固定选择已变化或不可用；请刷新接入记录并显式重新选择，不跟随目录最新版本')
+    }
+    const binding = current.apiBindings[0]
+    if (binding.blockingReason) throw new Error(binding.blockingReason)
+    const [{ data: detail }, { data: connection }] = await Promise.all([getHttpApi(binding.apiId), getHttpApiConnection(binding.apiId)])
+    if (detail.summary.qualifiedName !== binding.qualifiedName || detail.summary.projectId !== current.projectId) throw new Error('API owner 已变化，请刷新')
+    const draft = buildApiMarketWorkflowDraft(detail, connection, {
+      name: `${current.entry?.title || '市场 API'} · ${current.selectedOperations[0]?.title || 'Workflow'}`.slice(0, 80),
+      keySlug: uniqueWorkflowKey(current.entry?.entryKey || 'market', current.selectedOperations[0]?.operationKey || 'api'),
+      projectId: current.projectId, projectCode: current.projectCode, environment: binding.environment,
+    })
+    const { data: workflow } = await createWorkflow(draft)
+    projectStore.selectCurrentProject(current.projectId)
+    ElMessage.success('稳定 API 引用草稿已创建；请在 Studio 保存、只读试运行并显式校验发布')
+    await router.push(`/workflows/${workflow.id}/studio`)
+  } catch (error) { ElMessage.warning(errorMessage(error)) }
+  finally { creatingWorkflow.value = false }
+}
+async function reselectIntegration(row: ApiMarketIntegration) {
+  if (!row.entry || !row.version || !canProject(row.projectCode, PLATFORM_PERMISSION_WRITE)) return
   detailLoading.value = true
   try {
     const { data } = await getApiMarketEntry(row.entry.entryKey)
-    selectedDetail.value = data
-    const version = data.versions.find(item => item.id === row.version?.id) || data.versions[0]
-    const operation = version?.operations.find(item => item.id === row.selectedOperations[0].id)
-    if (!version || !operation) {
-      ElMessage.error('接入记录引用的 API 版本或 Operation 已不可用')
-      return
-    }
-    beginIntegration(version, operation)
-    integrationForm.projectId = row.projectId
-    integrationForm.projectCode = row.projectCode
-    integrationForm.environment = row.environment
-  } finally {
-    detailLoading.value = false
-  }
+    const version = data.versions.find(item => item.id === row.version!.id)
+    const operation = version?.operations.find(item => item.id === row.selectedOperations[0]?.id)
+    if (!version || !operation) throw new Error('固定版本/Operation 已不可用；请从目录显式选择，不自动升级')
+    selectedDetail.value = data; beginIntegration(version, operation)
+    integrationForm.projectId = row.projectId; applySelectedProject(row.projectId)
+  } catch (error) { ElMessage.warning(errorMessage(error)) }
+  finally { detailLoading.value = false }
 }
 
 async function setIntegrationStatus(row: ApiMarketIntegration, status: string) {
   const action = status === 'DISABLED' ? '停用' : '启用'
   try {
     await ElMessageBox.confirm(
-      `${action}后不会修改已经发布的 Workflow，但会改变市场接入状态。`,
+      `${action}不会修改旧发布快照，但当前绑定会在执行前拒绝。恢复必须显式重新选择并验证。`,
       `${action} ${row.entry?.title || 'API'}`,
       { type: 'warning', confirmButtonText: `确认${action}`, cancelButtonText: '取消' },
     )

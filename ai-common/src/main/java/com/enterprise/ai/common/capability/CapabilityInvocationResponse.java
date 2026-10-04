@@ -25,6 +25,10 @@ public record CapabilityInvocationResponse(
 
     private static final java.util.Set<String> SAFE_METADATA_KEYS = java.util.Set.of(
             "statusCode", "transport", "provider", "elapsedMs");
+    private static final java.util.regex.Pattern SAFE_INPUT_PATH =
+            java.util.regex.Pattern.compile("[A-Za-z0-9_.\\[\\]-]{1,160}");
+    private static final java.util.regex.Pattern SAFE_INPUT_REASON =
+            java.util.regex.Pattern.compile("[A-Z0-9_]{1,80}");
 
     public CapabilityInvocationResponse {
         if (contractVersion != CapabilityInvocationRequest.CONTRACT_VERSION) {
@@ -130,9 +134,30 @@ public record CapabilityInvocationResponse(
                 safe.put(key, value);
             }
         }
+        java.util.List<Map<String, String>> inputDiagnostics = sanitizeInputDiagnostics(source.get("inputDiagnostics"));
+        if (!inputDiagnostics.isEmpty()) {
+            safe.put("inputDiagnostics", inputDiagnostics);
+        }
         return safe.isEmpty()
                 ? Map.of()
                 : java.util.Collections.unmodifiableMap(safe);
+    }
+
+    private static java.util.List<Map<String, String>> sanitizeInputDiagnostics(Object raw) {
+        if (!(raw instanceof Iterable<?> values)) return java.util.List.of();
+        java.util.List<Map<String, String>> safe = new java.util.ArrayList<>();
+        for (Object value : values) {
+            if (safe.size() >= 20 || !(value instanceof Map<?, ?> item)) continue;
+            Object path = item.get("path");
+            Object reason = item.get("reason");
+            if (!(path instanceof String safePath) || !(reason instanceof String safeReason)
+                    || !SAFE_INPUT_PATH.matcher(safePath).matches()
+                    || !SAFE_INPUT_REASON.matcher(safeReason).matches()) {
+                continue;
+            }
+            safe.add(Map.of("path", safePath, "reason", safeReason));
+        }
+        return safe.isEmpty() ? java.util.List.of() : java.util.List.copyOf(safe);
     }
 
     private static boolean isRejectedCode(String code) {

@@ -50,7 +50,7 @@ public class CapabilityInvocationApplicationService {
             return response;
         } catch (CapabilityInvocationPolicyException rejected) {
             return failed(request, asset, rejected.code(), rejected.getMessage(),
-                    rejected.category(), false, startedAt);
+                    rejected.category(), false, startedAt, rejected.safeMetadata());
         } catch (IllegalStateException rejected) {
             if (failureText(rejected.getMessage()).contains("deadline")) {
                 return failed(request, asset, "CAPABILITY_DEADLINE_EXCEEDED", rejected.getMessage(),
@@ -75,6 +75,17 @@ public class CapabilityInvocationApplicationService {
                                                 CapabilityInvocationFailureCategory category,
                                                 boolean retryable,
                                                 long startedAt) {
+        return failed(request, asset, code, message, category, retryable, startedAt, Map.of());
+    }
+
+    private CapabilityInvocationResponse failed(CapabilityInvocationRequest request,
+                                                CapabilityInvocationAsset asset,
+                                                String code,
+                                                String message,
+                                                CapabilityInvocationFailureCategory category,
+                                                boolean retryable,
+                                                long startedAt,
+                                                Map<String, Object> safeMetadata) {
         CapabilityInvocationStatus status = isRejected(category)
                 ? CapabilityInvocationStatus.REJECTED
                 : CapabilityInvocationStatus.TECHNICAL_FAILED;
@@ -94,7 +105,7 @@ public class CapabilityInvocationApplicationService {
                 elapsedSince(startedAt),
                 1,
                 null,
-                Map.of());
+                safeMetadata);
     }
 
     private static boolean isRejected(CapabilityInvocationFailureCategory category) {

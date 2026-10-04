@@ -8,7 +8,6 @@ const studioSource = readFileSync(studioPath, 'utf8')
 const studioLineCount = studioSource.split(/\r?\n/).length
 
 const requiredOverlays = [
-  'WorkflowStudioApiQueryTemplateDialog',
   'WorkflowStudioDebugDrawer',
   'WorkflowStudioEvalDrawer',
   'WorkflowStudioPublishDialog',
@@ -16,6 +15,8 @@ const requiredOverlays = [
 ]
 
 const forbiddenInlineMarkers = [
+  'useWorkflowStudioApiQueryTemplate',
+  '<WorkflowStudioApiQueryTemplateDialog',
   'class="studio-debug-drawer"',
   'title="Workflow 评测"',
   'title="Workflow 源码"',

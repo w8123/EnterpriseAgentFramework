@@ -42,21 +42,7 @@
           <span>{{ saveBadgeText }}</span>
         </span>
         <el-button :icon="VideoPlay" :loading="debugLoading" @click="handleDebug">调试</el-button>
-        <el-tooltip
-          :disabled="apiQueryTemplateAvailable"
-          :content="apiQueryTemplateUnavailableReason || '当前节点能力目录未开放 API 查询模板所需节点'"
-          placement="bottom"
-        >
-          <span class="api-query-template-trigger">
-            <el-button
-              :icon="Link"
-              :disabled="studioReadOnly || !apiQueryTemplateAvailable"
-              @click="openApiQueryTemplateDialog"
-            >
-              API 查询模板
-            </el-button>
-          </span>
-        </el-tooltip>
+        <el-button v-if="hasReadOnlyTrialTarget" :icon="VideoPlay" @click="readOnlyTrialOpen = true">只读真实试运行</el-button>
         <el-button :icon="CircleCheck" :loading="validating" @click="validateRuntime()">校验</el-button>
         <el-dropdown trigger="click" @command="handleHeaderCommand">
           <el-button :icon="MoreFilled">更多</el-button>
@@ -335,11 +321,13 @@
               <Handle type="source" :position="Position.Right" />
               <div class="node-icon"><el-icon><Briefcase /></el-icon></div>
               <div class="node-head">
-                <span class="node-kind">能力</span>
+                <span class="node-kind">{{ nodeProps.data.toolConfig?.httpApiAssetId ? 'API' : '能力' }}</span>
                 <span class="node-state">{{ nodeProps.data.toolConfig?.projectCode || studio?.projectCode || '全局' }}</span>
               </div>
-              <div class="node-label">{{ nodeProps.data.toolConfig?.ref || '未选择能力' }}</div>
-              <div class="node-desc">{{ nodeProps.data.description || '业务能力调用' }}</div>
+              <div class="node-label">{{ nodeProps.data.toolConfig?.httpApiAssetId
+                ? nodeProps.data.label : nodeProps.data.toolConfig?.ref || '未选择能力' }}</div>
+              <div class="node-desc">{{ nodeProps.data.toolConfig?.httpApiAssetId
+                ? 'API 调用 · 作者配置' : nodeProps.data.description || '业务能力调用' }}</div>
               <div class="node-port-row">{{ portSummary(nodeProps.data.inputs, '入') }} · {{ portSummary(nodeProps.data.outputs, '出') }}</div>
               <div v-if="nodeProps.data.outputAlias" class="node-alias">输出别名：{{ nodeProps.data.outputAlias }}</div>
               <button v-if="nodeDebugState(nodeProps.id)" class="node-runtime" type="button" @click.stop="openNodeTrace(nodeProps.id)">
@@ -1257,8 +1245,8 @@
             <button class="property-section-card" type="button" @click="openPropertyDetail('trace')">
               <span class="section-card-icon"><el-icon><Document /></el-icon></span>
               <span class="section-card-main">
-                <strong>运行记录</strong>
-                <em>{{ selectedNodeTrace ? '查看上次运行输入、输出与状态' : '暂无节点运行记录' }}</em>
+                <strong>Studio 调试记录</strong>
+                <em>{{ selectedNodeTrace ? '查看本次 Studio 调试输入、输出与状态' : '尚无本次调试结果；已发布运行请到 RunOps 查看' }}</em>
               </span>
               <span class="section-card-meta">
                 <el-tag v-if="selectedNodeTrace" size="small" :type="nodeTraceTagType(selectedNodeTrace.status)">
@@ -1272,9 +1260,10 @@
       </aside>
     </div>
 
-    <el-dialog
+    <AppDialog
       v-model="propertyDetailOpen"
       class="node-property-dialog"
+      :title="`${selectedNode?.data.label || selectedNode?.id || '节点'} · ${propertyDetailSectionLabel}`"
       width="920px"
       align-center
       destroy-on-close
@@ -1366,6 +1355,7 @@
           :param-source-hints="paramSourceHints"
           :project-id="studio?.projectId || null"
           :project-code="studio?.projectCode || null"
+          :request-scope-key="businessMethodRequestScope"
           :node-type-options="nodeTypes"
           @credential-created="handleCredentialCreated"
           @create-call-node="handleCreateInteractionCallNode"
@@ -1400,7 +1390,7 @@
         <div v-else>
           <div v-if="selectedNodeTrace" class="node-trace-panel">
             <div class="node-trace-head">
-              <strong>上次运行</strong>
+              <strong>本次 Studio 调试</strong>
               <el-tag size="small" :type="nodeTraceTagType(selectedNodeTrace.status)">
                 {{ nodeTraceStatusText(selectedNodeTrace.status) }}
               </el-tag>
@@ -1420,10 +1410,14 @@
               <pre>{{ selectedNodeTrace.output }}</pre>
             </div>
           </div>
-          <el-empty v-else description="暂无节点运行记录" />
+          <el-alert v-else title="暂无本次 Studio 调试结果" type="info" :closable="false" show-icon
+            description="此处只展示当前 Studio 调试，不读取已发布历史结果。写 API 不用于 Studio 调试；没有预览不表示已发布数据丢失。" />
+          <el-button v-if="canReadPublishedRuns" class="published-run-entry" @click="openPublishedRuns">
+            查看已发布运行记录
+          </el-button>
         </div>
       </template>
-    </el-dialog>
+    </AppDialog>
 
     <el-dialog v-model="nodeSearchOpen" title="添加节点" width="620px" class="node-search-dialog">
       <el-input
@@ -1450,6 +1444,15 @@
         </button>
       </div>
     </el-dialog>
+
+    <WorkflowStudioReadOnlyTrialDrawer
+      v-model:open="readOnlyTrialOpen"
+      :studio="studio"
+      :dirty="saving || visualDirty || workflowMetaDirty() || (jsonDrawerVisible && sourceBufferChanged)"
+      :authorized="readOnlyTrialAuthorized"
+      :session-scope="platformSessionId + ':' + workflowId"
+      @open-runops="router.push('/runops/' + $event)"
+    />
 
     <WorkflowStudioDebugDrawer
       v-model:open="debugOpen"
@@ -1526,22 +1529,6 @@
       @apply="applySourceBuffer"
     />
 
-    <WorkflowStudioApiQueryTemplateDialog
-      v-model:open="apiQueryTemplateOpen"
-      v-model:action-key="apiQueryTemplateActionKey"
-      :loading="apiQueryTemplateLoading"
-      :tools="apiQueryTemplateTools"
-      :total="apiQueryTemplateTotal"
-      :filters="apiQueryTemplateFilters"
-      :available="apiQueryTemplateAvailable"
-      :project-code="studio?.projectCode"
-      :row-class-name="apiQueryTemplateRowClassName"
-      :selectable="apiQueryTemplateSelectable"
-      :status-label="apiQueryTemplateStatusLabel"
-      @reload="reloadApiQueryTemplateTools"
-      @page-change="loadApiQueryTemplateTools"
-      @generate="generateApiQueryTemplate"
-    />
 
     <WorkflowStudioPublishDialog
       v-model:open="publishDialogOpen"
@@ -1560,6 +1547,7 @@
 </template>
 <script setup lang="ts">
 import { useWorkflowStudioTraceProjection } from '@/views/workflow/composables/useWorkflowStudioTraceProjection'
+import AppDialog from '@/components/common/AppDialog.vue'
 import { debugWaitingOutput, formatElapsed, type WorkflowNodeTraceState } from '@/views/workflow/composables/workflowStudioTrace'
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -1649,15 +1637,18 @@ import {
   type WorkflowNodeMeasurement,
 } from '@/utils/workflowAutoLayout'
 import NodeConfigPanel from '@/views/workflow/studio-panels/NodeConfigPanel.vue'
-import WorkflowStudioApiQueryTemplateDialog from '@/views/workflow/studio-overlays/WorkflowStudioApiQueryTemplateDialog.vue'
 import WorkflowStudioDebugDrawer from '@/views/workflow/studio-overlays/WorkflowStudioDebugDrawer.vue'
+import WorkflowStudioReadOnlyTrialDrawer from '@/views/workflow/studio-overlays/WorkflowStudioReadOnlyTrialDrawer.vue'
+import { savedReadOnlyTrialTarget } from '@/views/workflow/composables/useWorkflowStudioReadOnlyTrial'
+import { hasPlatformResourcePermission, PLATFORM_PERMISSION_WORKFLOW_DEBUG, PLATFORM_PERMISSION_RUNOPS_READ,
+  PLATFORM_PERMISSION_CAPABILITY_INVOKE } from '@/auth/platformAccess'
 import WorkflowStudioEvalDrawer from '@/views/workflow/studio-overlays/WorkflowStudioEvalDrawer.vue'
 import WorkflowStudioPublishDialog from '@/views/workflow/studio-overlays/WorkflowStudioPublishDialog.vue'
 import WorkflowStudioSourceDrawer from '@/views/workflow/studio-overlays/WorkflowStudioSourceDrawer.vue'
 import { useWorkflowStudioNodeMetadata } from '@/views/workflow/composables/useWorkflowStudioNodeMetadata'
 import { useWorkflowStudioPalette } from '@/views/workflow/composables/useWorkflowStudioPalette'
 import { useWorkflowStudioDebugSession } from '@/views/workflow/composables/useWorkflowStudioDebugSession'
-import { isPlatformAuthenticated, platformSessionUser } from '@/auth/platformSession'
+import { isPlatformAuthenticated, platformSessionId, platformSessionUser } from '@/auth/platformSession'
 import { useWorkflowStudioSessionLifecycle } from '@/views/workflow/composables/useWorkflowStudioSessionLifecycle'
 import { useWorkflowStudioCanvasSearch } from '@/views/workflow/composables/useWorkflowStudioCanvasSearch'
 import { useWorkflowStudioRuntimeValidation } from '@/views/workflow/composables/useWorkflowStudioRuntimeValidation'
@@ -1674,7 +1665,6 @@ import { useWorkflowStudioProposalContext } from '@/views/workflow/composables/u
 import { useWorkflowStudioProposalActions } from '@/views/workflow/composables/useWorkflowStudioProposalActions'
 import { useWorkflowStudioEval } from '@/views/workflow/composables/useWorkflowStudioEval'
 import { useWorkflowStudioHistory } from '@/views/workflow/composables/useWorkflowStudioHistory'
-import { useWorkflowStudioApiQueryTemplate } from '@/views/workflow/composables/useWorkflowStudioApiQueryTemplate'
 import { useWorkflowStudioResources } from '@/views/workflow/composables/useWorkflowStudioResources'
 import {
   useWorkflowStudioGraphAnalysis,
@@ -1789,6 +1779,12 @@ const graphSpecSourceBuffer = ref('')
 const canvasSourceBuffer = ref('')
 const jsonApplying = ref(false)
 const debugOpen = ref(false)
+const readOnlyTrialOpen = ref(false)
+const hasReadOnlyTrialTarget = computed(() => Boolean(savedReadOnlyTrialTarget(graphSpecJson.value)))
+const readOnlyTrialAuthorized = computed(() => [PLATFORM_PERMISSION_WORKFLOW_DEBUG,
+  PLATFORM_PERMISSION_CAPABILITY_INVOKE].every((permission) => hasPlatformResourcePermission(
+  platformSessionUser.value?.permissionGrants, permission, 'PROJECT', 'BUILD', studio.value?.projectCode,
+)))
 const publishDialogOpen = ref(false)
 const releaseErrors = ref<WorkflowReleaseValidationItem[]>([])
 const releaseWarnings = ref<WorkflowReleaseValidationItem[]>([])
@@ -1827,7 +1823,7 @@ const {
   loadNodeTypes,
   loadToolOptions,
   loadModelOptions,
-  loadKnowledgeOptions,
+  loadGraphResourceOptions,
   loadCredentialOptions,
   handleCredentialCreated,
   refreshParamSourceHints,
@@ -2109,6 +2105,17 @@ const selectedNodeTrace = computed(() =>
   selectedNodeId.value ? nodeTraceStates.value[selectedNodeId.value] || null : null,
 )
 
+const canReadPublishedRuns = computed(() => hasPlatformResourcePermission(
+  platformSessionUser.value?.permissionGrants, PLATFORM_PERMISSION_RUNOPS_READ, 'PROJECT', 'OPERATE', studio.value?.projectCode,
+))
+
+function openPublishedRuns() {
+  if (!workflowId.value || !canReadPublishedRuns.value) return
+  router.push({ path: '/runops', query: {
+    projectCode: studio.value?.projectCode || '', keyword: workflowId.value,
+  } })
+}
+
 const selectedNode = computed(() =>
   nodes.value.find((node) => node.id === selectedNodeId.value) || null,
 )
@@ -2335,6 +2342,7 @@ const {
 } = useWorkflowStudioGraphAnalysis({
   nodes,
   edges,
+  workflowInputSchemaJson: computed(() => studio.value?.inputSchemaJson ?? null),
   decorateWorkflowNode,
   markCanvasDirty,
   syncJsonFromCanvas,
@@ -2587,37 +2595,6 @@ const {
   ensurePanelValidationClear,
 })
 
-const {
-  apiQueryTemplateOpen,
-  apiQueryTemplateLoading,
-  apiQueryTemplateTools,
-  apiQueryTemplateTotal,
-  apiQueryTemplateActionKey,
-  apiQueryTemplateFilters,
-  apiQueryTemplateAvailable,
-  apiQueryTemplateUnavailableReason,
-  openApiQueryTemplateDialog,
-  reloadApiQueryTemplateTools,
-  loadApiQueryTemplateTools,
-  applyProjectApiRouteContext,
-  apiQueryTemplateRowClassName,
-  apiQueryTemplateSelectable,
-  apiQueryTemplateStatusLabel,
-  generateApiQueryTemplate,
-} = useWorkflowStudioApiQueryTemplate({
-  studio,
-  nodes,
-  edges,
-  selectedNodeId,
-  selectedEdgeId,
-  propertyPanelCollapsed,
-  decorateWorkflowNode,
-  decorateWorkflowEdge,
-  markCanvasDirty,
-  syncJsonFromCanvas,
-  nodeTypes,
-  graphNodeTypeCapabilitiesLoaded,
-})
 
 async function syncPublishedPageAssistant(options: { silent?: boolean } = {}) {
   const current = studio.value
@@ -2691,7 +2668,6 @@ const primaryOverlayRefs = [
   debugOpen,
   evalOpen,
   jsonDrawerVisible,
-  apiQueryTemplateOpen,
   publishDialogOpen,
 ]
 
@@ -2748,7 +2724,7 @@ const variableOptions = computed<StudioVariableOption[]>(() => {
       nodeId: item.nodeId,
       source: item.source,
     })
-    if (item.group !== '用户输入' && !item.name.startsWith('nodeOutput.')) {
+    if (item.group !== '用户输入' && !item.name.startsWith('nodeOutput.') && !item.name.startsWith('var.')) {
       options.push({
         value: `var.${item.name}`,
         label: `${item.source} · 业务别名 ${item.name}`,
@@ -2775,16 +2751,27 @@ const variableOptions = computed<StudioVariableOption[]>(() => {
   })
 })
 
+const businessMethodRequestScope = computed(() => [
+  platformSessionId.value || '',
+  workflowId.value || '',
+  studio.value?.projectId || '',
+  studio.value?.projectCode || '',
+].join('\u0000'))
+
 onMounted(async () => {
   updateViewportWidth()
+  // The generic catalog is project-authorized.  Load the working copy first so
+  // its project identity is available before the selector issues its request.
+  await loadStudio()
   await Promise.all([
-    loadStudio(),
     loadNodeTypes(),
-    loadToolOptions(),
-    loadModelOptions(),
-    loadKnowledgeOptions(),
+    loadToolOptions(studio.value),
+    loadGraphResourceOptions(nodes.value.map((node) => node.data.kind)),
   ])
-  applyProjectApiRouteContext()
+  if (route.query.intent === 'api-query-template' || route.query.scanToolId || route.query.projectApiTool) {
+    ElMessage.warning('旧扫描 API 查询模板已退场；请添加 API 节点并用“选择 API”，再由展示输出交互消费节点结果。原图保持不变。')
+  }
+  focusReferenceNode()
   resetHistorySnapshot()
   await validateRuntime({ silent: true, syncCanvas: false })
   window.addEventListener('resize', updateViewportWidth)
@@ -2797,6 +2784,12 @@ onUnmounted(() => {
   window.removeEventListener('keydown', handleStudioShortcut)
   disposeDebugConversation()
 })
+
+watch(
+  () => [studio.value?.workflowId, studio.value?.projectId, studio.value?.projectCode,
+    ...nodes.value.map((node) => node.data.kind)].join('\u0000'),
+  () => { void loadGraphResourceOptions(nodes.value.map((node) => node.data.kind)) },
+)
 
 watch(debugOpen, (open) => {
   if (!open) disposeDebugConversation()
@@ -3003,6 +2996,10 @@ async function applySourceBuffer() {
 }
 
 function handleCreateInteractionCallNode(request: InteractionCallNodeRequest) {
+  if (request.sourceKind === 'API') {
+    ElMessage.warning('旧项目接口绑定不再生成调用节点；请使用现有 API 节点选择所属 API，再由展示输出交互消费结果。')
+    return
+  }
   if (studioReadOnly.value) return
   if (!studio.value || !selectedNode.value || selectedNode.value.data.kind !== 'interaction') return
   const kind: CanvasNodeKind = 'tool'
@@ -3203,6 +3200,17 @@ function focusRuntimeValidationItem(target?: string | null) {
   propertyPanelCollapsed.value = false
   void focusDebugNode(node.id)
 }
+
+function focusReferenceNode() {
+  const nodeId = typeof route.query.nodeId === 'string' ? route.query.nodeId : ''
+  if (nodeId && nodes.value.some(node => node.id === nodeId)) {
+    selectedNodeId.value = nodeId
+    selectedEdgeId.value = null
+    propertyPanelCollapsed.value = false
+    void focusDebugNode(nodeId)
+  }
+}
+watch(() => route.query.nodeId, focusReferenceNode)
 
 function normalizeCanvasKind(type: string): CanvasNodeKind {
   const normalized = type.trim()
@@ -3803,6 +3811,7 @@ function formatDebugResult(value: unknown) {
 
 .studio-page .studio-header {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: space-between;
   gap: 18px;
@@ -3999,6 +4008,8 @@ function formatDebugResult(value: unknown) {
 
 .studio-body {
   flex: 1;
+  min-height: 0;
+  position: relative;
   display: grid;
   grid-template-columns: 72px minmax(0, 1fr) 430px;
   overflow: hidden;
@@ -5254,12 +5265,15 @@ function formatDebugResult(value: unknown) {
 
 .node-dialog-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 14px;
+  min-width: 0;
 }
 
 .node-dialog-icon {
   display: grid;
+  flex: 0 0 42px;
   width: 42px;
   height: 42px;
   place-items: center;
@@ -5269,20 +5283,28 @@ function formatDebugResult(value: unknown) {
   font-size: 20px;
 }
 
+.node-dialog-title {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .node-dialog-title strong {
   display: block;
-  color: #0f172a;
+  color: var(--text-primary);
   font-size: 18px;
   font-weight: 800;
 }
 
 .node-dialog-title span {
-  color: #64748b;
+  color: var(--text-secondary);
   font-size: 12px;
 }
 
 .node-dialog-tags {
   display: flex;
+  flex-wrap: wrap;
+  min-width: 0;
   gap: 8px;
   margin-left: auto;
 }
@@ -5994,28 +6016,8 @@ function formatDebugResult(value: unknown) {
   box-shadow: 0 0 0 2px #2563eb, 0 0 0 6px rgba(37, 99, 235, 0.12);
 }
 
-:global(.node-property-dialog.el-dialog) {
-  max-width: calc(100vw - 48px);
-  overflow: hidden;
-  border: 1px solid rgba(226, 232, 240, 0.92);
-  border-radius: 18px;
-  background: #f8fafc;
-  box-shadow: 0 30px 80px rgba(15, 23, 42, 0.28);
-}
-
-:global(.node-property-dialog.el-dialog .el-dialog__header) {
-  margin: 0;
-  padding: 18px 22px 16px;
-  border-bottom: 1px solid #e6edf7;
-  background:
-    linear-gradient(135deg, rgba(79, 70, 229, 0.08), rgba(14, 165, 233, 0.05) 44%, rgba(255, 255, 255, 0.88)),
-    #ffffff;
-}
-
-:global(.node-property-dialog.el-dialog .el-dialog__body) {
-  max-height: min(74vh, 760px);
-  overflow: auto;
-  padding: 18px 22px 22px;
+.published-run-entry {
+  margin-top: var(--section-gap);
 }
 
 :global(.vue-flow__edge.edge-route-hit .vue-flow__edge-path) {
@@ -6069,16 +6071,16 @@ function formatDebugResult(value: unknown) {
   .studio-body.property-collapsed,
   .studio-body.palette-open.property-collapsed {
     grid-template-columns: 74px minmax(0, 1fr);
-    height: calc(100vh - 118px);
+    height: auto;
   }
 
   .property-panel {
     position: absolute;
-    top: 118px;
+    top: 0;
     right: 0;
     z-index: 8;
     width: min(430px, 90vw);
-    height: calc(100vh - 118px);
+    height: 100%;
     box-shadow: -16px 0 42px rgba(31, 41, 55, 0.12);
   }
 
@@ -6092,6 +6094,17 @@ function formatDebugResult(value: unknown) {
 }
 
 @media (max-width: 760px) {
+  .node-dialog-header {
+    display: grid;
+    grid-template-columns: 42px minmax(0, 1fr);
+    gap: 8px 14px;
+  }
+
+  .node-dialog-tags {
+    grid-column: 2;
+    margin-left: 0;
+  }
+
   .studio-title-row h1 {
     max-width: calc(100vw - 120px);
   }
@@ -6107,7 +6120,7 @@ function formatDebugResult(value: unknown) {
     position: absolute;
     z-index: 10;
     width: 74px;
-    height: calc(100vh - 118px);
+    height: 100%;
   }
 
   .palette-open .palette {

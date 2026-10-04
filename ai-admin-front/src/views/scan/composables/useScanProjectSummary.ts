@@ -17,6 +17,7 @@ export type ApiGovernanceAction =
   | 'reconcile'
   | 'scanSensitive'
   | 'viewCatalog'
+  | 'viewOwnerCatalog'
   | 'refresh'
   | 'scanRules'
   | 'modelSettings'
@@ -75,13 +76,6 @@ export function useScanProjectSummary(deps: UseScanProjectSummaryDeps) {
 
   const semanticMissingToolCount = computed(() => Math.max(0, apiCount.value - generatedToolDocCount.value))
 
-  const addableToolCount = computed(() =>
-    deps.tools.value.filter((item) => !item.globalToolDefinitionId && !item.removedFromSource).length,
-  )
-
-  const enabledToolCount = computed(() =>
-    deps.tools.value.filter((item) => item.enabled && item.globalToolDefinitionId && !item.removedFromSource).length,
-  )
 
   const sensitiveRiskCount = computed(() =>
     deps.tools.value.filter((item) => item.sensitiveData?.types?.length || item.sensitiveData?.summary).length,
@@ -111,22 +105,18 @@ export function useScanProjectSummary(deps: UseScanProjectSummaryDeps) {
         status: !hasApi ? 'todo' : semanticMissingToolCount.value > 0 ? 'active' : 'done',
       },
       {
-        key: 'tool',
-        label: '纳入能力目录',
-        value: hasApi ? `${linkedToolCount.value}/${apiCount.value}` : '-',
-        desc: !hasApi
-          ? '等待项目接口'
-          : addableToolCount.value > 0
-            ? `${addableToolCount.value} 个 API 可纳入能力目录`
-            : '能力目录纳管已完成',
-        status: !hasApi ? 'todo' : addableToolCount.value > 0 ? 'active' : 'done',
+        key: 'owner',
+        label: '查看所属目录',
+        value: hasApi ? '业务方法 / API' : '-',
+        desc: '来源发现不等于接纳；请在所属项目目录核对契约与来源状态',
+        status: hasApi ? 'active' : 'todo',
       },
       {
-        key: 'agent',
-        label: '用于 Agent',
-        value: hasApi ? `${enabledToolCount.value}` : '-',
-        desc: enabledToolCount.value > 0 ? '已可进入智能体编排' : '纳入并启用后开放给 Agent',
-        status: enabledToolCount.value > 0 ? 'done' : hasApi && linkedToolCount.value > 0 ? 'active' : 'todo',
+        key: 'workflow',
+        label: '受控调用与编排',
+        value: '显式操作',
+        desc: '在资产目录配置连接并受控试调用，再选择到 Workflow 显式发布',
+        status: 'todo',
       },
     ]
   })
@@ -134,82 +124,29 @@ export function useScanProjectSummary(deps: UseScanProjectSummaryDeps) {
   const stageAdvice = computed<ApiGovernanceAdvice>(() => {
     const project = deps.project.value
     const isSdkProject = project?.projectKind === 'REGISTERED'
-    const hasApi = apiCount.value > 0
-    if (!project) {
-      return {
-        title: '正在加载 API 治理上下文',
-        description: '读取项目接入方式、接口目录和能力纳管状态。',
-        primaryLabel: '刷新',
-        primaryAction: 'refresh',
-      }
+    if (!project) return {
+      title: '正在加载来源发现上下文',
+      description: '读取项目接入方式与来源记录，不据此推断资产已接纳或可执行。',
+      primaryLabel: '刷新', primaryAction: 'refresh',
     }
-    if (!hasApi) {
-      if (isSdkProject) {
-        return {
-          title: '等待业务系统同步 API 能力',
-          description: '',
-          primaryLabel: '添加接口',
-          primaryAction: 'importApi',
-          secondaryLabel: '刷新同步状态',
-          secondaryAction: 'refresh',
-        }
-      }
-      return {
-        title: '还没有发现 API',
-        description: '当前还没有扫描结果；可先检查扫描规则，再启动一次 API 扫描。',
-        primaryLabel: '开始扫描 API',
-        primaryAction: 'scan',
-        secondaryLabel: '配置扫描规则',
-        secondaryAction: 'scanRules',
-      }
-    }
-    if (semanticMissingToolCount.value > 0) {
-      return {
-        title: '先补全 AI 语义，再开放给 Agent',
-        description: `${semanticMissingToolCount.value} 个接口还缺少 AI 理解，补齐后更适合纳入能力目录并用于 Workflow。`,
-        primaryLabel: '一键生成 AI 语义',
-        primaryAction: 'generateAi',
-        secondaryLabel: '模型设置',
-        secondaryAction: 'modelSettings',
-      }
-    }
-    if (sensitiveRiskCount.value > 0 || removedToolCount.value > 0) {
-      return {
-        title: '复核风险后再开放给 Agent',
-        description: '敏感数据、源接口下线状态需要集中检查，避免把不安全或失效接口暴露给智能体。',
-        primaryLabel: '扫描敏感数据',
-        primaryAction: 'scanSensitive',
-        secondaryLabel: '查看接口目录',
-        secondaryAction: 'viewCatalog',
-      }
-    }
-    if (addableToolCount.value > 0) {
-      return {
-        title: '这些 API 已准备好纳入能力目录',
-        description: `${addableToolCount.value} 个接口尚未纳管，可在接口目录中按模块或按接口添加。`,
-        primaryLabel: '查看待纳管 API',
-        primaryAction: 'viewCatalog',
-        secondaryLabel: '检查能力纳管',
-        secondaryAction: 'reconcile',
-      }
-    }
-    if (outOfSyncToolCount.value > 0) {
-      return {
-        title: '能力目录定义存在差异',
-        description: `${outOfSyncToolCount.value} 个接口与能力目录执行定义不一致，请对账后同步更新。`,
-        primaryLabel: '检查能力纳管',
-        primaryAction: 'reconcile',
-        secondaryLabel: '查看接口目录',
-        secondaryAction: 'viewCatalog',
-      }
+    if (apiCount.value <= 0) return isSdkProject ? {
+      title: '等待业务系统同步方法与 API 来源',
+      description: '正常 SDK 同步后，请到所属项目业务方法/API 目录核对契约。',
+      primaryLabel: '同步来源', primaryAction: 'importApi',
+      secondaryLabel: '刷新同步状态', secondaryAction: 'refresh',
+    } : {
+      title: '还没有发现来源',
+      description: '检查扫描规则并发现 Controller/OpenAPI；接纳与连接配置在 API 目录完成。',
+      primaryLabel: '开始发现 API', primaryAction: 'scan',
+      secondaryLabel: '配置扫描规则', secondaryAction: 'scanRules',
     }
     return {
-      title: 'API 已进入 Agent 可用链路',
-      description: '接口目录、AI 语义和能力纳管已具备基础治理信息，可继续用于 Agent 与 Workflow 编排。',
-      primaryLabel: '刷新状态',
-      primaryAction: 'refresh',
-      secondaryLabel: '维护动作',
-      secondaryAction: 'ops',
+      title: project.status === 'failed' ? '来源扫描失败，请核对错误并重新发现' : '来源已发现，请到所属资产目录继续',
+      description: removedToolCount.value > 0
+        ? `${removedToolCount.value} 个来源已移除；旧图与固定发布不自动迁移，请在目录核对状态后显式重选。`
+        : '这里的历史投影关联与 AI 语义不是接纳、连接验证或调用授权；无需人工复制 Tool。',
+      primaryLabel: isSdkProject ? '业务方法目录' : 'API 目录', primaryAction: 'viewOwnerCatalog',
+      secondaryLabel: '查看来源记录', secondaryAction: 'viewCatalog',
     }
   })
 
@@ -231,14 +168,10 @@ export function useScanProjectSummary(deps: UseScanProjectSummaryDeps) {
       tone: semanticCompletionPercent.value >= 80 ? 'success' : semanticCompletionPercent.value > 0 ? 'warning' : 'muted',
     },
     {
-      label: '能力纳管',
+      label: '历史投影关联',
       value: `${linkedToolCount.value}/${deps.tools.value.length || 0}`,
-      desc: apiCount.value <= 0
-        ? '等待项目接口'
-        : outOfSyncToolCount.value > 0
-          ? `${outOfSyncToolCount.value} 个接口存在差异`
-          : 'API 与能力目录状态可治理',
-      tone: outOfSyncToolCount.value > 0 ? 'warning' : 'success',
+      desc: outOfSyncToolCount.value > 0 ? `${outOfSyncToolCount.value} 条历史投影差异，仅供来源核对` : '不代表当前接纳、连接或执行授权',
+      tone: outOfSyncToolCount.value > 0 ? 'warning' : 'muted',
     },
     {
       label: '风险提示',

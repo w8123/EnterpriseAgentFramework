@@ -127,7 +127,7 @@ const sdkSyncContractDescription = computed(() =>
         :closable="false"
         show-icon
         title="SDK 接入项目"
-        description="此处配置保存在 scan_settings，业务系统 SDK 下次同步接口能力时按此解析说明与参数。已纳入能力目录的接口请在目录中使用「更新能力定义」。"
+        description="此处配置保存在 scan_settings，业务系统 SDK 下次同步来源时按此解析说明与参数。契约变化请到业务方法/API 目录核对并显式接纳，无需人工复制 Tool。"
       />
       <el-alert
         v-if="isOpenApiMode"

@@ -110,8 +110,19 @@
                   </div>
                   <code>{{ operation.path }}</code>
                   <p>{{ operation.description || '暂无补充说明' }}</p>
+                  <p>来源建议地址：{{ currentVersion.baseUrl }}；不自动配置连接或授权出口。</p>
+                  <el-table v-if="schemaFields(operation.requestSchema).length" :data="schemaFields(operation.requestSchema)" size="small">
+                    <el-table-column prop="name" label="参数" min-width="120" />
+                    <el-table-column prop="location" label="位置" width="90" />
+                    <el-table-column prop="type" label="类型" width="90" />
+                    <el-table-column prop="required" label="必填" width="70" />
+                  </el-table>
+                  <p v-else>参数声明为空或不可读取；不从示例猜测参数及位置。</p>
+                  <p>返回：HTTP {{ operation.responseStatus ?? '未声明' }} · {{ operation.responseContentType || '媒体未声明' }}</p>
+                  <p>声明返回字段：{{ schemaFields(operation.responseSchema).map(field => `${field.name} (${field.type})`).join('、') || '当前不可读取，不视为没有返回字段' }}</p>
+                  <p v-if="operationBlocker(operation)" role="status">{{ operationBlocker(operation) }}</p>
                 </div>
-                <el-button type="primary" @click="emit('integrate', currentVersion, operation)">
+                <el-button type="primary" :disabled="Boolean(operationBlocker(operation))" @click="emit('integrate', currentVersion, operation)">
                   接入此 Operation
                 </el-button>
               </article>
@@ -122,7 +133,7 @@
             <section class="detail-section governance-copy">
               <el-alert
                 title="版本固定，不自动升级"
-                description="从市场生成的 Workflow 会保存 API 版本、Operation 和 Spec Hash。上游变化只产生提醒，不会自动改写已发布 Workflow。"
+                description="项目接入固定来源版本及 Operation。所属 API 经接纳、连接与真实 Console 验证后，Workflow 使用稳定 API 引用；发布固定可信修订，目录新版本不自动替换选择或旧 pin。"
                 type="info"
                 :closable="false"
                 show-icon
@@ -131,7 +142,7 @@
                 <div class="evidence-section__heading">
                   <div>
                     <h3>最近验证证据</h3>
-                    <p>只保留状态、时延和摘要，不保存第三方响应正文。</p>
+                    <p>这里是全局目录质量证据，不代表当前项目绑定已验证；项目验证请到所属 API 查看 Runtime Run/Trace。</p>
                   </div>
                   <el-tag size="small" effect="plain">{{ detail.verifications.length }} 条</el-tag>
                 </div>
@@ -215,7 +226,6 @@ const activeTab = ref('overview')
 const activeVersionId = ref<number | null>(null)
 const currentVersion = computed(() => (
   props.detail?.versions.find(version => version.id === activeVersionId.value)
-  || props.detail?.versions[0]
   || null
 ))
 
@@ -233,6 +243,24 @@ function methodTagType(method: string) {
   if (method === 'DELETE') return 'danger'
   if (method === 'POST') return 'warning'
   return 'info'
+}
+
+function operationBlocker(operation: ApiMarketOperation) {
+  if (props.detail?.entry.authType !== 'NONE' || operation.authRequired !== false) return '结构化认证契约未支持，不能降为无认证'
+  if (operation.httpMethod !== 'GET' || !['READ_ONLY', 'NONE'].includes(operation.sideEffect)) return '当前仅支持明确只读 GET'
+  if (!operation.responseContentType || !operation.responseStatus) return '响应媒体/成功状态缺失，不能猜测可执行契约'
+  if (!currentVersion.value || currentVersion.value.publicationStatus !== 'PUBLISHED' || operation.status !== 'ACTIVE') return '所选目录版本或 Operation 不可用，请显式重新选择'
+  return ''
+}
+
+function schemaFields(schema?: Record<string, unknown> | null) {
+  if (!schema || schema.type !== 'object' || !schema.properties || typeof schema.properties !== 'object' || Array.isArray(schema.properties)) return []
+  const required = new Set(Array.isArray(schema.required) ? schema.required : [])
+  return Object.entries(schema.properties).slice(0, 64).map(([name, value]) => {
+    const property = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+    return { name, location: String(property.location || '未声明'), type: String(property.type || '未知'),
+      required: required.has(name) || property.required === true || property.location === 'path' ? '是' : '否' }
+  })
 }
 
 function formatDate(value?: string | null) {

@@ -436,14 +436,14 @@ export interface SensitiveScanTask {
 }
 
 export interface ProjectToolInfo extends ToolInfo {
-  /** 扫描表 capability_scan_project_tool.id，编辑、测试、语义生成和能力纳管均依赖此字段 */
+  /** 扫描表 capability_scan_project_tool.id，仅用于来源详情、重扫与语义证据。 */
   scanToolId: number
   projectId?: number | null
   /** 扫描模块 scan_module.id，与语义文档模块一致 */
   moduleId?: number | null
   /** 模块展示名（优先 displayName） */
   moduleDisplayName?: string | null
-  /** 已纳入能力目录时对应 capability_tool_definition.id，未纳管为 null/undefined */
+  /** SDK 自动或历史人工技术投影关联，不代表当前接纳、连接或调用授权。 */
   globalToolDefinitionId?: number | null
   /** 运行时执行定义的 name（与项目内名可能不同） */
   globalToolName?: string | null
@@ -451,7 +451,7 @@ export interface ProjectToolInfo extends ToolInfo {
   globalToolOutOfSync?: boolean
   /** SDK/扫描源中是否已不存在该接口（墓碑行） */
   removedFromSource?: boolean
-  /** 能力纳管健康状态，与后端兼容枚举一致 */
+  /** 只读历史投影关联状态，与后端技术枚举一致。 */
   toolLinkStatus?: string
   toolLinkMessage?: string | null
   /** 与运行时执行定义不一致的字段名列表 */
@@ -485,13 +485,5 @@ export interface SdkCapabilityScanResult {
 }
 
 /** POST .../promote-to-tool response */
-export interface PromotedGlobalTool {
-  globalToolId: number
-  globalToolName: string
-}
 
 /** POST .../promote-by-module 响应 */
-export interface BatchPromoteToToolsResult {
-  promotedCount: number
-  items: PromotedGlobalTool[]
-}

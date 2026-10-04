@@ -30,6 +30,19 @@
             <version>${project.version}</version>
         </dependency>
         <dependency>
+            <groupId>com.enterprise.ai</groupId>
+            <artifactId>reachai-spring-boot2-starter</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <!-- Cross-adapter contract parity is test-only; Capability production code never calls Knowledge. -->
+        <dependency>
+            <groupId>com.enterprise.ai</groupId>
+            <artifactId>reachai-knowledge-service</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>

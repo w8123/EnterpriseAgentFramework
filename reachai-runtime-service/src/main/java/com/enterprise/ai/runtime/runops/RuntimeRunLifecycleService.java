@@ -474,6 +474,36 @@ public class RuntimeRunLifecycleService implements RuntimeAgentRunLifecyclePort 
         insert(run, "begin Workflow run");
     }
 
+    /** A Studio trial is a distinct auditable root, never a published Workflow version. */
+    public void beginWorkflowTrial(String traceId, String rootSpanId,
+                                   RuntimeRunSnapshots.Workflow workflow, Map<String, Object> safeInput,
+                                   WorkflowExecutionIdentity identity, Map<String, Object> audit) {
+        if (identity == null || identity.source() != WorkflowExecutionIdentity.Source.STUDIO_PROJECT_TEST
+                || !identity.authorizeProjectCredential(workflow.projectId(), workflow.projectCode())) {
+            throw new IllegalArgumentException("HTTP_API_TRIAL_IDENTITY_INVALID");
+        }
+        LocalDateTime now = LocalDateTime.now();
+        Map<String, Object> normalized = new LinkedHashMap<>(safeInput == null ? Map.of() : safeInput);
+        normalized.put("entryType", "STUDIO_READ_ONLY_TRIAL");
+        RuntimeRunEntity run = baseRun(traceId, normalized, now, identity);
+        run.setRunType("WORKFLOW");
+        run.setStatus(RuntimeRunStatus.RUNNING.name());
+        run.setProjectId(workflow.projectId());
+        run.setProjectCode(workflow.projectCode());
+        run.setAppId(workflow.projectCode());
+        run.setWorkflowId(trim(workflow.workflowId()));
+        run.setWorkflowKeySlug(trim(workflow.keySlug()));
+        run.setWorkflowName(trim(workflow.name()));
+        run.setRuntimeType(workflow.executionEngine());
+        run.setRootSpanId(rootSpanId);
+        Map<String, Object> snapshot = new LinkedHashMap<>(
+                WorkflowTraceSanitizer.sanitizeWorkflowSnapshot(workflow.graphSpecJson()));
+        snapshot.put("workflowId", trim(workflow.workflowId()));
+        if (audit != null) snapshot.putAll(audit);
+        run.setSnapshotJson(json(snapshot));
+        insert(run, "begin Studio read-only trial run");
+    }
+
     /** Begins a non-Studio Workflow run against one immutable published version. */
     public void beginPublishedWorkflow(String traceId,
                                        String rootSpanId,

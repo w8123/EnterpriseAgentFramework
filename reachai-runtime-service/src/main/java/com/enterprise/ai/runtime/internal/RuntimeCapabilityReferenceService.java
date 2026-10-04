@@ -34,7 +34,8 @@ public class RuntimeCapabilityReferenceService {
         Map<String, String> aliases = new HashMap<>();
         for (CapabilityKey key : query.capabilities()) {
             if (key == null || key.qualifiedName() == null || key.qualifiedName().length() > 256
-                    || !key.qualifiedName().startsWith(query.projectCode() + ":")) {
+                    || !(key.qualifiedName().startsWith(query.projectCode() + ":")
+                    || key.qualifiedName().startsWith("http-api:" + query.projectCode() + ":"))) {
                 throw new IllegalArgumentException("能力引用不属于当前项目");
             }
             alias(aliases, key.qualifiedName(), key.qualifiedName());

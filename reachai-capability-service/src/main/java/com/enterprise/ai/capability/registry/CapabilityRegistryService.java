@@ -25,6 +25,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
@@ -108,13 +109,15 @@ public class CapabilityRegistryService {
         return sourceIntake.diagnose(getProject(projectCode), request);
     }
 
-    @Transactional
+    /** Source observation shares this atomic sync with business methods under the HTTP current-read isolation. */
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public CapabilitySyncResponse sync(String projectCode, CapabilitySyncRequest request) {
         // The server owns automatic admission. The caller's apply flag is ignored.
         return sourceIntake.receiveSource(getProject(projectCode), request);
     }
 
-    @Transactional
+    /** Signed Starter entry begins HTTP source observation at the required current-read isolation. */
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public CapabilitySyncResponse syncFromProject(
             String projectCode,
             CapabilitySyncRequest request,
@@ -123,7 +126,8 @@ public class CapabilityRegistryService {
         return sourceIntake.receiveSource(getProject(projectCode), request);
     }
 
-    @Transactional
+    /** Compatibility entry retains the same one-transaction, READ_COMMITTED source observation boundary. */
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public CapabilitySyncResponse apply(String projectCode, CapabilitySyncRequest request) {
         // No separate bypass: legacy in-process callers enter the same policy.
         return sourceIntake.receiveSource(getProject(projectCode), request);

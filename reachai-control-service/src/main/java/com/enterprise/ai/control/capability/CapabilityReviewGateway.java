@@ -13,12 +13,14 @@ import org.springframework.web.util.UriUtils;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Map;
+import java.util.StringJoiner;
 
 /** Exact-byte HMAC client for Control-managed Capability snapshot review. */
 @Service
@@ -27,6 +29,10 @@ public class CapabilityReviewGateway {
     private static final int MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(45);
     private static final String REGISTRY_ROOT = "/api/registry";
+    private static final String TOOL_CATALOG_PATH = "/api/tools";
+    private static final String BUSINESS_METHOD_CATALOG_PATH = "/internal/capability/business-methods";
+    private static final String HTTP_API_CATALOG_PATH = "/internal/capability/http-apis";
+    private static final String CAPABILITY_PROJECT_BY_ID_PATH = "/internal/capability/projects/by-id";
 
     private final InternalServiceAuthSigner signer;
     private final ObjectMapper objectMapper;
@@ -63,6 +69,102 @@ public class CapabilityReviewGateway {
 
     public ResponseEntity<Object> listSnapshots(String projectCode, String actorId) {
         return exchange("GET", projectSnapshotsPath(projectCode), null, actorId);
+    }
+
+    public ResponseEntity<Object> getCapability(String name, String actorId) {
+        return exchange("GET", TOOL_CATALOG_PATH + "/" + segment(name), null, actorId);
+    }
+
+    public ResponseEntity<Object> getBusinessMethod(String name, String actorId) {
+        return exchange("GET", BUSINESS_METHOD_CATALOG_PATH + "/" + segment(name), null, actorId);
+    }
+
+    /** Owner-provided execution snapshot; this never returns a target URL or project credential. */
+    public ResponseEntity<Object> getBusinessMethodInvocationContext(String name, String actorId) {
+        return exchange("GET", BUSINESS_METHOD_CATALOG_PATH + "/" + segment(name) + "/invocation-context",
+                null, actorId);
+    }
+
+    public ResponseEntity<Object> listCapabilities(int current,
+                                                    int size,
+                                                    String keyword,
+                                                    String source,
+                                                    Boolean enabled,
+                                                    Long projectId,
+                                                    String actorId) {
+        StringJoiner query = new StringJoiner("&")
+                .add("current=" + Math.max(1, current))
+                .add("size=" + Math.min(100, Math.max(1, size)));
+        addQueryParam(query, "keyword", keyword);
+        addQueryParam(query, "source", source);
+        if (enabled != null) {
+            query.add("enabled=" + enabled);
+        }
+        if (projectId != null) {
+            query.add("projectId=" + positiveId(projectId, "projectId"));
+        }
+        return exchange("GET", TOOL_CATALOG_PATH, null, actorId, query.toString());
+    }
+
+    public ResponseEntity<Object> listBusinessMethods(int current,
+                                                       int size,
+                                                       String keyword,
+                                                       Boolean enabled,
+                                                       Long projectId,
+                                                       String actorId) {
+        StringJoiner query = new StringJoiner("&")
+                .add("current=" + Math.max(1, current))
+                .add("size=" + Math.min(100, Math.max(1, size)));
+        addQueryParam(query, "keyword", keyword);
+        if (enabled != null) {
+            query.add("enabled=" + enabled);
+        }
+        if (projectId != null) {
+            query.add("projectId=" + positiveId(projectId, "projectId"));
+        }
+        return exchange("GET", BUSINESS_METHOD_CATALOG_PATH, null, actorId, query.toString());
+    }
+
+    public ResponseEntity<Object> getProjectById(Long projectId, String actorId) {
+        return exchange("GET", CAPABILITY_PROJECT_BY_ID_PATH + "/"
+                + positiveId(projectId, "projectId"), null, actorId);
+    }
+
+    public ResponseEntity<Object> listHttpApis(long projectId, String environment, String keyword,
+                                               String method, String sourceStatus, int current, int size,
+                                               String actorId) {
+        StringJoiner query = new StringJoiner("&")
+                .add("projectId=" + positiveId(projectId, "projectId"))
+                .add("current=" + Math.max(1, current))
+                .add("size=" + Math.min(100, Math.max(1, size)));
+        addQueryParam(query, "environment", environment);
+        addQueryParam(query, "keyword", keyword);
+        addQueryParam(query, "method", method);
+        addQueryParam(query, "sourceStatus", sourceStatus);
+        return exchange("GET", HTTP_API_CATALOG_PATH, null, actorId, query.toString());
+    }
+
+    public ResponseEntity<Object> getHttpApi(long id, String actorId) {
+        return exchange("GET", HTTP_API_CATALOG_PATH + "/" + positiveId(id, "apiId"), null, actorId);
+    }
+
+    public ResponseEntity<Object> readApiMarket(String relativePath, Map<String, String> parameters, String actorId) {
+        StringJoiner query = new StringJoiner("&");
+        if (parameters != null) parameters.forEach((key, value) -> addQueryParam(query, key, value));
+        return exchange("GET", "/internal/capability/api-market" + relativePath, null, actorId, query.toString());
+    }
+
+    public ResponseEntity<Object> selectApiMarket(String entryKey, Map<String, Object> body, String actorId) {
+        return exchange("POST", "/internal/capability/api-market/entries/" + segment(entryKey) + "/integrations", body, actorId);
+    }
+
+    public ResponseEntity<Object> updateApiMarketStatus(long integrationId, Map<String, Object> body, String actorId) {
+        return exchange("PUT", "/internal/capability/api-market/integrations/" + positiveId(integrationId, "integrationId") + "/status", body, actorId);
+    }
+
+    public ResponseEntity<Object> acceptHttpApi(long id, String expectedSourceSetRevision, String actorId) {
+        return exchange("POST", HTTP_API_CATALOG_PATH + "/" + positiveId(id, "apiId") + "/accept",
+                Map.of("expectedSourceSetRevision", expectedSourceSetRevision), actorId);
     }
 
     public ResponseEntity<Object> listChanges(String projectCode, String state, String keyword,
@@ -173,6 +275,13 @@ public class CapabilityReviewGateway {
     private static String projectDiffItemPath(String projectCode, Long diffItemId) {
         return REGISTRY_ROOT + "/projects/" + segment(projectCode) + "/capability-diff-items/"
                 + positiveId(diffItemId, "diffItemId");
+    }
+
+    private static void addQueryParam(StringJoiner query, String name, String value) {
+        if (value != null) {
+            query.add(name + "=" + URLEncoder.encode(value, StandardCharsets.UTF_8)
+                    .replace("+", "%20"));
+        }
     }
 
     private static String segment(String value) {

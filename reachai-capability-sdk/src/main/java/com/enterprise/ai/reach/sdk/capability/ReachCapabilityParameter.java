@@ -10,6 +10,13 @@ public class ReachCapabilityParameter {
     private String sourceHint;
     private String dictType;
     private boolean sensitive;
+    /**
+     * Declared primitive element type for arrays/collections when reflection can
+     * determine it. Null deliberately means that the SDK has no element shape.
+     */
+    private String itemsType;
+    /** True only for declared Map inputs. DTO objects remain closed by their annotated fields. */
+    private boolean openObject;
 
     public String getName() {
         return name;
@@ -73,5 +80,21 @@ public class ReachCapabilityParameter {
 
     public void setSensitive(boolean sensitive) {
         this.sensitive = sensitive;
+    }
+
+    public String getItemsType() {
+        return itemsType;
+    }
+
+    public void setItemsType(String itemsType) {
+        this.itemsType = itemsType;
+    }
+
+    public boolean isOpenObject() {
+        return openObject;
+    }
+
+    public void setOpenObject(boolean openObject) {
+        this.openObject = openObject;
     }
 }

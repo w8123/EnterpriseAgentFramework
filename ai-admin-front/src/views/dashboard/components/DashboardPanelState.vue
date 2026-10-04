@@ -23,6 +23,7 @@ defineEmits<{
     </span>
     <strong>{{ title }}</strong>
     <p v-if="detail">{{ detail }}</p>
+    <slot />
     <button v-if="tone === 'error'" type="button" @click="$emit('retry')">重新加载</button>
   </div>
 </template>

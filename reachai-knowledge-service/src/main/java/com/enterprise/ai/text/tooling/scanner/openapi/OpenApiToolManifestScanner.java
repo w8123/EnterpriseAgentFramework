@@ -23,6 +23,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 /**
  * 基于 OpenAPI/Swagger 文档生成运行时可消费的扫描结果。
@@ -31,13 +32,31 @@ public class OpenApiToolManifestScanner {
 
     private static final ObjectMapper YAML_MAPPER = new ObjectMapper(new YAMLFactory());
     private static final ObjectMapper JSON_MAPPER = new ObjectMapper();
-    private static final List<String> HTTP_METHODS = List.of("get", "post", "put", "delete", "patch");
+    // The legacy Tool view keeps its historic five-method behavior. The independent HTTP API
+    // inventory below supports the full 3A-1 method set without turning extra discoveries into
+    // new legacy Tool rows.
+    private static final List<String> LEGACY_HTTP_METHODS = List.of("get", "post", "put", "delete", "patch");
+    private static final int MAX_LEGACY_TEXT_CHARS = 512;
+    private static final Pattern SENSITIVE_LEGACY_TEXT = Pattern.compile(
+            "(?i)(?:bearer\\s+|api[_-]?key|password|token|secret|credential|authorization|cookie)");
 
     public ToolManifest scan(Path specPath, ProjectMetadata projectMetadata) {
-        return scan(specPath, projectMetadata, null, null);
+        return scan(null, specPath, projectMetadata, null, null);
     }
 
     public ToolManifest scan(Path specPath, ProjectMetadata projectMetadata, ScanOptions options, Long incrementalSinceEpochMs) {
+        return scan(null, specPath, projectMetadata, options, incrementalSinceEpochMs);
+    }
+
+    /**
+     * Scan with an optional project root so HTTP source evidence can retain a relative spec path.
+     * Existing callers without a root remain compatible and use only the spec file name.
+     */
+    public ToolManifest scan(Path scanRoot,
+                             Path specPath,
+                             ProjectMetadata projectMetadata,
+                             ScanOptions options,
+                             Long incrementalSinceEpochMs) {
         if (incrementalSinceEpochMs != null && incrementalSinceEpochMs > 0
                 && options != null
                 && options.getIncrementalMode() != null
@@ -45,18 +64,20 @@ public class OpenApiToolManifestScanner {
                 || "GIT_DIFF".equalsIgnoreCase(options.getIncrementalMode()))) {
             try {
                 if (Files.getLastModifiedTime(specPath).toMillis() <= incrementalSinceEpochMs) {
-                    return new ToolManifest(projectMetadata, List.of());
+                    // An unchanged delta carries no new API facts. It is intentionally present but
+                    // partial so Capability cannot mistake it for a full source-removal list.
+                    return new ToolManifest(projectMetadata, List.of(), List.of(), false);
                 }
             } catch (Exception ignored) {
             }
         }
         JsonNode root = readSpec(specPath);
+        ProjectMetadata effectiveProject = normalizeProject(projectMetadata, root);
         JsonNode paths = root.path("paths");
         if (!paths.isObject()) {
-            throw new IllegalArgumentException("OpenAPI spec does not contain paths: " + specPath);
+            return new ToolManifest(effectiveProject, List.of(), List.of(), false);
         }
 
-        ProjectMetadata effectiveProject = normalizeProject(projectMetadata, root);
         List<ToolDefinition> tools = new ArrayList<>();
         boolean skipDep = options != null && Boolean.TRUE.equals(options.getSkipDeprecated());
 
@@ -66,7 +87,7 @@ public class OpenApiToolManifestScanner {
             String apiPath = pathEntry.getKey();
             JsonNode pathItem = pathEntry.getValue();
 
-            for (String method : HTTP_METHODS) {
+            for (String method : LEGACY_HTTP_METHODS) {
                 if (!isHttpMethodAllowedByOptions(method, options)) {
                     continue;
                 }
@@ -80,7 +101,11 @@ public class OpenApiToolManifestScanner {
             }
         }
 
-        ToolManifest manifest = new ToolManifest(effectiveProject, tools);
+        String relativeSpecPath = relativeSpecPath(scanRoot, specPath);
+        OpenApiHttpApiInventoryExtractor.Result httpInventory = new OpenApiHttpApiInventoryExtractor()
+                .extract(root, relativeSpecPath, effectiveProject, options);
+        ToolManifest manifest = new ToolManifest(effectiveProject, tools,
+                httpInventory.operations(), httpInventory.complete());
         manifest.validate();
         return manifest;
     }
@@ -176,7 +201,8 @@ public class OpenApiToolManifestScanner {
             ToolParameterDefinition definition = new ToolParameterDefinition(
                     parameter.path("name").asText(),
                     extractSchemaType(parameter.path("schema")),
-                    firstNonBlank(parameter.path("description").asText(null), parameter.path("name").asText()),
+                    firstNonBlank(safeLegacyText(parameter.path("description").asText(null)),
+                            parameter.path("name").asText()),
                     parameter.path("required").asBoolean(false),
                     location
             );
@@ -208,7 +234,7 @@ public class OpenApiToolManifestScanner {
                 return responseType;
             }
 
-            String description = entry.getValue().path("description").asText(null);
+            String description = safeLegacyText(entry.getValue().path("description").asText(null));
             if (description != null && !description.isBlank()) {
                 return description;
             }
@@ -311,7 +337,7 @@ public class OpenApiToolManifestScanner {
                 JsonNode pschema = e.getValue();
                 String ptype = firstNonBlank(schemaTypeLabel(pschema), extractSchemaType(pschema), "object");
                 boolean reqd = req != null && req.isArray() && containsRequiredName(req, pname);
-                String desc = firstNonBlank(pschema.path("description").asText(null), "");
+                String desc = firstNonBlank(safeLegacyText(pschema.path("description").asText(null)), "");
                 List<ToolParameterDefinition> grandchildren = openApiSchemaToToolParameters(pschema, docRoot, location, depth + 1);
                 out.add(new ToolParameterDefinition(pname, ptype, desc, reqd, location, grandchildren));
             }
@@ -342,10 +368,27 @@ public class OpenApiToolManifestScanner {
 
     private String resolveDescription(JsonNode operation) {
         return firstNonBlank(
-                operation.path("description").asText(null),
-                operation.path("summary").asText(null),
+                safeLegacyText(operation.path("description").asText(null)),
+                safeLegacyText(operation.path("summary").asText(null)),
                 "Scanned OpenAPI endpoint"
         );
+    }
+
+    /**
+     * Legacy Tool rows are retained for compatibility, but are not an exception to the scanner
+     * secret boundary. OpenAPI text is source-controlled, so do not persist or serialize a likely
+     * credential merely because it appeared in a display-only description.
+     */
+    private String safeLegacyText(String value) {
+        if (value == null) {
+            return null;
+        }
+        String text = value.trim();
+        if (text.isEmpty() || text.length() > MAX_LEGACY_TEXT_CHARS || text.contains("\r") || text.contains("\n")
+                || SENSITIVE_LEGACY_TEXT.matcher(text).find()) {
+            return null;
+        }
+        return text;
     }
 
     private ProjectMetadata normalizeProject(ProjectMetadata projectMetadata, JsonNode root) {
@@ -376,8 +419,28 @@ public class OpenApiToolManifestScanner {
             }
             return YAML_MAPPER.readTree(specPath.toFile());
         } catch (IOException ex) {
-            throw new IllegalArgumentException("Failed to read OpenAPI spec: " + specPath, ex);
+            // Do not surface a caller-controlled absolute path through scanner diagnostics.
+            throw new IllegalArgumentException("Failed to read OpenAPI spec");
         }
+    }
+
+    private String relativeSpecPath(Path scanRoot, Path specPath) {
+        try {
+            if (scanRoot != null) {
+                Path root = scanRoot.toAbsolutePath().normalize();
+                Path spec = specPath.toAbsolutePath().normalize();
+                if (spec.startsWith(root)) {
+                    Path relative = root.relativize(spec);
+                    if (!relative.toString().isBlank()) {
+                        return relative.toString().replace('\\', '/');
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+            // A basename is still stable within a scan project and never exposes machine paths.
+        }
+        Path fileName = specPath == null ? null : specPath.getFileName();
+        return fileName == null ? "openapi.yaml" : fileName.toString();
     }
 
     private String extractSchemaType(JsonNode schema) {

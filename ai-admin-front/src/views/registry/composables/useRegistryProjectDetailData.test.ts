@@ -1,6 +1,8 @@
 import { ref } from 'vue'
+import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useRegistryProjectDetailData } from './useRegistryProjectDetailData'
+import { useProjectStore } from '@/store/project'
 
 const mocks = vi.hoisted(() => ({
   getScanProjects: vi.fn(),
@@ -13,12 +15,6 @@ const mocks = vi.hoisted(() => ({
 vi.mock('vue-router', () => ({
   useRoute: () => ({
     params: {},
-  }),
-}))
-
-vi.mock('@/store/project', () => ({
-  useProjectStore: () => ({
-    projects: [],
   }),
 }))
 
@@ -45,6 +41,7 @@ function createData() {
 
 describe('useRegistryProjectDetailData', () => {
   beforeEach(() => {
+    setActivePinia(createPinia())
     vi.clearAllMocks()
     mocks.getScanProjects.mockResolvedValue({
       data: [{
@@ -95,6 +92,35 @@ describe('useRegistryProjectDetailData', () => {
 
     expect(data.projectMissing.value).toBe(false)
     expect(data.project.value).toBeNull()
-    expect(data.loadError.value).toContain('catalog down')
+    expect(data.loadError.value).toContain('项目列表加载失败')
+  })
+
+  it('shares the sidebar catalog request with project detail loading', async () => {
+    const project = {
+      id: 27,
+      projectCode: 'demo-project',
+      name: 'Demo Project',
+    }
+    let resolveCatalog!: (value: { data: typeof project[] }) => void
+    mocks.getScanProjects.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveCatalog = resolve
+    }))
+    mocks.listRegistryProjectInstances.mockResolvedValue({ data: [] })
+    mocks.listPageRegistry.mockResolvedValue({ data: [] })
+    mocks.listPageActionCatalog.mockResolvedValue({ data: [] })
+
+    const projectStore = useProjectStore()
+    const sidebarRequest = projectStore.fetchProjects()
+    const data = createData()
+    const detailRequest = data.refresh()
+
+    expect(mocks.getScanProjects).toHaveBeenCalledTimes(1)
+
+    resolveCatalog({ data: [project] })
+    await Promise.all([sidebarRequest, detailRequest])
+
+    expect(projectStore.status).toBe('ready')
+    expect(projectStore.projects).toEqual([project])
+    expect(data.project.value?.projectCode).toBe('demo-project')
   })
 })

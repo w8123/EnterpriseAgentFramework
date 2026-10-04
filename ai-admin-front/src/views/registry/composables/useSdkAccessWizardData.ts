@@ -5,7 +5,6 @@ import { listRegistryProjectInstances } from '@/api/registry'
 import {
   getAiOnboardingManifest,
   getScanProjectDetail,
-  getScanProjectTools,
   getScanProjects,
   provisionProjectAgent,
   runSdkAccessCheck,
@@ -18,7 +17,6 @@ import type {
 } from '@/types/aiCodingTask'
 import type {
   AiOnboardingManifest,
-  ProjectToolInfo,
   ScanProject,
   SdkAccessCheckResponse,
 } from '@/types/scanProject'
@@ -28,7 +26,6 @@ import {
   aiCodingExecutionIsTerminal,
   aiCodingProviderLabel,
 } from '@/utils/aiCodingPresentation'
-import { isProjectApiToolSelectable } from '@/utils/projectApiTools'
 
 export interface AiOnboardingDisplayStep {
   stepKey: string
@@ -63,7 +60,6 @@ export function useSdkAccessWizardData(deps: UseSdkAccessWizardDataDeps) {
     deps.projectCode ?? computed(() => String(route.params.projectCode || ''))
   const project = ref<ScanProject | null>(null)
   const instances = ref<ProjectInstance[]>([])
-  const projectApiTools = ref<ProjectToolInfo[]>([])
   const loading = ref(false)
   const projectMissing = ref(false)
   const loadError = ref('')
@@ -215,9 +211,6 @@ export function useSdkAccessWizardData(deps: UseSdkAccessWizardDataDeps) {
   const onlineInstanceCount = computed(
     () => instances.value.filter((item) => item.status === 'ONLINE').length,
   )
-  const callableProjectApiTools = computed(() =>
-    projectApiTools.value.filter(isProjectApiToolSelectable),
-  )
 
   async function loadOnboardingTask(projectId: number) {
     const currentLoadSequence = ++onboardingTaskLoadSequence
@@ -251,7 +244,6 @@ export function useSdkAccessWizardData(deps: UseSdkAccessWizardDataDeps) {
     onboardingTaskLoadSequence += 1
     project.value = null
     instances.value = []
-    projectApiTools.value = []
     aiOnboardingManifest.value = null
     checkResult.value = null
     checking.value = false
@@ -279,18 +271,16 @@ export function useSdkAccessWizardData(deps: UseSdkAccessWizardDataDeps) {
         projectMissing.value = true
         return
       }
-      const [{ data: detail }, { data: instanceRows }, { data: toolRows }] =
+      const [{ data: detail }, { data: instanceRows }] =
         await Promise.all([
           getScanProjectDetail(matched.id),
           listRegistryProjectInstances(
             matched.projectCode || requestedProjectCode,
           ),
-          getScanProjectTools(matched.id, 'full'),
         ])
       if (currentLoadSequence !== loadSequence) return
       project.value = detail
       instances.value = instanceRows
-      projectApiTools.value = toolRows || []
       const [, manifest] = await Promise.all([
         loadOnboardingTask(detail.id).catch(() => undefined),
         getAiOnboardingManifest(detail.id)
@@ -505,7 +495,6 @@ export function useSdkAccessWizardData(deps: UseSdkAccessWizardDataDeps) {
     projectCode,
     project,
     instances,
-    projectApiTools,
     loading,
     projectMissing,
     loadError,
@@ -530,7 +519,6 @@ export function useSdkAccessWizardData(deps: UseSdkAccessWizardDataDeps) {
     checkResult,
     isSdkBackedProject,
     onlineInstanceCount,
-    callableProjectApiTools,
     loadAll,
     prepareAiOnboardingTask,
     runCheck,

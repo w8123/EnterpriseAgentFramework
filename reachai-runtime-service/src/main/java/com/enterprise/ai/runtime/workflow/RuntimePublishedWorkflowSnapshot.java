@@ -65,6 +65,14 @@ public record RuntimePublishedWorkflowSnapshot(
     /** An explicit null default also overrides caller-supplied model routing fields. */
     public Map<String, Object> executionInput(Map<String, Object> businessInput) {
         Map<String, Object> input = new LinkedHashMap<>(businessInput == null ? Map.of() : businessInput);
+        // Studio parameter mappings use params.*. Published external callers such as MCP
+        // supply schema fields at the root; expose the same business values under params
+        // without changing existing root mappings or an explicit Agent-supplied params map.
+        if (!input.containsKey("params")) {
+            Map<String, Object> parameters = new LinkedHashMap<>(input);
+            parameters.remove("workflowDefaultModelInstanceId");
+            input.put("params", parameters);
+        }
         input.put("workflowDefaultModelInstanceId", defaultModelInstanceId);
         return input;
     }

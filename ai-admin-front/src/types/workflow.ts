@@ -204,6 +204,27 @@ export interface WorkflowDebugRunRequest extends WorkflowDebugBaseRequest {
 
 export type WorkflowNodeDebugResult = AgentNodeDebugResult
 export type WorkflowDebugRunResult = AgentWorkflowDebugRunResult
+
+/** Explicit saved-draft read-only trial; ordinary debug does not gain this project-test authority. */
+export interface WorkflowReadOnlyTrialResult {
+  success: boolean
+  status: string
+  runId: string
+  traceId: string
+  workflowId: string
+  revision: string
+  apiId: number
+  assetType?: 'HTTP_API' | 'BUSINESS_METHOD'
+  methodName?: string | null
+  methodOutput?: unknown | null
+  qualifiedName: string
+  environment: string | null
+  apiOutput: unknown | null
+  variables: Record<string, unknown>
+  elapsedMs: number
+  errorCode: string | null
+  errorMessage: string | null
+}
 export type WorkflowDebugStepResult = AgentWorkflowDebugStepResult
 
 /** Workflow Studio 可恢复调试会话消息 */

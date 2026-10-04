@@ -147,7 +147,7 @@ describe('Dashboard 智能体运营中心', () => {
     expect(wrapper.findAll('.ops-metric__signal')).toHaveLength(0)
     expect(wrapper.get('.ops-scope-chip').element.tagName).toBe('SPAN')
     expect(wrapper.find('.ops-filter-button').exists()).toBe(false)
-    expect(mocks.getRecentRunOps).toHaveBeenCalledWith({ days: 1, limit: 100 })
+    expect(mocks.getRecentRunOps).toHaveBeenCalledWith({ days: 1, limit: 100 }, { errorFeedback: 'local' })
     expect(text).not.toContain('38.6M')
     expect(text).not.toContain('高频问题')
   })
@@ -238,7 +238,7 @@ describe('Dashboard 智能体运营中心', () => {
     await wrapper.findAll('.ops-range button')[1].trigger('click')
     await flushPromises()
 
-    expect(mocks.getRecentRunOps).toHaveBeenLastCalledWith({ days: 7, limit: 100 })
+    expect(mocks.getRecentRunOps).toHaveBeenLastCalledWith({ days: 7, limit: 100 }, { errorFeedback: 'local' })
     expect(mocks.getScanProjects).toHaveBeenCalledTimes(1)
   })
 

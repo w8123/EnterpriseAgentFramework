@@ -12,6 +12,7 @@ import com.enterprise.ai.runtime.execution.policy.RuntimeEvalExecutionContext;
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionCancellation;
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionResult;
 import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
+import com.enterprise.ai.runtime.execution.RuntimeHttpApiToolExecutionPort;
 import com.enterprise.ai.runtime.execution.interaction.WorkflowInteractionNodeHandler;
 import com.enterprise.ai.runtime.execution.interaction.WorkflowInteractionType;
 import org.springframework.util.StringUtils;
@@ -43,13 +44,22 @@ final class RuntimeActionNodeHandlers {
     private final RuntimeCapabilityCatalogClient capabilityClient;
     private final RuntimeControlCatalogClient controlClient;
     private final RuntimeNodeValueResolver valueResolver;
+    private final RuntimeHttpApiToolExecutionPort httpApis;
 
     RuntimeActionNodeHandlers(RuntimeCapabilityCatalogClient capabilityClient,
                               RuntimeControlCatalogClient controlClient,
                               RuntimeNodeValueResolver valueResolver) {
+        this(capabilityClient, controlClient, valueResolver, null);
+    }
+
+    RuntimeActionNodeHandlers(RuntimeCapabilityCatalogClient capabilityClient,
+                              RuntimeControlCatalogClient controlClient,
+                              RuntimeNodeValueResolver valueResolver,
+                              RuntimeHttpApiToolExecutionPort httpApis) {
         this.capabilityClient = capabilityClient;
         this.controlClient = controlClient;
         this.valueResolver = valueResolver;
+        this.httpApis = httpApis;
     }
 
     RuntimeGraphSpecExecutionResult executeInteraction(GraphSpec.Node node,
@@ -93,6 +103,15 @@ final class RuntimeActionNodeHandlers {
             return cancelled(node.getId(), nodeType);
         }
         RuntimeEvalExecutionContext evaluation = RuntimeTrustedExecutionContexts.evaluation(context);
+        if (qualifiedName.startsWith("http-api:")
+                || node.getConfig() != null && node.getConfig().containsKey("httpApiAssetId")) {
+            if (evaluation.blocksRawExternalCalls()) {
+                return evalSideEffectBlocked(node, nodeType,
+                        "Eval execution blocks HTTP API TOOL nodes until a sandbox adapter is configured",
+                        evaluation);
+            }
+            return executeHttpApiTool(node, qualifiedName, context);
+        }
         if (evaluation.requiresReadOnlyCapability()) {
             Map<String, Object> definition;
             try {
@@ -174,6 +193,32 @@ final class RuntimeActionNodeHandlers {
             return failure("RUNTIME_GRAPH_TOOL_FAILED",
                     nodeType + " node execution failed: " + ex.getMessage(), node.getId(), nodeType);
         }
+    }
+
+    private RuntimeGraphSpecExecutionResult executeHttpApiTool(GraphSpec.Node node,
+                                                                 String qualifiedName,
+                                                                 Map<String, Object> context) {
+        if (httpApis == null) return failure("HTTP_API_WORKFLOW_PROJECTION_UNAVAILABLE",
+                "HTTP API Workflow projection is unavailable", node.getId(), "TOOL");
+        RuntimeHttpApiToolExecutionPort.Invocation invocation = httpApis.invoke(node,
+                buildHttpApiInput(node, context), RuntimeTrustedExecutionContexts.identity(context));
+        Map<String, Object> metadata = nodeMetadata(node, "TOOL");
+        metadata.put("qualifiedName", qualifiedName);
+        // HTTP dispatch can be uncertain. A GraphSpec retry flag must never re-send it automatically.
+        metadata.put("retryableFailure", false);
+        if (invocation.sideEffect() != null) metadata.put("sideEffect", invocation.sideEffect());
+        if (invocation.dispatchStage() != null) metadata.put("dispatchStage", invocation.dispatchStage());
+        if ("WRITE".equals(invocation.sideEffect())) metadata.put("nonRecoverableWrite", true);
+        if ("UNCONFIRMED".equals(invocation.dispatchStage())) {
+            metadata.put("outcomeClass", "UNKNOWN");
+            metadata.put("businessOutcome", "UNCONFIRMED");
+        }
+        if (invocation.httpStatus() != null) metadata.put("httpStatus", invocation.httpStatus());
+        if (invocation.inputField() != null) metadata.put("inputField", invocation.inputField());
+        if (!invocation.success()) return new RuntimeGraphSpecExecutionResult(false, invocation.code(),
+                invocation.code(), node.getId(), "TOOL", List.of(step("execute-node", node.getId())), metadata);
+        metadata.put("structuredOutput", invocation.output());
+        return success(node, "TOOL", String.valueOf(invocation.output()), metadata, "execute-node");
     }
 
     RuntimeGraphSpecExecutionResult executePageAction(GraphSpec.Node node,
@@ -486,6 +531,10 @@ final class RuntimeActionNodeHandlers {
         String message = sequence.toString().trim();
         if (!StringUtils.hasText(message)) return null;
         return message.length() <= 240 ? message : message.substring(0, 240);
+    }
+
+    private Map<String, Object> buildHttpApiInput(GraphSpec.Node node, Map<String, Object> context) {
+        return RuntimeHttpApiInputBindings.resolve(node, context);
     }
 
     private Map<String, Object> buildToolInput(GraphSpec.Node node, Map<String, Object> context) {

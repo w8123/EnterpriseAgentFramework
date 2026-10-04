@@ -59,7 +59,8 @@ public class WorkflowItemContractResolver implements McpItemContractResolver {
                 workflowId));
         return new McpToolProjection(toolName, description, inputSchemaJson,
                 McpPublicationItemKind.WORKFLOW, workflowId,
-                longValue(activeVersion.get("id")), riskLevel(workflow, activeVersion));
+                longValue(activeVersion.get("id")), riskLevel(workflow, activeVersion), null,
+                "WRITE".equals(readMap(text(activeVersion.get("snapshotJson"))).get("httpApiRiskFloor")) ? "WRITE" : null);
     }
 
     /** Risk is version-pinned when present; an absent contract fails publish unless explicitly overridden. */

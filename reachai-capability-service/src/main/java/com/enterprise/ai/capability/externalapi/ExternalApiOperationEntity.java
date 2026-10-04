@@ -24,6 +24,8 @@ public class ExternalApiOperationEntity {
     private Boolean authRequired;
     private String requestSchemaJson;
     private String responseSchemaJson;
+    private String responseContentType;
+    private Integer responseStatus;
     private String exampleParamsJson;
     private String status;
     private LocalDateTime createdAt;

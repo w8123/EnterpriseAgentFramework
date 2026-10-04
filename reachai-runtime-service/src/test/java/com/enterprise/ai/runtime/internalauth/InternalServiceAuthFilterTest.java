@@ -21,7 +21,8 @@ class InternalServiceAuthFilterTest {
                 new InMemoryInternalAuthNonceStore()), properties);
         byte[] body = "{\"baseRevision\":\"revision\"}".getBytes(StandardCharsets.UTF_8);
         for (String path : java.util.List.of("/api/workflows/wf-1/versions/publish",
-                "/api/workflows/wf-1/versions/7/rollback")) {
+                "/api/workflows/wf-1/versions/7/rollback",
+                "/internal/runtime/workflows/studio/read-only-trials")) {
             var unsigned = new MockHttpServletResponse();
             filter.doFilter(new MockHttpServletRequest("POST", path), unsigned, new MockFilterChain());
             assertEquals(401, unsigned.getStatus());
@@ -30,6 +31,11 @@ class InternalServiceAuthFilterTest {
             var accepted = new MockHttpServletResponse();
             filter.doFilter(signed, accepted, new MockFilterChain());
             assertEquals(200, accepted.getStatus());
+            var replay = new MockHttpServletResponse();
+            filter.doFilter(signedRequest(secret, path, body, "valid-" + path, "POST",
+                    InternalServiceAuthHeaders.IDENTITY_SOURCE_PLATFORM_SESSION, "default", "42"),
+                    replay, new MockFilterChain());
+            assertEquals(401, replay.getStatus());
             var tampered = signedRequest(secret, path, body, "tampered-" + path, "POST",
                     InternalServiceAuthHeaders.IDENTITY_SOURCE_PLATFORM_SESSION, "default", "42");
             tampered.setContent("{\"baseRevision\":\"forged\"}".getBytes(StandardCharsets.UTF_8));
@@ -121,6 +127,87 @@ class InternalServiceAuthFilterTest {
                 identity.identitySource());
         assertEquals("tenant-a", identity.identityTenantId());
         assertEquals("principal-a", identity.identityUserId());
+    }
+
+    @Test
+    void consoleCapabilityRoutesRequireAnExactPlatformHmacForPathActorAndBody() throws Exception {
+        String secret = "runtime-console-capability-filter-secret-32bytes";
+        InternalServiceAuthProperties properties = new InternalServiceAuthProperties(
+                secret, "", 300, 600, 1000, 1024 * 1024);
+        properties.validate();
+        InternalServiceAuthFilter filter = new InternalServiceAuthFilter(
+                new InternalServiceAuthVerifier(properties, new InMemoryInternalAuthNonceStore()), properties);
+        String root = "/internal/runtime/console-capability-invocations";
+        String id = "00000000-0000-0000-0000-000000000042";
+        byte[] body = "{\"invocationId\":\"".concat(id).concat("\"}").getBytes(StandardCharsets.UTF_8);
+
+        MockHttpServletResponse unsigned = new MockHttpServletResponse();
+        filter.doFilter(new MockHttpServletRequest("POST", root), unsigned, new MockFilterChain());
+        assertEquals(401, unsigned.getStatus());
+
+        MockHttpServletResponse accepted = new MockHttpServletResponse();
+        filter.doFilter(signedRequest(secret, root, body, "console-post", "POST",
+                InternalServiceAuthHeaders.IDENTITY_SOURCE_PLATFORM_SESSION, "default", "42"), accepted,
+                new MockFilterChain());
+        assertEquals(200, accepted.getStatus());
+
+        MockHttpServletRequest changedBody = signedRequest(secret, root, body, "console-body", "POST",
+                InternalServiceAuthHeaders.IDENTITY_SOURCE_PLATFORM_SESSION, "default", "42");
+        changedBody.setContent("{\"invocationId\":\"forged\"}".getBytes(StandardCharsets.UTF_8));
+        MockHttpServletResponse changedBodyResponse = new MockHttpServletResponse();
+        filter.doFilter(changedBody, changedBodyResponse, new MockFilterChain());
+        assertEquals(401, changedBodyResponse.getStatus());
+
+        MockHttpServletRequest changedPath = signedRequest(secret, root, body, "console-path", "POST",
+                InternalServiceAuthHeaders.IDENTITY_SOURCE_PLATFORM_SESSION, "default", "42");
+        changedPath.setRequestURI(root + "/" + id);
+        MockHttpServletResponse changedPathResponse = new MockHttpServletResponse();
+        filter.doFilter(changedPath, changedPathResponse, new MockFilterChain());
+        assertEquals(401, changedPathResponse.getStatus());
+
+        MockHttpServletRequest signedActor = signedRequest(secret, root, body, "console-actor", "POST",
+                InternalServiceAuthHeaders.IDENTITY_SOURCE_PLATFORM_SESSION, "default", "42");
+        MockHttpServletRequest changedActor = new MockHttpServletRequest("POST", root);
+        java.util.Collections.list(signedActor.getHeaderNames()).forEach(name -> {
+            if (!InternalServiceAuthHeaders.IDENTITY_USER_ID.equals(name)) {
+                changedActor.addHeader(name, signedActor.getHeader(name));
+            }
+        });
+        changedActor.setContent(body);
+        changedActor.addHeader(InternalServiceAuthHeaders.IDENTITY_USER_ID, "43");
+        MockHttpServletResponse changedActorResponse = new MockHttpServletResponse();
+        filter.doFilter(changedActor, changedActorResponse, new MockFilterChain());
+        assertEquals(401, changedActorResponse.getStatus());
+
+        MockHttpServletResponse queryAccepted = new MockHttpServletResponse();
+        filter.doFilter(signedRequest(secret, root + "/" + id, new byte[0], "console-get", "GET",
+                InternalServiceAuthHeaders.IDENTITY_SOURCE_PLATFORM_SESSION, "default", "42"), queryAccepted,
+                new MockFilterChain());
+        assertEquals(200, queryAccepted.getStatus());
+    }
+
+    @Test
+    void httpApiCatalogStateRouteRequiresPlatformHmac() throws Exception {
+        String secret = "runtime-http-api-catalog-filter-secret-32bytes";
+        var properties = new InternalServiceAuthProperties(secret, "", 300, 600, 1000, 1024 * 1024);
+        var filter = new InternalServiceAuthFilter(new InternalServiceAuthVerifier(properties,
+                new InMemoryInternalAuthNonceStore()), properties);
+        String path = "/internal/runtime/http-api-catalog-states";
+        byte[] body = "{\"projectCode\":\"orders\"}".getBytes(StandardCharsets.UTF_8);
+
+        var unsigned = new MockHttpServletResponse();
+        filter.doFilter(new MockHttpServletRequest("POST", path), unsigned, new MockFilterChain());
+        assertEquals(401, unsigned.getStatus());
+        var accepted = new MockHttpServletResponse();
+        filter.doFilter(signedRequest(secret, path, body, "api-catalog-valid", "POST",
+                InternalServiceAuthHeaders.IDENTITY_SOURCE_PLATFORM_SESSION, "orders", "42"),
+                accepted, new MockFilterChain());
+        assertEquals(200, accepted.getStatus());
+        var remote = new MockHttpServletResponse();
+        filter.doFilter(signedRequest(secret, path, body, "api-catalog-remote", "POST",
+                InternalServiceAuthHeaders.IDENTITY_SOURCE_A2A_REMOTE_AGENT, "orders", "remote"),
+                remote, new MockFilterChain());
+        assertEquals(401, remote.getStatus());
     }
 
     private static MockHttpServletRequest signedRequest(

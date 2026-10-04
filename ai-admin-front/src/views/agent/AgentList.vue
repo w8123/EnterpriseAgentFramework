@@ -11,7 +11,12 @@
       >
         <template #tags>
           <el-tag effect="light">Supervisor Agent</el-tag>
-          <el-tag type="success" effect="light">当前 {{ agentStatistics.totalAgents }} 个</el-tag>
+          <el-tag :type="scopeCanLoadData ? 'info' : 'warning'" effect="light">
+            {{ agentScopeTagLabel }}
+          </el-tag>
+          <el-tag v-if="hasLoadedAgentList" type="success" effect="light">
+            当前 {{ agentStatistics.totalAgents }} 个
+          </el-tag>
           <el-tag type="info" effect="light">可调用 Workflow</el-tag>
         </template>
         <template #actions>
@@ -23,19 +28,23 @@
         </template>
       </PageHeader>
 
-      <template #summary>
+      <template v-if="hasLoadedAgentList" #summary>
         <MetricStrip :items="metricItems" density="compact" aria-label="智能体指标概览" />
+        <div v-if="statisticsError" class="agent-statistics-warning" role="status" aria-live="polite">
+          当前范围的 Agent 列表已加载，统计暂时不可用；可以稍后重试。
+        </div>
       </template>
     </CollapsibleHeaderRegion>
 
-    <DataTableShell
-      v-model:current-page="currentPage"
-      v-model:page-size="pageSize"
-      class="agent-shell workbench-list-surface"
-      :loading="loading"
-      :empty="filteredAgents.length === 0"
-      empty-description="暂无符合条件的智能体"
-      :total="filteredAgents.length"
+      <DataTableShell
+        v-if="scopeCanLoadData"
+        v-model:current-page="currentPage"
+        v-model:page-size="pageSize"
+        class="agent-shell workbench-list-surface"
+        :loading="loading"
+        :empty="!hasLoadedAgentList || filteredAgents.length === 0"
+        empty-description="暂无符合条件的智能体"
+        :total="filteredAgents.length"
       :page-sizes="[10, 20, 50]"
     >
       <template #toolbar>
@@ -56,20 +65,6 @@
           <el-select v-model="filterEnabled" placeholder="启用状态" clearable class="filter-control is-narrow">
             <el-option label="已启用" :value="true" />
             <el-option label="已停用" :value="false" />
-          </el-select>
-          <el-select
-            v-model="filterProjectId"
-            placeholder="所属项目"
-            clearable
-            filterable
-            class="filter-control is-project"
-          >
-            <el-option
-              v-for="project in readableScanProjects"
-              :key="project.id"
-              :label="projectOptionLabel(project)"
-              :value="project.id"
-            />
           </el-select>
 
           <template #actions>
@@ -227,7 +222,18 @@
       </div>
 
       <template #empty>
-        <div v-if="agents.length === 0" class="agent-empty-guide">
+        <div v-if="listError" class="agent-list-error" role="alert" aria-live="assertive">
+          <h3>智能体列表加载失败</h3>
+          <p>当前范围的 Agent 数据未能加载，原范围保持不变。</p>
+          <el-button type="primary" :loading="loading" @click="handleQuery">重试</el-button>
+        </div>
+
+        <div v-else-if="agentListStatus !== 'success'" class="agent-list-loading-state" role="status" aria-live="polite">
+          <h3>正在加载当前范围</h3>
+          <p>Agent 列表结果返回后，这里会显示真实数量和数据。</p>
+        </div>
+
+        <div v-else-if="agents.length === 0" class="agent-empty-guide">
           <div class="agent-empty-guide__visual">
             <img
               :src="agentSupervisorOnboardingIllustration"
@@ -254,7 +260,7 @@
         </el-empty>
       </template>
 
-      <template #pagination>
+      <template v-if="hasLoadedAgentList" #pagination>
         <span class="agent-pagination-total">共 {{ filteredAgents.length }} 条</span>
         <el-pagination
           v-model:current-page="currentPage"
@@ -267,12 +273,30 @@
         />
       </template>
     </DataTableShell>
+
+    <section
+      v-else
+      class="agent-scope-panel glass-surface-panel"
+      :aria-label="agentScopeLabel"
+    >
+      <ProjectScopeState
+        :title="scopeStateTitle"
+        :message="scopeFeedbackMessage"
+        :status="scopeStatus"
+        :show-select-project="scopeNeedsChoice && appStore.sidebarCollapsed"
+        :can-retry="scopeCanRetry"
+        :retrying="scopeRetrying"
+        :retry-label="scopeRecoveryLabel"
+        @select-project="openScopeSelector"
+        @retry="retryScope"
+      />
+    </section>
   </WorkbenchPage>
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, type TableInstance } from 'element-plus'
 import { Connection, Cpu, Plus, RefreshLeft, Search } from '@element-plus/icons-vue'
 import type { Agent, AgentStatistics } from '@/types/workflow'
@@ -282,10 +306,9 @@ import {
   listAgents,
   updateAgent,
 } from '@/api/workflow'
-import { getScanProjects } from '@/api/scanProject'
-import type { ScanProject } from '@/types/scanProject'
 import ViewToggle from '@/components/ViewToggle.vue'
-import { useProjectStore } from '@/store/project'
+import { useAppStore } from '@/store/app'
+import { usePageProjectScope } from '@/composables/usePageProjectScope'
 import { agentListActions, type AgentListActionId } from '@/utils/agentActions'
 import CollapsibleHeaderRegion from '@/components/common/CollapsibleHeaderRegion.vue'
 import DataTableShell from '@/components/common/DataTableShell.vue'
@@ -293,6 +316,7 @@ import FilterBar from '@/components/common/FilterBar.vue'
 import MetricStrip from '@/components/common/MetricStrip.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
+import ProjectScopeState from '@/components/common/ProjectScopeState.vue'
 import type { MetricStripItem } from '@/components/common/glassWorkbench'
 import { useCollapsiblePageHeader } from '@/composables/useCollapsiblePageHeader'
 import agentSupervisorOnboardingIllustration from '@/assets/illustrations/agent-supervisor-onboarding.webp'
@@ -301,15 +325,40 @@ import {
   hasPlatformResourcePermission,
   PLATFORM_PERMISSION_AGENT_DEBUG,
   PLATFORM_PERMISSION_AGENT_EVALUATE,
-  PLATFORM_PERMISSION_AGENT_READ,
   PLATFORM_PERMISSION_AGENT_WRITE,
   PLATFORM_PERMISSION_RUNOPS_READ,
 } from '@/auth/platformAccess'
 import { platformSessionUser } from '@/auth/platformSession'
 
-const route = useRoute()
 const router = useRouter()
-const projectStore = useProjectStore()
+const appStore = useAppStore()
+const pageProjectScope = usePageProjectScope({ required: true })
+const scopeCanLoadData = pageProjectScope.canLoadData
+const scopeStatus = pageProjectScope.status
+const scopeFeedbackMessage = pageProjectScope.feedbackMessage
+const scopeRecoveryLabel = pageProjectScope.recoveryLabel
+const scopeRetrying = ref(false)
+const agentScopeLabel = computed(() => (
+  pageProjectScope.canLoadData.value && pageProjectScope.resolution.value?.kind === 'all'
+    ? '全部 Agent'
+    : pageProjectScope.currentScopeLabel.value
+))
+const agentScopeTagLabel = computed(() => (
+  scopeCanLoadData.value ? `范围：${agentScopeLabel.value}` : '范围未确认'
+))
+const scopeStateTitle = computed(() => (
+  scopeStatus.value === 'pending' ? '正在确认项目范围' : '需要确认项目范围'
+))
+const scopeNeedsChoice = computed(() => (
+  pageProjectScope.status.value === 'blocked'
+    && (pageProjectScope.resolution.value?.kind === 'blocked')
+    && ['project-required', 'all-forbidden', 'project-not-found', 'project-forbidden', 'ambiguous-project', 'invalid-reference'].includes(pageProjectScope.resolution.value.reason)
+))
+const scopeCanRetry = computed(() => (
+  (pageProjectScope.recoveryAction.value === 'retry-catalog'
+    || pageProjectScope.recoveryAction.value === 'retry-normalization')
+    && !pageProjectScope.isCatalogLoading.value
+))
 
 function canUseAgentPermission(permission: string, projectCode?: string | null) {
   return hasPlatformResourcePermission(
@@ -345,13 +394,17 @@ function visibleAgentActions(agent: Agent) {
   })
 }
 
+type AgentDataStatus = 'idle' | 'loading' | 'success' | 'error'
+
 const agents = ref<Agent[]>([])
 const statistics = ref<AgentStatistics | null>(null)
-const scanProjects = ref<ScanProject[]>([])
-const loading = ref(false)
+const agentListStatus = ref<AgentDataStatus>('idle')
+const agentStatisticsStatus = ref<AgentDataStatus>('idle')
+const loading = computed(() => agentListStatus.value === 'loading')
+const listError = computed(() => agentListStatus.value === 'error')
+const statisticsError = computed(() => agentStatisticsStatus.value === 'error')
 const filterKeyword = ref('')
 const filterEnabled = ref<boolean | ''>('')
-const filterProjectId = ref<number | undefined>(undefined)
 const viewMode = ref<'table' | 'card'>('table')
 const currentPage = ref(1)
 const pageSize = ref(10)
@@ -360,29 +413,30 @@ const agentTableShellRef = ref<HTMLElement | null>(null)
 /** 限制表格主体高度，搜索栏/表头固定，仅表体滚动。 */
 const agentTableMaxHeight = ref(480)
 
-const canReadAllAgents = computed(() => hasPlatformGlobalPermissionGrant(
-  platformSessionUser.value?.permissionGrants,
-  PLATFORM_PERMISSION_AGENT_READ,
-))
-const readableScanProjects = computed(() => scanProjects.value.filter((project) => (
-  canUseAgentPermission(PLATFORM_PERMISSION_AGENT_READ, project.projectCode)
-)))
-const writableScanProjects = computed(() => readableScanProjects.value.filter((project) => (
-  canUseAgentPermission(PLATFORM_PERMISSION_AGENT_WRITE, project.projectCode)
-)))
 const canCreateAgent = computed(() => (
-  hasPlatformGlobalPermissionGrant(
-    platformSessionUser.value?.permissionGrants,
-    PLATFORM_PERMISSION_AGENT_WRITE,
+  scopeCanLoadData.value
+  && (
+    pageProjectScope.resolution.value?.kind === 'all'
+      ? hasPlatformGlobalPermissionGrant(
+        platformSessionUser.value?.permissionGrants,
+        PLATFORM_PERMISSION_AGENT_WRITE,
+      )
+        || pageProjectScope.readableProjects.value.some((project) => (
+          canUseAgentPermission(PLATFORM_PERMISSION_AGENT_WRITE, project.projectCode)
+        ))
+      : pageProjectScope.resolution.value?.kind === 'project'
+        && canUseAgentPermission(
+          PLATFORM_PERMISSION_AGENT_WRITE,
+          pageProjectScope.resolution.value.project.projectCode,
+        )
   )
-  || writableScanProjects.value.length > 0
 ))
 const canOpenRunOps = computed(() => (
   hasPlatformGlobalPermissionGrant(
     platformSessionUser.value?.permissionGrants,
     PLATFORM_PERMISSION_RUNOPS_READ,
   )
-  || scanProjects.value.some((project) => (
+  || pageProjectScope.readableProjects.value.some((project) => (
     canUseAgentPermission(PLATFORM_PERMISSION_RUNOPS_READ, project.projectCode)
   ))
 ))
@@ -509,7 +563,10 @@ const fallbackStatistics = computed<AgentStatistics>(() => {
 })
 
 const agentStatistics = computed(() => statistics.value ?? fallbackStatistics.value)
-const scopeLabel = computed(() => filterProjectId.value == null ? '全量 Agent 目录' : '当前项目范围')
+const scopeLabel = computed(() => agentScopeLabel.value)
+const hasLoadedAgentList = computed(() => (
+  scopeCanLoadData.value && agentListStatus.value === 'success'
+))
 
 const metricItems = computed<MetricStripItem[]>(() => {
   const stats = agentStatistics.value
@@ -582,76 +639,75 @@ function agentInitial(name?: string | null) {
   return name?.trim().slice(0, 1).toUpperCase() || 'A'
 }
 
-function projectOptionLabel(project?: ScanProject | null) {
-  if (!project) return ''
-  const code = project.projectCode ? ` / ${project.projectCode}` : ''
-  const env = project.environment ? ` · ${project.environment}` : ''
-  return `${project.name}${code}${env}`
-}
-
 function projectCodeById(projectId?: number | null) {
   if (projectId == null) return null
-  return scanProjects.value.find((project) => project.id === projectId)?.projectCode || null
+  return pageProjectScope.readableProjects.value.find((project) => project.id === projectId)?.projectCode || null
 }
 
-function syncProjectFilter(allowRouteFallback = false) {
-  const currentProjectId = projectStore.currentProjectId
-  if (currentProjectId !== null
-    && readableScanProjects.value.some((project) => project.id === currentProjectId)) {
-    filterProjectId.value = currentProjectId
-    return
-  }
-  const queryProjectId = Number(route.query.projectId)
-  if (allowRouteFallback && readableScanProjects.value.some((project) => project.id === queryProjectId)) {
-    filterProjectId.value = queryProjectId
-    return
-  }
-  filterProjectId.value = canReadAllAgents.value ? undefined : readableScanProjects.value[0]?.id
+let dataRequestGeneration = 0
+
+function isCurrentDataRequest(generation: number, requestKey: string) {
+  return generation === dataRequestGeneration
+    && pageProjectScope.canLoadData.value
+    && pageProjectScope.requestKey.value === requestKey
 }
 
-async function loadScanProjects() {
-  try {
-    const { data } = await getScanProjects()
-    scanProjects.value = Array.isArray(data) ? data : []
-    projectStore.projects = scanProjects.value
-  } catch {
-    scanProjects.value = []
-  }
-}
-
-function currentScopeParams() {
-  if (filterProjectId.value === undefined) return undefined
-  return {
-    projectId: filterProjectId.value,
-    projectCode: projectCodeById(filterProjectId.value) || undefined,
-  }
+function invalidateAgentData() {
+  dataRequestGeneration += 1
+  agents.value = []
+  statistics.value = null
+  agentListStatus.value = 'idle'
+  agentStatisticsStatus.value = 'idle'
+  currentPage.value = 1
 }
 
 async function fetchData() {
-  loading.value = true
-  try {
-    const [listResult, statisticsResult] = await Promise.allSettled([
-      listAgents(currentScopeParams()),
-      getAgentStatistics(currentScopeParams()),
-    ])
+  if (!pageProjectScope.canLoadData.value) return
+  const generation = ++dataRequestGeneration
+  const requestKey = pageProjectScope.requestKey.value
+  const params = pageProjectScope.requestParams.value
+  agents.value = []
+  statistics.value = null
+  agentListStatus.value = 'loading'
+  agentStatisticsStatus.value = 'loading'
+  currentPage.value = 1
 
-    if (listResult.status === 'fulfilled') {
-      agents.value = Array.isArray(listResult.value.data) ? listResult.value.data : []
-    } else {
+  const listRequest = Promise.resolve()
+    .then(() => listAgents(params))
+    .then((result) => {
+      if (!isCurrentDataRequest(generation, requestKey)) return
+      if (!Array.isArray(result.data)) {
+        agents.value = []
+        agentListStatus.value = 'error'
+        return
+      }
+      agents.value = result.data
+      agentListStatus.value = 'success'
+    })
+    .catch(() => {
+      if (!isCurrentDataRequest(generation, requestKey)) return
       agents.value = []
-      ElMessage.error('智能体列表加载失败')
-    }
+      agentListStatus.value = 'error'
+    })
 
-    statistics.value = statisticsResult.status === 'fulfilled'
-      ? statisticsResult.value.data
-      : null
-    currentPage.value = 1
-  } finally {
-    loading.value = false
-    await nextTick()
-    refreshAgentHeaderScrollTargets()
-    scheduleAgentListLayout()
-  }
+  const statisticsRequest = Promise.resolve()
+    .then(() => getAgentStatistics(params))
+    .then((result) => {
+      if (!isCurrentDataRequest(generation, requestKey)) return
+      statistics.value = result.data
+      agentStatisticsStatus.value = 'success'
+    })
+    .catch(() => {
+      if (!isCurrentDataRequest(generation, requestKey)) return
+      statistics.value = null
+      agentStatisticsStatus.value = 'error'
+    })
+
+  await Promise.all([listRequest, statisticsRequest])
+  if (!isCurrentDataRequest(generation, requestKey)) return
+  await nextTick()
+  refreshAgentHeaderScrollTargets()
+  scheduleAgentListLayout()
 }
 
 watch(
@@ -663,30 +719,25 @@ watch(
 )
 
 function handleQuery() {
+  if (!pageProjectScope.canLoadData.value) return
   currentPage.value = 1
-  fetchData()
+  void fetchData()
 }
 
 function resetFilters() {
   filterKeyword.value = ''
   filterEnabled.value = ''
-  filterProjectId.value = projectStore.currentProjectId ?? undefined
   currentPage.value = 1
-  fetchData()
+  if (pageProjectScope.canLoadData.value) void fetchData()
 }
 
 function handleCreate() {
   if (!canCreateAgent.value) return
-  const selectedProject = readableScanProjects.value.find(
-    (project) => project.id === filterProjectId.value,
-  )
-  const projectId = selectedProject
-    && canUseAgentPermission(PLATFORM_PERMISSION_AGENT_WRITE, selectedProject.projectCode)
-    ? selectedProject.id
-    : writableScanProjects.value[0]?.id
+  const scopeQuery = pageProjectScope.scopeQuery.value
+  if (!scopeQuery) return
   router.push({
     path: '/agent/new/edit',
-    query: projectId !== undefined ? { projectId } : {},
+    query: scopeQuery,
   })
 }
 
@@ -706,44 +757,57 @@ function handleAgentAction(agent: Agent, actionId: AgentListActionId) {
 }
 
 async function handleToggle(agent: Agent, enabled: boolean) {
-  if (!canWriteAgent(agent)) return
+  if (!pageProjectScope.canLoadData.value || !canWriteAgent(agent)) return
+  const requestKey = pageProjectScope.requestKey.value
   try {
     await updateAgent(agent.id, { enabled })
+    if (!isCurrentDataRequest(dataRequestGeneration, requestKey)) return
     agent.enabled = enabled
     ElMessage.success(enabled ? '已启用' : '已停用')
     await fetchData()
   } catch {
-    ElMessage.error('操作失败')
+    if (isCurrentDataRequest(dataRequestGeneration, requestKey)) ElMessage.error('操作失败')
   }
 }
 
 async function handleDelete(id: string) {
   const agent = agents.value.find((item) => item.id === id)
-  if (!agent || !canWriteAgent(agent)) return
+  if (!agent || !pageProjectScope.canLoadData.value || !canWriteAgent(agent)) return
+  const requestKey = pageProjectScope.requestKey.value
   try {
     await ElMessageBox.confirm('确认删除该 Agent？', '删除 Agent', { type: 'warning' })
+    if (!isCurrentDataRequest(dataRequestGeneration, requestKey)) return
     await deleteAgent(id)
+    if (!isCurrentDataRequest(dataRequestGeneration, requestKey)) return
     ElMessage.success('删除成功')
-    fetchData()
+    void fetchData()
   } catch (error) {
-    if (error !== 'cancel' && error !== 'close') {
+    if (isCurrentDataRequest(dataRequestGeneration, requestKey) && error !== 'cancel' && error !== 'close') {
       ElMessage.error('删除失败')
     }
   }
 }
 
-onMounted(async () => {
+async function retryScope() {
+  if (!scopeCanRetry.value || scopeRetrying.value) return
+  scopeRetrying.value = true
+  try {
+    await pageProjectScope.retryScope()
+  } finally {
+    scopeRetrying.value = false
+  }
+}
+
+function openScopeSelector() {
+  if (appStore.sidebarCollapsed) appStore.toggleSidebar()
+}
+
+onMounted(() => {
   window.addEventListener('resize', scheduleAgentListLayout)
-  await loadScanProjects()
-  syncProjectFilter(true)
-  await fetchData()
-  await nextTick()
-  bindAgentTableShellObserver()
-  refreshAgentHeaderScrollTargets()
-  scheduleAgentListLayout()
 })
 
 onUnmounted(() => {
+  dataRequestGeneration += 1
   window.removeEventListener('resize', scheduleAgentListLayout)
   tableShellObserver?.disconnect()
   tableShellObserver = null
@@ -752,11 +816,21 @@ onUnmounted(() => {
 })
 
 watch(
-  () => projectStore.currentProjectId,
+  agentTableShellRef,
   () => {
-    syncProjectFilter()
-    fetchData()
+    bindAgentTableShellObserver()
+    scheduleAgentListLayout()
   },
+  { flush: 'post', immediate: true },
+)
+
+watch(
+  () => [pageProjectScope.requestKey.value, pageProjectScope.canLoadData.value, pageProjectScope.isActive.value] as const,
+  () => {
+    invalidateAgentData()
+    if (pageProjectScope.canLoadData.value) void fetchData()
+  },
+  { immediate: true },
 )
 
 watch([filterKeyword, filterEnabled, pageSize], () => {
@@ -799,8 +873,8 @@ watch(isAgentHeaderCollapsed, () => {
 }
 
 .agent-filter-bar {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
   width: 100%;
@@ -822,12 +896,25 @@ watch(isAgentHeaderCollapsed, () => {
 
 .agent-filter-bar :deep(.filter-bar__fields) {
   display: grid;
-  grid-template-columns: minmax(300px, 2.2fr) minmax(138px, 0.72fr) minmax(128px, 0.64fr) minmax(210px, 1fr);
+  flex: 1 1 480px;
+  grid-template-columns: minmax(300px, 2.2fr) minmax(138px, 0.72fr);
   align-items: center;
   gap: 12px;
+  min-width: min(100%, 480px);
+}
+
+.agent-statistics-warning {
+  margin-top: 10px;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--el-color-warning) 24%, var(--border-divider));
+  border-radius: 9px;
+  color: var(--el-color-warning-dark-2);
+  background: color-mix(in srgb, var(--el-color-warning) 7%, transparent);
+  font-size: 12px;
 }
 
 .agent-filter-bar :deep(.filter-bar__actions) {
+  flex: 0 0 auto;
   display: grid;
   grid-template-columns: 40px 88px;
   align-items: center;
@@ -888,7 +975,7 @@ watch(isAgentHeaderCollapsed, () => {
 .agent-shell :deep(.data-table-shell__toolbar) {
   display: block;
   flex: 0 0 auto;
-  margin: 28px 28px 0;
+  margin: 20px 24px 0;
 }
 
 .agent-shell :deep(.data-table-shell__body) {
@@ -896,7 +983,7 @@ watch(isAgentHeaderCollapsed, () => {
   min-height: 0;
   flex: 1 1 auto;
   flex-direction: column;
-  margin: 22px 28px 0;
+  margin: 16px 24px 0;
 }
 
 .agent-shell.is-empty :deep(.data-table-shell__body) {
@@ -909,14 +996,74 @@ watch(isAgentHeaderCollapsed, () => {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 14px 28px 16px;
+  padding: 12px 24px 14px;
   border-top-color: rgb(var(--brand-primary-rgb) / 0.12);
   color: var(--text-muted);
   background: color-mix(in srgb, var(--surface-glass-control) 78%, transparent);
 }
 
 .agent-shell :deep(.data-table-shell__empty) {
-  padding: 22px 28px 28px;
+  padding: 20px 24px 24px;
+}
+
+.agent-scope-panel {
+  display: grid;
+  min-width: 0;
+  min-height: 260px;
+  flex: 1 1 auto;
+  place-items: center;
+  padding: clamp(24px, 4vw, 48px);
+  border-radius: var(--radius-lg);
+}
+
+.agent-list-error,
+.agent-list-loading-state {
+  display: grid;
+  width: min(620px, 100%);
+  min-height: 210px;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  margin: 0 auto;
+  padding: 26px;
+  border: 1px dashed var(--border-readable);
+  border-radius: var(--radius-lg);
+  text-align: center;
+  background: color-mix(in srgb, var(--surface-solid-panel) 84%, transparent);
+
+  h3,
+  p {
+    margin: 0;
+  }
+
+  h3 {
+    color: var(--text-primary);
+    font-size: 17px;
+  }
+
+  p {
+    max-width: 520px;
+    color: var(--text-muted);
+    font-size: 13px;
+    line-height: 1.6;
+  }
+}
+
+.agent-list-error {
+  border-color: color-mix(in srgb, var(--el-color-danger) 28%, var(--border-readable));
+
+  h3,
+  p {
+    color: var(--el-color-danger);
+  }
+}
+
+.agent-list-loading-state {
+  min-height: 160px;
+
+  h3 {
+    color: var(--text-primary);
+  }
 }
 
 .agent-shell.is-empty :deep(.data-table-shell__empty) {
@@ -1006,8 +1153,8 @@ watch(isAgentHeaderCollapsed, () => {
 }
 
 .agent-table {
-  --el-table-header-bg-color: color-mix(in srgb, var(--brand-selected-bg) 42%, var(--surface-solid-control));
-  --el-table-row-hover-bg-color: rgb(var(--brand-primary-rgb) / 0.08);
+  --el-table-header-bg-color: color-mix(in srgb, var(--brand-selected-bg) 42%, var(--surface-fallback-panel));
+  --el-table-row-hover-bg-color: color-mix(in srgb, var(--brand-primary) 8%, var(--surface-fallback-panel));
   --el-table-border-color: rgb(var(--brand-primary-rgb) / 0.1);
   width: 100%;
   background: transparent;
@@ -1024,7 +1171,7 @@ watch(isAgentHeaderCollapsed, () => {
 .agent-table :deep(th.el-table__cell) {
   height: 44px;
   color: var(--brand-active);
-  background: color-mix(in srgb, var(--brand-selected-bg) 42%, var(--surface-solid-control)) !important;
+  background: color-mix(in srgb, var(--brand-selected-bg) 42%, var(--surface-fallback-panel)) !important;
   font-size: 12px;
   font-weight: 700;
 }
@@ -1043,24 +1190,24 @@ watch(isAgentHeaderCollapsed, () => {
 
 .agent-table :deep(.el-table-fixed-column--right),
 .agent-table :deep(.el-table-fixed-column--left) {
-  background-color: var(--surface-solid-panel) !important;
+  background-color: var(--surface-fallback-panel) !important;
 }
 
 .agent-table :deep(th.el-table-fixed-column--right),
 .agent-table :deep(th.el-table-fixed-column--left) {
-  background-color: color-mix(in srgb, var(--brand-selected-bg) 42%, var(--surface-solid-control)) !important;
+  background-color: color-mix(in srgb, var(--brand-selected-bg) 42%, var(--surface-fallback-panel)) !important;
 }
 
 .agent-table :deep(td.el-table-fixed-column--right),
 .agent-table :deep(td.el-table-fixed-column--left) {
-  background-color: var(--surface-solid-panel) !important;
+  background-color: var(--surface-fallback-panel) !important;
 }
 
 .agent-table :deep(.el-table__row:hover > td.el-table-fixed-column--right),
 .agent-table :deep(.el-table__row:hover > td.el-table-fixed-column--left),
 .agent-table :deep(.el-table__body tr.hover-row > td.el-table-fixed-column--right),
 .agent-table :deep(.el-table__body tr.hover-row > td.el-table-fixed-column--left) {
-  background-color: color-mix(in srgb, var(--brand-primary) 8%, var(--surface-solid-panel)) !important;
+  background-color: color-mix(in srgb, var(--brand-primary) 8%, var(--surface-fallback-panel)) !important;
 }
 
 .agent-pagination-total {
@@ -1283,15 +1430,7 @@ watch(isAgentHeaderCollapsed, () => {
   border-top: 1px solid var(--border-divider);
 }
 
-@media (max-width: 1280px) {
-  .agent-filter-bar {
-    grid-template-columns: 1fr;
-  }
-
-  .agent-filter-bar :deep(.filter-bar__actions) {
-    justify-self: end;
-  }
-
+@media (max-width: 1080px) {
   .agent-empty-guide {
     grid-template-columns: minmax(190px, 220px) minmax(0, 1fr);
   }
@@ -1299,7 +1438,9 @@ watch(isAgentHeaderCollapsed, () => {
 
 @media (max-width: 900px) {
   .agent-filter-bar :deep(.filter-bar__fields) {
+    flex-basis: 100%;
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    min-width: 0;
   }
 
   .filter-control.is-keyword {
@@ -1323,11 +1464,14 @@ watch(isAgentHeaderCollapsed, () => {
   }
 
   .agent-filter-bar :deep(.filter-bar__fields) {
+    flex-basis: 100%;
     grid-template-columns: minmax(0, 1fr);
+    min-width: 0;
   }
 
   .agent-filter-bar :deep(.filter-bar__actions) {
-    justify-self: stretch;
+    width: 100%;
+    justify-content: flex-start;
   }
 
   .filter-control.is-keyword {

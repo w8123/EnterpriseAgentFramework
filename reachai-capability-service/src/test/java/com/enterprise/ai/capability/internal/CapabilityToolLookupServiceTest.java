@@ -32,6 +32,7 @@ class CapabilityToolLookupServiceTest {
         assertEquals("创建订单", tool.get("title"));
         assertEquals("orders:createOrder", tool.get("qualifiedName"));
         assertEquals("orders", tool.get("projectCode"));
+        assertEquals("BUSINESS_METHOD", tool.get("assetType"));
         assertEquals(Boolean.TRUE, tool.get("enabled"));
         assertEquals("2026-06-29T10:00", tool.get("createTime"));
     }
@@ -58,6 +59,7 @@ class CapabilityToolLookupServiceTest {
         entity.setCapabilityMetadataJson("{}");
         entity.setParametersJson("[]");
         entity.setSource("sdk");
+        entity.setAssetType("BUSINESS_METHOD");
         entity.setSourceLocation("sdk:orders:createOrder");
         entity.setHttpMethod("POST");
         entity.setBaseUrl("http://orders.local");

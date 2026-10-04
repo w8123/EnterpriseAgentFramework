@@ -1,6 +1,10 @@
 package com.enterprise.ai.text.tooling.scanner.controller;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.enterprise.ai.text.tooling.scanner.manifest.ParameterLocation;
+import com.enterprise.ai.text.tooling.scanner.manifest.HttpApiOperation;
 import com.enterprise.ai.text.tooling.scanner.manifest.ProjectMetadata;
 import com.enterprise.ai.text.tooling.scanner.manifest.ToolDefinition;
 import com.enterprise.ai.text.tooling.scanner.manifest.ToolManifest;
@@ -8,14 +12,22 @@ import com.enterprise.ai.text.tooling.scanner.manifest.ToolParameterDefinition;
 import com.enterprise.ai.text.tooling.scanner.support.TestPaths;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.stream.Collectors;
+
+import com.enterprise.ai.text.tooling.scanner.ScanOptions;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ControllerAnnotationToolManifestScannerTest {
 
@@ -167,6 +179,52 @@ class ControllerAnnotationToolManifestScannerTest {
     }
 
     @Test
+    void parseFailureDiagnosticsKeepTheRelativePathButNeverEchoSourceLiterals(@TempDir Path tempDir) throws Exception {
+        String testOnlySecret = "test-only-controller-secret-should-never-appear-in-log";
+        Path brokenFile = tempDir.resolve("BrokenSecretController.java");
+        Files.writeString(brokenFile, """
+                import org.springframework.web.bind.annotation.RestController;
+
+                @RestController
+                class BrokenSecretController {
+                    String secret = "%s";
+                    broken
+                }
+                """.formatted(testOnlySecret));
+        Path validController = tempDir.resolve("HealthController.java");
+        Files.writeString(validController, """
+                import org.springframework.web.bind.annotation.GetMapping;
+                import org.springframework.web.bind.annotation.RestController;
+
+                @RestController
+                class HealthController {
+                    @GetMapping("/health")
+                    String health() { return "ok"; }
+                }
+                """);
+
+        Logger logger = (Logger) LoggerFactory.getLogger(ControllerAnnotationToolManifestScanner.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            ToolManifest manifest = scanner.scan(tempDir, new ProjectMetadata("orders", "http://localhost:9002", "/api"));
+            String messages = appender.list.stream().map(ILoggingEvent::getFormattedMessage)
+                    .collect(Collectors.joining("\n"));
+
+            assertEquals(1, manifest.tools().size());
+            assertTrue(messages.contains("BrokenSecretController.java"));
+            assertTrue(messages.contains("PARSE_FAILURE"));
+            assertFalse(messages.contains(testOnlySecret));
+            assertFalse(messages.contains(tempDir.toString()));
+            assertFalse(new ObjectMapper().writeValueAsString(manifest).contains(testOnlySecret));
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
+    }
+
+    @Test
     void prefersApiOperationOverMethodNameWhenJavaDocMissing(@TempDir Path tempDir) throws IOException {
         Path controller = tempDir.resolve("DocController.java");
         Files.writeString(controller, """
@@ -275,5 +333,278 @@ class ControllerAnnotationToolManifestScannerTest {
 
         List<String> names = manifest.tools().stream().map(ToolDefinition::name).toList();
         assertEquals(List.of("export", "export_2"), names);
+    }
+
+    @Test
+    void emitsIndependentLosslessHttpApiInventoryForStaticSpringMappings(@TempDir Path tempDir) throws IOException {
+        Path controller = tempDir.resolve("OrderController.java");
+        Files.writeString(controller, """
+                package demo;
+
+                import org.springframework.web.bind.annotation.*;
+
+                @RestController
+                @RequestMapping(path = {"/v1", "/v2"}, headers = "X-Class=one", params = "tenant")
+                class OrderController {
+                    @RequestMapping(
+                            path = {"/orders/{id}", "/orders/by-id/{id}"},
+                            method = {RequestMethod.GET, RequestMethod.POST},
+                            consumes = "application/json",
+                            produces = {"application/json", "application/problem+json"},
+                            headers = {"X-Mode=full", "!X-Legacy"},
+                            params = "detail!=compact")
+                    @ResponseStatus(HttpStatus.CREATED)
+                    ResponseEntity<OrderResponse> find(
+                            @PathVariable("id") String id,
+                            @RequestParam(required = false) String query,
+                            @RequestHeader(name = "X-Trace", required = false) String trace,
+                            @CookieValue("session") String session,
+                            @RequestBody OrderRequest body) {
+                        return null;
+                    }
+                }
+
+                class OrderRequest { @NotBlank String name; }
+                class OrderResponse { String id; }
+                """);
+
+        ToolManifest manifest = scanner.scan(tempDir, new ProjectMetadata("orders", "http://localhost:9002", "/api"));
+
+        assertEquals(1, manifest.tools().size(), "legacy Tool view remains available");
+        assertTrue(manifest.httpApiInventoryComplete());
+        assertEquals(8, manifest.httpApis().size(), "2 class paths × 2 method paths × GET/POST");
+        HttpApiOperation operation = manifest.httpApis().stream()
+                .filter(item -> "GET".equals(item.httpMethod()) && "/v1/orders/{id}".equals(item.endpointPath()))
+                .findFirst().orElseThrow();
+        assertTrue(operation.sourceKey().startsWith("controller:"));
+        assertEquals("OrderController.java#demo.OrderController#find(String,String,String,String,OrderRequest)",
+                operation.sourceLocation());
+        assertTrue(operation.sourceRevision().startsWith("scan:"));
+        assertEquals("/api", operation.contextPath());
+        assertEquals(List.of("application/json"), operation.consumes());
+        assertEquals(List.of("application/json", "application/problem+json"), operation.produces());
+        assertTrue(operation.mappingConditions().contains(
+                new HttpApiOperation.MappingCondition("HEADER", "X-Class", "EQUALS", "one")));
+        assertTrue(operation.mappingConditions().contains(
+                new HttpApiOperation.MappingCondition("PARAM", "detail", "NOT_EQUALS", "compact")));
+        assertEquals(List.of("PATH", "QUERY", "HEADER", "COOKIE"),
+                operation.parameters().stream().map(HttpApiOperation.Parameter::location).toList());
+        assertNotNull(operation.requestBody());
+        assertEquals("BODY", operation.requestBody().location());
+        assertEquals("object", operation.requestBody().schema().path("type").asText());
+        assertEquals("201", operation.responses().get(0).status());
+        assertEquals("object", operation.responses().get(0).schema().path("type").asText());
+        assertEquals("UNKNOWN", operation.authenticationState());
+    }
+
+    @Test
+    void marksDynamicOrSecretMappingFactsIncompleteWithoutSerializingTheirLiteral(@TempDir Path tempDir) throws Exception {
+        Path controller = tempDir.resolve("SecretController.java");
+        Files.writeString(controller, """
+                import org.springframework.web.bind.annotation.GetMapping;
+                import org.springframework.web.bind.annotation.RestController;
+
+                @RestController
+                class SecretController {
+                    @GetMapping(headers = "Authorization=Bearer never-persist-this")
+                    String secret() { return "ok"; }
+                }
+                """);
+
+        ToolManifest manifest = scanner.scan(tempDir, new ProjectMetadata("orders", "http://localhost:9002", "/api"));
+
+        assertEquals(1, manifest.tools().size(), "old Tool scanning stays compatible");
+        assertEquals(List.of(), manifest.httpApis());
+        assertFalse(manifest.httpApiInventoryComplete());
+        assertFalse(new ObjectMapper().writeValueAsString(manifest).contains("never-persist-this"));
+    }
+
+    @Test
+    void followsSpringContentNegotiationHeaderSemanticsWithoutRetainingThemAsGenericHeaders(@TempDir Path tempDir)
+            throws IOException {
+        Path controller = tempDir.resolve("NegotiationController.java");
+        Files.writeString(controller, """
+                import org.springframework.web.bind.annotation.GetMapping;
+                import org.springframework.web.bind.annotation.RestController;
+
+                @RestController
+                class NegotiationController {
+                    @GetMapping(value = "/orders", headers = {
+                            "Content-Type=application/problem+json",
+                            "Accept!=application/json",
+                            "X-Mode=internal"})
+                    String orders() { return "ok"; }
+                }
+                """);
+
+        HttpApiOperation operation = scanner.scan(tempDir,
+                        new ProjectMetadata("orders", "http://localhost:9002", "/api"))
+                .httpApis().get(0);
+
+        assertEquals(List.of("application/problem+json"), operation.consumes());
+        assertEquals(List.of("!application/json"), operation.produces());
+        assertEquals("DEFAULT", operation.responses().get(0).status());
+        assertTrue(operation.mappingConditions().contains(
+                new HttpApiOperation.MappingCondition("HEADER", "X-Mode", "EQUALS", "internal")));
+        assertFalse(operation.mappingConditions().stream().anyMatch(condition ->
+                "HEADER".equals(condition.kind()) && ("content-type".equalsIgnoreCase(condition.name())
+                        || "accept".equalsIgnoreCase(condition.name()))));
+    }
+
+    @Test
+    void keepsSameMethodAndRouteAsSeparateOperationsWhenMappingConditionsDiffer(@TempDir Path tempDir)
+            throws IOException {
+        Path controller = tempDir.resolve("ConditionalOrdersController.java");
+        Files.writeString(controller, """
+                import org.springframework.web.bind.annotation.GetMapping;
+                import org.springframework.web.bind.annotation.RestController;
+
+                @RestController
+                class ConditionalOrdersController {
+                    @GetMapping(value = "/orders", headers = "X-Mode=internal")
+                    String internal() { return "internal"; }
+
+                    @GetMapping(value = "/orders", headers = "X-Mode=external")
+                    String external() { return "external"; }
+                }
+                """);
+
+        List<HttpApiOperation> operations = scanner.scan(tempDir,
+                        new ProjectMetadata("orders", "http://localhost:9002", "/api"))
+                .httpApis();
+
+        assertEquals(2, operations.size());
+        assertEquals(2, operations.stream().map(HttpApiOperation::sourceKey).distinct().count());
+        assertTrue(operations.stream().anyMatch(operation -> operation.mappingConditions().contains(
+                new HttpApiOperation.MappingCondition("HEADER", "X-Mode", "EQUALS", "internal"))));
+        assertTrue(operations.stream().anyMatch(operation -> operation.mappingConditions().contains(
+                new HttpApiOperation.MappingCondition("HEADER", "X-Mode", "EQUALS", "external"))));
+    }
+
+    @Test
+    void treatsAnInvalidStaticPathAsIncompleteInsteadOfInventingARootOperation(@TempDir Path tempDir)
+            throws IOException {
+        Path controller = tempDir.resolve("InvalidPathController.java");
+        Files.writeString(controller, """
+                import org.springframework.web.bind.annotation.GetMapping;
+                import org.springframework.web.bind.annotation.RestController;
+
+                @RestController
+                class InvalidPathController {
+                    @GetMapping("/orders?should-not-be-a-route")
+                    String orders() { return "ok"; }
+                }
+                """);
+
+        ToolManifest manifest = scanner.scan(tempDir, new ProjectMetadata("orders", "http://localhost:9002", "/api"));
+
+        assertEquals(List.of(), manifest.httpApis());
+        assertFalse(manifest.httpApiInventoryComplete());
+    }
+
+    @Test
+    void treatsRecognizableButUnsupportedComposedMappingsAsIncompleteWithoutPenalizingOrdinaryAnnotations(
+            @TempDir Path tempDir) throws IOException {
+        Path customMapping = tempDir.resolve("CustomMappingController.java");
+        Files.writeString(customMapping, """
+                import org.springframework.web.bind.annotation.RequestMapping;
+                import org.springframework.web.bind.annotation.RequestMethod;
+                import org.springframework.web.bind.annotation.RestController;
+
+                @RequestMapping(method = RequestMethod.GET)
+                @interface InternalOrdersRoute { }
+
+                @RestController
+                class CustomMappingController {
+                    @InternalOrdersRoute
+                    String orders() { return "ok"; }
+                }
+                """);
+
+        ToolManifest customManifest = scanner.scan(tempDir,
+                new ProjectMetadata("orders", "http://localhost:9002", "/api"));
+
+        assertEquals(List.of(), customManifest.httpApis());
+        assertFalse(customManifest.httpApiInventoryComplete(),
+                "a source-declared but unexpandable HTTP mapping must never become a complete empty inventory");
+
+        Files.delete(customMapping);
+        Path ordinaryAnnotation = tempDir.resolve("OrdinaryAnnotationController.java");
+        Files.writeString(ordinaryAnnotation, """
+                import org.springframework.web.bind.annotation.GetMapping;
+                import org.springframework.web.bind.annotation.RestController;
+
+                @RestController
+                class OrdinaryAnnotationController {
+                    @AuditTrail
+                    @GetMapping("/orders")
+                    String orders() { return "ok"; }
+                }
+                """);
+
+        ToolManifest ordinaryManifest = scanner.scan(tempDir,
+                new ProjectMetadata("orders", "http://localhost:9002", "/api"));
+
+        assertEquals(1, ordinaryManifest.httpApis().size());
+        assertTrue(ordinaryManifest.httpApiInventoryComplete());
+    }
+
+    @Test
+    void preservesMissingExplicitEmptyAndPartialHttpApiWireSemantics() throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        ProjectMetadata project = new ProjectMetadata("orders", "http://localhost:9002", "/api");
+        ToolManifest oldWire = new ToolManifest(project, List.of());
+        ToolManifest explicitEmpty = new ToolManifest(project, List.of(), List.of(), true);
+        ToolManifest partial = new ToolManifest(project, List.of(), List.of(), false);
+
+        String oldPayload = mapper.writeValueAsString(oldWire);
+        assertFalse(mapper.readTree(oldPayload).has("httpApis"));
+        assertNull(mapper.readValue(oldPayload, ToolManifest.class).httpApis());
+        assertEquals(true, mapper.readValue(mapper.writeValueAsString(explicitEmpty), ToolManifest.class)
+                .httpApiInventoryComplete());
+        assertEquals(List.of(), mapper.readValue(mapper.writeValueAsString(explicitEmpty), ToolManifest.class).httpApis());
+        assertEquals(false, mapper.readValue(mapper.writeValueAsString(partial), ToolManifest.class)
+                .httpApiInventoryComplete());
+    }
+
+    @Test
+    void opaqueExternalAnnotationOnAnOtherwiseUnmappedControllerMethodIsUnknownCoverage(@TempDir Path root)
+            throws IOException {
+        Files.writeString(root.resolve("OrdersController.java"), """
+                import org.springframework.web.bind.annotation.RestController;
+                import external.routes.ReadRoute;
+                @RestController
+                class OrdersController {
+                    @ReadRoute
+                    String orders() { return "ok"; }
+                }
+                """);
+        ToolManifest unknown = scanner.scan(root, new ProjectMetadata("orders", "http://localhost:9002", "/api"));
+        assertEquals(List.of(), unknown.httpApis());
+        assertFalse(unknown.httpApiInventoryComplete(),
+                "unresolved annotations may be composed HTTP mappings; unknown is not confirmed absence");
+    }
+
+    @Test
+    void makesAnIncrementalControllerInventoryExplicitlyPartial(@TempDir Path tempDir) throws IOException {
+        Path controller = tempDir.resolve("HealthController.java");
+        Files.writeString(controller, """
+                import org.springframework.web.bind.annotation.GetMapping;
+                import org.springframework.web.bind.annotation.RestController;
+
+                @RestController
+                class HealthController {
+                    @GetMapping("/health")
+                    String health() { return "ok"; }
+                }
+                """);
+        ScanOptions options = ScanOptions.empty();
+        options.setIncrementalMode(ScanOptions.MODE_MTIME);
+
+        ToolManifest manifest = scanner.scan(tempDir, new ProjectMetadata("orders", "http://localhost:9002", "/api"),
+                options, System.currentTimeMillis() + 1_000L);
+
+        assertEquals(List.of(), manifest.httpApis());
+        assertFalse(manifest.httpApiInventoryComplete());
     }
 }

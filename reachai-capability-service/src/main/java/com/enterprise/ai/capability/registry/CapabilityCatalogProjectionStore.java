@@ -29,14 +29,26 @@ public class CapabilityCatalogProjectionStore {
     private final CapabilityChangePolicy changePolicy;
 
     @Transactional(propagation = Propagation.MANDATORY)
-    public void bindUnchangedSource(ScanProjectToolEntity row, ToolDefinitionEntity tool, String sourceKey) {
-        if (row != null && row.getSourceQualifiedName() == null) {
-            row.setSourceQualifiedName(sourceKey);
-            scanProjectToolMapper.updateById(row);
+    public void bindUnchangedSource(ScanProjectToolEntity row, ToolDefinitionEntity tool, String sourceKey,
+                                    CapabilityAssetType acceptedAssetType) {
+        String assetType = acceptedAssetType == null ? null : acceptedAssetType.name();
+        if (row != null) {
+            boolean sourceMissing = row.getSourceQualifiedName() == null;
+            boolean assetTypeNeedsRepair = assetType != null && !Objects.equals(assetType, row.getAssetType());
+            if (sourceMissing || assetTypeNeedsRepair) {
+                if (sourceMissing) row.setSourceQualifiedName(sourceKey);
+                if (assetTypeNeedsRepair) row.setAssetType(assetType);
+                scanProjectToolMapper.updateById(row);
+            }
         }
-        if (tool != null && tool.getSourceQualifiedName() == null) {
-            tool.setSourceQualifiedName(sourceKey);
-            toolDefinitionMapper.updateById(tool);
+        if (tool != null) {
+            boolean sourceMissing = tool.getSourceQualifiedName() == null;
+            boolean assetTypeNeedsRepair = assetType != null && !Objects.equals(assetType, tool.getAssetType());
+            if (sourceMissing || assetTypeNeedsRepair) {
+                if (sourceMissing) tool.setSourceQualifiedName(sourceKey);
+                if (assetTypeNeedsRepair) tool.setAssetType(assetType);
+                toolDefinitionMapper.updateById(tool);
+            }
         }
     }
 
@@ -73,6 +85,7 @@ public class CapabilityCatalogProjectionStore {
         row.setSource("scanner");
         row.setSourceLocation(sourceLocation);
         row.setSourceQualifiedName(qualifiedName);
+        row.setAssetType(changePolicy.assetType(registration).name());
         row.setHttpMethod(firstText(registration.httpMethod(), "POST"));
         row.setBaseUrl(firstText(registration.baseUrl(), project.getBaseUrl()));
         row.setContextPath(registration.contextPath());
@@ -172,6 +185,7 @@ public class CapabilityCatalogProjectionStore {
         globalTool.setSource("scanner");
         globalTool.setSourceLocation(scanTool.getSourceLocation());
         globalTool.setSourceQualifiedName(qualifiedName);
+        globalTool.setAssetType(scanTool.getAssetType());
         globalTool.setHttpMethod(scanTool.getHttpMethod());
         globalTool.setBaseUrl(scanTool.getBaseUrl());
         globalTool.setContextPath(scanTool.getContextPath());
@@ -255,7 +269,8 @@ public class CapabilityCatalogProjectionStore {
         JsonNode expected;
         JsonNode current;
         try {
-            expected = objectMapper.readTree(item.getBeforeStateJson());
+            expected = CapabilityCatalogStateCodec.normalizeLegacyAssetTypes(
+                    objectMapper.readTree(item.getBeforeStateJson()));
             ScanProjectToolEntity currentScan = findCatalogRow(project, item);
             ToolDefinitionEntity currentGlobal = findGlobalTool(
                     currentScan,

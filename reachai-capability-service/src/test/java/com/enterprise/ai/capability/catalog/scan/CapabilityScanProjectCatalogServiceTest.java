@@ -17,9 +17,12 @@ import com.enterprise.ai.agent.registry.CapabilitySnapshotMapper;
 import com.enterprise.ai.agent.registry.RegistryCredentialEntity;
 import com.enterprise.ai.agent.registry.RegistryCredentialMapper;
 import com.enterprise.ai.agent.registry.RegistrySecurityService;
-import com.enterprise.ai.capability.internal.CapabilityToolExecutionService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
+import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -29,11 +32,14 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class CapabilityScanProjectCatalogServiceTest {
@@ -47,10 +53,11 @@ class CapabilityScanProjectCatalogServiceTest {
     private final RegistrySecurityService registrySecurityService = mock(RegistrySecurityService.class);
     private final CapabilityScanProjectBlockerService scanProjectBlockerService =
             mock(CapabilityScanProjectBlockerService.class);
-    private final CapabilityToolExecutionService toolExecutionService = mock(CapabilityToolExecutionService.class);
     private final CapabilityScannerClient scannerClient = mock(CapabilityScannerClient.class);
     private final ProjectInstanceMapper projectInstanceMapper = mock(ProjectInstanceMapper.class);
     private final CapabilitySnapshotMapper capabilitySnapshotMapper = mock(CapabilitySnapshotMapper.class);
+    private final ControllerScanHttpApiIntakeService controllerHttpApiIntake = mock(ControllerScanHttpApiIntakeService.class);
+    private final OpenApiScanHttpApiIntakeService openApiHttpApiIntake = mock(OpenApiScanHttpApiIntakeService.class);
     private final CapabilityScanProjectCatalogService service =
             new CapabilityScanProjectCatalogService(
                     scanProjectMapper,
@@ -60,12 +67,13 @@ class CapabilityScanProjectCatalogServiceTest {
                     registryCredentialMapper,
                     registrySecurityService,
                     scanProjectBlockerService,
-                    toolExecutionService,
                     toolDefinitionMapper,
                     scannerClient,
                     projectInstanceMapper,
                     capabilitySnapshotMapper,
-                    new ObjectMapper());
+                    new ObjectMapper(),
+                    controllerHttpApiIntake,
+                    openApiHttpApiIntake);
 
     @Test
     void listsScanProjectsByRecentUpdate() {
@@ -352,101 +360,9 @@ class CapabilityScanProjectCatalogServiceTest {
         assertThrows(IllegalArgumentException.class, () -> service.getTool(7L, 404L));
     }
 
-    @Test
-    void updatesScanProjectToolEditableFields() {
-        ScanProjectEntity project = new ScanProjectEntity();
-        project.setId(7L);
-        ScanProjectToolEntity existing = tool(11L, "GET", "/orders", "Old", "AI description", 99L);
-        when(scanProjectMapper.selectById(7L)).thenReturn(project);
-        when(scanProjectToolMapper.selectOne(any())).thenReturn(existing);
 
-        ScanProjectToolEntity result = service.updateTool(7L, 11L, new CapabilityScanProjectCatalogService.ScanProjectToolUpsertRequest(
-                "orders_create",
-                "创建订单",
-                "Create order",
-                List.of(new ToolDefinitionParameter("body", "object", "request", true, "body")),
-                "code",
-                "com.example.OrderController#create",
-                "POST",
-                "https://api.example.com",
-                "/api",
-                "/orders",
-                "OrderCreateRequest",
-                "OrderDTO",
-                true
-        ));
 
-        assertEquals(existing, result);
-        assertEquals("orders_create", existing.getName());
-        assertEquals("创建订单", existing.getTitle());
-        assertEquals("Create order", existing.getDescription());
-        assertEquals("POST", existing.getHttpMethod());
-        assertEquals("/api", existing.getContextPath());
-        assertEquals("/orders", existing.getEndpointPath());
-        assertEquals(true, existing.getEnabled());
-        verify(scanProjectToolMapper).updateById(existing);
-    }
 
-    @Test
-    void rejectsScanProjectToolUpdateWithBlankName() {
-        ScanProjectEntity project = new ScanProjectEntity();
-        project.setId(7L);
-        when(scanProjectMapper.selectById(7L)).thenReturn(project);
-        when(scanProjectToolMapper.selectOne(any())).thenReturn(tool(11L, "GET", "/orders", "Old", "AI", null));
-
-        assertThrows(IllegalArgumentException.class, () -> service.updateTool(7L, 11L,
-                new CapabilityScanProjectCatalogService.ScanProjectToolUpsertRequest(
-                        " ",
-                        "创建订单",
-                        "Create order",
-                        List.of(),
-                        "code",
-                        null,
-                        "POST",
-                        null,
-                        null,
-                        "/orders",
-                        null,
-                        null,
-                        false
-                )));
-    }
-
-    @Test
-    void togglesScanProjectToolEnabledFlag() {
-        ScanProjectEntity project = new ScanProjectEntity();
-        project.setId(7L);
-        ScanProjectToolEntity existing = tool(11L, "GET", "/orders", "Old", "AI description", null);
-        existing.setEnabled(true);
-        when(scanProjectMapper.selectById(7L)).thenReturn(project);
-        when(scanProjectToolMapper.selectOne(any())).thenReturn(existing);
-
-        ScanProjectToolEntity result = service.toggleTool(7L, 11L, false);
-
-        assertEquals(existing, result);
-        assertEquals(false, existing.getEnabled());
-        verify(scanProjectToolMapper).updateById(existing);
-    }
-
-    @Test
-    void testsScanProjectToolThroughExecutionService() {
-        ScanProjectEntity project = new ScanProjectEntity();
-        project.setId(7L);
-        ScanProjectToolEntity existing = tool(11L, "POST", "/orders", "Create order", "AI description", null);
-        existing.setEnabled(true);
-        existing.setBaseUrl("https://api.example.com");
-        existing.setContextPath("/api");
-        when(scanProjectMapper.selectById(7L)).thenReturn(project);
-        when(scanProjectToolMapper.selectOne(any())).thenReturn(existing);
-        Map<String, Object> args = Map.of("orderNo", "A001");
-        Map<String, Object> expected = Map.of("success", true, "data", Map.of("status", "CREATED"));
-        when(toolExecutionService.execute(existing, Map.of("input", args))).thenReturn(expected);
-
-        Map<String, Object> result = service.testTool(7L, 11L, args);
-
-        assertEquals(expected, result);
-        verify(toolExecutionService).execute(existing, Map.of("input", args));
-    }
 
     @Test
     void scansProjectThroughKnowledgeScannerAndPersistsTools() {
@@ -515,6 +431,170 @@ class CapabilityScanProjectCatalogServiceTest {
     }
 
     @Test
+    void controllerRescanPrevalidatesFullHttpInventoryBeforeLegacyRowsAndObservesItAfterward() {
+        ScanProjectEntity project = project();
+        project.setScanType("controller");
+        project.setEnvironment("prod");
+        project.setContextPath("/orders-api");
+        project.setLastScannedAt(LocalDateTime.now().minusHours(1));
+        CapabilityScannerClient.HttpApiData httpApi = new CapabilityScannerClient.HttpApiData(
+                "controller:orders#find", "src/OrdersController.java:42", "controller-r1", "GET", "/ignored",
+                "/orders/{id}", List.of(), List.of(), List.of(), List.of(), null, List.of(), "UNKNOWN",
+                List.of(), List.of(), "READ_ONLY");
+        CapabilityScannerClient.ToolData legacyTool = new CapabilityScannerClient.ToolData(
+                "findOrder", "Find order", List.of(),
+                new CapabilityScannerClient.ToolSourceData("controller", "com.example.OrdersController#find"),
+                "GET", "/orders/{id}", null, "Order", Map.of());
+        CapabilityScannerClient.ManifestData manifest = new CapabilityScannerClient.ManifestData(
+                new CapabilityScannerClient.ProjectData("untrusted-scanner-name", "https://ignored", "/ignored"),
+                List.of(legacyTool), List.of(httpApi), true);
+        ControllerScanHttpApiIntakeService.Plan plan = new ControllerScanHttpApiIntakeService.Plan(
+                true, true, new com.enterprise.ai.capability.catalog.httpapi.HttpApiServiceScope(7L, "orders", "prod"),
+                List.of());
+        when(scanProjectMapper.selectById(7L)).thenReturn(project);
+        when(scanProjectBlockerService.analyze(7L)).thenReturn(new ScanProjectBlockers(false, List.of(), List.of()));
+        when(scanProjectToolMapper.selectList(any())).thenReturn(List.of());
+        when(scannerClient.scanController(any())).thenReturn(com.enterprise.ai.common.dto.ApiResult.ok(manifest));
+        when(controllerHttpApiIntake.prepare(project, manifest.httpApis(), true)).thenReturn(plan);
+
+        CapabilityScanProjectCatalogService.ScanResult result = service.rescan(7L);
+
+        assertEquals(List.of("find_order"), result.toolNames());
+        ArgumentCaptor<CapabilityScannerClient.ScanRequest> request = ArgumentCaptor.forClass(CapabilityScannerClient.ScanRequest.class);
+        verify(scannerClient).scanController(request.capture());
+        assertNull(request.getValue().incrementalSinceEpochMs(),
+                "Controller rescans need a complete inventory before they may reconcile removed source bindings");
+        verify(scannerClient, never()).scanOpenApi(any());
+        InOrder order = org.mockito.Mockito.inOrder(controllerHttpApiIntake, scanProjectToolMapper);
+        order.verify(controllerHttpApiIntake).prepare(project, manifest.httpApis(), true);
+        order.verify(scanProjectToolMapper).insert(any());
+        order.verify(controllerHttpApiIntake).observe(plan);
+    }
+
+    @Test
+    void openApiRescanPrevalidatesFullHttpInventoryBeforeLegacyRowsAndObservesItAfterward() {
+        ScanProjectEntity project = project();
+        project.setScanType("openapi");
+        project.setEnvironment("prod");
+        project.setContextPath("/orders-api");
+        project.setLastScannedAt(LocalDateTime.now().minusHours(1));
+        CapabilityScannerClient.HttpApiData httpApi = new CapabilityScannerClient.HttpApiData(
+                "openapi:contracts/orders.yaml:hash", "contracts/orders.yaml#/paths/~1orders/get", "scan-r1",
+                "GET", "/untrusted", "/orders", List.of(), List.of(), List.of(), List.of(), null, List.of(),
+                "UNKNOWN", List.of(), List.of(), "READ_ONLY");
+        CapabilityScannerClient.ToolData legacyTool = new CapabilityScannerClient.ToolData(
+                "findOrder", "Find order", List.of(),
+                new CapabilityScannerClient.ToolSourceData("openapi", "orders.yaml#/paths/~1orders/get"),
+                "GET", "/orders", null, "Order", Map.of());
+        CapabilityScannerClient.ManifestData manifest = new CapabilityScannerClient.ManifestData(
+                new CapabilityScannerClient.ProjectData("untrusted-scanner-name", "https://ignored", "/ignored"),
+                List.of(legacyTool), List.of(httpApi), true);
+        OpenApiScanHttpApiIntakeService.Plan plan = new OpenApiScanHttpApiIntakeService.Plan(
+                true, true, new com.enterprise.ai.capability.catalog.httpapi.HttpApiServiceScope(7L, "orders", "prod"),
+                List.of());
+        when(scanProjectMapper.selectById(7L)).thenReturn(project);
+        when(scanProjectBlockerService.analyze(7L)).thenReturn(new ScanProjectBlockers(false, List.of(), List.of()));
+        when(scanProjectToolMapper.selectList(any())).thenReturn(List.of());
+        when(scannerClient.scanOpenApi(any())).thenReturn(com.enterprise.ai.common.dto.ApiResult.ok(manifest));
+        when(openApiHttpApiIntake.prepare(project, manifest.httpApis(), true)).thenReturn(plan);
+
+        CapabilityScanProjectCatalogService.ScanResult result = service.rescan(7L);
+
+        assertEquals(List.of("orders__find_order"), result.toolNames());
+        ArgumentCaptor<CapabilityScannerClient.ScanRequest> request = ArgumentCaptor.forClass(CapabilityScannerClient.ScanRequest.class);
+        verify(scannerClient).scanOpenApi(request.capture());
+        assertNull(request.getValue().incrementalSinceEpochMs(),
+                "OpenAPI rescans need a full document inventory before they may reconcile removed source bindings");
+        verify(scannerClient, never()).scanController(any());
+        InOrder order = org.mockito.Mockito.inOrder(openApiHttpApiIntake, scanProjectToolMapper);
+        order.verify(openApiHttpApiIntake).prepare(project, manifest.httpApis(), true);
+        order.verify(scanProjectToolMapper).insert(any());
+        order.verify(openApiHttpApiIntake).observe(plan);
+    }
+
+    @Test
+    void singleToolControllerRefreshDoesNotReconcileHttpApiSources() {
+        ScanProjectEntity project = project();
+        project.setScanType("controller");
+        project.setContextPath("/orders-api");
+        ScanProjectToolEntity existing = tool(11L, "GET", "/orders/{id}", "Old description", "AI", null);
+        existing.setProjectId(7L);
+        existing.setName("find_order");
+        CapabilityScannerClient.ToolData scannerTool = new CapabilityScannerClient.ToolData(
+                "findOrder", "Fresh description", List.of(),
+                new CapabilityScannerClient.ToolSourceData("controller", "com.example.OrdersController#find"),
+                "GET", "/orders/{id}", null, "Order", Map.of());
+        when(scanProjectMapper.selectById(7L)).thenReturn(project);
+        when(scanProjectToolMapper.selectOne(any())).thenReturn(existing);
+        when(scannerClient.scanController(any())).thenReturn(okManifest(List.of(scannerTool)));
+
+        ScanProjectToolEntity refreshed = service.rescanSingleTool(7L, 11L);
+
+        assertEquals(existing, refreshed);
+        assertEquals("Fresh description", existing.getDescription());
+        verifyNoInteractions(controllerHttpApiIntake);
+        verifyNoInteractions(openApiHttpApiIntake);
+    }
+
+    @Test
+    void singleToolOpenApiRefreshDoesNotReconcileHttpApiSources() {
+        ScanProjectEntity project = project();
+        project.setScanType("openapi");
+        project.setContextPath("/orders-api");
+        ScanProjectToolEntity existing = tool(11L, "GET", "/orders/{id}", "Old description", "AI", null);
+        existing.setProjectId(7L);
+        existing.setName("find_order");
+        CapabilityScannerClient.ToolData scannerTool = new CapabilityScannerClient.ToolData(
+                "findOrder", "Fresh description", List.of(),
+                new CapabilityScannerClient.ToolSourceData("openapi", "orders.yaml#/paths/~1orders~1{id}/get"),
+                "GET", "/orders/{id}", null, "Order", Map.of());
+        when(scanProjectMapper.selectById(7L)).thenReturn(project);
+        when(scanProjectToolMapper.selectOne(any())).thenReturn(existing);
+        when(scannerClient.scanOpenApi(any())).thenReturn(okManifest(List.of(scannerTool)));
+
+        ScanProjectToolEntity refreshed = service.rescanSingleTool(7L, 11L);
+
+        assertEquals(existing, refreshed);
+        assertEquals("Fresh description", existing.getDescription());
+        verifyNoInteractions(controllerHttpApiIntake, openApiHttpApiIntake);
+    }
+
+    @Test
+    void controllerSourceOperationsDeclareReadCommittedProjectTransactions() throws Exception {
+        Transactional scan = CapabilityScanProjectCatalogService.class.getMethod("scan", Long.class)
+                .getAnnotation(Transactional.class);
+        Transactional rescan = CapabilityScanProjectCatalogService.class.getMethod("rescan", Long.class)
+                .getAnnotation(Transactional.class);
+
+        assertNotNull(scan);
+        assertNotNull(rescan);
+        assertEquals(Isolation.READ_COMMITTED, scan.isolation());
+        assertEquals(Isolation.READ_COMMITTED, rescan.isolation());
+    }
+
+    @Test
+    void scannerWireDistinguishesOldMissingInventoryFromExplicitEmptyAndPartialInventory() throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        String project = "{\"name\":\"orders\",\"baseUrl\":\"http://scanner\",\"contextPath\":\"/ignored\"}";
+
+        CapabilityScannerClient.ManifestData oldWire = mapper.readValue(
+                "{\"project\":" + project + ",\"tools\":[]}", CapabilityScannerClient.ManifestData.class);
+        CapabilityScannerClient.ManifestData explicitEmpty = mapper.readValue(
+                "{\"project\":" + project + ",\"tools\":[],\"httpApis\":[],\"httpApiInventoryComplete\":true}",
+                CapabilityScannerClient.ManifestData.class);
+        CapabilityScannerClient.ManifestData partial = mapper.readValue(
+                "{\"project\":" + project + ",\"tools\":[],\"httpApis\":[],\"httpApiInventoryComplete\":false}",
+                CapabilityScannerClient.ManifestData.class);
+
+        assertNull(oldWire.httpApis());
+        assertNull(oldWire.httpApiInventoryComplete());
+        assertEquals(List.of(), explicitEmpty.httpApis());
+        assertEquals(true, explicitEmpty.httpApiInventoryComplete());
+        assertEquals(List.of(), partial.httpApis());
+        assertEquals(false, partial.httpApiInventoryComplete());
+    }
+
+    @Test
     void rescanSingleToolKeepsIdentityAndUpdatesManifestFields() {
         ScanProjectEntity project = project();
         project.setContextPath("/api");
@@ -545,6 +625,31 @@ class CapabilityScanProjectCatalogServiceTest {
         assertEquals(true, existing.getEnabled());
         assertEquals(false, existing.getRemovedFromSource());
         verify(scanProjectToolMapper).updateById(existing);
+    }
+
+    @Test
+    void reconcilesOnlyUnlinkedSourceRowsWithoutTouchingAnyProjection() {
+        ScanProjectEntity project = new ScanProjectEntity();
+        project.setId(7L);
+        ScanProjectToolEntity controller = tool(11L, "GET", "/orders/{id}", "Controller order", "AI", null);
+        ScanProjectToolEntity openapi = tool(12L, "GET", "/orders/{id}", "OpenAPI order", "AI", null);
+        controller.setRemovedFromSource(true);
+        when(scanProjectMapper.selectById(7L)).thenReturn(project);
+        when(scanProjectToolMapper.selectList(any())).thenReturn(List.of(controller, openapi));
+
+        CapabilityScanProjectCatalogService.ToolReconcileSummary summary = service.reconcileTools(7L);
+
+        assertEquals(2, summary.notLinked());
+        assertEquals(0, summary.sdkMirrorsEnsured());
+        assertEquals(0, summary.inSync());
+        assertEquals(0, summary.pendingUpdate());
+        assertEquals(0, summary.apiRemovedStale());
+        assertEquals(0, summary.globalMissing());
+        assertEquals(0, summary.sdkReviewPendingRows());
+        verifyNoInteractions(toolDefinitionMapper, scannerClient, controllerHttpApiIntake, openApiHttpApiIntake);
+        verify(scanProjectToolMapper, never()).insert(any(ScanProjectToolEntity.class));
+        verify(scanProjectToolMapper, never()).updateById(any(ScanProjectToolEntity.class));
+        verify(scanProjectToolMapper, never()).deleteById(any(Long.class));
     }
 
     @Test
@@ -581,37 +686,6 @@ class CapabilityScanProjectCatalogServiceTest {
         assertEquals(0, summary.sdkReviewPendingRows());
     }
 
-    @Test
-    void promotesScanProjectToolToGlobalTool() {
-        ScanProjectEntity project = project();
-        ScanProjectToolEntity scanTool = tool(11L, "POST", "/orders", "Create order", "AI", null);
-        scanTool.setProjectId(7L);
-        scanTool.setBaseUrl("https://api.example.com");
-        scanTool.setContextPath("/api");
-        scanTool.setParametersJson("[{\"name\":\"body\",\"type\":\"object\"}]");
-        AtomicReference<ToolDefinitionEntity> inserted = new AtomicReference<>();
-        when(scanProjectMapper.selectById(7L)).thenReturn(project);
-        when(scanProjectToolMapper.selectOne(any())).thenReturn(scanTool);
-        when(toolDefinitionMapper.insert(any())).thenAnswer(invocation -> {
-            ToolDefinitionEntity entity = invocation.getArgument(0);
-            entity.setId(501L);
-            inserted.set(entity);
-            return 1;
-        });
-
-        CapabilityScanProjectCatalogService.PromotedGlobalTool result = service.promoteTool(7L, 11L);
-
-        assertEquals(501L, result.globalToolId());
-        assertEquals("tool11", result.globalToolName());
-        assertEquals(501L, scanTool.getGlobalToolDefinitionId());
-        assertEquals("Tool 11", inserted.get().getTitle());
-        assertEquals("scanner", inserted.get().getSource());
-        assertEquals(7L, inserted.get().getProjectId());
-        assertEquals("orders", inserted.get().getProjectCode());
-        assertEquals("orders:tool11", inserted.get().getQualifiedName());
-        assertEquals("https://api.example.com", inserted.get().getBaseUrl());
-        verify(scanProjectToolMapper).updateById(scanTool);
-    }
 
     @Test
     void sdkAccessCheckUsesSuccessfulSignedCallbackSnapshotAsCallbackEvidence() {
@@ -733,133 +807,11 @@ class CapabilityScanProjectCatalogServiceTest {
                 """.formatted(baseUrl, contextPath);
     }
 
-    @Test
-    void legacyPromotionCannotCreateAnSdkProjectionOutsideSourceGovernance() {
-        ScanProjectEntity project = project();
-        ScanProjectToolEntity scanTool = tool(11L, "POST", "/reachai/capabilities/qmssmp.team.search/invoke",
-                "查询班组信息", null, null);
-        scanTool.setProjectId(7L);
-        scanTool.setName("orders_qmssmp_team_search");
-        scanTool.setTitle("查询班组信息");
-        scanTool.setSourceLocation("sdk:orders:qmssmp.team.search");
-        scanTool.setCapabilityMetadataJson("{\"sideEffect\":\"READ\"}");
-        when(scanProjectMapper.selectById(7L)).thenReturn(project);
-        when(scanProjectToolMapper.selectOne(any())).thenReturn(scanTool);
-        assertTrue(assertThrows(IllegalArgumentException.class,
-                () -> service.promoteTool(7L, 11L)).getMessage().startsWith("CAPABILITY_SOURCE_OWNED:"));
-        org.mockito.Mockito.verifyNoInteractions(toolDefinitionMapper);
-    }
 
-    @Test
-    void everyLegacyMutationRejectsSourceOwnedRowsEvenWithoutDisplayLocation() {
-        ScanProjectToolEntity row = tool(11L, "POST", "/orders", "Orders", null, 501L);
-        row.setProjectId(7L);
-        row.setModuleId(3L);
-        row.setSourceQualifiedName("orders:query");
-        row.setSourceLocation(null);
-        when(scanProjectMapper.selectById(7L)).thenReturn(project());
-        when(scanProjectToolMapper.selectOne(any())).thenReturn(row);
-        when(scanProjectToolMapper.selectList(any())).thenReturn(List.of(row));
-        List<Runnable> commands = List.of(
-                () -> service.toggleTool(7L, 11L, false),
-                () -> service.rescanSingleTool(7L, 11L),
-                () -> service.promoteTool(7L, 11L),
-                () -> service.pushToolToGlobal(7L, 11L),
-                () -> service.unpromoteTool(7L, 11L),
-                () -> service.promoteModuleTools(7L, 3L),
-                () -> service.updateTool(7L, 11L,
-                        new CapabilityScanProjectCatalogService.ScanProjectToolUpsertRequest(
-                                "renamed", "Title", "Description", List.of(), "scanner", null,
-                                "POST", "https://orders.example", null, "/changed", null, null, true)));
-        for (Runnable command : commands) {
-            assertTrue(assertThrows(IllegalArgumentException.class, command::run)
-                    .getMessage().startsWith("CAPABILITY_SOURCE_OWNED:"));
-        }
-        org.mockito.Mockito.verifyNoInteractions(toolDefinitionMapper, scannerClient);
-        verify(scanProjectToolMapper, org.mockito.Mockito.never()).updateById(any());
-        assertEquals("/orders", row.getEndpointPath());
-    }
 
-    @Test
-    void anUnmanagedScanRowCannotOverwriteOrDeleteASourceOwnedProjection() {
-        ScanProjectToolEntity row = tool(11L, "POST", "/orders", "Orders", null, 501L);
-        ToolDefinitionEntity projection = globalTool(501L, row);
-        projection.setSourceQualifiedName("orders:query");
-        when(scanProjectMapper.selectById(7L)).thenReturn(project());
-        when(scanProjectToolMapper.selectOne(any())).thenReturn(row);
-        when(toolDefinitionMapper.selectById(501L)).thenReturn(projection);
-        when(toolDefinitionMapper.selectOne(any())).thenReturn(projection);
-        assertThrows(IllegalArgumentException.class, () -> service.pushToolToGlobal(7L, 11L));
-        assertThrows(IllegalArgumentException.class, () -> service.unpromoteTool(7L, 11L));
-        verify(toolDefinitionMapper, org.mockito.Mockito.never()).updateById(any());
-        verify(toolDefinitionMapper, org.mockito.Mockito.never()).deleteById(501L);
-    }
 
-    @Test
-    void pushesScanProjectToolFieldsToLinkedGlobalTool() {
-        ScanProjectEntity project = project();
-        ScanProjectToolEntity scanTool = tool(11L, "POST", "/orders", "Create order", "AI", 501L);
-        scanTool.setProjectId(7L);
-        scanTool.setBaseUrl("https://api.example.com");
-        scanTool.setContextPath("/api");
-        ToolDefinitionEntity global = globalTool(501L, scanTool);
-        global.setDescription("Old description");
-        when(scanProjectMapper.selectById(7L)).thenReturn(project);
-        when(scanProjectToolMapper.selectOne(any())).thenReturn(scanTool);
-        when(toolDefinitionMapper.selectById(501L)).thenReturn(global);
 
-        ScanProjectToolEntity result = service.pushToolToGlobal(7L, 11L);
 
-        assertEquals(scanTool, result);
-        assertEquals("Create order", global.getDescription());
-        assertEquals("scanner", global.getSource());
-        assertEquals("orders:tool11", global.getQualifiedName());
-        verify(toolDefinitionMapper).updateById(global);
-    }
-
-    @Test
-    void unpromotesScanProjectToolFromGlobalTool() {
-        ScanProjectEntity project = project();
-        ScanProjectToolEntity scanTool = tool(11L, "POST", "/orders", "Create order", "AI", 501L);
-        when(scanProjectMapper.selectById(7L)).thenReturn(project);
-        when(scanProjectToolMapper.selectOne(any())).thenReturn(scanTool);
-
-        ScanProjectToolEntity result = service.unpromoteTool(7L, 11L);
-
-        assertEquals(scanTool, result);
-        assertEquals(null, scanTool.getGlobalToolDefinitionId());
-        verify(toolDefinitionMapper).deleteById(501L);
-        verify(scanProjectToolMapper).updateById(scanTool);
-    }
-
-    @Test
-    void promotesModuleScanToolsToGlobalTools() {
-        ScanProjectEntity project = project();
-        ScanProjectToolEntity first = tool(11L, "POST", "/orders", "Create order", "AI", null);
-        first.setProjectId(7L);
-        first.setModuleId(3L);
-        ScanProjectToolEntity alreadyLinked = tool(12L, "GET", "/orders", "List orders", "AI", 99L);
-        alreadyLinked.setProjectId(7L);
-        alreadyLinked.setModuleId(3L);
-        AtomicReference<ToolDefinitionEntity> inserted = new AtomicReference<>();
-        when(scanProjectMapper.selectById(7L)).thenReturn(project);
-        when(scanProjectToolMapper.selectList(any())).thenReturn(List.of(first, alreadyLinked));
-        when(toolDefinitionMapper.insert(any())).thenAnswer(invocation -> {
-            ToolDefinitionEntity entity = invocation.getArgument(0);
-            entity.setId(601L);
-            inserted.set(entity);
-            return 1;
-        });
-
-        CapabilityScanProjectCatalogService.BatchPromoteToToolsResult result =
-                service.promoteModuleTools(7L, 3L);
-
-        assertEquals(1, result.promotedCount());
-        assertEquals(List.of(new CapabilityScanProjectCatalogService.PromotedGlobalTool(601L, "tool11")), result.items());
-        assertEquals(601L, first.getGlobalToolDefinitionId());
-        assertEquals("orders:tool11", inserted.get().getQualifiedName());
-        verify(scanProjectToolMapper).updateById(first);
-    }
 
     @Test
     void returnsOperationBlockersForExistingProject() {

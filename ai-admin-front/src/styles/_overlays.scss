@@ -9,6 +9,12 @@
   margin-block-end: 12px;
 }
 
+// Keep Element Plus align-center dialogs centered instead of applying the
+// standard top-aligned workbench dialog margin.
+.app-dialog.el-dialog.is-align-center {
+  margin-block: auto !important;
+}
+
 .app-dialog.el-dialog .el-dialog__header {
   flex: 0 0 auto;
   margin: 0;

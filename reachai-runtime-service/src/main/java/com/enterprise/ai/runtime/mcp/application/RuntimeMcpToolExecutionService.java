@@ -113,6 +113,10 @@ public class RuntimeMcpToolExecutionService {
         Map<String, Object> finishMetadata = new LinkedHashMap<>(metadata);
         finishMetadata.put("sourceKind", sourceKind);
         finishMetadata.put("toolName", request.toolName());
+        if ("HTTP_API_WORKFLOW_RESULT_UNCONFIRMED".equals(outcome.code())) {
+            finishMetadata.put("outcomeClass", "UNKNOWN");
+            finishMetadata.put("businessOutcome", "UNCONFIRMED");
+        }
         if (outcome.nodeCount() != null) finishMetadata.put("nodeCount", outcome.nodeCount());
         runLifecycleService.finishMcp(traceId, outcome.success(), outcome.code(),
                 !outcome.output().isEmpty(), finishMetadata);

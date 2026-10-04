@@ -27,6 +27,7 @@ class CapabilityCatalogStateCodecTest {
         originalScan.setName("orders");
         originalScan.setSource("SDK");
         originalScan.setSourceQualifiedName("project.orders");
+        originalScan.setAssetType("BUSINESS_METHOD");
         originalScan.setEnabled(false);
         originalScan.setRemovedFromSource(true);
         originalScan.setRemovedAt(removedAt);
@@ -37,6 +38,7 @@ class CapabilityCatalogStateCodecTest {
         originalGlobal.setQualifiedName("project.orders");
         originalGlobal.setSource("SDK");
         originalGlobal.setSourceQualifiedName("project.orders");
+        originalGlobal.setAssetType("BUSINESS_METHOD");
         originalGlobal.setEnabled(false);
 
         ObjectNode snapshot = (ObjectNode) objectMapper.readTree(
@@ -83,6 +85,28 @@ class CapabilityCatalogStateCodecTest {
         assertTrue(restoredScan.getRemovedFromSource());
         assertEquals(removedAt, restoredScan.getRemovedAt());
         assertEquals(45L, restoredScan.getGlobalToolDefinitionId());
+        assertEquals("BUSINESS_METHOD", restoredScan.getAssetType());
+        assertEquals("BUSINESS_METHOD", restoredGlobal.getAssetType());
+    }
+
+    @Test
+    void oldRollbackStateWithoutAssetTypeRestoresTheLegacyProjectionDefault() throws Exception {
+        ObjectNode snapshot = (ObjectNode) objectMapper.readTree(CapabilityCatalogStateCodec.capture(
+                objectMapper, new ScanProjectToolEntity(), new ToolDefinitionEntity()));
+        ((ObjectNode) snapshot.get("scanTool")).remove("assetType");
+        ((ObjectNode) snapshot.get("globalTool")).remove("assetType");
+
+        ObjectNode normalized = (ObjectNode) CapabilityCatalogStateCodec.normalizeLegacyAssetTypes(snapshot);
+        assertEquals("UNCLASSIFIED", normalized.get("scanTool").get("assetType").asText());
+        assertEquals("UNCLASSIFIED", normalized.get("globalTool").get("assetType").asText());
+
+        ScanProjectToolEntity scan = new ScanProjectToolEntity();
+        ToolDefinitionEntity global = new ToolDefinitionEntity();
+        CapabilityCatalogStateCodec.restoreScanTool(scan, snapshot.get("scanTool"));
+        CapabilityCatalogStateCodec.restoreGlobalTool(global, snapshot.get("globalTool"));
+
+        assertEquals("UNCLASSIFIED", scan.getAssetType());
+        assertEquals("UNCLASSIFIED", global.getAssetType());
     }
 
     @Test

@@ -110,7 +110,7 @@ public class WorkflowHttpClient {
                 PinnedHttpResponse response = executePinnedRequest(
                         currentTarget, method, currentHeaders, bodyBytes, timeoutMs);
                 int status = response.status();
-                if (isRedirect(status) && redirects < egressPolicy.maxRedirects()) {
+                if (request.followRedirects() && isRedirect(status) && redirects < egressPolicy.maxRedirects()) {
                     String location = response.location();
                     if (!StringUtils.hasText(location)) {
                         throw new WorkflowHttpExecutionException(
@@ -143,7 +143,7 @@ public class WorkflowHttpClient {
                     redirects++;
                     continue;
                 }
-                if (isRedirect(status)) {
+                if (request.followRedirects() && isRedirect(status)) {
                     throw new WorkflowHttpExecutionException(
                             WorkflowHttpEgressPolicy.ERROR_REDIRECT,
                             "HTTP redirect limit exceeded");
@@ -172,19 +172,19 @@ public class WorkflowHttpClient {
                         responseBytes == null ? 0 : responseBytes.length,
                         redirects,
                         safeUrlSummary(currentUrl),
-                        isRetryableStatus(status));
+                        request.followRedirects() && isRetryableStatus(status));
             }
         } catch (WorkflowHttpEgressPolicy.WorkflowHttpEgressException ex) {
             return failure(ex.code(), ex.getMessage(), started, request == null ? null : request.url(), false);
         } catch (WorkflowHttpExecutionException ex) {
-            boolean retryable = isRetryableFailureCode(ex.code());
+            boolean retryable = request != null && request.followRedirects() && isRetryableFailureCode(ex.code());
             return failure(ex.code(), ex.getMessage(), started, request == null ? null : request.url(), retryable);
         } catch (java.net.SocketTimeoutException ex) {
             return failure("RUNTIME_HTTP_TIMEOUT", "HTTP request timed out", started,
-                    request == null ? null : request.url(), true);
+                    request == null ? null : request.url(), request != null && request.followRedirects());
         } catch (java.net.ConnectException ex) {
             return failure("RUNTIME_HTTP_CONNECT_FAILED", "HTTP connection failed", started,
-                    request == null ? null : request.url(), true);
+                    request == null ? null : request.url(), request != null && request.followRedirects());
         } catch (Exception ex) {
             return failure("RUNTIME_HTTP_FAILED",
                     "HTTP request failed: " + safeMessage(ex),
@@ -229,6 +229,11 @@ public class WorkflowHttpClient {
                     "credentialRef not found, disabled, or out of scope: " + request.credentialRef().trim());
         }
         RuntimeWorkflowCredentialRuntime credential = resolved.get();
+        if (StringUtils.hasText(request.expectedCredentialRevision())
+                && !request.expectedCredentialRevision().equals(credential.revision())) {
+            throw new WorkflowHttpExecutionException("RUNTIME_HTTP_CREDENTIAL_REVISION_CHANGED",
+                    "Project credential changed before HTTP dispatch");
+        }
         Map<String, Object> secret = credential.secret() == null ? Map.of() : credential.secret();
         String type = WorkflowCredentialTypes.normalizeType(credential.type());
         Set<String> sensitive = WorkflowCredentialTypes.sensitiveHeaderNames(secret, type);
@@ -596,8 +601,23 @@ public class WorkflowHttpClient {
             String body,
             Integer timeoutMs,
             String credentialRef,
-            WorkflowExecutionIdentity identity
+            WorkflowExecutionIdentity identity,
+            String expectedCredentialRevision,
+            boolean followRedirects
     ) {
+        public HttpExecutionRequest(String method, String url, Map<String, String> queryParams,
+                                    Map<String, String> headers, String bodyType, String body,
+                                    Integer timeoutMs, String credentialRef, WorkflowExecutionIdentity identity,
+                                    String expectedCredentialRevision) {
+            this(method, url, queryParams, headers, bodyType, body, timeoutMs, credentialRef, identity,
+                    expectedCredentialRevision, true);
+        }
+        public HttpExecutionRequest(String method, String url, Map<String, String> queryParams,
+                                    Map<String, String> headers, String bodyType, String body,
+                                    Integer timeoutMs, String credentialRef, WorkflowExecutionIdentity identity) {
+            this(method, url, queryParams, headers, bodyType, body, timeoutMs, credentialRef, identity, null);
+        }
+
         public HttpExecutionRequest(String method,
                                     String url,
                                     Map<String, String> queryParams,
@@ -611,7 +631,7 @@ public class WorkflowHttpClient {
             this(method, url, queryParams, headers, bodyType, body, timeoutMs, credentialRef,
                     projectId != null || StringUtils.hasText(projectCode)
                             ? WorkflowExecutionIdentity.fromAgent(projectId, projectCode)
-                            : WorkflowExecutionIdentity.untrustedDebug());
+                            : WorkflowExecutionIdentity.untrustedDebug(), null);
         }
     }
 

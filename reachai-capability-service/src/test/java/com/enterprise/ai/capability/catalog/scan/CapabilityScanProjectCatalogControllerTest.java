@@ -62,17 +62,17 @@ class CapabilityScanProjectCatalogControllerTest {
         Method rescanScanToolFromSource = CapabilityScanProjectCatalogController.class.getDeclaredMethod(
                 "rescanScanToolFromSource", Long.class, Long.class);
         Method updateTool = CapabilityScanProjectCatalogController.class.getDeclaredMethod(
-                "updateTool", Long.class, Long.class, CapabilityScanProjectCatalogController.ScanProjectToolUpsertRequest.class);
+                "updateTool", Long.class, Long.class);
         Method toggleTool = CapabilityScanProjectCatalogController.class.getDeclaredMethod(
-                "toggleTool", Long.class, Long.class, CapabilityScanProjectCatalogController.ScanProjectToolToggleRequest.class);
+                "toggleTool", Long.class, Long.class);
         Method testTool = CapabilityScanProjectCatalogController.class.getDeclaredMethod(
-                "testTool", Long.class, Long.class, CapabilityScanProjectCatalogController.ToolTestRequest.class);
+                "testTool", Long.class, Long.class);
         Method reconcileTools = CapabilityScanProjectCatalogController.class.getDeclaredMethod("reconcileTools", Long.class);
         Method promoteTool = CapabilityScanProjectCatalogController.class.getDeclaredMethod("promoteTool", Long.class, Long.class);
         Method unpromoteTool = CapabilityScanProjectCatalogController.class.getDeclaredMethod("unpromoteTool", Long.class, Long.class);
         Method pushToolToGlobal = CapabilityScanProjectCatalogController.class.getDeclaredMethod("pushToolToGlobal", Long.class, Long.class);
         Method promoteModuleTools = CapabilityScanProjectCatalogController.class.getDeclaredMethod(
-                "promoteModuleTools", Long.class, CapabilityScanProjectCatalogController.PromoteModuleToolsRequest.class);
+                "promoteModuleTools", Long.class);
         Method diffSummary = CapabilityScanProjectCatalogController.class.getDeclaredMethod("diffSummary", Long.class);
         Method operationBlockers = CapabilityScanProjectCatalogController.class.getDeclaredMethod("operationBlockers", Long.class);
 
@@ -574,118 +574,10 @@ class CapabilityScanProjectCatalogControllerTest {
         assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode());
     }
 
-    @Test
-    void updatesScanProjectTool() {
-        CapabilityScanProjectCatalogService service = mock(CapabilityScanProjectCatalogService.class);
-        CapabilityScanProjectCatalogController controller = new CapabilityScanProjectCatalogController(service);
-        ScanProjectToolEntity tool = scanTool();
-        CapabilityScanProjectCatalogController.ScanProjectToolUpsertRequest request =
-                new CapabilityScanProjectCatalogController.ScanProjectToolUpsertRequest(
-                        "orders_create",
-                        "创建订单",
-                        "Create order",
-                        List.of(new ToolDefinitionParameter("body", "object", "request", true, "body")),
-                        "code",
-                        "com.example.OrderController#create",
-                        "POST",
-                        "https://api.example.com",
-                        "/api",
-                        "/orders",
-                        "OrderCreateRequest",
-                        "OrderDTO",
-                        true
-                );
-        when(service.updateTool(7L, 11L, request.toServiceRequest())).thenReturn(tool);
 
-        ResponseEntity<CapabilityScanProjectCatalogController.ProjectToolDTO> response =
-                controller.updateTool(7L, 11L, request);
 
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertEquals("orders_create", response.getBody().name());
-        assertEquals("创建订单", response.getBody().title());
-        verify(service).updateTool(7L, 11L, request.toServiceRequest());
-    }
 
-    @Test
-    void updateToolReturnsBadRequestWhenValidationFails() {
-        CapabilityScanProjectCatalogService service = mock(CapabilityScanProjectCatalogService.class);
-        CapabilityScanProjectCatalogController controller = new CapabilityScanProjectCatalogController(service);
-        CapabilityScanProjectCatalogController.ScanProjectToolUpsertRequest request =
-                new CapabilityScanProjectCatalogController.ScanProjectToolUpsertRequest(
-                        "",
-                        "创建订单",
-                        "Create order",
-                        List.of(),
-                        "code",
-                        null,
-                        "POST",
-                        null,
-                        null,
-                        "/orders",
-                        null,
-                        null,
-                        false
-                );
-        when(service.updateTool(7L, 11L, request.toServiceRequest())).thenThrow(new IllegalArgumentException("name required"));
 
-        ResponseEntity<CapabilityScanProjectCatalogController.ProjectToolDTO> response =
-                controller.updateTool(7L, 11L, request);
-
-        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
-    }
-
-    @Test
-    void togglesScanProjectTool() {
-        CapabilityScanProjectCatalogService service = mock(CapabilityScanProjectCatalogService.class);
-        CapabilityScanProjectCatalogController controller = new CapabilityScanProjectCatalogController(service);
-        ScanProjectToolEntity tool = scanTool();
-        tool.setEnabled(false);
-        CapabilityScanProjectCatalogController.ScanProjectToolToggleRequest request =
-                new CapabilityScanProjectCatalogController.ScanProjectToolToggleRequest(false);
-        when(service.toggleTool(7L, 11L, false)).thenReturn(tool);
-
-        ResponseEntity<CapabilityScanProjectCatalogController.ProjectToolDTO> response =
-                controller.toggleTool(7L, 11L, request);
-
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertEquals(false, response.getBody().enabled());
-        verify(service).toggleTool(7L, 11L, false);
-    }
-
-    @Test
-    void testsScanProjectTool() {
-        CapabilityScanProjectCatalogService service = mock(CapabilityScanProjectCatalogService.class);
-        CapabilityScanProjectCatalogController controller = new CapabilityScanProjectCatalogController(service);
-        CapabilityScanProjectCatalogController.ToolTestRequest request =
-                new CapabilityScanProjectCatalogController.ToolTestRequest(Map.of("orderNo", "A001"));
-        when(service.testTool(7L, 11L, request.args()))
-                .thenReturn(Map.of("success", true, "data", Map.of("status", "CREATED")));
-
-        ResponseEntity<CapabilityScanProjectCatalogController.ToolTestResult> response =
-                controller.testTool(7L, 11L, request);
-
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertEquals(true, response.getBody().success());
-        assertEquals("{status=CREATED}", response.getBody().result());
-        verify(service).testTool(7L, 11L, request.args());
-    }
-
-    @Test
-    void testScanProjectToolReturnsFailurePayload() {
-        CapabilityScanProjectCatalogService service = mock(CapabilityScanProjectCatalogService.class);
-        CapabilityScanProjectCatalogController controller = new CapabilityScanProjectCatalogController(service);
-        CapabilityScanProjectCatalogController.ToolTestRequest request =
-                new CapabilityScanProjectCatalogController.ToolTestRequest(Map.of());
-        when(service.testTool(7L, 404L, request.args()))
-                .thenThrow(new IllegalArgumentException("Scan project tool does not exist: 404"));
-
-        ResponseEntity<CapabilityScanProjectCatalogController.ToolTestResult> response =
-                controller.testTool(7L, 404L, request);
-
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertEquals(false, response.getBody().success());
-        assertEquals("Scan project tool does not exist: 404", response.getBody().errorMessage());
-    }
 
     @Test
     void reconcilesScanProjectTools() {
@@ -704,80 +596,9 @@ class CapabilityScanProjectCatalogControllerTest {
         verify(service).reconcileTools(7L);
     }
 
-    @Test
-    void promotesScanProjectTool() {
-        CapabilityScanProjectCatalogService service = mock(CapabilityScanProjectCatalogService.class);
-        CapabilityScanProjectCatalogController controller = new CapabilityScanProjectCatalogController(service);
-        CapabilityScanProjectCatalogService.PromotedGlobalTool promoted =
-                new CapabilityScanProjectCatalogService.PromotedGlobalTool(501L, "orders_create");
-        when(service.promoteTool(7L, 11L)).thenReturn(promoted);
 
-        ResponseEntity<CapabilityScanProjectCatalogService.PromotedGlobalTool> response =
-                controller.promoteTool(7L, 11L);
 
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertEquals(501L, response.getBody().globalToolId());
-        assertEquals("orders_create", response.getBody().globalToolName());
-        verify(service).promoteTool(7L, 11L);
-    }
 
-    @Test
-    void unpromotesScanProjectTool() {
-        CapabilityScanProjectCatalogService service = mock(CapabilityScanProjectCatalogService.class);
-        CapabilityScanProjectCatalogController controller = new CapabilityScanProjectCatalogController(service);
-        ScanProjectToolEntity tool = scanTool();
-        tool.setGlobalToolDefinitionId(null);
-        when(service.unpromoteTool(7L, 11L)).thenReturn(tool);
-
-        ResponseEntity<CapabilityScanProjectCatalogController.ProjectToolDTO> response =
-                controller.unpromoteTool(7L, 11L);
-
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertEquals(null, response.getBody().globalToolDefinitionId());
-        assertEquals("NOT_LINKED", response.getBody().toolLinkStatus());
-        verify(service).unpromoteTool(7L, 11L);
-    }
-
-    @Test
-    void pushesScanProjectToolToGlobalTool() {
-        CapabilityScanProjectCatalogService service = mock(CapabilityScanProjectCatalogService.class);
-        CapabilityScanProjectCatalogController controller = new CapabilityScanProjectCatalogController(service);
-        ScanProjectToolEntity tool = scanTool();
-        when(service.pushToolToGlobal(7L, 11L)).thenReturn(tool);
-        when(service.resolveToolLink(tool)).thenReturn(new CapabilityScanProjectCatalogService.ToolLinkStatus(
-                "IN_SYNC",
-                null,
-                List.of()));
-
-        ResponseEntity<CapabilityScanProjectCatalogController.ProjectToolDTO> response =
-                controller.pushToolToGlobal(7L, 11L);
-
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertEquals("IN_SYNC", response.getBody().toolLinkStatus());
-        assertEquals(false, response.getBody().globalToolOutOfSync());
-        verify(service).pushToolToGlobal(7L, 11L);
-    }
-
-    @Test
-    void promotesModuleScanTools() {
-        CapabilityScanProjectCatalogService service = mock(CapabilityScanProjectCatalogService.class);
-        CapabilityScanProjectCatalogController controller = new CapabilityScanProjectCatalogController(service);
-        CapabilityScanProjectCatalogController.PromoteModuleToolsRequest request =
-                new CapabilityScanProjectCatalogController.PromoteModuleToolsRequest(3L);
-        CapabilityScanProjectCatalogService.BatchPromoteToToolsResult promoted =
-                new CapabilityScanProjectCatalogService.BatchPromoteToToolsResult(
-                        1,
-                        List.of(new CapabilityScanProjectCatalogService.PromotedGlobalTool(501L, "orders_create")));
-        when(service.promoteModuleTools(7L, 3L)).thenReturn(promoted);
-
-        ResponseEntity<CapabilityScanProjectCatalogService.BatchPromoteToToolsResult> response =
-                controller.promoteModuleTools(7L, request);
-
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertEquals(1, response.getBody().promotedCount());
-        assertEquals("orders_create", response.getBody().items().get(0).globalToolName());
-        verify(service).promoteModuleTools(7L, 3L);
-    }
 
     @Test
     void diffSummaryReturnsNotFoundWhenProjectMissing() {

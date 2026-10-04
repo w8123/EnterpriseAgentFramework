@@ -5,6 +5,7 @@ import type {
   DashboardWidgetInstance,
 } from '@/types/operationsDashboard'
 import DashboardWidgetFrame from './DashboardWidgetFrame.vue'
+import DashboardPanelState from './DashboardPanelState.vue'
 import WidgetKpiMetric from './widgets/WidgetKpiMetric.vue'
 import WidgetAgentRanking from './widgets/WidgetAgentRanking.vue'
 import WidgetProjectRanking from './widgets/WidgetProjectRanking.vue'
@@ -15,6 +16,7 @@ import WidgetHealthStatus from './widgets/WidgetHealthStatus.vue'
 import DashboardUsageTrend from './DashboardUsageTrend.vue'
 import DashboardTokenDistribution from './DashboardTokenDistribution.vue'
 import {
+  dashboardDomainLabels,
   getWidgetDefinition,
   resolveDisplayCount,
   resolveTopN,
@@ -50,6 +52,11 @@ const emit = defineEmits<{
 }>()
 
 const definition = computed(() => getWidgetDefinition(props.instance.widgetKey))
+const restrictedDomains = computed(() => (definition.value?.dataDomains ?? [])
+  .filter(domain => props.context.deniedDomains?.[domain]))
+const restrictionDetail = computed(() =>
+  `${restrictedDomains.value.map(domain => dashboardDomainLabels[domain]).join('、')}；显式刷新可重新核验。`,
+)
 
 const metric = computed(() => props.context.metrics[props.instance.widgetKey] ?? null)
 
@@ -84,14 +91,14 @@ const projectSummaries = computed(() =>
     :subtitle="definition?.category === 'KPI' ? undefined : ''"
     :editing="editing"
     :selected="selected"
-    :bare="isBareWidget"
+    :bare="isBareWidget && !restrictedDomains.length"
     @select="emit('select')"
     @move="(dx, dy) => emit('move', dx, dy)"
     @resize="(dw, dh) => emit('resize', dw, dh)"
     @remove="emit('remove')"
     @settings="emit('settings')"
   >
-    <template #actions>
+    <template v-if="!restrictedDomains.length" #actions>
       <button
         v-if="instance.widgetKey === 'ranking.agent-top'"
         type="button"
@@ -113,7 +120,15 @@ const projectSummaries = computed(() =>
       >运行中心 →</button>
     </template>
 
-    <WidgetKpiMetric v-if="metric" :metric="metric" />
+    <DashboardPanelState
+      v-if="restrictedDomains.length"
+      class="dash-host__restricted"
+      tone="disabled"
+      :title="definition?.category === 'KPI' ? '读取受限' : `${widgetTitle}读取受限`"
+      :detail="restrictionDetail"
+      role="status"
+    />
+    <WidgetKpiMetric v-else-if="metric" :metric="metric" />
     <WidgetAgentRanking
       v-else-if="instance.widgetKey === 'ranking.agent-top'"
       :status="context.runsStatus"
@@ -178,6 +193,17 @@ const projectSummaries = computed(() =>
 </template>
 
 <style scoped lang="scss">
+.dash-host__restricted {
+  min-height: 0;
+  flex: 1;
+  padding: 8px;
+  gap: 3px;
+
+  :deep(.dashboard-panel-state__signal) { display: none; }
+  :deep(strong) { font-size: 12px; }
+  :deep(p) { font-size: 11px; }
+}
+
 .dash-host__unknown {
   flex: 1;
   display: grid;

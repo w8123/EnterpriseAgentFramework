@@ -8,6 +8,7 @@ import com.enterprise.ai.runtime.internalauth.VerifiedInternalServiceAuth;
 import com.enterprise.ai.runtime.support.RuntimeQueryTestDatabase;
 import com.enterprise.ai.runtime.workflow.proposal.RuntimeWorkflowProposalEditService;
 import com.enterprise.ai.runtime.workflow.proposal.RuntimeWorkflowProposalGenerationService;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
@@ -18,6 +19,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.http.MediaType;
+import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
@@ -29,6 +31,10 @@ import org.springframework.transaction.UnexpectedRollbackException;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.ArrayDeque;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -87,15 +93,23 @@ class RuntimeWorkflowManagementPersistenceTest {
         when(validation.validateProposed(any(), any())).thenReturn(RuntimeWorkflowReleaseValidationResult.builder().build());
         when(validation.readGraph(anyString(), any())).thenAnswer(call -> json.readValue(call.getArgument(0, String.class), GraphSpec.class));
         var pins = mock(RuntimeCapabilityContractPins.class);
-        when(pins.pin(anyString())).thenAnswer(call -> call.getArgument(0, String.class));
+        when(pins.pin(anyString(), any())).thenAnswer(call -> call.getArgument(0, String.class));
         releases = transactional(new RuntimeWorkflowVersionService(versions, definitions, validation, json, pins, events, index));
         management = transactional(new RuntimeWorkflowManagementService(definitions, releases, validation));
         var studio = transactional(new RuntimeWorkflowStudioService(management, releases, json));
         var controller = new RuntimeWorkflowPublicController(management, studio,
                 mock(RuntimeWorkflowDebugService.class), mock(RuntimeWorkflowProposalGenerationService.class),
                 mock(RuntimeWorkflowProposalEditService.class));
+        // Cross-service test fixtures bring an XML converter onto the classpath;
+        // this JSON public-boundary suite must not depend on converter ordering.
+        // Spring Boot's MVC mapper ignores unknown request properties (the
+        // forged publishedBy field is still rejected as an actor by the controller).
+        // Keep this compatibility setting on the test HTTP converter only; the
+        // GraphSpec canonicalizer and production validation retain their mapper.
+        var mvcJson = json.copy().disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
         http = MockMvcBuilders.standaloneSetup(controller, new RuntimeWorkflowVersionPublicController(management))
-                .setControllerAdvice(new RuntimeWorkflowRevisionExceptionHandler()).build();
+                .setControllerAdvice(new RuntimeWorkflowRevisionExceptionHandler())
+                .setMessageConverters(new MappingJackson2HttpMessageConverter(mvcJson)).build();
     }
 
     @AfterEach
@@ -165,6 +179,112 @@ class RuntimeWorkflowManagementPersistenceTest {
         var workflow = seed("USER");
         save(workflow.getId(), Map.of("graphSpecJson", GRAPH, "name", "无修订覆盖")).andExpect(status().isBadRequest());
         assertEquals(workflow, mapper.selectById(workflow.getId()));
+    }
+
+    @Test
+    void studioWorkingCopyPersistsHttpApiAuthorReferenceAndMappingsWithoutRuntimePins() throws Exception {
+        var workflow = seed("USER");
+        var apiRef = "http-api:orders:dev:" + "b".repeat(64);
+        var graph = """
+                {"schemaVersion":2,"entryNodeId":"api","exitNodeIds":["api"],
+                 "nodes":[{"id":"api","type":"TOOL",
+                   "ref":{"kind":"TOOL","name":"%s","qualifiedName":"%s","projectCode":"orders"},
+                   "config":{"qualifiedName":"%s","httpApiAssetId":41,"outputAlias":"order",
+                     "inputMapping":{"pathParams.orderId":"params.orderId",
+                       "queryParams.expanded":"params.expanded"}}}],"edges":[]}
+                """.formatted(apiRef, apiRef, apiRef);
+
+        var saved = result(save(workflow.getId(), Map.of("graphSpecJson", graph,
+                "baseRevision", revision(workflow))).andExpect(status().isOk()));
+        var stored = mapper.selectById(workflow.getId());
+        var storedNode = json.readTree(stored.getGraphSpecJson()).path("nodes").get(0);
+        assertEquals(apiRef, storedNode.path("ref").path("qualifiedName").asText());
+        assertEquals(41, storedNode.path("config").path("httpApiAssetId").asInt());
+        assertEquals("params.orderId", storedNode.path("config").path("inputMapping")
+                .path("pathParams.orderId").asText());
+        // GraphSpec's typed CapabilityRef may serialize an absent pin as JSON null.
+        assertTrue(storedNode.path("ref").path("contractHash").isMissingNode()
+                || storedNode.path("ref").path("contractHash").isNull());
+        assertFalse(stored.getGraphSpecJson().contains("credentialRef"));
+        assertFalse(stored.getGraphSpecJson().contains("origin"));
+        var reopened = result(http.perform(get("/api/workflows/{id}/working-copy", workflow.getId()))
+                .andExpect(status().isOk()));
+        assertEquals(stored.getGraphSpecJson(), reopened.path("graphSpecJson").asText());
+        assertEquals(saved.path("revision").asText(), reopened.path("revision").asText());
+    }
+
+    @Test
+    void browserSavedHttpApiGraphRoundTripsThroughPublicWorkingCopyAndMyBatis() throws Exception {
+        // This resource is the complete graph/canvas captured after the Studio
+        // browser's PUT, not a graph assembled by this persistence test.
+        JsonNode browser;
+        try (var stream = getClass().getResourceAsStream("/bmapi-3c-a/browser-saved-working-copy.json")) {
+            assertNotNull(stream, "browser-saved working copy fixture is required");
+            browser = json.readTree(stream);
+        }
+        assertEquals("fixture-r3", browser.path("browserRevision").asText());
+        String browserGraph = browser.path("graphSpecJson").asText();
+        String browserCanvas = browser.path("canvasJson").asText();
+        assertEquals("1a058c9307076855668b19adc39b89ccf198a6726fdb0daabfdf70c28808516e",
+                sha256(browserGraph));
+        assertEquals("3fb3fc451dea10f41ee3ce9b2860c3f0706a6329f7112fbd3f3fbcc1180dab03",
+                sha256(browserCanvas));
+        assertEquals(browser.path("graphSha256").asText(), sha256(browserGraph));
+        assertEquals(browser.path("canvasSha256").asText(), sha256(browserCanvas));
+        var workflow = seed("USER", browser.path("projectId").asLong());
+
+        var saved = result(save(workflow.getId(), Map.of("graphSpecJson", browserGraph,
+                "canvasJson", browserCanvas, "baseRevision", revision(workflow)))
+                .andExpect(status().isOk()));
+        var stored = mapper.selectById(workflow.getId());
+        var reopened = result(http.perform(get("/api/workflows/{id}/working-copy", workflow.getId()))
+                .andExpect(status().isOk()));
+        var canonicalizer = new RuntimeWorkflowDocumentCanonicalizer(json);
+        assertEquals(canonicalizer.canonicalizeGraphSpecJson(browserGraph), stored.getGraphSpecJson());
+        assertEquals(canonicalizer.canonicalizeCanvasJson(browserCanvas), stored.getCanvasJson());
+        assertEquals(stored.getGraphSpecJson(), saved.path("graphSpecJson").asText());
+        assertEquals(stored.getGraphSpecJson(), reopened.path("graphSpecJson").asText());
+        assertEquals(stored.getCanvasJson(), reopened.path("canvasJson").asText());
+        assertEquals(saved.path("revision").asText(), reopened.path("revision").asText());
+        assertEquals(browser.path("projectId").asLong(), reopened.path("projectId").asLong());
+        assertEquals(browser.path("projectCode").asText(), reopened.path("projectCode").asText());
+
+        var sourceGraph = json.readTree(browserGraph);
+        var sourceCanvas = json.readTree(browserCanvas);
+        var readbackGraph = json.readTree(reopened.path("graphSpecJson").asText());
+        var readbackCanvas = json.readTree(reopened.path("canvasJson").asText());
+        assertExecutableApiToVariableEnd(sourceGraph, sourceCanvas);
+        assertExecutableApiToVariableEnd(readbackGraph, readbackCanvas);
+        var sourceApi = sourceGraph.path("nodes").get(0);
+        var readbackApi = readbackGraph.path("nodes").get(0);
+        assertEquals(sourceApi.path("ref").path("qualifiedName").asText(),
+                readbackApi.path("ref").path("qualifiedName").asText());
+        assertEquals(sourceApi.path("config").path("httpApiAssetId").asLong(),
+                readbackApi.path("config").path("httpApiAssetId").asLong());
+        assertEquals(sourceApi.path("config").path("inputMapping"),
+                readbackApi.path("config").path("inputMapping"));
+        assertEquals(sourceApi.path("config").path("outputAlias").asText(),
+                readbackApi.path("config").path("outputAlias").asText());
+        assertEquals(sourceGraph.path("nodes").get(1).path("config").path("assignments"),
+                readbackGraph.path("nodes").get(1).path("config").path("assignments"));
+        assertEquals(sourceGraph.path("edges").size(), readbackGraph.path("edges").size());
+        for (int index = 0; index < sourceGraph.path("edges").size(); index++) {
+            var sourceEdge = sourceGraph.path("edges").get(index);
+            var readbackEdge = readbackGraph.path("edges").get(index);
+            for (String field : List.of("id", "from", "to", "condition")) {
+                assertEquals(sourceEdge.path(field), readbackEdge.path(field));
+            }
+        }
+        assertEquals(sourceGraph.path("entryNodeId"), readbackGraph.path("entryNodeId"));
+        assertEquals(sourceGraph.path("exitNodeIds"), readbackGraph.path("exitNodeIds"));
+        assertFalse(browserGraph.contains("contractHash"));
+        assertFalse(browserGraph.contains("origin"));
+        assertTrue(readbackApi.path("ref").path("contractHash").isMissingNode()
+                || readbackApi.path("ref").path("contractHash").isNull());
+        System.out.println("BMAPI-3C-A browser-to-runtime: sourceGraphSha256=" + sha256(browserGraph)
+                + ", readbackGraphSha256=" + sha256(reopened.path("graphSpecJson").asText())
+                + ", sourceCanvasSha256=" + sha256(browserCanvas)
+                + ", readbackCanvasSha256=" + sha256(reopened.path("canvasJson").asText()));
     }
 
     @ParameterizedTest
@@ -443,9 +563,13 @@ class RuntimeWorkflowManagementPersistenceTest {
     }
 
     private RuntimeWorkflowDefinitionEntity seed(String authority) {
+        return seed(authority, 7L);
+    }
+
+    private RuntimeWorkflowDefinitionEntity seed(String authority, long projectId) {
         var entity = new RuntimeWorkflowDefinitionEntity();
         entity.setKeySlug("orders-" + authority.toLowerCase()); entity.setName("原始定义");
-        entity.setProjectId(7L); entity.setProjectCode("orders");
+        entity.setProjectId(projectId); entity.setProjectCode("orders");
         entity.setDefinitionAuthority(authority);
         entity.setCreationChannel("SDK".equals(authority) ? "SDK_SYNC" : "SYSTEM".equals(authority) ? "SYSTEM_SEED" : "STUDIO");
         entity.setGraphSpecJson(GRAPH);
@@ -454,6 +578,48 @@ class RuntimeWorkflowManagementPersistenceTest {
     }
 
     private String revision(RuntimeWorkflowDefinitionEntity workflow) { return workflow.getUpdatedAt().toString(); }
+
+    private String sha256(String value) throws Exception {
+        return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                .digest(value.getBytes(StandardCharsets.UTF_8)));
+    }
+
+    private void assertExecutableApiToVariableEnd(JsonNode graph, JsonNode canvas) {
+        assertEquals(2, graph.path("nodes").size());
+        String apiId = graph.path("nodes").get(0).path("id").asText();
+        String variableId = graph.path("nodes").get(1).path("id").asText();
+        assertEquals("api-node", apiId);
+        assertEquals("VARIABLE_ASSIGN", graph.path("nodes").get(1).path("type").asText());
+        assertEquals(apiId, graph.path("entryNodeId").asText());
+        assertEquals(1, graph.path("exitNodeIds").size());
+        assertEquals(variableId, graph.path("exitNodeIds").get(0).asText());
+        assertNotEquals(apiId, graph.path("exitNodeIds").get(0).asText(),
+                "the executor stops immediately when the current node is an exit");
+
+        var reachable = new TreeSet<String>();
+        var pending = new ArrayDeque<String>();
+        pending.add(graph.path("entryNodeId").asText());
+        while (!pending.isEmpty()) {
+            String current = pending.removeFirst();
+            if (!reachable.add(current)) continue;
+            for (JsonNode edge : graph.path("edges")) {
+                if (current.equals(edge.path("from").asText())) pending.add(edge.path("to").asText());
+            }
+        }
+        assertEquals(Set.of(apiId, variableId), reachable,
+                "the downstream assignment must be reachable before the Workflow exits");
+        assertEquals(1, graph.path("edges").size());
+        String apiToVariableEdgeId = graph.path("edges").get(0).path("id").asText();
+
+        var canvasEdgeIds = new TreeSet<String>();
+        for (JsonNode edge : canvas.path("edges")) canvasEdgeIds.add(edge.path("id").asText());
+        assertEquals(3, canvasEdgeIds.size());
+        assertTrue(canvasEdgeIds.contains("graph-entry-" + apiId));
+        assertTrue(canvasEdgeIds.contains(apiToVariableEdgeId));
+        assertTrue(canvasEdgeIds.stream().anyMatch(id -> id.startsWith("e-" + variableId + "-end-")));
+        assertFalse(canvasEdgeIds.contains("graph-finish-" + apiId),
+                "the canvas must not offer a shortcut that bypasses the assignment");
+    }
 
     private ResultActions update(String id, Map<String, Object> body) throws Exception {
         return http.perform(put("/api/workflows/{id}", id).contentType(MediaType.APPLICATION_JSON).content(json.writeValueAsBytes(body)));

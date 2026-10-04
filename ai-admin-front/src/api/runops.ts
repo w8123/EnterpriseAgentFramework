@@ -1,4 +1,5 @@
 import { controlRequest } from './request'
+import type { AxiosRequestConfig } from 'axios'
 import type {
   ReplayRequest,
   ReplayResult,
@@ -15,8 +16,8 @@ export function getRunOpsDetail(traceId: string) {
   return controlRequest.get<RunDetail>(`/api/runops/traces/${traceId}`)
 }
 
-export function getRecentRunOps(params?: RunOpsQueryParams) {
-  return controlRequest.get<RunSummary[]>('/api/runops/traces/recent', { params })
+export function getRecentRunOps(params?: RunOpsQueryParams, config?: AxiosRequestConfig) {
+  return controlRequest.get<RunSummary[]>('/api/runops/traces/recent', { ...config, params })
 }
 
 export function getRunOpsDiagnostics(params?: RunOpsQueryParams) {

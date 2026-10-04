@@ -33,10 +33,6 @@ class CapabilityCompatibilityProxyControllerTest {
                 .getDeclaredMethod("proxyRegistry", RequestEntity.class, HttpServletRequest.class);
 
         assertArrayEquals(new String[] {
-                "/api/api-market",
-                "/api/api-market/{*path}",
-                "/api/tools",
-                "/api/tools/{*path}",
                 "/api/api-graph",
                 "/api/api-graph/{*path}",
                 "/api/tool-retrieval",
@@ -84,14 +80,14 @@ class CapabilityCompatibilityProxyControllerTest {
         byte[] requestBody = "{\"enabled\":true}".getBytes(StandardCharsets.UTF_8);
         byte[] responseBody = "{\"items\":[]}".getBytes(StandardCharsets.UTF_8);
         RequestEntity<byte[]> requestEntity = RequestEntity
-                .method(HttpMethod.PUT, URI.create("/api/tools/order.query?dryRun=true"))
+                .method(HttpMethod.PUT, URI.create("/api/api-graph/order.query?dryRun=true"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .header("X-Request-Id", "req-cap-1")
                 .body(requestBody);
-        MockHttpServletRequest servletRequest = new MockHttpServletRequest("PUT", "/api/tools/order.query");
+        MockHttpServletRequest servletRequest = new MockHttpServletRequest("PUT", "/api/api-graph/order.query");
         servletRequest.setQueryString("dryRun=true");
 
-        server.expect(requestTo("http://capability:18605/api/tools/order.query?dryRun=true"))
+        server.expect(requestTo("http://capability:18605/api/api-graph/order.query?dryRun=true"))
                 .andExpect(method(HttpMethod.PUT))
                 .andExpect(header("X-Request-Id", "req-cap-1"))
                 .andExpect(header("X-ReachAI-Control-Capability-Proxy", "true"))

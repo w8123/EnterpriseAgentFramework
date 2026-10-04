@@ -50,8 +50,8 @@ assert.doesNotMatch(
 )
 assert.match(
   headerSource,
-  /将业务系统 API 接入 ReachAI/,
-  'API catalog detail header should explain the API-to-Capability-to-Agent product loop',
+  /发现业务系统来源并保留同步与语义证据/,
+  'Source detail header should distinguish discovery from owner acceptance and execution',
 )
 assert.match(
   headerSource,
@@ -73,7 +73,7 @@ assert.match(
   /@command="onMoreCommand"/,
   'API catalog detail header should collect secondary actions into a more-actions menu',
 )
-for (const label of ['AI 语义生成', '检查能力纳管', '维护动作']) {
+for (const label of ['AI 语义生成', '只读核对来源关联', '维护动作']) {
   assert.match(headerSource, new RegExp(label), `Header more-actions menu should preserve ${label}`)
 }
 assert.doesNotMatch(
@@ -246,10 +246,12 @@ assert.doesNotMatch(
 )
 assert.doesNotMatch(addInterfaceDialogSource, /手填|手动填写|HTTP API 表单/, 'Add-interface dialog should not support manual API creation')
 assert.doesNotMatch(summarySource, /查看 SDK 同步指引/, 'SDK guide should not be the project-stage primary action')
-assert.match(summarySource, /primaryLabel: '添加接口'/, 'SDK project without APIs should direct users to add-interface import')
+assert.match(summarySource, /primaryLabel: '同步来源'/, 'SDK project without sources should direct users to normal sync')
 assert.match(summarySource, /primaryAction: 'importApi'/, 'SDK project without APIs should open the add-interface dialog')
 assert.doesNotMatch(scanDetailSource, /ScanProjectScanRulesDrawer/, 'Scan parsing rules should live in the add-interface dialog')
-assert.match(summarySource, /检查能力纳管/, 'Runtime projection reconciliation should be presented as capability governance')
+assert.match(summarySource, /primaryAction: 'viewOwnerCatalog'/, 'Discovered sources should lead to their project owner directory')
+assert.match(summarySource, /历史投影关联与 AI 语义不是接纳、连接验证或调用授权/, 'Projection links must not imply acceptance or callability')
+assert.doesNotMatch(summarySource, /纳入能力目录|已纳管|用于 Agent/, 'Source summary must not require a second manually maintained Tool')
 
 assert.match(opsDrawerSource, /title="维护动作"/, 'Ops drawer should be narrowed to maintenance actions')
 assert.match(opsDrawerSource, /重建向量索引/, 'Maintenance actions should retain embedding index rebuild')
@@ -322,7 +324,7 @@ assert.doesNotMatch(overviewSource, /class="governance-stage-strip"/, 'Overview 
 assert.doesNotMatch(overviewSource, /governance-entry-dot/, 'Overview should not keep the old low-fidelity dot marker')
 assert.doesNotMatch(overviewSource, /index \+ 1/, 'Governance entries should not imply numbered linear steps')
 assert.doesNotMatch(overviewSource, /风险复核/, 'Risk review should not be rendered as a governance node')
-for (const label of ['发现 API', '补全 AI 语义', '纳入能力目录', '用于 Agent']) {
+for (const label of ['发现 API', '补全 AI 语义', '查看所属目录', '受控调用与编排']) {
   assert.match(overviewSource, new RegExp(label), `Overview should render governance entry ${label}`)
 }
 assert.doesNotMatch(
@@ -353,6 +355,11 @@ assert.match(
 )
 assert.match(toolsPanelSource, /emptyPrimaryAction/, 'Tools panel empty state should expose the stage primary action')
 assert.match(toolsPanelSource, /emptySecondaryAction/, 'Tools panel empty state should expose the stage secondary action')
+assert.doesNotMatch(toolsPanelSource, /promoteTool|pushTool|unpromoteTool|promoteModuleTools|testTool|editTool|batchToggle|toggleEnabled/, 'Source panel must not expose retired manual execution/projection commands')
+assert.doesNotMatch(scanProjectApiSource, /promote-to-tool|push-to-global-tool|unpromote-from-global|promote-by-module|\/test`|\/toggle`/, 'Normal source request functions must not call retired routes')
+assert.match(scanDetailSource, /ownerRoutes\.businessMethods/, 'Source page must offer the project business-method directory')
+assert.match(scanDetailSource, /ownerRoutes\.apis/, 'Source page must offer the project API directory')
+assert.match(scanDetailSource, /canReadOwnerCatalogs/, 'Owner navigation must preserve platform project permissions')
 
 assert.doesNotMatch(
   scanDetailStyle,

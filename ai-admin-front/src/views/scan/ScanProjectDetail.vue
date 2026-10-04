@@ -40,6 +40,15 @@
 
     <ScanProjectOverviewCards :stages="governanceStages" />
 
+    <div v-if="project" class="api-asset-shortcut glass-surface-control">
+      <p>这里仅展示来源发现与同步。请到所属项目目录接纳契约、配置连接、受控试调用，再在 Workflow 选择对应资产；无需复制 Tool。此处不推断单项资产身份。</p>
+      <template v-if="ownerRoutes && canReadOwnerCatalogs">
+        <router-link :to="ownerRoutes.businessMethods">业务方法目录</router-link>
+        <router-link :to="ownerRoutes.apis">API 目录</router-link>
+      </template>
+      <span v-else>当前账号无该项目目录读取权限，或项目身份尚未确定。</span>
+    </div>
+
     <el-tabs v-model="activeWorkbenchTab" class="workbench-tabs">
       <el-tab-pane label="模块管理" name="modules" />
       <el-tab-pane label="接口目录" name="tools" />
@@ -71,12 +80,8 @@
         :sensitive-scan-starting="sensitiveScanStarting"
         :sensitive-task-polling="sensitiveTaskPolling"
         :export-scan-tools-excel-loading="exportScanToolsExcelLoading"
-        :batch-module-promote-loading="batchModulePromoteLoading"
         :tool-detail-loading="toolDetailLoading"
         :rescan-source-loading="rescanSourceLoading"
-        :promote-loading="promoteLoading"
-        :push-to-global-loading="pushToGlobalLoading"
-        :unpromote-loading="unpromoteLoading"
         :parameter-rows="parameterRows"
         :render-md="renderMd"
         :scan-tool-row-class-name="scanToolRowClassName"
@@ -87,17 +92,9 @@
         :tool-link-tag-type="toolLinkTagType"
         @start-sensitive-data-scan="startSensitiveDataScanFlow"
         @export-excel="handleExportScanToolsExcel"
-        @batch-toggle="batchToggle"
-        @promote-module-to-global="handlePromoteModuleToGlobal"
         @tool-expand-change="onToolExpandChange"
-        @enabled-change="handleEnabledChange"
         @open-diff="openDiffDialog"
-        @open-edit="openEditDialog"
         @rescan-from-source="handleRescanToolFromSource"
-        @open-test="openTest"
-        @promote-to-global="handlePromoteToGlobal"
-        @push-to-global="handlePushToGlobalTool"
-        @unpromote-from-global="handleUnpromoteFromGlobal"
         @regenerate-tool="regenerateTool"
         @open-edit-doc="openEditDoc"
         @show-more-groups="showMoreToolModuleGroups"
@@ -154,22 +151,6 @@
       @submit-rename="submitRename"
     />
 
-    <ScanProjectToolEditDialog
-      v-model:form-dialog-visible="formDialogVisible"
-      v-model:test-dialog-visible="testDialogVisible"
-      :form="form"
-      :http-methods="httpMethods"
-      :parameter-locations="parameterLocations"
-      :testing-tool="testingTool"
-      :test-args="testArgs"
-      :test-result="testResult"
-      :saving="saving"
-      :test-running="testRunning"
-      @save="handleSave"
-      @test="handleTest"
-      @add-parameter="addParameter"
-      @remove-parameter="removeParameter"
-    />
 
     <ScanProjectToolDiffDialog
       v-model:visible="diffDialogVisible"
@@ -193,7 +174,6 @@ import ScanProjectOpsDrawer from '@/views/scan/components/scan-project/ScanProje
 import ScanProjectOverviewCards from '@/views/scan/components/scan-project/ScanProjectOverviewCards.vue'
 import ScanProjectSemanticDialogs from '@/views/scan/components/scan-project/ScanProjectSemanticDialogs.vue'
 import ScanProjectToolDiffDialog from '@/views/scan/components/scan-project/ScanProjectToolDiffDialog.vue'
-import ScanProjectToolEditDialog from '@/views/scan/components/scan-project/ScanProjectToolEditDialog.vue'
 import ScanProjectToolsPanel from '@/views/scan/components/scan-project/ScanProjectToolsPanel.vue'
 import {
   useScanProjectDetailData,
@@ -205,7 +185,10 @@ import { useScanProjectSettings } from '@/views/scan/composables/useScanProjectS
 import { useScanProjectSemanticDocs } from '@/views/scan/composables/useScanProjectSemanticDocs'
 import { useScanProjectSummary, type ApiGovernanceAction } from '@/views/scan/composables/useScanProjectSummary'
 import { useScanProjectToolDetails } from '@/views/scan/composables/useScanProjectToolDetails'
-import { useScanProjectToolEditor, parameterRows } from '@/views/scan/composables/useScanProjectToolEditor'
+import { parameterRows } from '@/views/scan/scanProjectParameterRows'
+import { scanProjectOwnerRoutes } from '@/views/scan/scanProjectOwnerRoutes'
+import { hasPlatformResourcePermission, PLATFORM_PERMISSION_READ } from '@/auth/platformAccess'
+import { platformSessionUser } from '@/auth/platformSession'
 import { useScanProjectToolOperations } from '@/views/scan/composables/useScanProjectToolOperations'
 
 const refreshSideEffects: ScanProjectRefreshSideEffects = {
@@ -237,6 +220,11 @@ const {
 } = useScanProjectDetailData({
   sideEffects: () => refreshSideEffects,
 })
+
+const ownerRoutes = computed(() => scanProjectOwnerRoutes(project.value))
+const canReadOwnerCatalogs = computed(() => hasPlatformResourcePermission(
+  platformSessionUser.value?.permissionGrants, PLATFORM_PERMISSION_READ, 'PROJECT', null, project.value?.projectCode,
+))
 
 const {
   diffDialogVisible,
@@ -298,31 +286,6 @@ void _authForm
 void _lastScannedDisplay
 void _saveAuthSettings
 
-const {
-  saving,
-  formDialogVisible,
-  form,
-  httpMethods,
-  parameterLocations,
-  testDialogVisible,
-  testingTool,
-  testArgs,
-  testResult,
-  testRunning,
-  openEditDialog,
-  addParameter,
-  removeParameter,
-  handleSave,
-  handleEnabledChange,
-  batchToggle,
-  openTest,
-  handleTest,
-} = useScanProjectToolEditor({
-  projectId,
-  tools,
-  ensureToolDetail,
-  refreshAll,
-})
 
 const {
   modules,
@@ -405,27 +368,18 @@ const {
   rescanLoading,
   rebuildEmbeddingLoading,
   reconcileLoading,
-  promoteLoading,
-  pushToGlobalLoading,
-  unpromoteLoading,
-  batchModulePromoteLoading,
   rescanSourceLoading,
   exportScanToolsExcelLoading,
   handleReconcile,
   handleRebuildEmbeddings,
   handleRescan,
   handleRescanToolFromSource,
-  handlePromoteToGlobal,
-  handlePushToGlobalTool,
-  handleUnpromoteFromGlobal,
-  handlePromoteModuleToGlobal,
   handleExportScanToolsExcel,
 } = useScanProjectToolOperations({
   projectId,
   project,
   tools,
   refreshAll,
-  reloadAiTab,
 })
 
 const {
@@ -536,6 +490,12 @@ function handleGovernanceAction(action: ApiGovernanceAction) {
     void startBatchGenerate(false)
   } else if (action === 'reconcile') {
     void handleReconcile()
+  } else if (action === 'viewOwnerCatalog') {
+    if (!ownerRoutes.value || !canReadOwnerCatalogs.value) {
+      ElMessage.warning('当前账号无该项目资产目录读取权限，或项目身份尚未确定。')
+      return
+    }
+    void router.push(project.value?.projectKind === 'REGISTERED' ? ownerRoutes.value.businessMethods : ownerRoutes.value.apis)
   } else if (action === 'scanSensitive') {
     void startSensitiveDataScanFlow()
   } else if (action === 'refresh') {
@@ -566,4 +526,11 @@ onUnmounted(() => {
 
 <style scoped lang="scss">
 @use './styles/ScanProjectDetail.scss';
+.api-asset-shortcut { display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: 12px; padding: 12px 16px; border: 1px solid var(--border-divider);
+  border-radius: var(--radius-md); color: var(--text-secondary); }
+.api-asset-shortcut p { margin: 0; }
+.api-asset-shortcut a { color: var(--brand-active); font-weight: 600; text-decoration: none; }
+.api-asset-shortcut a:hover { text-decoration: underline; }
+.api-asset-shortcut a:focus-visible { outline: 2px solid var(--brand-active); outline-offset: 3px; }
 </style>

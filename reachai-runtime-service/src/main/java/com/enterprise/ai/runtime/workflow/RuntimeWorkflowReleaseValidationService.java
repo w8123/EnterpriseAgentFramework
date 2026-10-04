@@ -579,6 +579,10 @@ public class RuntimeWorkflowReleaseValidationService {
                                      RuntimeWorkflowReleaseValidationResult.Builder report) {
         Map<String, Object> config = node.getConfig() == null ? Map.of() : node.getConfig();
         Map<String, Object> nested = mapValue(config.get("httpConfig"));
+        if (config.containsKey("marketRef") || nested.containsKey("marketRef")) {
+            report.error("GRAPH_HTTP_API_MARKET_BINDING_REQUIRED", node.getId(),
+                    "旧市场 HTTP_REQUEST 引用不能作为受控 API 绑定；请从市场显式接入项目，在 API 详情验证后通过 API 节点重新选择并映射");
+        }
         Map<String, Object> effective = nested.isEmpty() ? config : nested;
         String url = firstText(text(effective.get("url")), text(config.get("url")));
         if (!StringUtils.hasText(url)) {

@@ -89,6 +89,33 @@
             <artifactId>h2</artifactId>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <groupId>com.enterprise.ai</groupId>
+            <artifactId>reachai-capability-service</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <!-- Isolated BMAPI-3B1 browser bridge starts from the real OpenAPI scanner. -->
+        <dependency>
+            <groupId>com.enterprise.ai</groupId>
+            <artifactId>reachai-knowledge-service</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <!-- Isolated BMAPI-2D-B fixture exercises the actual SDK scanner, registry client and endpoint. -->
+        <dependency>
+            <groupId>com.enterprise.ai</groupId>
+            <artifactId>reachai-spring-boot2-starter</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <!-- Test-only public-boundary coverage: Runtime-produced outcomes are checked by Control. -->
+        <dependency>
+            <groupId>com.enterprise.ai</groupId>
+            <artifactId>reachai-control-service</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>

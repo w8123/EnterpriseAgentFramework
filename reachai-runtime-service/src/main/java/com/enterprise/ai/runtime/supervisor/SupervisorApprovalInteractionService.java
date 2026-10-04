@@ -7,7 +7,8 @@ import com.enterprise.ai.runtime.execution.RuntimeSupervisorApprovalPort;
 import com.enterprise.ai.runtime.execution.RuntimeSupervisorApprovalService;
 import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowInputProtectionService;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import java.time.LocalDateTime;
@@ -20,7 +21,6 @@ import java.util.UUID;
 
 /** Supervisor describes the proposed action; execution owns the durable approval lifecycle. */
 @Service
-@RequiredArgsConstructor
 public class SupervisorApprovalInteractionService {
     public static final String INTERACTION_PREFIX = RuntimeSupervisorApprovalPort.INTERACTION_PREFIX;
     public static final String SOURCE_TYPE = RuntimeSupervisorApprovalService.SOURCE_TYPE;
@@ -28,6 +28,19 @@ public class SupervisorApprovalInteractionService {
     public static final String WAITING_USER = RuntimeSupervisorApprovalService.WAITING_USER;
     private final RuntimeSupervisorApprovalService approvals;
     private final ObjectMapper objectMapper;
+    private final RuntimeWorkflowInputProtectionService workflowInputProtection;
+
+    public SupervisorApprovalInteractionService(RuntimeSupervisorApprovalService approvals, ObjectMapper objectMapper) {
+        this(approvals, objectMapper, null);
+    }
+
+    @Autowired
+    public SupervisorApprovalInteractionService(RuntimeSupervisorApprovalService approvals, ObjectMapper objectMapper,
+                                                RuntimeWorkflowInputProtectionService workflowInputProtection) {
+        this.approvals = approvals;
+        this.objectMapper = objectMapper;
+        this.workflowInputProtection = workflowInputProtection;
+    }
 
     public ApprovalRequest create(SupervisorExecutionTraceService.TraceHandle trace,
                                   RuntimeAgentView agent,
@@ -37,9 +50,11 @@ public class SupervisorApprovalInteractionService {
                                   Map<String, Object> args,
                                   String reason,
                                   WorkflowExecutionIdentity trustedIdentity) {
-        return create(trace, agent, config, "WORKFLOW",
+        Map<String, Object> visible = workflowInputProtection == null ? args
+                : workflowInputProtection.protect(tool.getWorkflowId(), tool.getWorkflowVersionId(), args);
+        return createWithPresentation(trace, agent, config, "WORKFLOW",
                 tool.getToolName(), tool.getPermissionKey(), tool.getRiskLevel(),
-                input, args, reason, trustedIdentity);
+                input, args, visible, reason, trustedIdentity);
     }
 
     public ApprovalRequest create(SupervisorExecutionTraceService.TraceHandle trace,
@@ -53,6 +68,15 @@ public class SupervisorApprovalInteractionService {
                                   Map<String, Object> args,
                                   String reason,
                                   WorkflowExecutionIdentity trustedIdentity) {
+        return createWithPresentation(trace, agent, config, toolKind, toolName, permissionKey, riskLevel,
+                input, args, args, reason, trustedIdentity);
+    }
+
+    private ApprovalRequest createWithPresentation(SupervisorExecutionTraceService.TraceHandle trace,
+                                  RuntimeAgentView agent, RuntimeAgentConfigSnapshot config, String toolKind,
+                                  String toolName, String permissionKey, String riskLevel,
+                                  Map<String, Object> input, Map<String, Object> args, Map<String, Object> visibleArgs,
+                                  String reason, WorkflowExecutionIdentity trustedIdentity) {
         LocalDateTime now = LocalDateTime.now();
         String interactionId = INTERACTION_PREFIX + UUID.randomUUID().toString().replace("-", "");
         Map<String, Object> checkpoint = new LinkedHashMap<>();
@@ -69,7 +93,7 @@ public class SupervisorApprovalInteractionService {
         checkpoint.put("args", args == null ? Map.of() : args);
         checkpoint.put("input", input == null ? Map.of() : input);
 
-        Map<String, Object> displayArgs = displayArgs(args);
+        Map<String, Object> displayArgs = displayArgs(visibleArgs);
 
         Map<String, Object> uiRequest = new LinkedHashMap<>();
         uiRequest.put("type", INTERACTION_TYPE);

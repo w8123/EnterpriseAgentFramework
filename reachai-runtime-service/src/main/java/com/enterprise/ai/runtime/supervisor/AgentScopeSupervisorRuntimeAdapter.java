@@ -93,6 +93,12 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
     private final RuntimeAgentSkillRepositoryFactory skillRepositoryFactory;
     private RuntimeA2aDelegationService a2aDelegationService;
     private ManagedExecutorAgentDelegationService managedExecutorDelegationService;
+    private com.enterprise.ai.runtime.workflow.RuntimeWorkflowInputProtectionService workflowInputProtection;
+
+    @Autowired
+    public void setWorkflowInputProtection(com.enterprise.ai.runtime.workflow.RuntimeWorkflowInputProtectionService service) {
+        this.workflowInputProtection = service;
+    }
 
     @Autowired(required = false)
     void setA2aDelegationService(RuntimeA2aDelegationService service) {
@@ -1096,8 +1102,17 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
             code = PLAN_INCOMPLETE_CODE;
             answer = PLAN_INCOMPLETE_MESSAGE;
         }
+        if (state.unconfirmedHttpApiWrite) {
+            success = false;
+            code = "HTTP_API_WORKFLOW_RESULT_UNCONFIRMED";
+            answer = "写入结果未确认，请核对业务记录；本次运行不会自动重发。";
+        }
         Map<String, Object> metadata = new LinkedHashMap<>();
         metadata.put("runtimeType", "AGENTSCOPE");
+        if (state.unconfirmedHttpApiWrite) {
+            metadata.put("outcomeClass", "UNKNOWN");
+            metadata.put("businessOutcome", "UNCONFIRMED");
+        }
         metadata.put("agentScopeVersion", "2.0.0");
         metadata.put("agentConfigVersionId", state.request.config().getId());
         metadata.put("agentConfigVersion", state.request.config().getVersionNo());
@@ -1285,6 +1300,7 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
         private volatile Object displayUiRequest;
         /** Safe normalized evidence from the latest completed Workflow, never raw business rows. */
         private volatile Map<String, Object> lastWorkflowResultSummary = Map.of();
+        private volatile boolean unconfirmedHttpApiWrite;
         private String approvalResultHint;
         private boolean approvalConsumed;
         /** DIRECT | PLANNED | WORKFLOW — 不得把 implicit audit 算作主动规划。 */
@@ -2010,6 +2026,7 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                         workflowCancel,
                         identity,
                         request.evalContext());
+                if ("HTTP_API_WORKFLOW_RESULT_UNCONFIRMED".equals(result.code())) unconfirmedHttpApiWrite = true;
                 scope.throwIfCancelled();
                 if ("RUNTIME_GRAPH_CANCELLED".equals(result.code()) || workflowCancel.isCancelled()) {
                     phases.emit(workflowStepId, "workflow", "cancelled", "workflow_runtime",
@@ -2221,7 +2238,8 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
             payload.put("workflowKey", target.workflow().getKeySlug());
             payload.put("workflowVersionId", target.version().getId());
             payload.put("workflowVersion", target.version().getVersion());
-            payload.put("args", args);
+            payload.put("args", workflowInputProtection == null ? args
+                    : workflowInputProtection.protectGraph(target.version().getGraphSpecSnapshotJson(), args));
             payload.put("success", result.success());
             payload.put("code", result.code());
             payload.put("answer", result.answer());

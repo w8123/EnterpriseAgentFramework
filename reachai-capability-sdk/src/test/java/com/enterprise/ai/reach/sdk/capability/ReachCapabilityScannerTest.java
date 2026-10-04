@@ -10,6 +10,7 @@ import java.time.LocalDate;
 import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -60,6 +61,7 @@ class ReachCapabilityScannerTest {
         assertEquals("根据合同编号查询合同详情", descriptor.getDescription());
         assertEquals("contract", descriptor.getDomain());
         assertEquals("review", descriptor.getModule());
+        assertEquals(ReachCapabilityAssetType.BUSINESS_METHOD, descriptor.getAssetType());
         assertEquals(ReachSideEffectLevel.READ, descriptor.getSideEffect());
         assertEquals("contract_reader", descriptor.getRequiredRoles().get(0));
         assertEquals("contract", descriptor.getTags().get(0));
@@ -178,6 +180,15 @@ class ReachCapabilityScannerTest {
         }
     }
 
+    static class ContainerTypesApi {
+        @ReachCapability(name = "container.types")
+        String invoke(@ReachParam(name = "quantities") List<Integer> quantities,
+                      @ReachParam(name = "labels") String[] labels,
+                      @ReachParam(name = "attributes") Map<String, Object> attributes) {
+            return "";
+        }
+    }
+
     @Test
     void returnsEmptyForNullVarargsAndSkipsNullEntries() {
         List<ReachCapabilityDescriptor> nullVarargs = ReachCapabilityScanner.scanClasses((Class<?>[]) null);
@@ -289,6 +300,25 @@ class ReachCapabilityScannerTest {
         assertEquals("object", paramByName(params, "date").getType());
         assertEquals("object", paramByName(params, "created").getType());
         assertNull(paramByName(params, "status.code"));
+    }
+
+    @Test
+    void declaresCollectionElementAndOpenMapShapeWithoutExpandingThemAsDtos() {
+        List<ReachCapabilityParameter> params = ReachCapabilityScanner.scanClasses(ContainerTypesApi.class)
+                .get(0).getParameters();
+
+        ReachCapabilityParameter quantities = paramByName(params, "quantities");
+        assertEquals("array", quantities.getType());
+        assertEquals("number", quantities.getItemsType());
+
+        ReachCapabilityParameter labels = paramByName(params, "labels");
+        assertEquals("array", labels.getType());
+        assertEquals("string", labels.getItemsType());
+
+        ReachCapabilityParameter attributes = paramByName(params, "attributes");
+        assertEquals("object", attributes.getType());
+        assertTrue(attributes.isOpenObject());
+        assertNull(paramByName(params, "attributes.value"));
     }
 
     private static ReachCapabilityDescriptor findByMethodName(

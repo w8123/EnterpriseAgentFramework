@@ -1383,6 +1383,14 @@ async function validatePageHeader(source, label) {
   return localFailures
 }
 
+function isConditionalEmptyClass(node) {
+  const expression = unwrapExpression(node)
+  if (!expression || !ts.isObjectLiteralExpression(expression) || expression.properties.length !== 1) return false
+  const property = expression.properties[0]
+  return ts.isPropertyAssignment(property) && isStringValue(property.name, 'is-empty') &&
+    isEmptyVisibleCondition(property.initializer)
+}
+
 async function validateWorkbenchPanel(source, label) {
   const localFailures = await validateCommonSfc(source, label)
   const parsed = parse(source, { filename: label })
@@ -1653,10 +1661,11 @@ async function validateDataTableShell(source, label) {
       (entry) => isStringValue(entry, 'data-table-shell'),
       (entry) => isStringValue(entry, 'glass-surface-panel'),
       isDensityClassCall,
+      isConditionalEmptyClass,
     ])
   ) {
     localFailures.push(
-      `${label} root must bind only data-table-shell, one glass-surface-panel, and densityClass(props.density)`,
+      `${label} root must bind only data-table-shell, one glass-surface-panel, densityClass(props.density), and is-empty for empty && !loading`,
     )
   }
   if (!isPropertyChain(directiveExpression(rootElement, 'loading', undefined), ['props', 'loading'])) {
@@ -6227,7 +6236,7 @@ function handleSizeChange(size: number) {
 <template>
   <section
     v-loading="props.loading"
-    :class="['data-table-shell', 'glass-surface-panel', densityClass(props.density)]"
+    :class="['data-table-shell', 'glass-surface-panel', densityClass(props.density), { 'is-empty': props.empty && !props.loading }]"
   >
     <div v-if="$slots.toolbar" class="data-table-shell__toolbar">
       <slot name="toolbar" />
@@ -7618,22 +7627,145 @@ function agentEditLayoutContract(styles) {
 
 async function validateAgentSupervisorWorkbenchConsumer(source, label) {
   const localFailures = await validateCommonSfc(source, label)
-  const required = [
-    ['Agent Supervisor 工作台', 'must identify the page as the Agent Supervisor workbench'],
-    ['title="Agent 身份与接入"', 'must separate stable Agent identity from runtime configuration'],
-    ['title="Supervisor 运行配置"', 'must expose the versioned Supervisor runtime configuration'],
-    ['await copyAgentConfigToDraft(', 'must support copying immutable config snapshots into a draft'],
-    ['workflowTools', 'must manage Workflow-as-Tool entries as editable records'],
-    ['class="workflow-tool-table"', 'must render the editable Workflow tool catalog'],
-    ['Tool Name', 'must expose stable Supervisor tool names'],
-    ['permissionKey', 'must expose Workflow tool permission keys'],
-    ['配置版本', 'must expose Supervisor config version management'],
-    ['<AppDrawer', 'must use the shared AppDrawer for config version management'],
-    ['openDebug', 'must expose Agent Supervisor debugging'],
-  ]
-  for (const [needle, message] of required) {
-    if (!source.includes(needle)) localFailures.push(`${label} ${message}`)
+  const parsed = parse(source, { filename: label })
+  if (parsed.errors.length) return localFailures
+  const sourceFile = parseTypeScript(parsed.descriptor.scriptSetup?.content ?? '', label, localFailures)
+  const ast = templateAst(parsed.descriptor.template?.content ?? '', label, localFailures)
+  const elements = templateElements(ast)
+  const assert = (condition, message) => {
+    if (!condition) localFailures.push(`${label} ${message}`)
   }
+  const fn = name => sourceFile.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === name)
+  const nodes = (node, predicate) => node ? typescriptNodes(node, predicate) : []
+  const call = (owner, expected) => nodes(fn(owner)?.body, ts.isCallExpression)
+    .some(node => expressionMatchesSource(node, expected))
+  const assignment = (owner, expected) => nodes(fn(owner)?.body, ts.isBinaryExpression)
+    .some(node => expressionMatchesSource(node, expected))
+  const returnedObject = owner => nodes(fn(owner)?.body, ts.isReturnStatement)
+    .map(node => unwrapExpression(node.expression)).find(node => node && ts.isObjectLiteralExpression(node))
+  const property = (object, key) => object?.properties.find(node => ts.isPropertyAssignment(node) && nodeName(node.name) === key)?.initializer
+  const bind = (element, name, expected) => expressionMatchesSource(directiveExpression(element, 'bind', name), expected)
+  const on = (element, name, expected) => expressionMatchesSource(directiveExpression(element, 'on', name), expected)
+  const gate = (element, name, expected) => expressionMatchesSource(directiveExpression(element, name), expected)
+  const byId = id => elements.find(element => staticAttributeValue(element, 'id') === id)
+  const within = element => element ? descendantElements(ast, element) : []
+  const model = (children, tag, expected) => children.some(element => element.tag === tag &&
+    expressionMatchesSource(directiveExpression(element, 'model'), expected))
+  const editableModel = (children, tag, expected) => children.some(element => element.tag === tag &&
+    expressionMatchesSource(directiveExpression(element, 'model'), expected) &&
+    !element.props.some(prop => (prop.type === 6 && ['disabled', 'readonly'].includes(prop.name)) ||
+      (prop.type === 7 && prop.name === 'bind' && ['disabled', 'readonly'].includes(prop.arg?.content))))
+  const importedApis = sourceFile.statements.filter(node => ts.isImportDeclaration(node) &&
+    ts.isStringLiteral(node.moduleSpecifier) && node.moduleSpecifier.text === '@/api/workflow')
+    .flatMap(node => node.importClause?.namedBindings && ts.isNamedImports(node.importClause.namedBindings)
+      ? node.importClause.namedBindings.elements.map(item => item.propertyName?.text ?? item.name.text) : [])
+
+  const rootElement = rootTemplateElement(ast)
+  const header = elements.find(element => element.tag === 'PageHeader')
+  assert(rootElement?.tag === 'WorkbenchPage' && staticAttributeValue(rootElement, 'density') === 'compact' &&
+    staticAttributeValue(header, 'domain') === 'agent' && staticAttributeValue(header, 'density') === 'compact',
+  'must identify the page through the current compact Agent workbench family')
+  const configForm = elements.find(element => element.tag === 'el-form' && bind(element, 'model', 'form'))
+  const basic = byId('agent-config-basic')
+  const basicChildren = within(basic)
+  const identity = basicChildren.find(element => element.tag === 'el-input' && model([element], 'el-input', 'form.keySlug'))
+  const agentId = nodes(sourceFile, ts.isVariableDeclaration).find(node => ts.isIdentifier(node.name) && node.name.text === 'agentId')
+  assert(basic?.tag === 'WorkbenchPanel' && gate(configForm, 'show', "isNew || activeSection === 'config'") &&
+    gate(basic, 'show', "isNew || activeConfigSection === 'basic'") && bind(identity, 'disabled', '!isNew') &&
+    model(basicChildren, 'el-input', 'form.name') && model(basicChildren, 'el-select', 'form.projectId') &&
+    model(basicChildren, 'el-select', 'form.allowedRoles') &&
+    expressionMatchesSource(unwrapExpression(agentId?.initializer), 'route.params.id'),
+  'must separate stable Agent identity from runtime configuration')
+
+  const decision = byId('agent-config-decision')
+  const promptDialog = elements.find(element => element.tag === 'AppDialog' &&
+    model([element], 'AppDialog', 'systemPromptDialogVisible'))
+  const advanced = elements.find(element => element.tag === 'AppDrawer' &&
+    model([element], 'AppDrawer', 'advancedSettingsVisible'))
+  const draft = returnedObject('buildConfigDraft')
+  assert(decision?.tag === 'WorkbenchPanel' && gate(decision, 'show', "isNew || activeConfigSection === 'decision'") &&
+    model(within(decision), 'el-select', 'supervisor.modelInstanceId') &&
+    within(decision).some(element => on(element, 'click', 'openSystemPromptEditor')) &&
+    model(within(promptDialog), 'el-input', 'systemPromptDraft') &&
+    within(promptDialog).some(element => on(element, 'click', 'applySystemPromptDraft')) &&
+    assignment('applySystemPromptDraft', 'supervisor.systemPrompt = systemPromptDraft.value') &&
+    model(within(advanced), 'el-select', 'supervisor.policyProfile') &&
+    model(within(advanced), 'el-input-number', 'supervisor.maxPlanSteps') &&
+    expressionMatchesSource(property(draft, 'runtimeType'), "'AGENTSCOPE'") &&
+    expressionMatchesSource(property(draft, 'toolCatalogMode'), "'ALLOW_LIST'") &&
+    ['maxPlanSteps', 'maxWorkflowCalls', 'maxReplans', 'parallelReadOnly', 'policyProfile'].every(key =>
+      expressionMatchesSource(property(draft, key), `supervisor.${key}`)) &&
+    call('handleSave', 'saveAgentConfigDraft(agentId, buildConfigDraft())') &&
+    call('handlePublish', 'saveAgentConfigDraft(agentId, buildConfigDraft())') &&
+    call('handlePublish', "publishAgentConfig(agentId, draft.id, 'admin-ui')") &&
+    ['saveAgentConfigDraft', 'publishAgentConfig'].every(name => importedApis.includes(name)),
+  'must expose the versioned Supervisor runtime configuration')
+
+  const workflowPanel = byId('agent-config-workflows')
+  const workflowChildren = within(workflowPanel)
+  const toolRow = workflowChildren.find(element => element.tag === 'article' &&
+    /^\(\s*row\s*,\s*index\s*\)\s+in\s+workflowTools$/.test(directive(element, 'for')?.exp?.content ?? '') &&
+    bind(element, 'key', 'row.workflowId'))
+  const toolChildren = within(toolRow)
+  assert(workflowPanel?.tag === 'WorkbenchPanel' && gate(workflowPanel, 'show', "isNew || activeConfigSection === 'workflows'") &&
+    workflowChildren.some(element => on(element, 'click', 'openWorkflowPicker')) && toolRow &&
+    editableModel(toolChildren, 'el-switch', 'row.enabled') && editableModel(toolChildren, 'el-select', 'row.riskLevel') &&
+    toolChildren.some(element => on(element, 'click', 'removeWorkflowTool(index)')) &&
+    expressionMatchesSource(property(draft, 'tools'), 'workflowTools.value.map((tool, priority) => ({ ...tool, priority }))'),
+  'must render the editable Workflow tool catalog as complete records')
+  const defaultTool = returnedObject('defaultWorkflowTool')
+  const nameFunction = fn('workflowToolName')
+  const nameVariable = name => nodes(nameFunction?.body, ts.isVariableDeclaration).find(node =>
+    ts.isIdentifier(node.name) && node.name.text === name)?.initializer
+  const nameReturn = nodes(nameFunction?.body, ts.isReturnStatement)[0]?.expression
+  assert(editableModel(toolChildren, 'el-input', 'row.toolName') &&
+    expressionMatchesSource(property(defaultTool, 'toolName'), 'workflowToolName(workflow)') &&
+    expressionMatchesSource(nameVariable('raw'), "(workflow.keySlug || workflow.id || 'workflow').replace(/[^A-Za-z0-9_]/g, '_')") &&
+    expressionMatchesSource(nameVariable('prefixed'), '/^[A-Za-z]/.test(raw) ? raw : `wf_${raw}`') &&
+    expressionMatchesSource(nameReturn, 'prefixed.length >= 2 ? prefixed.slice(0, 128) : `wf_${prefixed}`') &&
+    call('buildConfigDraft', 'toolNames.has(tool.toolName)') && call('buildConfigDraft', 'toolNames.add(tool.toolName)'),
+  'must expose stable Supervisor tool names through the editable record')
+  assert(editableModel(toolChildren, 'el-input', 'row.permissionKey') &&
+    expressionMatchesSource(property(defaultTool, 'permissionKey'), '`workflow:${workflow.keySlug}`'),
+  'must expose Workflow tool permission keys through the editable record')
+
+  const versions = elements.find(element => element.tag === 'section' &&
+    gate(element, 'if', "!isNew && activeSection === 'versions'"))
+  const versionTable = within(versions).find(element => element.tag === 'el-table' && bind(element, 'data', 'configVersions'))
+  assert(versionTable && call('refreshConfigVersions', 'listAgentConfigVersions(agentId)') &&
+    call('showVersionSection', 'refreshConfigVersions()') &&
+    within(versionTable).some(element => on(element, 'click', 'viewVersionInConfig(row)')) &&
+    within(versionTable).some(element => on(element, 'click', 'handleCopyVersion(row)')),
+  'must expose Supervisor config version management in the current versions partition')
+  const versionDrawer = elements.find(element => element.tag === 'AppDrawer' &&
+    model([element], 'AppDrawer', 'versionDrawerVisible'))
+  assert(within(versionDrawer).some(element => element.tag === 'el-table' && bind(element, 'data', 'configVersions')),
+    'must use the shared AppDrawer for config version management')
+  assert(importedApis.includes('copyAgentConfigToDraft') && call('handleCopyVersion', 'copyAgentConfigToDraft(agentId, config.id)') &&
+    call('handleCopyVersion', 'loadConfigToForm(data)') && call('handleCopyVersion', 'refreshConfigVersions()') &&
+    assignment('handleCopyVersion', "activeSection.value = 'config'"),
+  'must support copying immutable config snapshots into a draft')
+  assert(call('openDebug', 'router.push(`/agent/${agentId}/debug`)') &&
+    elements.some(element => element.tag === 'el-button' && on(element, 'click', 'openDebug') &&
+      (gate(element, 'if', 'canDebugAgent') || gate(element, 'if', '!isNew && canDebugAgent'))),
+  'must expose Agent Supervisor debugging by Agent identity')
+
+  const overview = elements.find(element => element.tag === 'AgentDetailOverview')
+  assert(importsDefault(sourceFile, 'AgentDetailOverview', '@/components/agent/AgentDetailOverview.vue') &&
+    gate(overview, 'if', "!isNew && activeSection === 'overview'") &&
+    bind(overview, 'workflow-tools', 'workflowTools') && bind(overview, 'system-prompt', 'supervisor.systemPrompt') &&
+    bind(overview, 'active-version-no', 'activeConfig?.versionNo') && bind(overview, 'draft-version-no', 'draftConfig?.versionNo') &&
+    on(overview, 'edit-section', 'showConfigSection') && on(overview, 'show-versions', 'showVersionSection') &&
+    on(overview, 'edit-prompt', 'openSystemPromptEditor') && on(overview, 'debug', 'openDebug'),
+  'must connect the shared overview to editable config, versions, and debugging')
+  const childSource = readNormalizedUtf8(resolve(root, 'src/components/agent/AgentDetailOverview.vue'))
+  const childParsed = parse(childSource, { filename: 'AgentDetailOverview.vue' })
+  const childAst = templateAst(childParsed.descriptor.template?.content ?? '', 'AgentDetailOverview.vue', localFailures)
+  const childElements = templateElements(childAst)
+  assert(childElements.some(element => on(element, 'click', "emit('edit-section', 'workflows')")) &&
+    childElements.some(element => on(element, 'click', "emit('show-versions')")) &&
+    childElements.some(element => on(element, 'click', "emit('debug')")),
+  'must preserve the shared overview navigation and debug actions')
   for (const [pattern, message] of [
     [/PAGE_ENTRY/, 'must not retain the retired PAGE_ENTRY semantic'],
     [/agentDefinitionId/, 'must use agentId as the only Agent execution identity'],
@@ -10044,7 +10176,9 @@ const syntheticToolRetrievalTestConsumer = `<template>
             class="rebuild-dialog__control"
             placeholder="请选择厂商"
             filterable
+            :loading="embeddingInstancesLoading"
             @change="handleRebuildProviderChange"
+            @visible-change="handleEmbeddingSelectVisible"
           >
             <el-option
               v-for="provider in embeddingProviderOptions"
@@ -10052,6 +10186,15 @@ const syntheticToolRetrievalTestConsumer = `<template>
               :label="provider"
               :value="provider"
             />
+            <template #empty>
+              <ModelSelectEmptyState
+                model-type="EMBEDDING"
+                :option-count="embeddingProviderOptions.length"
+                :loading="embeddingInstancesLoading"
+                :load-error="embeddingInstancesLoadError"
+                @retry="loadEmbeddingInstances"
+              />
+            </template>
           </el-select>
         </el-form-item>
         <el-form-item required>
@@ -10074,6 +10217,8 @@ const syntheticToolRetrievalTestConsumer = `<template>
             placeholder="请选择向量模型实例"
             filterable
             :disabled="!rebuildModelProvider"
+            :loading="embeddingInstancesLoading"
+            @visible-change="handleEmbeddingSelectVisible"
           >
             <el-option
               v-for="item in filteredEmbeddingInstances"
@@ -10081,6 +10226,15 @@ const syntheticToolRetrievalTestConsumer = `<template>
               :label="\`\${item.name} / \${item.modelName}\`"
               :value="item.id"
             />
+            <template #empty>
+              <ModelSelectEmptyState
+                model-type="EMBEDDING"
+                :option-count="filteredEmbeddingInstances.length"
+                :loading="embeddingInstancesLoading"
+                :load-error="embeddingInstancesLoadError"
+                @retry="loadEmbeddingInstances"
+              />
+            </template>
           </el-select>
         </el-form-item>
       </el-form>
@@ -10099,6 +10253,7 @@ import WorkbenchPanel from '@/components/common/WorkbenchPanel.vue'
 import DataTableShell from '@/components/common/DataTableShell.vue'
 import StatusTag from '@/components/common/StatusTag.vue'
 import AppDialog from '@/components/common/AppDialog.vue'
+import ModelSelectEmptyState from '@/components/model/ModelSelectEmptyState.vue'
 const form = { query: '', topK: 10, enabledOnly: false, minScore: undefined }
 const searching = false
 const candidates = [{ score: 0.8 }]
@@ -10110,9 +10265,12 @@ const embeddingProviderOptions = ['demo']
 const filteredEmbeddingInstances = [{ id: 1, name: 'demo', modelName: 'embedding' }]
 const taskPercent = 100
 const rebuildStarting = false
+const embeddingInstancesLoading = false
+const embeddingInstancesLoadError = false
 function handleSearch() {}
 function openRebuildDialog() {}
 function handleRebuildProviderChange() {}
+function handleEmbeddingSelectVisible() {}
 function loadEmbeddingInstances() {}
 function confirmRebuild() {}
 function scoreTag(_score: number) { return 'success' }
@@ -10342,8 +10500,9 @@ async function runMutationProof(name, mutate, expectedFailure) {
 async function runContractMutationProof(name, source, validate, mutate, expectedFailure) {
   const label = `mutation:${name}`
   const mutationFailures = await validate(mutate(source), label)
-  const expected = `${label} ${expectedFailure}`
-  if (mutationFailures.length !== 1 || mutationFailures[0] !== expected) {
+  const expected = (Array.isArray(expectedFailure) ? expectedFailure : [expectedFailure])
+    .map(message => `${label} ${message}`).sort()
+  if (!arraysEqual([...mutationFailures].sort(), expected)) {
     failures.push(
       `mutation proof ${name} expected exactly "${expectedFailure}"; got ${mutationFailures.join(' | ') || '(none)'}`,
     )
@@ -11904,6 +12063,24 @@ async function runMutationProofs() {
         'Tool retrieval safe declaration reorder',
       ),
   )
+  // Fixed approved fixture includes the immutable HEAD async model-selection contract.
+  // The oracle is never derived from the current source being validated.
+  for (const [name, needle, replacement] of [
+    ['tool-retrieval-provider-loading', ':loading="embeddingInstancesLoading"', ':loading="false"'],
+    ['tool-retrieval-provider-visible-retry', '@visible-change="handleEmbeddingSelectVisible"', '@visible-change="handleRebuildProviderChange"'],
+    ['tool-retrieval-empty-model-type', 'model-type="EMBEDDING"', 'model-type="LLM"'],
+    ['tool-retrieval-provider-option-count', ':option-count="embeddingProviderOptions.length"', ':option-count="filteredEmbeddingInstances.length"'],
+    ['tool-retrieval-instance-option-count', ':option-count="filteredEmbeddingInstances.length"', ':option-count="embeddingProviderOptions.length"'],
+    ['tool-retrieval-empty-load-error', ':load-error="embeddingInstancesLoadError"', ':load-error="false"'],
+    ['tool-retrieval-empty-retry', '@retry="loadEmbeddingInstances"', '@retry="confirmRebuild"'],
+  ]) {
+    await runToolRetrievalMutationProof(name, syntheticToolRetrievalTestConsumer, structuralToolRetrievalOptions,
+      source => replaceRequired(source, needle, replacement, name),
+      [toolRetrievalTopologyFailure, toolRetrievalDialogFailure])
+  }
+  await runToolRetrievalSafeVariantProof('tool-retrieval-empty-comment', actualToolRetrievalSource, {},
+    source => replaceRequired(source, '<template #empty>\n              <ModelSelectEmptyState',
+      '<template #empty>\n              <!-- async model feedback -->\n              <ModelSelectEmptyState', 'Tool retrieval safe empty-slot comment'))
 
   for (const [name, mutate, expectedFailure] of [
     [
@@ -13506,17 +13683,39 @@ async function runMutationProofs() {
   }
 
   for (const [name, needle, replacement, expectedFailure] of [
-    ['agent-supervisor-workbench-identity', 'title="Agent 身份与接入"', 'title="Agent 配置"', 'must separate stable Agent identity'],
-    ['agent-supervisor-workbench-runtime', 'title="Supervisor 运行配置"', 'title="运行配置"', 'must expose the versioned Supervisor runtime configuration'],
+    ['agent-supervisor-workbench-identity', 'v-model="form.keySlug"', 'v-model="form.legacySlug"', 'must separate stable Agent identity'],
+    ['agent-supervisor-workbench-runtime', 'v-model="supervisor.modelInstanceId"', 'v-model="form.modelInstanceId"', 'must expose the versioned Supervisor runtime configuration'],
     ['agent-supervisor-workbench-version-copy', 'await copyAgentConfigToDraft(', 'await copyLegacyConfig(', 'must support copying immutable config snapshots'],
-    ['agent-supervisor-workbench-tool-records', 'class="workflow-tool-table"', 'class="workflow-binding-table"', 'must render the editable Workflow tool catalog'],
+    ['agent-supervisor-workbench-tool-records', 'v-for="(row, index) in workflowTools"', 'v-for="(row, index) in selectedWorkflowIds"', 'must render the editable Workflow tool catalog'],
+    ['agent-supervisor-workbench-tool-name', 'v-model="row.toolName"', 'v-model="row.workflowName"', 'must expose stable Supervisor tool names'],
+    ['agent-supervisor-workbench-permission', 'v-model="row.permissionKey"', 'v-model="row.descriptionOverride"', 'must expose Workflow tool permission keys'],
+    ['agent-supervisor-workbench-versions', ':data="configVersions"', ':data="workflowTools"', 'must expose Supervisor config version management'],
+    ['agent-supervisor-workbench-id-only', 'tools: workflowTools.value.map((tool, priority) => ({ ...tool, priority }))', 'tools: selectedWorkflowIds.value.map((workflowId) => ({ workflowId }))', 'must not reduce Workflow tools to a static id-only binding'],
+    ['agent-supervisor-workbench-unstable-name', 'toolName: workflowToolName(workflow)', 'toolName: workflow.name', 'must expose stable Supervisor tool names'],
+    ['agent-supervisor-workbench-disabled-tool-editor', 'v-model="row.toolName"', 'disabled v-model="row.toolName"', 'must expose stable Supervisor tool names'],
+    ['agent-supervisor-workbench-display-name-key', "workflow.keySlug || workflow.id || 'workflow'", "workflow.name || workflow.id || 'workflow'", 'must expose stable Supervisor tool names'],
+    ['agent-supervisor-workbench-disabled-permission-editor', 'v-model="row.permissionKey"', 'disabled v-model="row.permissionKey"', 'must expose Workflow tool permission keys'],
+    ['agent-supervisor-workbench-retired-entry', "runtimeType: 'AGENTSCOPE'", "runtimeType: 'PAGE_ENTRY'", 'must not retain the retired PAGE_ENTRY semantic'],
+    ['agent-supervisor-workbench-second-identity', 'const agentId = route.params.id as string', 'const agentDefinitionId = route.params.id as string\nconst agentId = agentDefinitionId', 'must use agentId as the only Agent execution identity'],
   ]) {
     const mutated = replaceRequired(actualAgentEditSource, needle, replacement, name)
     const mutationFailures = await validateAgentSupervisorWorkbenchConsumer(mutated, name)
     if (!mutationFailures.some((failure) => failure.includes(expectedFailure))) {
       failures.push(`${name} mutation must be rejected: ${expectedFailure}`)
+    } else {
+      mutationProofCount += 1
+      console.log(`Mutation proof ${name}: ${expectedFailure}`)
     }
   }
+  await runPassingContractVariantProof(
+    'agent-supervisor-current-heading-copy', actualAgentEditSource, validateAgentSupervisorWorkbenchConsumer,
+    source => replaceRequired(source, 'title="基本信息"', 'title="身份与使用范围"', 'current Agent heading safe variant'),
+  )
+  await runPassingContractVariantProof(
+    'agent-supervisor-current-attribute-order', actualAgentEditSource, validateAgentSupervisorWorkbenchConsumer,
+    source => replaceRequired(source, 'v-model="row.toolName" placeholder="通常无需修改"',
+      'placeholder="通常无需修改" v-model="row.toolName"', 'current Agent attribute safe variant'),
+  )
 
   const structuralKnowledgeOptions = { skipHeadPreservation: true }
 
@@ -14406,6 +14605,21 @@ async function runMutationProofs() {
     (source) => source.replace('</section>', '<span class="glass-surface-control" /></section>'),
     'must own exactly one glass-surface-panel recipe',
   )
+  for (const [name, needle, replacement] of [
+    ['data-table-shell-extra-root-class', "'data-table-shell',", "'data-table-shell', 'rogue-class',"],
+    ['data-table-shell-duplicate-root-recipe', "'glass-surface-panel',", "'glass-surface-panel', 'glass-surface-panel',"],
+    ['data-table-shell-wrong-empty-class', "{ 'is-empty': props.empty && !props.loading }", "{ 'is-empty': props.empty }"],
+    ['data-table-shell-loading-empty-class', "{ 'is-empty': props.empty && !props.loading }", "{ 'is-empty': props.empty && props.loading }"],
+  ]) {
+    await runContractMutationProof(name, syntheticDataTableShell, validateDataTableShell,
+      source => replaceRequired(source, needle, replacement, name),
+      name === 'data-table-shell-duplicate-root-recipe'
+        ? ['root must bind only data-table-shell, one glass-surface-panel, densityClass(props.density), and is-empty for empty && !loading', 'must own exactly one glass-surface-panel recipe']
+        : 'root must bind only data-table-shell, one glass-surface-panel, densityClass(props.density), and is-empty for empty && !loading')
+  }
+  await runPassingContractVariantProof('data-table-shell-conditional-class-order', syntheticDataTableShell, validateDataTableShell,
+    source => replaceRequired(source, "densityClass(props.density), { 'is-empty': props.empty && !props.loading }",
+      "{ 'is-empty': props.empty && !props.loading }, densityClass(props.density)", 'DataTableShell safe conditional class reorder'))
   await runContractMutationProof(
     'app-dialog-prop-shape',
     syntheticAppDialog,

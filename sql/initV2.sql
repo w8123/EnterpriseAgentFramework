@@ -982,6 +982,7 @@ CREATE TABLE IF NOT EXISTS `capability_scan_project_tool` (
     `source`              VARCHAR(32)  NOT NULL DEFAULT 'scanner' COMMENT '来源: scanner',
     `source_location`     VARCHAR(512) DEFAULT NULL            COMMENT '来源定位',
     `source_qualified_name` VARCHAR(256) DEFAULT NULL           COMMENT '服务端绑定的 SDK 来源能力标识，目录编辑不可变',
+    `asset_type`          VARCHAR(32)  NOT NULL DEFAULT 'UNCLASSIFIED' COMMENT '来源资产类型投影: BUSINESS_METHOD / HTTP_API / UNCLASSIFIED',
     `http_method`         VARCHAR(8)   DEFAULT NULL            COMMENT 'HTTP 方法',
     `base_url`            VARCHAR(256) DEFAULT NULL            COMMENT '目标服务基础地址',
     `context_path`        VARCHAR(128) DEFAULT NULL            COMMENT '服务公共前缀',
@@ -998,17 +999,20 @@ CREATE TABLE IF NOT EXISTS `capability_scan_project_tool` (
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_project_tool_name` (`project_id`, `name`),
     KEY `idx_project_id` (`project_id`),
-    KEY `idx_module_id`  (`module_id`)
+    KEY `idx_module_id`  (`module_id`),
+    KEY `idx_scan_project_asset_type` (`project_id`, `asset_type`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='扫描项目接口（未注册为全局 Tool 前）';
 
 CALL add_col_if_absent('capability_scan_project_tool', 'title', 'VARCHAR(192) DEFAULT NULL COMMENT ''用户可读的简短工具名称'' AFTER `name`');
 CALL add_col_if_absent('capability_scan_project_tool', 'source_qualified_name', 'VARCHAR(256) DEFAULT NULL COMMENT ''服务端绑定的 SDK 来源能力标识，目录编辑不可变'' AFTER `source_location`');
+CALL add_col_if_absent('capability_scan_project_tool', 'asset_type', 'VARCHAR(32) NOT NULL DEFAULT ''UNCLASSIFIED'' COMMENT ''来源资产类型投影: BUSINESS_METHOD / HTTP_API / UNCLASSIFIED'' AFTER `source_qualified_name`');
 UPDATE `capability_scan_project_tool` SET `title` = `name` WHERE `title` IS NULL OR TRIM(`title`) = '';
 ALTER TABLE `capability_scan_project_tool` MODIFY COLUMN `title` VARCHAR(192) NOT NULL COMMENT '用户可读的简短工具名称';
 CALL add_col_if_absent('capability_scan_project_tool', 'capability_metadata_json', 'MEDIUMTEXT DEFAULT NULL COMMENT ''@ReachCapability 能力声明元数据 JSON'' AFTER `ai_description`');
 CALL add_col_if_absent('capability_scan_project_tool', 'sensitive_data_json', 'TEXT DEFAULT NULL COMMENT ''敏感数据扫描结果 JSON'' AFTER `capability_metadata_json`');
 CALL add_col_if_absent('capability_scan_project_tool', 'removed_from_source', 'TINYINT NOT NULL DEFAULT 0 COMMENT ''1=扫描或 SDK 源中已无此接口（墓碑行，可能仍关联全局 Tool）'' AFTER `global_tool_definition_id`');
 CALL add_col_if_absent('capability_scan_project_tool', 'removed_at', 'DATETIME DEFAULT NULL COMMENT ''标记为从源移除的时间'' AFTER `removed_from_source`');
+CALL add_idx_if_absent('capability_scan_project_tool', 'idx_scan_project_asset_type', '`project_id`, `asset_type`');
 
 CREATE TABLE IF NOT EXISTS `capability_semantic_doc` (
     `id`              BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
@@ -1046,6 +1050,7 @@ CREATE TABLE IF NOT EXISTS `capability_tool_definition` (
     `source`              VARCHAR(32)   NOT NULL DEFAULT 'manual' COMMENT '来源: code/scanner/manual',
     `source_location`     VARCHAR(512)  DEFAULT NULL            COMMENT '来源详情',
     `source_qualified_name` VARCHAR(256) DEFAULT NULL           COMMENT 'capability_source_state 稳定来源能力标识',
+    `asset_type`          VARCHAR(32)   NOT NULL DEFAULT 'UNCLASSIFIED' COMMENT '来源资产类型投影: BUSINESS_METHOD / HTTP_API / UNCLASSIFIED',
     `http_method`         VARCHAR(8)    DEFAULT NULL            COMMENT 'HTTP 方法',
     `base_url`            VARCHAR(256)  DEFAULT NULL            COMMENT '目标服务基础地址',
     `context_path`        VARCHAR(128)  DEFAULT NULL            COMMENT '服务公共前缀',
@@ -1062,12 +1067,14 @@ CREATE TABLE IF NOT EXISTS `capability_tool_definition` (
     UNIQUE KEY `uk_name`                  (`name`),
     KEY        `idx_project_id`           (`project_id`),
     KEY        `idx_tool_module_id`       (`module_id`),
-    KEY        `idx_enabled`              (`enabled`)
+    KEY        `idx_enabled`              (`enabled`),
+    KEY        `idx_tool_project_asset_type` (`project_id`, `asset_type`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Tool 能力表';
 
 -- 兼容老库：如果 capability_tool_definition 已存在但缺少当前基线列，这里补齐（CREATE TABLE IF NOT EXISTS 不会重建）
 CALL add_col_if_absent('capability_tool_definition', 'title',            'VARCHAR(192) DEFAULT NULL COMMENT ''用户可读的简短工具名称'' AFTER `name`');
 CALL add_col_if_absent('capability_tool_definition', 'source_qualified_name', 'VARCHAR(256) DEFAULT NULL COMMENT ''capability_source_state 稳定来源能力标识'' AFTER `source_location`');
+CALL add_col_if_absent('capability_tool_definition', 'asset_type', 'VARCHAR(32) NOT NULL DEFAULT ''UNCLASSIFIED'' COMMENT ''来源资产类型投影: BUSINESS_METHOD / HTTP_API / UNCLASSIFIED'' AFTER `source_qualified_name`');
 UPDATE `capability_tool_definition` SET `title` = `name` WHERE `title` IS NULL OR TRIM(`title`) = '';
 ALTER TABLE `capability_tool_definition` MODIFY COLUMN `title` VARCHAR(192) NOT NULL COMMENT '用户可读的简短工具名称';
 CALL add_col_if_absent('capability_tool_definition', 'ai_description',   'MEDIUMTEXT DEFAULT NULL COMMENT ''LLM 生成的业务语义描述'' AFTER `description`');
@@ -1078,6 +1085,7 @@ CALL add_col_if_absent('capability_tool_definition', 'side_effect',      'VARCHA
 CALL add_idx_if_absent('capability_tool_definition', 'idx_project_id',           'project_id');
 CALL add_idx_if_absent('capability_tool_definition', 'idx_tool_module_id',       'module_id');
 CALL add_idx_if_absent('capability_tool_definition', 'idx_enabled', 'enabled');
+CALL add_idx_if_absent('capability_tool_definition', 'idx_tool_project_asset_type', '`project_id`, `asset_type`');
 
 
 -- ============================================================================
@@ -1215,8 +1223,8 @@ CREATE TABLE IF NOT EXISTS `runtime_tool_result_artifact` (
 CREATE TABLE IF NOT EXISTS `runtime_run` (
     `id`                      BIGINT        NOT NULL AUTO_INCREMENT COMMENT '主键',
     `trace_id`                VARCHAR(64)   NOT NULL                COMMENT '一次外部入口执行的全局唯一 Trace ID',
-    `run_type`                VARCHAR(32)   NOT NULL                COMMENT '根运行类型：AGENT / WORKFLOW / MANAGED_EXECUTION',
-    `entry_type`              VARCHAR(32)   NOT NULL                COMMENT '入口：DEBUG / EMBED / GATEWAY / API / EVAL / REPLAY / AUTOMATION / WORKFLOW_STUDIO / A2A / AI_CODING_TASK / AGENT_DELEGATION / OPERATOR',
+    `run_type`                VARCHAR(32)   NOT NULL                COMMENT '根运行类型：AGENT / WORKFLOW / MANAGED_EXECUTION / CONSOLE_CAPABILITY',
+    `entry_type`              VARCHAR(32)   NOT NULL                COMMENT '入口：DEBUG / EMBED / GATEWAY / API / EVAL / REPLAY / AUTOMATION / WORKFLOW_STUDIO / A2A / AI_CODING_TASK / AGENT_DELEGATION / OPERATOR / CONSOLE',
     `status`                  VARCHAR(24)   NOT NULL DEFAULT 'RUNNING' COMMENT 'RUNNING / SUSPENDED / COMPLETED / FAILED / CANCELLED / TIMED_OUT',
     `suspension_reason`       VARCHAR(32)   DEFAULT NULL            COMMENT '暂停原因: USER_INPUT / APPROVAL；非暂停状态为空',
     `project_id`              BIGINT        DEFAULT NULL            COMMENT '所属项目 ID',
@@ -1271,6 +1279,68 @@ CREATE TABLE IF NOT EXISTS `runtime_run` (
     KEY `idx_runtime_run_user_time` (`user_id`, `started_at`),
     KEY `idx_runtime_run_replay` (`replay_of_trace_id`, `started_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='RunOps 根运行事实；每次用户或外部入口执行一行';
+
+CREATE TABLE IF NOT EXISTS `runtime_console_capability_invocation` (
+    `id`                      BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
+    `invocation_id`           CHAR(36)     NOT NULL COMMENT '控制台生成的 UUID 幂等身份',
+    `platform_actor_id`       VARCHAR(128) NOT NULL COMMENT '经 Control HMAC 验证的平台操作者；不是业务用户身份',
+    `project_id`              BIGINT       NOT NULL COMMENT 'Capability owner 确认的项目 ID',
+    `project_code`            VARCHAR(96)  NOT NULL COMMENT 'Capability owner 确认的项目编码',
+    `qualified_name`          VARCHAR(200) NOT NULL COMMENT '已接受业务方法全名',
+    `target_type`             VARCHAR(32)  NOT NULL DEFAULT 'BUSINESS_METHOD' COMMENT 'BUSINESS_METHOD 或 HTTP_API',
+    `environment`             VARCHAR(32)  DEFAULT NULL COMMENT 'HTTP API 真实环境；业务方法为空',
+    `source_set_revision`     CHAR(64)     DEFAULT NULL COMMENT 'HTTP API 已确认来源集合修订',
+    `connection_revision`     BIGINT       DEFAULT NULL COMMENT 'HTTP API 连接修订',
+    `credential_revision`     CHAR(64)     DEFAULT NULL COMMENT '派发时项目凭据修订摘要，不含秘密',
+    `http_status`             INT          DEFAULT NULL COMMENT 'HTTP API 上游状态码；网络未知时为空',
+    `expected_contract_hash`  CHAR(64)     NOT NULL COMMENT '当前、来源、已接受三方一致时的契约哈希',
+    `input_fingerprint`       CHAR(64)     NOT NULL COMMENT '排序 JSON 后的输入摘要；不保存原始输入',
+    `deadline_epoch_ms`       BIGINT       NOT NULL COMMENT 'Control 签名的最晚可派发时间戳',
+    `run_id`                  BIGINT       NOT NULL COMMENT '关联 runtime_run 根事实',
+    `trace_id`                VARCHAR(64)  NOT NULL COMMENT '独立 Console Capability Trace',
+    `identity_mode`           VARCHAR(64)  NOT NULL COMMENT 'PROJECT_CREDENTIAL_NO_BUSINESS_IDENTITY',
+    `side_effect`             VARCHAR(32)  NOT NULL COMMENT '已接受契约的副作用声明',
+    `confirmed_side_effect`   TINYINT      NOT NULL DEFAULT 0 COMMENT '写操作是否经控制台明确确认',
+    `status`                  VARCHAR(32)  NOT NULL COMMENT 'ACCEPTED / DISPATCHING / SUCCEEDED / BUSINESS_FAILED / NOT_DISPATCHED / UNKNOWN',
+    `dispatch_stage`          VARCHAR(32)  NOT NULL COMMENT 'PERSISTED / DISPATCHING / CONFIRMED / NOT_DISPATCHED / UNCONFIRMED',
+    `result_json`             MEDIUMTEXT   DEFAULT NULL COMMENT '脱敏、限长的结果；不保存输入、凭据或原始异常',
+    `result_truncated`        TINYINT      NOT NULL DEFAULT 0 COMMENT '结果是否因安全长度限制截断',
+    `result_expires_at`       DATETIME     DEFAULT NULL COMMENT '安全结果的 24 小时读取到期时间',
+    `error_code`              VARCHAR(128) DEFAULT NULL COMMENT '安全机器错误码',
+    `error_message`           VARCHAR(256) DEFAULT NULL COMMENT '固定安全摘要，不保存上游异常正文',
+    `latency_ms`              BIGINT       DEFAULT NULL COMMENT '调用边界观察耗时',
+    `started_at`              DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `dispatched_at`           DATETIME     DEFAULT NULL,
+    `ended_at`                DATETIME     DEFAULT NULL,
+    `created_at`              DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`              DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_runtime_console_capability_invocation` (`invocation_id`),
+    KEY `idx_runtime_console_capability_actor` (`platform_actor_id`, `created_at`),
+    KEY `idx_runtime_console_capability_project` (`project_id`, `created_at`),
+    KEY `idx_runtime_console_capability_status` (`status`, `updated_at`),
+    KEY `idx_runtime_console_capability_trace` (`trace_id`),
+    KEY `idx_runtime_console_capability_result_expiry` (`result_expires_at`),
+    KEY `idx_runtime_console_http_api_catalog` (`project_id`, `project_code`, `platform_actor_id`, `target_type`, `qualified_name`, `id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='控制台业务方法与 HTTP API 试调用的独立幂等、结果和未知状态记录';
+
+CREATE TABLE IF NOT EXISTS `runtime_http_api_connection` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `qualified_name` VARCHAR(200) NOT NULL COMMENT 'Capability owner 稳定 API ref',
+    `project_id` BIGINT NOT NULL,
+    `project_code` VARCHAR(96) NOT NULL,
+    `environment` VARCHAR(32) NOT NULL,
+    `origin` VARCHAR(512) NOT NULL COMMENT '仅协议、主机和端口；不含 route、秘密或查询',
+    `auth_mode` VARCHAR(32) NOT NULL COMMENT 'NONE / API_KEY_HEADER / BEARER',
+    `credential_ref` VARCHAR(128) DEFAULT NULL COMMENT '仅 PROJECT vault 引用',
+    `revision` BIGINT NOT NULL,
+    `saved_by` VARCHAR(128) NOT NULL,
+    `created_at` DATETIME NOT NULL,
+    `updated_at` DATETIME NOT NULL,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_runtime_http_api_connection_ref` (`qualified_name`),
+    KEY `idx_runtime_http_api_connection_project` (`project_id`, `environment`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Runtime 独占 HTTP API 测试环境连接修订';
 
 CREATE TABLE IF NOT EXISTS `runtime_tool_call_log` (
     `id`                   BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
@@ -1524,6 +1594,26 @@ CREATE TABLE IF NOT EXISTS `runtime_workflow_version` (
     UNIQUE KEY `uk_ai_workflow_version` (`workflow_id`, `version`),
     KEY `idx_ai_workflow_version_status` (`workflow_id`, `status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Workflow 发布版本';
+
+CREATE TABLE IF NOT EXISTS `runtime_workflow_http_api_pin` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `workflow_id` VARCHAR(32) NOT NULL,
+    `workflow_version_id` BIGINT DEFAULT NULL COMMENT '事务内发布前为空；绑定后才可执行',
+    `node_id` VARCHAR(128) NOT NULL,
+    `api_id` BIGINT NOT NULL COMMENT 'Capability owner API ID',
+    `qualified_name` VARCHAR(200) NOT NULL COMMENT 'Capability owner 稳定 API ref',
+    `project_id` BIGINT NOT NULL,
+    `project_code` VARCHAR(96) NOT NULL,
+    `environment` VARCHAR(32) NOT NULL,
+    `accepted_contract_hash` CHAR(64) NOT NULL,
+    `source_set_revision` CHAR(64) NOT NULL,
+    `connection_revision` BIGINT NOT NULL,
+    `credential_revision` VARCHAR(128) DEFAULT NULL COMMENT '仅修订标识，不含凭据引用或秘密',
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_workflow_http_api_pin_node` (`workflow_version_id`, `node_id`),
+    KEY `idx_workflow_http_api_pin_workflow` (`workflow_id`, `id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Runtime 私有 API Workflow 发布 pin；不存 origin、凭据引用或秘密';
 
 CREATE TABLE IF NOT EXISTS `runtime_workflow_draft_submission` (
     `id`                BIGINT       NOT NULL AUTO_INCREMENT,
@@ -3110,6 +3200,93 @@ CREATE TABLE IF NOT EXISTS `capability_source_state` (
     KEY `idx_capability_source_project` (`project_id`, `availability`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='能力最新可信来源观察，与目录接受决策分离';
 
+-- HTTP API 是 Capability 独占资产。来源适配、接受、Tool 投影和执行分别在后续批次接入；
+-- 不保存 base URL、credentialRef、请求头/Cookie 实际值或任何调用凭据。
+CREATE TABLE IF NOT EXISTS `capability_http_api_asset` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `project_id` BIGINT NOT NULL COMMENT 'Capability 项目范围的一部分',
+    `project_code` VARCHAR(96) NOT NULL COMMENT '规范化项目编码，范围的一部分',
+    `environment` VARCHAR(32) NOT NULL COMMENT '规范化环境，范围的一部分',
+    `identity_hash` CHAR(64) NOT NULL COMMENT 'SHA-256(stable projectCode + environment + method + complete route + mapping conditions；不含 projectId)',
+    `qualified_name` VARCHAR(256) NOT NULL COMMENT 'http-api:projectCode:environment:full-sha256；不含 projectId',
+    `http_method` VARCHAR(16) NOT NULL,
+    `route_template` VARCHAR(1024) NOT NULL COMMENT '规范化 contextPath + endpointPath 完整路由模板',
+    `mapping_conditions_json` MEDIUMTEXT NOT NULL COMMENT '规范化 consumes/produces/无损 header/param 条件列表；不含敏感值',
+    `status` ENUM('DISCOVERED', 'ACCEPTED', 'CONTRACT_DRIFT', 'CONFLICT', 'SOURCE_MISSING')
+        NOT NULL DEFAULT 'DISCOVERED'
+        COMMENT 'DISCOVERED / ACCEPTED / CONTRACT_DRIFT / CONFLICT / SOURCE_MISSING；由活跃来源与未来已接受契约派生',
+    `accepted_contract_hash` CHAR(64) DEFAULT NULL COMMENT '预留：后续接受契约哈希；本批不写入',
+    `accepted_contract_json` MEDIUMTEXT DEFAULT NULL COMMENT '预留：后续接受契约 JSON；本批不写入',
+    `tool_definition_id` BIGINT DEFAULT NULL COMMENT '预留：未来技术 Tool 投影链接；不设跨服务 FK，本批不写入',
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_capability_http_api_scope_identity` (`project_id`, `project_code`, `environment`, `identity_hash`),
+    UNIQUE KEY `uk_capability_http_api_qualified_name` (`qualified_name`),
+    KEY `idx_capability_http_api_scope_status` (`project_id`, `environment`, `status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Capability HTTP API 逻辑操作资产；不含调用地址或凭据';
+
+CREATE TABLE IF NOT EXISTS `capability_http_api_source_binding` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `asset_id` BIGINT NOT NULL COMMENT 'Capability HTTP API asset 主键；刻意不设跨表 FK 以保持来源事实可追溯',
+    `project_id` BIGINT NOT NULL,
+    `project_code` VARCHAR(96) NOT NULL,
+    `environment` VARCHAR(32) NOT NULL,
+    `source_kind` ENUM('STARTER_MVC', 'CONTROLLER_SCAN', 'OPENAPI_SCAN', 'API_MARKET_OPERATION') NOT NULL,
+    `source_key` VARCHAR(256) NOT NULL COMMENT '来源适配器内稳定键；同范围同类型唯一',
+    `source_location` VARCHAR(1024) DEFAULT NULL COMMENT '来源代码/文档位置；不保存调用地址或凭据',
+    `source_revision` VARCHAR(256) DEFAULT NULL COMMENT '来源修订事实，不参与 HTTP API identity',
+    `source_contract_hash` CHAR(64) NOT NULL COMMENT '该来源当前规范化契约的完整 SHA-256',
+    `source_contract_json` MEDIUMTEXT NOT NULL COMMENT '该来源当前规范化、无秘密的 HTTP 操作契约',
+    `status` ENUM('DISCOVERED', 'EQUIVALENT', 'CONFLICT', 'REMOVED') NOT NULL DEFAULT 'DISCOVERED'
+        COMMENT 'DISCOVERED 首个活跃来源 / EQUIVALENT 同契约活跃来源 / CONFLICT 不同契约活跃来源 / REMOVED 已移除但保留事实',
+    `observed_at` DATETIME NOT NULL COMMENT '最后一次活跃观察时间',
+    `removed_at` DATETIME DEFAULT NULL COMMENT '来源移除时间；不删除 asset 或来源事实',
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_capability_http_api_source` (`project_id`, `project_code`, `environment`, `source_kind`, `source_key`),
+    KEY `idx_capability_http_api_binding_asset_status` (`asset_id`, `status`),
+    KEY `idx_capability_http_api_binding_scope_status` (`project_id`, `environment`, `status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Capability HTTP API 独立来源绑定与冲突事实；不含秘密';
+
+CREATE TABLE IF NOT EXISTS `capability_http_api_inventory_state` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `project_id` BIGINT NOT NULL,
+    `project_code` VARCHAR(96) NOT NULL,
+    `environment` VARCHAR(32) NOT NULL,
+    `source_kind` VARCHAR(32) NOT NULL,
+    `inventory_token` CHAR(36) NOT NULL COMMENT '最近一次清单身份；旧来源不能借上次成功状态冒充本次确认',
+    `supported` TINYINT NOT NULL,
+    `complete` TINYINT NOT NULL,
+    `reason` VARCHAR(256) DEFAULT NULL COMMENT '旧 wire 或部分清单的可行动原因',
+    `observed_at` DATETIME NOT NULL,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_capability_http_api_inventory_scope` (`project_id`, `project_code`, `environment`, `source_kind`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Capability HTTP API 每来源最近一次清单完整性';
+
+CREATE TABLE IF NOT EXISTS `capability_http_api_inventory_member` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `binding_id` BIGINT NOT NULL COMMENT 'Capability 来源绑定 ID',
+    `inventory_token` CHAR(36) NOT NULL COMMENT '最后一次实际报告该 operation 的清单身份',
+    `observed_at` DATETIME NOT NULL,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_capability_http_api_inventory_member` (`binding_id`),
+    KEY `idx_capability_http_api_inventory_token` (`inventory_token`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Capability HTTP API 来源在最新清单中的逐项确认';
+
+CREATE TABLE IF NOT EXISTS `capability_http_api_acceptance` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `asset_id` BIGINT NOT NULL,
+    `source_set_revision` CHAR(64) NOT NULL,
+    `before_contract_hash` CHAR(64) DEFAULT NULL,
+    `accepted_contract_hash` CHAR(64) NOT NULL,
+    `accepted_by` VARCHAR(128) NOT NULL COMMENT '平台会话操作者 ID',
+    `accepted_at` DATETIME NOT NULL,
+    PRIMARY KEY (`id`),
+    KEY `idx_capability_http_api_acceptance_asset` (`asset_id`, `id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Capability HTTP API 不可变接纳证据；不复制契约或秘密';
+
 CREATE TABLE IF NOT EXISTS `capability_apply_record` (
     `id`             BIGINT       NOT NULL AUTO_INCREMENT,
     `snapshot_id`    BIGINT       NOT NULL,
@@ -4075,6 +4252,7 @@ VALUES
 ('platform:read', 'Read platform assets', 'PLATFORM', 'READ'),
 ('platform:write', 'Write platform assets', 'PLATFORM', 'WRITE'),
 ('platform:admin', 'Administer platform users and roles', 'PLATFORM', 'ADMIN'),
+('capability:invoke', 'Invoke accepted business methods from the console', 'CAPABILITY', 'INVOKE'),
 ('workspace:build:access', 'Access the build workspace', 'PLATFORM_WORKSPACE', 'ACCESS_BUILD'),
 ('workspace:operate:access', 'Access the operations and governance workspace', 'PLATFORM_WORKSPACE', 'ACCESS_OPERATE'),
 ('identity:business-user:read', 'Read the governed business user directory', 'BUSINESS_USER', 'READ'),
@@ -4801,6 +4979,8 @@ CREATE TABLE IF NOT EXISTS `capability_external_api_operation` (
     `auth_required`         TINYINT(1)   NOT NULL DEFAULT 0,
     `request_schema_json`   MEDIUMTEXT   DEFAULT NULL,
     `response_schema_json`  MEDIUMTEXT   DEFAULT NULL,
+    `response_content_type` VARCHAR(128) DEFAULT NULL COMMENT '来源明确声明的响应媒体类型；缺失不能猜成 application/json',
+    `response_status` INT DEFAULT NULL COMMENT '来源明确声明的成功响应状态；缺失不能猜成 200',
     `example_params_json`   MEDIUMTEXT   DEFAULT NULL COMMENT '仅示例业务参数，不允许出现凭据',
     `status`                VARCHAR(24)  NOT NULL DEFAULT 'ACTIVE',
     `created_at`            DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -4854,6 +5034,7 @@ CREATE TABLE IF NOT EXISTS `capability_project_external_api` (
     `version_id`    BIGINT       NOT NULL,
     `environment`   VARCHAR(32)  NOT NULL DEFAULT 'DEVELOPMENT',
     `status`        VARCHAR(24)  NOT NULL DEFAULT 'CONFIGURING',
+    `selection_revision` BIGINT NOT NULL DEFAULT 1 COMMENT '显式来源选择/恢复修订；同选择幂等不递增，不是验证 proof',
     `note`          VARCHAR(512) DEFAULT NULL,
     `created_at`    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at`    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -4868,10 +5049,12 @@ CREATE TABLE IF NOT EXISTS `capability_project_external_api_operation` (
     `id`             BIGINT   NOT NULL AUTO_INCREMENT,
     `integration_id` BIGINT   NOT NULL,
     `operation_id`   BIGINT   NOT NULL,
+    `api_asset_id`   BIGINT   DEFAULT NULL COMMENT '服务端派生的项目 HTTP API owner；旧接入需显式重选，不自动接纳',
     `created_at`     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_project_external_api_operation` (`integration_id`, `operation_id`),
-    KEY `idx_project_external_api_operation_ref` (`operation_id`)
+    KEY `idx_project_external_api_operation_ref` (`operation_id`),
+    KEY `idx_project_external_api_operation_asset` (`api_asset_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='项目接入选中的外部 API Operation';
 
 -- API 市场首批目录种子：只保存公开元数据和只读验证摘要，启动、建库均不依赖外网。

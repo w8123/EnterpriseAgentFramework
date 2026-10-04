@@ -175,6 +175,35 @@ html[data-theme='dark'] {
   z-index: 1;
 }
 
+.ops-project-entry {
+  margin-bottom: 12px;
+  border: 1px solid var(--ops-border);
+  border-radius: 8px;
+  background: var(--ops-panel-background);
+}
+
+.ops-project-entry__links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 8px;
+
+  a {
+    padding: 8px 14px;
+    color: var(--ops-active-text);
+    background: var(--ops-active-background);
+    border: 1px solid var(--ops-border-strong);
+    border-radius: 5px;
+    text-decoration: none;
+
+    &:focus-visible {
+      outline: 2px solid var(--ops-blue);
+      outline-offset: 3px;
+    }
+  }
+}
+
 .ops-topbar {
   min-height: 52px;
   display: flex;

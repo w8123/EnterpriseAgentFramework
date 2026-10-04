@@ -66,6 +66,26 @@ class CapabilityChangePolicyTest {
         assertNotEquals(policy.contractHash(item), policy.contractHash(tool));
     }
 
+    @Test
+    void validatesExplicitAssetTypesWithoutInventingLegacyMetadata() {
+        CapabilityRegistration businessMethod = new CapabilityRegistration("query", "查询", "订单查询", "POST", null, null,
+                "/query", "JSON", "JSON", "READ", true, List.of(), Map.of("assetType", "BUSINESS_METHOD"));
+        CapabilityRegistration normalizedBusinessMethod = policy.normalize(project(), List.of(businessMethod)).get(0);
+        assertEquals(CapabilityAssetType.BUSINESS_METHOD, policy.assetType(normalizedBusinessMethod));
+        assertEquals("BUSINESS_METHOD", normalizedBusinessMethod.metadata().get("assetType"));
+
+        CapabilityRegistration legacy = policy.normalize(project(), List.of(registration("legacy", "READ", List.of()))).get(0);
+        assertEquals(CapabilityAssetType.UNCLASSIFIED, policy.assetType(legacy));
+        assertFalse(legacy.metadata().containsKey("assetType"));
+
+        CapabilityRegistration invalid = new CapabilityRegistration("invalid", "无效", "无效", "POST", null, null,
+                "/invalid", "JSON", "JSON", "READ", true, List.of(), Map.of("assetType", "HTTP"));
+        assertThrows(IllegalArgumentException.class, () -> policy.normalize(project(), List.of(invalid)));
+        CapabilityRegistration nonText = new CapabilityRegistration("non-text", "无效", "无效", "POST", null, null,
+                "/invalid", "JSON", "JSON", "READ", true, List.of(), Map.of("assetType", 1));
+        assertThrows(IllegalArgumentException.class, () -> policy.normalize(project(), List.of(nonText)));
+    }
+
     private CapabilityRegistration normalized(String name, String sideEffect, List<ToolDefinitionParameter> parameters) {
         return policy.normalize(project(), List.of(registration(name, sideEffect, parameters))).get(0);
     }

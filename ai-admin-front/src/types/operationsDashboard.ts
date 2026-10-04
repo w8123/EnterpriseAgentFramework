@@ -2,6 +2,7 @@ import type { RunSummary } from '@/types/runops'
 import type { RouteLocationRaw } from 'vue-router'
 
 export type DashboardDomainStatus = 'loading' | 'ready' | 'error'
+export type DashboardDataDomain = 'projects' | 'agents' | 'workflows' | 'agentStats' | 'runs' | 'health'
 export type DashboardMetricTone = 'blue' | 'cyan' | 'violet' | 'green' | 'orange'
 export type DashboardMetricIcon = 'agent' | 'enabled' | 'runs' | 'users' | 'tokens' | 'success'
 export type DashboardRangeDays = 1 | 7
@@ -169,6 +170,8 @@ export interface DashboardWidgetDefinition {
   grid: DashboardWidgetGridConstraints
   configFields: DashboardWidgetConfigField[]
   defaultConfig: DashboardWidgetConfig
+  /** 必需数据域；403 时由共享宿主展示读取受限，不把未知数据当作零值。 */
+  dataDomains?: DashboardDataDomain[]
 }
 
 /** 布局中的一个组件实例；同一 Widget 可存在多个实例，instanceId 必须稳定唯一。 */
@@ -205,6 +208,7 @@ export interface DashboardAttentionSignal {
 
 /** Widget 渲染上下文：Dashboard 壳统一加载真实数据后分发给各 Widget 体。 */
 export interface DashboardWidgetContext {
+  deniedDomains?: Partial<Record<DashboardDataDomain, boolean>>
   metrics: Record<string, DashboardMetricCardModel>
   runsStatus: DashboardDomainStatus
   runsData: RunSummary[]

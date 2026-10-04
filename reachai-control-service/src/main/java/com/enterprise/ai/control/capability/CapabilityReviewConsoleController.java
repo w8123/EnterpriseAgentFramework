@@ -36,6 +36,25 @@ public class CapabilityReviewConsoleController {
     private final PlatformRequestAuthorization requestAuthorization;
     private final CapabilityChangeImpactService changeImpactService;
 
+    @GetMapping("/projects/{projectCode}/capabilities/{name}/references")
+    public ResponseEntity<Object> capabilityReferences(HttpServletRequest request, @PathVariable String projectCode,
+                                                        @PathVariable String name) {
+        PlatformAuthenticatedSession session = requestAuthorization.requireResourcePermission(
+                request, PlatformPermissions.PLATFORM_READ, "PROJECT", null, projectCode);
+        String actor = actorId(session);
+        ResponseEntity<Object> response = capabilityReviewGateway.getCapability(name, actor);
+        if (!response.getStatusCode().is2xxSuccessful()) return response;
+        if (!(response.getBody() instanceof Map<?, ?> tool)
+                || !projectCode.equals(tool.get("projectCode"))
+                || !(tool.get("qualifiedName") instanceof String qualifiedName)
+                || !qualifiedName.startsWith(projectCode + ":")
+                || !(tool.get("name") instanceof String storageName)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "当前项目下未找到该能力");
+        }
+        // Resolve both aliases from the owner, never from browser-supplied reference keys.
+        return ResponseEntity.ok(changeImpactService.references(projectCode, qualifiedName, storageName, actor));
+    }
+
     @GetMapping("/projects/{projectCode}/changes")
     public ResponseEntity<Object> listChanges(HttpServletRequest request, @PathVariable String projectCode,
                                               @RequestParam(defaultValue = "PENDING") String state,

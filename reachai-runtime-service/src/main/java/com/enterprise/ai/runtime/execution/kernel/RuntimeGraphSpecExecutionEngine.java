@@ -16,6 +16,7 @@ import com.enterprise.ai.runtime.execution.RuntimeBusinessMemoryHydrationPort.Hy
 import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
 import com.enterprise.ai.runtime.execution.http.WorkflowHttpClient;
 import com.enterprise.ai.runtime.execution.interaction.WorkflowInteractionCodes;
+import com.enterprise.ai.runtime.execution.RuntimeHttpApiToolExecutionPort;
 import com.enterprise.ai.runtime.execution.event.RuntimeExecutionEventBridgeSink;
 import com.enterprise.ai.runtime.execution.policy.RuntimeEvalExecutionContext;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -101,13 +102,25 @@ public final class RuntimeGraphSpecExecutionEngine {
                                            RuntimeKnowledgeRetrievalClient knowledgeClient,
                                            WorkflowHttpClient httpClient,
                                            RuntimeBusinessMemoryHydrationPort businessMemoryHydrationPort) {
+        this(objectMapper, modelServiceClient, capabilityClient, controlClient, knowledgeClient,
+                httpClient, businessMemoryHydrationPort, null);
+    }
+
+    public RuntimeGraphSpecExecutionEngine(ObjectMapper objectMapper,
+                                           RuntimeModelServiceClient modelServiceClient,
+                                           RuntimeCapabilityCatalogClient capabilityClient,
+                                           RuntimeControlCatalogClient controlClient,
+                                           RuntimeKnowledgeRetrievalClient knowledgeClient,
+                                           WorkflowHttpClient httpClient,
+                                           RuntimeBusinessMemoryHydrationPort businessMemoryHydrationPort,
+                                           RuntimeHttpApiToolExecutionPort httpApis) {
         this.objectMapper = objectMapper;
         this.businessMemoryHydrationPort = businessMemoryHydrationPort;
         this.nodeValueResolver = new RuntimeNodeValueResolver();
         this.deterministicNodeHandlers = new RuntimeDeterministicNodeHandlers(objectMapper, nodeValueResolver);
         this.ioNodeHandlers = new RuntimeIoNodeHandlers(objectMapper, knowledgeClient, httpClient, nodeValueResolver);
         this.modelNodeHandlers = new RuntimeModelNodeHandlers(objectMapper, modelServiceClient, nodeValueResolver);
-        this.actionNodeHandlers = new RuntimeActionNodeHandlers(capabilityClient, controlClient, nodeValueResolver);
+        this.actionNodeHandlers = new RuntimeActionNodeHandlers(capabilityClient, controlClient, nodeValueResolver, httpApis);
         this.loopNodeHandler = new RuntimeLoopNodeHandler(nodeValueResolver, this::executeLoopBody);
         this.graphSpecCompiler = new GraphSpecCompiler(objectMapper);
         this.nodeHandlerRegistry = buildNodeHandlerRegistry();
@@ -719,6 +732,11 @@ public final class RuntimeGraphSpecExecutionEngine {
         RuntimeGraphSpecExecutionResult base = failed == null
                 ? failure("RUNTIME_GRAPH_NODE_FAILED", "Node execution failed", node.getId(), nodeType)
                 : failed;
+        if (base.metadata() != null && Boolean.TRUE.equals(base.metadata().get("nonRecoverableWrite"))) {
+            Map<String, Object> metadata = new LinkedHashMap<>(base.metadata());
+            metadata.put("errorPolicyDecision", "TERMINATE_WRITE");
+            return base.withMetadata(metadata);
+        }
         if ("CONTINUE".equals(strategy)) {
             Object defaultOutput = policy == null ? null : policy.getDefaultOutput();
             String answer = defaultOutput == null ? "" : String.valueOf(defaultOutput);
@@ -828,6 +846,11 @@ public final class RuntimeGraphSpecExecutionEngine {
         putIfPresent(payload, "qualifiedName", result.metadata().get("qualifiedName"));
         putIfPresent(payload, "failureCategory", result.metadata().get("failureCategory"));
         putIfPresent(payload, "retryableFailure", result.metadata().get("retryableFailure"));
+        putIfPresent(payload, "sideEffect", result.metadata().get("sideEffect"));
+        putIfPresent(payload, "dispatchStage", result.metadata().get("dispatchStage"));
+        putIfPresent(payload, "nonRecoverableWrite", result.metadata().get("nonRecoverableWrite"));
+        putIfPresent(payload, "httpStatus", result.metadata().get("httpStatus"));
+        putIfPresent(payload, "inputField", result.metadata().get("inputField"));
         putIfPresent(payload, "interactionType", result.metadata().get("interactionType"));
     }
 
@@ -1216,6 +1239,11 @@ public final class RuntimeGraphSpecExecutionEngine {
             putIfPresent(trace, "qualifiedName", nodeResult.metadata().get("qualifiedName"));
             putIfPresent(trace, "failureCategory", nodeResult.metadata().get("failureCategory"));
             putIfPresent(trace, "retryableFailure", nodeResult.metadata().get("retryableFailure"));
+            putIfPresent(trace, "sideEffect", nodeResult.metadata().get("sideEffect"));
+            putIfPresent(trace, "dispatchStage", nodeResult.metadata().get("dispatchStage"));
+            putIfPresent(trace, "nonRecoverableWrite", nodeResult.metadata().get("nonRecoverableWrite"));
+            putIfPresent(trace, "httpStatus", nodeResult.metadata().get("httpStatus"));
+            putIfPresent(trace, "inputField", nodeResult.metadata().get("inputField"));
             putIfPresent(trace, "interactionType", nodeResult.metadata().get("interactionType"));
             Object summary = nodeResult.metadata().get("traceSummary");
             if (summary instanceof Map<?, ?> map) {

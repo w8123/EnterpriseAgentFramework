@@ -7,7 +7,7 @@ import {
   type PageRegistryView,
 } from '@/api/embedOps'
 import { listRegistryProjectInstances } from '@/api/registry'
-import { getScanProjectDetail, getScanProjects } from '@/api/scanProject'
+import { getScanProjectDetail } from '@/api/scanProject'
 import type { ProjectInstance } from '@/types/registry'
 import type { ScanProject } from '@/types/scanProject'
 import { useProjectStore } from '@/store/project'
@@ -133,15 +133,21 @@ export function useRegistryProjectDetailData(deps: UseRegistryProjectDetailDataD
     projectMissing.value = false
     loadError.value = ''
     try {
-      const { data } = await getScanProjects()
+      const catalog = await projectStore.fetchProjects()
       if (currentRefreshSequence !== refreshSequence) return
+      if (catalog === null) {
+        clearProjectData()
+        loadError.value = projectStore.errorMessage
+          ? `无法读取当前项目：${projectStore.errorMessage}`
+          : '无法读取当前项目，请检查服务状态后重新加载。'
+        return
+      }
       const found =
-        data.find(
+        catalog.find(
           (item) =>
             item.projectCode === requestedProjectCode
             || String(item.id) === requestedProjectCode,
         ) || null
-      projectStore.projects = data
       if (!found?.id) {
         clearProjectData()
         projectMissing.value = true

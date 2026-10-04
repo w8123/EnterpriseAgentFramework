@@ -28,25 +28,16 @@
         </el-form-item>
         <el-form-item v-if="binding.sourceKind === 'TOOL'" label="选择能力">
           <el-select v-model="binding.ref" filterable clearable :teleported="false" placeholder="选择已注册能力" @change="handleBindingRefChange">
-            <el-option v-for="item in toolOptions" :key="item.name" :label="assetLabel(item)" :value="item.name" />
+            <el-option v-for="item in toolOptions" :key="item.qualifiedName || item.name" :label="assetLabel(item)" :value="item.qualifiedName" />
           </el-select>
         </el-form-item>
-        <el-form-item v-if="binding.sourceKind === 'API'" label="选择接口">
-          <div class="api-binding-row">
-            <el-select v-model="binding.ref" filterable clearable :teleported="false" placeholder="选择项目接口 / API 执行定义" @change="handleBindingRefChange">
-              <el-option
-                v-for="item in apiToolOptions"
-                :key="item.name"
-                :label="apiLabel(item)"
-                :value="item.name"
-              />
-            </el-select>
-            <el-button plain @click="openProjectApiPicker">从项目接口选</el-button>
-          </div>
-        </el-form-item>
+        <el-alert v-if="binding.sourceKind === 'API'" type="warning" :closable="false" show-icon
+          title="旧项目接口绑定仅保留原元数据，不再新建或同步调用节点。请先用现有 API 节点“选择 API”调用，再由展示输出交互消费该节点结果；旧引用不会自动迁移。">
+          <template #default><code>{{ binding.qualifiedName || binding.ref || '未指定旧引用' }}</code></template>
+        </el-alert>
       </div>
 
-      <div v-if="binding.sourceKind !== 'NONE'" class="interaction-inline-option">
+      <div v-if="binding.sourceKind === 'TOOL'" class="interaction-inline-option">
         <div>
           <strong>调用节点</strong>
           <span>{{ binding.autoCreateCallNode ? '已开启自动创建/同步' : '未自动创建调用节点' }}</span>
@@ -57,7 +48,7 @@
           @change="handleAutoCreateCallNodeChange"
         />
       </div>
-      <div v-if="binding.sourceKind !== 'NONE'" class="interaction-inline-option">
+      <div v-if="binding.sourceKind === 'TOOL'" class="interaction-inline-option">
         <div>
           <strong>展示节点</strong>
           <span>{{ binding.autoCreateDisplayNode ? '已开启自动创建工具结果展示' : '仅创建调用节点，展示可手动调整' }}</span>
@@ -71,82 +62,6 @@
       </div>
     </section>
 
-    <el-dialog v-model="projectApiDialogOpen" title="选择项目接口" width="880px" append-to-body>
-      <div class="project-api-picker-toolbar">
-        <el-input
-          v-model="projectApiFilters.keyword"
-          clearable
-          placeholder="搜索接口名称、路径、描述"
-          @keyup.enter="reloadProjectApis"
-        />
-        <el-select v-model="projectApiFilters.toolLinkStatus" clearable placeholder="能力纳管状态">
-          <el-option label="已纳管" value="LINKED" />
-          <el-option label="未纳管" value="NOT_LINKED" />
-          <el-option label="能力执行定义缺失" value="GLOBAL_MISSING" />
-        </el-select>
-        <el-button type="primary" @click="reloadProjectApis">查询</el-button>
-        <el-button @click="resetProjectApiFilters">重置</el-button>
-      </div>
-      <el-table
-        v-loading="projectApiLoading"
-        :data="projectApiRows"
-        row-key="scanToolId"
-        height="420"
-        stripe
-        empty-text="暂无项目接口"
-      >
-        <el-table-column label="接口" min-width="280" show-overflow-tooltip>
-          <template #default="{ row }">
-            <div class="project-api-cell">
-              <strong>{{ row.title || row.name }}</strong>
-              <code>{{ row.name }}</code>
-              <span>{{ row.httpMethod || '-' }} {{ row.endpointPath || row.sourceLocation || '-' }}</span>
-            </div>
-          </template>
-        </el-table-column>
-        <el-table-column label="项目 / 模块" min-width="190" show-overflow-tooltip>
-          <template #default="{ row }">
-            <div class="project-api-cell">
-              <strong>{{ row.projectCode || projectCode || '-' }}</strong>
-              <span>{{ row.moduleDisplayName || '-' }}</span>
-            </div>
-          </template>
-        </el-table-column>
-        <el-table-column label="参数" width="80" align="center">
-          <template #default="{ row }">{{ projectApiToolParameterCount(row) }}</template>
-        </el-table-column>
-        <el-table-column label="状态" width="150">
-          <template #default="{ row }">
-            <el-tag size="small" :type="isProjectApiToolSelectable(row) ? 'success' : 'info'" effect="plain">
-              {{ projectApiToolStatusLabel(row) }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="120" fixed="right">
-          <template #default="{ row }">
-            <el-button
-              size="small"
-              type="primary"
-              text
-              :disabled="!isProjectApiToolSelectable(row)"
-              @click="selectProjectApi(row)"
-            >
-              选择
-            </el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-      <div class="project-api-picker-footer">
-        <span>选择后会生成交互字段，并可继续自动创建调用节点。</span>
-        <el-pagination
-          v-model:current-page="projectApiFilters.page"
-          v-model:page-size="projectApiFilters.pageSize"
-          layout="total, prev, pager, next"
-          :total="projectApiTotal"
-          @current-change="loadProjectApis"
-        />
-      </div>
-    </el-dialog>
 
     <section class="interaction-section">
       <div class="interaction-section-head">
@@ -379,7 +294,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type {
   CanvasNodeData,
@@ -396,18 +311,8 @@ import type {
 import type { ToolInfo, ToolParameter } from '@/types/tool'
 import { isToolInputParameter } from '@/types/tool'
 import { interactionOutputPorts } from '@/utils/studio'
-import { getScanProjectTools } from '@/api/scanProject'
-import type { ProjectToolInfo } from '@/types/scanProject'
 import type { WorkflowGraphNodeTypeDescriptor } from '@/types/agent'
-import {
-  filterProjectApiTools,
-  isProjectApiToolSelectable,
-  pageProjectApiTools,
-  projectApiToolParameterCount,
-  projectApiToolQualifiedName,
-  projectApiToolRef,
-  projectApiToolStatusLabel,
-} from '@/utils/projectApiTools'
+import { isSelectableBusinessMethod } from '@/views/workflow/businessMethodWorkflow'
 
 const props = defineProps<{
   data: CanvasNodeData
@@ -424,8 +329,7 @@ const emit = defineEmits<{
 
 const bindingSourceOptions: Array<{ label: string; value: InteractionBindingSourceKind }> = [
   { label: '不绑定', value: 'NONE' },
-  { label: '能力', value: 'TOOL' },
-  { label: '项目接口', value: 'API' },
+  { label: '业务方法', value: 'TOOL' },
 ]
 
 const interactionTypeOptions: Array<{ label: string; value: InteractionNodeType }> = [
@@ -443,19 +347,7 @@ const enabledInteractionTypes = computed(() => {
   return new Set<InteractionNodeType>(variants as InteractionNodeType[])
 })
 
-const toolOptions = computed(() => props.toolOptions || [])
-const apiToolOptions = computed(() => toolOptions.value.filter((item) => !!item.httpMethod || !!item.endpointPath || !!item.catalogScanToolId))
-const selectedProjectApiTool = ref<ToolInfo | null>(null)
-const projectApiDialogOpen = ref(false)
-const projectApiLoading = ref(false)
-const projectApiRows = ref<ProjectToolInfo[]>([])
-const projectApiTotal = ref(0)
-const projectApiFilters = reactive({
-  keyword: '',
-  toolLinkStatus: 'LINKED',
-  page: 1,
-  pageSize: 10,
-})
+const toolOptions = computed(() => (props.toolOptions || []).filter(item => isSelectableBusinessMethod(item, props.projectId)))
 
 const config = computed<InteractionNodeConfig>(() => {
   props.data.interactionConfig ||= {
@@ -485,16 +377,8 @@ const binding = computed<InteractionBindingConfig>(() => {
 })
 
 const selectedBindingAsset = computed<ToolInfo | undefined>(() => {
-  if (binding.value.sourceKind === 'API') {
-    if (selectedProjectApiTool.value?.name === binding.value.ref) {
-      return selectedProjectApiTool.value || undefined
-    }
-    return apiToolOptions.value.find((item) => item.name === binding.value.ref)
-  }
-  if (binding.value.sourceKind === 'TOOL') {
-    return toolOptions.value.find((item) => item.name === binding.value.ref)
-  }
-  return undefined
+  if (binding.value.sourceKind !== 'TOOL') return undefined
+  return toolOptions.value.find(item => item.qualifiedName === binding.value.ref)
 })
 
 const dataSourcesText = ref('')
@@ -524,7 +408,7 @@ const bindingSummary = computed(() => {
     return '未绑定来源'
   }
   if (!selectedBindingAsset.value) {
-    return '等待选择来源'
+    return binding.value.sourceKind === 'API' ? '旧接口元数据（不自动调用）' : '来源不可选；原引用保留'
   }
   return assetLabel(selectedBindingAsset.value)
 })
@@ -547,6 +431,10 @@ const normalizedVariableOptions = computed<StudioVariableOption[]>(() => {
 })
 
 function selectBindingKind(value: InteractionBindingSourceKind) {
+  if (value === 'API') {
+    ElMessage.warning('请通过 API 节点选择所属项目 API，再用展示输出交互消费结果。')
+    return
+  }
   if (binding.value.sourceKind === value) return
   binding.value.sourceKind = value
   handleBindingKindChange()
@@ -598,93 +486,13 @@ function handleBindingKindChange() {
   if (binding.value.sourceKind === 'NONE') {
     binding.value.autoCreateDisplayNode = false
   }
-  if (binding.value.sourceKind === 'API') {
-    config.value.interactionType = 'COLLECT_INPUT'
-    config.value.component = 'FORM'
-  }
 }
 
-function openProjectApiPicker() {
-  if (!props.projectId) {
-    ElMessage.warning('请先在项目上下文中打开 Workflow Studio')
-    return
-  }
-  binding.value.sourceKind = 'API'
-  projectApiDialogOpen.value = true
-  projectApiFilters.page = 1
-  loadProjectApis()
-}
 
 function isInteractionTypeEnabled(value: InteractionNodeType) {
   return enabledInteractionTypes.value.has(value)
 }
 
-function reloadProjectApis() {
-  projectApiFilters.page = 1
-  loadProjectApis()
-}
-
-function resetProjectApiFilters() {
-  projectApiFilters.keyword = ''
-  projectApiFilters.toolLinkStatus = 'LINKED'
-  reloadProjectApis()
-}
-
-async function loadProjectApis() {
-  if (!props.projectId) return
-  projectApiLoading.value = true
-  try {
-    const { data } = await getScanProjectTools(props.projectId, 'full')
-    const filtered = filterProjectApiTools(data || [], projectApiFilters)
-    projectApiRows.value = pageProjectApiTools(filtered, projectApiFilters.page, projectApiFilters.pageSize)
-    projectApiTotal.value = filtered.length
-  } catch {
-    projectApiRows.value = []
-    projectApiTotal.value = 0
-    ElMessage.error('加载项目接口失败')
-  } finally {
-    projectApiLoading.value = false
-  }
-}
-
-async function selectProjectApi(row: ProjectToolInfo) {
-  if (!isProjectApiToolSelectable(row)) {
-    ElMessage.warning('该接口还不能直接用于交互节点，请先纳入能力目录并启用。')
-    return
-  }
-  selectedProjectApiTool.value = projectApiToTool(row)
-  binding.value.sourceKind = 'API'
-  binding.value.ref = selectedProjectApiTool.value.name
-  projectApiDialogOpen.value = false
-  await handleBindingRefChange()
-}
-
-function projectApiToTool(row: ProjectToolInfo): ToolInfo {
-  return {
-    name: projectApiToolRef(row),
-    title: row.title || row.name,
-    description: row.aiDescription || row.description || '',
-    parameters: row.parameters || [],
-    source: 'scanner',
-    sourceLocation: row.sourceLocation || null,
-    httpMethod: row.httpMethod || null,
-    baseUrl: row.baseUrl || null,
-    contextPath: row.contextPath || null,
-    endpointPath: row.endpointPath || null,
-    requestBodyType: row.requestBodyType || null,
-    responseType: row.responseType || null,
-    projectId: row.projectId || props.projectId || null,
-    projectCode: row.projectCode || props.projectCode || null,
-    qualifiedName: projectApiToolQualifiedName(row, props.projectCode),
-    sourceProjectName: null,
-    aiDescription: row.aiDescription || null,
-    capabilityMetadataJson: null,
-    enabled: row.enabled,
-    catalogScanToolId: row.scanToolId,
-    catalogLinkStatus: row.toolLinkStatus || null,
-    catalogLinkMessage: null,
-  }
-}
 
 async function handleBindingRefChange() {
   const asset = selectedBindingAsset.value
@@ -769,7 +577,7 @@ async function applyFieldsFromBinding(asset: ToolInfo, notify: boolean) {
     ...(config.value.dataSources || {}),
     binding: {
       sourceKind: binding.value.sourceKind,
-      ref: asset.name,
+      ref: asset.qualifiedName!,
       qualifiedName: asset.qualifiedName || null,
       projectCode: asset.projectCode || null,
       apiMethod: asset.httpMethod || null,
@@ -830,7 +638,7 @@ async function handleAutoCreateDisplayNodeChange(value: string | number | boolea
 }
 
 function emitCallNodeRequest(asset: ToolInfo) {
-  if (!asset?.name) return
+  if (binding.value.sourceKind !== 'TOOL' || !isSelectableBusinessMethod(asset, props.projectId)) return
   emit('createCallNode', {
     sourceKind: binding.value.sourceKind,
     ref: asset.name,
@@ -1050,12 +858,6 @@ function assetLabel(item: ToolInfo) {
   return `${label}${project}`
 }
 
-function apiLabel(item: ToolInfo) {
-  const method = item.httpMethod ? `${item.httpMethod.toUpperCase()} ` : ''
-  const path = item.endpointPath || item.sourceLocation || item.name
-  const project = item.projectCode ? ` / ${item.projectCode}` : ''
-  return `${item.title || item.name} · ${method}${path}${project}`
-}
 </script>
 
 <style scoped lang="scss">

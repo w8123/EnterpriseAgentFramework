@@ -74,6 +74,9 @@ These rows remain in the ownership matrix because the current baseline still rec
 | `runtime_managed_execution_outbox` | `reachai-runtime-service` | - | Durable metadata-only Managed Executor status and Artifact notification outbox |
 | `control_managed_execution_inbox` | `reachai-control-service` | - | Idempotent Runtime event receipt and Control-side Managed Execution projection state |
 | `runtime_run` | `reachai-runtime-service` | - | RunOps root execution fact used by lists, KPIs, diagnostics, and replay |
+| `runtime_console_capability_invocation` | `reachai-runtime-service` | - | Typed Console BUSINESS_METHOD / HTTP_API trial-call idempotency, safe result retention, and UNKNOWN recovery record |
+| `runtime_http_api_connection` | `reachai-runtime-service` | - | Revisioned project/environment API origin, auth mode, and PROJECT credential reference; no secret material |
+| `runtime_workflow_http_api_pin` | `reachai-runtime-service` | - | Immutable Workflow API release pin for owner contract and connection/credential revisions; no origin or secret |
 | `runtime_internal_auth_nonce` | `reachai-runtime-service` | - | Control→Runtime HMAC nonce anti-replay store (multi-instance safe) |
 | `runtime_conversation_session` | `reachai-runtime-service` | - | Trusted tenant/user/Agent session ownership, turn/lifecycle leases, Legal Hold, and retention state machine |
 | `runtime_conversation_event` | `reachai-runtime-service` | - | Durable full conversation event ledger; not canonical long-term personal memory |
@@ -99,11 +102,11 @@ These rows remain in the ownership matrix because the current baseline still rec
 | `capability_external_api_provider` | `reachai-capability-service` | - | 外部 API 提供方身份目录 |
 | `capability_external_api_entry` | `reachai-capability-service` | - | 可发现的外部 API 聚合目录条目 |
 | `capability_external_api_version` | `reachai-capability-service` | - | 外部 API 不可变版本与契约来源快照 |
-| `capability_external_api_operation` | `reachai-capability-service` | - | 版本内可选择的 HTTP Operation 及 schema |
+| `capability_external_api_operation` | `reachai-capability-service` | - | 版本内 Operation 及明确参数位置、schema、响应媒体/成功状态；缺失不可猜测执行事实 |
 | `capability_external_api_verification` | `reachai-capability-service` | - | 无响应正文、无秘密的质量验证证据摘要 |
 | `capability_external_api_sync_run` | `reachai-capability-service` | - | 来源同步批次与人工发布统计 |
-| `capability_project_external_api` | `reachai-capability-service` | - | 项目接入意图和目录版本钉住；凭据仍归 Runtime |
-| `capability_project_external_api_operation` | `reachai-capability-service` | - | 项目接入选中的 Operation 集合 |
+| `capability_project_external_api` | `reachai-capability-service` | - | 固定项目/环境目录选择与显式选择修订；READY 不是验证，检测失效锁定 BROKEN，恢复须显式重选 |
+| `capability_project_external_api_operation` | `reachai-capability-service` | - | 固定 Operation→HTTP API owner 指针，由服务器适配；无 Runtime 或跨服务 FK |
 | `runtime_workflow` | `reachai-runtime-service` | - | Workflow runtime definition |
 | `runtime_workflow_version` | `reachai-runtime-service` | - | Workflow release snapshot |
 | `runtime_workflow_release_event` | `reachai-runtime-service` | - | Append-only Workflow publication and rollback history |
@@ -121,6 +124,11 @@ These rows remain in the ownership matrix because the current baseline still rec
 | `capability_module` | `reachai-capability-service` | - | Capability module catalog |
 | `capability_snapshot` | `reachai-capability-service` | - | Capability snapshot |
 | `capability_source_state` | `reachai-capability-service` | - | Latest verified source contract and catalog consistency |
+| `capability_http_api_asset` | `reachai-capability-service` | - | Capability-owned HTTP API logical operation identity, aggregate status, and reserved accepted-contract/Tool projection fields; stable identity uses projectCode/environment while projectId remains internal; no base URL or credentials |
+| `capability_http_api_source_binding` | `reachai-capability-service` | - | Capability-owned source observation, normalized secret-free contract hash, source location/revision, conflict/equivalence/removal lifecycle; no cross-service FK |
+| `capability_http_api_inventory_state` | `reachai-capability-service` | - | Latest supported/partial source inventory token, completeness, and actionable reason |
+| `capability_http_api_inventory_member` | `reachai-capability-service` | - | Per-binding confirmation against the latest inventory token |
+| `capability_http_api_acceptance` | `reachai-capability-service` | - | Immutable current-source-set acceptance evidence; no duplicate contract store |
 | `capability_sync_log` | `reachai-capability-service` | - | Capability sync log |
 | `capability_sync_receipt` | `reachai-capability-service` | - | Project-scoped sync identity and snapshot binding |
 | `knowledge_chunk` | `reachai-knowledge-service` | - | Knowledge knowledge_chunk storage |

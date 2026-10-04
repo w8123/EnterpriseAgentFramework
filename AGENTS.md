@@ -11,6 +11,14 @@
 - Windows PowerShell 是常见执行环境；中文文件统一按 UTF-8 读写，避免 GBK/mojibake。
 - 使用 `rg` / `rg --files` 优先查找文件和文本。
 
+## 业务方法与 API 重构专项
+
+- 开始或恢复本专项前，先读 [实施基线](docs/plans/业务方法与API重构实施基线.md) 和 [实施进度](docs/plans/业务方法与API重构实施进度.md)，再核对当前工作树；已确认目标与当前实现状态分别判断。
+- 同时服务 Java 接入开发者和 Agent / Workflow 实施人员。每批改动关联基线 U1–U4 的具体用户任务，记录预期行为、范围、验证证据和下一步。
+- 在现有 Capability 服务内重构业务方法与 API，复用接入、同步、契约和调用机制。支撑改动必须指出其阻塞的具体场景，不扩展为全平台范围、权限或页面整理。
+- 普通实现选择依照现有契约自主推进；改变已确认产品边界时，先整理具体方案和影响再与用户讨论。每批结束更新实施进度，不新增逐批审批流程。
+- 保留既有 WIP；不自动恢复历史 A2d0 等暂停批次。旧分析与测试只作历史证据，不能代替当前专项验收。
+
 ## Windows PowerShell 与原生程序 UTF-8 硬约束
 
 - 含中文的 Python、Node、JSON、SQL 或请求体，禁止直接通过 Windows PowerShell 默认管道传给原生程序，例如 `@'...中文...'@ | python -`。
@@ -81,10 +89,10 @@ ReachAI 是面向 Java 企业系统的 AI 能力中台，不只是 Workflow Buil
 
 ## 命名规则
 
-- 产品和文档默认使用 `Capability / 能力`。
+- 2026-09-15 已确认重构目标：面向用户分别使用“业务方法”和“API”；`Capability / 能力` 可作为统称、聚合视图或服务技术身份。目标与当前落地状态见专项实施基线和进度，不将计划写成已实现功能。
 - ReachAI 禁止重新引入自创的 Skill 业务资产模型。Skill 仅用于标准 Agent Skill 包或外部协议字段；Capability 是业务资产，Tool 是调用协议，Workflow 是 GraphSpec 编排。
 - 通用 `Tool` 不作为独立产品资产、顶级菜单或人工维护目录。`capability_tool_definition`、`/api/tools/**`、Tool ACL、Tool Call、MCP Tool 与 Workflow-as-Tool 属于运行时投影、协议或兼容技术身份；产品页面应回到其 owning object，分别使用能力目录、API、可调用 Workflow、MCP 暴露和调用权限等名称。
-- 未来若建设注解方法的独立模块，产品名使用“代码工具 / Code Tools”，语义限定为 Methods as Tools；在该模型正式落地前，不得把当前通用 Tool 目录改名冒充代码工具，也不得使用 `FunctionToolCallback` 等框架类名作为业务模块名。
+- “业务方法”表示业务系统明确开放的 Java 业务操作；“注解方法”是接入机制描述。本决定替代此前“代码工具 / Code Tools”的预留产品名；不得把当前混合的通用目录整体改名冒充业务方法，也不得使用 `FunctionToolCallback` 等框架类名作为业务模块名。
 - 合法 Skill 仅包括 `ai-assist/skills/**` 中的 `SKILL.md` 包、`/api/ai-assist/skills/**` 下载入口、A2A 标准 `skills` 字段，以及对已退役 `ai-skills-service` 的否定性记录。不要把旧 Skill 目录、GraphSpec `CAPABILITY` 节点或 `kind=SKILL` 行包装成 AgentScope Skill。
 - `eaf.*`、`X-EAF-*`、`Eaf*` 类名、Maven artifactId、运行时路径属于技术身份，品牌文案改成 ReachAI 时不要顺手改这些兼容敏感标识。
 

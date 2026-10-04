@@ -1,6 +1,7 @@
 package com.enterprise.ai.capability.internal;
 
 import lombok.RequiredArgsConstructor;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -11,7 +12,10 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 
 import java.time.Duration;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Pattern;
 
@@ -26,6 +30,7 @@ public class DefaultCapabilityHttpToolInvoker implements CapabilityHttpToolInvok
 
     private final RestTemplateBuilder restTemplateBuilder;
     private final CapabilityOutboundTransportPolicy transportPolicy;
+    private final ObjectMapper responseMapper;
 
     @Override
     public Map<String, Object> invoke(CapabilityHttpToolInvocation invocation) {
@@ -64,11 +69,52 @@ public class DefaultCapabilityHttpToolInvoker implements CapabilityHttpToolInvok
         HttpEntity<?> entity = method == HttpMethod.GET
                 ? new HttpEntity<>(headers)
                 : new HttpEntity<>(invocation.body(), headers);
-        ResponseEntity<Object> response = restTemplate.exchange(invocation.url(), method, entity, Object.class);
+        // Some valid SDK handlers return a scalar value. Depending on Spring MVC's selected
+        // message converter, that value can arrive as unquoted text despite an application/json
+        // content type. Read bytes first so a scalar response remains callable instead of being
+        // rejected before Capability can apply its normal result classification.
+        ResponseEntity<byte[]> response = restTemplate.exchange(invocation.url(), method, entity, byte[].class);
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("statusCode", response.getStatusCode().value());
-        body.put("body", response.getBody());
+        body.put("body", decodeResponse(response.getBody(), response.getHeaders().getContentType()));
         return body;
+    }
+
+    private Object decodeResponse(byte[] response, MediaType contentType) {
+        if (response == null || response.length == 0) {
+            return null;
+        }
+        if (isJson(contentType)) {
+            try {
+                return responseMapper.readValue(response, Object.class);
+            } catch (Exception malformedJson) {
+                // Some valid SDK handlers emit an unquoted scalar while MVC labels it JSON.
+                // Preserve that legacy endpoint behavior without treating text/* as JSON.
+                return decodeText(response, contentType);
+            }
+        }
+        if (isText(contentType)) {
+            return decodeText(response, contentType);
+        }
+        return response;
+    }
+
+    private static boolean isJson(MediaType contentType) {
+        if (contentType == null || !"application".equalsIgnoreCase(contentType.getType())) {
+            return false;
+        }
+        String subtype = contentType.getSubtype();
+        return "json".equalsIgnoreCase(subtype)
+                || subtype.toLowerCase(Locale.ROOT).endsWith("+json");
+    }
+
+    private static boolean isText(MediaType contentType) {
+        return contentType != null && "text".equalsIgnoreCase(contentType.getType());
+    }
+
+    private static String decodeText(byte[] response, MediaType contentType) {
+        Charset charset = contentType == null ? null : contentType.getCharset();
+        return new String(response, charset == null ? StandardCharsets.UTF_8 : charset);
     }
 
     static Long remainingMillis(Map<String, Object> metadata, long nowEpochMs) {

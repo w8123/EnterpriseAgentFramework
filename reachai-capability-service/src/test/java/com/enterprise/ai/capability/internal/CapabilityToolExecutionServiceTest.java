@@ -2,7 +2,6 @@ package com.enterprise.ai.capability.internal;
 
 import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionEntity;
 import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionMapper;
-import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectToolEntity;
 import com.enterprise.ai.agent.registry.RegistryCredentialEntity;
 import com.enterprise.ai.agent.registry.RegistrySecurityService;
 import com.enterprise.ai.reach.sdk.auth.ReachAiInvocationClaims;
@@ -226,97 +225,9 @@ class CapabilityToolExecutionServiceTest {
         assertEquals(Map.of(), invoker.invocation.body());
     }
 
-    @Test
-    void executesScanProjectHttpToolThroughInvoker() {
-        ToolDefinitionMapper mapper = mock(ToolDefinitionMapper.class);
-        CapturingInvoker invoker = new CapturingInvoker(Map.of("statusCode", 200, "body", Map.of("orderStatus", "PAID")));
-        CapabilityToolExecutionService service = new CapabilityToolExecutionService(mapper, invoker, null, mock(CapabilitySourceContractGuard.class));
-        ScanProjectToolEntity tool = scanTool(11L, true);
 
-        Map<String, Object> response = service.execute(tool, Map.of("input", Map.of("orderNo", "A001")));
 
-        assertEquals(true, response.get("success"));
-        assertEquals(11L, response.get("scanToolId"));
-        assertEquals("orders_create", response.get("toolName"));
-        assertEquals("创建订单", response.get("toolTitle"));
-        assertEquals(Map.of("orderStatus", "PAID"), response.get("data"));
-        assertEquals("POST", invoker.invocation.method());
-        assertEquals("http://orders/api/orders/create", invoker.invocation.url());
-        assertEquals(Map.of("orderNo", "A001"), invoker.invocation.body());
-    }
 
-    @Test
-    void rejectsUnlinkedSdkScanToolInsteadOfInvokingItUnsigned() {
-        ToolDefinitionMapper mapper = mock(ToolDefinitionMapper.class);
-        CapturingInvoker invoker = new CapturingInvoker(Map.of("statusCode", 200, "body", Map.of("ok", true)));
-        CapabilityToolExecutionService service = new CapabilityToolExecutionService(mapper, invoker, null, mock(CapabilitySourceContractGuard.class));
-        ScanProjectToolEntity scanTool = scanTool(11L, true);
-        scanTool.setProjectId(33L);
-        scanTool.setSourceLocation("sdk:mall:mall.order.create");
-
-        IllegalStateException ex = assertThrows(IllegalStateException.class,
-                () -> service.execute(scanTool, Map.of("input", Map.of())));
-
-        assertTrue(ex.getMessage().contains("signed Tool catalog"));
-        assertNull(invoker.invocation);
-    }
-
-    @Test
-    void signsLinkedScanProjectToolInvocation() {
-        ToolDefinitionMapper mapper = mock(ToolDefinitionMapper.class);
-        RegistrySecurityService securityService = mock(RegistrySecurityService.class);
-        CapturingInvoker invoker = new CapturingInvoker(Map.of("statusCode", 200, "body", Map.of("ok", true)));
-        CapabilityToolExecutionService service = new CapabilityToolExecutionService(mapper, invoker, securityService, mock(CapabilitySourceContractGuard.class));
-        ScanProjectToolEntity scanTool = scanTool(11L, true);
-        scanTool.setProjectId(33L);
-        scanTool.setSourceLocation("sdk:mall:mall.order.query");
-        scanTool.setGlobalToolDefinitionId(99L);
-        ToolDefinitionEntity linkedTool = tool("mall:mall.order.query", true);
-        linkedTool.setId(99L);
-        linkedTool.setProjectId(33L);
-        linkedTool.setProjectCode("mall");
-        linkedTool.setName("orders_create");
-        linkedTool.setSourceLocation("sdk:mall:mall.order.query");
-        linkedTool.setEndpointPath("/orders/create");
-        when(mapper.selectById(99L)).thenReturn(linkedTool);
-        RegistryCredentialEntity credential = new RegistryCredentialEntity();
-        credential.setProjectCode("mall");
-        credential.setAppKey("mall");
-        credential.setAppSecret("secret");
-        when(securityService.findPrimaryActiveCredential("mall")).thenReturn(Optional.of(credential));
-
-        service.execute(scanTool, Map.of("input", Map.of(), "context", Map.of("sessionId", "s-1")));
-
-        Map<?, ?> headers = (Map<?, ?>) invoker.invocation.metadata().get("headers");
-        String token = String.valueOf(headers.get(ReachAiInvocationToken.HEADER_NAME));
-        ReachAiInvocationClaims claims = ReachAiInvocationToken.verify(
-                "secret", token, "mall", "mall.order.query", System.currentTimeMillis());
-        assertEquals("mall.order.query", claims.getCapabilityName());
-        assertEquals("s-1", claims.getSessionId());
-    }
-
-    @Test
-    void rejectsSignedScanInvocationWhenLinkedToolIsOutOfSync() {
-        ToolDefinitionMapper mapper = mock(ToolDefinitionMapper.class);
-        CapturingInvoker invoker = new CapturingInvoker(Map.of("statusCode", 200, "body", Map.of("ok", true)));
-        CapabilityToolExecutionService service = new CapabilityToolExecutionService(mapper, invoker, null, mock(CapabilitySourceContractGuard.class));
-        ScanProjectToolEntity scanTool = scanTool(11L, true);
-        scanTool.setProjectId(33L);
-        scanTool.setSourceLocation("sdk:mall:mall.order.create");
-        scanTool.setGlobalToolDefinitionId(99L);
-        ToolDefinitionEntity linkedTool = tool("mall:mall.order.create", true);
-        linkedTool.setId(99L);
-        linkedTool.setProjectId(33L);
-        linkedTool.setName("orders_create");
-        linkedTool.setSourceLocation("sdk:mall:mall.order.create");
-        when(mapper.selectById(99L)).thenReturn(linkedTool);
-
-        IllegalStateException ex = assertThrows(IllegalStateException.class,
-                () -> service.execute(scanTool, Map.of("input", Map.of())));
-
-        assertEquals(true, ex.getMessage().contains("endpoint"));
-        assertNull(invoker.invocation);
-    }
 
     @Test
     void signsSdkInvocationWithRuntimePrincipal() {
@@ -399,20 +310,6 @@ class CapabilityToolExecutionServiceTest {
         return entity;
     }
 
-    private ScanProjectToolEntity scanTool(Long id, boolean enabled) {
-        ScanProjectToolEntity entity = new ScanProjectToolEntity();
-        entity.setId(id);
-        entity.setName("orders_create");
-        entity.setTitle("创建订单");
-        entity.setEnabled(enabled);
-        entity.setHttpMethod("POST");
-        entity.setBaseUrl("http://orders");
-        entity.setContextPath("/api");
-        entity.setEndpointPath("/orders/create");
-        entity.setRequestBodyType("json");
-        entity.setResponseType("json");
-        return entity;
-    }
 
     private static final class CapturingInvoker implements CapabilityHttpToolInvoker {
         private final Map<String, Object> response;

@@ -62,14 +62,15 @@ public class RuntimeWorkflowVersionService {
         if (duplicate != null) {
             throw new IllegalArgumentException("workflow version already exists: " + version);
         }
-        String publishedGraph = capabilityContractPins.pin(workflow.getGraphSpecJson());
+        String publishedGraph = capabilityContractPins.pin(workflow.getGraphSpecJson(), workflow);
+        String httpApiRiskFloor = capabilityContractPins.httpApiRiskFloor(publishedGraph);
         Long previousVersionId = retireActiveVersions(workflowId);
 
         LocalDateTime now = LocalDateTime.now();
         RuntimeWorkflowVersionEntity entity = new RuntimeWorkflowVersionEntity();
         entity.setWorkflowId(workflowId);
         entity.setVersion(version.trim());
-        entity.setSnapshotJson(writeSnapshot(workflow, publishedGraph));
+        entity.setSnapshotJson(writeSnapshot(workflow, publishedGraph, httpApiRiskFloor));
         entity.setGraphSpecSnapshotJson(publishedGraph);
         entity.setCanvasSnapshotJson(workflow.getCanvasJson());
         entity.setRolloutPercent(rolloutPercent);
@@ -79,6 +80,7 @@ public class RuntimeWorkflowVersionService {
         entity.setNote(note);
         entity.setCreatedAt(now);
         versionMapper.insert(entity);
+        capabilityContractPins.bindPublishedGraph(publishedGraph, entity.getId());
         referenceIndex.indexVersion(entity);
 
         RuntimeWorkflowDefinitionEntity update = new RuntimeWorkflowDefinitionEntity();
@@ -160,8 +162,12 @@ public class RuntimeWorkflowVersionService {
         releaseEvents.insert(event);
     }
 
-    private String writeSnapshot(RuntimeWorkflowDefinitionEntity workflow, String publishedGraph) {
+    private String writeSnapshot(RuntimeWorkflowDefinitionEntity workflow, String publishedGraph, String httpApiRiskFloor) {
         Map<String, Object> snapshot = new LinkedHashMap<>();
+        if (httpApiRiskFloor != null) {
+            snapshot.put("riskLevel", httpApiRiskFloor);
+            snapshot.put("httpApiRiskFloor", httpApiRiskFloor);
+        }
         snapshot.put("id", workflow.getId());
         snapshot.put("projectId", workflow.getProjectId());
         snapshot.put("projectCode", workflow.getProjectCode());

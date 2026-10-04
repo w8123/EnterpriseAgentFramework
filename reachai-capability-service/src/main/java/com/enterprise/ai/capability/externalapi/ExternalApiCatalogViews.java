@@ -96,7 +96,15 @@ public final class ExternalApiCatalogViews {
             Object requestSchema,
             Object responseSchema,
             Map<String, Object> exampleParams,
-            String status) {
+            String status,
+            String responseContentType,
+            Integer responseStatus) {
+        public OperationView(Long id, String operationKey, String operationId, String title, String description,
+                String httpMethod, String path, String sideEffect, boolean authRequired, Object requestSchema,
+                Object responseSchema, Map<String, Object> exampleParams, String status) {
+            this(id, operationKey, operationId, title, description, httpMethod, path, sideEffect, authRequired,
+                    requestSchema, responseSchema, exampleParams, status, null, null);
+        }
     }
 
     public record VerificationView(
@@ -128,6 +136,19 @@ public final class ExternalApiCatalogViews {
             List<Long> operationIds,
             String environment,
             String note) {
+        public static IntegrationCreateRequest fromWire(Map<String, Object> wire) {
+            if (wire == null || !java.util.Set.of("projectId", "projectCode", "versionId", "operationIds", "environment", "note").containsAll(wire.keySet())
+                    || !(wire.get("operationIds") instanceof List<?> ids) || ids.isEmpty() || ids.size() > 16 || ids.stream().distinct().count() != ids.size()
+                    || !(wire.get("projectCode") instanceof String code) || code.isBlank()
+                    || !(wire.get("environment") instanceof String environment) || environment.isBlank()
+                    || wire.get("note") != null && !(wire.get("note") instanceof String)) throw new IllegalArgumentException("invalid catalog selection");
+            return new IntegrationCreateRequest(positive(wire.get("projectId")), code, positive(wire.get("versionId")),
+                    ids.stream().map(IntegrationCreateRequest::positive).toList(), environment, (String)wire.get("note"));
+        }
+        private static Long positive(Object value) {
+            if (!(value instanceof Number number) || number.longValue() <= 0 || number.doubleValue() != number.longValue()) throw new IllegalArgumentException("invalid catalog id");
+            return number.longValue();
+        }
     }
 
     public record IntegrationStatusRequest(String status, String note) {
@@ -146,8 +167,17 @@ public final class ExternalApiCatalogViews {
             EntrySummary entry,
             VersionView version,
             List<OperationView> selectedOperations,
-            boolean credentialRequired) {
+            boolean credentialRequired,
+            List<ApiBindingView> apiBindings) {
+        public IntegrationView(Long id, Long projectId, String projectCode, String projectName, String environment,
+                String status, String note, LocalDateTime createdAt, LocalDateTime updatedAt, EntrySummary entry,
+                VersionView version, List<OperationView> selectedOperations, boolean credentialRequired) {
+            this(id, projectId, projectCode, projectName, environment, status, note, createdAt, updatedAt, entry,
+                    version, selectedOperations, credentialRequired, List.of());
+        }
     }
+
+    public record ApiBindingView(Long operationId, Long apiId, String qualifiedName, String environment, String blockingReason) { }
 
     private ExternalApiCatalogViews() {
     }

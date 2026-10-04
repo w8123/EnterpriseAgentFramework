@@ -1,5 +1,6 @@
 package com.enterprise.ai.control.identity;
 
+import com.enterprise.ai.control.internalauth.InternalServiceAuthRequestAttributes;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -69,6 +70,11 @@ public class PlatformConsoleAuthInterceptor implements HandlerInterceptor {
         // the session principal. Authorization decisions use the new session.
         request.setAttribute(USER_REQUEST_ATTRIBUTE, session.user());
         request.setAttribute(SESSION_REQUEST_ATTRIBUTE, session);
+        if (session.user() != null && session.user().getId() != null) {
+            request.setAttribute(
+                    InternalServiceAuthRequestAttributes.PLATFORM_SESSION_ACTOR_ID,
+                    String.valueOf(session.user().getId()));
+        }
         return true;
     }
 

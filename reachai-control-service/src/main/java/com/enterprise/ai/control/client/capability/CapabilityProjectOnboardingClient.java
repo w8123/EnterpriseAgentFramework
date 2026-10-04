@@ -10,7 +10,10 @@ import org.springframework.web.bind.annotation.RequestMethod;
 import java.util.List;
 import java.util.Map;
 
-@FeignClient(name = "reachai-capability-project-onboarding", url = "${services.capability-service.url:http://localhost:18605}")
+@FeignClient(
+        name = "reachai-capability-project-onboarding",
+        url = "${services.capability-service.url:http://localhost:18605}",
+        configuration = CapabilityProjectOnboardingFeignConfig.class)
 public interface CapabilityProjectOnboardingClient {
 
     @GetMapping("/internal/capability/projects/{projectCode}")

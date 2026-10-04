@@ -76,6 +76,7 @@
         :param-source-hints="paramSourceHints"
         :project-id="projectId"
         :project-code="projectCode"
+        :request-scope-key="requestScopeKey"
         :options="toolLikeOptions"
         :tool-options="toolOptions"
         :node-type-options="nodeTypeOptions"
@@ -173,6 +174,7 @@ const props = defineProps<{
   paramSourceHints: ApiGraphParamSourceHint[]
   projectId?: number | null
   projectCode?: string | null
+  requestScopeKey?: string | null
   nodeTypeOptions?: WorkflowGraphNodeTypeDescriptor[]
 }>()
 
@@ -440,7 +442,14 @@ function syncOutputAlias() {
 <style lang="scss">
 .node-specific-panel:not(.llm-panel) {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 14px;
+  min-width: 0;
+
+  > *,
+  .el-form-item__content {
+    min-width: 0;
+  }
 
   > .el-divider {
     justify-content: flex-start;
@@ -566,6 +575,8 @@ function syncOutputAlias() {
     align-items: center;
     justify-content: space-between;
     gap: 8px;
+    flex-wrap: wrap;
+    overflow-wrap: anywhere;
     margin: 2px 0 0;
     padding: 13px 14px;
     border: 1px solid #e2e8f0;
@@ -708,6 +719,19 @@ function syncOutputAlias() {
   }
 
   @media (max-width: 760px) {
+    > .el-form-item {
+      flex-direction: column;
+
+      > .el-form-item__label {
+        width: auto !important;
+        padding: 0;
+      }
+
+      > .el-form-item__content {
+        width: 100%;
+      }
+    }
+
     .field-row,
     .condition-row,
     .classifier-row,
@@ -722,6 +746,13 @@ function syncOutputAlias() {
 }
 
 .node-contract-tabs {
+  min-width: 0;
+
+  .el-tabs__content,
+  .el-tab-pane {
+    min-width: 0;
+  }
+
   .el-tabs__header {
     margin-bottom: 14px;
   }

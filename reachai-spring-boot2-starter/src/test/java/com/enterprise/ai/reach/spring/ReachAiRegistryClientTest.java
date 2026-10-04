@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.ArrayList;
@@ -23,6 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ReachAiRegistryClientTest {
 
@@ -171,13 +173,18 @@ class ReachAiRegistryClientTest {
 
         assertEquals(1, scanner.scanCalls);
         assertEquals(1, response.getCapabilityCount());
+        assertEquals(0, response.getHttpApiCount());
         assertEquals(1, transport.requests.size());
         RecordingTransport.Request sync = transport.requests.get(0);
         assertEquals("POST", sync.method);
         assertEquals("https://reachai.example.com/api/registry/projects/demo/capabilities/sync", sync.url);
         assertEquals("SDK", sync.body.get("source"));
         assertEquals(Boolean.FALSE, sync.body.get("apply"));
-        assertEquals(1, ((List<?>) sync.body.get("capabilities")).size());
+        List<?> capabilities = (List<?>) sync.body.get("capabilities");
+        assertEquals(1, capabilities.size());
+        assertEquals(Collections.emptyList(), sync.body.get("httpApis"));
+        Map<?, ?> metadata = (Map<?, ?>) ((Map<?, ?>) capabilities.get(0)).get("metadata");
+        assertFalse(metadata.containsKey("assetType"));
     }
 
     @Test
@@ -214,7 +221,7 @@ class ReachAiRegistryClientTest {
     }
 
     @Test
-    void scanAndSyncCapabilitiesIncludesPlainSpringMvcControllerEndpoints() {
+    void scanAndSyncCapabilitiesPlacesPlainSpringMvcControllerEndpointsInHttpApisOnly() {
         ReachAiRegistryProperties properties = new ReachAiRegistryProperties();
         properties.getRegistry().setUrl("https://reachai.example.com");
         properties.getRegistry().setAppKey("demo-key");
@@ -232,29 +239,25 @@ class ReachAiRegistryClientTest {
 
         RecordingTransport.Request sync = transport.requests.get(0);
         List<?> capabilities = (List<?>) sync.body.get("capabilities");
-        assertEquals(2, capabilities.size());
+        assertEquals(0, capabilities.size());
+        List<?> httpApis = (List<?>) sync.body.get("httpApis");
+        assertEquals(2, httpApis.size());
 
-        Map<?, ?> getItem = findCapability(capabilities, "plain_getStatus");
-        assertEquals("plain_getStatus", getItem.get("name"));
+        Map<?, ?> getItem = findHttpApi(httpApis, "/plain/getStatus");
         assertEquals("GET", getItem.get("httpMethod"));
         assertEquals("/plain/getStatus", getItem.get("endpointPath"));
-        assertFalse(getItem.containsKey("agentVisible"));
-        assertFalse(getItem.containsKey("lightweightEnabled"));
-        assertFalse(getItem.containsKey("visibility"));
-        Map<?, ?> getMetadata = (Map<?, ?>) getItem.get("metadata");
-        assertEquals(Boolean.FALSE, getMetadata.get("declared"));
-        assertEquals("SpringMvcController", getMetadata.get("source"));
-        assertEquals("PlainController", getMetadata.get("module"));
+        assertEquals("UNKNOWN", getItem.get("authenticationState"));
+        assertTrue(((String) getItem.get("sourceKey")).startsWith("mvc:"));
 
-        Map<?, ?> postItem = findCapability(capabilities, "plain_create");
-        assertEquals("plain_create", postItem.get("name"));
+        Map<?, ?> postItem = findHttpApi(httpApis, "/plain/create");
         assertEquals("POST", postItem.get("httpMethod"));
         assertEquals("/plain/create", postItem.get("endpointPath"));
-        assertEquals("java.lang.String", postItem.get("requestBodyType"));
+        Map<?, ?> requestBody = (Map<?, ?>) postItem.get("requestBody");
+        assertEquals("BODY", requestBody.get("location"));
     }
 
     @Test
-    void explicitReachCapabilitySupersedesAutomaticMvcDiscoveryForSameMethod() {
+    void dualDeclarationReportsBusinessMethodAndMvcOperationInSeparateArrays() {
         ReachAiRegistryProperties properties = new ReachAiRegistryProperties();
         properties.getRegistry().setUrl("https://reachai.example.com");
         properties.getRegistry().setAppKey("demo-key");
@@ -279,6 +282,10 @@ class ReachAiRegistryClientTest {
         Map<?, ?> metadata = (Map<?, ?>) capability.get("metadata");
         assertEquals(Boolean.TRUE, metadata.get("declared"));
         assertEquals("ReachCapability", metadata.get("source"));
+        assertEquals("BUSINESS_METHOD", metadata.get("assetType"));
+        List<?> httpApis = (List<?>) transport.requests.get(0).body.get("httpApis");
+        assertEquals(1, httpApis.size());
+        assertEquals("GET", findHttpApi(httpApis, "/users/current").get("httpMethod"));
     }
 
     static class ContractCapability {
@@ -298,6 +305,16 @@ class ReachAiRegistryClientTest {
         throw new AssertionError("capability not found: " + name);
     }
 
+    private Map<?, ?> findHttpApi(List<?> httpApis, String endpointPath) {
+        for (Object item : httpApis) {
+            Map<?, ?> map = (Map<?, ?>) item;
+            if (endpointPath.equals(map.get("endpointPath"))) {
+                return map;
+            }
+        }
+        throw new AssertionError("HTTP API not found: " + endpointPath);
+    }
+
     static class CountingScanner extends ReachCapabilityBeanScanner {
         private int scanCalls;
 
@@ -306,7 +323,7 @@ class ReachAiRegistryClientTest {
         }
 
         @Override
-        public List<ReachCapabilityDescriptor> scan() {
+        public ScanResult scanResult() {
             scanCalls++;
             ReachCapabilityDescriptor descriptor = new ReachCapabilityDescriptor();
             descriptor.setName("contract.query");
@@ -315,7 +332,7 @@ class ReachAiRegistryClientTest {
             descriptor.setEndpointPath("/reachai/capabilities/contract.query/invoke");
             descriptor.setRequestBodyType("java.util.Map");
             descriptor.setReturnType("java.lang.String");
-            return Collections.singletonList(descriptor);
+            return new ScanResult(Collections.singletonList(descriptor), Collections.emptyList());
         }
     }
 
@@ -323,7 +340,7 @@ class ReachAiRegistryClientTest {
     @RequestMapping("/plain")
     static class PlainController {
         @GetMapping("/getStatus")
-        public String getStatus(String keyword) {
+        public String getStatus(@RequestParam(required = false) String keyword) {
             return "ok";
         }
 

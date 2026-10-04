@@ -10,11 +10,11 @@
         <div class="ops-topbar__controls">
           <span
             class="ops-scope-chip"
-            aria-label="当前数据范围：全部可见项目"
-            title="当前数据范围为全部可见项目"
-          >全部可见项目</span>
+            :aria-label="`当前数据范围：${scopeLabel}`"
+            :title="`当前数据范围为${scopeLabel}`"
+          >{{ scopeLabel }}</span>
           <span class="ops-date-chip"><i aria-hidden="true" />{{ currentDateLabel }}</span>
-          <div class="ops-range" aria-label="统计时间范围">
+          <div v-if="!overviewDenied" class="ops-range" aria-label="统计时间范围">
             <button
               type="button"
               :class="{ 'is-active': rangeDays === 1 }"
@@ -26,9 +26,9 @@
               @click="selectRange(7)"
             >近 7 天</button>
           </div>
-          <span class="ops-refresh-status" :class="{ 'is-paused': !pageVisible }">
+          <span class="ops-refresh-status" :class="{ 'is-paused': !pageVisible || overviewDenied }">
             <i aria-hidden="true" />
-            {{ pageVisible ? '自动刷新 · 每 30 秒' : '页面不可见 · 已暂停' }}
+            {{ refreshStatusLabel }}
           </span>
           <button
             type="button"
@@ -37,22 +37,22 @@
             :disabled="refreshing"
             aria-label="刷新运营数据"
             title="刷新运营数据"
-            @click="refresh"
+            @click="refresh()"
           >↻</button>
           <span class="ops-last-updated">{{ lastUpdatedLabel }}</span>
           <button
-            v-if="!editor.editing.value && !layoutNarrow"
+            v-if="!overviewDenied && !editor.editing.value && !layoutNarrow"
             type="button"
             class="ops-action-btn"
             data-testid="edit-layout"
             @click="editor.beginEdit()"
           ><span aria-hidden="true">✎</span> 编辑布局</button>
           <span
-            v-else-if="!editor.editing.value"
+            v-else-if="!overviewDenied && !editor.editing.value"
             class="ops-editing-badge"
             data-testid="narrow-edit-disabled"
           >内容区小于 1000px，布局编辑不可用</span>
-          <span v-else class="ops-editing-badge"><i aria-hidden="true" />布局编辑中</span>
+          <span v-else-if="!overviewDenied" class="ops-editing-badge"><i aria-hidden="true" />布局编辑中</span>
           <button
             type="button"
             class="ops-action-btn is-primary"
@@ -63,12 +63,31 @@
       </header>
 
       <div class="ops-content">
+        <DashboardPanelState
+          v-if="overviewDenied"
+          class="ops-project-entry"
+          tone="disabled"
+          title="平台总览不可查看"
+          :detail="overviewDeniedDetail"
+          role="status"
+        >
+          <nav v-if="availableTasks.length" class="ops-project-entry__links" aria-label="可用项目任务">
+            <a v-for="entry in availableTasks" :key="entry.index" :href="entry.index"
+              @click.prevent="go(entry.index)">{{ entry.label }}</a>
+          </nav>
+          <p v-else>当前账号没有可用的业务方法、API或Workflow入口，请联系管理员核对项目授权。</p>
+        </DashboardPanelState>
+        <div v-if="partialDeniedWarning" class="ops-data-warning" role="status">
+          <i aria-hidden="true" />
+          <span>{{ partialDeniedWarning }}。其余已授权数据继续展示和刷新；受限数据仅在显式刷新或会话授权变化后重查。</span>
+        </div>
         <div v-if="dataWarning" class="ops-data-warning" role="status">
           <i aria-hidden="true" />
           <span>{{ dataWarning }}</span>
         </div>
 
         <DashboardLayoutContainer
+          v-if="!overviewDenied"
           :context="widgetContext"
           :layout="editor.layoutForRender.value"
           :editing="editor.editing.value"
@@ -99,7 +118,7 @@
           @open-attention="(target) => go(target)"
           @open-run-trace="(traceId) => go(`/runops/${encodeURIComponent(traceId)}`)"
           @retry-runs="loadRuns"
-          @retry-all="refresh"
+          @retry-all="refresh()"
         />
       </div>
     </div>
@@ -107,16 +126,19 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch, type Ref } from 'vue'
 import { useRouter, type RouteLocationRaw } from 'vue-router'
 import { controlRequest } from '@/api/request'
 import { getRecentRunOps } from '@/api/runops'
 import { getScanProjects } from '@/api/scanProject'
 import { getAgentStatistics, listAgents, listWorkflows } from '@/api/workflow'
 import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
+import { filterSidebarMenu, sidebarMenu } from '@/components/common/sidebarMenu'
+import { platformSessionId, platformSessionUser } from '@/auth/platformSession'
 import type {
   DashboardAgentRankingItem,
   DashboardAttentionSignal,
+  DashboardDataDomain,
   DashboardDomainState,
   DashboardDomainStatus,
   DashboardMetricCardModel,
@@ -140,9 +162,10 @@ import {
   summarizeTokens,
 } from './dashboardModel'
 import { dashboardLayoutLocalRepository } from './dashboardLayoutLocalRepository'
-import { defaultConsoleLayout } from './widgetRegistry'
+import { dashboardDomainLabels, defaultConsoleLayout } from './widgetRegistry'
 import { useDashboardLayoutEditor } from './useDashboardLayoutEditor'
 import DashboardLayoutContainer from './components/DashboardLayoutContainer.vue'
+import DashboardPanelState from './components/DashboardPanelState.vue'
 
 interface InternalServicesHealthResponse {
   services?: Record<string, { status?: string } | undefined>
@@ -165,8 +188,38 @@ const lastUpdatedAt = ref<Date | null>(null)
 const dashboardRoot = ref<HTMLElement | null>(null)
 const isFullscreen = ref(false)
 const layoutNarrow = ref(false)
-let runRequestVersion = 0
+type Domain = DashboardDataDomain
+const deniedDomains = ref<Partial<Record<Domain, boolean>>>({})
+const requestVersions: Record<Domain, number> = { projects: 0, agents: 0, workflows: 0, agentStats: 0, runs: 0, health: 0 }
+let accessVersion = 0
 let autoRefreshTimer: number | undefined
+const localFeedback = { errorFeedback: 'local' as const }
+// Only the four necessary operational reads being denied retires the overview.
+// Auxiliary project/health reads and valid empty 200s cannot deny other domains.
+const overviewDenied = computed(() =>
+  (['agents', 'workflows', 'agentStats', 'runs'] as const).every(domain => deniedDomains.value[domain]),
+)
+const deniedLabels = computed(() => (Object.keys(dashboardDomainLabels) as Domain[])
+  .filter(domain => deniedDomains.value[domain]).map(domain => dashboardDomainLabels[domain]))
+const partialDeniedWarning = computed(() => !overviewDenied.value && deniedLabels.value.length
+  ? `部分总览数据读取受限：${deniedLabels.value.join('、')}` : '')
+const refreshStatusLabel = computed(() => !pageVisible.value ? '页面不可见 · 已暂停'
+  : overviewDenied.value ? '已拒绝数据 · 自动重试已暂停'
+  : deniedLabels.value.length ? '自动刷新 · 已拒绝数据暂停重试' : '自动刷新 · 每 30 秒')
+const projectOnly = computed(() => {
+  const grants = platformSessionUser.value?.permissionGrants ?? []
+  return grants.length > 0 && grants.every(grant => grant.scopeType?.trim().toUpperCase() === 'PROJECT')
+})
+const scopeLabel = computed(() => overviewDenied.value
+  ? projectOnly.value ? '已授权项目范围' : '平台总览读取受限'
+  : deniedLabels.value.length ? '部分总览数据' : '全部可见项目')
+const overviewDeniedDetail = computed(() => projectOnly.value
+  ? '当前账号仅具项目范围；平台总览不可查看。请进入已授权的项目任务并选择项目。已拒绝的数据不会自动重试，可显式刷新重新检查。'
+  : '当前账号没有所需的平台总览读取权限。可进入下方已授权任务；如需查看总览，请联系管理员核对授权。')
+// Destination selection only: labels and availability belong to the shared menu.
+const availableTasks = computed(() => filterSidebarMenu(sidebarMenu, platformSessionUser.value?.permissions ?? [])
+  .filter(entry => entry.kind === 'item')
+  .filter(entry => ['/business-methods', '/apis', '/workflows'].includes(entry.index)))
 
 const editor = useDashboardLayoutEditor({ repository, fallback: defaultConsoleLayout })
 editor.initialize()
@@ -207,90 +260,98 @@ function requireHealthServices(body: InternalServicesHealthResponse | null | und
   })
 }
 
-async function loadProjects() {
+async function loadDomain<T>(domain: Domain, state: Ref<DashboardDomainState<T>>, fetchData: () => Promise<T>,
+  empty: T, recheckDenied: boolean) {
+  if (!recheckDenied && deniedDomains.value[domain]) return
+  const access = accessVersion
+  const requestVersion = ++requestVersions[domain]
+  const current = () => access === accessVersion && requestVersion === requestVersions[domain]
   try {
-    const { data } = await getScanProjects()
-    projects.value = { status: 'ready', data: requireArray<ScanProject>(data, '业务系统') }
-  } catch {
-    projects.value = { status: 'error', data: [] }
+    const data = await fetchData()
+    if (!current()) return
+    deniedDomains.value[domain] = false
+    state.value = { status: 'ready', data }
+  } catch (error) {
+    if (!current()) return
+    deniedDomains.value[domain] = (error as { response?: { status?: number } })?.response?.status === 403
+    state.value = { status: 'error', data: empty }
   }
 }
 
-async function loadAgents() {
-  try {
-    const { data } = await listAgents()
-    agents.value = { status: 'ready', data: requireArray<Agent>(data, 'Agent') }
-  } catch {
-    agents.value = { status: 'error', data: [] }
-  }
+function loadProjects(recheckDenied = true) {
+  return loadDomain('projects', projects, async () => {
+    const { data } = await getScanProjects({}, localFeedback)
+    return requireArray<ScanProject>(data, '业务系统')
+  }, [], recheckDenied)
 }
 
-async function loadWorkflows() {
-  try {
-    const { data } = await listWorkflows()
-    workflows.value = { status: 'ready', data: requireArray<WorkflowWorkingCopy>(data, 'Workflow') }
-  } catch {
-    workflows.value = { status: 'error', data: [] }
-  }
+function loadAgents(recheckDenied = true) {
+  return loadDomain('agents', agents, async () => {
+    const { data } = await listAgents(undefined, localFeedback)
+    return requireArray<Agent>(data, 'Agent')
+  }, [], recheckDenied)
 }
 
-async function loadAgentStats() {
-  try {
-    const { data } = await getAgentStatistics()
-    agentStats.value = { status: 'ready', data: requireAgentStatistics(data) }
-  } catch {
-    agentStats.value = { status: 'error', data: null }
-  }
+function loadWorkflows(recheckDenied = true) {
+  return loadDomain('workflows', workflows, async () => {
+    const { data } = await listWorkflows(undefined, localFeedback)
+    return requireArray<WorkflowWorkingCopy>(data, 'Workflow')
+  }, [], recheckDenied)
 }
 
-async function loadRuns() {
-  const version = ++runRequestVersion
+function loadAgentStats(recheckDenied = true) {
+  return loadDomain('agentStats', agentStats, async () => {
+    const { data } = await getAgentStatistics(undefined, localFeedback)
+    return requireAgentStatistics(data)
+  }, null, recheckDenied)
+}
+
+function loadRuns(recheckDenied = true) {
   const days = rangeDays.value
-  try {
-    const { data } = await getRecentRunOps({ days, limit: DASHBOARD_SAMPLE_LIMIT })
-    if (version !== runRequestVersion) return
-    runs.value = { status: 'ready', data: requireArray<RunSummary>(data, '运行记录') }
-  } catch {
-    if (version !== runRequestVersion) return
-    runs.value = { status: 'error', data: [] }
-  }
+  return loadDomain('runs', runs, async () => {
+    const { data } = await getRecentRunOps({ days, limit: DASHBOARD_SAMPLE_LIMIT }, localFeedback)
+    return requireArray<RunSummary>(data, '运行记录')
+  }, [], recheckDenied)
 }
 
-async function loadHealth() {
-  try {
-    const { data } = await controlRequest.get<InternalServicesHealthResponse>('/api/internal-services/health')
-    health.value = { status: 'ready', data: requireHealthServices(data) }
-  } catch {
-    health.value = { status: 'error', data: [] }
-  }
+function loadHealth(recheckDenied = true) {
+  return loadDomain('health', health, async () => {
+    const { data } = await controlRequest.get<InternalServicesHealthResponse>('/api/internal-services/health', localFeedback)
+    return requireHealthServices(data)
+  }, [], recheckDenied)
 }
 
-async function refresh() {
+async function refresh(recheckDenied = true) {
   if (refreshing.value) return
+  const access = accessVersion
   refreshing.value = true
   await Promise.allSettled([
-    loadProjects(),
-    loadAgents(),
-    loadWorkflows(),
-    loadAgentStats(),
-    loadRuns(),
-    loadHealth(),
+    loadProjects(recheckDenied),
+    loadAgents(recheckDenied),
+    loadWorkflows(recheckDenied),
+    loadAgentStats(recheckDenied),
+    loadRuns(recheckDenied),
+    loadHealth(recheckDenied),
   ])
+  if (access !== accessVersion) return
   lastUpdatedAt.value = new Date()
   refreshing.value = false
 }
 
 async function selectRange(days: DashboardRangeDays) {
   if (rangeDays.value === days) return
+  const access = accessVersion
   rangeDays.value = days
-  runs.value = { status: 'loading', data: [] }
-  await loadRuns()
-  lastUpdatedAt.value = new Date()
+  if (!deniedDomains.value.runs) runs.value = { status: 'loading', data: [] }
+  const pending = loadRuns(false)
+  const requestVersion = requestVersions.runs
+  await pending
+  if (access === accessVersion && requestVersion === requestVersions.runs) lastUpdatedAt.value = new Date()
 }
 
 function handleVisibilityChange() {
   pageVisible.value = !document.hidden
-  if (pageVisible.value) void refresh()
+  if (pageVisible.value) void refresh(false)
 }
 
 function handleFullscreenChange() {
@@ -312,16 +373,32 @@ async function toggleFullscreen() {
 onMounted(() => {
   void refresh()
   autoRefreshTimer = window.setInterval(() => {
-    if (!document.hidden) void refresh()
+    if (!document.hidden) void refresh(false)
   }, 30_000)
   document.addEventListener('visibilitychange', handleVisibilityChange)
   document.addEventListener('fullscreenchange', handleFullscreenChange)
 })
 
 onBeforeUnmount(() => {
+  accessVersion++
   if (autoRefreshTimer != null) window.clearInterval(autoRefreshTimer)
   document.removeEventListener('visibilitychange', handleVisibilityChange)
   document.removeEventListener('fullscreenchange', handleFullscreenChange)
+})
+
+watch(() => JSON.stringify([platformSessionId.value, platformSessionUser.value]), () => {
+  // A previous actor/scope response cannot restore data or denial after a session change.
+  accessVersion++
+  deniedDomains.value = {}
+  projects.value = { status: 'loading', data: [] }
+  agents.value = { status: 'loading', data: [] }
+  workflows.value = { status: 'loading', data: [] }
+  agentStats.value = { status: 'loading', data: null }
+  runs.value = { status: 'loading', data: [] }
+  health.value = { status: 'loading', data: [] }
+  refreshing.value = false
+  lastUpdatedAt.value = null
+  if (platformSessionId.value) void refresh()
 })
 
 const rangeLabel = computed(() => (rangeDays.value === 1 ? '近 24 小时' : '近 7 天'))
@@ -481,6 +558,7 @@ const attentionItems = computed<DashboardAttentionSignal[]>(() => {
 const attentionHasSignals = computed(() => attentionItems.value.some((item) => item.value > 0))
 
 const widgetContext = computed<DashboardWidgetContext>(() => ({
+  deniedDomains: deniedDomains.value,
   metrics: Object.fromEntries(metricCards.value.map((metric) => [`kpi.${metric.key}`, metric])),
   runsStatus: runs.value.status,
   runsData: runs.value.data,
@@ -501,14 +579,14 @@ const widgetContext = computed<DashboardWidgetContext>(() => ({
 
 const failedDomains = computed(() => {
   const domains = [
-    [projects.value.status, '业务系统'],
-    [agents.value.status, 'Agent 列表'],
-    [agentStats.value.status, 'Agent 统计'],
-    [workflows.value.status, 'Workflow'],
-    [runs.value.status, '运行数据'],
-    [health.value.status, '服务健康'],
+    [projects.value.status, '业务系统', 'projects'],
+    [agents.value.status, 'Agent 列表', 'agents'],
+    [agentStats.value.status, 'Agent 统计', 'agentStats'],
+    [workflows.value.status, 'Workflow', 'workflows'],
+    [runs.value.status, '运行数据', 'runs'],
+    [health.value.status, '服务健康', 'health'],
   ] as const
-  return domains.filter(([status]) => status === 'error').map(([, label]) => label)
+  return domains.filter(([status, , domain]) => status === 'error' && !deniedDomains.value[domain]).map(([, label]) => label)
 })
 
 const dataWarning = computed(() => {

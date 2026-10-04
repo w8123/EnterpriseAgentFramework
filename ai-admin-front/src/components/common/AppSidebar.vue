@@ -22,59 +22,125 @@
       <div class="sidebar-section-caption">当前范围</div>
       <el-select
         class="sidebar-project-select"
-        :model-value="resolvedCurrentProjectId"
-        :loading="projectStore.loading"
+        :model-value="sidebarProjectSelection"
+        :loading="sidebarProjectLoading"
         filterable
-        placeholder="平台范围"
+        :placeholder="sidebarProjectPlaceholder"
         @update:model-value="handleProjectChange"
         @visible-change="handleProjectVisibleChange"
       >
         <template #prefix>
-          <span class="project-status-dot" :class="{ active: Boolean(projectStore.currentProject) }" />
+          <span class="project-status-dot" :class="{ active: sidebarHasResolvedScope }" />
         </template>
-        <el-option :value="NO_PROJECT_VALUE" label="平台范围" />
         <el-option
-          v-for="project in projectStore.projects"
+          v-if="usesPageProjectScope"
+          :value="ALL_SCOPE_VALUE"
+          label="全部项目"
+          :disabled="!sidebarCanSelectAll"
+        />
+        <el-option v-else :value="NO_PROJECT_VALUE" label="平台范围" />
+        <el-option
+          v-for="project in sidebarProjectOptions"
           :key="project.id"
-          :label="project.name"
+          :label="sidebarProjectOptionLabel(project)"
           :value="project.id"
+          :disabled="sidebarProjectOptionDisabled(project)"
         >
           <div class="sidebar-project-option">
             <span>{{ project.name }}</span>
-            <small>{{ project.projectCode || `ID ${project.id}` }}</small>
+            <small>{{ sidebarProjectOptionHint(project) }}</small>
           </div>
         </el-option>
       </el-select>
-      <span class="sidebar-project-pill" :class="{ active: Boolean(projectStore.currentProject) }">
-        {{ projectStore.currentProject ? '项目级' : '平台级' }}
+      <span class="sidebar-project-pill" :class="{ active: sidebarHasResolvedScope }">
+        {{ sidebarProjectPillLabel }}
       </span>
+      <div
+        v-if="projectCatalogFeedback"
+        class="sidebar-project-feedback"
+        :class="projectCatalogFeedbackTone"
+        :role="projectCatalogFeedbackRole"
+        aria-live="polite"
+      >
+        <span>{{ projectCatalogFeedback }}</span>
+        <button
+          v-if="showProjectRetry || retryingProjectOptions"
+          class="sidebar-project-retry"
+          type="button"
+          :disabled="sidebarProjectLoading || retryingProjectOptions"
+          :aria-busy="sidebarProjectLoading || retryingProjectOptions"
+          :aria-label="projectRetryLabel"
+          @click="retryProjectOptions"
+        >
+          {{ projectRetryButtonLabel }}
+        </button>
+      </div>
     </section>
 
-    <el-scrollbar class="menu-scroll">
+    <el-scrollbar class="menu-scroll" :tabindex="-1">
       <el-menu
+        ref="sidebarMenuRef"
         :default-active="activeMenu"
         :default-openeds="openGroups"
         :collapse="collapsed"
         :collapse-transition="false"
         router
         class="sidebar-menu"
+        @open="scheduleMenuSync"
+        @close="scheduleMenuSync"
       >
         <template v-for="(entry, i) in visibleSidebarMenu" :key="entry.kind === 'item' ? entry.index : `group-${i}`">
           <li v-if="entry.kind === 'group'" class="menu-group" :class="{ 'is-first': i === 0 }" role="presentation">
             <span class="menu-group-label">{{ entry.label }}</span>
           </li>
 
-          <el-menu-item v-else-if="!entry.children" :index="entry.index">
+          <el-menu-item
+            v-else-if="!entry.children"
+            :ref="(element: Element | ComponentPublicInstance | null) => setMenuNode(entry.index, element)"
+            :index="entry.index"
+            :data-sidebar-index="entry.index"
+            :tabindex="tabindex(entry.index)"
+            :aria-label="entry.label"
+            :aria-current="activeMenu === entry.index ? 'page' : undefined"
+            class="sidebar-keyboard-item"
+            @focus="onMenuFocus"
+            @keydown="onMenuKeydown"
+          >
             <el-icon class="menu-icon"><component :is="entry.icon" /></el-icon>
             <span class="menu-label">{{ entry.label }}</span>
           </el-menu-item>
 
-          <el-sub-menu v-else :index="entry.index">
+          <el-sub-menu
+            v-else
+            :ref="(element: Element | ComponentPublicInstance | null) => setMenuNode(entry.index, element)"
+            :index="entry.index"
+            :data-sidebar-index="entry.index"
+            :tabindex="tabindex(entry.index)"
+            :aria-label="entry.label"
+            aria-haspopup="menu"
+            :aria-expanded="isMenuOpen(entry.index)"
+            popper-class="sidebar-keyboard-popper"
+            @focus="onMenuFocus"
+            @keydown="onMenuKeydown"
+          >
             <template #title>
               <el-icon class="menu-icon"><component :is="entry.icon" /></el-icon>
               <span class="menu-label">{{ entry.label }}</span>
             </template>
-            <el-menu-item v-for="leaf in entry.children" :key="leaf.index" :index="leaf.index">
+            <el-menu-item
+              v-for="leaf in entry.children"
+              :key="leaf.index"
+              :ref="(element: Element | ComponentPublicInstance | null) => setMenuNode(leaf.index, element)"
+              :index="leaf.index"
+              :data-sidebar-index="leaf.index"
+              :data-sidebar-parent="entry.index"
+              :tabindex="tabindex(leaf.index)"
+              :aria-label="leaf.label"
+              :aria-current="activeMenu === leaf.index ? 'page' : undefined"
+              class="sidebar-keyboard-item"
+              @focus="onMenuFocus"
+              @keydown="onMenuKeydown"
+            >
               <span class="menu-label leaf">{{ leaf.label }}</span>
             </el-menu-item>
           </el-sub-menu>
@@ -171,7 +237,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch, type ComponentPublicInstance } from 'vue'
+import type { MenuInstance } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import {
   ArrowLeft,
@@ -185,12 +252,14 @@ import { logoutPlatform } from '@/api/platformAuth'
 import { platformSessionUser } from '@/auth/platformSession'
 import { useTheme } from '@/composables/useTheme'
 import { useProjectStore } from '@/store/project'
+import { usePageProjectScope } from '@/composables/usePageProjectScope'
 import {
   filterSidebarMenu,
   resolveActiveMenu,
   resolveOpenGroups,
   sidebarMenu,
 } from './sidebarMenu'
+import { useSidebarKeyboardNavigation } from './useSidebarKeyboardNavigation'
 
 const props = withDefaults(defineProps<{
   collapsed?: boolean
@@ -206,6 +275,7 @@ const emit = defineEmits<{
 const route = useRoute()
 const router = useRouter()
 const projectStore = useProjectStore()
+const pageProjectScope = usePageProjectScope()
 const { brand, brandOptions, setBrand } = useTheme()
 const collapsed = computed(() => props.collapsed)
 const hideProjectPanel = computed(() => props.hideProjectPanel)
@@ -215,16 +285,146 @@ const visibleSidebarMenu = computed(() => filterSidebarMenu(
   sidebarMenu,
   platformSessionUser.value?.permissions ?? [],
 ))
+const sidebarMenuRef = ref<MenuInstance>()
+const { setMenuNode, tabindex, isMenuOpen, onMenuFocus, onMenuKeydown, scheduleMenuSync } = useSidebarKeyboardNavigation(
+  sidebarMenuRef, visibleSidebarMenu, collapsed, activeMenu,
+)
 const activeFooterPanel = ref<'profile' | 'settings' | null>(null)
 const loggingOut = ref(false)
+const retryingProjectOptions = ref(false)
 const NO_PROJECT_VALUE = '__reachai_no_project__'
-const resolvedCurrentProjectId = computed(
-  () => projectStore.currentProject?.id ?? NO_PROJECT_VALUE,
-)
+const ALL_SCOPE_VALUE = 'all'
+const usesPageProjectScope = computed(() => Boolean(
+  pageProjectScope?.isRouteConnected.value && pageProjectScope.isActive.value,
+))
+const sidebarProjectOptions = computed(() => (
+  usesPageProjectScope.value && pageProjectScope
+    ? pageProjectScope.readableProjects.value
+    : projectStore.projects
+))
+const sidebarCanSelectAll = computed(() => (
+  usesPageProjectScope.value && pageProjectScope
+    ? pageProjectScope.canSelectAll.value
+    : false
+))
+const sidebarProjectSelection = computed(() => (
+  usesPageProjectScope.value && pageProjectScope
+    ? pageProjectScope.selection.value
+    : projectStore.currentProject?.id ?? NO_PROJECT_VALUE
+))
+// Keep the previous test/consumer-facing name while the active page scope may
+// also expose the explicit `all` sentinel instead of a numeric project id.
+const resolvedCurrentProjectId = computed(() => (
+  usesPageProjectScope.value && pageProjectScope
+    ? pageProjectScope.selection.value ?? NO_PROJECT_VALUE
+    : projectStore.currentProject?.id ?? NO_PROJECT_VALUE
+))
+const sidebarProjectLoading = computed(() => (
+  usesPageProjectScope.value && pageProjectScope
+    ? pageProjectScope.isCatalogLoading.value
+    : projectStore.loading
+))
+const sidebarProjectPlaceholder = computed(() => (
+  usesPageProjectScope.value && pageProjectScope
+    ? pageProjectScope.currentScopeLabel.value
+    : '平台范围'
+))
+const sidebarHasResolvedScope = computed(() => (
+  usesPageProjectScope.value && pageProjectScope
+    ? pageProjectScope.selection.value !== null
+    : projectStore.currentProject !== null
+))
+const sidebarProjectPillLabel = computed(() => {
+  if (usesPageProjectScope.value && pageProjectScope) {
+    if (pageProjectScope.selection.value === ALL_SCOPE_VALUE) {
+      return `全部 ${pageProjectScope.resourceLabel.value}`
+    }
+    if (pageProjectScope.selection.value !== null) return '项目级'
+    return '范围未确认'
+  }
+  return projectStore.currentProject ? '项目级' : '平台级'
+})
+
+function sidebarProjectOptionDisabled(project: { projectCode?: string | null }) {
+  return Boolean(
+    usesPageProjectScope.value
+      && pageProjectScope?.requiresProjectCode.value
+      && !project.projectCode?.trim(),
+  )
+}
+
+function sidebarProjectOptionLabel(project: { name: string; projectCode?: string | null }) {
+  return sidebarProjectOptionDisabled(project)
+    ? `${project.name}（未配置项目编码）`
+    : project.name
+}
+
+function sidebarProjectOptionHint(project: { id: number; projectCode?: string | null }) {
+  return project.projectCode?.trim() || (
+    usesPageProjectScope.value && pageProjectScope?.requiresProjectCode.value
+      ? '未配置项目编码'
+      : `ID ${project.id}`
+  )
+}
+const projectCatalogFeedback = computed(() => {
+  if (usesPageProjectScope.value && pageProjectScope) {
+    if (pageProjectScope.feedbackMessage.value) return pageProjectScope.feedbackMessage.value
+    if (pageProjectScope.hasCatalogError.value) return '项目列表暂时无法刷新'
+    if (projectStore.status === 'loading') {
+      return projectStore.hasLoadedSuccessfully ? '正在刷新项目列表…' : '正在加载项目列表…'
+    }
+    return ''
+  }
+  if (retryingProjectOptions.value) return '正在重试项目列表…'
+  if (projectStore.status === 'error') {
+    return projectStore.hasLoadedSuccessfully
+      ? '项目列表暂时无法刷新'
+      : (projectStore.errorMessage || '项目列表加载失败')
+  }
+  if (projectStore.status === 'ready' && !projectStore.projects.length) {
+    return '暂无可用项目，当前为平台范围'
+  }
+  if (projectStore.status === 'loading') {
+    return projectStore.hasLoadedSuccessfully ? '正在刷新项目列表…' : '正在加载项目列表…'
+  }
+  if (projectStore.status === 'idle') return '正在加载项目列表…'
+  return ''
+})
+const projectCatalogFeedbackTone = computed(() => {
+  if (usesPageProjectScope.value && pageProjectScope) {
+    if (pageProjectScope.hasCatalogError.value || pageProjectScope.status.value === 'blocked') return 'is-error'
+    return 'is-loading'
+  }
+  if (projectStore.status === 'error') return 'is-error'
+  if (projectStore.status === 'ready' && !projectStore.projects.length) return 'is-empty'
+  return 'is-loading'
+})
+const projectCatalogFeedbackRole = computed(() => (
+  (usesPageProjectScope.value && pageProjectScope
+    ? pageProjectScope.hasCatalogError.value || pageProjectScope.status.value === 'blocked'
+    : projectStore.status === 'error') ? 'alert' : 'status'
+))
+const projectRetryLabel = computed(() => (
+  usesPageProjectScope.value && pageProjectScope
+    ? (pageProjectScope.recoveryLabel.value || '重试加载项目列表')
+    : '重试加载项目列表'
+))
+const showProjectRetry = computed(() => (
+  usesPageProjectScope.value && pageProjectScope
+    ? pageProjectScope.recoveryAction.value === 'retry-catalog'
+      || pageProjectScope.recoveryAction.value === 'retry-normalization'
+    : projectStore.status === 'error'
+))
+const projectRetryButtonLabel = computed(() => {
+  if (sidebarProjectLoading.value || retryingProjectOptions.value) return '正在重试…'
+  return projectRetryLabel.value === '重试加载项目列表'
+    ? '重试'
+    : projectRetryLabel.value
+})
 
 function ensureProjectOptionsLoaded() {
-  if (!hideProjectPanel.value && !projectStore.projects.length) {
-    projectStore.fetchProjects()
+  if (!hideProjectPanel.value && !usesPageProjectScope.value && projectStore.status === 'idle') {
+    void projectStore.fetchProjects()
   }
 }
 
@@ -241,6 +441,14 @@ function toggleSidebarCollapse() {
 }
 
 function handleProjectChange(value: number | string | null | undefined) {
+  if (usesPageProjectScope.value && pageProjectScope) {
+    if (value === ALL_SCOPE_VALUE) {
+      void pageProjectScope.selectScope(ALL_SCOPE_VALUE)
+    } else if (typeof value === 'number') {
+      void pageProjectScope.selectScope(value)
+    }
+    return
+  }
   projectStore.selectCurrentProject(
     typeof value === 'number' ? value : null,
   )
@@ -248,7 +456,29 @@ function handleProjectChange(value: number | string | null | undefined) {
 
 function handleProjectVisibleChange(visible: boolean) {
   if (visible) {
-    projectStore.fetchProjects()
+    if (usesPageProjectScope.value && pageProjectScope) {
+      void pageProjectScope.refreshCatalog()
+    } else {
+      void projectStore.fetchProjects()
+    }
+  }
+}
+
+async function retryProjectOptions() {
+  if (projectStore.loading || retryingProjectOptions.value) return
+  retryingProjectOptions.value = true
+  try {
+    if (usesPageProjectScope.value && pageProjectScope) {
+      if (pageProjectScope.recoveryAction.value === 'retry-normalization') {
+        await pageProjectScope.retryScope()
+      } else if (pageProjectScope.recoveryAction.value === 'retry-catalog') {
+        await pageProjectScope.retryCatalog()
+      }
+    } else {
+      await projectStore.fetchProjects()
+    }
+  } finally {
+    retryingProjectOptions.value = false
   }
 }
 
@@ -518,7 +748,7 @@ async function handleLogout() {
 .sidebar-project-pill {
   position: absolute;
   right: 34px;
-  bottom: 22px;
+  top: 30px;
   z-index: 2;
   display: inline-flex;
   align-items: center;
@@ -541,6 +771,57 @@ async function handleLogout() {
   }
 }
 
+.sidebar-project-feedback {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 8px 4px 0;
+  color: var(--sb-caption);
+  font-size: 11px;
+  line-height: 16px;
+
+  > span {
+    min-width: 0;
+  }
+
+  &.is-error {
+    color: var(--el-color-danger);
+  }
+
+  &.is-empty {
+    color: var(--sb-caption);
+  }
+}
+
+.sidebar-project-retry {
+  flex: 0 0 auto;
+  min-height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--sb-divider);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--sb-parent-active-text);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    border-color: rgb(var(--brand-primary-rgb) / 0.32);
+    background: var(--sb-hover-bg);
+  }
+
+  &:focus-visible {
+    outline: 2px solid rgb(var(--brand-primary-rgb) / 0.4);
+    outline-offset: 2px;
+  }
+
+  &:disabled {
+    cursor: wait;
+    opacity: 0.68;
+  }
+}
+
 :global(.sidebar-project-option) {
   display: flex;
   align-items: center;
@@ -557,7 +838,20 @@ async function handleLogout() {
 /* ── 菜单区 ── */
 .menu-scroll {
   flex: 1;
+  min-height: 0;
   overflow: hidden;
+}
+
+/* The inset ring stays visible inside the sidebar clip and the teleported popup. */
+:global(.sidebar-keyboard-item:focus-visible),
+.sidebar-menu :deep(.el-sub-menu:focus-visible > .el-sub-menu__title) {
+  outline: 2px solid var(--border-focus);
+  outline-offset: -2px;
+}
+
+:global(.sidebar-keyboard-popper) {
+  max-height: calc(100dvh - var(--space-8));
+  overflow-y: auto;
 }
 
 /* 信息架构分组小标题 */

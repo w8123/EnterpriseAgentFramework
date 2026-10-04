@@ -183,6 +183,13 @@ final class RuntimeIoNodeHandlers {
                     "Eval execution blocks raw HTTP_REQUEST nodes until a sandbox HTTP adapter is configured",
                     evaluation);
         }
+        Map<String, Object> raw = node.getConfig() == null ? Map.of() : node.getConfig();
+        Map<String, Object> nested = mapValue(raw.get("httpConfig"));
+        if (raw.containsKey("marketRef") || nested != null && nested.containsKey("marketRef")) {
+            return failure("RUNTIME_HTTP_API_MARKET_BINDING_REQUIRED",
+                    "旧市场 HTTP_REQUEST+marketRef 不具备受控来源证明；请从市场接入项目并在 API 详情验证后选择 API 节点",
+                    node.getId(), "HTTP_REQUEST");
+        }
         if (httpClient == null) {
             return failure("RUNTIME_HTTP_CLIENT_UNAVAILABLE", "HTTP client is unavailable",
                     node.getId(), "HTTP_REQUEST");

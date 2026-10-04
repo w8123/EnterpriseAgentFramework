@@ -9,6 +9,8 @@ declare module 'axios' {
   export interface AxiosRequestConfig {
     /** Prevent login endpoint failures from being treated as an expired platform session. */
     platformAuthFailure?: 'handle' | 'ignore'
+    /** Delegate error messages to the caller without disabling platform session handling. */
+    errorFeedback?: 'global' | 'local'
   }
 }
 
@@ -51,7 +53,7 @@ function createInstance(baseURL: string, platformSession = false): AxiosInstance
         const code = res.code as number
         if (code !== 200 && code !== 0) {
           const msg = typeof res.message === 'string' ? res.message : '请求失败'
-          ElMessage.error(msg)
+          if (response.config.errorFeedback !== 'local') ElMessage.error(msg)
           return Promise.reject(new Error(msg))
         }
         if ('data' in res && Object.prototype.hasOwnProperty.call(res, 'data')) {
@@ -66,14 +68,15 @@ function createInstance(baseURL: string, platformSession = false): AxiosInstance
       }
       const message =
         error.response?.data?.message || error.message || '网络异常，请稍后重试'
+      const localFeedback = error.config?.errorFeedback === 'local'
       if (error.response?.status === 401 && shouldHandlePlatformSessionFailure(error)) {
         const redirected = handlePlatformSessionFailure()
-        if (!redirected) {
+        if (!redirected && !localFeedback) {
           ElMessage.error(message)
         }
         return Promise.reject(error)
       }
-      ElMessage.error(message)
+      if (!localFeedback) ElMessage.error(message)
       return Promise.reject(error)
     },
   )

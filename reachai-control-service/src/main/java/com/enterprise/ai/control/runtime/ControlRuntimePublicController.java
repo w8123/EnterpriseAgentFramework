@@ -1084,6 +1084,9 @@ public class ControlRuntimePublicController {
                     HttpStatus.SERVICE_UNAVAILABLE,
                     "Agent config returned an invalid A2A remote binding snapshot");
         }
+        // The server-owned empty catalog has no remote snapshots to attest.
+        // Ordinary Workflow-only publication must not require unrelated A2A management.
+        if (persisted.isEmpty()) return;
         Map<String, Object> canonical = a2aRemoteBindingSnapshotAssembler.assemble(
                 request, target, agentId);
         requireAttestedSnapshots(

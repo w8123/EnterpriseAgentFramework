@@ -1,4 +1,5 @@
 import { controlRequest } from './request'
+import type { AxiosRequestConfig } from 'axios'
 import type {
   Agent,
   AgentStatistics,
@@ -10,6 +11,7 @@ import type {
   WorkflowWorkingCopyUpdateInput,
   WorkflowDebugRunRequest,
   WorkflowDebugRunResult,
+  WorkflowReadOnlyTrialResult,
   WorkflowProposalEditRequest,
   WorkflowProposalEditResult,
   WorkflowProposalGenerationRequest,
@@ -34,15 +36,15 @@ const WORKFLOW_AI_AUTHORING_TIMEOUT_MS = 300000
 export function listAgents(params?: {
   projectId?: number
   projectCode?: string
-}) {
-  return controlRequest.get<Agent[]>('/api/agents', { params })
+}, config?: AxiosRequestConfig) {
+  return controlRequest.get<Agent[]>('/api/agents', { ...config, params })
 }
 
 export function getAgentStatistics(params?: {
   projectId?: number
   projectCode?: string
-}) {
-  return controlRequest.get<AgentStatistics>('/api/agents/statistics', { params })
+}, config?: AxiosRequestConfig) {
+  return controlRequest.get<AgentStatistics>('/api/agents/statistics', { ...config, params })
 }
 
 export function getAgent(id: string) {
@@ -93,8 +95,8 @@ export function listWorkflows(params?: {
   workflowKind?: string
   definitionAuthority?: string
   status?: string
-}) {
-  return controlRequest.get<WorkflowWorkingCopy[]>('/api/workflows', { params })
+}, config?: AxiosRequestConfig) {
+  return controlRequest.get<WorkflowWorkingCopy[]>('/api/workflows', { ...config, params })
 }
 
 export interface WorkflowSearchPage {
@@ -175,6 +177,16 @@ export function debugWorkflowRun(data: WorkflowDebugRunRequest) {
   return controlRequest.post<WorkflowDebugRunResult>('/api/workflows/studio/debug-run', data)
 }
 
+export function runWorkflowReadOnlyTrial(data: {
+  workflowId: string
+  expectedRevision: string
+  inputParams: Record<string, string | number | boolean>
+}) {
+  return controlRequest.post<WorkflowReadOnlyTrialResult>(
+    '/api/workflows/studio/read-only-trials', data, { timeout: 50_000 },
+  )
+}
+
 /** Workflow Studio 可恢复调试会话（GraphSpec-native，targetType=WORKFLOW_WORKING_COPY） */
 export function createWorkflowDebugSession(data: WorkflowDebugSessionCreateRequest) {
   return controlRequest.post<WorkflowDebugSessionView>('/api/runtime/debug-sessions', data)
@@ -209,10 +221,12 @@ export function listWorkflowVersions(workflowId: string) {
   )
 }
 
-export function publishWorkflowVersion(workflowId: string, data: PublishWorkflowVersionRequest) {
+export function publishWorkflowVersion(workflowId: string, data: PublishWorkflowVersionRequest,
+  options?: Pick<AxiosRequestConfig, 'errorFeedback'>) {
   return controlRequest.post<WorkflowVersion>(
     `/api/workflows/${encodeURIComponent(workflowId)}/versions/publish`,
     data,
+    options,
   )
 }
 

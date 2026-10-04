@@ -49,6 +49,29 @@ class CapabilitySourceContractGuardTest {
                 () -> guard.validate(tool, Map.of("expectedContractHash", "previous"))).code());
     }
 
+    @Test
+    void persistedScannerProjectionWithoutSdkBindingCannotExecuteAfterRetirement() {
+        ToolDefinitionEntity legacy = tool();
+        legacy.setSource("scanner"); legacy.setSourceQualifiedName(null);
+        legacy.setSourceLocation("OrderController.java#query"); legacy.setAssetType("UNCLASSIFIED");
+        assertEquals("LEGACY_SCAN_TOOL_RETIRED", guard.availability(legacy));
+        assertEquals("CAPABILITY_LEGACY_SCAN_TOOL_RETIRED", assertThrows(CapabilityInvocationPolicyException.class,
+                () -> guard.validate(legacy, Map.of())).code());
+        verifyNoInteractions(lifecycle);
+    }
+
+    @Test
+    void retirementDoesNotGuessFromHttpMethodOrDisableSdkAutomaticProjection() {
+        ToolDefinitionEntity unknown = tool();
+        unknown.setSource("manual"); unknown.setSourceQualifiedName(null); unknown.setSourceLocation(null);
+        assertEquals("READY", guard.availability(unknown));
+        ToolDefinitionEntity sdk = tool(); sdk.setSource("scanner"); sdk.setAssetType("BUSINESS_METHOD");
+        var state = new CapabilitySourceStateEntity(); state.setSourceContractHash(policy.contractHash(sdk));
+        when(lifecycle.sourceState("orders:query")).thenReturn(state);
+        assertEquals("READY", guard.availability(sdk));
+        assertDoesNotThrow(() -> guard.validate(sdk, Map.of()));
+    }
+
     private ToolDefinitionEntity tool() {
         ToolDefinitionEntity tool = new ToolDefinitionEntity();
         tool.setQualifiedName("orders:query"); tool.setName("orders_query"); tool.setSourceLocation("sdk:orders:query");
@@ -84,5 +107,25 @@ class CapabilitySourceContractGuardTest {
         ToolDefinitionEntity tool = tool();
         tool.setSourceQualifiedName(null);
         assertEquals("SOURCE_UNKNOWN", guard.availability(tool));
+    }
+
+    @Test
+    void consoleCallRequiresCurrentSourceAndAcceptedHashesToMatchExactly() {
+        ToolDefinitionEntity tool = tool();
+        tool.setAssetType("BUSINESS_METHOD");
+        tool.setProjectId(7L);
+        String current = policy.contractHash(tool);
+        CapabilitySourceStateEntity state = new CapabilitySourceStateEntity();
+        state.setSourceContractHash(current);
+        state.setAcceptedContractHash(current);
+        state.setAvailability("READY");
+        when(lifecycle.sourceState("orders:query")).thenReturn(state);
+
+        assertDoesNotThrow(() -> guard.validateConsoleAcceptedBusinessMethod(tool,
+                Map.of("expectedProjectId", 7L)));
+
+        state.setAcceptedContractHash("different");
+        assertEquals("CAPABILITY_CONSOLE_CONTRACT_DRIFT", assertThrows(CapabilityInvocationPolicyException.class,
+                () -> guard.validateConsoleAcceptedBusinessMethod(tool, Map.of("expectedProjectId", 7L))).code());
     }
 }

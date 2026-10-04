@@ -24,9 +24,16 @@ public class CapabilityInternalAuthFilter extends OncePerRequestFilter {
     static final String ENROLLMENT_PATH = "/internal/capability/registry/enrollments";
     static final String PROJECT_REQUEST_VERIFICATION_PATH =
             "/internal/capability/registry/project-requests/verify";
+    static final String PROJECT_LOOKUP_PREFIX = "/internal/capability/projects/by-id/";
     static final String TOOL_EXECUTION_PREFIX = "/internal/capability/tools/";
     static final String TOOL_EXECUTION_SUFFIX = "/execute";
     static final String CAPABILITY_INVOCATION_PATH = "/internal/capability/invocations";
+    static final String CAPABILITY_CATALOG_PATH = "/api/tools";
+    static final String CAPABILITY_CATALOG_ITEM_PREFIX = "/api/tools/";
+    static final String BUSINESS_METHOD_CATALOG_PATH = "/internal/capability/business-methods";
+    static final String BUSINESS_METHOD_CATALOG_ITEM_PREFIX = "/internal/capability/business-methods/";
+    static final String HTTP_API_CATALOG_PATH = "/internal/capability/http-apis";
+    static final String HTTP_API_CATALOG_ITEM_PREFIX = HTTP_API_CATALOG_PATH + "/";
     private static final String REGISTRY_PREFIX = "/api/registry/";
 
     private final CapabilityInternalAuthVerifier verifier;
@@ -44,7 +51,13 @@ public class CapabilityInternalAuthFilter extends OncePerRequestFilter {
         return !ENROLLMENT_PATH.equals(path)
                 && !PROJECT_REQUEST_VERIFICATION_PATH.equals(path)
                 && !CAPABILITY_INVOCATION_PATH.equals(path)
+                && !isCapabilityCatalogReadPath(path)
+                && !isCapabilityProjectLookupPath(path)
                 && !isToolExecutionPath(path)
+                && !isHttpApiExecutionPath(path)
+                && !isBusinessMethodExecutionPath(path)
+                && !isHttpApiAcceptancePath(path)
+                && !isApiMarketPath(path)
                 && !isCapabilityReviewManagementPath(path);
     }
 
@@ -61,8 +74,19 @@ public class CapabilityInternalAuthFilter extends OncePerRequestFilter {
         CapabilityCachedBodyHttpServletRequest cached = new CapabilityCachedBodyHttpServletRequest(request, body);
         String path = normalizePath(cached);
         CapabilityVerifiedInternalServiceAuth verified;
-        if (ENROLLMENT_PATH.equals(path) || isCapabilityReviewManagementPath(path)) {
+        if (ENROLLMENT_PATH.equals(path) || isCapabilityReviewManagementPath(path)
+                || isHttpApiAcceptancePath(path) || isApiMarketPath(path)) {
             verified = verifier.verify(cached.getMethod(), path,
+                    cached.getHeader(InternalServiceAuthHeaders.CALLER),
+                    cached.getHeader(InternalServiceAuthHeaders.IDENTITY_SOURCE),
+                    cached.getHeader(InternalServiceAuthHeaders.IDENTITY_USER_ID),
+                    cached.getHeader(InternalServiceAuthHeaders.TIMESTAMP),
+                    cached.getHeader(InternalServiceAuthHeaders.NONCE),
+                    cached.getHeader(InternalServiceAuthHeaders.BODY_SHA256),
+                    cached.getHeader(InternalServiceAuthHeaders.SIGNATURE), body,
+                    System.currentTimeMillis()).orElse(null);
+        } else if (isCapabilityCatalogReadPath(path) || isCapabilityProjectLookupPath(path)) {
+            verified = verifier.verifyCatalogRead(cached.getMethod(), path,
                     cached.getHeader(InternalServiceAuthHeaders.CALLER),
                     cached.getHeader(InternalServiceAuthHeaders.IDENTITY_SOURCE),
                     cached.getHeader(InternalServiceAuthHeaders.IDENTITY_USER_ID),
@@ -171,6 +195,56 @@ public class CapabilityInternalAuthFilter extends OncePerRequestFilter {
         String qualifiedName = path.substring(
                 TOOL_EXECUTION_PREFIX.length(), path.length() - TOOL_EXECUTION_SUFFIX.length());
         return !qualifiedName.isBlank() && qualifiedName.indexOf('/') < 0;
+    }
+
+    static boolean isCapabilityCatalogReadPath(String path) {
+        if (CAPABILITY_CATALOG_PATH.equals(path) || BUSINESS_METHOD_CATALOG_PATH.equals(path)
+                || HTTP_API_CATALOG_PATH.equals(path)) {
+            return true;
+        }
+        if (path == null) {
+            return false;
+        }
+        if (path.matches("^/internal/capability/http-apis/[0-9]+$")) return true;
+        String prefix = path.startsWith(CAPABILITY_CATALOG_ITEM_PREFIX)
+                ? CAPABILITY_CATALOG_ITEM_PREFIX
+                : path.startsWith(BUSINESS_METHOD_CATALOG_ITEM_PREFIX)
+                        ? BUSINESS_METHOD_CATALOG_ITEM_PREFIX
+                        : null;
+        if (prefix == null) {
+            return false;
+        }
+        String name = path.substring(prefix.length());
+        if (!name.isBlank() && name.indexOf('/') < 0) {
+            return true;
+        }
+        return path.startsWith(BUSINESS_METHOD_CATALOG_ITEM_PREFIX)
+                && name.matches("[^/]+/invocation-context");
+    }
+
+    static boolean isHttpApiAcceptancePath(String path) {
+        return path != null && path.matches("^/internal/capability/http-apis/[0-9]+/accept$");
+    }
+
+    static boolean isApiMarketPath(String path) {
+        return path != null && (path.equals("/internal/capability/api-market") || path.startsWith("/internal/capability/api-market/")
+                || path.equals("/api/api-market") || path.startsWith("/api/api-market/"));
+    }
+
+    static boolean isHttpApiExecutionPath(String path) {
+        return path != null && path.matches("^/internal/capability/http-apis/[0-9]+/execution-context$");
+    }
+
+    static boolean isBusinessMethodExecutionPath(String path) {
+        return path != null && path.matches("^/internal/capability/business-methods/[A-Za-z0-9._:-]{1,200}/execution-context$");
+    }
+
+    static boolean isCapabilityProjectLookupPath(String path) {
+        if (path == null || !path.startsWith(PROJECT_LOOKUP_PREFIX)) {
+            return false;
+        }
+        String projectId = path.substring(PROJECT_LOOKUP_PREFIX.length());
+        return !projectId.isBlank() && projectId.indexOf('/') < 0;
     }
 
     static boolean isCapabilityReviewManagementPath(String path) {

@@ -4,6 +4,11 @@ import com.enterprise.ai.reach.sdk.auth.ReachAiSignatureHeaders;
 import com.enterprise.ai.reach.sdk.auth.ReachAiSigner;
 import com.enterprise.ai.reach.sdk.capability.ReachCapabilityDescriptor;
 import com.enterprise.ai.reach.sdk.capability.ReachCapabilityParameter;
+import com.enterprise.ai.reach.sdk.capability.ReachHttpApiDescriptor;
+import com.enterprise.ai.reach.sdk.capability.ReachHttpApiMappingCondition;
+import com.enterprise.ai.reach.sdk.capability.ReachHttpApiParameter;
+import com.enterprise.ai.reach.sdk.capability.ReachHttpApiRequestBody;
+import com.enterprise.ai.reach.sdk.capability.ReachHttpApiResponse;
 import com.enterprise.ai.reach.sdk.client.ReachAiClientConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -62,6 +67,12 @@ public class ReachAiRegistryClient {
                 : capabilityBeanScanner.scan();
     }
 
+    public List<ReachHttpApiDescriptor> httpApis() {
+        return capabilityBeanScanner == null
+                ? Collections.<ReachHttpApiDescriptor>emptyList()
+                : capabilityBeanScanner.scanHttpApis();
+    }
+
     public void registerAndSync() {
         if (!isConfigured()) {
             logConfigurationErrorIfNecessary("registerAndSync");
@@ -108,9 +119,14 @@ public class ReachAiRegistryClient {
         if (!isConfigured()) {
             throw new IllegalStateException("ReachAI registry configuration is incomplete: " + configurationProblems());
         }
-        List<ReachCapabilityDescriptor> descriptors = capabilities();
-        String registryResponse = syncCapabilities(descriptors, source);
-        return new ManualCapabilitySyncResponse(instanceId, descriptors.size(), registryResponse);
+        ReachCapabilityBeanScanner.ScanResult scan = capabilityBeanScanner == null
+                ? new ReachCapabilityBeanScanner.ScanResult(Collections.<ReachCapabilityDescriptor>emptyList(),
+                Collections.<ReachHttpApiDescriptor>emptyList())
+                : capabilityBeanScanner.scanResult();
+        List<ReachCapabilityDescriptor> descriptors = scan.getBusinessMethods();
+        List<ReachHttpApiDescriptor> httpApis = scan.getHttpApis();
+        String registryResponse = syncCapabilities(descriptors, httpApis, source);
+        return new ManualCapabilitySyncResponse(instanceId, descriptors.size(), httpApis.size(), registryResponse);
     }
 
     String syncCapabilities(List<ReachCapabilityDescriptor> capabilities) {
@@ -118,6 +134,12 @@ public class ReachAiRegistryClient {
     }
 
     String syncCapabilities(List<ReachCapabilityDescriptor> capabilities, String source) {
+        return syncCapabilities(capabilities, null, source);
+    }
+
+    String syncCapabilities(List<ReachCapabilityDescriptor> capabilities,
+                            List<ReachHttpApiDescriptor> httpApis,
+                            String source) {
         Map<String, Object> body = new LinkedHashMap<String, Object>();
         body.put("syncId", UUID.randomUUID().toString());
         body.put("source", StringUtils.hasText(source) ? source.trim() : DEFAULT_SYNC_SOURCE);
@@ -125,6 +147,11 @@ public class ReachAiRegistryClient {
         // this compatibility flag never grants permission to bypass that policy.
         body.put("apply", Boolean.FALSE);
         body.put("capabilities", capabilityRegistrations(capabilities));
+        // A present empty inventory explicitly means that this Starter supports MVC discovery and
+        // currently has none; omission is reserved for older SDKs and must not remove bindings.
+        if (httpApis != null) {
+            body.put("httpApis", httpApiRegistrations(httpApis));
+        }
         return post("/api/registry/projects/{projectCode}/capabilities/sync", body);
     }
 
@@ -156,6 +183,105 @@ public class ReachAiRegistryClient {
         return registrations;
     }
 
+    List<Map<String, Object>> httpApiRegistrations(List<ReachHttpApiDescriptor> httpApis) {
+        List<Map<String, Object>> registrations = new ArrayList<Map<String, Object>>();
+        if (httpApis == null) {
+            return registrations;
+        }
+        for (ReachHttpApiDescriptor descriptor : httpApis) {
+            if (descriptor == null) {
+                continue;
+            }
+            Map<String, Object> item = new LinkedHashMap<String, Object>();
+            item.put("sourceKey", descriptor.getSourceKey());
+            item.put("sourceLocation", descriptor.getSourceLocation());
+            item.put("httpMethod", descriptor.getHttpMethod());
+            item.put("contextPath", defaultString(properties.getProject().getContextPath(), ""));
+            item.put("endpointPath", descriptor.getEndpointPath());
+            item.put("consumes", descriptor.getConsumes());
+            item.put("produces", descriptor.getProduces());
+            item.put("mappingConditions", mappingConditionRegistrations(descriptor.getMappingConditions()));
+            item.put("parameters", httpParameterRegistrations(descriptor.getParameters()));
+            item.put("requestBody", requestBodyRegistration(descriptor.getRequestBody()));
+            item.put("responses", responseRegistrations(descriptor.getResponses()));
+            item.put("authenticationState", descriptor.getAuthenticationState());
+            item.put("authenticationSchemes", descriptor.getAuthenticationSchemes());
+            item.put("requiredHeaderNames", descriptor.getRequiredHeaderNames());
+            item.put("sideEffect", descriptor.getSideEffect());
+            registrations.add(item);
+        }
+        return registrations;
+    }
+
+    private List<Map<String, Object>> mappingConditionRegistrations(List<ReachHttpApiMappingCondition> conditions) {
+        List<Map<String, Object>> out = new ArrayList<Map<String, Object>>();
+        if (conditions == null) {
+            return out;
+        }
+        for (ReachHttpApiMappingCondition condition : conditions) {
+            if (condition == null) {
+                continue;
+            }
+            Map<String, Object> item = new LinkedHashMap<String, Object>();
+            item.put("kind", condition.getKind());
+            item.put("name", condition.getName());
+            item.put("operator", condition.getOperator());
+            item.put("value", condition.getValue());
+            out.add(item);
+        }
+        return out;
+    }
+
+    private List<Map<String, Object>> httpParameterRegistrations(List<ReachHttpApiParameter> parameters) {
+        List<Map<String, Object>> out = new ArrayList<Map<String, Object>>();
+        if (parameters == null) {
+            return out;
+        }
+        for (ReachHttpApiParameter parameter : parameters) {
+            if (parameter == null) {
+                continue;
+            }
+            Map<String, Object> item = new LinkedHashMap<String, Object>();
+            item.put("name", parameter.getName());
+            item.put("location", parameter.getLocation());
+            item.put("required", parameter.isRequired());
+            item.put("schema", parameter.getSchema());
+            item.put("contentTypes", parameter.getContentTypes());
+            out.add(item);
+        }
+        return out;
+    }
+
+    private Map<String, Object> requestBodyRegistration(ReachHttpApiRequestBody requestBody) {
+        if (requestBody == null) {
+            return null;
+        }
+        Map<String, Object> item = new LinkedHashMap<String, Object>();
+        item.put("location", "BODY");
+        item.put("required", requestBody.isRequired());
+        item.put("schema", requestBody.getSchema());
+        item.put("contentTypes", requestBody.getContentTypes());
+        return item;
+    }
+
+    private List<Map<String, Object>> responseRegistrations(List<ReachHttpApiResponse> responses) {
+        List<Map<String, Object>> out = new ArrayList<Map<String, Object>>();
+        if (responses == null) {
+            return out;
+        }
+        for (ReachHttpApiResponse response : responses) {
+            if (response == null) {
+                continue;
+            }
+            Map<String, Object> item = new LinkedHashMap<String, Object>();
+            item.put("status", response.getStatus());
+            item.put("schema", response.getSchema());
+            item.put("contentTypes", response.getContentTypes());
+            out.add(item);
+        }
+        return out;
+    }
+
     private List<Map<String, Object>> parameterRegistrations(List<ReachCapabilityParameter> parameters) {
         List<Map<String, Object>> out = new ArrayList<Map<String, Object>>();
         if (parameters == null) {
@@ -173,6 +299,12 @@ public class ReachAiRegistryClient {
             metadata.put("sourceHint", parameter.getSourceHint());
             metadata.put("dictType", parameter.getDictType());
             metadata.put("sensitive", parameter.isSensitive());
+            if (StringUtils.hasText(parameter.getItemsType())) {
+                metadata.put("itemsType", parameter.getItemsType());
+            }
+            if (parameter.isOpenObject()) {
+                metadata.put("openObject", true);
+            }
             item.put("metadata", metadata);
             out.add(item);
         }
@@ -181,6 +313,9 @@ public class ReachAiRegistryClient {
 
     private Map<String, Object> capabilityMetadata(ReachCapabilityDescriptor descriptor) {
         Map<String, Object> metadata = new LinkedHashMap<String, Object>();
+        if (descriptor.getAssetType() != null) {
+            metadata.put("assetType", descriptor.getAssetType().name());
+        }
         boolean springMvcEndpoint = StringUtils.hasText(descriptor.getEndpointPath());
         metadata.put("declared", !springMvcEndpoint);
         metadata.put("source", springMvcEndpoint ? "SpringMvcController" : "ReachCapability");
@@ -405,11 +540,17 @@ public class ReachAiRegistryClient {
     public static class ManualCapabilitySyncResponse {
         private final String instanceId;
         private final int capabilityCount;
+        private final int httpApiCount;
         private final String registryResponse;
 
         ManualCapabilitySyncResponse(String instanceId, int capabilityCount, String registryResponse) {
+            this(instanceId, capabilityCount, 0, registryResponse);
+        }
+
+        ManualCapabilitySyncResponse(String instanceId, int capabilityCount, int httpApiCount, String registryResponse) {
             this.instanceId = instanceId;
             this.capabilityCount = capabilityCount;
+            this.httpApiCount = httpApiCount;
             this.registryResponse = registryResponse;
         }
 
@@ -419,6 +560,10 @@ public class ReachAiRegistryClient {
 
         public int getCapabilityCount() {
             return capabilityCount;
+        }
+
+        public int getHttpApiCount() {
+            return httpApiCount;
         }
 
         public String getRegistryResponse() {

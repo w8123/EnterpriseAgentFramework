@@ -5,11 +5,16 @@ import com.enterprise.ai.reach.sdk.annotation.ReachParam;
 
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Field;
+import java.lang.reflect.GenericArrayType;
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
+import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Scans the declared methods of the given classes and emits one descriptor per
@@ -43,6 +48,7 @@ public final class ReachCapabilityScanner {
 
     private static ReachCapabilityDescriptor descriptor(Class<?> type, Method method, ReachCapability capability) {
         ReachCapabilityDescriptor descriptor = new ReachCapabilityDescriptor();
+        descriptor.setAssetType(ReachCapabilityAssetType.BUSINESS_METHOD);
         descriptor.setName(textOr(capability.name(), method.getName()));
         descriptor.setTitle(trimToNull(capability.title()));
         descriptor.setDescription(trimToNull(capability.description()));
@@ -63,21 +69,22 @@ public final class ReachCapabilityScanner {
     private static List<ReachCapabilityParameter> parameters(Method method) {
         List<ReachCapabilityParameter> out = new ArrayList<ReachCapabilityParameter>();
         Parameter[] parameters = method.getParameters();
+        Type[] genericTypes = method.getGenericParameterTypes();
         for (int i = 0; i < parameters.length; i++) {
             Parameter parameter = parameters[i];
             ReachParam reachParam = parameter.getAnnotation(ReachParam.class);
             String name = reachParam != null && reachParam.name() != null && !reachParam.name().trim().isEmpty()
                     ? reachParam.name().trim()
                     : parameter.isNamePresent() ? parameter.getName() : "arg" + i;
-            out.add(parameterDescriptor(name, parameter.getType(), reachParam));
-            out.addAll(fieldParameters(name, parameter.getType()));
+            out.add(parameterDescriptor(name, genericTypes[i], parameter.getType(), reachParam));
+            out.addAll(fieldParameters(name, genericTypes[i], parameter.getType()));
         }
         return out;
     }
 
-    private static List<ReachCapabilityParameter> fieldParameters(String parentName, Class<?> type) {
+    private static List<ReachCapabilityParameter> fieldParameters(String parentName, Type genericType, Class<?> type) {
         List<ReachCapabilityParameter> out = new ArrayList<ReachCapabilityParameter>();
-        if (isSimpleType(type)) {
+        if (isSimpleType(type) || isContainerType(type)) {
             return out;
         }
         for (Field field : type.getDeclaredFields()) {
@@ -85,15 +92,17 @@ public final class ReachCapabilityScanner {
             if (annotation == null) {
                 continue;
             }
-            out.add(parameterDescriptor(parentName + "." + field.getName(), field.getType(), annotation));
+            out.add(parameterDescriptor(parentName + "." + field.getName(), field.getGenericType(), field.getType(), annotation));
         }
         return out;
     }
 
-    private static ReachCapabilityParameter parameterDescriptor(String name, Class<?> type, ReachParam annotation) {
+    private static ReachCapabilityParameter parameterDescriptor(String name, Type genericType, Class<?> type, ReachParam annotation) {
         ReachCapabilityParameter parameter = new ReachCapabilityParameter();
         parameter.setName(name);
         parameter.setType(typeName(type));
+        parameter.setItemsType(itemType(genericType));
+        parameter.setOpenObject(type != null && Map.class.isAssignableFrom(type));
         if (annotation != null) {
             parameter.setRequired(annotation.required());
             parameter.setDescription(trimToNull(annotation.description()));
@@ -116,8 +125,20 @@ public final class ReachCapabilityScanner {
                 || "java.util.Date".equals(name);
     }
 
+    private static boolean isContainerType(Class<?> type) {
+        return type != null && (type.isArray()
+                || Iterable.class.isAssignableFrom(type)
+                || Map.class.isAssignableFrom(type));
+    }
+
     private static String typeName(Class<?> type) {
         if (type == null) {
+            return "object";
+        }
+        if (type.isArray() || Iterable.class.isAssignableFrom(type) || Collection.class.isAssignableFrom(type)) {
+            return "array";
+        }
+        if (Map.class.isAssignableFrom(type)) {
             return "object";
         }
         if (String.class.equals(type) || Character.class.equals(type) || char.class.equals(type)) {
@@ -136,6 +157,39 @@ public final class ReachCapabilityScanner {
             return "number";
         }
         return "object";
+    }
+
+    private static String itemType(Type genericType) {
+        if (genericType instanceof Class) {
+            Class<?> type = (Class<?>) genericType;
+            return type.isArray() ? typeName(type.getComponentType()) : null;
+        }
+        if (genericType instanceof GenericArrayType) {
+            return typeName(rawClass(((GenericArrayType) genericType).getGenericComponentType()));
+        }
+        if (genericType instanceof ParameterizedType) {
+            ParameterizedType parameterized = (ParameterizedType) genericType;
+            Class<?> raw = rawClass(parameterized.getRawType());
+            if (raw != null && Iterable.class.isAssignableFrom(raw)) {
+                Type[] arguments = parameterized.getActualTypeArguments();
+                return arguments.length == 0 ? null : typeName(rawClass(arguments[0]));
+            }
+        }
+        return null;
+    }
+
+    private static Class<?> rawClass(Type type) {
+        if (type instanceof Class) {
+            return (Class<?>) type;
+        }
+        if (type instanceof ParameterizedType) {
+            return rawClass(((ParameterizedType) type).getRawType());
+        }
+        if (type instanceof GenericArrayType) {
+            Class<?> component = rawClass(((GenericArrayType) type).getGenericComponentType());
+            return component == null ? null : java.lang.reflect.Array.newInstance(component, 0).getClass();
+        }
+        return null;
     }
 
     private static String textOr(String value, String fallback) {
