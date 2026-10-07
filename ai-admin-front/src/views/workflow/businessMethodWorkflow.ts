@@ -1,13 +1,14 @@
 import type { StudioPort, ToolNodeConfig } from '@/types/studio'
-import type { ToolInfo, ToolParameter } from '@/types/tool'
-import { logicalToolParameters } from '@/utils/toolParameterTree'
+import { isBusinessMethodInfo, type BusinessMethodInfo } from '@/types/businessMethod'
+import type { AssetParameter } from '@/types/assetParameter'
+import { logicalToolParameters as logicalAssetParameters } from '@/utils/toolParameterTree'
 
 export interface BusinessMethodInputTarget {
   name: string
   type: string
   description: string
   required: boolean
-  children: ToolParameter[]
+  children: AssetParameter[]
 }
 
 export interface BusinessMethodOutputField {
@@ -66,11 +67,11 @@ function normalizedPath(parentPath: string, name: string) {
  * metadata or the accepted source contract.
  */
 function declarationsForLocation(
-  parameters: readonly ToolParameter[] | null | undefined,
+  parameters: readonly AssetParameter[] | null | undefined,
   accept: (location: string) => boolean,
-): ToolParameter[] {
-  const declarations: ToolParameter[] = []
-  const visit = (parameter: ToolParameter, parentPath = '', inheritedLocation = '') => {
+): AssetParameter[] {
+  const declarations: AssetParameter[] = []
+  const visit = (parameter: AssetParameter, parentPath = '', inheritedLocation = '') => {
     const name = normalizedPath(parentPath, parameter.name)
     if (!name) return
     const location = String(parameter.location || inheritedLocation || '').trim().toUpperCase()
@@ -83,19 +84,19 @@ function declarationsForLocation(
   return declarations
 }
 
-function inputDeclarations(parameters: readonly ToolParameter[] | null | undefined) {
+function inputDeclarations(parameters: readonly AssetParameter[] | null | undefined) {
   return declarationsForLocation(parameters, (location) => !OUTPUT_LOCATIONS.has(location))
 }
 
-function outputDeclarations(parameters: readonly ToolParameter[] | null | undefined) {
+function outputDeclarations(parameters: readonly AssetParameter[] | null | undefined) {
   return declarationsForLocation(parameters, (location) => OUTPUT_LOCATIONS.has(location))
 }
 
 /** Builds top-level mapping targets; dotted DTO fields stay under their root. */
 export function businessMethodInputTargets(
-  parameters: readonly ToolParameter[] | null | undefined,
+  parameters: readonly AssetParameter[] | null | undefined,
 ): BusinessMethodInputTarget[] {
-  return logicalToolParameters(inputDeclarations(parameters)).map((parameter) => ({
+  return logicalAssetParameters(inputDeclarations(parameters)).map((parameter) => ({
     name: parameter.name,
     type: parameter.type || '未声明类型',
     description: parameter.description || '',
@@ -104,7 +105,7 @@ export function businessMethodInputTargets(
   }))
 }
 
-function collectOutputFields(parameter: ToolParameter, parentPath: string, fields: BusinessMethodOutputField[], seen: Set<string>) {
+function collectOutputFields(parameter: AssetParameter, parentPath: string, fields: BusinessMethodOutputField[], seen: Set<string>) {
   const path = normalizedPath(parentPath, parameter.name)
   if (!path) return
   if (!seen.has(path)) {
@@ -116,11 +117,11 @@ function collectOutputFields(parameter: ToolParameter, parentPath: string, field
 
 /** Returns only source-declared return fields; responseType alone creates none. */
 export function businessMethodOutputFields(
-  parameters: readonly ToolParameter[] | null | undefined,
+  parameters: readonly AssetParameter[] | null | undefined,
 ): BusinessMethodOutputField[] {
   const fields: BusinessMethodOutputField[] = []
   const seen = new Set<string>()
-  for (const root of logicalToolParameters(outputDeclarations(parameters))) {
+  for (const root of logicalAssetParameters(outputDeclarations(parameters))) {
     collectOutputFields(root, '', fields, seen)
   }
   return fields
@@ -128,7 +129,7 @@ export function businessMethodOutputFields(
 
 export function businessMethodOutputPorts(
   outputAlias: string,
-  parameters: readonly ToolParameter[] | null | undefined,
+  parameters: readonly AssetParameter[] | null | undefined,
   responseType?: string | null,
 ): StudioPort[] {
   const alias = outputAlias.trim() || 'tool_output'
@@ -154,7 +155,7 @@ export function businessMethodOutputPorts(
 export function businessMethodOutputCandidates(
   nodeId: string,
   outputAlias: string,
-  parameters: readonly ToolParameter[] | null | undefined,
+  parameters: readonly AssetParameter[] | null | undefined,
   responseType?: string | null,
 ): BusinessMethodOutputCandidate[] {
   const alias = outputAlias.trim() || 'tool_output'
@@ -176,10 +177,11 @@ export function businessMethodOutputCandidates(
   return candidates
 }
 
-export function isSelectableBusinessMethod(method: ToolInfo | null | undefined, projectId: number | null | undefined) {
+export function isSelectableBusinessMethod(method: BusinessMethodInfo | null | undefined, projectId: number | null | undefined) {
   return Boolean(
-    method
+    isBusinessMethodInfo(method)
     && method.assetType === 'BUSINESS_METHOD'
+    && method.status === 'ACCEPTED'
     && method.enabled === true
     && method.sourceAvailability === 'READY'
     && typeof method.qualifiedName === 'string'
@@ -235,7 +237,7 @@ export function stripBusinessMethodCatalogProjection(config: ToolNodeConfig) {
 
 export function applyBusinessMethodSelection(
   config: ToolNodeConfig,
-  method: ToolInfo,
+  method: BusinessMethodInfo,
   fallbackProjectCode: string | null | undefined,
 ) {
   const targets = businessMethodInputTargets(method.parameters)
@@ -244,6 +246,8 @@ export function applyBusinessMethodSelection(
   config.ref = method.name
   config.qualifiedName = method.qualifiedName || null
   config.projectCode = method.projectCode || fallbackProjectCode || null
+  config.assetReference = { kind: 'TOOL', assetType: 'BUSINESS_METHOD', assetId: method.assetId,
+    name: method.name, qualifiedName: method.qualifiedName, projectCode: method.projectCode }
   config.maxRequestTimeMs ||= 180000
   config.inputMapping = targets.length ? reconciliation.mapping : {}
   config.argumentSource = targets.length ? 'inputMapping' : 'args'

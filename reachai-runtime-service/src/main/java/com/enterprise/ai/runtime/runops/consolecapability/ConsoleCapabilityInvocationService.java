@@ -212,6 +212,7 @@ public class ConsoleCapabilityInvocationService {
                 .metadataJson(json(Map.of(
                         "invocationId", command.invocationId(),
                         "expectedContractHash", command.expectedContractHash(),
+                        "expectedExecutionRevision", command.expectedExecutionRevision(),
                         "identityMode", IDENTITY_MODE,
                         "platformActorId", command.platformActorId())))
                 .startedAt(now).build());
@@ -224,6 +225,7 @@ public class ConsoleCapabilityInvocationService {
         entity.setQualifiedName(command.qualifiedName());
         entity.setTargetType("BUSINESS_METHOD");
         entity.setExpectedContractHash(command.expectedContractHash());
+        entity.setExpectedExecutionRevision(command.expectedExecutionRevision());
         entity.setInputFingerprint(fingerprint(command.input()));
         entity.setDeadlineEpochMs(command.deadlineEpochMs());
         entity.setRunId(run.getId());
@@ -405,7 +407,8 @@ public class ConsoleCapabilityInvocationService {
         run.setInputSummary(json(Map.of("inputFingerprint", fingerprint(command.input()),
                 "parameterCount", command.input().size())));
         run.setSnapshotJson(json(Map.of("qualifiedName", command.qualifiedName(),
-                "expectedContractHash", command.expectedContractHash(), "identityMode", IDENTITY_MODE,
+                "expectedContractHash", command.expectedContractHash(),
+                "expectedExecutionRevision", command.expectedExecutionRevision(), "identityMode", IDENTITY_MODE,
                 "sideEffect", command.sideEffect())));
         run.setMetadataJson(json(Map.of("platformActorId", command.platformActorId(),
                 "invocationId", command.invocationId())));
@@ -430,6 +433,7 @@ public class ConsoleCapabilityInvocationService {
         constraints.put("expectedProjectCode", command.projectCode());
         constraints.put("expectedProjectId", command.projectId());
         constraints.put("expectedContractHash", command.expectedContractHash());
+        constraints.put("expectedExecutionRevision", command.expectedExecutionRevision());
         constraints.put("requireSignedInvocation", true);
         Map<String, Object> request = new LinkedHashMap<>();
         request.put("invocationId", command.invocationId());
@@ -537,6 +541,7 @@ public class ConsoleCapabilityInvocationService {
                 || !safeEquals(existing.getProjectCode(), command.projectCode())
                 || !safeEquals(existing.getQualifiedName(), command.qualifiedName())
                 || !safeEquals(existing.getExpectedContractHash(), command.expectedContractHash())
+                || !safeEquals(existing.getExpectedExecutionRevision(), command.expectedExecutionRevision())
                 || !safeEquals(existing.getInputFingerprint(), fingerprint(command.input()))
                 || !safeEquals(existing.getSideEffect(), command.sideEffect())
                 || !safeEquals(existing.getConfirmedSideEffect(), command.confirmedSideEffect())) {

@@ -173,7 +173,7 @@ export interface UserInputNodeConfig {
 }
 
 export type InteractionNodeType = 'COLLECT_INPUT' | 'PRESENT_OUTPUT' | 'USER_CHOICE' | 'CONFIRM_ACTION' | 'REVIEW_EDIT'
-export type InteractionBindingSourceKind = 'NONE' | 'TOOL' | 'API'
+export type InteractionBindingSourceKind = 'NONE' | 'TOOL'
 export type InteractionPresentationMode = 'card_only' | 'text_and_card' | 'text_only'
 
 export interface InteractionPresentationConfig {
@@ -183,6 +183,8 @@ export interface InteractionPresentationConfig {
 
 export interface InteractionBindingConfig {
   sourceKind: InteractionBindingSourceKind
+  assetType?: 'BUSINESS_METHOD'
+  assetId?: number
   ref?: string
   qualifiedName?: string | null
   projectCode?: string | null
@@ -198,7 +200,9 @@ export interface InteractionBindingConfig {
 }
 
 export interface InteractionCallNodeRequest {
-  sourceKind: InteractionBindingSourceKind
+  sourceKind: 'TOOL'
+  assetType: 'BUSINESS_METHOD'
+  assetId: number
   ref: string
   qualifiedName?: string | null
   projectCode?: string | null
@@ -335,6 +339,8 @@ export interface ConditionNodeConfig {
 }
 
 export interface ToolNodeConfig {
+  /** Source asset identity; published contract pins remain in the GraphSpec ref. */
+  assetReference?: import('./agent').WorkflowGraphCapabilityRef
   ref?: string
   qualifiedName?: string | null
   projectCode?: string | null

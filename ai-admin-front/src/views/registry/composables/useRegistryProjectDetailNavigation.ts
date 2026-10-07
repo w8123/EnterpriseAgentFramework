@@ -12,6 +12,11 @@ export function useRegistryProjectDetailNavigation(deps: UseRegistryProjectDetai
   const router = useRouter()
   const projectCode = deps.projectCode ?? computed(() => String(route.params.projectCode || ''))
 
+  const projectSection = computed(() => route.query.section === 'source-changes' ? 'source-changes' : 'overview')
+  function selectProjectSection(section: string | number) {
+    void router.replace({ query: { ...route.query, section: section === 'source-changes' ? 'source-changes' : undefined } })
+  }
+
   function goBack() {
     router.back()
   }
@@ -29,7 +34,7 @@ export function useRegistryProjectDetailNavigation(deps: UseRegistryProjectDetai
 
   function goCapabilitySync() {
     if (!deps.project.value?.id) return
-    router.push({ name: 'CapabilitySyncDebug' })
+    router.push({ name: 'RegistryProjectDetail', params: { projectCode: deps.project.value.projectCode }, query: { section: 'source-changes' } })
   }
 
   function goWorkflowList() {
@@ -81,6 +86,8 @@ export function useRegistryProjectDetailNavigation(deps: UseRegistryProjectDetai
   }
 
   return {
+    projectSection,
+    selectProjectSection,
     goBack,
     goCapability,
     goScanProjectDetail,

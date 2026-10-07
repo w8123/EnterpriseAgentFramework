@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 
 import java.lang.reflect.Method;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -25,11 +26,11 @@ class ExternalApiCatalogControllerTest {
                 String.class, String.class, String.class, Boolean.class);
         Method detail = ExternalApiCatalogController.class.getDeclaredMethod("getEntry", String.class);
         Method createIntegration = ExternalApiCatalogController.class.getDeclaredMethod(
-                "createIntegration", String.class, ExternalApiCatalogViews.IntegrationCreateRequest.class);
+                "createIntegration", String.class, Map.class);
         Method updateStatus = ExternalApiCatalogController.class.getDeclaredMethod(
-                "updateIntegrationStatus", Long.class, ExternalApiCatalogViews.IntegrationStatusRequest.class);
+                "updateIntegrationStatus", Long.class, Map.class);
 
-        assertArrayEquals(new String[] {"/api/api-market"}, mapping.value());
+        assertArrayEquals(new String[] {"/api/api-market", "/internal/capability/api-market"}, mapping.value());
         assertArrayEquals(new String[] {"/entries"}, entries.getAnnotation(GetMapping.class).value());
         assertArrayEquals(new String[] {"/entries/{entryKey}"}, detail.getAnnotation(GetMapping.class).value());
         assertArrayEquals(new String[] {"/entries/{entryKey}/integrations"},

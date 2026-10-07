@@ -1014,27 +1014,6 @@ class CapabilityScanProjectCatalogController {
     @PostMapping("/{projectId}/scan-tools/{scanToolId}/rescan-from-source")
     Object rescanTool() { return null; }
 
-    @PutMapping("/{projectId}/scan-tools/{scanToolId}")
-    Object updateTool() { return null; }
-
-    @PutMapping("/{projectId}/scan-tools/{scanToolId}/toggle")
-    Object toggleTool() { return null; }
-
-    @PostMapping("/{projectId}/scan-tools/{scanToolId}/test")
-    Object testTool() { return null; }
-
-    @PostMapping("/{projectId}/scan-tools/{scanToolId}/promote-to-tool")
-    Object promoteTool() { return null; }
-
-    @PostMapping("/{projectId}/scan-tools/{scanToolId}/unpromote-from-global")
-    Object unpromoteTool() { return null; }
-
-    @PostMapping("/{projectId}/scan-tools/{scanToolId}/push-to-global-tool")
-    Object pushToolToGlobal() { return null; }
-
-    @PostMapping("/{projectId}/scan-tools/promote-by-module")
-    Object promoteModuleTools() { return null; }
-
     @GetMapping("/{id}/diff-summary")
     Object diffSummary() { return null; }
 
@@ -1366,6 +1345,32 @@ const allowedResult = spawnSync(process.execPath, [scriptPath], {
 })
 
 assert.strictEqual(allowedResult.status, 0, allowedResult.stderr || allowedResult.stdout)
+
+for (const [annotation, suffix] of [
+  ['PutMapping', '/{projectKey}/scan-tools/{observationKey}'],
+  ['PutMapping', '/{projectKey}/scan-tools/{observationKey}/toggle'],
+  ['PostMapping', '/{projectKey}/scan-tools/{observationKey}/test'],
+  ['PostMapping', '/{projectKey}/scan-tools/{observationKey}/promote-to-tool'],
+  ['PostMapping', '/{projectKey}/scan-tools/{observationKey}/unpromote-from-global'],
+  ['PostMapping', '/{projectKey}/scan-tools/{observationKey}/push-to-global-tool'],
+  ['PostMapping', '/{projectKey}/scan-tools/promote-by-module']
+]) {
+  const retiredRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'reachai-route-contracts-retired-scan-'))
+  fs.cpSync(allowedRoot, retiredRoot, { recursive: true })
+  writeFile(retiredRoot, 'reachai-capability-service/src/main/java/com/enterprise/ai/capability/LegacyScanMutationController.java', `
+package com.enterprise.ai.capability;
+@RestController
+@RequestMapping("/api/scan-projects")
+class LegacyScanMutationController {
+    @${annotation}("${suffix}")
+    Object mutate() { return null; }
+}
+`)
+  const retiredResult = spawnSync(process.execPath, [scriptPath], { cwd: retiredRoot, encoding: 'utf8' })
+  assert.notStrictEqual(retiredResult.status, 0, `reintroduced route was accepted: ${suffix}`)
+  assert.match(retiredResult.stderr, /retired independent scan asset maintenance route must stay deleted/)
+  assert.ok(retiredResult.stderr.includes(`/api/scan-projects${suffix}`), retiredResult.stderr)
+}
 
 const compositionRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'reachai-route-contracts-composition-'))
 writeFile(compositionRoot, 'reachai-control-service/src/main/java/com/enterprise/ai/control/config/pageworkbench/PageWorkbenchRuntimeClient.java', `

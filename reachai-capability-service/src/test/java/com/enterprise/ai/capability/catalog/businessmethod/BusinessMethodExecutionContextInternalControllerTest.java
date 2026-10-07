@@ -25,7 +25,7 @@ class BusinessMethodExecutionContextInternalControllerTest {
     private ConsoleCapabilityInvocationContracts.InvocationContext owner(String project) {
         return new ConsoleCapabilityInvocationContracts.InvocationContext(1, "orders_normalize", "orders:normalize", "orders:normalize",
                 "BUSINESS_METHOD", 41L, project, "a".repeat(64), "a".repeat(64), "a".repeat(64), "READY", true, "READ_ONLY",
-                List.of(), null, "String", null, null, "UNKNOWN", true, false, true, null, null, 30_000);
+                List.of(), null, "String", null, null, "UNKNOWN", true, false, true, null, null, 30_000, "d".repeat(64));
     }
     @Test void onlyVerifiedRuntimeProjectIdentityAndExactBodyCanReadExecutionFacts() {
         assertEquals(401, controller.executionContext(new MockHttpServletRequest(), "orders:normalize", body()).getStatusCode().value());

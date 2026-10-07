@@ -121,9 +121,10 @@ These rows remain in the ownership matrix because the current baseline still rec
 | `knowledge_business_index_record` | `reachai-knowledge-service` | - | Knowledge business index record |
 | `capability_apply_record` | `reachai-capability-service` | - | Capability review apply history |
 | `capability_diff_item` | `reachai-capability-service` | - | Capability diff item |
-| `capability_module` | `reachai-capability-service` | - | Capability module catalog |
 | `capability_snapshot` | `reachai-capability-service` | - | Capability snapshot |
 | `capability_source_state` | `reachai-capability-service` | - | Latest verified source contract and catalog consistency |
+| `capability_business_method_asset` | `reachai-capability-service` | - | Declared Java business operation identity and current accepted revision; independent of Tool projection and Runtime connection credentials |
+| `capability_business_method_revision` | `reachai-capability-service` | - | Immutable acceptance reference to the SDK source snapshot; separate business, invocation and transport binding fingerprints |
 | `capability_http_api_asset` | `reachai-capability-service` | - | Capability-owned HTTP API logical operation identity, aggregate status, and reserved accepted-contract/Tool projection fields; stable identity uses projectCode/environment while projectId remains internal; no base URL or credentials |
 | `capability_http_api_source_binding` | `reachai-capability-service` | - | Capability-owned source observation, normalized secret-free contract hash, source location/revision, conflict/equivalence/removal lifecycle; no cross-service FK |
 | `capability_http_api_inventory_state` | `reachai-capability-service` | - | Latest supported/partial source inventory token, completeness, and actionable reason |
@@ -132,7 +133,6 @@ These rows remain in the ownership matrix because the current baseline still rec
 | `capability_sync_log` | `reachai-capability-service` | - | Capability sync log |
 | `capability_sync_receipt` | `reachai-capability-service` | - | Project-scoped sync identity and snapshot binding |
 | `knowledge_chunk` | `reachai-knowledge-service` | - | Knowledge knowledge_chunk storage |
-| `capability_composition_definition` | `reachai-capability-service` | - | Capability composition definition |
 | `control_context_audit_event` | `reachai-control-service` | - | Control context governance audit |
 | `control_context_binding` | `reachai-control-service` | - | Control context binding |
 | `control_context_evidence` | `reachai-control-service` | - | Control context evidence |
@@ -173,7 +173,6 @@ These rows remain in the ownership matrix because the current baseline still rec
 | `knowledge_collection_lifecycle` | `reachai-knowledge-service` | - | Single creation intent, metadata publication and durable retirement of immutable physical collections; unknown creation outcomes remain reclaimable |
 | `knowledge_document_artifact_lifecycle` | `reachai-knowledge-service` | - | Immutable object writes, reference publication and durable reclamation scoped to the owning storage backend |
 | `runtime_guard_decision_log` | `reachai-runtime-service` | - | Runtime guard decision log |
-| `capability_interaction_definition` | `reachai-capability-service` | - | Capability interaction definition |
 | `runtime_interaction_event` | `reachai-runtime-service` | - | Runtime interaction event |
 | `runtime_interaction_session` | `reachai-runtime-service` | - | Runtime interaction session |
 | `knowledge_base` | `reachai-knowledge-service` | - | Knowledge base |
@@ -209,7 +208,6 @@ These rows remain in the ownership matrix because the current baseline still rec
 | `capability_scan_project_tool` | `reachai-capability-service` | - | Capability scan project tool |
 | `capability_semantic_doc` | `reachai-capability-service` | - | Capability semantic document |
 | `control_tool_acl` | `reachai-control-service` | - | Control tool ACL |
-| `capability_tool_asset` | `reachai-capability-service` | - | Capability execution action; legacy technical table name |
 | `runtime_tool_call_log` | `reachai-runtime-service` | - | Runtime Tool call audit |
 | `capability_tool_definition` | `reachai-capability-service` | - | Runtime Tool projection for governed Capability/API execution; not a product asset |
 | `capability_tool_retrieval_setting` | `reachai-capability-service` | - | Capability tool retrieval setting |

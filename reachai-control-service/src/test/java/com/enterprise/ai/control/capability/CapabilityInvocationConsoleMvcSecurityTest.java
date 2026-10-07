@@ -145,6 +145,7 @@ class CapabilityInvocationConsoleMvcSecurityTest {
         mvc.perform(authorizedPost("cookie-allowed", """
                         {"invocationId":"00000000-0000-0000-0000-000000000001",
                          "expectedContractHash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                         "expectedExecutionRevision":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
                          "input":{},"confirmedSideEffect":false,
                          "projectId":999,"qualifiedName":"forged.method","platformActorId":"999"}
                         """))
@@ -168,6 +169,7 @@ class CapabilityInvocationConsoleMvcSecurityTest {
         assertEquals(7L, command.getValue().projectId());
         assertEquals("orders", command.getValue().projectCode());
         assertEquals("orders.lookup", command.getValue().qualifiedName());
+        assertEquals("c".repeat(64), command.getValue().expectedExecutionRevision());
         assertFalse(command.getValue().input().containsKey("platformActorId"));
     }
 
@@ -225,6 +227,7 @@ class CapabilityInvocationConsoleMvcSecurityTest {
         return """
                 {"invocationId":"00000000-0000-0000-0000-000000000001",
                  "expectedContractHash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                 "expectedExecutionRevision":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
                  "input":{"orderNo":"O-1"},"confirmedSideEffect":false}
                 """;
     }
@@ -241,6 +244,7 @@ class CapabilityInvocationConsoleMvcSecurityTest {
                 Map.entry("requestBodyType", "json"), Map.entry("responseType", "json"),
                 Map.entry("targetDescription", "accepted contract"), Map.entry("targetInstanceStatus", "READY"),
                 Map.entry("credentialAvailable", true), Map.entry("businessIdentityRequired", false),
+                Map.entry("executionRevision", "c".repeat(64)),
                 Map.entry("executable", true), Map.entry("timeoutMs", 1_000L));
     }
 

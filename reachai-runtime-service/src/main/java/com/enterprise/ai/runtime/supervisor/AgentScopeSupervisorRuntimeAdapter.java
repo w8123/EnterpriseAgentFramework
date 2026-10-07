@@ -2163,7 +2163,6 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                             trace.traceId(),
                             target.workflow().getId(),
                             target.version().getId(),
-                            null,
                             target.version().getGraphSpecSnapshotJson(),
                             result.nodeId(),
                             result.metadata() == null ? "COLLECT_INPUT"

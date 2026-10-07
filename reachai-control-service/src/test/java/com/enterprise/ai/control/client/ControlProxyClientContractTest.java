@@ -309,21 +309,8 @@ class ControlProxyClientContractTest {
         assertMapping(deleteAgent, RequestMethod.DELETE, "/api/agents/{id}");
         assertEquals(ResponseEntity.class, deleteAgent.getReturnType());
 
-        Method executeRuntimeTool = RuntimeProxyClient.class.getMethod("executeRuntimeTool", String.class, Map.class);
-        assertMapping(executeRuntimeTool, RequestMethod.POST, "/api/runtime/tools/{qualifiedName}/execute");
-        assertEquals(ResponseEntity.class, executeRuntimeTool.getReturnType());
 
-        Method executeRuntimeComposition = RuntimeProxyClient.class
-                .getMethod("executeRuntimeComposition", String.class, Map.class);
-        assertMapping(executeRuntimeComposition, RequestMethod.POST,
-                "/api/runtime/compositions/{qualifiedName}/execute");
-        assertEquals(ResponseEntity.class, executeRuntimeComposition.getReturnType());
 
-        Method resumeRuntimeInteraction = RuntimeProxyClient.class
-                .getMethod("resumeRuntimeInteraction", String.class, Map.class);
-        assertMapping(resumeRuntimeInteraction, RequestMethod.POST,
-                "/api/runtime/interactions/{sessionId}/resume");
-        assertEquals(ResponseEntity.class, resumeRuntimeInteraction.getReturnType());
 
         Method createRuntimeDebugSession = RuntimeProxyClient.class
                 .getMethod("createRuntimeDebugSession", Map.class, byte[].class);
@@ -442,5 +429,13 @@ class ControlProxyClientContractTest {
         RequestHeader annotation = method.getParameters()[parameterIndex].getAnnotation(RequestHeader.class);
         assertNotNull(annotation);
         assertEquals(expectedName, annotation.value());
+    }
+
+    @org.junit.jupiter.api.Test
+    void retiredAssetExecutionHasNoPublicRouteOrProxyMethod() {
+        for (String name : new String[] {"executeRuntimeTool", "executeRuntimeComposition", "resumeRuntimeInteraction"}) {
+            org.junit.jupiter.api.Assertions.assertThrows(NoSuchMethodException.class,
+                    () -> RuntimeProxyClient.class.getMethod(name, String.class, Map.class));
+        }
     }
 }

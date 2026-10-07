@@ -232,7 +232,7 @@ public class CapabilityRegistryService {
             String storageName = StringUtils.hasText(item.getStorageName())
                     ? item.getStorageName()
                     : storageName(project.getProjectCode(), capabilityName);
-            catalogProjectionStore.applySdkCapabilityCatalogRow(project, registration, storageName, item.getQualifiedName(), capabilityName);
+            catalogProjectionStore.applySdkCapabilityCatalogRow(project, registration, storageName, item.getQualifiedName(), capabilityName, item);
             changeLifecycle.updateAccepted(item.getQualifiedName(), changePolicy.contractHash(registration));
             item.setReviewStatus("APPLIED");
             item.setReviewNote(request == null ? null : request.note());
@@ -284,9 +284,8 @@ public class CapabilityRegistryService {
         }
 
         catalogProjectionStore.restoreCatalogState(project, item);
-        ScanProjectToolEntity restoredScan = catalogProjectionStore.findCatalogRow(project, item);
-        changeLifecycle.updateAccepted(item.getQualifiedName(), changePolicy.contractHash(
-                catalogProjectionStore.findGlobalTool(restoredScan, item.getQualifiedName(), item.getExistingToolId())));
+        changeLifecycle.updateAccepted(item.getQualifiedName(),
+                catalogProjectionStore.acceptedContractHash(item.getQualifiedName()));
 
         String operator = defaultString(request == null ? null : request.operator(), "system");
         String note = request == null ? null : request.note();

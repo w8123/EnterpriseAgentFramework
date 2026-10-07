@@ -8,7 +8,9 @@ import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinition
 import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionMapper;
 import com.enterprise.ai.agent.registry.CapabilityDiffItemEntity;
 import com.enterprise.ai.agent.registry.RegistryContracts.CapabilityRegistration;
+import com.enterprise.ai.capability.catalog.businessmethod.BusinessMethodAssetStore;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -27,28 +29,15 @@ public class CapabilityCatalogProjectionStore {
     private final ToolDefinitionMapper toolDefinitionMapper;
     private final ObjectMapper objectMapper;
     private final CapabilityChangePolicy changePolicy;
+    private final BusinessMethodAssetStore businessMethods;
 
-    @Transactional(propagation = Propagation.MANDATORY)
-    public void bindUnchangedSource(ScanProjectToolEntity row, ToolDefinitionEntity tool, String sourceKey,
-                                    CapabilityAssetType acceptedAssetType) {
-        String assetType = acceptedAssetType == null ? null : acceptedAssetType.name();
-        if (row != null) {
-            boolean sourceMissing = row.getSourceQualifiedName() == null;
-            boolean assetTypeNeedsRepair = assetType != null && !Objects.equals(assetType, row.getAssetType());
-            if (sourceMissing || assetTypeNeedsRepair) {
-                if (sourceMissing) row.setSourceQualifiedName(sourceKey);
-                if (assetTypeNeedsRepair) row.setAssetType(assetType);
-                scanProjectToolMapper.updateById(row);
-            }
-        }
-        if (tool != null) {
-            boolean sourceMissing = tool.getSourceQualifiedName() == null;
-            boolean assetTypeNeedsRepair = assetType != null && !Objects.equals(assetType, tool.getAssetType());
-            if (sourceMissing || assetTypeNeedsRepair) {
-                if (sourceMissing) tool.setSourceQualifiedName(sourceKey);
-                if (assetTypeNeedsRepair) tool.setAssetType(assetType);
-                toolDefinitionMapper.updateById(tool);
-            }
+    public String captureState(String qualifiedName, ScanProjectToolEntity scan, ToolDefinitionEntity invocation) {
+        try {
+            ObjectNode state = (ObjectNode) objectMapper.readTree(CapabilityCatalogStateCodec.capture(objectMapper, scan, invocation));
+            state.set("businessMethodAsset", businessMethods.captureState(qualifiedName));
+            return objectMapper.writeValueAsString(state);
+        } catch (Exception invalid) {
+            throw new IllegalStateException("无法保存业务方法与调用投影的接纳前状态", invalid);
         }
     }
 
@@ -57,8 +46,26 @@ public class CapabilityCatalogProjectionStore {
                                               CapabilityRegistration registration,
                                               String storageName,
                                               String qualifiedName,
-                                              String capabilityName) {
+                                              String capabilityName,
+                                              CapabilityDiffItemEntity acceptedItem) {
         changePolicy.requireComplete(registration);
+        registration = acceptBusinessMethod(project, registration, acceptedItem);
+        if (!Objects.equals(qualifiedName, project.getProjectCode() + ":" + registration.name())) {
+            throw new IllegalArgumentException("调用投影必须属于本次接纳的方法资产");
+        }
+        writeAcceptedBusinessMethodProjection(project, qualifiedName, null, null);
+    }
+
+    private void writeAcceptedBusinessMethodProjection(ScanProjectEntity project, String qualifiedName,
+                                                       Long recoveredScanId, Long recoveredInvocationId) {
+        var method = businessMethods.find(qualifiedName)
+                .filter(asset -> "ACCEPTED".equals(asset.getStatus()) && asset.getAcceptedRevisionId() != null
+                        && Objects.equals(project.getId(), asset.getProjectId())
+                        && Objects.equals(project.getProjectCode(), asset.getProjectCode()))
+                .orElseThrow(() -> new IllegalStateException("调用投影缺少属于当前项目的已接纳方法资产"));
+        CapabilityRegistration registration = businessMethods.acceptedDeclaration(method);
+        String storageName = method.getInvocationName();
+        String capabilityName = method.getMethodCode();
         String sourceLocation = "sdk:" + project.getProjectCode().trim() + ":" + capabilityName;
         ScanProjectToolEntity existing = scanProjectToolMapper.selectOne(Wrappers.<ScanProjectToolEntity>lambdaQuery()
                 .eq(ScanProjectToolEntity::getProjectId, project.getId())
@@ -73,12 +80,13 @@ public class CapabilityCatalogProjectionStore {
         boolean inserting = existing == null;
         ScanProjectToolEntity row = inserting ? new ScanProjectToolEntity() : existing;
         if (inserting) {
+            row.setId(recoveredScanId);
             row.setProjectId(project.getId());
             row.setModuleId(null);
-            row.setName(storageName);
             row.setGlobalToolDefinitionId(null);
             row.setCreateTime(LocalDateTime.now());
         }
+        row.setName(storageName);
         row.setTitle(firstText(registration.title(), registration.name()));
         row.setDescription(firstText(registration.description(), registration.title(), registration.name()));
         row.setParametersJson(writeJson(registration.parameters()));
@@ -92,7 +100,7 @@ public class CapabilityCatalogProjectionStore {
         row.setEndpointPath(registration.endpointPath());
         row.setRequestBodyType(registration.requestBodyType());
         row.setResponseType(registration.responseType());
-        row.setEnabled(registration.enabled() == null || Boolean.TRUE.equals(registration.enabled()));
+        row.setEnabled(Boolean.TRUE.equals(method.getEnabled()));
         row.setCapabilityMetadataJson(writeJson(changePolicy.mergeSdkMetadata(registration)));
         row.setRemovedFromSource(false);
         row.setRemovedAt(null);
@@ -103,7 +111,18 @@ public class CapabilityCatalogProjectionStore {
             scanProjectToolMapper.updateById(row);
             clearSdkNullableFields(row);
         }
-        ensureSdkCapabilityGlobalTool(project, row, registration, qualifiedName);
+        ensureSdkCapabilityGlobalTool(project, row, registration, qualifiedName, recoveredInvocationId);
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    public CapabilityRegistration acceptBusinessMethod(ScanProjectEntity project, CapabilityRegistration registration,
+                                     CapabilityDiffItemEntity acceptedItem) {
+        if (changePolicy.assetType(registration) != CapabilityAssetType.BUSINESS_METHOD) {
+            throw new IllegalArgumentException("业务方法接纳仅支持 BUSINESS_METHOD，HTTP API 由独立资产流程维护");
+        }
+        if (acceptedItem == null) throw new IllegalArgumentException("业务方法接纳缺少来源变化证据");
+        var accepted = businessMethods.accept(project, registration, acceptedItem.getSnapshotId(), acceptedItem.getId());
+        return businessMethods.acceptedDeclaration(accepted);
     }
 
     /**
@@ -113,7 +132,8 @@ public class CapabilityCatalogProjectionStore {
     private void ensureSdkCapabilityGlobalTool(ScanProjectEntity project,
                                                 ScanProjectToolEntity scanTool,
                                                 CapabilityRegistration registration,
-                                                String qualifiedName) {
+                                                String qualifiedName,
+                                                Long recoveredInvocationId) {
         ToolDefinitionEntity globalTool = scanTool.getGlobalToolDefinitionId() == null
                 ? null
                 : toolDefinitionMapper.selectById(scanTool.getGlobalToolDefinitionId());
@@ -132,7 +152,11 @@ public class CapabilityCatalogProjectionStore {
         boolean inserting = globalTool == null;
         if (inserting) {
             globalTool = new ToolDefinitionEntity();
+            globalTool.setId(recoveredInvocationId);
             globalTool.setCreateTime(LocalDateTime.now());
+        } else if (!Objects.equals(project.getId(), globalTool.getProjectId())
+                || !Objects.equals(qualifiedName, globalTool.getQualifiedName())) {
+            throw new IllegalArgumentException("调用投影被其他项目或资产占用，不能覆盖");
         }
         applySdkCapabilityToGlobalTool(project, scanTool, registration, qualifiedName, globalTool);
         globalTool.setUpdateTime(LocalDateTime.now());
@@ -208,15 +232,15 @@ public class CapabilityCatalogProjectionStore {
     private void markCatalogRowRemoved(ScanProjectEntity project,
                                        CapabilityDiffItemEntity item,
                                        ScanProjectToolEntity knownRow) {
+        businessMethods.remove(item.getQualifiedName());
         ScanProjectToolEntity row = knownRow == null ? findCatalogRow(project, item) : knownRow;
-        if (row == null) {
-            return;
+        if (row != null) {
+            row.setEnabled(false);
+            row.setRemovedFromSource(true);
+            row.setRemovedAt(LocalDateTime.now());
+            row.setUpdateTime(LocalDateTime.now());
+            scanProjectToolMapper.updateById(row);
         }
-        row.setEnabled(false);
-        row.setRemovedFromSource(true);
-        row.setRemovedAt(LocalDateTime.now());
-        row.setUpdateTime(LocalDateTime.now());
-        scanProjectToolMapper.updateById(row);
 
         ToolDefinitionEntity globalTool = findGlobalTool(row, item.getQualifiedName(), item.getExistingToolId());
         if (globalTool != null && !Boolean.FALSE.equals(globalTool.getEnabled())) {
@@ -247,6 +271,15 @@ public class CapabilityCatalogProjectionStore {
         return row;
     }
 
+    String acceptedContractHash(String qualifiedName) {
+        var method = businessMethods.find(qualifiedName).orElse(null);
+        if (method != null) {
+            return method.getAcceptedRevisionId() != null && "ACCEPTED".equals(method.getStatus())
+                    ? businessMethods.acceptedRevision(method).getInvocationHash() : null;
+        }
+        return null;
+    }
+
     ToolDefinitionEntity findGlobalTool(ScanProjectToolEntity row,
                                                  String qualifiedName,
                                                  Long fallbackToolId) {
@@ -269,19 +302,18 @@ public class CapabilityCatalogProjectionStore {
         JsonNode expected;
         JsonNode current;
         try {
-            expected = CapabilityCatalogStateCodec.normalizeLegacyAssetTypes(
-                    objectMapper.readTree(item.getBeforeStateJson()));
+            expected = objectMapper.readTree(item.getBeforeStateJson());
             ScanProjectToolEntity currentScan = findCatalogRow(project, item);
             ToolDefinitionEntity currentGlobal = findGlobalTool(
                     currentScan,
                     item.getQualifiedName(),
                     item.getExistingToolId());
-            current = objectMapper.readTree(CapabilityCatalogStateCodec.capture(objectMapper, currentScan, currentGlobal));
+            current = objectMapper.readTree(captureState(item.getQualifiedName(), currentScan, currentGlobal));
         } catch (Exception ex) {
             throw new IllegalArgumentException("评审项应用前状态无法校验", ex);
         }
         if (!Objects.equals(expected, current)) {
-            throw new IllegalArgumentException("能力目录在生成差异后已变化，请刷新 SDK 快照后重新评审");
+            throw new IllegalArgumentException("方法资产或调用投影在生成差异后已变化，请刷新 SDK 快照后重新评审");
         }
     }
 
@@ -296,48 +328,47 @@ public class CapabilityCatalogProjectionStore {
         if (root == null || !root.isObject()) {
             throw new IllegalArgumentException("评审项回滚状态无法解析");
         }
+        if (!root.has("businessMethodAsset")) {
+            throw new IllegalArgumentException("回滚记录缺少源资产状态，请重新同步生成当前模型的变化记录");
+        }
+        businessMethods.restore(item.getQualifiedName(), root.get("businessMethodAsset"));
 
         ScanProjectToolEntity currentScan = findCatalogRow(project, item);
         ToolDefinitionEntity currentGlobal = findGlobalTool(currentScan, item.getQualifiedName(), item.getExistingToolId());
-        JsonNode globalState = root.get("globalTool");
-        if (globalState != null && globalState.isObject()) {
-            ToolDefinitionEntity restored = currentGlobal == null ? new ToolDefinitionEntity() : currentGlobal;
-            CapabilityCatalogStateCodec.restoreGlobalTool(restored, globalState);
-            restored.setSourceQualifiedName(item.getQualifiedName());
-            restored.setUpdateTime(LocalDateTime.now());
-            if (currentGlobal == null || restored.getId() == null) {
-                restored.setCreateTime(LocalDateTime.now());
-                toolDefinitionMapper.insert(restored);
-            } else {
-                toolDefinitionMapper.updateById(restored);
-                clearSdkNullableFields(restored);
-            }
-        } else if (currentGlobal != null) {
+        var method = businessMethods.find(item.getQualifiedName()).orElse(null);
+        if (method != null && "ACCEPTED".equals(method.getStatus()) && method.getAcceptedRevisionId() != null) {
+            writeAcceptedBusinessMethodProjection(project, item.getQualifiedName(),
+                    recoverableProjectionId(project, item.getQualifiedName(), root.get("scanTool"), true),
+                    recoverableProjectionId(project, item.getQualifiedName(), root.get("globalTool"), false));
+            return;
+        }
+        if (currentGlobal != null) {
             currentGlobal.setEnabled(false);
             currentGlobal.setUpdateTime(LocalDateTime.now());
             toolDefinitionMapper.updateById(currentGlobal);
         }
 
-        JsonNode scanState = root.get("scanTool");
-        if (scanState != null && scanState.isObject()) {
-            ScanProjectToolEntity restored = currentScan == null ? new ScanProjectToolEntity() : currentScan;
-            CapabilityCatalogStateCodec.restoreScanTool(restored, scanState);
-            restored.setSourceQualifiedName(item.getQualifiedName());
-            restored.setUpdateTime(LocalDateTime.now());
-            if (currentScan == null || restored.getId() == null) {
-                restored.setCreateTime(LocalDateTime.now());
-                scanProjectToolMapper.insert(restored);
-            } else {
-                scanProjectToolMapper.updateById(restored);
-                clearSdkNullableFields(restored);
-            }
-        } else if (currentScan != null) {
+        if (currentScan != null) {
             currentScan.setEnabled(false);
             currentScan.setRemovedFromSource(true);
             currentScan.setRemovedAt(LocalDateTime.now());
             currentScan.setUpdateTime(LocalDateTime.now());
             scanProjectToolMapper.updateById(currentScan);
         }
+    }
+
+    /** Reuse only the technical record identity; contract fields always come from the owner. */
+    private Long recoverableProjectionId(ScanProjectEntity project, String qualifiedName, JsonNode state,
+                                         boolean scanRow) {
+        if (state == null || state.isNull()) return null;
+        JsonNode id = state.get("id");
+        if (!state.isObject() || id == null || !id.canConvertToLong() || id.asLong() <= 0
+                || state.path("projectId").asLong(-1) != project.getId()
+                || !(scanRow ? ("sdk:" + qualifiedName).equals(state.path("sourceLocation").asText())
+                : qualifiedName.equals(state.path("qualifiedName").asText()))) {
+            throw new IllegalArgumentException("投影恢复身份与当前方法所属项目不一致");
+        }
+        return id.asLong();
     }
 
     private String writeJson(Object value) {

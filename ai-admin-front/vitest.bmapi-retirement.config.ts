@@ -6,7 +6,7 @@ export default defineConfig({
   plugins: [vue()], resolve: { alias: { '@': resolve(__dirname, 'src') } },
   test: { environment: 'happy-dom', css: false, include: [
     'src/views/workflow/studio-panels/ToolConfigPanel.test.ts',
-    'src/views/workflow/studio-panels/InteractionConfigPanel.retirement.test.ts',
+    'src/views/workflow/studio-panels/InteractionConfigPanel.test.ts',
     'src/views/scan/scanProjectOwnerRoutes.test.ts',
   ] },
 })

@@ -312,9 +312,10 @@ public class CapabilityScanProjectCatalogService {
     public void delete(Long projectId) {
         scanProjectMapper.lockCapabilityChanges(projectId);
         ScanProjectEntity entity = get(projectId);
-        ScanProjectBlockers blockers = scanProjectBlockerService.analyze(projectId);
-        if (blockers != null && blockers.blocked()) {
-            throw new IllegalStateException("Scan project is still referenced");
+        ScanProjectBlockers blockers = scanProjectBlockerService.analyzeDeletion(projectId);
+        if (blockers == null) throw new IllegalStateException("Project deletion blockers are unavailable");
+        if (blockers.blocked()) {
+            throw new ScanProjectBlockedException(blockers);
         }
         semanticDocMapper.delete(Wrappers.<SemanticDocEntity>lambdaQuery()
                 .eq(SemanticDocEntity::getProjectId, projectId));
@@ -479,11 +480,14 @@ public class CapabilityScanProjectCatalogService {
     }
 
 
-    public ScanProjectBlockers operationBlockers(Long projectId) {
+    public ScanProjectBlockers operationBlockers(Long projectId, ScanProjectBlockers.Operation operation) {
         if (scanProjectMapper.selectById(projectId) == null) {
             throw new IllegalArgumentException("Scan project does not exist: " + projectId);
         }
-        return scanProjectBlockerService.analyze(projectId);
+        if (operation == null) throw new IllegalArgumentException("Project operation is required");
+        return operation == ScanProjectBlockers.Operation.DELETE
+                ? scanProjectBlockerService.analyzeDeletion(projectId)
+                : scanProjectBlockerService.analyze(projectId);
     }
 
     private ScanResult performScan(ScanProjectEntity project, boolean merge) {
@@ -610,6 +614,7 @@ public class CapabilityScanProjectCatalogService {
         entity.setDescription(tool.description());
         entity.setParametersJson(writeJson(toToolDefinitionParameters(tool.parameters())));
         entity.setSource("scanner");
+        entity.setAssetType("HTTP_API");
         entity.setSourceLocation(tool.source() == null ? null : tool.source().location());
         entity.setHttpMethod(tool.method());
         entity.setBaseUrl(resolveManifestBaseUrl(project));

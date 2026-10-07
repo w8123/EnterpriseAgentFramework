@@ -90,8 +90,9 @@ ReachAI 是面向 Java 企业系统的 AI 能力中台，不只是 Workflow Buil
 ## 命名规则
 
 - 2026-09-15 已确认重构目标：面向用户分别使用“业务方法”和“API”；`Capability / 能力` 可作为统称、聚合视图或服务技术身份。目标与当前落地状态见专项实施基线和进度，不将计划写成已实现功能。
+- 2026-10-07 用户确认入口调整：使用“业务能力”统一工作台，内含“Java 业务方法”和“HTTP API”两个 TAB。共享导航、范围和列表状态；各自的资产 owner、接纳契约、版本引用、凭据与调用规则保持明确，不形成第三套可维护资产。
 - ReachAI 禁止重新引入自创的 Skill 业务资产模型。Skill 仅用于标准 Agent Skill 包或外部协议字段；Capability 是业务资产，Tool 是调用协议，Workflow 是 GraphSpec 编排。
-- 通用 `Tool` 不作为独立产品资产、顶级菜单或人工维护目录。`capability_tool_definition`、`/api/tools/**`、Tool ACL、Tool Call、MCP Tool 与 Workflow-as-Tool 属于运行时投影、协议或兼容技术身份；产品页面应回到其 owning object，分别使用能力目录、API、可调用 Workflow、MCP 暴露和调用权限等名称。
+- 通用 `Tool` 不作为独立产品资产、顶级菜单或人工维护目录。`capability_tool_definition`、`/api/tools/**`、Tool ACL、Tool Call、MCP Tool 与 Workflow-as-Tool 属于运行时投影、协议或兼容技术身份；产品页面应回到其 owning object，分别使用业务方法、API、可调用 Workflow、MCP 暴露和调用权限等名称。来源变化在所属项目内处理，旧能力目录不作为第三套资产入口。
 - “业务方法”表示业务系统明确开放的 Java 业务操作；“注解方法”是接入机制描述。本决定替代此前“代码工具 / Code Tools”的预留产品名；不得把当前混合的通用目录整体改名冒充业务方法，也不得使用 `FunctionToolCallback` 等框架类名作为业务模块名。
 - 合法 Skill 仅包括 `ai-assist/skills/**` 中的 `SKILL.md` 包、`/api/ai-assist/skills/**` 下载入口、A2A 标准 `skills` 字段，以及对已退役 `ai-skills-service` 的否定性记录。不要把旧 Skill 目录、GraphSpec `CAPABILITY` 节点或 `kind=SKILL` 行包装成 AgentScope Skill。
 - `eaf.*`、`X-EAF-*`、`Eaf*` 类名、Maven artifactId、运行时路径属于技术身份，品牌文案改成 ReachAI 时不要顺手改这些兼容敏感标识。

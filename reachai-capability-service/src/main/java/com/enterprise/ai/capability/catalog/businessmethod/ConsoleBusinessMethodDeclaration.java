@@ -15,11 +15,15 @@ public final class ConsoleBusinessMethodDeclaration {
     }
 
     public static boolean hasRequiredRoles(ToolDefinitionEntity tool, ObjectMapper objectMapper) {
-        if (tool == null || !StringUtils.hasText(tool.getCapabilityMetadataJson())) {
+        return hasRequiredRoles(tool == null ? null : tool.getCapabilityMetadataJson(), objectMapper);
+    }
+
+    public static boolean hasRequiredRoles(Object metadata, ObjectMapper objectMapper) {
+        if (metadata == null || metadata instanceof String text && !StringUtils.hasText(text)) {
             return false;
         }
         try {
-            JsonNode root = objectMapper.readTree(tool.getCapabilityMetadataJson());
+            JsonNode root = metadata instanceof String text ? objectMapper.readTree(text) : objectMapper.valueToTree(metadata);
             if (root == null || !root.isObject()) {
                 return true;
             }
@@ -42,13 +46,17 @@ public final class ConsoleBusinessMethodDeclaration {
     }
 
     public static long timeoutMillis(ToolDefinitionEntity tool, ObjectMapper objectMapper) {
+        return timeoutMillis(tool == null ? null : tool.getCapabilityMetadataJson(), objectMapper);
+    }
+
+    public static long timeoutMillis(Object metadata, ObjectMapper objectMapper) {
         final long defaultTimeout = 30_000L;
         final long maximumTimeout = 60_000L;
-        if (tool == null || !StringUtils.hasText(tool.getCapabilityMetadataJson())) {
+        if (metadata == null || metadata instanceof String text && !StringUtils.hasText(text)) {
             return defaultTimeout;
         }
         try {
-            JsonNode root = objectMapper.readTree(tool.getCapabilityMetadataJson());
+            JsonNode root = metadata instanceof String text ? objectMapper.readTree(text) : objectMapper.valueToTree(metadata);
             JsonNode raw = root == null ? null : root.get("timeoutMs");
             if (raw == null || !raw.canConvertToLong() || raw.asLong() <= 0L) {
                 return defaultTimeout;

@@ -24,8 +24,9 @@ class RuntimeCapabilityContractPinsTest {
         when(catalog.getToolDefinition("orders:query")).thenReturn(definition("a".repeat(64), "READY"));
         String published = pins.pin(GRAPH);
         assertEquals("a".repeat(64), mapper.readTree(published).at("/nodes/0/ref/contractHash").asText());
-        assertEquals(101L, mapper.readTree(published).at("/nodes/0/ref/definitionId").asLong(),
-                "a published TOOL must retain the owner definition identity as well as its contract hash");
+        assertEquals(101L, mapper.readTree(published).at("/nodes/0/ref/assetId").asLong());
+        assertEquals(201L, mapper.readTree(published).at("/nodes/0/ref/acceptedRevisionId").asLong());
+        assertEquals("BUSINESS_METHOD", mapper.readTree(published).at("/nodes/0/ref/assetType").asText());
         assertDoesNotThrow(() -> pins.validatePinned(published));
         when(catalog.getToolDefinition("orders:query")).thenReturn(definition("b".repeat(64), "READY"));
         assertThrows(IllegalArgumentException.class, () -> pins.validatePinned(published));
@@ -59,8 +60,22 @@ class RuntimeCapabilityContractPinsTest {
         when(catalog.getToolDefinition("orders:query")).thenReturn(definition("a".repeat(64), "READY"));
         var historical = mapper.readTree(pins.pin(GRAPH));
         ((com.fasterxml.jackson.databind.node.ObjectNode) historical.at("/nodes/0/ref"))
-                .put("definitionId", 102L);
+                .put("assetId", 102L);
         assertThrows(IllegalArgumentException.class, () -> pins.validatePinned(mapper.writeValueAsString(historical)));
+    }
+
+    @Test void publicationRejectsAnAuthorReferenceToAnotherAssetInsteadOfReplacingIt() throws Exception {
+        when(catalog.getToolDefinition("orders:query")).thenReturn(definition("a".repeat(64), "READY"));
+        var graph = mapper.readTree(GRAPH);
+        var ref = (com.fasterxml.jackson.databind.node.ObjectNode) graph.at("/nodes/0/ref");
+        ref.put("assetType", "BUSINESS_METHOD").put("assetId", 102L);
+        String wrongAsset = mapper.writeValueAsString(graph);
+        assertEquals("WORKFLOW_ASSET_REFERENCE_MISMATCH",
+                assertThrows(IllegalArgumentException.class, () -> pins.pin(wrongAsset)).getMessage());
+        ref.put("assetId", 101L).put("projectCode", "another");
+        String wrongProject = mapper.writeValueAsString(graph);
+        assertThrows(IllegalArgumentException.class, () -> pins.pin(wrongProject));
+        assertEquals(102L, mapper.readTree(wrongAsset).at("/nodes/0/ref/assetId").asLong());
     }
 
     @Test void publishedExecutionRequiresPinsButDraftCanStillBeRead() {
@@ -68,6 +83,25 @@ class RuntimeCapabilityContractPinsTest {
         when(catalog.getToolDefinition("orders:query")).thenReturn(definition("a".repeat(64), "READY"));
         assertDoesNotThrow(() -> GraphSpecToolContract.requirePublishedPins(pins.pin(GRAPH)));
         assertThrows(IllegalArgumentException.class, () -> GraphSpecToolContract.requirePublishedPins("null"));
+    }
+
+    @Test void publicationRejectsCrossProjectMethodAndChangedAcceptanceEvenWithSameHash() throws Exception {
+        when(catalog.getToolDefinition("orders:query")).thenReturn(definition("a".repeat(64), "READY"));
+        var workflow = new RuntimeWorkflowDefinitionEntity();
+        workflow.setProjectId(42L); workflow.setProjectCode("another");
+        assertEquals("BUSINESS_METHOD_WORKFLOW_PROJECT_MISMATCH",
+                assertThrows(IllegalArgumentException.class, () -> pins.pin(GRAPH, workflow)).getMessage());
+        workflow.setProjectId(41L); workflow.setProjectCode("orders");
+        String published = pins.pin(GRAPH, workflow);
+        var changed = new java.util.LinkedHashMap<>(definition("a".repeat(64), "READY"));
+        changed.put("acceptedRevisionId", 202L);
+        when(catalog.getToolDefinition("orders:query")).thenReturn(changed);
+        assertThrows(IllegalArgumentException.class, () -> pins.validatePinned(published));
+        assertEquals(201L, mapper.readTree(published).at("/nodes/0/ref/acceptedRevisionId").asLong());
+        changed = new java.util.LinkedHashMap<>(definition("a".repeat(64), "READY"));
+        changed.put("executionRevision", "e".repeat(64));
+        when(catalog.getToolDefinition("orders:query")).thenReturn(changed);
+        assertThrows(IllegalArgumentException.class, () -> pins.validatePinned(published));
     }
 
     @Test
@@ -94,7 +128,11 @@ class RuntimeCapabilityContractPinsTest {
     }
 
     private Map<String, Object> definition(String hash, String availability) {
-        return Map.of("id", 101L, "name", "orders_query", "qualifiedName", "orders:query", "contractHash", hash,
-                "enabled", true, "sourceAvailability", availability);
+        return Map.ofEntries(Map.entry("id", 101L), Map.entry("assetId", 101L), Map.entry("acceptedRevisionId", 201L),
+                Map.entry("assetType", "BUSINESS_METHOD"), Map.entry("projectId", 41L), Map.entry("projectCode", "orders"),
+                Map.entry("name", "orders_query"), Map.entry("qualifiedName", "orders:query"), Map.entry("contractHash", hash),
+                Map.entry("businessContractHash", hash), Map.entry("bindingHash", "c".repeat(64)),
+                Map.entry("executionRevision", "d".repeat(64)),
+                Map.entry("enabled", true), Map.entry("sourceAvailability", availability));
     }
 }

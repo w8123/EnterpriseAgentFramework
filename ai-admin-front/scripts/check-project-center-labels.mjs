@@ -24,20 +24,20 @@ if (
 }
 
 const transformationGroupIndex = sidebar.indexOf("{ kind: 'group', label: '智能化改造' }")
-const dashboardIndex = sidebar.indexOf("{ kind: 'item', index: '/dashboard', label: '工作台', icon: DataAnalysis }")
+const dashboardIndex = sidebar.indexOf("{ kind: 'item', index: '/dashboard', label: '概览', icon: DataAnalysis }")
 const projectManagementIndex = sidebar.indexOf("{ kind: 'item', index: '/registry/projects', label: '项目管理', icon: Connection }")
 const assetGroupIndex = sidebar.indexOf("{ kind: 'group', label: 'AI 资产' }")
 const skillIndex = sidebar.indexOf("{ kind: 'item', index: '/skills', label: 'Skill', icon: Collection }")
-const capabilityGroupIndex = sidebar.indexOf("index: '/capability-api-group'")
-const capabilityDirectoryIndex = sidebar.indexOf("{ index: '/capability', label: '能力目录' }")
-const capabilityReviewIndex = sidebar.indexOf("{ index: '/capability/review', label: '变更评审' }")
+const businessCapabilityIndex = sidebar.search(/index:\s*'\/business-capabilities',\s*label:\s*'业务能力'/)
+const workflowIndex = sidebar.indexOf("index: '/workflows'")
+const agentIndex = sidebar.indexOf("index: '/agent'")
+const integrationIndex = sidebar.indexOf("index: '/integration-group'")
 const apiMarketIndex = sidebar.indexOf("{ index: '/api-market', label: 'API 市场' }")
 const runtimeGovernanceGroupIndex = sidebar.indexOf("{ kind: 'group', label: '运行与治理' }")
-const runOpsIndex = sidebar.indexOf("{ kind: 'item', index: '/runops', label: '运行中心', icon: DataAnalysis }")
+const runOpsIndex = sidebar.indexOf("index: '/runops'")
 const platformResourceGroupIndex = sidebar.indexOf("{ kind: 'group', label: '平台资源' }")
 const advancedLabGroupIndex = sidebar.indexOf("{ kind: 'group', label: '实验室' }")
 const diagnosticsGroupIndex = sidebar.indexOf("index: '/diagnostics-group'")
-const capabilitySnapshotIndex = sidebar.indexOf("{ index: '/capability/sync-snapshot', label: '同步能力快照' }")
 
 if (
   transformationGroupIndex === -1
@@ -50,31 +50,36 @@ if (
     && projectManagementIndex < assetGroupIndex
   )
 ) {
-  failures.push('sidebar should lead with 工作台 and 项目管理 under 智能化改造')
+  failures.push('sidebar should lead with 概览 and 项目管理 under 智能化改造')
 }
 
 if (
   skillIndex === -1
   || sidebar.includes("{ index: '/skill-market', label: 'Skill 市场' }")
-  || !(assetGroupIndex < skillIndex && skillIndex < capabilityGroupIndex)
+  || !(assetGroupIndex < skillIndex && skillIndex < integrationIndex)
 ) {
   failures.push('sidebar should expose one Skill asset entry and keep the market inside the Skill workspace')
 }
 
 if (
-  capabilityGroupIndex === -1
-  || capabilityDirectoryIndex === -1
-  || capabilityReviewIndex === -1
+  businessCapabilityIndex === -1
+  || sidebar.includes("index: '/business-methods'")
+  || sidebar.includes("index: '/apis'")
+  || workflowIndex === -1
+  || agentIndex === -1
+  || integrationIndex === -1
   || apiMarketIndex === -1
   || sidebar.includes("{ index: '/tool', label: '工具目录' }")
   || !(
-    assetGroupIndex < capabilityGroupIndex
-    && capabilityGroupIndex < capabilityDirectoryIndex
-    && capabilityDirectoryIndex < capabilityReviewIndex
-    && capabilityReviewIndex < apiMarketIndex
+    assetGroupIndex < businessCapabilityIndex
+    && businessCapabilityIndex < workflowIndex
+    && workflowIndex < agentIndex
+    && agentIndex < skillIndex
+    && skillIndex < integrationIndex
+    && integrationIndex < apiMarketIndex
   )
 ) {
-  failures.push('sidebar should expose Capability and API Market under 能力与 API without a generic Tool catalog')
+  failures.push('sidebar should expose one business capability workbench before Workflow/Agent, with the market under integration')
 }
 
 if (
@@ -99,10 +104,14 @@ if (sidebar.includes('/registry/runtimes') || sidebar.includes('Runtime 纳管')
 if (
   advancedLabGroupIndex === -1
   || diagnosticsGroupIndex === -1
-  || capabilitySnapshotIndex === -1
-  || !(advancedLabGroupIndex < diagnosticsGroupIndex && diagnosticsGroupIndex < capabilitySnapshotIndex)
+  || !(advancedLabGroupIndex < diagnosticsGroupIndex)
 ) {
-  failures.push('sidebar should move sync and diagnostic-only entries into 实验室')
+  failures.push('sidebar should keep platform diagnostics in 实验室')
+}
+
+if (/index:\s*['"]\/(?:capability(?:\/[^'"]*)?|tools?|tools\/(?:compositions|interactions))['"]/.test(sidebar)
+  || sidebar.includes('CapabilitySyncSnapshot') || sidebar.includes('RegistrySyncDiagnostics')) {
+  failures.push('sidebar must not restore a third asset catalog or project sync diagnostics as a global entry')
 }
 
 const router = readFileSync(resolve(root, 'src/router/index.ts'), 'utf8')
@@ -116,19 +125,35 @@ if (router.includes('/registry/runtimes') || router.includes('RuntimeRegistry') 
 
 if (
   router.includes("import('@/views/tool/ToolList.vue')")
-  || !/path:\s*'tool',\s*redirect:\s*'\/capability'/.test(router)
+  || /path:\s*['"](?:capability(?:\/[^'"]*)?|tools?|tools\/(?:compositions|interactions))['"]/.test(router)
   || existsSync(resolve(root, 'src/views/tool/ToolList.vue'))
 ) {
-  failures.push('generic Tool catalog must stay retired and the legacy /tool path must redirect to /capability')
+  failures.push('generic Tool and Capability catalog routes and redirects must remain retired')
 }
 
 if (
-  !router.includes("path: 'capability/review'")
-  || !router.includes("path: 'capability/sync-snapshot'")
-  || !router.includes("activeMenu: '/capability/review'")
-  || !router.includes("activeMenu: '/capability/sync-snapshot'")
+  !router.includes("path: 'business-capabilities'")
+  || !router.includes("import('@/views/capability/BusinessCapabilityWorkbench.vue')")
+  || !router.includes("path: 'java-methods'")
+  || !router.includes("path: 'http-apis'")
+  || !router.includes("path: 'business-methods'")
+  || !router.includes("path: 'apis'")
+  || !router.includes("path: 'registry/projects/:projectCode/sync-diagnostics'")
+  || !router.includes("name: 'RegistrySyncDiagnostics'")
+  || router.includes('CapabilityReview')
+  || router.includes('CapabilitySyncSnapshot')
+  || router.includes('CapabilityKernel')
 ) {
-  failures.push('capability review and snapshot routes should remain available after navigation regrouping')
+  failures.push('typed catalogs must belong to the workbench routes and sync diagnostics must require a project route')
+}
+
+const capabilityWorkbench = readFileSync(resolve(root, 'src/views/capability/BusinessCapabilityWorkbench.vue'), 'utf8')
+const httpApiCatalog = readFileSync(resolve(root, 'src/views/api/HttpApiCatalog.vue'), 'utf8')
+if (!capabilityWorkbench.includes('<el-tabs') || !capabilityWorkbench.includes('Java 业务方法')
+  || !capabilityWorkbench.includes('HTTP API') || !capabilityWorkbench.includes('<router-view')
+  || !capabilityWorkbench.includes('query: route.query') || !capabilityWorkbench.includes('activeTab === tab.value')
+  || !httpApiCatalog.includes("useCatalogQuery('api'") || httpApiCatalog.includes('<PageHeader')) {
+  failures.push('the workbench must own typed tabs, one header, preserved query state and active-panel mounting')
 }
 
 const projectList = readFileSync(resolve(root, 'src/views/registry/RegistryProjectList.vue'), 'utf8')
@@ -142,25 +167,48 @@ if (projectWorkbench.includes("title: '能力变更评审'") || projectWorkbench
 }
 
 const projectDetail = readFileSync(resolve(root, 'src/views/registry/RegistryProjectDetail.vue'), 'utf8')
-const capabilitySyncDebug = readFileSync(resolve(root, 'src/views/registry/CapabilitySyncDebug.vue'), 'utf8')
+const sourceChanges = readFileSync(resolve(root, 'src/views/registry/components/ProjectSourceChanges.vue'), 'utf8')
+const syncDiagnostics = readFileSync(resolve(root, 'src/views/registry/RegistrySyncDiagnostics.vue'), 'utf8')
 const capabilityReviewPanel = readFileSync(resolve(root, 'src/views/registry/components/CapabilityReviewPanel.vue'), 'utf8')
-if (projectDetail.includes('CapabilityReviewPanel')) {
-  failures.push('project detail should not embed the capability snapshot and review panel')
+if (!projectDetail.includes('<ProjectSourceChanges') || !projectDetail.includes("projectSection === 'source-changes'")
+  || !projectDetail.includes('project?.projectCode === projectCode')) {
+  failures.push('project detail must show source changes only for the current project section')
 }
 if (
-  !capabilitySyncDebug.includes('<CapabilityReviewPanel')
-  || !capabilitySyncDebug.includes('title="能力变更评审"')
-  || !capabilitySyncDebug.includes('title="同步能力快照"')
-  || !capabilitySyncDebug.includes("route.name === 'CapabilitySyncSnapshot'")
+  !sourceChanges.includes('<CapabilityReviewPanel v-if="canRead && platformSessionId" :key="contextKey"')
+  || !sourceChanges.includes("PLATFORM_PERMISSION_READ, 'PROJECT', null, props.project.projectCode")
+  || !sourceChanges.includes("PLATFORM_PERMISSION_WRITE, 'PROJECT', null, props.project.projectCode")
+  || !sourceChanges.includes("{ flush: 'sync' }")
+  || !sourceChanges.includes("name: 'RegistrySyncDiagnostics'")
 ) {
-  failures.push('capability review and SDK snapshot diagnostics should stay route-separated in the shared page')
+  failures.push('source changes must enforce project read/write permissions and discard stale session/project panels')
+}
+if (!syncDiagnostics.includes('route.params.projectCode')
+  || !syncDiagnostics.includes("PLATFORM_PERMISSION_WRITE, 'PROJECT', null, project.projectCode")
+  || !syncDiagnostics.includes('payload = { ...parsed, apply: false }')
+  || syncDiagnostics.includes('<CapabilityReviewPanel')
+  || /<el-select\b/.test(syncDiagnostics)) {
+  failures.push('sync diagnostics must remain project-bound, diagnostic-only, and separate from source decisions')
+}
+const methodCatalog = readFileSync(resolve(root, 'src/views/capability/BusinessMethodCatalog.vue'), 'utf8')
+const methodDetail = readFileSync(resolve(root, 'src/views/capability/components/BusinessMethodDetailDialog.vue'), 'utf8')
+if (!methodCatalog.includes("useCatalogQuery('method'") || !methodCatalog.includes('getBusinessMethodSummary')
+  || /\bsize:\s*1\s*[,}]/.test(methodCatalog) || methodCatalog.includes('<PageHeader')) {
+  failures.push('method panel must use namespaced query state and aggregate counts without its own page header or count-only pages')
+}
+for (const [file, content] of [['BusinessMethodCatalog', methodCatalog], ['BusinessMethodDetailDialog', methodDetail]]) {
+  if (!content.includes('@/api/businessMethod') || !content.includes('BusinessMethodInfo')
+    || content.includes("from '@/api/tool'") || content.includes('ToolInfo') || content.includes('route.name')) {
+    failures.push(`${file} must consume the business-method owner without a generic catalog mode`)
+  }
 }
 if (
-  !capabilityReviewPanel.includes('快照与变更决策')
-  || !capabilityReviewPanel.includes('刷新批次')
-  || !capabilityReviewPanel.includes('影响证据边界')
+  !capabilityReviewPanel.includes('待处理')
+  || !capabilityReviewPanel.includes('处理记录')
+  || !capabilityReviewPanel.includes('部分引用证据暂未确认，不能据此判断没有影响')
+  || !capabilityReviewPanel.includes("impact.value.runtimeEvidence === 'COMPLETE' && impact.value.publicationEvidence === 'COMPLETE'")
 ) {
-  failures.push('capability review panel should expose the snapshot, decision, and evidence-boundary workflow')
+  failures.push('source changes must expose pending/processed decisions and require complete runtime/publication evidence')
 }
 
 const scanVisibleCopyFiles = [

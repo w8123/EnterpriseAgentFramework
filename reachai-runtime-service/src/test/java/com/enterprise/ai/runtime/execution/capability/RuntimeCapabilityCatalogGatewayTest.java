@@ -32,6 +32,8 @@ import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
 
 class RuntimeCapabilityCatalogGatewayTest {
@@ -39,10 +41,30 @@ class RuntimeCapabilityCatalogGatewayTest {
     private static final String SECRET = "runtime-capability-contract-secret-32bytes";
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    @Test void missingOwnerAndLookupOutageNeverDispatchAndHaveDistinctOutcomes() {
+        var transport = mock(RuntimeCapabilityCatalogFeignClient.class);
+        var gateway = new RuntimeCapabilityCatalogGateway(transport, new RuntimeCapabilityInternalAuthSigner(SECRET), objectMapper);
+        var request = feign.Request.create(feign.Request.HttpMethod.GET, "http://capability/internal/capability/tools/orders:missing",
+                Map.of(), null, java.nio.charset.StandardCharsets.UTF_8, null);
+        when(transport.getToolDefinition("orders:missing")).thenThrow(feign.FeignException.errorStatus("lookup",
+                feign.Response.builder().status(404).reason("Not found").headers(Map.of()).request(request).build()));
+        var response = gateway.invokeTool("orders:missing", Map.of("invocationId", "missing-owner-1"));
+        assertEquals(CapabilityInvocationStatus.REJECTED, response.status());
+        assertEquals(CapabilityInvocationFailureCategory.NOT_FOUND, response.failureCategory());
+        assertEquals("missing-owner-1", response.invocationId());
+        assertFalse(response.retryable());
+        var unavailable = feign.FeignException.errorStatus("lookup",
+                feign.Response.builder().status(503).reason("Unavailable").headers(Map.of()).request(request).build());
+        doThrow(unavailable).when(transport).getToolDefinition("orders:missing");
+        assertSame(unavailable, assertThrows(feign.FeignException.class,
+                () -> gateway.invokeTool("orders:missing", Map.of())));
+        verify(transport, never()).invokeCapability(anyMap(), any(byte[].class));
+    }
+
     private com.enterprise.ai.common.capability.ConsoleCapabilityInvocationContracts.InvocationCommand consoleCommand(boolean confirmed) {
         return new com.enterprise.ai.common.capability.ConsoleCapabilityInvocationContracts.InvocationCommand(1,
                 "123e4567-e89b-42d3-a456-426614174000", "42", 41L, "orders", "orders:append",
-                "a".repeat(64), Map.of("note", "append-once"), java.util.List.of(), "WRITE", confirmed,
+                "a".repeat(64), "d".repeat(64), Map.of("note", "append-once"), java.util.List.of(), "WRITE", confirmed,
                 System.currentTimeMillis() + 30_000);
     }
 
@@ -142,7 +164,7 @@ class RuntimeCapabilityCatalogGatewayTest {
         return new com.enterprise.ai.common.capability.ConsoleCapabilityInvocationContracts.InvocationContext(1,
                 "orders_normalize", "orders:normalize", "orders:normalize", "BUSINESS_METHOD", 41L, "orders",
                 "a".repeat(64), "a".repeat(64), "a".repeat(64), "READY", true, "READ_ONLY", java.util.List.of(),
-                null, "String", null, null, "UNKNOWN", true, false, true, null, null, 30_000);
+                null, "String", null, null, "UNKNOWN", true, false, true, null, null, 30_000, "d".repeat(64));
     }
     private Map<String, Object> methodRequest() {
         return new LinkedHashMap<>(Map.of("input", Map.of("orderNo", "A-1024"), "context", Map.of(
@@ -341,27 +363,10 @@ class RuntimeCapabilityCatalogGatewayTest {
         request.put(RuntimeCapabilityCatalogGateway.SIGNED_EVAL_POLICY_FIELD,
                 Map.of("mode", "READ_ONLY_EXECUTION"));
 
-        gateway.executeTool("bzjs20:team.memory.resolve", request);
-
-        ArgumentCaptor<Map> headerCaptor = ArgumentCaptor.forClass(Map.class);
-        ArgumentCaptor<byte[]> bodyCaptor = ArgumentCaptor.forClass(byte[].class);
-        verify(transport).invokeCapability(headerCaptor.capture(), bodyCaptor.capture());
-        Map<String, String> headers = (Map<String, String>) headerCaptor.getValue();
-        Map<String, Object> outbound = objectMapper.readValue(
-                bodyCaptor.getValue(), new TypeReference<Map<String, Object>>() { });
-        Map<String, Object> outboundContext = (Map<String, Object>) outbound.get("context");
-
-        assertEquals("public-session", outboundContext.get("sessionId"));
-        assertFalse(outboundContext.containsKey("tenantId"));
-        assertFalse(outboundContext.containsKey("externalUserId"));
-        assertFalse(outbound.containsKey(RuntimeCapabilityCatalogClient.TRUSTED_IDENTITY_ATTRIBUTE));
-        assertFalse(outbound.containsKey(RuntimeCapabilityCatalogClient.TRUSTED_EVAL_CONTEXT_ATTRIBUTE));
-        assertFalse(outbound.containsKey(RuntimeCapabilityCatalogGateway.SIGNED_EVAL_POLICY_FIELD));
-        assertEquals(InternalServiceAuthHeaders.IDENTITY_SOURCE_RUNTIME_UNTRUSTED,
-                headers.get(InternalServiceAuthHeaders.IDENTITY_SOURCE));
-        assertEquals("", headers.get(InternalServiceAuthHeaders.IDENTITY_TENANT_ID));
-        assertEquals("", headers.get(InternalServiceAuthHeaders.IDENTITY_USER_ID));
-        assertTrue(signatureValid(headers, bodyCaptor.getValue(), "bzjs20:team.memory.resolve"));
+        var rejected = gateway.invokeTool("bzjs20:team.memory.resolve", request);
+        assertEquals("CAPABILITY_TOOL_NOT_FOUND", rejected.code());
+        assertFalse(rejected.success());
+        verify(transport, never()).invokeCapability(anyMap(), any(byte[].class));
     }
 
     @Test
@@ -377,6 +382,8 @@ class RuntimeCapabilityCatalogGatewayTest {
                 Map.of("mode", "NONE", "sideEffectPolicy", "ALLOW_ALL"));
         request.put(RuntimeCapabilityCatalogClient.TRUSTED_EVAL_CONTEXT_ATTRIBUTE,
                 RuntimeEvalExecutionContext.readOnly("exp-1", "item-7", "sha256:abc"));
+        request.put(RuntimeCapabilityCatalogClient.TRUSTED_IDENTITY_ATTRIBUTE,
+                WorkflowExecutionIdentity.fromAgent("orders", 41L, "orders", "user-7"));
 
         gateway.executeTool("orders:query", request);
 
@@ -405,7 +412,8 @@ class RuntimeCapabilityCatalogGatewayTest {
                 transport, new RuntimeCapabilityInternalAuthSigner(SECRET), objectMapper);
 
         RuntimeException thrown = assertThrows(RuntimeException.class,
-                () -> gateway.executeTool("bzjs20:missing", Map.of()));
+                () -> gateway.executeTool("bzjs20:missing", Map.of(RuntimeCapabilityCatalogClient.TRUSTED_IDENTITY_ATTRIBUTE,
+                        WorkflowExecutionIdentity.fromAgent("tenant-a", 35L, "bzjs20", "user-7"))));
 
         assertSame(downstream, thrown);
     }
@@ -435,7 +443,8 @@ class RuntimeCapabilityCatalogGatewayTest {
                 transport, new RuntimeCapabilityInternalAuthSigner(SECRET), objectMapper);
 
         IllegalStateException thrown = assertThrows(IllegalStateException.class,
-                () -> gateway.executeTool("orders:query", Map.of()));
+                () -> gateway.executeTool("orders:query", Map.of(RuntimeCapabilityCatalogClient.TRUSTED_IDENTITY_ATTRIBUTE,
+                        WorkflowExecutionIdentity.fromAgent("orders", 41L, "orders", "user-7"))));
 
         assertEquals("Capability Tool response correlation is invalid", thrown.getMessage());
     }

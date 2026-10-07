@@ -47,7 +47,7 @@ class CapabilityInvocationConsoleControllerTest {
         Fixture fixture = fixture("WRITE", ControlToolAclDecisionService.DECISION_ALLOW);
         ResponseEntity<Object> response = fixture.controller.invoke(fixture.request, "orders.lookup", Map.of(
                 "invocationId", "00000000-0000-0000-0000-000000000001",
-                "expectedContractHash", "a".repeat(64), "input", Map.of("orderNo", "O-1"),
+                "expectedContractHash", "a".repeat(64), "expectedExecutionRevision", "d".repeat(64), "input", Map.of("orderNo", "O-1"),
                 "confirmedSideEffect", false));
 
         assertEquals(HttpStatus.CONFLICT, response.getStatusCode());
@@ -60,7 +60,7 @@ class CapabilityInvocationConsoleControllerTest {
         Fixture fixture = fixture("READ_ONLY", ControlToolAclDecisionService.DECISION_DENY_NO_MATCH);
         ResponseEntity<Object> response = fixture.controller.invoke(fixture.request, "orders.lookup", Map.of(
                 "invocationId", "00000000-0000-0000-0000-000000000002",
-                "expectedContractHash", "a".repeat(64), "input", Map.of("orderNo", "O-2"),
+                "expectedContractHash", "a".repeat(64), "expectedExecutionRevision", "d".repeat(64), "input", Map.of("orderNo", "O-2"),
                 "confirmedSideEffect", false));
 
         assertEquals(HttpStatus.FORBIDDEN, response.getStatusCode());
@@ -76,7 +76,7 @@ class CapabilityInvocationConsoleControllerTest {
 
         ResponseEntity<Object> response = fixture.controller.invoke(fixture.request, "orders.lookup", Map.of(
                 "invocationId", "00000000-0000-0000-0000-000000000003",
-                "expectedContractHash", "a".repeat(64), "input", Map.of("orderNo", "O-3", "password", "browser-secret"),
+                "expectedContractHash", "a".repeat(64), "expectedExecutionRevision", "d".repeat(64), "input", Map.of("orderNo", "O-3", "password", "browser-secret"),
                 "confirmedSideEffect", false));
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
@@ -96,7 +96,7 @@ class CapabilityInvocationConsoleControllerTest {
             when(fixture.runtime.invoke(any(), eq("42"))).thenAnswer(call -> ResponseEntity.ok(outcome(
                     call.getArgument(0, ConsoleCapabilityInvocationContracts.InvocationCommand.class), "ACCEPTED")));
             fixture.controller.invoke(fixture.request, "orders.lookup", Map.of(
-                    "invocationId", java.util.UUID.randomUUID().toString(), "expectedContractHash", "a".repeat(64),
+                    "invocationId", java.util.UUID.randomUUID().toString(), "expectedContractHash", "a".repeat(64), "expectedExecutionRevision", "d".repeat(64),
                     "input", Map.of("orderNo", "O-timeout"), "confirmedSideEffect", false));
             ArgumentCaptor<ConsoleCapabilityInvocationContracts.InvocationCommand> command = ArgumentCaptor.forClass(
                     ConsoleCapabilityInvocationContracts.InvocationCommand.class);
@@ -117,7 +117,7 @@ class CapabilityInvocationConsoleControllerTest {
                 "message", "private other project result")));
 
         ResponseEntity<Object> response = fixture.controller.invoke(fixture.request, "orders.lookup", Map.of(
-                "invocationId", "00000000-0000-0000-0000-000000000007", "expectedContractHash", "a".repeat(64),
+                "invocationId", "00000000-0000-0000-0000-000000000007", "expectedContractHash", "a".repeat(64), "expectedExecutionRevision", "d".repeat(64),
                 "input", Map.of(), "confirmedSideEffect", false));
 
         assertEquals(HttpStatus.ACCEPTED, response.getStatusCode());
@@ -198,7 +198,7 @@ class CapabilityInvocationConsoleControllerTest {
 
         ResponseEntity<Object> response = fixture.controller.invoke(fixture.request, "orders.lookup", Map.of(
                 "invocationId", "00000000-0000-0000-0000-000000000004",
-                "expectedContractHash", "a".repeat(64), "input", Map.of("orderNo", "O-4"),
+                "expectedContractHash", "a".repeat(64), "expectedExecutionRevision", "d".repeat(64), "input", Map.of("orderNo", "O-4"),
                 "confirmedSideEffect", false));
 
         assertEquals(HttpStatus.ACCEPTED, response.getStatusCode());
@@ -239,6 +239,7 @@ class CapabilityInvocationConsoleControllerTest {
         result.put("qualifiedName", "orders.lookup"); result.put("sourceQualifiedName", "orders.lookup");
         result.put("assetType", "BUSINESS_METHOD"); result.put("projectId", 7L); result.put("projectCode", "orders");
         result.put("currentContractHash", "a".repeat(64)); result.put("acceptedContractHash", "a".repeat(64));
+        result.put("executionRevision", "d".repeat(64));
         result.put("sourceContractHash", "a".repeat(64)); result.put("sourceAvailability", "READY");
         result.put("enabled", true); result.put("sideEffect", sideEffect);
         result.put("parameters", List.of(Map.of("name", "password", "type", "string", "required", false,

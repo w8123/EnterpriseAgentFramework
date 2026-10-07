@@ -25,8 +25,6 @@ public class RuntimeInteractionSessionEntity {
 
     private Long workflowVersionId;
 
-    private String compositionQualifiedName;
-
     private String graphSpecSnapshotJson;
 
     private String nodeId;

@@ -20,7 +20,7 @@ class WorkflowReadOnlyTrialPolicyTest {
                 "orders:normalize", "BUSINESS_METHOD", 41L, "orders", "a".repeat(64), "a".repeat(64), "a".repeat(64),
                 "READY", true, "READ_ONLY", List.of(new ConsoleCapabilityInvocationContracts.Parameter("orderNo", "java.lang.String",
                 null, true, "BODY", List.of(), Map.of())), null, "java.lang.String", null, null, "UNKNOWN",
-                true, false, true, null, null, 30_000);
+                true, false, true, null, null, 30_000, "d".repeat(64));
     }
     @Test void oneScalarMethodUsesTheSharedEnvelopeAndStableSdkDataSource() {
         var target = WorkflowReadOnlyTrialPolicy.target(json, GRAPH);
@@ -31,6 +31,7 @@ class WorkflowReadOnlyTrialPolicyTest {
         assertEquals(owner().acceptedContractHash(), allowed.acceptedContractHash());
         assertEquals(owner().sourceContractHash(), allowed.sourceContractHash());
         assertEquals("orders_normalize", allowed.methodName());
+        assertEquals(owner().executionRevision(), allowed.executionRevision());
     }
     @Test void complexMixedPinnedConditionalRetryFallbackAndForeignReturnShapesAreRejected() throws Exception {
         for (String mutation : List.of("extra", "pin", "hash", "conditional", "fallback", "retry", "mapping", "foreignOutput", "undeclaredOutput", "args")) {

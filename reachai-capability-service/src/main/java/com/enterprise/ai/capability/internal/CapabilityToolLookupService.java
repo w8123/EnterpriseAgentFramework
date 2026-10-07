@@ -1,8 +1,10 @@
 package com.enterprise.ai.capability.internal;
 
-import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionEntity;
-import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionMapper;
+import com.enterprise.ai.capability.catalog.businessmethod.BusinessMethodCatalogService;
+import com.enterprise.ai.capability.catalog.businessmethod.BusinessMethodInvocationProjection;
+import com.enterprise.ai.capability.catalog.businessmethod.BusinessMethodExecutionRevision;
+import com.enterprise.ai.agent.registry.RegistrySecurityService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -14,27 +16,25 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class CapabilityToolLookupService {
 
-    private final ToolDefinitionMapper toolDefinitionMapper;
-    private final com.enterprise.ai.capability.registry.CapabilityChangePolicy changePolicy;
-    private final CapabilitySourceContractGuard sourceContractGuard;
+    private final BusinessMethodCatalogService businessMethods;
+    private final RegistrySecurityService registrySecurity;
 
     public Map<String, Object> getToolDefinition(String qualifiedName) {
         if (!StringUtils.hasText(qualifiedName)) {
             throw new IllegalArgumentException("Tool definition not found: " + qualifiedName);
         }
-        String key = qualifiedName.trim();
-        ToolDefinitionEntity entity = toolDefinitionMapper.selectOne(Wrappers.<ToolDefinitionEntity>lambdaQuery()
-                .eq(ToolDefinitionEntity::getQualifiedName, key)
-                .last("limit 1"));
-        if (entity == null) {
-            entity = toolDefinitionMapper.selectOne(Wrappers.<ToolDefinitionEntity>lambdaQuery()
-                    .eq(ToolDefinitionEntity::getName, key)
-                    .last("limit 1"));
-        }
-        if (entity == null) {
-            throw new IllegalArgumentException("Tool definition not found: " + key);
-        }
-        return toMap(entity);
+        var method = businessMethods.find(qualifiedName.trim())
+                .orElseThrow(() -> new IllegalArgumentException("Business method not found: " + qualifiedName.trim()));
+        Map<String, Object> result = toMap(BusinessMethodInvocationProjection.from(method));
+        result.put("assetId", method.asset().getId());
+        result.put("acceptedRevisionId", method.revision().getId());
+        result.put("businessContractHash", method.revision().getContractHash());
+        result.put("bindingHash", method.revision().getBindingHash());
+        result.put("contractHash", method.revision().getInvocationHash());
+        result.put("executionRevision", BusinessMethodExecutionRevision.of(method,
+                registrySecurity.findPrimaryActiveCredential(method.asset().getProjectCode()).orElse(null)));
+        result.put("sourceAvailability", method.sourceAvailability());
+        return result;
     }
 
     private Map<String, Object> toMap(ToolDefinitionEntity entity) {
@@ -61,8 +61,6 @@ public class CapabilityToolLookupService {
         body.put("moduleId", entity.getModuleId());
         body.put("enabled", entity.getEnabled());
         body.put("sideEffect", entity.getSideEffect());
-        body.put("contractHash", changePolicy.contractHash(entity));
-        body.put("sourceAvailability", sourceContractGuard.availability(entity));
         body.put("createTime", String.valueOf(entity.getCreateTime()));
         body.put("updateTime", String.valueOf(entity.getUpdateTime()));
         return body;

@@ -1,6 +1,6 @@
 # 业务方法与 API 重构实施基线
 
-更新时间：2026-09-15。状态：产品方向已由用户确认；本文件固定实施边界，当前执行状态统一见实施进度。
+更新时间：2026-10-07。状态：产品方向已由用户确认；本文件固定实施边界，当前执行状态统一见实施进度。
 
 基线建立时尚缺证据：完整现状映射、具体模型与接口设计、目标实现、浏览器任务走查、真实 SDK / HTTP / Workflow 调用及用户实测。后续实际结果统一回写实施进度；现有历史测试不计为本专项通过。
 
@@ -15,7 +15,7 @@
 
 ## 2. 已确认的产品决策
 
-以下 D1–D6 来自 2026-09-15 本专项讨论，D7 于 2026-09-24 补充确认；后续实施不重复将其作为开放问题。
+以下 D1–D6 来自 2026-09-15 本专项讨论，D7 于 2026-09-24 补充确认，D8–D9 于 2026-10-04 资产体系收口会话确认，D10 于 2026-10-07 统一工作台会话确认；后续实施不重复将其作为开放问题。
 
 | 编号 | 已确认决定 | 实施含义 |
 | --- | --- | --- |
@@ -26,6 +26,9 @@
 | D5 | Tool 保持调用协议或技术投影；平台多步骤编排归 Workflow | 用户不再为同一对象维护第二份通用 Tool 资产 |
 | D6 | 重构完成必须改善真实使用过程 | 页面改名、代码整理、编译通过均不能单独作为完成依据 |
 | D7 | Studio 对业务方法/API 的调试采用只读真实试运行 | 使用明确的项目测试身份、调用权限和审计；现有不可信 debug 不自动获得真实调用身份。API 与业务方法代表路径已各自限定验收，其余范围的实际进度见实施进度 |
+| D8 | 未正式上线，本次不考虑历史数据兼容；业务方法与 API 承接旧能力目录职责 | 旧目录产品入口、未分类历史读取与重复资产模型退场；新库直接使用目标 schema，不维持永久双读/双写 |
+| D9 | 按产品对象收口代码事实源与引用 | 方法/API 资产 → 派生调用定义；Workflow 固定源资产契约，Runtime 受控执行；详细范围与完成条件见 [BMAPI-6](./BMAPI-6-资产体系收口方案与验收.md) |
+| D10 | 统一“业务能力”工作台，使用“Java 业务方法”和“HTTP API”两个 TAB，并按需要一起改善后端 | 调整 D2 的导航呈现，保留分别管理的领域边界；共享范围、筛选/分页机制，后端按 owner 职责消除重复读取，不合并契约、凭据或执行模型 |
 
 “Capability / 能力”可继续作为统称、聚合视图或服务技术身份；本专项不把它另建成与业务方法、API 重复维护的第三套资产。
 
@@ -86,7 +89,7 @@
 | SDK 方法声明与参数解析 | 复用，按目标契约补齐缺口 | [ReachCapability.java](../../reachai-capability-sdk/src/main/java/com/enterprise/ai/reach/sdk/annotation/ReachCapability.java)、[ReachCapabilityScanner.java](../../reachai-capability-sdk/src/main/java/com/enterprise/ai/reach/sdk/capability/ReachCapabilityScanner.java) |
 | Spring Bean 与 MVC 发现 | 保留实现基础，明确各自输出的资产类型 | [ReachCapabilityBeanScanner.java](../../reachai-spring-boot2-starter/src/main/java/com/enterprise/ai/reach/spring/ReachCapabilityBeanScanner.java)、[ReachSpringMvcEndpointScanner.java](../../reachai-spring-boot2-starter/src/main/java/com/enterprise/ai/reach/spring/ReachSpringMvcEndpointScanner.java) |
 | 项目、实例、来源同步与变化处理 | 复用来源管理和契约保护；只修改本专项直接依赖部分 | [能力变化契约](../architecture/capability-change-governance.md) |
-| 当前能力列表与详情 | 按业务方法和 API 使用任务重构，可保留有价值的参数、状态和引用展示 | [CapabilityKernel.vue](../../ai-admin-front/src/views/capability/CapabilityKernel.vue)、[CapabilityDetailDialog.vue](../../ai-admin-front/src/views/capability/components/CapabilityDetailDialog.vue) |
+| 方法列表与详情 | 业务方法读取自己的资产 owner；参数、状态、条件、试调用、引用和来源变化可达 | [BusinessMethodCatalog.vue](../../ai-admin-front/src/views/capability/BusinessMethodCatalog.vue)、[BusinessMethodDetailDialog.vue](../../ai-admin-front/src/views/capability/components/BusinessMethodDetailDialog.vue)；旧混合 Kernel/通用详情已删除，当前证据见实施进度 |
 | 扫描 API、OpenAPI 与外部 API 接入 | 保留 API 作为源资产，统一来源与使用关系 | [ScanProjectDetail.vue](../../ai-admin-front/src/views/scan/ScanProjectDetail.vue)、[API 市场契约](../architecture/api-market.md) |
 | 通用调用投影与人工纳入入口 | 保留需要的技术投影；替代重复维护流程，记录旧入口退场条件 | [新库 SQL 基线](../../sql/initV2.sql)、[Workflow 调用配置](../../ai-admin-front/src/views/workflow/studio-panels/ToolConfigPanel.vue)；原 projectApiTools.ts 已退场，当前实现与验收状态见实施进度 |
 | Workflow 与已有开放协议引用 | 保持既有执行边界，按需适配源引用和契约约束 | [Workflow 契约](../architecture/workflow-semantic-contract.md)、[公共路由契约](../architecture/public-route-contracts.md) |

@@ -102,7 +102,11 @@ class RegistryEnrollmentPersistenceTest {
     @Test void policyUpdateCannotReviveConcurrentlyRevokedCredential() throws Exception {
         var response=register();
         race("UPDATE capability_registry_project_credential SET status='DISABLED'",
-                ()->context.getBean(RegistrySecurityService.class).updateEmbedPolicy("orders",response.appKey(),null,null,900));
+                ()->{
+                    var failure=assertThrows(IllegalArgumentException.class,
+                            ()->context.getBean(RegistrySecurityService.class).updateEmbedPolicy("orders",response.appKey(),null,null,900));
+                    assertEquals("registry credential policy changed concurrently",failure.getMessage());
+                });
         assertEquals("DISABLED",credentials.selectOne(null).getStatus());
         assertEquals(600,credentials.selectOne(null).getTokenTtlSeconds());
     }
@@ -110,7 +114,11 @@ class RegistryEnrollmentPersistenceTest {
     @Test void policyUpdateCannotRestoreRotatedCredentialIdentity() throws Exception {
         var response=register();
         race("UPDATE capability_registry_project_credential SET app_key='rotated-test-key',app_secret='rotated-test-secret'",
-                ()->context.getBean(RegistrySecurityService.class).updateEmbedPolicy("orders",response.appKey(),null,null,900));
+                ()->{
+                    var failure=assertThrows(IllegalArgumentException.class,
+                            ()->context.getBean(RegistrySecurityService.class).updateEmbedPolicy("orders",response.appKey(),null,null,900));
+                    assertEquals("registry credential policy changed concurrently",failure.getMessage());
+                });
         assertEquals("rotated-test-key",credentials.selectOne(null).getAppKey());
         assertEquals("rotated-test-secret",credentials.selectOne(null).getAppSecret());
         assertEquals(600,credentials.selectOne(null).getTokenTtlSeconds());

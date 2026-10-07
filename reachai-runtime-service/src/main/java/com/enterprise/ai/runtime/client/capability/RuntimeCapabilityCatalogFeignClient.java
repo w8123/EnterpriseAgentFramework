@@ -36,9 +36,6 @@ public interface RuntimeCapabilityCatalogFeignClient {
             @RequestHeader Map<String, String> internalAuthHeaders,
             @RequestBody byte[] exactBody);
 
-    @GetMapping("/internal/capability/compositions/{qualifiedName}")
-    Map<String, Object> getCompositionDefinition(@PathVariable("qualifiedName") String qualifiedName);
-
     @GetMapping("/internal/capability/projects/{projectCode}")
     Map<String, Object> getProject(@PathVariable("projectCode") String projectCode);
 

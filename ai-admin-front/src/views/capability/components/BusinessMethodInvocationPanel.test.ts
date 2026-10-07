@@ -35,7 +35,7 @@ function grants(includeInvoke = true) {
 function context(sideEffect = 'READ') {
   return {
     contractVersion: 1, name: 'orders.lookup', assetType: 'BUSINESS_METHOD', projectId: 8, projectCode: 'orders',
-    qualifiedName: 'orders.lookup', currentContractHash: hash, acceptedContractHash: hash, sourceContractHash: hash,
+    qualifiedName: 'orders.lookup', currentContractHash: hash, executionRevision: 'd'.repeat(64), acceptedContractHash: hash, sourceContractHash: hash,
     sourceAvailability: 'READY', enabled: true, credentialAvailable: true, businessIdentityRequired: false,
     executable: true, parameters: [{ name: 'id', type: 'string', description: '订单标识', required: true }],
     sideEffect, targetDescription: '订单项目实例', timeoutMs: 12000,
@@ -151,7 +151,28 @@ describe('BusinessMethodInvocationPanel', () => {
     button('开始试调用').click(); await flushPromises()
     button('确认并调用').click(); await flushPromises()
     expect(invokeBusinessMethod).toHaveBeenCalledExactlyOnceWith('orders.lookup', expect.objectContaining({
-      expectedContractHash: nextHash, input: { id: 'ORD-2E' }, confirmedSideEffect: true,
+      expectedContractHash: nextHash, expectedExecutionRevision: 'd'.repeat(64), input: { id: 'ORD-2E' }, confirmedSideEffect: true,
+    }))
+  })
+
+  it('invalidates write confirmation when execution binding changes with the same contract', async () => {
+    vi.mocked(getBusinessMethodInvocationContext).mockResolvedValue({ data: context('WRITE') } as any)
+    start(); await flushPromises(); await valueInput().setValue('ORD-BINDING')
+    button('开始试调用').click(); await flushPromises()
+    expect(wrapper.find('[role="alertdialog"]').exists()).toBe(true)
+    const executionRevision = 'e'.repeat(64)
+    vi.mocked(getBusinessMethodInvocationContext).mockResolvedValue({ data: {
+      ...context('WRITE'), executionRevision,
+    } } as any)
+    button('刷新调用条件').click(); await flushPromises()
+    expect(wrapper.find('[role="alertdialog"]').exists()).toBe(false)
+    expect(invokeBusinessMethod).not.toHaveBeenCalled()
+    button('开始试调用').click(); await flushPromises()
+    expect(invokeBusinessMethod).not.toHaveBeenCalled()
+    button('确认并调用').click(); await flushPromises()
+    expect(invokeBusinessMethod).toHaveBeenCalledExactlyOnceWith('orders.lookup', expect.objectContaining({
+      expectedContractHash: hash, expectedExecutionRevision: executionRevision,
+      input: { id: 'ORD-BINDING' }, confirmedSideEffect: true,
     }))
   })
 

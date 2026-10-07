@@ -16,6 +16,7 @@ import {
   PLATFORM_PERMISSION_WORKFLOW_WRITE,
 } from '@/auth/platformAccess'
 import { resolvePlatformNavigation } from '@/auth/platformNavigation'
+import { legacyCatalogQuery } from '@/views/capability/businessCapabilityRoutes'
 
 /** 项目详情动态面包屑目标：从当前路由取 projectCode。 */
 const toProjectDetail = (route: RouteLocationNormalizedLoaded) => ({
@@ -278,100 +279,64 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '调用候选检索', layoutMode: 'standard' },
       },
       {
-        path: 'tool',
-        redirect: '/capability',
-        meta: { title: '能力目录', layoutMode: 'standard' },
-      },
-      {
-        path: 'capability',
-        name: 'CapabilityKernel',
-        component: () => import('@/views/capability/CapabilityKernel.vue'),
+        path: 'business-capabilities',
+        name: 'BusinessCapabilityWorkbench',
+        component: () => import('@/views/capability/BusinessCapabilityWorkbench.vue'),
         meta: {
-          title: '能力目录',
-          layoutMode: 'standard',
-          requiredPermissions: [PLATFORM_PERMISSION_READ],
-          breadcrumb: [{ title: '能力资产' }, { title: '能力目录' }],
-        },
-      },
-      {
-        path: 'business-methods',
-        name: 'BusinessMethodCatalog',
-        component: () => import('@/views/capability/CapabilityKernel.vue'),
-        props: { catalogKind: 'business-method' },
-        meta: {
-          title: '业务方法',
+          title: '业务能力',
+          rootViewKey: 'business-capability-workbench',
           layoutMode: 'standard',
           requiredPermissions: [PLATFORM_PERMISSION_READ],
           projectScope: {
             permission: PLATFORM_PERMISSION_READ,
-            resourceLabel: '业务方法',
+            resourceLabel: '业务能力',
             requiresProjectCode: false,
           },
-          breadcrumb: [{ title: '能力资产' }, { title: '业务方法' }],
+          activeMenu: '/business-capabilities',
+          breadcrumb: [{ title: 'AI 资产' }, { title: '业务能力' }],
         },
+        children: [
+          { path: '', name: 'BusinessCapabilityEntry', redirect: to => ({ path: '/business-capabilities/java-methods', query: to.query }) },
+          {
+            path: 'java-methods', name: 'BusinessMethodCatalog',
+            component: () => import('@/views/capability/BusinessMethodCatalog.vue'),
+            meta: { title: 'Java 业务方法 · 业务能力',
+              breadcrumb: [{ title: 'AI 资产' }, { title: '业务能力' }, { title: 'Java 业务方法' }] },
+          },
+          {
+            path: 'http-apis', name: 'HttpApiCatalog',
+            component: () => import('@/views/api/HttpApiCatalog.vue'),
+            meta: { title: 'HTTP API · 业务能力',
+              projectScope: { permission: PLATFORM_PERMISSION_READ, resourceLabel: 'HTTP API', requiresProjectCode: true },
+              breadcrumb: [{ title: 'AI 资产' }, { title: '业务能力' }, { title: 'HTTP API' }] },
+          },
+        ],
+      },
+      {
+        path: 'business-methods',
+        meta: { layoutMode: 'standard' },
+        redirect: to => ({ path: '/business-capabilities/java-methods', query: legacyCatalogQuery(to.query, 'method') }),
       },
       {
         path: 'apis',
-        name: 'HttpApiCatalog',
-        component: () => import('@/views/api/HttpApiCatalog.vue'),
+        meta: { layoutMode: 'standard' },
+        redirect: to => ({ path: '/business-capabilities/http-apis', query: legacyCatalogQuery(to.query, 'api') }),
+      },
+      {
+        path: 'business-capabilities/http-apis/:id',
+        name: 'HttpApiDetail',
+        component: () => import('@/views/api/HttpApiDetail.vue'),
         meta: {
-          title: 'API', layoutMode: 'standard', requiredPermissions: [PLATFORM_PERMISSION_READ],
-          projectScope: { permission: PLATFORM_PERMISSION_READ, resourceLabel: 'API', requiresProjectCode: true },
-          breadcrumb: [{ title: '能力资产' }, { title: 'API' }],
+          title: 'HTTP API 详情', layoutMode: 'standard', requiredPermissions: [PLATFORM_PERMISSION_READ],
+          projectScope: { permission: PLATFORM_PERMISSION_READ, resourceLabel: 'HTTP API', requiresProjectCode: true },
+          activeMenu: '/business-capabilities',
+          breadcrumb: [{ title: 'AI 资产' }, { title: '业务能力', to: (route: RouteLocationNormalizedLoaded) => ({ path: '/business-capabilities/http-apis', query: route.query }) }, { title: 'HTTP API 详情' }],
         },
       },
       {
         path: 'apis/:id',
-        name: 'HttpApiDetail',
-        component: () => import('@/views/api/HttpApiDetail.vue'),
-        meta: {
-          title: 'API 详情', layoutMode: 'standard', requiredPermissions: [PLATFORM_PERMISSION_READ],
-          projectScope: { permission: PLATFORM_PERMISSION_READ, resourceLabel: 'API', requiresProjectCode: true },
-          activeMenu: '/apis',
-          breadcrumb: [{ title: '能力资产' }, { title: 'API', path: '/apis' }, { title: 'API 详情' }],
-        },
-      },
-      {
-        path: 'capability/review',
-        name: 'CapabilityReview',
-        component: () => import('@/views/registry/CapabilitySyncDebug.vue'),
-        meta: {
-          title: '能力变化',
-          layoutMode: 'standard',
-          requiredPermissions: [PLATFORM_PERMISSION_READ],
-          activeMenu: '/capability',
-          breadcrumb: [{ title: '能力目录', path: '/capability' }, { title: '能力变化' }],
-        },
-      },
-      {
-        path: 'capability/sync-snapshot',
-        name: 'CapabilitySyncSnapshot',
-        component: () => import('@/views/registry/CapabilitySyncDebug.vue'),
-        meta: {
-          title: '同步能力快照',
-          layoutMode: 'standard',
-          requiredPermissions: [PLATFORM_PERMISSION_WRITE],
-          activeMenu: '/capability/sync-snapshot',
-          breadcrumb: [{ title: '能力资产' }, { title: '同步能力快照' }],
-        },
-      },
-      {
-        path: 'capability/tools',
-        name: 'CapabilityKernelTools',
-        redirect: '/capability',
-        meta: { title: '能力目录', layoutMode: 'standard' },
-      },
-      {
-        path: 'capability/compositions',
-        name: 'CapabilityKernelCompositions',
-        redirect: '/capability',
-        meta: { title: '能力目录', layoutMode: 'standard' },
-      },
-      {
-        path: 'capability/interactions',
-        name: 'CapabilityKernelInteractions',
-        redirect: '/capability',
-        meta: { title: '能力目录', layoutMode: 'standard' },
+        meta: { layoutMode: 'standard' },
+        redirect: to => ({ path: `/business-capabilities/http-apis/${to.params.id}`, query: legacyCatalogQuery(to.query, 'api') }),
       },
       {
         path: 'registry/projects',
@@ -383,6 +348,19 @@ const routes: RouteRecordRaw[] = [
           hideSidebarProjectPanel: true,
           activeMenu: '/registry/projects',
           breadcrumb: [{ title: '项目中心' }, { title: '项目管理' }],
+        },
+      },
+      {
+        path: 'registry/projects/:projectCode/sync-diagnostics',
+        name: 'RegistrySyncDiagnostics',
+        component: () => import('@/views/registry/RegistrySyncDiagnostics.vue'),
+        meta: {
+          title: '项目同步诊断', layoutMode: 'project-workbench',
+          requiredPermissions: [PLATFORM_PERMISSION_WRITE], activeMenu: '/registry/projects',
+          breadcrumb: [
+            { title: '项目中心' }, { title: '项目管理', to: { path: '/registry/projects' } },
+            { title: '项目详情', to: toProjectDetail }, { title: '同步诊断' },
+          ],
         },
       },
       {
@@ -398,21 +376,6 @@ const routes: RouteRecordRaw[] = [
             { title: '项目中心' },
             { title: '项目管理', to: { path: '/registry/projects' } },
             { title: '项目详情' },
-          ],
-        },
-      },
-      {
-        path: 'registry/capability-sync',
-        name: 'CapabilitySyncDebug',
-        redirect: '/capability/review',
-        meta: {
-          title: '能力变化',
-          layoutMode: 'standard',
-          requiredPermissions: [PLATFORM_PERMISSION_READ],
-          activeMenu: '/capability',
-          breadcrumb: [
-            { title: '能力资产' },
-            { title: '能力变化' },
           ],
         },
       },

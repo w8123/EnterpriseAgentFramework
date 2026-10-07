@@ -77,8 +77,14 @@
     />
 
     <template v-else>
+      <el-tabs :model-value="projectSection" class="project-section-tabs" @tab-change="selectProjectSection">
+        <el-tab-pane label="项目工作台" name="overview" />
+        <el-tab-pane label="来源变化" name="source-changes" />
+      </el-tabs>
+      <ProjectSourceChanges v-if="projectSection === 'source-changes' && project?.projectCode === projectCode" :project="project" />
+
       <el-alert
-        v-if="projectDetailLoadError"
+        v-if="projectSection === 'overview' && projectDetailLoadError"
         class="page-alert"
         type="warning"
         show-icon
@@ -87,7 +93,7 @@
       />
 
       <el-alert
-        v-if="pageCatalogLoadError"
+        v-if="projectSection === 'overview' && pageCatalogLoadError"
         class="page-alert"
         type="error"
         show-icon
@@ -104,7 +110,7 @@
         </el-button>
       </el-alert>
 
-      <section class="workbench-grid">
+      <section v-if="projectSection === 'overview'" class="workbench-grid">
         <el-card v-for="group in workbenchGroups" :key="group.title" class="detail-card workbench-card" shadow="never">
           <template #header>
             <div class="section-title">
@@ -137,7 +143,7 @@
         </el-card>
       </section>
 
-      <el-card class="detail-card instance-card workbench-list-surface" shadow="never">
+      <el-card v-if="projectSection === 'overview'" class="detail-card instance-card workbench-list-surface" shadow="never">
         <template #header>
           <div class="table-header">
             <div class="section-title">
@@ -718,6 +724,7 @@ import { useRegistryProjectDetailData } from '@/views/registry/composables/useRe
 import { useRegistryProjectDetailNavigation } from '@/views/registry/composables/useRegistryProjectDetailNavigation'
 import { useRegistryProjectDetailUiState } from '@/views/registry/composables/useRegistryProjectDetailUiState'
 import { useRegistryProjectWorkbench } from '@/views/registry/composables/useRegistryProjectWorkbench'
+import ProjectSourceChanges from '@/views/registry/components/ProjectSourceChanges.vue'
 import ProjectRouteMissingState from '@/views/registry/components/ProjectRouteMissingState.vue'
 import ProjectWorkbenchLoadErrorState from '@/views/registry/components/ProjectWorkbenchLoadErrorState.vue'
 
@@ -807,6 +814,9 @@ function aiCodingInfoIcon(label: string) {
 }
 
 const {
+  projectSection,
+  selectProjectSection,
+  goCapabilitySync,
   goCapability,
   goScanProjectDetail,
   goWorkflowList,
@@ -844,6 +854,7 @@ const { workbenchGroups } = useRegistryProjectWorkbench({
   project,
   projectCode,
   isSdkBackedProject,
+  goCapabilitySync,
   goCapability,
   goScanProjectDetail,
   goWorkflowList,

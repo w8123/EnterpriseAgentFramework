@@ -2,7 +2,7 @@ import { ElMessage } from 'element-plus'
 import { computed, type ComputedRef, type Ref } from 'vue'
 import { editWorkflowProposal } from '@/api/workflow'
 import type { KnowledgeBase } from '@/types/knowledge'
-import type { ToolInfo } from '@/types/tool'
+import type { BusinessMethodInfo } from '@/types/businessMethod'
 import type { CanvasEdge, CanvasNode, CanvasSnapshot } from '@/types/studio'
 import type {
   WorkflowProposalEditOperation,
@@ -30,10 +30,10 @@ export interface UseWorkflowStudioProposalActionsDeps {
   aiEditInstruction: Ref<string>
   aiEditLoading: Ref<boolean>
   aiEditPreview: Ref<WorkflowProposalEditResult | null>
-  availableTools: ComputedRef<ToolInfo[]>
+  availableTools: ComputedRef<BusinessMethodInfo[]>
   knowledgeOptions: Ref<KnowledgeBase[]>
   resolveAiModelInstanceId: () => string
-  toolToProposalResource: (tool: ToolInfo) => WorkflowProposalResource
+  toolToProposalResource: (tool: BusinessMethodInfo) => WorkflowProposalResource
   knowledgeToProposalResource: (knowledge: KnowledgeBase) => WorkflowProposalResource
   syncJsonFromCanvas: () => void
   canvasSnapshot: () => CanvasSnapshot

@@ -82,7 +82,7 @@ class RuntimeWorkflowReadOnlyTrialServiceTest {
         return new ConsoleCapabilityInvocationContracts.InvocationContext(1, "orders_normalize", "orders:normalize",
                 "orders:normalize", "BUSINESS_METHOD", 41L, "orders", "a".repeat(64), "a".repeat(64), "a".repeat(64),
                 "READY", true, "READ_ONLY", List.of(new ConsoleCapabilityInvocationContracts.Parameter("orderNo", "String",
-                null, true, "BODY", List.of(), Map.of())), null, "String", null, null, "UNKNOWN", true, false, true, null, null, 30_000);
+                null, true, "BODY", List.of(), Map.of())), null, "String", null, null, "UNKNOWN", true, false, true, null, null, 30_000, "d".repeat(64));
     }
     private WorkflowReadOnlyTrialPolicy.TrialCommand methodCommand(RuntimeWorkflowDefinitionEntity saved, Map<String, Object> input) {
         return new WorkflowReadOnlyTrialPolicy.TrialCommand(1, "wf-api", saved.getUpdatedAt().toString(),
@@ -116,5 +116,21 @@ class RuntimeWorkflowReadOnlyTrialServiceTest {
         saved.setGraphSpecJson(METHOD_GRAPH.replace("nodeOutput.method.data", "nodeOutput.method.data.unverified"));
         assertThrows(IllegalArgumentException.class, () -> service.run(methodCommand(saved, Map.of("orderNo", "A"))));
         verify(capabilities, never()).withBusinessMethodDraftScope(any(), any(), any()); verifyNoInteractions(http, debug);
+    }
+
+    @Test void controlApprovedExecutionRevisionCannotBeReplacedByNewRuntimeCredential() throws Exception {
+        var saved = saved(); saved.setGraphSpecJson(METHOD_GRAPH);
+        when(definitions.findById("wf-api")).thenReturn(Optional.of(saved));
+        com.fasterxml.jackson.databind.node.ObjectNode changed = json.valueToTree(methodOwner());
+        changed.put("executionRevision", "c".repeat(64));
+        when(capabilities.getBusinessMethodExecutionContext("orders:normalize", "orders")).thenReturn(
+                json.treeToValue(changed, ConsoleCapabilityInvocationContracts.InvocationContext.class));
+
+        var failure = assertThrows(RuntimeWorkflowReadOnlyTrialService.Conflict.class,
+                () -> service.run(methodCommand(saved, Map.of("orderNo", "A-1024"))));
+
+        assertEquals("BUSINESS_METHOD_TRIAL_OWNER_CHANGED", failure.getMessage());
+        verify(capabilities, never()).withBusinessMethodDraftScope(any(), any(), any());
+        verifyNoInteractions(http, debug);
     }
 }

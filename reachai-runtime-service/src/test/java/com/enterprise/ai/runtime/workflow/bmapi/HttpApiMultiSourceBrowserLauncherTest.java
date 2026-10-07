@@ -2,6 +2,7 @@ package com.enterprise.ai.runtime.workflow.bmapi;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -12,6 +13,7 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.*;
 
 /** Opt-in browser gate: normal public project scans, owner facts, signed Console/Runtime and real MVC GET. */
+@EnabledIfSystemProperty(named = "bmapi.multiSourceBrowser.directory", matches = ".+")
 class HttpApiMultiSourceBrowserLauncherTest {
     @Test
     void waitsForNormalDualSourceBrowserFlowAndConflictRescans() throws Exception {

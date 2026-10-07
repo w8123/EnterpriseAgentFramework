@@ -72,10 +72,9 @@ class RuntimeWorkflowResumeRecoveryPersistenceTest {
                 mock(RuntimeSupervisorApprovalService.class)));
         executor = mock(RuntimeGraphSpecExecutor.class);
         when(executor.executeFromCheckpoint(any(), any(), any(), anyInt(), any(), any())).thenReturn(done());
-        resume = transactional(new RuntimeInteractionResumeService(waits,
-                mock(RuntimeCapabilityCatalogClient.class), executor, json, expiry));
+        resume = transactional(new RuntimeInteractionResumeService(waits, executor, json, expiry));
         waits.createWaitingSession(new RuntimeWorkflowInteractionSessionService.CreateRequest(ID, "WORKFLOW",
-                "run-a", "trace-a", "wf-a", 23L, null, GRAPH, "form", "COLLECT_INPUT", Map.of(),
+                "run-a", "trace-a", "wf-a", 23L, GRAPH, "form", "COLLECT_INPUT", Map.of(),
                 Map.of("component", "form"), Map.of("agentId", "agent-a", "agentConfigVersionId", 11),
                 "orders", "tenant-a", "chat-a", "user-a", 3600));
         db.jdbc().update("INSERT INTO runtime_run (trace_id, run_type, entry_type, status, suspension_reason) VALUES (?, 'AGENT', 'EMBED', 'SUSPENDED', 'USER_INPUT')", "trace-a");

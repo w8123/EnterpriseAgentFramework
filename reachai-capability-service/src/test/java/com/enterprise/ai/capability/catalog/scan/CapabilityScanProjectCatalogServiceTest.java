@@ -417,7 +417,7 @@ class CapabilityScanProjectCatalogServiceTest {
         ScanProjectToolEntity stale = tool(11L, "GET", "/legacy", "Legacy", "AI", 501L);
         stale.setProjectId(7L);
         when(scanProjectMapper.selectById(7L)).thenReturn(project);
-        when(scanProjectBlockerService.analyze(7L)).thenReturn(new ScanProjectBlockers(false, List.of(), List.of()));
+        when(scanProjectBlockerService.analyze(7L)).thenReturn(new ScanProjectBlockers(false, List.of(), List.of(), List.of()));
         when(scanProjectToolMapper.selectList(any())).thenReturn(List.of(stale), List.of(stale));
         when(scannerClient.scanOpenApi(any())).thenReturn(okManifest(List.of()));
 
@@ -452,7 +452,7 @@ class CapabilityScanProjectCatalogServiceTest {
                 true, true, new com.enterprise.ai.capability.catalog.httpapi.HttpApiServiceScope(7L, "orders", "prod"),
                 List.of());
         when(scanProjectMapper.selectById(7L)).thenReturn(project);
-        when(scanProjectBlockerService.analyze(7L)).thenReturn(new ScanProjectBlockers(false, List.of(), List.of()));
+        when(scanProjectBlockerService.analyze(7L)).thenReturn(new ScanProjectBlockers(false, List.of(), List.of(), List.of()));
         when(scanProjectToolMapper.selectList(any())).thenReturn(List.of());
         when(scannerClient.scanController(any())).thenReturn(com.enterprise.ai.common.dto.ApiResult.ok(manifest));
         when(controllerHttpApiIntake.prepare(project, manifest.httpApis(), true)).thenReturn(plan);
@@ -493,7 +493,7 @@ class CapabilityScanProjectCatalogServiceTest {
                 true, true, new com.enterprise.ai.capability.catalog.httpapi.HttpApiServiceScope(7L, "orders", "prod"),
                 List.of());
         when(scanProjectMapper.selectById(7L)).thenReturn(project);
-        when(scanProjectBlockerService.analyze(7L)).thenReturn(new ScanProjectBlockers(false, List.of(), List.of()));
+        when(scanProjectBlockerService.analyze(7L)).thenReturn(new ScanProjectBlockers(false, List.of(), List.of(), List.of()));
         when(scanProjectToolMapper.selectList(any())).thenReturn(List.of());
         when(scannerClient.scanOpenApi(any())).thenReturn(com.enterprise.ai.common.dto.ApiResult.ok(manifest));
         when(openApiHttpApiIntake.prepare(project, manifest.httpApis(), true)).thenReturn(plan);
@@ -820,20 +820,74 @@ class CapabilityScanProjectCatalogServiceTest {
         ScanProjectBlockers blockers = new ScanProjectBlockers(
                 true,
                 List.of("orders_create"),
-                List.of(new ScanProjectBlockers.AgentRef("agent-1", "Team Assistant")));
+                List.of(new ScanProjectBlockers.AgentRef("agent-1", "Team Assistant")), List.of());
         when(scanProjectMapper.selectById(7L)).thenReturn(project);
         when(scanProjectBlockerService.analyze(7L)).thenReturn(blockers);
 
-        ScanProjectBlockers result = service.operationBlockers(7L);
+        ScanProjectBlockers result = service.operationBlockers(7L, ScanProjectBlockers.Operation.RESCAN);
 
         assertEquals(blockers, result);
+    }
+
+    @Test
+    void deletionUsesOwnerBlockersAndDoesNotDeleteAnyProjectData() {
+        ScanProjectEntity project = new ScanProjectEntity();
+        project.setId(7L);
+        when(scanProjectMapper.selectById(7L)).thenReturn(project);
+        ScanProjectBlockers blockers = new ScanProjectBlockers(true, List.of(), List.of(),
+                List.of(new ScanProjectBlockers.AssetRef("BUSINESS_METHOD", 21L, "orders:read", "查询订单")));
+        when(scanProjectBlockerService.analyzeDeletion(7L)).thenReturn(blockers);
+
+        var failure = assertThrows(CapabilityScanProjectCatalogService.ScanProjectBlockedException.class,
+                () -> service.delete(7L));
+
+        assertEquals(blockers, failure.blockers());
+        var order = org.mockito.Mockito.inOrder(scanProjectMapper, scanProjectBlockerService);
+        order.verify(scanProjectMapper).lockCapabilityChanges(7L);
+        order.verify(scanProjectMapper).selectById(7L);
+        order.verify(scanProjectBlockerService).analyzeDeletion(7L);
+        verify(scanProjectMapper, never()).deleteById(any(Long.class));
+        verifyNoInteractions(semanticDocMapper, scanProjectToolMapper, scanModuleMapper, registryCredentialMapper);
+    }
+
+    @Test
+    void deletionRefusesUnavailableBlockersAndRetainsTheProject() {
+        ScanProjectEntity project = new ScanProjectEntity(); project.setId(7L);
+        when(scanProjectMapper.selectById(7L)).thenReturn(project);
+        assertThrows(IllegalStateException.class, () -> service.delete(7L));
+        verify(scanProjectMapper, never()).deleteById(any(Long.class));
+        verifyNoInteractions(semanticDocMapper, scanProjectToolMapper, scanModuleMapper, registryCredentialMapper);
+    }
+
+    @Test
+    void deletionPreflightUsesTheSameOwnerCheckAsDeletion() {
+        ScanProjectEntity project = new ScanProjectEntity(); project.setId(7L);
+        when(scanProjectMapper.selectById(7L)).thenReturn(project);
+        var blockers = new ScanProjectBlockers(true, List.of(), List.of(),
+                List.of(new ScanProjectBlockers.AssetRef("HTTP_API", 31L, "orders:http:get", "GET /orders")));
+        when(scanProjectBlockerService.analyzeDeletion(7L)).thenReturn(blockers);
+        assertEquals(blockers, service.operationBlockers(7L, ScanProjectBlockers.Operation.DELETE));
+        verify(scanProjectBlockerService, never()).analyze(any());
+    }
+
+    @Test
+    void deletionWithoutAssetsOrReferencesKeepsTheEmptyProjectCleanupPath() {
+        ScanProjectEntity project = new ScanProjectEntity(); project.setId(7L);
+        when(scanProjectMapper.selectById(7L)).thenReturn(project);
+        when(scanProjectBlockerService.analyzeDeletion(7L)).thenReturn(ScanProjectBlockers.empty());
+        service.delete(7L);
+        verify(scanProjectMapper).deleteById(7L);
+        verify(semanticDocMapper).delete(any());
+        verify(scanProjectToolMapper).delete(any());
+        verify(scanModuleMapper).delete(any());
+        verify(registryCredentialMapper).delete(any());
     }
 
     @Test
     void rejectsOperationBlockersForMissingProject() {
         when(scanProjectMapper.selectById(404L)).thenReturn(null);
 
-        assertThrows(IllegalArgumentException.class, () -> service.operationBlockers(404L));
+        assertThrows(IllegalArgumentException.class, () -> service.operationBlockers(404L, ScanProjectBlockers.Operation.RESCAN));
     }
 
     private ScanProjectToolEntity tool(Long id,

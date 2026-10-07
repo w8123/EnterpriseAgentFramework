@@ -13,6 +13,7 @@ export interface UseRegistryProjectWorkbenchDeps {
   projectCode: Ref<string>
   isSdkBackedProject: Readonly<Ref<boolean>>
   goCapability: (path: string) => void
+  goCapabilitySync: () => void
   goScanProjectDetail: () => void
   goWorkflowList: () => void
   goPageActionGovernance: () => void
@@ -48,6 +49,11 @@ export function useRegistryProjectWorkbench(deps: UseRegistryProjectWorkbenchDep
     {
       title: '项目资源',
       items: [
+        {
+          title: '来源变化与同步记录',
+          desc: 'SDK 按策略自动接纳声明；在这里处理例外变化并查看同步记录。',
+          icon: Grid, tone: 'blue', disabled: !deps.project.value?.id, action: deps.goCapabilitySync,
+        },
         {
           title: '后端接口管理',
           desc: '查看来源接口、模块与语义证据；到业务方法/API 目录接纳契约并受控调用。',

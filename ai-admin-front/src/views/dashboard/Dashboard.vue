@@ -75,7 +75,7 @@
             <a v-for="entry in availableTasks" :key="entry.index" :href="entry.index"
               @click.prevent="go(entry.index)">{{ entry.label }}</a>
           </nav>
-          <p v-else>当前账号没有可用的业务方法、API或Workflow入口，请联系管理员核对项目授权。</p>
+          <p v-else>当前账号没有可用的业务能力或 Workflow 入口，请联系管理员核对项目授权。</p>
         </DashboardPanelState>
         <div v-if="partialDeniedWarning" class="ops-data-warning" role="status">
           <i aria-hidden="true" />
@@ -219,7 +219,7 @@ const overviewDeniedDetail = computed(() => projectOnly.value
 // Destination selection only: labels and availability belong to the shared menu.
 const availableTasks = computed(() => filterSidebarMenu(sidebarMenu, platformSessionUser.value?.permissions ?? [])
   .filter(entry => entry.kind === 'item')
-  .filter(entry => ['/business-methods', '/apis', '/workflows'].includes(entry.index)))
+  .filter(entry => ['/business-capabilities', '/workflows'].includes(entry.index)))
 
 const editor = useDashboardLayoutEditor({ repository, fallback: defaultConsoleLayout })
 editor.initialize()

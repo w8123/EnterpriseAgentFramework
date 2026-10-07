@@ -1,6 +1,6 @@
 package com.enterprise.ai.capability.internal;
 
-/** Immutable execution descriptor resolved from the Capability catalog or Kernel asset store. */
+/** Immutable execution descriptor derived from an accepted business-method asset. */
 public record CapabilityInvocationAsset(
         Source source,
         String qualifiedName,
@@ -13,7 +13,6 @@ public record CapabilityInvocationAsset(
 ) {
 
     public enum Source {
-        TOOL_CATALOG,
-        KERNEL_ASSET
+        BUSINESS_METHOD
     }
 }

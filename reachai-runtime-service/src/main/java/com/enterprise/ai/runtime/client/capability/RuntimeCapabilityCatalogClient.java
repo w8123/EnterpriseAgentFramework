@@ -44,8 +44,6 @@ public interface RuntimeCapabilityCatalogClient {
         return CapabilityInvocationResponse.fromLegacy(invocation, executeTool(qualifiedName, request));
     }
 
-    Map<String, Object> getCompositionDefinition(String qualifiedName);
-
     Map<String, Object> getProject(String projectCode);
 
     Map<String, Object> getProjectById(Long projectId);

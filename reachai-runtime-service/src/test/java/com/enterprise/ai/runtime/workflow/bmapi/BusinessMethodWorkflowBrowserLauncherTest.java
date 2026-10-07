@@ -1,6 +1,7 @@
 package com.enterprise.ai.runtime.workflow.bmapi;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 
 import java.nio.file.Path;
 
@@ -9,6 +10,7 @@ import java.nio.file.Path;
  * the existing fixture-backed launcher; the browser itself supplies the stop
  * sentinel after its real UI checks complete.
  */
+@EnabledIfSystemProperty(named = "bmapi.browser.readyManifest", matches = ".+")
 class BusinessMethodWorkflowBrowserLauncherTest {
 
     @Test

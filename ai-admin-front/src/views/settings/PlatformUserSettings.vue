@@ -42,7 +42,7 @@
       <div><strong>审计</strong><span>谁在何时改变了什么</span></div>
     </section>
 
-    <section class="identity-workbench">
+    <section class="identity-workbench workbench-list-surface">
       <el-tabs v-model="activeTab" class="identity-tabs">
         <el-tab-pane name="accounts">
           <template #label>

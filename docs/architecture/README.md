@@ -40,6 +40,7 @@
 | --- | --- |
 | [ai-coding-task-protocol-v1.md](./ai-coding-task-protocol-v1.md) | 外部 AI Coding 任务交接、状态、凭证、Artifact 和验收协议 |
 | [business-page-workbench.md](./business-page-workbench.md) | 页面地图、改造分析、任务交付、资源绑定和发布查询 |
+| [business-method-api-assets.md](./business-method-api-assets.md) | 业务方法/API 产品入口、源资产所有权、单向事实链、固定引用和旧模型退场 |
 | [capability-change-governance.md](./capability-change-governance.md) | 能力来源观察、自动接纳、契约漂移保护与调用投影归属 |
 | [api-market.md](./api-market.md) | 外部 API 目录、版本、Operation、项目接入和来源治理 |
 | [model-center-v2.md](./model-center-v2.md) | 模型模板/实例、稳定 ID、测试、归档和凭据边界 |

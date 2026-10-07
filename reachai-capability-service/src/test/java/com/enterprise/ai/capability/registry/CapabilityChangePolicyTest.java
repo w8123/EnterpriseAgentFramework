@@ -60,23 +60,28 @@ class CapabilityChangePolicyTest {
         tool.setEndpointPath(item.endpointPath()); tool.setRequestBodyType(item.requestBodyType());
         tool.setResponseType(item.responseType()); tool.setSideEffect("READ_ONLY"); tool.setEnabled(true);
         tool.setParametersJson(mapper.writeValueAsString(item.parameters()));
-        tool.setCapabilityMetadataJson("{\"sideEffect\":\"READ_ONLY\"}");
+        tool.setCapabilityMetadataJson("{\"sideEffect\":\"READ_ONLY\",\"assetType\":\"BUSINESS_METHOD\"}");
         assertEquals(policy.contractHash(item), policy.contractHash(tool));
         tool.setEndpointPath("/changed");
         assertNotEquals(policy.contractHash(item), policy.contractHash(tool));
     }
 
     @Test
-    void validatesExplicitAssetTypesWithoutInventingLegacyMetadata() {
+    void requiresExplicitAssetTypesAndRejectsMissingBlankOrUnknownDeclarations() {
         CapabilityRegistration businessMethod = new CapabilityRegistration("query", "查询", "订单查询", "POST", null, null,
                 "/query", "JSON", "JSON", "READ", true, List.of(), Map.of("assetType", "BUSINESS_METHOD"));
         CapabilityRegistration normalizedBusinessMethod = policy.normalize(project(), List.of(businessMethod)).get(0);
         assertEquals(CapabilityAssetType.BUSINESS_METHOD, policy.assetType(normalizedBusinessMethod));
         assertEquals("BUSINESS_METHOD", normalizedBusinessMethod.metadata().get("assetType"));
 
-        CapabilityRegistration legacy = policy.normalize(project(), List.of(registration("legacy", "READ", List.of()))).get(0);
-        assertEquals(CapabilityAssetType.UNCLASSIFIED, policy.assetType(legacy));
-        assertFalse(legacy.metadata().containsKey("assetType"));
+        for (Map<String, Object> metadata : List.of(Map.<String, Object>of(),
+                Map.<String, Object>of("assetType", ""), Map.<String, Object>of("assetType", "   "),
+                Map.<String, Object>of("assetType", "UNCLASSIFIED"))) {
+            var missing = new CapabilityRegistration("missing", "查询", "查询", "POST", null, null,
+                    "/query", "JSON", "JSON", "READ", true, List.of(), metadata);
+            assertThrows(IllegalArgumentException.class, () -> policy.normalize(project(), List.of(missing)));
+        }
+        assertThrows(IllegalArgumentException.class, () -> policy.assetType(null));
 
         CapabilityRegistration invalid = new CapabilityRegistration("invalid", "无效", "无效", "POST", null, null,
                 "/invalid", "JSON", "JSON", "READ", true, List.of(), Map.of("assetType", "HTTP"));
@@ -91,7 +96,7 @@ class CapabilityChangePolicyTest {
     }
     private CapabilityRegistration registration(String name, String effect, List<ToolDefinitionParameter> parameters) {
         return new CapabilityRegistration(name, "查询", "订单查询", "POST", null, null,
-                "/query", "JSON", "JSON", effect, true, parameters, Map.of());
+                "/query", "JSON", "JSON", effect, true, parameters, Map.of("assetType", "BUSINESS_METHOD"));
     }
     private ScanProjectEntity project() {
         ScanProjectEntity project = new ScanProjectEntity();

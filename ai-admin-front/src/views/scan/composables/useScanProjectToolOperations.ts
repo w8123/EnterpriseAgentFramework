@@ -63,7 +63,7 @@ export function useScanProjectToolOperations(deps: UseScanProjectToolOperationsD
 
   async function ensureScanOperationAllowed(): Promise<boolean> {
     try {
-      const { data } = await getScanProjectOperationBlockers(deps.projectId.value)
+      const { data } = await getScanProjectOperationBlockers(deps.projectId.value, 'RESCAN')
       if (!data.blocked) {
         return true
       }

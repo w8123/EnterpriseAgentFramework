@@ -106,6 +106,7 @@ export function contextIsExecutable(context: BusinessMethodInvocationContext | n
     && !context.businessIdentityRequired
     && context.sourceAvailability === 'READY'
     && CONTRACT_HASH_PATTERN.test(hash)
+    && CONTRACT_HASH_PATTERN.test(String(context.executionRevision || ''))
     && context.acceptedContractHash === hash
     && context.sourceContractHash === hash
 }

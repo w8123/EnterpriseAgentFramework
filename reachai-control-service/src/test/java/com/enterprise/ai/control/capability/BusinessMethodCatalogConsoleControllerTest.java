@@ -18,6 +18,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.server.ResponseStatusException;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import java.lang.reflect.Method;
 import java.time.LocalDateTime;
@@ -26,9 +28,16 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 class BusinessMethodCatalogConsoleControllerTest {
 
@@ -115,6 +124,54 @@ class BusinessMethodCatalogConsoleControllerTest {
 
         assertEquals(HttpStatus.NOT_FOUND, controller.getBusinessMethod(
                 request(globalSession()), "legacy_http_api").getStatusCode());
+    }
+
+    @Test
+    void summaryResolvesAndAuthorizesTheOwnerProjectBeforeReadingCounts() {
+        var gateway = mock(CapabilityReviewGateway.class);
+        when(gateway.getProjectById(7L, "7")).thenReturn(ResponseEntity.ok(Map.of("projectId", 7L, "projectCode", "orders")));
+        when(gateway.getBusinessMethodSummary(7L, "7")).thenReturn(ResponseEntity.ok(Map.of("total", 3, "enabled", 2, "disabled", 1)));
+        var response = controller(gateway).businessMethodSummary(request(projectSession("orders")), 7L);
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(Map.of("total", 3, "enabled", 2, "disabled", 1), response.getBody());
+        verify(gateway).getProjectById(7L, "7");
+        verify(gateway).getBusinessMethodSummary(7L, "7");
+        verifyNoMoreInteractions(gateway);
+    }
+
+    @Test
+    void projectGrantCannotReadAnotherProjectOrGlobalSummary() {
+        var gateway = mock(CapabilityReviewGateway.class);
+        var controller = controller(gateway);
+        when(gateway.getProjectById(8L, "7")).thenReturn(ResponseEntity.ok(Map.of("projectId", 8L, "projectCode", "other")));
+        assertEquals(HttpStatus.FORBIDDEN, assertThrows(ResponseStatusException.class,
+                () -> controller.businessMethodSummary(request(projectSession("orders")), 8L)).getStatusCode());
+        verify(gateway, never()).getBusinessMethodSummary(8L, "7");
+        assertEquals(HttpStatus.FORBIDDEN, assertThrows(ResponseStatusException.class,
+                () -> controller.businessMethodSummary(request(projectSession("orders")), null)).getStatusCode());
+        verify(gateway, never()).getBusinessMethodSummary(null, "7");
+    }
+
+    @Test
+    void summaryRejectsInvalidProjectAndPreservesUnavailableCountsAsAnError() {
+        var gateway = mock(CapabilityReviewGateway.class);
+        var controller = controller(gateway);
+        assertEquals(HttpStatus.BAD_REQUEST, controller.businessMethodSummary(request(globalSession()), 0L).getStatusCode());
+        verifyNoInteractions(gateway);
+        when(gateway.getBusinessMethodSummary(null, "7")).thenReturn(ResponseEntity.status(503).build());
+        assertEquals(HttpStatus.SERVICE_UNAVAILABLE, controller.businessMethodSummary(request(globalSession()), null).getStatusCode());
+    }
+
+    @Test
+    void summaryRouteTakesPrecedenceOverTheNamedMethodRoute() throws Exception {
+        var gateway = mock(CapabilityReviewGateway.class);
+        when(gateway.getBusinessMethodSummary(null, "7")).thenReturn(ResponseEntity.ok(Map.of("total", 0, "enabled", 0, "disabled", 0)));
+        MockMvcBuilders.standaloneSetup(controller(gateway)).build()
+                .perform(get("/api/business-methods/summary").requestAttr(
+                        PlatformConsoleAuthInterceptor.SESSION_REQUEST_ATTRIBUTE, globalSession()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.total").value(0));
+        verify(gateway).getBusinessMethodSummary(null, "7");
+        verifyNoMoreInteractions(gateway);
     }
 
     private static CapabilityCatalogConsoleController controller(CapabilityReviewGateway gateway) {

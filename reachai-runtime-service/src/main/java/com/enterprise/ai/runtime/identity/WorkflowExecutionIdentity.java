@@ -21,8 +21,7 @@ public final class WorkflowExecutionIdentity {
         AUTOMATION,
         MCP_REMOTE_CLIENT,
         STUDIO_PROJECT_TEST,
-        DEBUG_UNTRUSTED,
-        COMPOSITION_UNTRUSTED
+        DEBUG_UNTRUSTED
     }
 
     private final Source source;
@@ -150,10 +149,6 @@ public final class WorkflowExecutionIdentity {
                 principalKey, true, false);
     }
 
-    public static WorkflowExecutionIdentity untrustedComposition() {
-        return new WorkflowExecutionIdentity(Source.COMPOSITION_UNTRUSTED, null, null, null, null, false, false);
-    }
-
     /**
      * Bind an already attested caller to the server-resolved Agent target project.
      * This does not authorize access to that Agent. No business-input map is accepted here.
@@ -203,7 +198,6 @@ public final class WorkflowExecutionIdentity {
                     : untrustedDebug();
             // A request-scoped Studio trust grant must never survive a generic context snapshot.
             case STUDIO_PROJECT_TEST -> untrustedDebug();
-            case COMPOSITION_UNTRUSTED -> untrustedComposition();
             case DEBUG_UNTRUSTED -> untrustedDebug();
         };
     }

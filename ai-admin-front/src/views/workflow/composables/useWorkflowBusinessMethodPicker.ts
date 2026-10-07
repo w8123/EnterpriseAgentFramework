@@ -1,6 +1,6 @@
 import { computed, onScopeDispose, ref, watch, type Ref } from 'vue'
-import { getBusinessMethod, getBusinessMethods } from '@/api/tool'
-import type { ToolInfo } from '@/types/tool'
+import { getBusinessMethod, getBusinessMethods } from '@/api/businessMethod'
+import type { BusinessMethodInfo } from '@/types/businessMethod'
 import { isSelectableBusinessMethod } from '@/views/workflow/businessMethodWorkflow'
 
 export type BusinessMethodListStatus = 'idle' | 'loading' | 'ready' | 'empty' | 'error'
@@ -42,11 +42,11 @@ export function useWorkflowBusinessMethodPicker(deps: UseWorkflowBusinessMethodP
   const submittedKeyword = ref('')
   const currentPage = ref(1)
   const pageSize = ref(10)
-  const rows = ref<ToolInfo[]>([])
+  const rows = ref<BusinessMethodInfo[]>([])
   const total = ref(0)
   const listStatus = ref<BusinessMethodListStatus>('idle')
   const listError = ref('')
-  const selectedSummary = ref<ToolInfo | null>(null)
+  const selectedSummary = ref<BusinessMethodInfo | null>(null)
   const detailStatus = ref<BusinessMethodDetailStatus>('idle')
   const detailError = ref('')
   const selectedReference = ref('')
@@ -116,7 +116,8 @@ export function useWorkflowBusinessMethodPicker(deps: UseWorkflowBusinessMethodP
         keyword: submittedKeyword.value || undefined,
       })
       if (!listIsCurrent(generation, requestScope)) return false
-      rows.value = Array.isArray(data?.records) ? data.records : []
+      if (!Array.isArray(data?.records)) throw new Error('Invalid business method list response')
+      rows.value = data.records
       total.value = Number.isFinite(Number(data?.total)) ? Number(data?.total) : 0
       listStatus.value = rows.value.length ? 'ready' : 'empty'
       return true
@@ -166,7 +167,7 @@ export function useWorkflowBusinessMethodPicker(deps: UseWorkflowBusinessMethodP
     void loadList()
   }
 
-  function adoptCandidate(candidate: ToolInfo) {
+  function adoptCandidate(candidate: BusinessMethodInfo) {
     if (!isSelectableBusinessMethod(candidate, deps.projectId.value)) return false
     detailGeneration += 1
     selectedReference.value = candidate.name

@@ -9,6 +9,7 @@ import type {
   AiCodingAccessResponse,
   AiCodingAccessUpdateRequest,
   ScanProjectBlockers,
+  ScanProjectOperation,
   ScanProjectRegistryCredentialSaveRequest,
   SdkAccessCheckResponse,
   SdkCapabilityScanResult,
@@ -55,9 +56,9 @@ export function getScanProjectDetail(id: number) {
   return controlRequest.get<ScanProject>(`/api/scan-projects/${id}`)
 }
 
-/** 获取项目工具是否仍被 Agent 使用。 */
-export function getScanProjectOperationBlockers(id: number) {
-  return controlRequest.get<ScanProjectBlockers>(`/api/scan-projects/${id}/operation-blockers`)
+/** 删除核对源资产和引用；重扫仅核对受保护的引用。 */
+export function getScanProjectOperationBlockers(id: number, operation: ScanProjectOperation) {
+  return controlRequest.get<ScanProjectBlockers>(`/api/scan-projects/${id}/operation-blockers`, { params: { operation } })
 }
 
 export function createScanProject(data: ScanProjectUpsertRequest) {

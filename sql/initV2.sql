@@ -982,7 +982,7 @@ CREATE TABLE IF NOT EXISTS `capability_scan_project_tool` (
     `source`              VARCHAR(32)  NOT NULL DEFAULT 'scanner' COMMENT '来源: scanner',
     `source_location`     VARCHAR(512) DEFAULT NULL            COMMENT '来源定位',
     `source_qualified_name` VARCHAR(256) DEFAULT NULL           COMMENT '服务端绑定的 SDK 来源能力标识，目录编辑不可变',
-    `asset_type`          VARCHAR(32)  NOT NULL DEFAULT 'UNCLASSIFIED' COMMENT '来源资产类型投影: BUSINESS_METHOD / HTTP_API / UNCLASSIFIED',
+    `asset_type`          VARCHAR(32)  NOT NULL COMMENT '来源资产类型投影: BUSINESS_METHOD / HTTP_API',
     `http_method`         VARCHAR(8)   DEFAULT NULL            COMMENT 'HTTP 方法',
     `base_url`            VARCHAR(256) DEFAULT NULL            COMMENT '目标服务基础地址',
     `context_path`        VARCHAR(128) DEFAULT NULL            COMMENT '服务公共前缀',
@@ -1005,7 +1005,7 @@ CREATE TABLE IF NOT EXISTS `capability_scan_project_tool` (
 
 CALL add_col_if_absent('capability_scan_project_tool', 'title', 'VARCHAR(192) DEFAULT NULL COMMENT ''用户可读的简短工具名称'' AFTER `name`');
 CALL add_col_if_absent('capability_scan_project_tool', 'source_qualified_name', 'VARCHAR(256) DEFAULT NULL COMMENT ''服务端绑定的 SDK 来源能力标识，目录编辑不可变'' AFTER `source_location`');
-CALL add_col_if_absent('capability_scan_project_tool', 'asset_type', 'VARCHAR(32) NOT NULL DEFAULT ''UNCLASSIFIED'' COMMENT ''来源资产类型投影: BUSINESS_METHOD / HTTP_API / UNCLASSIFIED'' AFTER `source_qualified_name`');
+CALL add_col_if_absent('capability_scan_project_tool', 'asset_type', 'VARCHAR(32) NOT NULL COMMENT ''来源资产类型投影: BUSINESS_METHOD / HTTP_API'' AFTER `source_qualified_name`');
 UPDATE `capability_scan_project_tool` SET `title` = `name` WHERE `title` IS NULL OR TRIM(`title`) = '';
 ALTER TABLE `capability_scan_project_tool` MODIFY COLUMN `title` VARCHAR(192) NOT NULL COMMENT '用户可读的简短工具名称';
 CALL add_col_if_absent('capability_scan_project_tool', 'capability_metadata_json', 'MEDIUMTEXT DEFAULT NULL COMMENT ''@ReachCapability 能力声明元数据 JSON'' AFTER `ai_description`');
@@ -1050,7 +1050,7 @@ CREATE TABLE IF NOT EXISTS `capability_tool_definition` (
     `source`              VARCHAR(32)   NOT NULL DEFAULT 'manual' COMMENT '来源: code/scanner/manual',
     `source_location`     VARCHAR(512)  DEFAULT NULL            COMMENT '来源详情',
     `source_qualified_name` VARCHAR(256) DEFAULT NULL           COMMENT 'capability_source_state 稳定来源能力标识',
-    `asset_type`          VARCHAR(32)   NOT NULL DEFAULT 'UNCLASSIFIED' COMMENT '来源资产类型投影: BUSINESS_METHOD / HTTP_API / UNCLASSIFIED',
+    `asset_type`          VARCHAR(32)   NOT NULL COMMENT '来源资产类型投影: BUSINESS_METHOD / HTTP_API',
     `http_method`         VARCHAR(8)    DEFAULT NULL            COMMENT 'HTTP 方法',
     `base_url`            VARCHAR(256)  DEFAULT NULL            COMMENT '目标服务基础地址',
     `context_path`        VARCHAR(128)  DEFAULT NULL            COMMENT '服务公共前缀',
@@ -1074,7 +1074,7 @@ CREATE TABLE IF NOT EXISTS `capability_tool_definition` (
 -- 兼容老库：如果 capability_tool_definition 已存在但缺少当前基线列，这里补齐（CREATE TABLE IF NOT EXISTS 不会重建）
 CALL add_col_if_absent('capability_tool_definition', 'title',            'VARCHAR(192) DEFAULT NULL COMMENT ''用户可读的简短工具名称'' AFTER `name`');
 CALL add_col_if_absent('capability_tool_definition', 'source_qualified_name', 'VARCHAR(256) DEFAULT NULL COMMENT ''capability_source_state 稳定来源能力标识'' AFTER `source_location`');
-CALL add_col_if_absent('capability_tool_definition', 'asset_type', 'VARCHAR(32) NOT NULL DEFAULT ''UNCLASSIFIED'' COMMENT ''来源资产类型投影: BUSINESS_METHOD / HTTP_API / UNCLASSIFIED'' AFTER `source_qualified_name`');
+CALL add_col_if_absent('capability_tool_definition', 'asset_type', 'VARCHAR(32) NOT NULL COMMENT ''来源资产类型投影: BUSINESS_METHOD / HTTP_API'' AFTER `source_qualified_name`');
 UPDATE `capability_tool_definition` SET `title` = `name` WHERE `title` IS NULL OR TRIM(`title`) = '';
 ALTER TABLE `capability_tool_definition` MODIFY COLUMN `title` VARCHAR(192) NOT NULL COMMENT '用户可读的简短工具名称';
 CALL add_col_if_absent('capability_tool_definition', 'ai_description',   'MEDIUMTEXT DEFAULT NULL COMMENT ''LLM 生成的业务语义描述'' AFTER `description`');
@@ -1294,6 +1294,7 @@ CREATE TABLE IF NOT EXISTS `runtime_console_capability_invocation` (
     `credential_revision`     CHAR(64)     DEFAULT NULL COMMENT '派发时项目凭据修订摘要，不含秘密',
     `http_status`             INT          DEFAULT NULL COMMENT 'HTTP API 上游状态码；网络未知时为空',
     `expected_contract_hash`  CHAR(64)     NOT NULL COMMENT '当前、来源、已接受三方一致时的契约哈希',
+    `expected_execution_revision` CHAR(64) DEFAULT NULL COMMENT '业务方法接纳与SDK绑定及凭据修订指纹；API使用独立connection/credential修订',
     `input_fingerprint`       CHAR(64)     NOT NULL COMMENT '排序 JSON 后的输入摘要；不保存原始输入',
     `deadline_epoch_ms`       BIGINT       NOT NULL COMMENT 'Control 签名的最晚可派发时间戳',
     `run_id`                  BIGINT       NOT NULL COMMENT '关联 runtime_run 根事实',
@@ -3200,7 +3201,45 @@ CREATE TABLE IF NOT EXISTS `capability_source_state` (
     KEY `idx_capability_source_project` (`project_id`, `availability`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='能力最新可信来源观察，与目录接受决策分离';
 
--- HTTP API 是 Capability 独占资产。来源适配、接受、Tool 投影和执行分别在后续批次接入；
+-- 业务方法资产与 Tool 调用投影分离；不可变契约内容复用可信 SDK 来源快照。
+CREATE TABLE IF NOT EXISTS `capability_business_method_asset` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `project_id` BIGINT NOT NULL,
+    `project_code` VARCHAR(96) NOT NULL,
+    `method_code` VARCHAR(192) NOT NULL,
+    `qualified_name` VARCHAR(320) NOT NULL,
+    `invocation_name` VARCHAR(320) NOT NULL,
+    `title` VARCHAR(192) NOT NULL,
+    `description` MEDIUMTEXT NOT NULL,
+    `accepted_revision_id` BIGINT DEFAULT NULL,
+    `status` VARCHAR(32) NOT NULL,
+    `enabled` TINYINT(1) NOT NULL DEFAULT 1,
+    `side_effect` VARCHAR(24) NOT NULL,
+    `created_at` DATETIME NOT NULL,
+    `updated_at` DATETIME NOT NULL,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_business_method_qualified` (`qualified_name`),
+    UNIQUE KEY `uk_business_method_invocation` (`invocation_name`),
+    UNIQUE KEY `uk_business_method_project_code` (`project_id`, `method_code`),
+    KEY `idx_business_method_project_status` (`project_id`, `status`, `enabled`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='业务方法稳定资产身份与当前接纳修订，无运行连接或凭据';
+
+CREATE TABLE IF NOT EXISTS `capability_business_method_revision` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `asset_id` BIGINT NOT NULL,
+    `snapshot_id` BIGINT NOT NULL,
+    `diff_item_id` BIGINT NOT NULL,
+    `contract_hash` CHAR(64) NOT NULL,
+    `invocation_hash` CHAR(64) NOT NULL,
+    `binding_hash` CHAR(64) NOT NULL,
+    `accepted_at` DATETIME NOT NULL,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_business_method_revision_decision` (`asset_id`, `diff_item_id`),
+    KEY `idx_business_method_revision_snapshot` (`snapshot_id`),
+    KEY `idx_business_method_revision_contract` (`asset_id`, `contract_hash`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='业务方法不可变接纳修订，业务契约与SDK传输绑定分别计算指纹，内容引用来源快照';
+
+-- HTTP API 是 Capability 独占资产。来源适配、接受、调用投影和执行各有明确 owner；
 -- 不保存 base URL、credentialRef、请求头/Cookie 实际值或任何调用凭据。
 CREATE TABLE IF NOT EXISTS `capability_http_api_asset` (
     `id` BIGINT NOT NULL AUTO_INCREMENT,
@@ -3311,6 +3350,7 @@ CREATE TABLE IF NOT EXISTS `capability_registry_project_credential` (
     `project_code` VARCHAR(96)  NOT NULL,
     `app_key`      VARCHAR(128) NOT NULL,
     `app_secret`   VARCHAR(256) NOT NULL,
+    `revision`     BIGINT NOT NULL DEFAULT 1 COMMENT '签名凭据及有效策略修订，相同SDK重报不递增',
     `status`       VARCHAR(24)  NOT NULL DEFAULT 'ACTIVE',
     `expires_at`   DATETIME     DEFAULT NULL,
     `allowed_origins_json`   TEXT         DEFAULT NULL COMMENT '允许嵌入 Chat 的业务前端 origin JSON 数组',
@@ -4587,97 +4627,14 @@ CREATE TABLE IF NOT EXISTS `control_market_item` (
     KEY `idx_market_project` (`project_id`, `status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent 市场资产';
 
-CREATE TABLE IF NOT EXISTS `capability_module` (
-    `id`                 BIGINT       NOT NULL AUTO_INCREMENT,
-    `code`               VARCHAR(96)  NOT NULL,
-    `name`               VARCHAR(192) NOT NULL,
-    `version`            VARCHAR(64)  NOT NULL DEFAULT '1.0.0',
-    `source_type`        VARCHAR(32)  NOT NULL DEFAULT 'BUILTIN',
-    `status`             VARCHAR(32)  NOT NULL DEFAULT 'ACTIVE',
-    `enabled`            TINYINT(1)   NOT NULL DEFAULT 1,
-    `manifest_json`      MEDIUMTEXT   DEFAULT NULL,
-    `config_schema_json` MEDIUMTEXT   DEFAULT NULL,
-    `config_json`        MEDIUMTEXT   DEFAULT NULL,
-    `create_time`        DATETIME     DEFAULT CURRENT_TIMESTAMP,
-    `update_time`        DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_capability_module_code` (`code`),
-    KEY `idx_capability_module_status` (`status`, `enabled`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='能力模块/插件';
-
-CREATE TABLE IF NOT EXISTS `capability_tool_asset` (
-    `id`                   BIGINT       NOT NULL AUTO_INCREMENT,
-    `capability_module_id` BIGINT       NOT NULL,
-    `capability_code`      VARCHAR(96)  NOT NULL,
-    `tool_code`            VARCHAR(128) NOT NULL,
-    `name`                 VARCHAR(192) DEFAULT NULL,
-    `qualified_name`       VARCHAR(256) NOT NULL,
-    `description`          MEDIUMTEXT   DEFAULT NULL,
-    `input_schema_json`    MEDIUMTEXT   DEFAULT NULL,
-    `output_schema_json`   MEDIUMTEXT   DEFAULT NULL,
-    `executor_type`        VARCHAR(32)  NOT NULL DEFAULT 'BEAN',
-    `executor_ref`         VARCHAR(256) DEFAULT NULL,
-    `side_effect`          VARCHAR(24)  NOT NULL DEFAULT 'WRITE',
-    `enabled`              TINYINT(1)   NOT NULL DEFAULT 1,
-    `create_time`          DATETIME     DEFAULT CURRENT_TIMESTAMP,
-    `update_time`          DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_tool_asset_qualified` (`qualified_name`),
-    UNIQUE KEY `uk_tool_asset_module_code` (`capability_module_id`, `tool_code`),
-    KEY `idx_tool_asset_capability` (`capability_code`, `enabled`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='能力模块下的原子工具资产';
-
-CREATE TABLE IF NOT EXISTS `capability_composition_definition` (
-    `id`                   BIGINT       NOT NULL AUTO_INCREMENT,
-    `capability_module_id` BIGINT       NOT NULL,
-    `capability_code`      VARCHAR(96)  NOT NULL,
-    `composition_code`     VARCHAR(128) NOT NULL,
-    `name`                 VARCHAR(192) DEFAULT NULL,
-    `qualified_name`       VARCHAR(256) NOT NULL,
-    `description`          MEDIUMTEXT   DEFAULT NULL,
-    `graph_spec_json`      MEDIUMTEXT   NOT NULL,
-    `input_schema_json`    MEDIUMTEXT   DEFAULT NULL,
-    `output_schema_json`   MEDIUMTEXT   DEFAULT NULL,
-    `side_effect`          VARCHAR(24)  NOT NULL DEFAULT 'WRITE',
-    `enabled`              TINYINT(1)   NOT NULL DEFAULT 1,
-    `create_time`          DATETIME     DEFAULT CURRENT_TIMESTAMP,
-    `update_time`          DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_composition_qualified` (`qualified_name`),
-    UNIQUE KEY `uk_composition_module_code` (`capability_module_id`, `composition_code`),
-    KEY `idx_composition_capability` (`capability_code`, `enabled`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='能力模块下的组合定义';
-
-CREATE TABLE IF NOT EXISTS `capability_interaction_definition` (
-    `id`                   BIGINT       NOT NULL AUTO_INCREMENT,
-    `capability_module_id` BIGINT       NOT NULL,
-    `capability_code`      VARCHAR(96)  NOT NULL,
-    `interaction_code`     VARCHAR(128) NOT NULL,
-    `name`                 VARCHAR(192) DEFAULT NULL,
-    `qualified_name`       VARCHAR(256) NOT NULL,
-    `description`          MEDIUMTEXT   DEFAULT NULL,
-    `interaction_type`     VARCHAR(32)  NOT NULL DEFAULT 'COLLECT_INPUT',
-    `spec_json`            MEDIUMTEXT   DEFAULT NULL,
-    `input_schema_json`    MEDIUMTEXT   DEFAULT NULL,
-    `output_schema_json`   MEDIUMTEXT   DEFAULT NULL,
-    `enabled`              TINYINT(1)   NOT NULL DEFAULT 1,
-    `create_time`          DATETIME     DEFAULT CURRENT_TIMESTAMP,
-    `update_time`          DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_interaction_qualified` (`qualified_name`),
-    UNIQUE KEY `uk_interaction_module_code` (`capability_module_id`, `interaction_code`),
-    KEY `idx_interaction_capability` (`capability_code`, `enabled`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Interaction definition assets';
-
 CREATE TABLE IF NOT EXISTS `runtime_interaction_session` (
     `id`                         VARCHAR(64)  NOT NULL COMMENT '运行时 interactionId',
-    `source_type`                VARCHAR(32)  NOT NULL DEFAULT 'WORKFLOW' COMMENT 'WORKFLOW / COMPOSITION / DEBUG / SUPERVISOR_POLICY / MANAGED_EXECUTOR',
+    `source_type`                VARCHAR(32)  NOT NULL DEFAULT 'WORKFLOW' COMMENT 'WORKFLOW / DEBUG / SUPERVISOR_POLICY / MANAGED_EXECUTOR',
     `agent_id`                   VARCHAR(64)  DEFAULT NULL COMMENT '关联 Runtime Agent；Supervisor 审批查询键',
     `run_id`                     VARCHAR(64)  DEFAULT NULL COMMENT '关联 runtime_run / 调试 runId',
     `trace_id`                   VARCHAR(64)  DEFAULT NULL COMMENT '关联 root traceId',
     `workflow_id`                VARCHAR(64)  DEFAULT NULL COMMENT 'Workflow ID',
     `workflow_version_id`        BIGINT       DEFAULT NULL COMMENT '已发布 Workflow 版本 ID',
-    `composition_qualified_name` VARCHAR(256) DEFAULT NULL COMMENT '历史 composition 兼容字段；GraphSpec-native 可为空',
     `graph_spec_snapshot_json`   MEDIUMTEXT   DEFAULT NULL COMMENT '暂停时 GraphSpec 快照，恢复不得读最新版',
     `node_id`                    VARCHAR(128) NOT NULL COMMENT '当前等待节点或 Supervisor Tool 名称',
     `interaction_type`           VARCHAR(32)  NOT NULL COMMENT 'COLLECT_INPUT / USER_CHOICE / CONFIRM_ACTION / PRESENT_OUTPUT / CUSTOM',
@@ -4752,85 +4709,6 @@ CREATE TABLE IF NOT EXISTS `runtime_executable_debug_session` (
     KEY `idx_executable_debug_session_execution` (`status`, `execution_deadline_at`, `id`),
     KEY `idx_executable_debug_session_idem` (`id`, `idempotency_key`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Executable debug sessions for Studio and runtime workbench';
-
-INSERT INTO `capability_module`
-(`code`, `name`, `version`, `source_type`, `status`, `enabled`, `manifest_json`, `config_schema_json`, `config_json`)
-VALUES
-('system', '系统内置能力', '1.0.0', 'BUILTIN', 'ACTIVE', 1,
- '{"code":"system","name":"系统内置能力"}', '{}', '{}')
-ON DUPLICATE KEY UPDATE
-    `name` = VALUES(`name`),
-    `version` = VALUES(`version`),
-    `source_type` = VALUES(`source_type`),
-    `status` = VALUES(`status`),
-    `enabled` = VALUES(`enabled`);
-
-INSERT INTO `capability_tool_asset`
-(`capability_module_id`, `capability_code`, `tool_code`, `name`, `qualified_name`, `description`,
- `input_schema_json`, `output_schema_json`, `executor_type`, `executor_ref`, `side_effect`, `enabled`)
-VALUES
-((SELECT `id` FROM `capability_module` WHERE `code` = 'system' LIMIT 1),
- 'system', 'echo', '回声工具', 'system.echo', '用于能力内核验证的回声工具',
- '{"type":"object","properties":{"message":{"type":"string"}}}', '{"type":"object"}',
- 'ECHO', 'echo', 'READ', 1)
-ON DUPLICATE KEY UPDATE
-    `name` = VALUES(`name`),
-    `description` = VALUES(`description`),
-    `executor_type` = VALUES(`executor_type`),
-    `executor_ref` = VALUES(`executor_ref`),
-    `enabled` = VALUES(`enabled`);
-
-INSERT INTO `capability_composition_definition`
-(`capability_module_id`, `capability_code`, `composition_code`, `name`, `qualified_name`, `description`,
- `graph_spec_json`, `input_schema_json`, `output_schema_json`, `side_effect`, `enabled`)
-VALUES
-((SELECT `id` FROM `capability_module` WHERE `code` = 'system' LIMIT 1),
- 'system', 'echo_flow', '回声组合', 'system.echo_flow', '用于能力内核验证的最小图组合',
- '{"schemaVersion":2,"entryNodeId":"input","exitNodeIds":["answer"],"nodes":[{"id":"input","type":"USER_INPUT","config":{"fields":[{"name":"message","required":true}]}},{"id":"echo","type":"TOOL","config":{"qualifiedName":"system.echo","inputMapping":{"message":"params.message"},"outputAlias":"echoed"}},{"id":"answer","type":"ANSWER","config":{"template":"{{ echoed.message }}"}}],"edges":[{"from":"input","to":"echo","condition":"always"},{"from":"echo","to":"answer","condition":"success"}]}',
- '{"type":"object","properties":{"message":{"type":"string"}}}', '{"type":"string"}',
- 'READ', 1)
-ON DUPLICATE KEY UPDATE
-    `name` = VALUES(`name`),
-    `description` = VALUES(`description`),
-    `graph_spec_json` = VALUES(`graph_spec_json`),
-    `enabled` = VALUES(`enabled`);
-
-INSERT INTO `capability_interaction_definition`
-(`capability_module_id`, `capability_code`, `interaction_code`, `name`, `qualified_name`, `description`,
- `interaction_type`, `spec_json`, `input_schema_json`, `output_schema_json`, `enabled`)
-VALUES
-((SELECT `id` FROM `capability_module` WHERE `code` = 'system' LIMIT 1),
- 'system', 'echo_input', '回声输入交互', 'system.echo_input', '调用回声工具前采集用户输入',
- 'COLLECT_INPUT',
- '{"interactionType":"COLLECT_INPUT","title":"Echo Input","fields":[{"key":"message","name":"message","label":"Message","type":"string","required":true}],"behavior":{"askPolicy":"MISSING_ONLY"}}',
- '{"type":"object","properties":{"message":{"type":"string"}},"required":["message"]}', '{"type":"object"}', 1),
-((SELECT `id` FROM `capability_module` WHERE `code` = 'system' LIMIT 1),
- 'system', 'echo_result', '回声结果展示', 'system.echo_result', '以详情卡片展示回声结果',
- 'PRESENT_OUTPUT',
- '{"interactionType":"PRESENT_OUTPUT","title":"Echo Result","component":"DETAIL","data":"echoed"}',
- '{"type":"object"}', '{"type":"object"}', 1)
-ON DUPLICATE KEY UPDATE
-    `name` = VALUES(`name`),
-    `description` = VALUES(`description`),
-    `interaction_type` = VALUES(`interaction_type`),
-    `spec_json` = VALUES(`spec_json`),
-    `enabled` = VALUES(`enabled`);
-
-INSERT INTO `capability_composition_definition`
-(`capability_module_id`, `capability_code`, `composition_code`, `name`, `qualified_name`, `description`,
- `graph_spec_json`, `input_schema_json`, `output_schema_json`, `side_effect`, `enabled`)
-VALUES
-((SELECT `id` FROM `capability_module` WHERE `code` = 'system' LIMIT 1),
- 'system', 'interactive_echo', '交互式回声组合', 'system.interactive_echo', '用于验证交互内核的示例组合',
- '{"schemaVersion":2,"entryNodeId":"collect","exitNodeIds":["answer"],"nodes":[{"id":"collect","type":"INTERACTION","ref":{"kind":"INTERACTION","qualifiedName":"system.echo_input"},"config":{"interactionType":"COLLECT_INPUT","outputAlias":"params"}},{"id":"echo","type":"TOOL","config":{"qualifiedName":"system.echo","inputMapping":{"message":"params.message"},"outputAlias":"echoed"}},{"id":"show","type":"INTERACTION","ref":{"kind":"INTERACTION","qualifiedName":"system.echo_result"},"config":{"interactionType":"PRESENT_OUTPUT","data":"echoed","outputAlias":"presented"}},{"id":"answer","type":"ANSWER","config":{"template":"{{ echoed.message }}"}}],"edges":[{"from":"collect","to":"echo","condition":"always"},{"from":"echo","to":"show","condition":"success"},{"from":"show","to":"answer","condition":"always"}]}',
- '{"type":"object","properties":{"message":{"type":"string"}}}', '{"type":"string"}',
- 'READ', 1)
-ON DUPLICATE KEY UPDATE
-    `name` = VALUES(`name`),
-    `description` = VALUES(`description`),
-    `graph_spec_json` = VALUES(`graph_spec_json`),
-    `enabled` = VALUES(`enabled`);
-
 
 -- ============================================================================
 -- 八、初始化示例数据（可选；同名再跑不会插入重复行）

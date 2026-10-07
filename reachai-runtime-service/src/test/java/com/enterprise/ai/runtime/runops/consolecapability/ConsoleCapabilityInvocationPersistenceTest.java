@@ -160,7 +160,7 @@ class ConsoleCapabilityInvocationPersistenceTest {
     void expiredBeforeDispatchIsNotSent() {
         ConsoleCapabilityInvocationContracts.InvocationCommand command = new ConsoleCapabilityInvocationContracts.InvocationCommand(
                 ConsoleCapabilityInvocationContracts.CONTRACT_VERSION, UUID.randomUUID().toString(), "42", 7L, "orders",
-                "orders.lookup", "a".repeat(64), Map.of("orderNo", "O-expired"), List.of(), "READ_ONLY", false,
+                "orders.lookup", "a".repeat(64), "d".repeat(64), Map.of("orderNo", "O-expired"), List.of(), "READ_ONLY", false,
                 System.currentTimeMillis() - 1L);
 
         ConsoleCapabilityInvocationContracts.InvocationOutcome outcome = service.invoke(command);
@@ -185,7 +185,7 @@ class ConsoleCapabilityInvocationPersistenceTest {
                 Map.of("inputDiagnostics", List.of(Map.of("path", "phone", "reason", "REQUIRED")))));
         ConsoleCapabilityInvocationContracts.InvocationCommand command = new ConsoleCapabilityInvocationContracts.InvocationCommand(
                 ConsoleCapabilityInvocationContracts.CONTRACT_VERSION, id, "42", 7L, "orders",
-                "orders.lookup", "a".repeat(64), Map.of("phone", "sentinel-phone"), List.of("phone"),
+                "orders.lookup", "a".repeat(64), "d".repeat(64), Map.of("phone", "sentinel-phone"), List.of("phone"),
                 "READ_ONLY", false, System.currentTimeMillis() + 30_000L);
 
         ConsoleCapabilityInvocationContracts.InvocationOutcome outcome = service.invoke(command);
@@ -373,7 +373,7 @@ class ConsoleCapabilityInvocationPersistenceTest {
     private ConsoleCapabilityInvocationContracts.InvocationCommand command(String invocationId, Map<String, Object> input) {
         return new ConsoleCapabilityInvocationContracts.InvocationCommand(
                 ConsoleCapabilityInvocationContracts.CONTRACT_VERSION, invocationId, "42", 7L, "orders",
-                "orders.lookup", "a".repeat(64), input, List.of("password"), "READ_ONLY", false,
+                "orders.lookup", "a".repeat(64), "d".repeat(64), input, List.of("password"), "READ_ONLY", false,
                 System.currentTimeMillis() + 30_000L);
     }
 

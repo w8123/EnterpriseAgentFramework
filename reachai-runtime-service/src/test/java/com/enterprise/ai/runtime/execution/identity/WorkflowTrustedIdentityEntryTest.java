@@ -105,7 +105,7 @@ class WorkflowTrustedIdentityEntryTest {
 
     static Stream<WorkflowExecutionIdentity> withoutBusinessUser() {
         return Stream.concat(Stream.of(null, WorkflowExecutionIdentity.untrustedDebug(),
-                WorkflowExecutionIdentity.untrustedComposition()), projectOnlyAndMachines());
+                WorkflowExecutionIdentity.untrustedDebug()), projectOnlyAndMachines());
     }
 
     @ParameterizedTest

@@ -84,7 +84,7 @@
 
 `Skill` 仅用于标准 Agent Skill 包或外部协议字段。ReachAI 禁止重新引入自创的 Skill 业务资产模型；Capability 是业务资产，Tool 是调用协议，Workflow 是 GraphSpec 编排。已退役的 `capability_draft`、`runtime_skill_interaction`、`kind=SKILL` 目录和 GraphSpec `CAPABILITY` 节点不得作为现行资产模型。
 
-通用 Tool 不再作为独立产品资产：当前管理端移除 Tool 目录和人工 CRUD，旧 `/tool` 重定向到能力目录；扫描 API 在本决定形成时仍使用“纳入能力目录”语义，BMAPI-5A 已将其改为来源发现到业务方法/API owning object 的导航，旧人工投影/执行入口 scoped 410，Agent 产品面使用“可调用 Workflow”。`capability_tool_definition`、`/api/tools/**`、Tool ACL、Tool Call、MCP Tool 和 Workflow-as-Tool 继续保留为运行时投影、协议或兼容技术身份。“业务方法”替代此前“代码工具 / Code Tools”的预留产品名；目标是源资产唯一维护和调用投影自动衔接，不把现有混合目录整体换名。具体模型与旧入口退场的签收状态以专项批次为准，完成证据统一记入专项进度。
+通用 Tool 不再作为独立产品资产。2026-10-05 BMAPI-6 当前实现删除旧能力目录与 `/tool` 重定向，业务方法和 API 各自拥有源资产，来源变化进入所属项目；扫描 edit/toggle/test/promote/push/unpromote/module-promote、公开 raw Tool/组合/独立交互执行入口已物理删除。原 BMAPI-5A 的 scoped 410 是历史阶段证据，不再描述这些路由的现状。Agent 产品面继续使用“可调用 Workflow”。`capability_tool_definition`、`/api/tools/**`、Tool ACL、Tool Call、MCP Tool 和 Workflow-as-Tool 继续保留为运行时投影、协议或兼容技术身份。“业务方法”替代此前“代码工具 / Code Tools”的预留产品名；目标是源资产唯一维护和调用投影自动衔接，不把现有混合目录整体换名。现行所有权与契约链见[业务方法与 API 资产架构](../architecture/business-method-api-assets.md)；完成证据和验证边界统一记入专项进度。
 
 `reachai-knowledge-service` 是 Knowledge / Retrieval 部署单元，不再称为“技能服务”。
 

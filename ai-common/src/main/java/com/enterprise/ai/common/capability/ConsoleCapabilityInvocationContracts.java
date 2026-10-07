@@ -21,7 +21,7 @@ public final class ConsoleCapabilityInvocationContracts {
     private static final Pattern CONTRACT_HASH = Pattern.compile("[0-9a-f]{64}");
     private static final Pattern QUALIFIED_NAME = Pattern.compile("[A-Za-z0-9._:-]{1,200}");
     private static final Set<String> PUBLIC_REQUEST_FIELDS = Set.of(
-            "invocationId", "expectedContractHash", "input", "confirmedSideEffect");
+            "invocationId", "expectedContractHash", "expectedExecutionRevision", "input", "confirmedSideEffect");
 
     private ConsoleCapabilityInvocationContracts() {
     }
@@ -71,7 +71,8 @@ public final class ConsoleCapabilityInvocationContracts {
             boolean executable,
             String blockingCode,
             String blockingMessage,
-            long timeoutMs) {
+            long timeoutMs,
+            String executionRevision) {
         public InvocationContext {
             requireVersion(contractVersion);
             name = trim(name);
@@ -90,6 +91,7 @@ public final class ConsoleCapabilityInvocationContracts {
             targetDescription = trim(targetDescription);
             targetInstanceId = trim(targetInstanceId);
             targetInstanceStatus = trim(targetInstanceStatus);
+            executionRevision = trim(executionRevision);
             blockingCode = trim(blockingCode);
             blockingMessage = trim(blockingMessage);
             if (timeoutMs < 0L) {
@@ -102,12 +104,14 @@ public final class ConsoleCapabilityInvocationContracts {
     public record PublicInvocationRequest(
             String invocationId,
             String expectedContractHash,
+            String expectedExecutionRevision,
             Map<String, Object> input,
             boolean confirmedSideEffect) {
 
         public PublicInvocationRequest {
             invocationId = normalizeInvocationId(invocationId);
             expectedContractHash = requireHash(expectedContractHash, "expectedContractHash");
+            expectedExecutionRevision = requireHash(expectedExecutionRevision, "expectedExecutionRevision");
             input = immutableMap(input);
         }
 
@@ -129,6 +133,7 @@ public final class ConsoleCapabilityInvocationContracts {
             return new PublicInvocationRequest(
                     text(value.get("invocationId")),
                     text(value.get("expectedContractHash")),
+                    text(value.get("expectedExecutionRevision")),
                     stringMap(map),
                     Boolean.TRUE.equals(rawConfirmation));
         }
@@ -143,6 +148,7 @@ public final class ConsoleCapabilityInvocationContracts {
             String projectCode,
             String qualifiedName,
             String expectedContractHash,
+            String expectedExecutionRevision,
             Map<String, Object> input,
             List<String> sensitiveInputNames,
             String sideEffect,
@@ -158,6 +164,7 @@ public final class ConsoleCapabilityInvocationContracts {
             projectCode = requireText(projectCode, "projectCode", 96);
             qualifiedName = requireQualifiedName(qualifiedName);
             expectedContractHash = requireHash(expectedContractHash, "expectedContractHash");
+            expectedExecutionRevision = requireHash(expectedExecutionRevision, "expectedExecutionRevision");
             input = immutableMap(input);
             sensitiveInputNames = normalizedNames(sensitiveInputNames);
             sideEffect = requireText(sideEffect, "sideEffect", 32).toUpperCase(java.util.Locale.ROOT);

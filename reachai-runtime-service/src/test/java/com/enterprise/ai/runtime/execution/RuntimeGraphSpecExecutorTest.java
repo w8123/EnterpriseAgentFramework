@@ -1674,11 +1674,6 @@ class RuntimeGraphSpecExecutorTest {
         }
 
         @Override
-        public Map<String, Object> getCompositionDefinition(String qualifiedName) {
-            return Map.of();
-        }
-
-        @Override
         public Map<String, Object> getProject(String projectCode) {
             return Map.of();
         }

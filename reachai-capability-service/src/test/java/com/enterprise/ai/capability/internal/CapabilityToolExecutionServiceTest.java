@@ -26,7 +26,7 @@ class CapabilityToolExecutionServiceTest {
     void executesEnabledHttpToolThroughInvoker() {
         ToolDefinitionMapper mapper = mock(ToolDefinitionMapper.class);
         CapturingInvoker invoker = new CapturingInvoker(Map.of("statusCode", 200, "body", Map.of("orderStatus", "PAID")));
-        CapabilityToolExecutionService service = new CapabilityToolExecutionService(mapper, invoker, null, mock(CapabilitySourceContractGuard.class));
+        CapabilityToolExecutionService service = new CapabilityToolExecutionService(com.enterprise.ai.capability.internal.BusinessMethodExecutionFixtures.catalog(mapper), invoker, null, mock(CapabilitySourceContractGuard.class));
         when(mapper.selectOne(any())).thenReturn(tool("orders:queryOrder", true));
 
         Map<String, Object> response = service.execute("orders:queryOrder",
@@ -46,7 +46,7 @@ class CapabilityToolExecutionServiceTest {
         ToolDefinitionMapper mapper = mock(ToolDefinitionMapper.class);
         CapturingInvoker invoker = new CapturingInvoker(
                 Map.of("statusCode", 200, "body", Map.of("ok", true)));
-        CapabilityToolExecutionService service = new CapabilityToolExecutionService(mapper, invoker, null, mock(CapabilitySourceContractGuard.class));
+        CapabilityToolExecutionService service = new CapabilityToolExecutionService(com.enterprise.ai.capability.internal.BusinessMethodExecutionFixtures.catalog(mapper), invoker, null, mock(CapabilitySourceContractGuard.class));
         when(mapper.selectOne(any())).thenReturn(tool("orders:queryOrder", true));
         Map<String, Object> traceContext = Map.of(
                 "traceparent", "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01");
@@ -70,7 +70,7 @@ class CapabilityToolExecutionServiceTest {
         CapturingInvoker invoker = new CapturingInvoker(Map.of(
                 "statusCode", 200,
                 "body", Map.of("code", "500", "success", false, "message", "无权查看班组")));
-        CapabilityToolExecutionService service = new CapabilityToolExecutionService(mapper, invoker, null, mock(CapabilitySourceContractGuard.class));
+        CapabilityToolExecutionService service = new CapabilityToolExecutionService(com.enterprise.ai.capability.internal.BusinessMethodExecutionFixtures.catalog(mapper), invoker, null, mock(CapabilitySourceContractGuard.class));
         when(mapper.selectOne(any())).thenReturn(tool("qmssmp:team.search", true));
 
         Map<String, Object> response = service.execute("qmssmp:team.search", Map.of("input", Map.of()));
@@ -86,7 +86,7 @@ class CapabilityToolExecutionServiceTest {
         ToolDefinitionMapper mapper = mock(ToolDefinitionMapper.class);
         Map<String, Object> businessBody = Map.of("code", "200", "success", true, "data", Map.of("total", 0));
         CapturingInvoker invoker = new CapturingInvoker(Map.of("statusCode", 200, "body", businessBody));
-        CapabilityToolExecutionService service = new CapabilityToolExecutionService(mapper, invoker, null, mock(CapabilitySourceContractGuard.class));
+        CapabilityToolExecutionService service = new CapabilityToolExecutionService(com.enterprise.ai.capability.internal.BusinessMethodExecutionFixtures.catalog(mapper), invoker, null, mock(CapabilitySourceContractGuard.class));
         when(mapper.selectOne(any())).thenReturn(tool("qmssmp:team.search", true));
 
         Map<String, Object> response = service.execute("qmssmp:team.search", Map.of("input", Map.of()));
@@ -99,7 +99,7 @@ class CapabilityToolExecutionServiceTest {
     void rejectsDisabledTool() {
         ToolDefinitionMapper mapper = mock(ToolDefinitionMapper.class);
         CapabilityToolExecutionService service = new CapabilityToolExecutionService(
-                mapper,
+                com.enterprise.ai.capability.internal.BusinessMethodExecutionFixtures.catalog(mapper),
                 invocation -> Map.of(), null, mock(CapabilitySourceContractGuard.class));
         when(mapper.selectOne(any())).thenReturn(tool("orders:queryOrder", false));
 
@@ -113,7 +113,7 @@ class CapabilityToolExecutionServiceTest {
     void signedEvalPolicyRejectsWriteOrUndeclaredCapabilityBeforeInvocation() {
         ToolDefinitionMapper mapper = mock(ToolDefinitionMapper.class);
         CapturingInvoker invoker = new CapturingInvoker(Map.of("statusCode", 200, "body", Map.of()));
-        CapabilityToolExecutionService service = new CapabilityToolExecutionService(mapper, invoker, null, mock(CapabilitySourceContractGuard.class));
+        CapabilityToolExecutionService service = new CapabilityToolExecutionService(com.enterprise.ai.capability.internal.BusinessMethodExecutionFixtures.catalog(mapper), invoker, null, mock(CapabilitySourceContractGuard.class));
         ToolDefinitionEntity tool = tool("orders:updateOrder", true);
         tool.setSideEffect("WRITE");
         when(mapper.selectOne(any())).thenReturn(tool);
@@ -134,7 +134,7 @@ class CapabilityToolExecutionServiceTest {
         ToolDefinitionMapper mapper = mock(ToolDefinitionMapper.class);
         CapturingInvoker invoker = new CapturingInvoker(
                 Map.of("statusCode", 200, "body", Map.of("orderStatus", "PAID")));
-        CapabilityToolExecutionService service = new CapabilityToolExecutionService(mapper, invoker, null, mock(CapabilitySourceContractGuard.class));
+        CapabilityToolExecutionService service = new CapabilityToolExecutionService(com.enterprise.ai.capability.internal.BusinessMethodExecutionFixtures.catalog(mapper), invoker, null, mock(CapabilitySourceContractGuard.class));
         ToolDefinitionEntity tool = tool("orders:queryOrder", true);
         tool.setSideEffect("READ_ONLY");
         when(mapper.selectOne(any())).thenReturn(tool);
@@ -154,7 +154,7 @@ class CapabilityToolExecutionServiceTest {
     void rejectsResolverWhenExactToolOrProjectConstraintDoesNotMatch() {
         ToolDefinitionMapper mapper = mock(ToolDefinitionMapper.class);
         CapturingInvoker invoker = new CapturingInvoker(Map.of("statusCode", 200, "body", Map.of()));
-        CapabilityToolExecutionService service = new CapabilityToolExecutionService(mapper, invoker, null, mock(CapabilitySourceContractGuard.class));
+        CapabilityToolExecutionService service = new CapabilityToolExecutionService(com.enterprise.ai.capability.internal.BusinessMethodExecutionFixtures.catalog(mapper), invoker, null, mock(CapabilitySourceContractGuard.class));
         ToolDefinitionEntity tool = tool("mall:order.resolve", true);
         tool.setProjectCode("mall");
         when(mapper.selectOne(any())).thenReturn(tool);
@@ -182,7 +182,7 @@ class CapabilityToolExecutionServiceTest {
     void rejectsResolverWithoutCurrentUserOrSignedBusinessIdentity() {
         ToolDefinitionMapper mapper = mock(ToolDefinitionMapper.class);
         CapturingInvoker invoker = new CapturingInvoker(Map.of("statusCode", 200, "body", Map.of()));
-        CapabilityToolExecutionService service = new CapabilityToolExecutionService(mapper, invoker, null, mock(CapabilitySourceContractGuard.class));
+        CapabilityToolExecutionService service = new CapabilityToolExecutionService(com.enterprise.ai.capability.internal.BusinessMethodExecutionFixtures.catalog(mapper), invoker, null, mock(CapabilitySourceContractGuard.class));
         ToolDefinitionEntity tool = tool("mall:order.resolve", true);
         tool.setProjectCode("mall");
         when(mapper.selectOne(any())).thenReturn(tool);
@@ -210,7 +210,7 @@ class CapabilityToolExecutionServiceTest {
     void appendsInputAsQueryStringForGetTool() {
         ToolDefinitionMapper mapper = mock(ToolDefinitionMapper.class);
         CapturingInvoker invoker = new CapturingInvoker(Map.of("statusCode", 200, "body", Map.of("orderStatus", "PAID")));
-        CapabilityToolExecutionService service = new CapabilityToolExecutionService(mapper, invoker, null, mock(CapabilitySourceContractGuard.class));
+        CapabilityToolExecutionService service = new CapabilityToolExecutionService(com.enterprise.ai.capability.internal.BusinessMethodExecutionFixtures.catalog(mapper), invoker, null, mock(CapabilitySourceContractGuard.class));
         ToolDefinitionEntity tool = tool("orders:queryOrder", true);
         tool.setHttpMethod("GET");
         when(mapper.selectOne(any())).thenReturn(tool);
@@ -234,7 +234,7 @@ class CapabilityToolExecutionServiceTest {
         ToolDefinitionMapper mapper = mock(ToolDefinitionMapper.class);
         RegistrySecurityService securityService = mock(RegistrySecurityService.class);
         CapturingInvoker invoker = new CapturingInvoker(Map.of("statusCode", 200, "body", Map.of("ok", true)));
-        CapabilityToolExecutionService service = new CapabilityToolExecutionService(mapper, invoker, securityService, mock(CapabilitySourceContractGuard.class));
+        CapabilityToolExecutionService service = new CapabilityToolExecutionService(com.enterprise.ai.capability.internal.BusinessMethodExecutionFixtures.catalog(mapper), invoker, securityService, mock(CapabilitySourceContractGuard.class));
         ToolDefinitionEntity tool = tool("qmssmp:teamArchivePage", true);
         tool.setProjectCode("qmssmp");
         when(mapper.selectOne(any())).thenReturn(tool);
@@ -273,7 +273,7 @@ class CapabilityToolExecutionServiceTest {
         ToolDefinitionMapper mapper = mock(ToolDefinitionMapper.class);
         RegistrySecurityService securityService = mock(RegistrySecurityService.class);
         CapturingInvoker invoker = new CapturingInvoker(Map.of("statusCode", 200, "body", Map.of("ok", true)));
-        CapabilityToolExecutionService service = new CapabilityToolExecutionService(mapper, invoker, securityService, mock(CapabilitySourceContractGuard.class));
+        CapabilityToolExecutionService service = new CapabilityToolExecutionService(com.enterprise.ai.capability.internal.BusinessMethodExecutionFixtures.catalog(mapper), invoker, securityService, mock(CapabilitySourceContractGuard.class));
         ToolDefinitionEntity tool = tool("bzjs10:qmssmp.team.search", true);
         tool.setName("bzjs10_qmssmp_team_search");
         tool.setProjectCode("bzjs10");

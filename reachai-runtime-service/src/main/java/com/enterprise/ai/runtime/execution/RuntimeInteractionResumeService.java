@@ -1,6 +1,5 @@
 package com.enterprise.ai.runtime.execution;
 
-import com.enterprise.ai.runtime.client.capability.RuntimeCapabilityCatalogClient;
 import com.enterprise.ai.runtime.execution.checkpoint.WorkflowCheckpointCodec;
 import com.enterprise.ai.runtime.execution.checkpoint.WorkflowCheckpointException;
 import com.enterprise.ai.runtime.execution.interaction.WorkflowInteractionCodes;
@@ -19,7 +18,7 @@ import java.util.Map;
 
 /**
  * Resumes GraphSpec-native Workflow interaction sessions.
- * Prefer snapshot on the session; compositionQualifiedName is legacy fallback only.
+ * Execution uses only the Workflow snapshot captured on the session.
  */
 @Service
 @Slf4j
@@ -34,7 +33,6 @@ public class RuntimeInteractionResumeService {
     private static final String FAILED = "FAILED";
 
     private final RuntimeWorkflowInteractionSessionService sessionService;
-    private final RuntimeCapabilityCatalogClient capabilityClient;
     private final RuntimeGraphSpecExecutor graphSpecExecutor;
     private final ObjectMapper objectMapper;
     private final RuntimeInteractionExpiryProcessor expiryProcessor;
@@ -154,7 +152,7 @@ public class RuntimeInteractionResumeService {
         checkpoint.remove("submittedPayload");
         WorkflowExecutionIdentity identity = requiresOwnership(session)
                 ? WorkflowExecutionIdentity.fromAgent(session.getTenantId(), null, session.getAppId(), session.getUserId())
-                : WorkflowExecutionIdentity.untrustedComposition();
+                : WorkflowExecutionIdentity.untrustedDebug();
         RuntimeGraphSpecExecutionResult result;
         try {
             result = graphSpecExecutor.executeFromCheckpoint(graphSpecJson, checkpoint, session.getNodeId(),
@@ -187,8 +185,7 @@ public class RuntimeInteractionResumeService {
             response.put("interactionId", nextId);
             sessionService.completeAndCreateNext(session, response, operatorId,
                     new RuntimeWorkflowInteractionSessionService.CreateRequest(nextId, session.getSourceType(),
-                            session.getRunId(), session.getTraceId(), session.getWorkflowId(), session.getWorkflowVersionId(),
-                            session.getCompositionQualifiedName(), graphSpecJson, result.nodeId(), interactionType(result),
+                            session.getRunId(), session.getTraceId(), session.getWorkflowId(), session.getWorkflowVersionId(), graphSpecJson, result.nodeId(), interactionType(result),
                             nextCheckpoint, uiRequest, sessionService.readMap(session.getContinuationJson()),
                             session.getAppId(), session.getTenantId(), session.getSessionId(), session.getUserId(), ttlSeconds(uiRequest)));
             return response;
@@ -234,21 +231,7 @@ public class RuntimeInteractionResumeService {
             }
             return session.getGraphSpecSnapshotJson();
         }
-        // Legacy composition path only.
-        if (!StringUtils.hasText(session.getCompositionQualifiedName())) {
-            return null;
-        }
-        try {
-            Map<String, Object> composition =
-                    capabilityClient.getCompositionDefinition(session.getCompositionQualifiedName());
-            if (composition == null) {
-                return null;
-            }
-            Object graph = composition.get("graphSpecJson");
-            return graph == null ? null : String.valueOf(graph);
-        } catch (Exception ex) {
-            return null;
-        }
+        return null;
     }
 
     private Map<String, Object> successBody(RuntimeGraphSpecExecutionResult result,

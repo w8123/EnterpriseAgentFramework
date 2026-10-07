@@ -92,6 +92,7 @@ public class RuntimeWorkflowReadOnlyTrialService {
         if (!Objects.equals(allowed.methodName(), owner.name())
                 || !Objects.equals(allowed.acceptedContractHash(), owner.acceptedContractHash())
                 || !Objects.equals(allowed.sourceContractHash(), owner.sourceContractHash())
+                || !Objects.equals(allowed.executionRevision(), owner.executionRevision())
                 || allowed.environment() != null || allowed.sourceSetRevision() != null) {
             throw conflict("BUSINESS_METHOD_TRIAL_OWNER_CHANGED");
         }

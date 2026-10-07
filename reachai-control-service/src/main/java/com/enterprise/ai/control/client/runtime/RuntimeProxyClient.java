@@ -385,18 +385,6 @@ public interface RuntimeProxyClient {
     ResponseEntity<Object> copyAgentConfigVersionToDraft(@PathVariable("agentId") String agentId,
                                                          @PathVariable("configVersionId") Long configVersionId);
 
-    @RequestMapping(method = RequestMethod.POST, path = "/api/runtime/tools/{qualifiedName}/execute")
-    ResponseEntity<Object> executeRuntimeTool(@PathVariable("qualifiedName") String qualifiedName,
-                                              @RequestBody Map<String, Object> body);
-
-    @RequestMapping(method = RequestMethod.POST, path = "/api/runtime/compositions/{qualifiedName}/execute")
-    ResponseEntity<Object> executeRuntimeComposition(@PathVariable("qualifiedName") String qualifiedName,
-                                                     @RequestBody Map<String, Object> body);
-
-    @RequestMapping(method = RequestMethod.POST, path = "/api/runtime/interactions/{sessionId}/resume")
-    ResponseEntity<Object> resumeRuntimeInteraction(@PathVariable("sessionId") String sessionId,
-                                                    @RequestBody Map<String, Object> body);
-
     @RequestMapping(method = RequestMethod.POST, path = "/api/runtime/debug-sessions", consumes = "application/json")
     ResponseEntity<Object> createRuntimeDebugSession(@RequestHeader Map<String, String> signedHeaders, @RequestBody byte[] body);
 

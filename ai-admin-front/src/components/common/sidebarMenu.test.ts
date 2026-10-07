@@ -54,22 +54,17 @@ describe('sidebarMenu information architecture', () => {
     ])
   })
 
-  it('keeps Capability review in the core asset path instead of the lab', () => {
-    const capability = sidebarMenu.find((entry) => (
-      entry.kind === 'item' && entry.index === '/capability'
-    ))
-    const experimental = sidebarMenu.find((entry) => (
-      entry.kind === 'item' && entry.index === '/experimental-group'
-    ))
-
-    expect(capability?.kind).toBe('item')
-    expect(experimental?.kind).toBe('item')
-    if (capability?.kind !== 'item' || experimental?.kind !== 'item') return
-    expect(capability.label).toBe('能力目录')
-    expect(capability.children).toBeUndefined()
-    expect(capability.requiredPermissions).toEqual(['platform:read'])
-    expect(experimental.children?.map((child) => child.index)).not.toContain('/capability')
-    expect(experimental.children?.map((child) => child.index)).not.toContain('/capability/review')
+  it('exposes one business capability workbench, with source changes owned by projects', () => {
+    const assets = sidebarMenu.filter(entry => entry.kind === 'item' && ['/business-capabilities', '/business-methods', '/apis'].includes(entry.index))
+    expect(assets.map(entry => entry.kind === 'item' ? entry.index : '')).toEqual(['/business-capabilities'])
+    for (const entry of assets) {
+      if (entry.kind !== 'item') continue
+      expect(entry.children).toBeUndefined()
+      expect(entry.label).toBe('业务能力')
+      expect(entry.requiredPermissions).toEqual(['platform:read'])
+    }
+    const paths = sidebarMenu.flatMap(entry => entry.kind === 'item' ? [entry.index, ...(entry.children || []).map(child => child.index)] : [])
+    expect(paths.some(path => path.startsWith('/capability'))).toBe(false)
   })
 
   it('removes privileged identity entries without leaving the group empty', () => {
@@ -126,8 +121,12 @@ describe('resolveActiveMenu', () => {
     ['/knowledge/import', '/knowledge/import'],
     ['/knowledge/demo', '/knowledge'],
     ['/skill-market', '/skills'],
-    ['/capability/tools', '/capability'],
-    ['/capability/compositions', '/capability'],
+    ['/business-capabilities/java-methods', '/business-capabilities'],
+    ['/business-capabilities/http-apis', '/business-capabilities'],
+    ['/business-capabilities/http-apis/17', '/business-capabilities'],
+    ['/business-methods', '/business-capabilities'],
+    ['/apis/17', '/business-capabilities'],
+    ['/registry/projects/orders/sync-diagnostics', '/registry/projects'],
     ['/model', '/model/instances'],
     ['/automations/demo', '/automations'],
     ['/tool/retrieval', '/tool/retrieval'],
@@ -143,8 +142,8 @@ describe('resolveActiveMenu', () => {
 describe('resolveOpenGroups', () => {
   it.each([
     ['/api-market', ['/integration-group']],
-    ['/capability', []],
-    ['/capability/review', []],
+    ['/business-methods', []],
+    ['/registry/projects/orders', []],
     ['/settings/tool-acl', ['/identity-group']],
     ['/settings/personal-memory', ['/identity-group']],
     ['/mcp-hub/call-logs', ['/integration-group']],

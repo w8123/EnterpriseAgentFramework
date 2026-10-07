@@ -407,9 +407,12 @@ export interface ScanProjectScanResult {
 /** GET /api/scan-projects/:id/operation-blockers；与 409 响应体结构一致 */
 export interface ScanProjectBlockers {
   blocked: boolean
-  toolNames: string[]
-  agents: { id: string; name: string }[]
+  tools: string[]
+  agents: { agentId: string; agentName: string }[]
+  assets: { assetType: 'BUSINESS_METHOD' | 'HTTP_API'; assetId: number; qualifiedName: string; title: string | null }[]
 }
+
+export type ScanProjectOperation = 'DELETE' | 'RESCAN'
 
 /** GET tools 返回的敏感扫描摘要（来自 scan_project_tool.sensitive_data_json） */
 export interface ScanToolSensitiveData {
@@ -483,7 +486,3 @@ export interface SdkCapabilityScanResult {
   capabilityCount: number
   businessResponse: Record<string, unknown>
 }
-
-/** POST .../promote-to-tool response */
-
-/** POST .../promote-by-module 响应 */

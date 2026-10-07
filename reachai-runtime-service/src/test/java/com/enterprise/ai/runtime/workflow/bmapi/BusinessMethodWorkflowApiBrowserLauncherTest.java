@@ -1,9 +1,11 @@
 package com.enterprise.ai.runtime.workflow.bmapi;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 
 import java.nio.file.Path;
 
+@EnabledIfSystemProperty(named = "bmapi.apiBrowser.readyManifest", matches = ".+")
 class BusinessMethodWorkflowApiBrowserLauncherTest {
     @Test
     void startsControllerApiFixtureForInteractiveBrowserGate() throws Exception {

@@ -1,7 +1,7 @@
 import { type Ref } from 'vue'
 import type { KnowledgeBase } from '@/types/knowledge'
 import type { ModelInstance } from '@/types/model'
-import type { ToolInfo } from '@/types/tool'
+import type { BusinessMethodInfo } from '@/types/businessMethod'
 import type { WorkflowProposalResource, WorkflowWorkingCopyState } from '@/types/workflow'
 
 export interface WorkflowStudioProposalContextDependencies {
@@ -22,13 +22,14 @@ export function useWorkflowStudioProposalContext({
       || ''
   }
 
-  function toolToProposalResource(tool: ToolInfo): WorkflowProposalResource {
+  function toolToProposalResource(tool: BusinessMethodInfo): WorkflowProposalResource {
     return {
       kind: 'TOOL',
       name: tool.name,
       qualifiedName: tool.qualifiedName,
       projectCode: tool.projectCode,
-      description: tool.aiDescription || tool.description,
+      description: tool.description,
+      metadata: { assetType: tool.assetType, assetId: tool.assetId, methodCode: tool.methodCode },
     }
   }
 

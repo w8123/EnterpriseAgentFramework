@@ -4,8 +4,8 @@ import { scanProjectOwnerRoutes } from './scanProjectOwnerRoutes'
 describe('source view owner navigation', () => {
   it('carries only the verified project, never a scan name or global projection ref', () => {
     expect(scanProjectOwnerRoutes({ id: 7, projectCode: ' orders ' })).toEqual({
-      businessMethods: { path: '/business-methods', query: { projectId: '7', projectCode: 'orders' } },
-      apis: { path: '/apis', query: { projectId: '7', projectCode: 'orders' } },
+      businessMethods: { path: '/business-capabilities/java-methods', query: { projectId: '7', projectCode: 'orders' } },
+      apis: { path: '/business-capabilities/http-apis', query: { projectId: '7', projectCode: 'orders' } },
     })
     expect(scanProjectOwnerRoutes({ id: 8, projectCode: 'other-orders' })?.apis.query.projectId).toBe('8')
   })

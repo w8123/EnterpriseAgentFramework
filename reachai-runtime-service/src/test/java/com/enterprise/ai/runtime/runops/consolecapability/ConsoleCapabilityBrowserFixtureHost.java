@@ -302,7 +302,7 @@ public final class ConsoleCapabilityBrowserFixtureHost {
                     "parameters", parameters(),
                     "requestBodyType", "json", "responseType", "json", "targetDescription", "订单项目隔离合成业务响应夹具",
                     "targetInstanceStatus", "READY", "credentialAvailable", true, "businessIdentityRequired", false,
-                    "executable", true, "timeoutMs", 3_000L);
+                    "executable", true, "timeoutMs", 3_000L, "executionRevision", "d".repeat(64));
         }
 
         /** The sensitive mode exists only to exercise the real browser editor's masking projection. */
@@ -448,7 +448,6 @@ public final class ConsoleCapabilityBrowserFixtureHost {
 
         @Override public Map<String, Object> getToolDefinition(String qualifiedName) { throw unsupported(); }
         @Override public CapabilityInvocationResponse invokeTool(String qualifiedName, Map<String, String> headers, byte[] body) { throw unsupported(); }
-        @Override public Map<String, Object> getCompositionDefinition(String qualifiedName) { throw unsupported(); }
         @Override public Map<String, Object> getProject(String projectCode) { throw unsupported(); }
         @Override public Map<String, Object> getProjectById(Long projectId) { throw unsupported(); }
         @Override public List<Map<String, Object>> listProjectTools(Long projectId) { throw unsupported(); }

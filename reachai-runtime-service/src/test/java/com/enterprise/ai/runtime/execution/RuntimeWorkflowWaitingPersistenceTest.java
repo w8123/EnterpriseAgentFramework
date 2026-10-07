@@ -74,8 +74,7 @@ class RuntimeWorkflowWaitingPersistenceTest {
         when(executor.executeFromCheckpoint(any(), any(), any(), anyInt(), any(), any())).thenReturn(
                 new RuntimeGraphSpecExecutionResult(true, "RUNTIME_GRAPH_EXECUTED", "完成", "form", "INTERACTION",
                         List.of(), Map.of()));
-        RuntimeInteractionResumeService resume = new RuntimeInteractionResumeService(waits,
-                mock(RuntimeCapabilityCatalogClient.class), executor, json,
+        RuntimeInteractionResumeService resume = new RuntimeInteractionResumeService(waits, executor, json,
                 mock(RuntimeInteractionExpiryProcessor.class));
         execution = new RuntimeAgentExecutionService(mock(RuntimeAgentExecutionContextResolver.class),
                 mock(SupervisorRuntimeAdapter.class), mock(RuntimeSupervisorApprovalPort.class), resume,
@@ -221,7 +220,7 @@ class RuntimeWorkflowWaitingPersistenceTest {
         var nested = new LinkedHashMap<String, Object>(Map.of("label", "姓名"));
         var ui = new LinkedHashMap<String, Object>(Map.of("component", "form", "fields", List.of(nested)));
         var receipt = waits.createWaitingSession(new RuntimeWorkflowInteractionSessionService.CreateRequest(
-                ID, "WORKFLOW", "run-a", "trace-a", "wf-a", 23L, null, GRAPH, "form", "COLLECT_INPUT",
+                ID, "WORKFLOW", "run-a", "trace-a", "wf-a", 23L, GRAPH, "form", "COLLECT_INPUT",
                 Map.of("lastOutput", "private-checkpoint"), ui, Map.of("originalInput", "private-continuation"),
                 "orders", "tenant-a", "chat-a", "user-a", 120));
         nested.put("label", "已修改");
@@ -302,7 +301,7 @@ class RuntimeWorkflowWaitingPersistenceTest {
     }
 
     private static Stream<WorkflowExecutionIdentity> nonUserIdentities() {
-        return Stream.of(null, WorkflowExecutionIdentity.untrustedDebug(), WorkflowExecutionIdentity.untrustedComposition(),
+        return Stream.of(null, WorkflowExecutionIdentity.untrustedDebug(),
                 WorkflowExecutionIdentity.fromAgent("tenant-a", 7L, "orders", null),
                 WorkflowExecutionIdentity.fromA2aRemoteAgent("tenant-a", 7L, "orders", "user-a"));
     }
@@ -314,7 +313,7 @@ class RuntimeWorkflowWaitingPersistenceTest {
     private RuntimeWorkflowInteractionSessionService.CreateRequest request(String id, String tenant,
                                                                             Map<String, Object> continuation) {
         return new RuntimeWorkflowInteractionSessionService.CreateRequest(id, "WORKFLOW", "run-a", "trace-a",
-                "wf-a", 23L, null, GRAPH, "form", "COLLECT_INPUT", Map.of("lastOutput", "申请内容"),
+                "wf-a", 23L, GRAPH, "form", "COLLECT_INPUT", Map.of("lastOutput", "申请内容"),
                 Map.of("component", "form", "title", "表单"), continuation,
                 "orders", tenant, "chat-a", "user-a", 120);
     }

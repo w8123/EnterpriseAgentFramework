@@ -173,19 +173,6 @@
     <el-form-item label="映射备注">
       <el-input v-model="config.mappingNote" type="textarea" :rows="2" />
     </el-form-item>
-    <div v-if="!selectedBusinessMethod && !selectedHttpApi && paramSourceHints.length" class="param-hints">
-      <div class="field-table-head">
-        <strong>参数来源提示</strong>
-      </div>
-      <div v-for="hint in paramSourceHints" :key="`${hint.targetPath}-${hint.sourceApi}-${hint.sourcePath}`" class="param-hint-row">
-        <div>
-          <strong>{{ hint.targetPath }}</strong>
-          <span>{{ hint.sourceApi }}.{{ hint.sourcePath }}</span>
-        </div>
-        <el-tag v-if="hint.confidence !== null" size="small">{{ Math.round((hint.confidence || 0) * 100) }}%</el-tag>
-        <el-button size="small" text type="primary" @click="applyHint(hint)">应用</el-button>
-      </div>
-    </div>
     <div v-if="config.httpApiAssetId && selectedHttpApi" class="tool-params business-method-output-hints">
       <div class="field-table-head"><strong>响应与下游引用</strong></div>
       <p>{{ httpApiOutputFields.length ? `已声明 ${httpApiOutputFields.length} 个 JSON 字段。` : '没有可证明的响应字段；下游仅提供根对象。' }}</p>
@@ -371,9 +358,8 @@ import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Refresh, Search } from '@element-plus/icons-vue'
 import type { CanvasNodeData, StudioPort, StudioVariableOption, ToolNodeConfig } from '@/types/studio'
-import type { ToolInfo } from '@/types/tool'
+import type { BusinessMethodInfo } from '@/types/businessMethod'
 import type { WorkflowCredential } from '@/types/workflowCredential'
-import type { ApiGraphParamSourceHint } from '@/api/apiGraph'
 import {
   businessMethodInputTargets as buildBusinessMethodInputTargets,
   businessMethodMappingIssue as getBusinessMethodMappingIssue,
@@ -395,9 +381,8 @@ import CredentialSelect from './CredentialSelect.vue'
 
 const props = defineProps<{
   data: CanvasNodeData
-  options: ToolInfo[]
+  options: BusinessMethodInfo[]
   credentialOptions: WorkflowCredential[]
-  paramSourceHints: ApiGraphParamSourceHint[]
   projectId?: number | null
   projectCode?: string | null
   nodeId?: string
@@ -420,11 +405,11 @@ const config = computed<ToolNodeConfig>(() => {
   }
   return props.data.toolConfig
 })
-const selectedTool = computed(() => props.options.find((item) => item.qualifiedName === config.value.ref || item.name === config.value.ref) as ToolInfo | undefined)
+const selectedTool = computed(() => props.options.find((item) => item.qualifiedName === config.value.ref || item.name === config.value.ref) as BusinessMethodInfo | undefined)
 const isRequestTool = computed(() => {
   if (props.data.kind !== 'tool') return false
   const tool = selectedTool.value
-  return !tool || tool.source !== 'code' || !!tool.httpMethod || !!tool.endpointPath
+  return !tool || !!tool.httpMethod || !!tool.endpointPath
 })
 const maxRequestSeconds = computed({
   get: () => Math.round((config.value.maxRequestTimeMs || 180000) / 1000),
@@ -598,15 +583,15 @@ function retryBusinessMethodDetail() {
   businessMethodPicker.retrySelectedDetail()
 }
 
-function isBusinessMethodSelectable(row: ToolInfo) {
+function isBusinessMethodSelectable(row: BusinessMethodInfo) {
   return isSelectableBusinessMethod(row, props.projectId)
 }
 
-function businessMethodInputCount(row: ToolInfo) {
+function businessMethodInputCount(row: BusinessMethodInfo) {
   return buildBusinessMethodInputTargets(row.parameters).length
 }
 
-function selectBusinessMethod(row: ToolInfo) {
+function selectBusinessMethod(row: BusinessMethodInfo) {
   if (!businessMethodPicker.adoptCandidate(row)) {
     ElMessage.error('返回的业务方法不满足当前项目、已接纳、启用或来源可用条件。')
     return
@@ -640,14 +625,6 @@ function fillMissingMappings() {
   config.value.inputMapping = mapping
 }
 
-function applyHint(hint: ApiGraphParamSourceHint) {
-  const mapping = { ...(config.value.inputMapping || {}) }
-  mapping[hint.targetPath] = `${hint.sourceApi}.${hint.sourcePath}`
-  config.value.inputMapping = mapping
-  if (!config.value.mappingNote) {
-    config.value.mappingNote = '参数来源由接口图谱关系生成。'
-  }
-}
 
 function openHttpApiPicker() {
   if (!props.projectId) {
@@ -743,7 +720,7 @@ function businessMappingIssue(target: string, required: boolean) {
   )
 }
 
-function syncBusinessMethodCanvasContract(method: ToolInfo | null | undefined) {
+function syncBusinessMethodCanvasContract(method: BusinessMethodInfo | null | undefined) {
   if (!method) return
   const targets = buildBusinessMethodInputTargets(method.parameters)
   if (!props.data.outputAlias) props.data.outputAlias = 'tool_output'

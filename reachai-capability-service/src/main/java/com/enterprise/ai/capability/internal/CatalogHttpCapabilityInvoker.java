@@ -17,7 +17,7 @@ public class CatalogHttpCapabilityInvoker implements CapabilityInvoker {
 
     @Override
     public boolean supports(CapabilityInvocationAsset asset) {
-        return asset.source() == CapabilityInvocationAsset.Source.TOOL_CATALOG
+        return asset.source() == CapabilityInvocationAsset.Source.BUSINESS_METHOD
                 && "CATALOG_HTTP".equals(asset.executorType());
     }
 

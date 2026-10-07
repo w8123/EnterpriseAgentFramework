@@ -41,6 +41,7 @@ class RuntimeWorkflowRevisionExceptionHandlerTest {
                 .setControllerAdvice(new RuntimeWorkflowRevisionExceptionHandler())
                 .build()
                 .perform(post("/api/workflows")
+                        .accept(MediaType.APPLICATION_JSON)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"keySlug\":\"1111\",\"name\":\"测试问答\"}"))
                 .andExpect(status().isConflict())
@@ -57,6 +58,7 @@ class RuntimeWorkflowRevisionExceptionHandlerTest {
 
         mockMvc(studioService)
                 .perform(put("/api/workflows/wf-1/working-copy")
+                        .accept(MediaType.APPLICATION_JSON)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"graphSpecJson\":\"{}\"}"))
                 .andExpect(status().isConflict())
@@ -77,6 +79,7 @@ class RuntimeWorkflowRevisionExceptionHandlerTest {
 
         mockMvc(studioService)
                 .perform(put("/api/workflows/wf-1/working-copy")
+                        .accept(MediaType.APPLICATION_JSON)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"graphSpecJson\":\"{}\",\"baseRevision\":\"not-a-date\"}"))
                 .andExpect(status().isBadRequest())

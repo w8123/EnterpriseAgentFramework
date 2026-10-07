@@ -145,6 +145,7 @@ class ControlWorkflowReadOnlyTrialControllerTest {
         method.put("sourceAvailability", "READY"); method.put("currentContractHash", "a".repeat(64));
         method.put("acceptedContractHash", "a".repeat(64)); method.put("sourceContractHash", "a".repeat(64));
         method.put("sideEffect", "READ_ONLY"); method.put("credentialAvailable", true);
+        method.put("executionRevision", "c".repeat(64));
         method.put("businessIdentityRequired", false); method.put("executable", true); method.put("responseType", "String");
         method.put("parameters", List.of(Map.of("name", "orderNo", "type", "String", "required", true, "children", List.of(), "metadata", Map.of())));
         when(owner.getBusinessMethodInvocationContext("orders:normalize", "42")).thenAnswer(call -> ResponseEntity.ok(method));
@@ -160,6 +161,7 @@ class ControlWorkflowReadOnlyTrialControllerTest {
         var target = command.getValue().allowedTargets().get(0);
         assertEquals("BUSINESS_METHOD", target.assetType()); assertEquals("orders_normalize", target.methodName());
         assertEquals("a".repeat(64), target.acceptedContractHash()); assertEquals("a".repeat(64), target.sourceContractHash());
+        assertEquals("c".repeat(64), target.executionRevision());
         assertNull(target.environment()); assertNull(target.sourceSetRevision());
         verify(acl).decide(session.roles(), 41L, "orders", "TOOL", "orders:normalize");
     }
@@ -167,7 +169,7 @@ class ControlWorkflowReadOnlyTrialControllerTest {
         Map<String, Object> method = prepareMethod();
         for (var change : Map.<String, Object>of("enabled", false, "sourceAvailability", "DRIFT", "sideEffect", "UNKNOWN",
                 "credentialAvailable", false, "businessIdentityRequired", true, "sourceContractHash", "b".repeat(64),
-                "acceptedContractHash", "b".repeat(64), "projectId", 99L, "assetType", "UNCLASSIFIED").entrySet()) {
+                "acceptedContractHash", "b".repeat(64), "projectId", 99L, "assetType", "UNCLASSIFIED", "executionRevision", "").entrySet()) {
             Object previous = method.put(change.getKey(), change.getValue());
             assertEquals(HttpStatus.CONFLICT, controller.run(methodInput()).getStatusCode(), change.getKey());
             method.put(change.getKey(), previous);

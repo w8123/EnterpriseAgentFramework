@@ -1,6 +1,8 @@
+import { businessMethodFixture } from '@/test/fixtures/businessMethod'
 import { ref } from 'vue'
 import { describe, expect, it, vi } from 'vitest'
-import type { ToolInfo, ToolParameter } from '@/types/tool'
+import type { BusinessMethodInfo } from '@/types/businessMethod'
+import type { AssetParameter } from '@/types/assetParameter'
 import type { CanvasEdge, CanvasNode } from '@/types/studio'
 import { useWorkflowStudioGraphAnalysis } from './composables/useWorkflowStudioGraphAnalysis'
 import {
@@ -18,14 +20,14 @@ function parameter(
   name: string,
   type = 'string',
   location: string | null = null,
-  children: ToolParameter[] = [],
+  children: AssetParameter[] = [],
   required = false,
-): ToolParameter {
+): AssetParameter {
   return { name, type, location, children, required, description: `${name} description` }
 }
 
-function businessMethod(overrides: Partial<ToolInfo> = {}): ToolInfo {
-  return {
+function businessMethod(overrides: Partial<BusinessMethodInfo> = {}): BusinessMethodInfo {
+  return businessMethodFixture({
     assetType: 'BUSINESS_METHOD',
     name: 'orders.query',
     title: '查询订单',
@@ -38,7 +40,7 @@ function businessMethod(overrides: Partial<ToolInfo> = {}): ToolInfo {
     sourceAvailability: 'READY',
     enabled: true,
     ...overrides,
-  }
+  })
 }
 
 describe('Workflow Studio business-method mapping helpers', () => {
@@ -180,7 +182,7 @@ describe('Workflow Studio business-method mapping helpers', () => {
     expect(analysis.graphLintErrors.value.some((item) => item.message.includes('不存在的变量'))).toBe(false)
     expect(isSelectableBusinessMethod(businessMethod(), 7)).toBe(true)
     expect(isSelectableBusinessMethod(businessMethod({ projectId: 8 }), 7)).toBe(false)
-    expect(isSelectableBusinessMethod(businessMethod({ assetType: 'HTTP_API' }), 7)).toBe(false)
+    expect(isSelectableBusinessMethod(({ ...businessMethod(), assetType: 'HTTP_API' } as unknown as BusinessMethodInfo), 7)).toBe(false)
     expect(isSelectableBusinessMethod(businessMethod({ sourceAvailability: 'CONTRACT_DRIFT' }), 7)).toBe(false)
   })
 

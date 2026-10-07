@@ -47,7 +47,6 @@ class RuntimeInteractionResumeServiceTest {
         when(expiryProcessor.expireOne(any(), any())).thenReturn(true);
         service = new RuntimeInteractionResumeService(
                 sessionService,
-                mock(RuntimeCapabilityCatalogClient.class),
                 graphSpecExecutor,
                 objectMapper,
                 expiryProcessor);
@@ -83,6 +82,22 @@ class RuntimeInteractionResumeServiceTest {
         assertEquals(false, result.get("success"));
         assertEquals("RUNTIME_INTERACTION_FORBIDDEN", result.get("code"));
         verify(sessionMapper, never()).update(any(), any());
+    }
+
+    @Test
+    void missingWorkflowSnapshotFailsBeforeAnyGraphExecution() {
+        RuntimeInteractionSessionEntity session = waitingSession();
+        session.setGraphSpecSnapshotJson(null);
+        when(sessionMapper.selectById("wfi_session1")).thenReturn(session);
+        when(sessionMapper.update(any(), any())).thenReturn(1);
+        RuntimeGraphSpecExecutor executor = mock(RuntimeGraphSpecExecutor.class);
+        RuntimeInteractionResumeService snapshotOnly = new RuntimeInteractionResumeService(
+                sessionService, executor, objectMapper, expiryProcessor);
+        Map<String, Object> result = snapshotOnly.resume("wfi_session1", Map.of(
+                "values", Map.of("q", "x"), "idempotencyKey", "missing-snapshot"), owner());
+        assertEquals(false, result.get("success"));
+        assertEquals("RUNTIME_INTERACTION_GRAPH_MISSING", result.get("code"));
+        org.mockito.Mockito.verifyNoInteractions(executor);
     }
 
     @Test

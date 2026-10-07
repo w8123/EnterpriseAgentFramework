@@ -1350,15 +1350,17 @@
           :model-options-load-error="modelOptionsLoadError"
           :knowledge-options="knowledgeOptions"
           :tool-options="availableTools"
+          :tool-options-loading="toolOptionsLoading"
+          :tool-options-load-error="toolOptionsLoadError"
           :variable-options="variableOptions"
           :credential-options="credentialOptions"
-          :param-source-hints="paramSourceHints"
           :project-id="studio?.projectId || null"
           :project-code="studio?.projectCode || null"
           :request-scope-key="businessMethodRequestScope"
           :node-type-options="nodeTypes"
           @credential-created="handleCredentialCreated"
           @create-call-node="handleCreateInteractionCallNode"
+          @retry-methods="loadToolOptions()"
           @validation-change="handlePanelValidationChange"
           @reload-model-options="loadModelOptions"
         />
@@ -1814,19 +1816,18 @@ const {
   modelOptionsLoadError,
   knowledgeOptions,
   credentialOptions,
-  paramSourceHints,
+  toolOptionsLoading,
+  toolOptionsLoadError,
   graphNodeTypeCapabilitiesLoaded,
   availableTools,
   authoringModelOptions,
   selectedAiEditModel,
-  selectedToolInfo,
   loadNodeTypes,
   loadToolOptions,
   loadModelOptions,
   loadGraphResourceOptions,
   loadCredentialOptions,
   handleCredentialCreated,
-  refreshParamSourceHints,
 } = useWorkflowStudioResources({
   studio,
   aiModelInstanceId,
@@ -2801,16 +2802,6 @@ watch(
 )
 
 watch(
-  () => [
-    selectedToolInfo.value?.projectId || '',
-    selectedToolInfo.value?.name || '',
-  ].join(':'),
-  () => {
-    void refreshParamSourceHints()
-  },
-)
-
-watch(
   () => currentSnapshotText(),
   () => {
     if (!historyReady.value || historyApplying.value) return
@@ -2996,8 +2987,11 @@ async function applySourceBuffer() {
 }
 
 function handleCreateInteractionCallNode(request: InteractionCallNodeRequest) {
-  if (request.sourceKind === 'API') {
-    ElMessage.warning('旧项目接口绑定不再生成调用节点；请使用现有 API 节点选择所属 API，再由展示输出交互消费结果。')
+  const method = availableTools.value.find(item => item.assetId === request.assetId
+    && item.assetType === request.assetType && item.projectCode === request.projectCode
+    && item.qualifiedName === request.qualifiedName)
+  if (!method) {
+    ElMessage.warning('业务方法来源已变化，请重新选择后生成调用节点。')
     return
   }
   if (studioReadOnly.value) return
@@ -3008,7 +3002,7 @@ function handleCreateInteractionCallNode(request: InteractionCallNodeRequest) {
     y: selectedNode.value.position.y,
   }, studio.value)
   const outputAlias = request.outputAlias || node.data.outputAlias || `${kind}_output`
-  node.data.label = request.label || `调用能力 ${request.ref}`
+  node.data.label = request.label || `调用业务方法 ${request.ref}`
   node.data.description = request.description || node.data.description || ''
   node.data.outputAlias = outputAlias
   node.data.inputs = Object.keys(request.inputMapping || {}).map((key) => ({
@@ -3022,6 +3016,8 @@ function handleCreateInteractionCallNode(request: InteractionCallNodeRequest) {
   node.data.toolConfig = {
     ...(node.data.toolConfig || { inputMapping: {} }),
     ref: request.ref,
+    assetReference: { kind: 'TOOL', assetType: method.assetType, assetId: method.assetId,
+      name: method.name, qualifiedName: method.qualifiedName, projectCode: method.projectCode },
     qualifiedName: request.qualifiedName || null,
     projectCode: request.projectCode || null,
     inputMapping: request.inputMapping,

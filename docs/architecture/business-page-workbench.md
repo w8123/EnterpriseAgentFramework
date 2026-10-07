@@ -10,7 +10,7 @@ AI Coding 任务、交接、连接状态、任务状态和任务级鉴权统一�
 - 业务系统：拥有真实数据、业务规则、事务、权限和领域正确性。
 - ReachAI Control：拥有页面上下文、允许访问范围、AI Coding 任务、问题、报告、验收和审计。
 - ReachAI Runtime：拥有 Workflow `GraphSpec`、发布版本、Agent Workflow-as-Tool、运行、Trace 和 RunOps。
-- ReachAI Capability：拥有项目与能力目录；Control 只通过 internal API / client 读取。
+- ReachAI Capability：拥有项目、业务方法与 API 源资产及接纳契约；Control 只通过 internal API / client 读取。
 
 当前迭代不兼容旧页面助手数据。页面工作台使用全新领域表；成熟的 Workflow、Agent、RunOps、嵌入式会话和 AI Coding 鉴权能力继续复用。
 

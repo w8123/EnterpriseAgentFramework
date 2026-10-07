@@ -196,7 +196,7 @@ class McpToolExecutionInternalControllerTest {
         headers.put(InternalServiceAuthHeaders.BODY_SHA256, digest);
         headers.put(InternalServiceAuthHeaders.SIGNATURE, InternalServiceHmac.sign(SECRET, canonical));
         MockHttpServletRequestBuilder builder = post(PATH)
-                .contentType(MediaType.APPLICATION_JSON).content(sentBody);
+                .accept(MediaType.APPLICATION_JSON).contentType(MediaType.APPLICATION_JSON).content(sentBody);
         headers.forEach(builder::header);
         return builder;
     }

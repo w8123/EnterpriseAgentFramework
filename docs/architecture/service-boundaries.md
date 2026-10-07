@@ -18,7 +18,7 @@
 | `reachai-knowledge-service` | `18602`，context path `/ai` | 知识库、文件与 Chunk、文档导入、检索、RAG、业务索引、个人记忆检索投影 | Capability 目录、模型实例、个人记忆 canonical 数据 |
 | `reachai-control-service` | `18603`，`/api/**`、`/embed/**`、MCP、A2A | 平台身份与 RBAC、公共 BFF、项目/页面工作台、Embed、AI Coding、Context、Agent Skill 目录、A2A Hub、MCP、治理聚合 | Workflow/Agent 执行、Capability 目录实现、知识检索实现 |
 | `reachai-runtime-service` | `18604`，由 Control 转发；`/internal/runtime/**` | Agent 配置版本、Workflow/GraphSpec、Supervisor、执行、交互、凭据、Trace/RunOps、EvalOps、会话状态、Skill 运行载入 | 公共平台身份、Skill 制品目录、Capability 或 Knowledge 表 |
-| `reachai-capability-service` | `18605`，由 Control 转发；`/internal/capability/**` | SDK 注册与实例、能力快照/diff/review、扫描目录、能力目录、运行时 Tool 投影、语义与 API 图谱、调用候选检索、API 市场目录 | Agent/Workflow 执行、第三方调用凭据、Knowledge 数据 |
+| `reachai-capability-service` | `18605`，由 Control 转发；`/internal/capability/**` | SDK 注册与实例、能力快照/diff/review、来源观察、业务方法/API 资产目录、运行时 Tool 投影、语义与 API 图谱、调用候选检索、API 市场目录 | Agent/Workflow 执行、第三方调用凭据、Knowledge 数据 |
 
 ## 调用方向
 

@@ -16,6 +16,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigInteger;
 import java.util.Map;
+import java.util.function.Function;
 
 /**
  * Platform-session facade for the Capability catalog compatibility routes.
@@ -72,6 +73,19 @@ public class CapabilityCatalogConsoleController {
             Boolean enabled,
             Long projectId,
             CatalogListReader reader) {
+        return readCatalog(request, projectId,
+                actor -> reader.read(current, size, keyword, enabled, projectId, actor));
+    }
+
+    @GetMapping("/api/business-methods/summary")
+    public ResponseEntity<Object> businessMethodSummary(HttpServletRequest request,
+                                                        @RequestParam(required = false) Long projectId) {
+        return readCatalog(request, projectId,
+                actor -> capabilityReviewGateway.getBusinessMethodSummary(projectId, actor));
+    }
+
+    private ResponseEntity<Object> readCatalog(HttpServletRequest request, Long projectId,
+                                                Function<String, ResponseEntity<Object>> reader) {
         PlatformAuthenticatedSession authenticated = requestAuthorization.requireAuthenticated(request);
         String actor = actorId(authenticated);
         if (projectId != null && projectId <= 0) {
@@ -89,7 +103,7 @@ public class CapabilityCatalogConsoleController {
             }
             requireProjectRead(request, project.summary());
         }
-        return forwardCatalogResponse(reader.read(current, size, keyword, enabled, projectId, actor));
+        return forwardCatalogResponse(reader.apply(actor));
     }
 
     @GetMapping("/api/tools/{name}")

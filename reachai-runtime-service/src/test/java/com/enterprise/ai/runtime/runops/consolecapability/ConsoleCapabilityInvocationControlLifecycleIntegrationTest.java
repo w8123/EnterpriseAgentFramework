@@ -184,6 +184,7 @@ class ConsoleCapabilityInvocationControlLifecycleIntegrationTest {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("invocationId", UUID.randomUUID().toString());
         body.put("expectedContractHash", "a".repeat(64));
+        body.put("expectedExecutionRevision", "d".repeat(64));
         body.put("input", input);
         body.put("confirmedSideEffect", false);
         return body;
@@ -194,7 +195,7 @@ class ConsoleCapabilityInvocationControlLifecycleIntegrationTest {
                                                                              List<String> sensitive) {
         return new ConsoleCapabilityInvocationContracts.InvocationCommand(
                 ConsoleCapabilityInvocationContracts.CONTRACT_VERSION, invocationId, "42", 7L, "orders",
-                "orders.lookup", "a".repeat(64), input, sensitive, "READ_ONLY", false,
+                "orders.lookup", "a".repeat(64), "d".repeat(64), input, sensitive, "READ_ONLY", false,
                 System.currentTimeMillis() + TimeUnit.SECONDS.toMillis(30));
     }
 
@@ -236,6 +237,7 @@ class ConsoleCapabilityInvocationControlLifecycleIntegrationTest {
         context.put("projectId", 7L);
         context.put("projectCode", "orders");
         context.put("currentContractHash", "a".repeat(64));
+        context.put("executionRevision", "d".repeat(64));
         context.put("acceptedContractHash", "a".repeat(64));
         context.put("sourceContractHash", "a".repeat(64));
         context.put("sourceAvailability", "READY");

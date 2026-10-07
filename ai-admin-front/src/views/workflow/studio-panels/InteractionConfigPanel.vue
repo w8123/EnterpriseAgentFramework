@@ -26,17 +26,16 @@
             </button>
           </div>
         </el-form-item>
-        <el-form-item v-if="binding.sourceKind === 'TOOL'" label="选择能力">
-          <el-select v-model="binding.ref" filterable clearable :teleported="false" placeholder="选择已注册能力" @change="handleBindingRefChange">
-            <el-option v-for="item in toolOptions" :key="item.qualifiedName || item.name" :label="assetLabel(item)" :value="item.qualifiedName" />
+        <el-form-item v-if="binding.sourceKind === 'TOOL'" label="选择业务方法">
+          <el-select v-model="binding.ref" filterable clearable :teleported="false" placeholder="选择本项目已接纳的业务方法" :loading="toolOptionsLoading" :disabled="toolOptionsLoadError" @change="handleBindingRefChange">
+            <el-option v-for="item in toolOptions" :key="item.assetId" :label="assetLabel(item)" :value="item.qualifiedName" />
           </el-select>
         </el-form-item>
-        <el-alert v-if="binding.sourceKind === 'API'" type="warning" :closable="false" show-icon
-          title="旧项目接口绑定仅保留原元数据，不再新建或同步调用节点。请先用现有 API 节点“选择 API”调用，再由展示输出交互消费该节点结果；旧引用不会自动迁移。">
-          <template #default><code>{{ binding.qualifiedName || binding.ref || '未指定旧引用' }}</code></template>
-        </el-alert>
       </div>
 
+      <el-alert v-if="toolOptionsLoadError" title="业务方法加载失败。请重新加载后选择。" type="error" :closable="false">
+        <template #default><el-button size="small" @click="$emit('retryMethods')">重新加载业务方法</el-button></template>
+      </el-alert>
       <div v-if="binding.sourceKind === 'TOOL'" class="interaction-inline-option">
         <div>
           <strong>调用节点</strong>
@@ -308,8 +307,8 @@ import type {
   StudioPort,
   StudioVariableOption,
 } from '@/types/studio'
-import type { ToolInfo, ToolParameter } from '@/types/tool'
-import { isToolInputParameter } from '@/types/tool'
+import type { BusinessMethodInfo } from '@/types/businessMethod'
+import { isAssetInputParameter, type AssetParameter } from '@/types/assetParameter'
 import { interactionOutputPorts } from '@/utils/studio'
 import type { WorkflowGraphNodeTypeDescriptor } from '@/types/agent'
 import { isSelectableBusinessMethod } from '@/views/workflow/businessMethodWorkflow'
@@ -317,7 +316,9 @@ import { isSelectableBusinessMethod } from '@/views/workflow/businessMethodWorkf
 const props = defineProps<{
   data: CanvasNodeData
   variableOptions?: Array<string | StudioVariableOption>
-  toolOptions?: ToolInfo[]
+  toolOptions?: BusinessMethodInfo[]
+  toolOptionsLoading?: boolean
+  toolOptionsLoadError?: boolean
   projectId?: number | null
   projectCode?: string | null
   nodeTypeOptions?: WorkflowGraphNodeTypeDescriptor[]
@@ -325,6 +326,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   createCallNode: [request: InteractionCallNodeRequest]
+  retryMethods: []
 }>()
 
 const bindingSourceOptions: Array<{ label: string; value: InteractionBindingSourceKind }> = [
@@ -376,9 +378,10 @@ const binding = computed<InteractionBindingConfig>(() => {
   return config.value.binding
 })
 
-const selectedBindingAsset = computed<ToolInfo | undefined>(() => {
+const selectedBindingAsset = computed<BusinessMethodInfo | undefined>(() => {
   if (binding.value.sourceKind !== 'TOOL') return undefined
-  return toolOptions.value.find(item => item.qualifiedName === binding.value.ref)
+  return toolOptions.value.find(item => binding.value.assetId
+    ? item.assetId === binding.value.assetId : item.qualifiedName === binding.value.ref)
 })
 
 const dataSourcesText = ref('')
@@ -408,7 +411,7 @@ const bindingSummary = computed(() => {
     return '未绑定来源'
   }
   if (!selectedBindingAsset.value) {
-    return binding.value.sourceKind === 'API' ? '旧接口元数据（不自动调用）' : '来源不可选；原引用保留'
+    return '来源不可选；请重新选择业务方法'
   }
   return assetLabel(selectedBindingAsset.value)
 })
@@ -431,10 +434,6 @@ const normalizedVariableOptions = computed<StudioVariableOption[]>(() => {
 })
 
 function selectBindingKind(value: InteractionBindingSourceKind) {
-  if (value === 'API') {
-    ElMessage.warning('请通过 API 节点选择所属项目 API，再用展示输出交互消费结果。')
-    return
-  }
   if (binding.value.sourceKind === value) return
   binding.value.sourceKind = value
   handleBindingKindChange()
@@ -474,6 +473,8 @@ watch(
 )
 
 function handleBindingKindChange() {
+  binding.value.assetType = undefined
+  binding.value.assetId = undefined
   binding.value.ref = ''
   binding.value.qualifiedName = null
   binding.value.projectCode = null
@@ -496,6 +497,8 @@ function isInteractionTypeEnabled(value: InteractionNodeType) {
 
 async function handleBindingRefChange() {
   const asset = selectedBindingAsset.value
+  binding.value.assetType = asset?.assetType
+  binding.value.assetId = asset?.assetId
   binding.value.qualifiedName = asset?.qualifiedName || null
   binding.value.projectCode = asset?.projectCode || null
   binding.value.projectId = asset?.projectId || null
@@ -526,7 +529,7 @@ async function generateFieldsFromBinding() {
   }
 }
 
-async function maybeGenerateFieldsFromBinding(asset: ToolInfo): Promise<boolean> {
+async function maybeGenerateFieldsFromBinding(asset: BusinessMethodInfo): Promise<boolean> {
   const generatedKey = bindingGeneratedKey(asset)
   const fields = config.value.fields || []
   const canOverwrite =
@@ -557,8 +560,8 @@ async function maybeGenerateFieldsFromBinding(asset: ToolInfo): Promise<boolean>
   }
 }
 
-async function applyFieldsFromBinding(asset: ToolInfo, notify: boolean) {
-  const parameters = (asset.parameters || []).filter(isToolInputParameter)
+async function applyFieldsFromBinding(asset: BusinessMethodInfo, notify: boolean) {
+  const parameters = (asset.parameters || []).filter(isAssetInputParameter)
   const fields = parameters.flatMap((parameter) => mapParameterToFields(parameter))
   config.value.fields = fields.length ? fields : [{
     name: 'input',
@@ -577,6 +580,8 @@ async function applyFieldsFromBinding(asset: ToolInfo, notify: boolean) {
     ...(config.value.dataSources || {}),
     binding: {
       sourceKind: binding.value.sourceKind,
+      assetType: asset.assetType,
+      assetId: asset.assetId,
       ref: asset.qualifiedName!,
       qualifiedName: asset.qualifiedName || null,
       projectCode: asset.projectCode || null,
@@ -601,7 +606,7 @@ async function handleAutoCreateCallNodeChange(value: string | number | boolean) 
   if (!asset) {
     binding.value.autoCreateCallNode = false
     binding.value.autoCreateDisplayNode = false
-    ElMessage.warning('请先选择一个工具、组合或项目接口。')
+    ElMessage.warning('请先选择本项目已接纳的业务方法。')
     return
   }
   const generated = await maybeGenerateFieldsFromBinding(asset)
@@ -621,7 +626,7 @@ async function handleAutoCreateDisplayNodeChange(value: string | number | boolea
   const asset = selectedBindingAsset.value
   if (!asset) {
     binding.value.autoCreateDisplayNode = false
-    ElMessage.warning('请先选择一个工具、组合或项目接口。')
+    ElMessage.warning('请先选择本项目已接纳的业务方法。')
     return
   }
   if (!binding.value.autoCreateCallNode) {
@@ -637,10 +642,12 @@ async function handleAutoCreateDisplayNodeChange(value: string | number | boolea
   emitCallNodeRequest(asset)
 }
 
-function emitCallNodeRequest(asset: ToolInfo) {
+function emitCallNodeRequest(asset: BusinessMethodInfo) {
   if (binding.value.sourceKind !== 'TOOL' || !isSelectableBusinessMethod(asset, props.projectId)) return
   emit('createCallNode', {
-    sourceKind: binding.value.sourceKind,
+    sourceKind: 'TOOL',
+    assetType: asset.assetType,
+    assetId: asset.assetId,
     ref: asset.name,
     qualifiedName: asset.qualifiedName || null,
     projectCode: asset.projectCode || null,
@@ -656,7 +663,7 @@ function emitCallNodeRequest(asset: ToolInfo) {
   })
 }
 
-function buildInputMapping(asset: ToolInfo) {
+function buildInputMapping(asset: BusinessMethodInfo) {
   const alias = config.value.outputAlias || 'interaction_output'
   const mapping: Record<string, string> = {}
   for (const parameter of asset.parameters || []) {
@@ -665,12 +672,12 @@ function buildInputMapping(asset: ToolInfo) {
   return mapping
 }
 
-function collectInputMapping(parameter: ToolParameter, alias: string, mapping: Record<string, string>, targetPrefix = '', fieldPrefix = '') {
-  if (!isToolInputParameter(parameter)) return
+function collectInputMapping(parameter: AssetParameter, alias: string, mapping: Record<string, string>, targetPrefix = '', fieldPrefix = '') {
+  if (!isAssetInputParameter(parameter)) return
   const rawName = parameter.name || parameter.location?.toLowerCase() || 'param'
   const targetName = targetPrefix ? `${targetPrefix}.${rawName}` : rawName
   const fieldName = normalizeFieldName(fieldPrefix ? `${fieldPrefix}_${rawName}` : rawName)
-  const inputChildren = (parameter.children || []).filter(isToolInputParameter)
+  const inputChildren = (parameter.children || []).filter(isAssetInputParameter)
   if (inputChildren.length) {
     for (const child of inputChildren) {
       collectInputMapping(child, alias, mapping, targetName, fieldName)
@@ -680,7 +687,7 @@ function collectInputMapping(parameter: ToolParameter, alias: string, mapping: R
   mapping[targetName] = `${alias}.targetArgs.${targetName}`
 }
 
-function bindingGeneratedKey(asset: ToolInfo) {
+function bindingGeneratedKey(asset: BusinessMethodInfo) {
   return `${binding.value.sourceKind}:${asset.name}`
 }
 
@@ -728,11 +735,11 @@ function syncJson(field: 'dataSources' | 'behavior' | 'renderSchema') {
   }
 }
 
-function mapParameterToFields(parameter: ToolParameter, prefix = '', targetPrefix = ''): StudioFieldSchema[] {
+function mapParameterToFields(parameter: AssetParameter, prefix = '', targetPrefix = ''): StudioFieldSchema[] {
   const rawName = parameter.name || parameter.location?.toLowerCase() || 'param'
   const targetName = targetPrefix ? `${targetPrefix}.${rawName}` : rawName
   const baseName = normalizeFieldName(prefix ? `${prefix}_${rawName}` : rawName)
-  const inputChildren = (parameter.children || []).filter(isToolInputParameter)
+  const inputChildren = (parameter.children || []).filter(isAssetInputParameter)
   if (inputChildren.length) {
     return inputChildren.flatMap((child) => mapParameterToFields(child, baseName, targetName))
   }
@@ -852,7 +859,7 @@ function fieldSlotStrategiesLabel(field: StudioFieldSchema) {
     .join(' / ')
 }
 
-function assetLabel(item: ToolInfo) {
+function assetLabel(item: BusinessMethodInfo) {
   const project = item.projectCode ? ` / ${item.projectCode}` : ''
   const label = 'title' in item && item.title ? `${item.title} (${item.name})` : item.name
   return `${label}${project}`

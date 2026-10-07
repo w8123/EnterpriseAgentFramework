@@ -1,10 +1,7 @@
 package com.enterprise.ai.capability.catalog.businessmethod;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
-import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionEntity;
 import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionParameter;
-import com.enterprise.ai.capability.catalog.tool.CapabilityToolCatalogService;
-import com.enterprise.ai.capability.internal.CapabilitySourceContractGuard;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -27,8 +24,12 @@ public class BusinessMethodCatalogInternalController {
 
     private static final String BUSINESS_METHOD_ASSET_TYPE = "BUSINESS_METHOD";
 
-    private final CapabilityToolCatalogService toolCatalogService;
-    private final CapabilitySourceContractGuard sourceContractGuard;
+    private final BusinessMethodCatalogService catalog;
+
+    @GetMapping("/summary")
+    public ResponseEntity<BusinessMethodCatalogSummary> summary(@RequestParam(required = false) Long projectId) {
+        return ResponseEntity.ok(catalog.summary(projectId));
+    }
 
     @GetMapping
     public ResponseEntity<BusinessMethodPageResponse> list(
@@ -37,7 +38,7 @@ public class BusinessMethodCatalogInternalController {
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) Boolean enabled,
             @RequestParam(required = false) Long projectId) {
-        IPage<ToolDefinitionEntity> page = toolCatalogService.pageBusinessMethods(
+        IPage<BusinessMethodDefinition> page = catalog.page(
                 current, size, keyword, enabled, projectId);
         return ResponseEntity.ok(new BusinessMethodPageResponse(
                 page.getRecords().stream().map(this::toDto).toList(),
@@ -49,40 +50,44 @@ public class BusinessMethodCatalogInternalController {
 
     @GetMapping("/{name}")
     public ResponseEntity<BusinessMethodInfoDTO> get(@PathVariable String name) {
-        return toolCatalogService.findBusinessMethodByName(name)
+        return catalog.find(name)
                 .map(entity -> ResponseEntity.ok(toDto(entity)))
                 .orElse(ResponseEntity.notFound().build());
     }
 
-    private BusinessMethodInfoDTO toDto(ToolDefinitionEntity entity) {
-        List<BusinessMethodParameterDTO> parameters = toolCatalogService.parseParameters(entity.getParametersJson())
+    private BusinessMethodInfoDTO toDto(BusinessMethodDefinition method) {
+        var asset = method.asset();
+        var declaration = method.declaration();
+        List<BusinessMethodParameterDTO> parameters = declaration.parameters()
                 .stream()
                 .map(BusinessMethodParameterDTO::from)
                 .toList();
         return new BusinessMethodInfoDTO(
                 BUSINESS_METHOD_ASSET_TYPE,
-                entity.getName(),
-                entity.getTitle(),
-                entity.getDescription(),
+                asset.getInvocationName(),
+                declaration.title(),
+                declaration.description(),
                 parameters,
-                entity.getSource(),
-                entity.getSourceLocation(),
-                entity.getSourceQualifiedName(),
-                entity.getHttpMethod(),
-                entity.getBaseUrl(),
-                entity.getContextPath(),
-                entity.getEndpointPath(),
-                entity.getRequestBodyType(),
-                entity.getResponseType(),
-                entity.getProjectId(),
-                entity.getProjectCode(),
-                entity.getQualifiedName(),
-                toolCatalogService.getProjectNameOrNull(entity.getProjectId()),
-                Boolean.TRUE.equals(entity.getEnabled()),
-                entity.getSideEffect(),
-                entity.getAiDescription(),
-                entity.getCapabilityMetadataJson(),
-                sourceContractGuard.availability(entity));
+                "sdk",
+                "sdk:" + asset.getProjectCode() + ":" + asset.getMethodCode(),
+                asset.getQualifiedName(),
+                declaration.httpMethod(),
+                declaration.baseUrl(),
+                declaration.contextPath(),
+                declaration.endpointPath(),
+                declaration.requestBodyType(),
+                declaration.responseType(),
+                asset.getProjectId(),
+                asset.getProjectCode(),
+                asset.getQualifiedName(),
+                method.projectName(),
+                Boolean.TRUE.equals(asset.getEnabled()),
+                declaration.sideEffect(),
+                declaration.metadata(),
+                method.sourceAvailability(),
+                asset.getId(), asset.getMethodCode(), method.revision().getId(),
+                method.revision().getContractHash(), method.revision().getInvocationHash(),
+                method.revision().getBindingHash(), asset.getStatus());
     }
 
     public record BusinessMethodPageResponse(
@@ -114,9 +119,15 @@ public class BusinessMethodCatalogInternalController {
             String sourceProjectName,
             boolean enabled,
             String sideEffect,
-            String aiDescription,
-            String capabilityMetadataJson,
-            String sourceAvailability) {
+            Object metadata,
+            String sourceAvailability,
+            Long assetId,
+            String methodCode,
+            Long acceptedRevisionId,
+            String contractHash,
+            String invocationHash,
+            String bindingHash,
+            String status) {
     }
 
     public record BusinessMethodParameterDTO(

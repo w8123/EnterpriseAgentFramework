@@ -25,16 +25,18 @@ public final class WorkflowReadOnlyTrialPolicy {
 
     public record AllowedTarget(String nodeId, long apiId, String qualifiedName,
                                 String environment, String acceptedContractHash, String sourceSetRevision,
-                                String assetType, String methodName, String sourceContractHash) {
+                                String assetType, String methodName, String sourceContractHash,
+                                String executionRevision) {
         public AllowedTarget(String nodeId, long apiId, String qualifiedName, String environment,
                              String acceptedContractHash, String sourceSetRevision) {
             this(nodeId, apiId, qualifiedName, environment, acceptedContractHash, sourceSetRevision,
-                    HTTP_API, null, null);
+                    HTTP_API, null, null, null);
         }
         public static AllowedTarget businessMethod(Target target,
                 ConsoleCapabilityInvocationContracts.InvocationContext owner) {
             return new AllowedTarget(target.nodeId(), 0, target.qualifiedName(), null,
-                    owner.acceptedContractHash(), null, BUSINESS_METHOD, owner.name(), owner.sourceContractHash());
+                    owner.acceptedContractHash(), null, BUSINESS_METHOD, owner.name(), owner.sourceContractHash(),
+                    owner.executionRevision());
         }
     }
 
@@ -126,7 +128,8 @@ public final class WorkflowReadOnlyTrialPolicy {
                 || !owner.currentContractHash().equals(owner.acceptedContractHash())
                 || !owner.currentContractHash().equals(owner.sourceContractHash())) return "BUSINESS_METHOD_TRIAL_SOURCE_CHANGED";
         if (!"READ_ONLY".equals(owner.sideEffect())) return "BUSINESS_METHOD_TRIAL_READ_ONLY_REQUIRED";
-        if (!owner.credentialAvailable()) return "BUSINESS_METHOD_TRIAL_CREDENTIAL_REQUIRED";
+        if (!owner.credentialAvailable() || owner.executionRevision() == null
+                || !owner.executionRevision().matches("[0-9a-f]{64}")) return "BUSINESS_METHOD_TRIAL_CREDENTIAL_REQUIRED";
         if (owner.businessIdentityRequired()) return "BUSINESS_METHOD_TRIAL_BUSINESS_IDENTITY_REQUIRED";
         return owner.executable() ? null : "BUSINESS_METHOD_TRIAL_UNAVAILABLE";
     }

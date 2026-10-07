@@ -141,12 +141,6 @@ class ControlRuntimePublicControllerTest {
         Method getAgent = ControlRuntimePublicController.class.getDeclaredMethod("getAgent", String.class);
         Method updateAgent = ControlRuntimePublicController.class.getDeclaredMethod("updateAgent", String.class, Map.class);
         Method deleteAgent = ControlRuntimePublicController.class.getDeclaredMethod("deleteAgent", String.class);
-        Method executeRuntimeTool = ControlRuntimePublicController.class
-                .getDeclaredMethod("executeRuntimeTool", String.class, Map.class);
-        Method executeRuntimeComposition = ControlRuntimePublicController.class
-                .getDeclaredMethod("executeRuntimeComposition", String.class, Map.class);
-        Method resumeRuntimeInteraction = ControlRuntimePublicController.class
-                .getDeclaredMethod("resumeRuntimeInteraction", String.class, Map.class);
         Method createRuntimeDebugSession = ControlRuntimePublicController.class
                 .getDeclaredMethod("createRuntimeDebugSession", Map.class);
         Method getRuntimeDebugSession = ControlRuntimePublicController.class
@@ -259,12 +253,6 @@ class ControlRuntimePublicControllerTest {
         assertArrayEquals(new String[] {"/api/agents/{id}"}, getAgent.getAnnotation(GetMapping.class).value());
         assertArrayEquals(new String[] {"/api/agents/{id}"}, updateAgent.getAnnotation(PutMapping.class).value());
         assertArrayEquals(new String[] {"/api/agents/{id}"}, deleteAgent.getAnnotation(DeleteMapping.class).value());
-        assertArrayEquals(new String[] {"/api/runtime/tools/{qualifiedName}/execute"},
-                executeRuntimeTool.getAnnotation(PostMapping.class).value());
-        assertArrayEquals(new String[] {"/api/runtime/compositions/{qualifiedName}/execute"},
-                executeRuntimeComposition.getAnnotation(PostMapping.class).value());
-        assertArrayEquals(new String[] {"/api/runtime/interactions/{sessionId}/resume"},
-                resumeRuntimeInteraction.getAnnotation(PostMapping.class).value());
         assertArrayEquals(new String[] {"/api/runtime/debug-sessions"},
                 createRuntimeDebugSession.getAnnotation(PostMapping.class).value());
         assertArrayEquals(new String[] {"/api/runtime/debug-sessions/{sessionId}"},
@@ -963,40 +951,9 @@ class ControlRuntimePublicControllerTest {
         verify(runtimeProxyClient).deleteAgent("agent-1");
     }
 
-    @Test
-    void delegatesRuntimeCapabilityExecutionToRuntimeService() {
-        RuntimeProxyClient runtimeProxyClient = mock(RuntimeProxyClient.class);
-        ControlRuntimePublicController controller = new ControlRuntimePublicController(runtimeProxyClient);
-        Map<String, Object> request = Map.of("params", Map.of("x", 1));
-        ResponseEntity<Object> pending = ResponseEntity.status(HttpStatus.NOT_IMPLEMENTED)
-                .body(Map.of("code", "RUNTIME_CAPABILITY_EXECUTION_PENDING"));
-        when(runtimeProxyClient.executeRuntimeTool("system.echo", request)).thenReturn(pending);
-        when(runtimeProxyClient.executeRuntimeComposition("system.flow", request)).thenReturn(pending);
-        when(runtimeProxyClient.resumeRuntimeInteraction("session-1", request)).thenReturn(pending);
 
-        assertEquals(pending, controller.executeRuntimeTool("system.echo", request));
-        assertEquals(pending, controller.executeRuntimeComposition("system.flow", request));
-        assertEquals(pending, controller.resumeRuntimeInteraction("session-1", request));
-        verify(runtimeProxyClient).executeRuntimeTool("system.echo", request);
-        verify(runtimeProxyClient).executeRuntimeComposition("system.flow", request);
-        verify(runtimeProxyClient).resumeRuntimeInteraction("session-1", request);
-    }
 
-    @Test
-    void rejectsWorkflowInteractionResumeOnCompatibilityEndpoint() {
-        RuntimeProxyClient runtimeProxyClient = mock(RuntimeProxyClient.class);
-        ControlRuntimePublicController controller = new ControlRuntimePublicController(runtimeProxyClient);
-        Map<String, Object> request = Map.of("values", Map.of("q", "x"));
 
-        ResponseEntity<Object> response = controller.resumeRuntimeInteraction("wfi_abc123", request);
-
-        assertEquals(HttpStatus.FORBIDDEN, response.getStatusCode());
-        assertTrue(response.getBody() instanceof Map<?, ?>);
-        @SuppressWarnings("unchecked")
-        Map<String, Object> body = (Map<String, Object>) response.getBody();
-        assertEquals("RUNTIME_INTERACTION_FORBIDDEN", body.get("code"));
-        verify(runtimeProxyClient, never()).resumeRuntimeInteraction(any(), any());
-    }
 
     @Test
     void delegatesRuntimeDebugSessionsToRuntimeService() {
@@ -1032,5 +989,13 @@ class ControlRuntimePublicControllerTest {
 
         assertEquals(pending, controller.listHumanApprovals("agent-7", "user-1", 25));
         verify(runtimeProxyClient).listHumanApprovals("agent-7", "user-1", 25);
+    }
+
+    @org.junit.jupiter.api.Test
+    void retiredAssetExecutionHasNoPublicRouteOrProxyMethod() {
+        for (String name : new String[] {"executeRuntimeTool", "executeRuntimeComposition", "resumeRuntimeInteraction"}) {
+            org.junit.jupiter.api.Assertions.assertThrows(NoSuchMethodException.class,
+                    () -> ControlRuntimePublicController.class.getMethod(name, String.class, Map.class));
+        }
     }
 }

@@ -17,10 +17,9 @@
   </el-table>
 </template>
 <script setup lang="ts">
-import type { ToolParameter } from '@/types/tool'
-import { parameterLocation } from '../capabilityDetail'
+import { parameterLocation, type AssetParameter } from '@/types/assetParameter'
 import { parameterMetadataItems } from './capabilityParameterMetadata'
-defineProps<{ parameters: ToolParameter[]; output?: boolean }>()
+defineProps<{ parameters: AssetParameter[]; output?: boolean }>()
 </script>
 <style scoped lang="scss">
 .capability-parameters { font-size: 12px; border: 1px solid var(--border-divider); border-radius: var(--radius-md); }

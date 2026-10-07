@@ -154,7 +154,7 @@ class WorkflowExecutionIdentityTest {
         global.setSecretJson("{\"token\":\"t\"}");
         when(credentialMapper.selectOne(any())).thenReturn(global);
         assertTrue(credentialService.resolve("cred_global", WorkflowExecutionIdentity.untrustedDebug()).isPresent());
-        assertTrue(credentialService.resolve("cred_global", WorkflowExecutionIdentity.untrustedComposition()).isPresent());
+        assertTrue(credentialService.resolve("cred_global", WorkflowExecutionIdentity.untrustedDebug()).isPresent());
     }
 
     private RuntimeWorkflowCredentialEntity projectCredential(Long projectId, String projectCode) throws Exception {

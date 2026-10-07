@@ -134,7 +134,16 @@ final class RuntimeActionNodeHandlers {
         request.put("input", buildToolInput(node, context));
         request.put("context", toolExecutionContext(node, nodeType, context));
         if (node.getRef() != null && StringUtils.hasText(node.getRef().getContractHash())) {
-            request.put("constraints", Map.of("expectedContractHash", node.getRef().getContractHash()));
+            Map<String, Object> constraints = new LinkedHashMap<>();
+            var ref = node.getRef();
+            constraints.put("expectedContractHash", ref.getContractHash());
+            if (ref.getAssetId() != null) constraints.put("expectedAssetId", ref.getAssetId());
+            if (ref.getAcceptedRevisionId() != null) constraints.put("expectedAcceptedRevisionId", ref.getAcceptedRevisionId());
+            if (StringUtils.hasText(ref.getBusinessContractHash())) constraints.put("expectedBusinessContractHash", ref.getBusinessContractHash());
+            if (StringUtils.hasText(ref.getBindingHash())) constraints.put("expectedBindingHash", ref.getBindingHash());
+            if (StringUtils.hasText(ref.getExecutionRevision())) constraints.put("expectedExecutionRevision", ref.getExecutionRevision());
+            if (StringUtils.hasText(ref.getProjectCode())) constraints.put("expectedProjectCode", ref.getProjectCode());
+            request.put("constraints", constraints);
         }
         CapabilityInvocationControl invocationControl = capabilityInvocationControl(node, qualifiedName, context);
         request.put("invocationId", invocationControl.invocationId());

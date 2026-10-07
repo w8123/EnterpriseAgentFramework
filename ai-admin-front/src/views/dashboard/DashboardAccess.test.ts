@@ -230,8 +230,8 @@ describe('Dashboard 真实会话的受限入口', () => {
     expect(wrapper.text()).not.toContain('尚未接入业务系统')
     expect(wrapper.text()).not.toContain('部分数据暂不可用：Agent')
     const links = wrapper.findAll('.ops-project-entry a')
-    expect(links.map(link => link.attributes('href'))).toEqual(['/business-methods', '/apis', '/workflows'])
-    expect(links.map(link => link.text())).toEqual(['业务方法', 'API', 'Workflow'])
+    expect(links.map(link => link.attributes('href'))).toEqual(['/business-capabilities', '/workflows'])
+    expect(links.map(link => link.text())).toEqual(['业务能力', 'Workflow'])
   })
 
   it('自动轮询与可见性恢复不重试已403的数据，显式刷新可以重新检查', async () => {
@@ -271,7 +271,7 @@ describe('Dashboard 真实会话的受限入口', () => {
     const wrapper = render()
     await flushPromises()
     expect(wrapper.text()).not.toContain('当前账号仅具项目范围')
-    expect(wrapper.text()).toContain('当前账号没有可用的业务方法、API或Workflow入口')
+    expect(wrapper.text()).toContain('当前账号没有可用的业务能力或 Workflow 入口')
     expect(wrapper.findAll('.ops-project-entry a')).toHaveLength(0)
   })
 

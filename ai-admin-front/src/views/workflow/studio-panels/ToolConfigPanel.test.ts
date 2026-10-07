@@ -1,8 +1,9 @@
+import { businessMethodFixture } from '@/test/fixtures/businessMethod'
 import { describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import ElementPlus from 'element-plus'
 import type { AgentForm, WorkflowCanvasSource } from '@/types/agent'
-import type { ToolInfo } from '@/types/tool'
+import type { BusinessMethodInfo } from '@/types/businessMethod'
 import type { CanvasSnapshot, ToolNodeConfig } from '@/types/studio'
 import type { HttpApiDetail, HttpApiSummary } from '@/types/httpApi'
 import { canvasToDefinition, definitionToCanvas } from '@/utils/studio'
@@ -15,7 +16,7 @@ const businessMethodApi = vi.hoisted(() => ({
 const httpApi = vi.hoisted(() => ({ getHttpApi: vi.fn(), getHttpApiConnection: vi.fn(), listHttpApis: vi.fn() }))
 const scanProjectApi = vi.hoisted(() => ({ getScanProjectDetail: vi.fn() }))
 
-vi.mock('@/api/tool', () => businessMethodApi)
+vi.mock('@/api/businessMethod', () => businessMethodApi)
 vi.mock('@/api/httpApi', () => httpApi)
 vi.mock('@/api/scanProject', () => scanProjectApi)
 
@@ -80,8 +81,8 @@ function workflowBase(overrides: Record<string, unknown> = {}) {
   } as unknown as AgentForm
 }
 
-function businessMethod(overrides: Partial<ToolInfo> = {}): ToolInfo {
-  return {
+function businessMethod(overrides: Partial<BusinessMethodInfo> = {}): BusinessMethodInfo {
+  return businessMethodFixture({
     assetType: 'BUSINESS_METHOD',
     name: 'orders.health',
     title: '订单健康检查',
@@ -94,13 +95,13 @@ function businessMethod(overrides: Partial<ToolInfo> = {}): ToolInfo {
     sourceAvailability: 'READY',
     enabled: true,
     ...overrides,
-  }
+  })
 }
 
 describe('ToolConfigPanel business-method regression targets', () => {
   it('does not describe a missing required query mapping as a path mapping', () => {
     const wrapper = mount(ToolConfigPanel, {
-      props: { data: toolData(), options: [], credentialOptions: [], paramSourceHints: [], projectId: 7, projectCode: 'orders' },
+      props: { data: toolData(), options: [], credentialOptions: [], projectId: 7, projectCode: 'orders' },
       global: { plugins: [ElementPlus] },
     })
     const setup = (wrapper.vm as unknown as {
@@ -118,7 +119,6 @@ describe('ToolConfigPanel business-method regression targets', () => {
         data: toolData(),
         options: [],
         credentialOptions: [],
-        paramSourceHints: [],
         projectId: 7,
         projectCode: 'orders',
       },
@@ -177,6 +177,8 @@ describe('ToolConfigPanel business-method regression targets', () => {
     const config = node?.config as Record<string, unknown>
     const nested = config.toolConfig as Record<string, unknown>
 
+    expect(node?.ref).toMatchObject({ assetType: 'BUSINESS_METHOD', assetId: 701 })
+    expect(config).not.toHaveProperty('assetReference')
     expect(config.args).toEqual({})
     expect(config).not.toHaveProperty('inputMapping')
     expect(config).not.toHaveProperty('assetType')
@@ -186,6 +188,21 @@ describe('ToolConfigPanel business-method regression targets', () => {
     expect(nested).not.toHaveProperty('sourceQualifiedName')
     expect(nested).not.toHaveProperty('definitionId')
     expect(nested).not.toHaveProperty('contractHash')
+  })
+
+  it('preserves the published owner revision and execution binding through canvas editing', () => {
+    const pinnedReference = { kind: 'TOOL' as const, assetType: 'BUSINESS_METHOD' as const,
+      assetId: 701, acceptedRevisionId: 702, name: 'orders_read', qualifiedName: 'orders:read', projectCode: 'orders',
+      businessContractHash: 'a'.repeat(64), contractHash: 'b'.repeat(64), bindingHash: 'c'.repeat(64),
+      executionRevision: 'd'.repeat(64) }
+    const definition = workflowBase({ graphSpec: { schemaVersion: 2, entryNodeId: 'read', exitNodeIds: ['read'],
+      nodes: [{ id: 'read', type: 'TOOL', name: '查询订单', ref: pinnedReference, config: { args: {}, outputAlias: 'read_result' } }], edges: [] } })
+    const canvas = definitionToCanvas(definition)
+    canvas.nodes.find(node => node.id === 'read')!.data.label = '查询订单详情'
+    const saved = canvasToDefinition(definition, canvas)
+    expect(saved.graphSpec?.nodes[0]?.ref).toMatchObject(pinnedReference)
+    expect(saved.graphSpec?.nodes[0]?.name).toBe('查询订单详情')
+    expect(saved.graphSpec?.nodes[0]?.config).not.toHaveProperty('assetReference')
   })
 
   it('round-trips legacy Tool runtime fields and native mapping values without turning them into catalog metadata', () => {
@@ -240,14 +257,13 @@ describe('ToolConfigPanel business-method regression targets', () => {
         data: toolData(),
         options: [],
         credentialOptions: [],
-        paramSourceHints: [],
         projectId: 7,
         projectCode: 'orders',
       },
       global: { plugins: [ElementPlus] },
     })
     const setupState = (wrapper.vm as unknown as {
-      $: { setupState: { selectBusinessMethod: (method: ToolInfo) => void } }
+      $: { setupState: { selectBusinessMethod: (method: BusinessMethodInfo) => void } }
     }).$.setupState
 
     setupState.selectBusinessMethod(businessMethod({ name: 'orders.query', title: '查询订单', qualifiedName: 'orders:query' }))
@@ -296,7 +312,6 @@ describe('ToolConfigPanel business-method regression targets', () => {
         data,
         options: [],
         credentialOptions: [],
-        paramSourceHints: [],
         projectId: 7,
         projectCode: 'orders',
       },
@@ -367,7 +382,6 @@ describe('ToolConfigPanel business-method regression targets', () => {
         toolOptions: [],
         variableOptions: [],
         credentialOptions: [],
-        paramSourceHints: [],
         projectId: 7,
         projectCode: 'orders',
         requestScopeKey: 'browser-fixture-session',

@@ -2,6 +2,10 @@
 
 ## 当前基线
 
+2026-10-05 新增 [旧独立资产退场](./upgrade-20261005-retire-independent-capability-assets.sql)：在业务方法资产升级后删除 `capability_module`、`capability_tool_asset`、`capability_composition_definition`、`capability_interaction_definition`，并删除 Runtime 交互会话的未使用组合身份列。未分类或非法分类的旧来源观察和调用投影直接清理，不猜测资产类型，由当前 SDK/扫描来源重新同步；两张投影表不再提供分类缺省值。方法/API 分别拥有源契约，编排由 Workflow 承担，交互恢复只使用已保存快照。新库基线已移除这些定义和种子；已有开发库执行须核验目标、可恢复备份并停止相关写入。本会话已在核验并备份的远程开发库执行；实际影响及回读见下方执行记录。不修改历史调用/审批状态，不重发未知请求。
+
+2026-10-04 新增 [业务方法独立资产升级](./upgrade-20261004-business-method-assets.sql)：Capability 独占的资产和不可变接纳修订引用可信 SDK 来源快照，分别保存业务契约、完整调用契约与传输指纹。SDK 凭据新增 revision，轮换或有效策略变化递增，相同重报保持；Runtime 调用审计新增 expected_execution_revision，固定方法接纳、传输和凭据修订，API仍使用自己的连接/凭据列。旧审计值不回填执行证明，也不重发未知调用。脚本不从旧 Tool/未分类记录回填；新 SDK 来源按正常同步形成资产。现有开发库执行前须核对目标、备份并停止 Capability 与 Runtime 写入，执行后回读两表、修订列和唯一索引。本会话已执行本份及后续旧模型退场专项升级；未从旧投影回填方法，当前来源按正常SDK同步建立owner。
+
 `sql/initV2.sql` 是 ReachAI 当前新库 SQL 基线入口，覆盖当前物理服务拆分主路径运行所需的表结构、补列、补索引和必要种子数据。当前阶段仍使用一个 MySQL 库，不拆库；表名按 owning service / domain 前缀收口。旧 `sql/init.sql` 已退场，不再保留为活跃或历史基线。
 
 当前主路径服务：
@@ -23,6 +27,8 @@
 2026-09-20 新增 [HTTP API 资产与来源关系基础升级](./upgrade-20260920-http-api-asset-foundation.sql)：新增 Capability 独占的 `capability_http_api_asset` 与 `capability_http_api_source_binding`，保存规范化 scope、HTTP 操作 identity、无秘密的来源契约与来源生命周期。面向引用的稳定 scope 只使用 `projectCode + environment`；`projectId` 只保留为库内隔离键，不进入 hash 或 qualified name。脚本不回填历史扫描/注册记录，不接入 Starter 或 Scanner 写链，不接受契约、不生成 Tool 投影、不执行 HTTP，也不保存 base URL、credentialRef 或调用凭据。已有开发/测试库执行前须备份并停止 Capability 写入；执行后仅按脚本回读两表、唯一索引与状态分布。本轮未执行开发库升级。
 
 ## 本轮开发库执行记录
+
+2026-10-05 BMAPI-6 已在核验后的远程开发库依次执行上述两份专项升级，均exit0。186表完整DPAPI备份可恢复回读通过；升级后184表与当前initV2一致，新字段/索引/中文回读通过，182张保留表的原列数据摘要保持。四张旧表的6行种子和非法分类9条调用投影、592条来源观察按脚本清理，不推断或回填资产。未执行全量initV2、未新建本地库、未修改无关角色授权。见[详细执行与保护证据](../output/tasks/business-method-api/BMAPI-6/远程开发库升级验证.md)。下方更早日期的变更说明记录当时边界，不能代替本次实际执行记录。
 
 2026-09-11 已执行 [Supervisor 确认续跑期限说明升级](./upgrade-20260911-supervisor-approval-resume-deadline.sql)：复用现有 `resume_deadline_at` 和索引，只把字段注释扩展到 Supervisor，不修改业务数据。执行时 Runtime 已停止，目标交互表为空，完整表定义已备份；两遍执行、30 项检查及中文回读通过，四张交互／事件／运行／轨迹表的全部字段摘要一致，累计 **22 份升级已执行**，见 [执行日志](../output/tasks/architecture-audit-20260905/supervisor-resume-deadline-development-migration.log)。其他环境须先执行 Workflow 恢复期限升级，核对无期限的旧确认续跑并人工收尾。本脚本不推断旧尝试结果；新认领超时保存“结果未知、需核对”的终态，禁止自动重试。
 

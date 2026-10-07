@@ -283,13 +283,6 @@ const migratedCapabilityRoutes = [
   { method: 'POST', path: '/api/scan-projects/{projectId}/tools/reconcile' },
   { method: 'GET', path: '/api/scan-projects/{projectId}/scan-tools/{scanToolId}' },
   { method: 'POST', path: '/api/scan-projects/{projectId}/scan-tools/{scanToolId}/rescan-from-source' },
-  { method: 'PUT', path: '/api/scan-projects/{projectId}/scan-tools/{scanToolId}' },
-  { method: 'PUT', path: '/api/scan-projects/{projectId}/scan-tools/{scanToolId}/toggle' },
-  { method: 'POST', path: '/api/scan-projects/{projectId}/scan-tools/{scanToolId}/test' },
-  { method: 'POST', path: '/api/scan-projects/{projectId}/scan-tools/{scanToolId}/promote-to-tool' },
-  { method: 'POST', path: '/api/scan-projects/{projectId}/scan-tools/{scanToolId}/unpromote-from-global' },
-  { method: 'POST', path: '/api/scan-projects/{projectId}/scan-tools/{scanToolId}/push-to-global-tool' },
-  { method: 'POST', path: '/api/scan-projects/{projectId}/scan-tools/promote-by-module' },
   { method: 'GET', path: '/api/scan-projects/{id}/diff-summary' },
   { method: 'GET', path: '/api/scan-projects/{id}/operation-blockers' },
   { method: 'GET', path: '/api/semantic-docs' },
@@ -931,6 +924,30 @@ const migratedCapabilityIssues = migratedCapabilityRoutes
     targetRoot: 'migrated Capability route implementation'
   }))
 report('migrated Capability route must have a real implementation', migratedCapabilityIssues)
+
+const retiredScanMaintenanceRoutes = [
+  { method: 'PUT', path: '/api/scan-projects/{}/scan-tools/{}' },
+  { method: 'PUT', path: '/api/scan-projects/{}/scan-tools/{}/toggle' },
+  { method: 'POST', path: '/api/scan-projects/{}/scan-tools/{}/test' },
+  { method: 'POST', path: '/api/scan-projects/{}/scan-tools/{}/promote-to-tool' },
+  { method: 'POST', path: '/api/scan-projects/{}/scan-tools/{}/unpromote-from-global' },
+  { method: 'POST', path: '/api/scan-projects/{}/scan-tools/{}/push-to-global-tool' },
+  { method: 'POST', path: '/api/scan-projects/{}/scan-tools/promote-by-module' }
+]
+const normalizeRouteVariables = (routePath) => routePath.replace(/\{[^/{}]+\}/g, '{}')
+const retiredScanMaintenanceIssues = [
+  ...controlPublicRoutes,
+  ...capabilityRoutes,
+  ...collectRoutes(walk(serviceRoots.runtime))
+].filter((route) => retiredScanMaintenanceRoutes.some((retired) =>
+  (route.method === 'ANY' || route.method === retired.method)
+    && normalizeRouteVariables(route.path) === retired.path))
+  .map((route) => ({
+    key: routeKey(route),
+    sourceFile: route.file,
+    targetRoot: 'business method/API owners and controlled invocation'
+  }))
+report('retired independent scan asset maintenance route must stay deleted', retiredScanMaintenanceIssues)
 
 const aiAgentRoot = 'ai-agent-service/src/main/java'
 if (exists(aiAgentRoot)) {

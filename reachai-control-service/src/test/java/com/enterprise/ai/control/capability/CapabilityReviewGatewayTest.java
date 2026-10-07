@@ -137,6 +137,28 @@ class CapabilityReviewGatewayTest {
         } finally { server.stop(0); }
     }
 
+    @Test
+    void summarySignsTheAggregateOwnerPathForProjectAndGlobalReads() throws Exception {
+        List<CatalogRequest> captured = new CopyOnWriteArrayList<>();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/", exchange -> captureCatalog(exchange, captured));
+        server.start();
+        try {
+            var gateway = new CapabilityReviewGateway(new InternalServiceAuthSigner(SECRET), new ObjectMapper(),
+                    "http://127.0.0.1:" + server.getAddress().getPort(), HttpClient.newHttpClient());
+            gateway.getBusinessMethodSummary(7L, "42");
+            gateway.getBusinessMethodSummary(null, "42");
+            assertEquals(2, captured.size());
+            assertEquals("projectId=7", captured.get(0).query());
+            assertEquals(null, captured.get(1).query());
+            for (var request : captured) {
+                assertEquals("GET", request.method());
+                assertEquals("/internal/capability/business-methods/summary", request.path());
+                assertSigned(request);
+            }
+        } finally { server.stop(0); }
+    }
+
     private static void capture(HttpExchange exchange,
                                 List<CapturedRequest> captured) throws java.io.IOException {
         exchange.getRequestBody().readAllBytes();

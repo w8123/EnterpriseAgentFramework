@@ -3,27 +3,22 @@ package com.enterprise.ai.capability.registry;
 import java.util.Map;
 
 /**
- * Server-owned validation for the source metadata contract. Legacy clients
- * omit the field; their catalog projections use {@link #UNCLASSIFIED} without
- * changing source metadata or its contract hash.
+ * Explicit source classification. Missing or unknown classifications cannot
+ * create an accepted asset or an invocation projection.
  */
-enum CapabilityAssetType {
+public enum CapabilityAssetType {
     BUSINESS_METHOD,
-    HTTP_API,
-    UNCLASSIFIED;
+    HTTP_API;
 
     static CapabilityAssetType fromMetadata(Map<String, Object> metadata) {
-        if (metadata == null || !metadata.containsKey("assetType") || metadata.get("assetType") == null) {
-            return UNCLASSIFIED;
-        }
-        Object raw = metadata.get("assetType");
+        return fromValue(metadata == null ? null : metadata.get("assetType"));
+    }
+
+    static CapabilityAssetType fromValue(Object raw) {
         if (!(raw instanceof String)) {
             throw invalid();
         }
         String value = ((String) raw).trim();
-        if (value.isEmpty()) {
-            return UNCLASSIFIED;
-        }
         return switch (value) {
             case "BUSINESS_METHOD" -> BUSINESS_METHOD;
             case "HTTP_API" -> HTTP_API;

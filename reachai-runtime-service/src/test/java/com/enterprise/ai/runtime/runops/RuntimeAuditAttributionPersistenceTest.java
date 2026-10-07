@@ -91,7 +91,7 @@ class RuntimeAuditAttributionPersistenceTest {
     }
 
     static Stream<WorkflowExecutionIdentity> untrustedIdentities() {
-        return Stream.of(null, WorkflowExecutionIdentity.untrustedDebug(), WorkflowExecutionIdentity.untrustedComposition());
+        return Stream.of(null, WorkflowExecutionIdentity.untrustedDebug());
     }
 
     @ParameterizedTest

@@ -1,4 +1,6 @@
-import { effectScope, ref, type EffectScope } from 'vue'
+import { businessMethodFixture } from '@/test/fixtures/businessMethod'
+import { platformSessionId } from '@/auth/platformSession'
+import { effectScope, ref, type EffectScope, type Ref } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useWorkflowStudioResources as createWorkflowStudioResources, type UseWorkflowStudioResourcesDeps } from './useWorkflowStudioResources'
 import { useWorkflowStudioPersistence } from './useWorkflowStudioPersistence'
@@ -8,7 +10,7 @@ const mocks = vi.hoisted(() => ({
   getApiGraphParamHints: vi.fn(),
   getKnowledgeList: vi.fn(),
   getModelInstances: vi.fn(),
-  listAllTools: vi.fn(),
+  listAllBusinessMethods: vi.fn(),
   getWorkflowGraphNodeTypes: vi.fn(),
   listWorkflowCredentials: vi.fn(),
   getWorkflowWorkingCopy: vi.fn(),
@@ -24,8 +26,8 @@ vi.mock('@/api/knowledge', () => ({
 vi.mock('@/api/model', () => ({
   getModelInstances: mocks.getModelInstances,
 }))
-vi.mock('@/api/tool', () => ({
-  listAllTools: mocks.listAllTools,
+vi.mock('@/api/businessMethod', () => ({
+  listAllBusinessMethods: mocks.listAllBusinessMethods,
 }))
 vi.mock('@/api/workflow', () => ({
   getWorkflowGraphNodeTypes: mocks.getWorkflowGraphNodeTypes,
@@ -50,6 +52,11 @@ function deferred<T>() {
   return { promise, resolve, reject }
 }
 
+vi.mock('@/auth/platformSession', async () => {
+  const { ref } = await import('vue')
+  return { platformSessionId: ref('session-a') }
+})
+
 const scopes: EffectScope[] = []
 afterEach(() => scopes.splice(0).forEach(scope => scope.stop()))
 function useWorkflowStudioResources(deps: UseWorkflowStudioResourcesDeps) {
@@ -59,15 +66,8 @@ function useWorkflowStudioResources(deps: UseWorkflowStudioResourcesDeps) {
 }
 
 function tool(name: string, projectId: number) {
-  return {
-    name,
-    title: name,
-    description: '',
-    parameters: [],
-    source: 'code' as const,
-    projectId,
-    enabled: true,
-  }
+  const projectCode = projectId === 2 ? 'billing' : 'orders'
+  return businessMethodFixture({ name, title: name, projectId, projectCode, qualifiedName: `${projectCode}:${name}` })
 }
 
 function workingCopy(overrides: Partial<WorkflowWorkingCopyState> = {}): WorkflowWorkingCopyState {
@@ -97,87 +97,77 @@ function savingResourceFixture() {
   return { studio, aiModelInstanceId, editGeneration, resources, ...persistence }
 }
 
-describe('useWorkflowStudioResources parameter hints', () => {
+describe('useWorkflowStudioResources owner catalogs', () => {
   beforeEach(() => {
     vi.resetAllMocks()
     mocks.getModelInstances.mockResolvedValue({ data: [] })
     mocks.getKnowledgeList.mockResolvedValue({ data: [] })
-    mocks.listAllTools.mockResolvedValue([
-      tool('tool-a', 1),
-      tool('tool-b', 2),
-    ])
+    ;(platformSessionId as Ref<string>).value = 'session-a'
+    mocks.listAllBusinessMethods.mockImplementation((projectId: number) => Promise.resolve([tool('tool-a', projectId)]))
+    mocks.listWorkflowCredentials.mockResolvedValue({ data: [] })
   })
 
-  it('ignores hints returned for a previously selected tool', async () => {
-    const requestA = deferred<{ data: { targetPath: string }[] }>()
-    const requestB = deferred<{ data: { targetPath: string }[] }>()
-    mocks.getApiGraphParamHints.mockImplementation((projectId: number) => (
-      projectId === 1 ? requestA.promise : requestB.promise
-    ))
-    const selectedToolName = ref('tool-a')
-    const resources = useWorkflowStudioResources({
-      studio: ref(null),
-      aiModelInstanceId: ref(''),
-      selectedToolName,
-    })
+  it('requires a project and loads methods from their owner without API graph hints', async () => {
+    const studio = ref<WorkflowWorkingCopyState | null>(null)
+    const resources = useWorkflowStudioResources({ studio, aiModelInstanceId: ref(''), selectedToolName: ref('tool-a') })
     await resources.loadToolOptions()
-
-    const refreshA = resources.refreshParamSourceHints()
-    selectedToolName.value = 'tool-b'
-    const refreshB = resources.refreshParamSourceHints()
-    requestA.resolve({ data: [{ targetPath: 'from-a' }] })
-    await refreshA
-
-    expect(resources.paramSourceHints.value).toEqual([])
-
-    requestB.resolve({ data: [{ targetPath: 'from-b' }] })
-    await refreshB
-    expect(resources.paramSourceHints.value).toEqual([
-      { targetPath: 'from-b' },
-    ])
-  })
-
-  it('keeps hints empty when tool selection is cleared during a request', async () => {
-    const request = deferred<{ data: { targetPath: string }[] }>()
-    mocks.getApiGraphParamHints.mockReturnValue(request.promise)
-    const selectedToolName = ref('tool-a')
-    const resources = useWorkflowStudioResources({
-      studio: ref(null),
-      aiModelInstanceId: ref(''),
-      selectedToolName,
-    })
+    expect(mocks.listAllBusinessMethods).not.toHaveBeenCalled()
+    studio.value = workingCopy()
     await resources.loadToolOptions()
-
-    const refresh = resources.refreshParamSourceHints()
-    selectedToolName.value = ''
-    await resources.refreshParamSourceHints()
-    request.resolve({ data: [{ targetPath: 'from-a' }] })
-    await refresh
-
-    expect(resources.paramSourceHints.value).toEqual([])
-  })
-
-  it('does not ask the API graph for hints when the selected catalog item is a business method', async () => {
-    mocks.listAllTools.mockResolvedValue([
-      { ...tool('orders_read', 1), assetType: 'BUSINESS_METHOD', qualifiedName: 'orders:read' },
-    ])
-    const resources = useWorkflowStudioResources({
-      studio: ref(null),
-      aiModelInstanceId: ref(''),
-      selectedToolName: ref('orders_read'),
-    })
-    await resources.loadToolOptions()
-
-    await resources.refreshParamSourceHints()
-
+    expect(mocks.listAllBusinessMethods).toHaveBeenCalledWith(1)
+    expect(resources.availableTools.value.map(method => method.assetId)).toEqual([101])
+    expect(resources.selectedToolInfo.value?.acceptedRevisionId).toBe(102)
     expect(mocks.getApiGraphParamHints).not.toHaveBeenCalled()
-    expect(resources.paramSourceHints.value).toEqual([])
   })
 
-  it('scopes the generic catalog to the active workflow project and ignores stale project results', async () => {
+  it('reports a failed owner read and does not turn it into a successful empty catalog', async () => {
+    mocks.listAllBusinessMethods.mockRejectedValueOnce(new Error('owner unavailable'))
+    const resources = useWorkflowStudioResources({ studio: ref(workingCopy()), aiModelInstanceId: ref(''), selectedToolName: ref('') })
+    await resources.loadToolOptions()
+    expect(resources.availableTools.value).toEqual([])
+    expect(resources.toolOptionsLoadError.value).toBe(true)
+    expect(resources.toolOptionsLoading.value).toBe(false)
+    await resources.loadToolOptions()
+    expect(resources.toolOptionsLoadError.value).toBe(false)
+    expect(resources.availableTools.value).toHaveLength(1)
+  })
+
+  it.each([
+    { name: 'projection_only', projectId: 1, assetType: 'BUSINESS_METHOD', parameters: [] },
+    tool('foreign', 2),
+  ])('rejects an unowned or foreign method response: %j', async (record) => {
+    mocks.listAllBusinessMethods.mockResolvedValueOnce([record])
+    const resources = useWorkflowStudioResources({ studio: ref(workingCopy()), aiModelInstanceId: ref(''), selectedToolName: ref('') })
+    await resources.loadToolOptions()
+    expect(resources.availableTools.value).toEqual([])
+    expect(resources.toolOptionsLoadError.value).toBe(true)
+  })
+
+  it.each([false, true])('invalidates same-project account away/back responses (old request fails: %s)', async (oldFails) => {
+    const pending = deferred<ReturnType<typeof tool>[]>()
+    const pendingCredentials = deferred<{ data: { credentialRef: string }[] }>()
+    mocks.listAllBusinessMethods.mockReturnValueOnce(pending.promise)
+    mocks.listWorkflowCredentials.mockReturnValueOnce(pendingCredentials.promise)
+    const resources = useWorkflowStudioResources({ studio: ref(workingCopy()), aiModelInstanceId: ref(''), selectedToolName: ref('') })
+    const load = resources.loadToolOptions()
+    const credentials = resources.loadCredentialOptions()
+    ;(platformSessionId as Ref<string>).value = 'session-b'
+    ;(platformSessionId as Ref<string>).value = 'session-a'
+    if (oldFails) pending.reject(new Error('old account response'))
+    else pending.resolve([tool('old', 1)])
+    pendingCredentials.resolve({ data: [{ credentialRef: 'old-credential' }] })
+    await Promise.all([load, credentials])
+    expect(resources.availableTools.value).toEqual([])
+    expect(resources.credentialOptions.value).toEqual([])
+    expect(resources.toolOptionsLoadError.value).toBe(false)
+    await resources.loadToolOptions()
+    expect(resources.availableTools.value.map(method => method.name)).toEqual(['tool-a'])
+  })
+
+  it('scopes the method owner catalog to the active workflow project and ignores stale project results', async () => {
     const orders = deferred<ReturnType<typeof tool>[]>()
     const billing = deferred<ReturnType<typeof tool>[]>()
-    mocks.listAllTools.mockImplementation(({ projectId }: { projectId?: number }) => (
+    mocks.listAllBusinessMethods.mockImplementation((projectId: number) => (
       projectId === 1 ? orders.promise : billing.promise
     ))
     const studio = ref({ projectId: 1, projectCode: 'orders' } as WorkflowWorkingCopyState)
@@ -188,11 +178,11 @@ describe('useWorkflowStudioResources parameter hints', () => {
     })
 
     const ordersLoad = resources.loadToolOptions()
-    expect(mocks.listAllTools).toHaveBeenLastCalledWith({ enabled: true, projectId: 1 })
+    expect(mocks.listAllBusinessMethods).toHaveBeenLastCalledWith(1)
 
     studio.value = { projectId: 2, projectCode: 'billing' } as WorkflowWorkingCopyState
     const billingLoad = resources.loadToolOptions()
-    expect(mocks.listAllTools).toHaveBeenLastCalledWith({ enabled: true, projectId: 2 })
+    expect(mocks.listAllBusinessMethods).toHaveBeenLastCalledWith(2)
 
     orders.resolve([tool('orders.read', 1)])
     await ordersLoad

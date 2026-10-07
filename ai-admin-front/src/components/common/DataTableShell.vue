@@ -106,6 +106,10 @@ function handleSizeChange(size: number) {
   gap: calc(var(--section-gap) / 2);
 }
 
+.data-table-shell__toolbar > :deep(.filter-bar) {
+  flex: 1 1 100%;
+}
+
 .data-table-shell__body {
   min-width: 0;
   overflow-x: auto;

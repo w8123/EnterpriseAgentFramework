@@ -27,7 +27,7 @@ import java.util.Objects;
 @Service
 public class RuntimeWorkflowInteractionSessionService {
 
-    static final java.util.List<String> RESUME_SOURCE_TYPES = java.util.List.of("WORKFLOW", "COMPOSITION", "DEBUG");
+    static final java.util.List<String> RESUME_SOURCE_TYPES = java.util.List.of("WORKFLOW", "DEBUG");
 
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {
     };
@@ -106,7 +106,6 @@ public class RuntimeWorkflowInteractionSessionService {
         entity.setTraceId(request.traceId());
         entity.setWorkflowId(request.workflowId());
         entity.setWorkflowVersionId(request.workflowVersionId());
-        entity.setCompositionQualifiedName(request.compositionQualifiedName());
         entity.setGraphSpecSnapshotJson(request.graphSpecSnapshotJson());
         entity.setNodeId(request.nodeId());
         entity.setInteractionType(firstText(request.interactionType(), "COLLECT_INPUT"));
@@ -413,7 +412,6 @@ public class RuntimeWorkflowInteractionSessionService {
             String traceId,
             String workflowId,
             Long workflowVersionId,
-            String compositionQualifiedName,
             String graphSpecSnapshotJson,
             String nodeId,
             String interactionType,

@@ -168,6 +168,8 @@ export function applyHttpApiSelection(config: ToolNodeConfig, detail: HttpApiDet
   config.qualifiedName = detail.summary.qualifiedName
   config.projectCode = detail.summary.projectCode
   config.httpApiAssetId = detail.summary.id
+  config.assetReference = { kind: 'TOOL', assetType: 'HTTP_API', assetId: detail.summary.id,
+    name: detail.summary.qualifiedName, qualifiedName: detail.summary.qualifiedName, projectCode: detail.summary.projectCode }
   config.inputMapping = mapping
   config.argumentSource = 'inputMapping'
   config.credentialRef = ''

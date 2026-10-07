@@ -13,6 +13,7 @@ export interface BusinessMethodInvocationContext {
   projectId?: number | null
   projectCode?: string | null
   currentContractHash?: string | null
+  executionRevision?: string | null
   acceptedContractHash?: string | null
   sourceContractHash?: string | null
   sourceAvailability?: string | null
@@ -37,6 +38,7 @@ export interface BusinessMethodInvocationContext {
 export interface BusinessMethodInvocationRequest {
   invocationId: string
   expectedContractHash: string
+  expectedExecutionRevision: string
   input: Record<string, unknown>
   confirmedSideEffect: boolean
 }

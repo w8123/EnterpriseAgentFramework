@@ -353,7 +353,6 @@ function releaseFailure(error: unknown) {
 
 .reference-location {
   padding: 16px;
-  margin-bottom: 16px;
   border: 1px solid var(--el-border-color-lighter);
   border-radius: var(--el-border-radius-base);
   background: var(--el-bg-color);

@@ -73,23 +73,67 @@ class CapabilityRegistryServiceTest {
     private final ObjectMapper registryJson = new ObjectMapper();
     private final CapabilityChangePolicy policy = new CapabilityChangePolicy(registryJson);
     private final CapabilityChangeLifecycle lifecycle = mock(CapabilityChangeLifecycle.class);
+    private final com.enterprise.ai.capability.catalog.businessmethod.BusinessMethodAssetStore methodAssets =
+            mock(com.enterprise.ai.capability.catalog.businessmethod.BusinessMethodAssetStore.class);
+    private final java.util.Map<String, com.enterprise.ai.capability.catalog.businessmethod.BusinessMethodAssetEntity> methodOwners =
+            new java.util.LinkedHashMap<>();
+    private final java.util.Map<String, CapabilityRegistration> methodDeclarations = new java.util.LinkedHashMap<>();
     private final CapabilityCatalogProjectionStore projections = new CapabilityCatalogProjectionStore(
-            scanProjectToolMapper, toolDefinitionMapper, registryJson, policy);
+            scanProjectToolMapper, toolDefinitionMapper, registryJson, policy,
+            methodAssets);
     private final CapabilityReviewEvidenceStore evidence = new CapabilityReviewEvidenceStore(
             snapshotMapper, diffItemMapper, applyRecordMapper);
     private final StarterMvcHttpApiIntakeService httpApiIntake = mock(StarterMvcHttpApiIntakeService.class);
     private final CapabilitySourceIntakeService intake = new CapabilitySourceIntakeService(
             scanProjectMapper, scanProjectToolMapper, toolDefinitionMapper, syncLogMapper, snapshotMapper,
-            diffItemMapper, registryJson, policy, lifecycle, projections, evidence, httpApiIntake);
+            diffItemMapper, registryJson, policy, lifecycle, projections, evidence, httpApiIntake,
+            methodAssets);
     private final CapabilityRegistryService service = new CapabilityRegistryService(
             scanProjectMapper, snapshotMapper, diffItemMapper, registrySecurityService, new RegistryProjectRegistrationService(scanProjectMapper, registrySecurityService, registryEnrollmentService),
             registryJson, policy, lifecycle, projections,
             new RegistryInstanceLifecycleService(instanceMapper, registryJson), intake, evidence);
 
     @org.junit.jupiter.api.BeforeEach
-    void defaultLegacyHttpApiPlan() {
+    void defaultHttpApiInventoryPlanAndExplicitMethodOwner() {
         when(httpApiIntake.prepare(any(), any(), any())).thenReturn(
                 new StarterMvcHttpApiIntakeService.Plan(false, null, List.of()));
+        when(methodAssets.find(any())).thenAnswer(invocation -> java.util.Optional.ofNullable(
+                methodOwners.get(invocation.<String>getArgument(0))));
+        when(methodAssets.inventory(any())).thenAnswer(invocation -> methodOwners.values().stream()
+                .filter(asset -> java.util.Objects.equals(asset.getProjectId(), invocation.getArgument(0))
+                        && "ACCEPTED".equals(asset.getStatus())).toList());
+        when(methodAssets.accept(any(), any(), any(), any())).thenAnswer(invocation ->
+                acceptedMethodFixture(invocation.getArgument(0), invocation.getArgument(1)));
+        when(methodAssets.acceptedDeclaration(any())).thenAnswer(invocation -> methodDeclarations.get(
+                invocation.<com.enterprise.ai.capability.catalog.businessmethod.BusinessMethodAssetEntity>getArgument(0).getQualifiedName()));
+        when(methodAssets.acceptedRevision(any())).thenAnswer(invocation -> {
+            var asset = invocation.<com.enterprise.ai.capability.catalog.businessmethod.BusinessMethodAssetEntity>getArgument(0);
+            var revision = new com.enterprise.ai.capability.catalog.businessmethod.BusinessMethodRevisionEntity();
+            revision.setId(asset.getAcceptedRevisionId()); revision.setAssetId(asset.getId());
+            revision.setInvocationHash(policy.contractHash(methodDeclarations.get(asset.getQualifiedName())));
+            return revision;
+        });
+        when(methodAssets.captureState(any())).thenAnswer(invocation -> registryJson.valueToTree(
+                methodOwners.get(invocation.<String>getArgument(0))));
+    }
+
+    // These unit tests supply an explicit owner dependency; the H2 suite verifies its persisted proof.
+    private com.enterprise.ai.capability.catalog.businessmethod.BusinessMethodAssetEntity acceptedMethodFixture(
+            ScanProjectEntity project, CapabilityRegistration declaration) {
+        String name = project.getProjectCode() + ":" + declaration.name();
+        var asset = methodOwners.computeIfAbsent(name, ignored -> {
+            var created = new com.enterprise.ai.capability.catalog.businessmethod.BusinessMethodAssetEntity();
+            created.setId(200L + methodOwners.size());
+            created.setProjectId(project.getId()); created.setProjectCode(project.getProjectCode());
+            created.setQualifiedName(name); created.setMethodCode(declaration.name());
+            created.setInvocationName(com.enterprise.ai.capability.catalog.businessmethod.BusinessMethodAssetStore
+                    .invocationName(project.getProjectCode(), declaration.name()));
+            return created;
+        });
+        asset.setStatus("ACCEPTED"); asset.setAcceptedRevisionId(300L + methodOwners.size());
+        asset.setEnabled(!Boolean.FALSE.equals(declaration.enabled()));
+        methodDeclarations.put(name, declaration);
+        return asset;
     }
 
     @Test
@@ -324,6 +368,9 @@ class CapabilityRegistryServiceTest {
         existing.setDescription("Old description");
         existing.setHttpMethod("POST");
         existing.setEnabled(true);
+        acceptedMethodFixture(project, new CapabilityRegistration("createOrder", "Create order", "Old description",
+                "POST", "http://orders.local", "/orders", "/create", "JSON", "JSON", "WRITE", true, List.of(),
+                Map.of("source", "sdk", "assetType", "BUSINESS_METHOD")));
         when(toolDefinitionMapper.selectOne(any())).thenReturn(existing);
         AtomicReference<CapabilitySnapshotEntity> insertedSnapshot = new AtomicReference<>();
         AtomicReference<CapabilityDiffItemEntity> insertedDiffItem = new AtomicReference<>();
@@ -362,7 +409,7 @@ class CapabilityRegistryServiceTest {
                         "WRITE",
                         true,
                         List.of(),
-                        Map.of("source", "sdk")
+                        Map.of("source", "sdk", "assetType", "BUSINESS_METHOD")
                 ))
         ));
 
@@ -562,7 +609,7 @@ class CapabilityRegistryServiceTest {
                 null,
                 List.of(new CapabilityRegistration("queryOrder", "查询订单", "Query order", "POST",
                         "http://orders.local", "/orders", "/query", "JSON", "JSON", "READ_ONLY",
-                        true, List.of(), Map.of("source", "sdk")))
+                        true, List.of(), Map.of("source", "sdk", "assetType", "BUSINESS_METHOD")))
         ));
 
         assertEquals(1, response.added());
@@ -597,6 +644,10 @@ class CapabilityRegistryServiceTest {
         staleGlobalTool.setId(12L);
         staleGlobalTool.setQualifiedName("orders:oldCapability");
         staleGlobalTool.setEnabled(true);
+        acceptedMethodFixture(project, new CapabilityRegistration("oldCapability", "Old capability", "Old capability",
+                "POST", "http://orders.local", null, "/old", "JSON", "JSON", "READ_ONLY", true, List.of(),
+                Map.of("assetType", "BUSINESS_METHOD")));
+        when(scanProjectToolMapper.selectOne(any())).thenReturn(staleTool);
         when(scanProjectToolMapper.selectList(any())).thenReturn(List.of(staleTool));
         when(toolDefinitionMapper.selectById(12L)).thenReturn(staleGlobalTool);
         when(snapshotMapper.insert(any())).thenAnswer(invocation -> {
@@ -798,7 +849,7 @@ class CapabilityRegistryServiceTest {
     }
 
     @Test
-    void reviewApplyAppliesDiffItemIntoApiCatalogRows() {
+    void reviewApplyAcceptsMethodOwnerAndDerivesInvocationProjection() {
         ScanProjectEntity project = new ScanProjectEntity();
         project.setId(7L);
         project.setProjectCode("orders");
@@ -817,7 +868,7 @@ class CapabilityRegistryServiceTest {
                 + "{\"name\":\"createOrder\",\"description\":\"Create order\",\"httpMethod\":\"POST\","
                 + "\"baseUrl\":\"http://orders.local\",\"contextPath\":\"/orders\",\"endpointPath\":\"/create\","
                 + "\"requestBodyType\":\"JSON\",\"responseType\":\"JSON\",\"enabled\":true,"
-                + "\"sideEffect\":\"WRITE\"}]}");
+                + "\"sideEffect\":\"WRITE\",\"metadata\":{\"assetType\":\"BUSINESS_METHOD\"}}]}");
 
         CapabilityDiffItemDTO dto = service.reviewDiffItem(
                 "orders",
@@ -826,6 +877,7 @@ class CapabilityRegistryServiceTest {
         );
 
         assertEquals("APPLIED", dto.reviewStatus());
+        verify(methodAssets).accept(eq(project), any(), eq(21L), eq(31L));
         verify(scanProjectToolMapper).insert(any());
         verify(diffItemMapper).updateById(any());
         verify(applyRecordMapper).insert(any());
@@ -925,6 +977,7 @@ class CapabilityRegistryServiceTest {
         item.setReviewStatus("APPLIED");
         item.setBeforeStateJson("""
                 {
+                  "businessMethodAsset": {"id":200,"qualifiedName":"orders:createOrder","acceptedRevisionId":301,"status":"ACCEPTED","enabled":true},
                   "scanTool": {
                     "id": 51,
                     "projectId": 7,
@@ -967,10 +1020,14 @@ class CapabilityRegistryServiceTest {
         ToolDefinitionEntity currentGlobal = new ToolDefinitionEntity();
         currentGlobal.setId(12L);
         currentGlobal.setQualifiedName("orders:createOrder");
+        currentGlobal.setProjectId(7L);
         currentGlobal.setTitle("Risky title");
         currentGlobal.setDescription("Risky description");
         currentGlobal.setEnabled(true);
         currentGlobal.setSideEffect("WRITE");
+        acceptedMethodFixture(project, new CapabilityRegistration("createOrder", "Stable title", "Stable description",
+                "POST", "http://orders.local", "/orders", "/create", "JSON", "JSON", "READ_ONLY", true, List.of(),
+                Map.of("assetType", "BUSINESS_METHOD")));
 
         when(diffItemMapper.selectById(31L)).thenReturn(item);
         when(diffItemMapper.selectOne(any())).thenReturn(item);
@@ -1021,6 +1078,7 @@ class CapabilityRegistryServiceTest {
         item.setChangeType("CHANGED");
         item.setBeforeStateJson("""
                 {
+                  "businessMethodAsset": null,
                   "scanTool": {
                     "id": 51,
                     "projectId": 7,
@@ -1050,7 +1108,7 @@ class CapabilityRegistryServiceTest {
                 service.reviewDiffItem("orders", 31L,
                         new CapabilityReviewRequest("APPLY", "alice", null)));
 
-        assertEquals("能力目录在生成差异后已变化，请刷新 SDK 快照后重新评审", error.getMessage());
+        assertEquals("方法资产或调用投影在生成差异后已变化，请刷新 SDK 快照后重新评审", error.getMessage());
         verify(scanProjectToolMapper, never()).updateById(any());
         verify(diffItemMapper, never()).updateById(any());
         verify(applyRecordMapper, never()).insert(any());
@@ -1067,7 +1125,7 @@ class CapabilityRegistryServiceTest {
         snapshot.setProjectCode("orders");
         CapabilityDiffItemEntity item = newDiffItem();
         item.setReviewStatus("APPLIED");
-        item.setBeforeStateJson("{\"scanTool\":null,\"globalTool\":null}");
+        item.setBeforeStateJson("{\"scanTool\":null,\"globalTool\":null,\"businessMethodAsset\":null}");
         CapabilityDiffItemEntity newer = newDiffItem();
         newer.setId(32L);
         newer.setReviewStatus("APPLIED");
@@ -1116,7 +1174,7 @@ class CapabilityRegistryServiceTest {
                 "WRITE",
                 true,
                 List.of(),
-                Map.of("source", "sdk")
+                Map.of("source", "sdk", "assetType", "BUSINESS_METHOD")
         );
     }
 }

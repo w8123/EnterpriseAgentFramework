@@ -54,8 +54,8 @@ Starter 将登记请求和收到凭据后的落盘放在同一客户端串行入
 7. 来源契约和目录不一致、或来源已不再提供能力时，调用前阻断受影响能力并返回明确原因。忽略、回滚和刷新不能解除尚未解决的来源漂移。
 8. 发布的 Workflow 和直接暴露能力的 MCP 发布固定当时的能力契约；执行前核对当前契约，避免目录人工更新后旧发布静默使用不兼容定义。重新校验与发布后采用新契约；没有契约指纹的旧发布不能跳过保护。
 9. 待处理视图按能力展示当前例外和具体影响，默认隐藏无变化、自动完成与被替代的历史项。历史记录仍可查询，开发诊断单独保留。
-10. 权限仍按项目隔离。入口位于能力目录，避免在导航中把正常使用组织为必须人工评审的流水线。
-11. SDK 能力的扫描行与调用投影以服务端 `source_qualified_name` 绑定 `capability_source_state.qualified_name`。`source_location` 只描述来源位置，清空或改写它不能解除来源保护。SDK 同步和来源变化处理维护契约与启用状态；旧扫描 edit/toggle/test/promote/push/unpromote/module promote 全部 scoped 410，通用目录仅 GET，已删除无消费者的人工 CRUD 回退。来源重扫、模块/语义/敏感字段证据保留，reconcile 只读，不补写投影。缺少来源绑定的旧 SDK 投影仍为 SOURCE_UNKNOWN，需可信同步；无绑定且非 SDK location 的 scanner 人工投影为 LEGACY_SCAN_TOOL_RETIRED，不能执行或重新发布，需在所属 API 目录正常发现/接纳并显式重选发布。已有图与固定引用不自动修改。
+10. 权限仍按项目隔离。来源变化与开发诊断在所属项目内处理，业务方法/API 详情展示当前状态和具体引用；旧能力目录不再作为入口。
+11. SDK 能力的扫描行与调用投影以服务端 `source_qualified_name` 绑定 `capability_source_state.qualified_name`。`source_location` 只描述来源位置，清空或改写它不能解除来源保护。SDK 同步和来源变化处理维护契约与启用状态；旧扫描 edit/toggle/test/promote/push/unpromote/module promote 维护路由已物理删除，技术 Tool 读取接口不提供人工 CRUD。来源重扫、模块/语义/敏感字段证据保留，reconcile 只读，不补写投影。缺少来源绑定的旧 SDK 投影仍为 SOURCE_UNKNOWN，需可信同步；无绑定且非 SDK location 的 scanner 人工投影为 LEGACY_SCAN_TOOL_RETIRED，不能执行或重新发布，需在所属 API 目录正常发现/接纳并显式重选发布。已有图与固定引用不自动修改。业务方法读取与执行先解析接纳 owner，投影删除或损坏不能改变方法契约；缺失 owner 直接拒绝，不根据旧未分类行推断。方法回滚恢复原接纳修订，再派生调用定义；连接或凭据修订变化也要求重新读取调用条件和显式发布。详见[现行资产架构](./business-method-api-assets.md)。
 
 ## 验收证据
 

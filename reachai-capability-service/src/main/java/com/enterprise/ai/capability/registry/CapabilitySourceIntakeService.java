@@ -19,6 +19,8 @@ import com.enterprise.ai.agent.registry.RegistryContracts.CapabilitySyncRequest;
 import com.enterprise.ai.agent.registry.RegistryContracts.CapabilitySyncResponse;
 import com.enterprise.ai.agent.registry.RegistryContracts.FieldDiff;
 import com.enterprise.ai.agent.registry.RegistryContracts.HttpApiSyncSummary;
+import com.enterprise.ai.capability.catalog.businessmethod.BusinessMethodAssetStore;
+import com.enterprise.ai.capability.catalog.businessmethod.BusinessMethodAssetEntity;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -51,6 +53,7 @@ public class CapabilitySourceIntakeService {
     private final CapabilityCatalogProjectionStore catalogProjectionStore;
     private final CapabilityReviewEvidenceStore reviewEvidence;
     private final StarterMvcHttpApiIntakeService httpApiIntake;
+    private final BusinessMethodAssetStore businessMethods;
 
     @Transactional(propagation = Propagation.MANDATORY)
     public CapabilitySyncResponse receiveSource(ScanProjectEntity project, CapabilitySyncRequest request) {
@@ -66,7 +69,7 @@ public class CapabilitySourceIntakeService {
         scanProjectMapper.lockCapabilityChanges(project.getId());
         List<CapabilityRegistration> capabilities = changePolicy.normalize(project,
                 request == null ? null : request.capabilities());
-        if (request != null && request.httpApis() != null && capabilities.stream()
+        if (capabilities.stream()
                 .anyMatch(item -> CapabilityAssetType.HTTP_API.equals(changePolicy.assetType(item)))) {
             throw new IllegalArgumentException("HTTP API 必须通过 httpApis 同步，不能放入 capabilities");
         }
@@ -103,6 +106,8 @@ public class CapabilitySourceIntakeService {
             String storageName = storageName(project.getProjectCode(), capabilityName);
             String qualifiedName = project.getProjectCode() + ":" + capabilityName;
             String sdkLocation = "sdk:" + project.getProjectCode().trim() + ":" + capabilityName;
+            BusinessMethodAssetEntity acceptedMethod = businessMethods.find(qualifiedName)
+                    .filter(asset -> asset.getAcceptedRevisionId() != null && "ACCEPTED".equals(asset.getStatus())).orElse(null);
 
             ScanProjectToolEntity catalogRow = scanProjectToolMapper.selectOne(Wrappers.<ScanProjectToolEntity>lambdaQuery()
                     .eq(ScanProjectToolEntity::getProjectId, project.getId())
@@ -126,18 +131,10 @@ public class CapabilitySourceIntakeService {
                 }
             }
 
-            List<FieldDiff> fieldDiffs;
-            Long existingToolId;
-            if (catalogRow != null) {
-                fieldDiffs = fieldDiffsFromCatalog(catalogRow, registration);
-                existingToolId = catalogRow.getGlobalToolDefinitionId();
-            } else if (existingTool != null) {
-                fieldDiffs = fieldDiffsFromDefinition(existingTool, registration);
-                existingToolId = existingTool.getId();
-            } else {
-                fieldDiffs = List.of();
-                existingToolId = null;
-            }
+            List<FieldDiff> fieldDiffs = acceptedMethod == null ? List.of()
+                    : fieldDiffsFromMethod(businessMethods.acceptedDeclaration(acceptedMethod), registration);
+            Long existingToolId = catalogRow == null ? existingTool == null ? null : existingTool.getId()
+                    : catalogRow.getGlobalToolDefinitionId();
 
             ToolDefinitionEntity beforeGlobalTool = catalogRow == null
                     ? existingTool : catalogProjectionStore.findGlobalTool(catalogRow, qualifiedName, existingToolId);
@@ -148,7 +145,7 @@ public class CapabilitySourceIntakeService {
                 throw new IllegalArgumentException("能力调用标识已被其他能力占用: " + storageName);
             }
             String changeType;
-            if (beforeGlobalTool == null) {
+            if (acceptedMethod == null) {
                 changeType = "ADDED";
                 added++;
             } else if (fieldDiffs.isEmpty()) {
@@ -164,13 +161,11 @@ public class CapabilitySourceIntakeService {
             items.add(new CapabilityDiffItem(qualifiedName, capabilityName, changeType,
                     existingToolId, storageName, fieldDiffs, impact));
             CapabilityDiffItemEntity diffItem = insertDiffItem(snapshot, project, syncId, qualifiedName, capabilityName, storageName,
-                    changeType, existingToolId, fieldDiffs, impact, CapabilityCatalogStateCodec.capture(objectMapper, catalogRow, beforeGlobalTool));
+                    changeType, existingToolId, fieldDiffs, impact, catalogProjectionStore.captureState(qualifiedName, catalogRow, beforeGlobalTool));
             changeLifecycle.prepareCandidate(snapshot, diffItem, registration);
             boolean automatic = "SOURCE".equals(intakeMode) && decision.automatic();
-            CapabilityAssetType acceptedAssetType = acceptedAssetTypeForUnchangedSource(
-                    intakeMode, automatic, changeType, qualifiedName, registration, beforeGlobalTool);
             if (automatic && !"UNCHANGED".equals(changeType)) {
-                catalogProjectionStore.applySdkCapabilityCatalogRow(project, registration, storageName, qualifiedName, capabilityName);
+                catalogProjectionStore.applySdkCapabilityCatalogRow(project, registration, storageName, qualifiedName, capabilityName, diffItem);
                 diffItem.setReviewStatus("AUTO_APPLIED");
                 diffItem.setReviewNote(decision.reason());
                 diffItemMapper.updateById(diffItem);
@@ -179,45 +174,27 @@ public class CapabilitySourceIntakeService {
                 applied++;
             }
             if ("SOURCE".equals(intakeMode)) {
-                changeLifecycle.observeSource(project, snapshot, diffItem, changePolicy.contractHash(registration),
-                        automatic && !"UNCHANGED".equals(changeType)
-                                ? changePolicy.contractHash(registration) : changePolicy.contractHash(beforeGlobalTool));
                 if (automatic && "UNCHANGED".equals(changeType)) {
-                    catalogProjectionStore.bindUnchangedSource(catalogRow, beforeGlobalTool, qualifiedName,
-                            acceptedAssetType);
+                    catalogProjectionStore.applySdkCapabilityCatalogRow(project, registration, storageName,
+                            qualifiedName, capabilityName, diffItem);
                 }
+                String acceptedHash = businessMethods.find(qualifiedName)
+                        .filter(asset -> asset.getAcceptedRevisionId() != null && "ACCEPTED".equals(asset.getStatus()))
+                        .map(asset -> businessMethods.acceptedRevision(asset).getInvocationHash()).orElse(null);
+                changeLifecycle.observeSource(project, snapshot, diffItem, changePolicy.contractHash(registration),
+                        acceptedHash);
             }
         }
 
         int deleted = 0;
-        String sdkPrefix = "sdk:" + project.getProjectCode().trim() + ":";
-        for (ScanProjectToolEntity row : scanProjectToolMapper.selectList(Wrappers.<ScanProjectToolEntity>lambdaQuery()
-                .eq(ScanProjectToolEntity::getProjectId, project.getId()))) {
-            String sourceLocation = row.getSourceLocation();
-            if (!StringUtils.hasText(sourceLocation) || !sourceLocation.startsWith(sdkPrefix)) {
-                continue;
-            }
-            String capabilityName = sourceLocation.substring(sdkPrefix.length()).trim();
-            if (!StringUtils.hasText(capabilityName)) {
-                continue;
-            }
-            String qualifiedName = project.getProjectCode().trim() + ":" + capabilityName;
-            if (reportedQualifiedNames.contains(qualifiedName)) {
-                continue;
-            }
-            if (Boolean.TRUE.equals(row.getRemovedFromSource()) && Boolean.FALSE.equals(row.getEnabled())) continue;
+        for (BusinessMethodAssetEntity method : businessMethods.inventory(project.getId())) {
+            if (reportedQualifiedNames.contains(method.getQualifiedName())) continue;
+            ScanProjectToolEntity row = scanProjectToolMapper.selectOne(Wrappers.<ScanProjectToolEntity>lambdaQuery()
+                    .eq(ScanProjectToolEntity::getProjectId, project.getId())
+                    .eq(ScanProjectToolEntity::getSourceQualifiedName, method.getQualifiedName()).last("limit 1"));
             deleted++;
-            Map<String, Object> impact = changeLifecycle.decisionImpact(changePolicy.decide("DELETED", null, List.of()));
-            items.add(new CapabilityDiffItem(qualifiedName, capabilityName, "DELETED",
-                    row.getGlobalToolDefinitionId(), row.getName(), List.of(), impact));
-            CapabilityDiffItemEntity diffItem = insertDiffItem(snapshot, project, syncId, qualifiedName,
-                    capabilityName, row.getName(), "DELETED", row.getGlobalToolDefinitionId(), List.of(), impact,
-                    CapabilityCatalogStateCodec.capture(objectMapper, row, catalogProjectionStore.findGlobalTool(row, qualifiedName, row.getGlobalToolDefinitionId())));
-            changeLifecycle.prepareCandidate(snapshot, diffItem, null);
-            if ("SOURCE".equals(intakeMode)) {
-                changeLifecycle.observeSource(project, snapshot, diffItem, null,
-                        changePolicy.contractHash(catalogProjectionStore.findGlobalTool(row, qualifiedName, row.getGlobalToolDefinitionId())));
-            }
+            recordDeletedSource(project, snapshot, syncId, intakeMode, method.getQualifiedName(), method.getMethodCode(),
+                    method.getInvocationName(), row, row == null ? null : row.getGlobalToolDefinitionId(), items);
         }
         if ("SOURCE".equals(intakeMode)) changeLifecycle.finishSourceObservation(project.getId(), snapshot);
         HttpApiSyncSummary httpApiSummary = observeHttpApis(intakeMode, httpApis);
@@ -229,27 +206,22 @@ public class CapabilitySourceIntakeService {
         return response;
     }
 
-    /**
-     * An unchanged source observation may restore a derived projection column only when it
-     * describes the contract that was actually accepted. A pending or ignored candidate can
-     * have the same source key, but its contract hash must never be used to repair the catalog.
-     */
-    private CapabilityAssetType acceptedAssetTypeForUnchangedSource(String intakeMode, boolean automatic,
-                                                                     String changeType, String qualifiedName,
-                                                                     CapabilityRegistration registration,
-                                                                     ToolDefinitionEntity acceptedTool) {
-        if (!"SOURCE".equals(intakeMode) || !automatic || !"UNCHANGED".equals(changeType)
-                || acceptedTool == null) {
-            return null;
+    private void recordDeletedSource(ScanProjectEntity project, CapabilitySnapshotEntity snapshot, String syncId,
+                                     String intakeMode, String qualifiedName, String methodCode, String invocationName,
+                                     ScanProjectToolEntity row, Long projectionId, List<CapabilityDiffItem> items) {
+        ToolDefinitionEntity projection = catalogProjectionStore.findGlobalTool(row, qualifiedName, projectionId);
+        Map<String, Object> impact = changeLifecycle.decisionImpact(changePolicy.decide("DELETED", null, List.of()));
+        items.add(new CapabilityDiffItem(qualifiedName, methodCode, "DELETED", projectionId, invocationName, List.of(), impact));
+        CapabilityDiffItemEntity diff = insertDiffItem(snapshot, project, syncId, qualifiedName, methodCode, invocationName,
+                "DELETED", projectionId, List.of(), impact, catalogProjectionStore.captureState(qualifiedName, row, projection));
+        changeLifecycle.prepareCandidate(snapshot, diff, null);
+        if ("SOURCE".equals(intakeMode)) {
+            String acceptedHash = businessMethods.find(qualifiedName)
+                    .filter(method -> method.getAcceptedRevisionId() != null && "ACCEPTED".equals(method.getStatus()))
+                    .map(method -> businessMethods.acceptedRevision(method).getInvocationHash())
+                    .orElse(null);
+            changeLifecycle.observeSource(project, snapshot, diff, null, acceptedHash);
         }
-        CapabilitySourceStateEntity state = changeLifecycle.sourceState(qualifiedName);
-        String acceptedHash = state == null ? null : state.getAcceptedContractHash();
-        if (!StringUtils.hasText(acceptedHash)
-                || !Objects.equals(acceptedHash, changePolicy.contractHash(registration))
-                || !Objects.equals(acceptedHash, changePolicy.contractHash(acceptedTool))) {
-            return null;
-        }
-        return changePolicy.assetType(registration);
     }
 
     /**
@@ -275,57 +247,24 @@ public class CapabilitySourceIntakeService {
             if (!isAcceptedRepeatedSourceItem(repeatedItem)) {
                 continue;
             }
-            ScanProjectToolEntity catalogRow = scanProjectToolMapper.selectOne(Wrappers.<ScanProjectToolEntity>lambdaQuery()
-                    .eq(ScanProjectToolEntity::getProjectId, project.getId())
-                    .eq(ScanProjectToolEntity::getSourceLocation,
-                            "sdk:" + project.getProjectCode().trim() + ":" + capabilityName)
-                    .last("limit 1"));
-            if (catalogRow == null) {
-                catalogRow = scanProjectToolMapper.selectOne(Wrappers.<ScanProjectToolEntity>lambdaQuery()
-                        .eq(ScanProjectToolEntity::getProjectId, project.getId())
-                        .eq(ScanProjectToolEntity::getName, storageName)
-                        .last("limit 1"));
-            }
-            if (catalogRow != null && Boolean.TRUE.equals(catalogRow.getRemovedFromSource())) {
-                continue;
-            }
-            ToolDefinitionEntity acceptedTool = catalogProjectionStore.findGlobalTool(catalogRow, qualifiedName,
-                    repeatedItem.getExistingToolId());
-            CapabilityAssetType acceptedAssetType = acceptedAssetTypeForRepeatedSource(project, qualifiedName,
-                    registration, repeatedItem, acceptedTool);
-            if (acceptedAssetType != null) {
-                catalogProjectionStore.bindUnchangedSource(catalogRow, acceptedTool, qualifiedName,
-                        acceptedAssetType);
+            BusinessMethodAssetEntity method = businessMethods.find(qualifiedName).orElse(null);
+            CapabilitySourceStateEntity source = changeLifecycle.sourceState(qualifiedName);
+            if (method != null && "ACCEPTED".equals(method.getStatus()) && method.getAcceptedRevisionId() != null
+                    && Objects.equals(method.getProjectId(), project.getId()) && source != null
+                    && Objects.equals(source.getSnapshotId(), repeatedItem.getSnapshotId())
+                    && Objects.equals(source.getDiffItemId(), repeatedItem.getId())
+                    && Objects.equals(source.getSourceContractHash(), source.getAcceptedContractHash())
+                    && Objects.equals(source.getAcceptedContractHash(), businessMethods.acceptedRevision(method).getInvocationHash())
+                    && "READY".equals(source.getAvailability())
+                    && changePolicy.hash(businessMethods.acceptedDeclaration(method)).equals(changePolicy.hash(registration))) {
+                catalogProjectionStore.applySdkCapabilityCatalogRow(project, registration, storageName,
+                        qualifiedName, capabilityName, repeatedItem);
             }
         }
     }
 
     private boolean isAcceptedRepeatedSourceItem(CapabilityDiffItemEntity item) {
         return item != null && Set.of("AUTO_APPLIED", "APPLIED", "UNCHANGED").contains(item.getReviewStatus());
-    }
-
-    private CapabilityAssetType acceptedAssetTypeForRepeatedSource(ScanProjectEntity project, String qualifiedName,
-                                                                    CapabilityRegistration registration,
-                                                                    CapabilityDiffItemEntity repeatedItem,
-                                                                    ToolDefinitionEntity acceptedTool) {
-        if (acceptedTool == null
-                || (acceptedTool.getProjectId() != null
-                && !Objects.equals(project.getId(), acceptedTool.getProjectId()))
-                || (StringUtils.hasText(acceptedTool.getQualifiedName())
-                && !qualifiedName.equals(acceptedTool.getQualifiedName()))) {
-            return null;
-        }
-        CapabilitySourceStateEntity state = changeLifecycle.sourceState(qualifiedName);
-        String acceptedHash = state == null ? null : state.getAcceptedContractHash();
-        if (!StringUtils.hasText(acceptedHash)
-                || !Objects.equals(repeatedItem.getSnapshotId(), state.getSnapshotId())
-                || !Objects.equals(repeatedItem.getId(), state.getDiffItemId())
-                || !Objects.equals(acceptedHash, state.getSourceContractHash())
-                || !Objects.equals(acceptedHash, changePolicy.contractHash(registration))
-                || !Objects.equals(acceptedHash, changePolicy.contractHash(acceptedTool))) {
-            return null;
-        }
-        return changePolicy.assetType(registration);
     }
 
     private CapabilitySyncResponse repeatedSnapshot(ScanProjectEntity project, CapabilitySnapshotEntity snapshot,
@@ -446,36 +385,13 @@ public class CapabilitySourceIntakeService {
         snapshotMapper.updateById(snapshot);
     }
 
-    private List<FieldDiff> fieldDiffsFromCatalog(ScanProjectToolEntity row, CapabilityRegistration registration) {
+    private List<FieldDiff> fieldDiffsFromMethod(CapabilityRegistration accepted, CapabilityRegistration candidate) {
         List<FieldDiff> diffs = new ArrayList<>();
-        addDiff(diffs, "title", row.getTitle(), firstText(registration.title(), registration.name()));
-        addDiff(diffs, "description", row.getDescription(), firstText(registration.description(), registration.title(), registration.name()));
-        addDiff(diffs, "httpMethod", row.getHttpMethod(), firstText(registration.httpMethod(), "POST"));
-        addDiff(diffs, "baseUrl", row.getBaseUrl(), registration.baseUrl());
-        addDiff(diffs, "contextPath", row.getContextPath(), registration.contextPath());
-        addDiff(diffs, "endpointPath", row.getEndpointPath(), registration.endpointPath());
-        addDiff(diffs, "requestBodyType", row.getRequestBodyType(), registration.requestBodyType());
-        addDiff(diffs, "responseType", row.getResponseType(), registration.responseType());
-        addDiff(diffs, "enabled", row.getEnabled(), registration.enabled());
-        addDiff(diffs, "parameters", row.getParametersJson(), writeJson(registration.parameters()));
-        addDiff(diffs, "metadata", row.getCapabilityMetadataJson(), writeJson(changePolicy.mergeSdkMetadata(registration)));
-        return diffs;
-    }
-
-    private List<FieldDiff> fieldDiffsFromDefinition(ToolDefinitionEntity entity, CapabilityRegistration registration) {
-        List<FieldDiff> diffs = new ArrayList<>();
-        addDiff(diffs, "title", entity.getTitle(), firstText(registration.title(), registration.name()));
-        addDiff(diffs, "description", entity.getDescription(), firstText(registration.description(), registration.title(), registration.name()));
-        addDiff(diffs, "httpMethod", entity.getHttpMethod(), firstText(registration.httpMethod(), "POST"));
-        addDiff(diffs, "baseUrl", entity.getBaseUrl(), registration.baseUrl());
-        addDiff(diffs, "contextPath", entity.getContextPath(), registration.contextPath());
-        addDiff(diffs, "endpointPath", entity.getEndpointPath(), registration.endpointPath());
-        addDiff(diffs, "requestBodyType", entity.getRequestBodyType(), registration.requestBodyType());
-        addDiff(diffs, "responseType", entity.getResponseType(), registration.responseType());
-        addDiff(diffs, "sideEffect", entity.getSideEffect(), firstText(registration.sideEffect(), entity.getSideEffect()));
-        addDiff(diffs, "enabled", entity.getEnabled(), registration.enabled());
-        addDiff(diffs, "parameters", entity.getParametersJson(), writeJson(registration.parameters()));
-        addDiff(diffs, "metadata", entity.getCapabilityMetadataJson(), writeJson(changePolicy.mergeSdkMetadata(registration)));
+        com.fasterxml.jackson.databind.JsonNode before = objectMapper.valueToTree(accepted);
+        com.fasterxml.jackson.databind.JsonNode after = objectMapper.valueToTree(candidate);
+        after.fields().forEachRemaining(field -> {
+            if (!"name".equals(field.getKey())) addDiff(diffs, field.getKey(), before.get(field.getKey()), field.getValue());
+        });
         return diffs;
     }
 

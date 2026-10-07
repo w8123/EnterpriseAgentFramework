@@ -1,13 +1,5 @@
 <template>
-  <WorkbenchPage layout="list" class="http-api-catalog">
-    <PageHeader variant="overview" domain="tool" eyebrow="HTTP API ASSETS" title="API"
-      description="按项目查看扫描与同步发现的 HTTP API，检查来源并进入接纳、接入与试调用。">
-      <template #tags><el-tag effect="light">{{ scope?.currentScopeLabel.value || '范围未确认' }}</el-tag></template>
-      <template #actions>
-        <el-button :icon="Refresh" :loading="loading" :disabled="!projectId" @click="load">刷新 API</el-button>
-      </template>
-    </PageHeader>
-
+  <section class="http-api-catalog" aria-label="HTTP API 目录">
     <ProjectScopeState v-if="!projectId" title="请选择一个项目查看 API"
       :message="scope?.feedbackMessage.value || '请从左侧当前范围选择具体项目。'"
       :status="scope?.status.value === 'blocked' ? 'blocked' : 'pending'"
@@ -18,7 +10,7 @@
       <template #default><el-button link type="primary" @click="load">重新加载</el-button></template>
     </el-alert>
 
-    <DataTableShell v-if="projectId" :current-page="page" :page-size="size" :total="total"
+    <DataTableShell v-if="projectId" class="workbench-list-surface" :current-page="page" :page-size="size" :total="total"
       :loading="loading" :empty="!loading && !error && rows.length === 0"
       density="compact" :page-sizes="[10, 20, 50, 100]"
       @page-change="changePage" @size-change="changeSize">
@@ -26,7 +18,7 @@
         <FilterBar density="compact" :loading="loading" @query="applyFilters" @reset="resetFilters">
           <el-input v-model="draft.keyword" class="filter-control filter-keyword" clearable
             placeholder="搜索 method、路径或稳定标识" aria-label="搜索 API"
-            @compositionstart="composing = true" @compositionend="composing = false" />
+            @compositionstart="composing = true" @compositionend="composing = false" @clear="applyFilters" />
           <el-select v-model="draft.environment" clearable placeholder="环境" aria-label="环境筛选"
             class="filter-control">
             <el-option v-for="item in environments" :key="item" :label="item" :value="item" />
@@ -40,6 +32,9 @@
             <el-option v-for="item in statuses" :key="item.value" :label="item.label" :value="item.value" />
           </el-select>
           <template #actions>
+            <el-tooltip content="刷新 HTTP API" placement="top">
+              <el-button circle :icon="Refresh" :loading="loading" aria-label="刷新 HTTP API" @click="load" />
+            </el-tooltip>
             <el-button native-type="button" @click="resetFilters">重置</el-button>
             <el-button native-type="submit" type="primary" :loading="loading" :disabled="composing">搜索</el-button>
           </template>
@@ -97,25 +92,25 @@
         </div>
       </template>
     </DataTableShell>
-  </WorkbenchPage>
+  </section>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { Refresh } from '@element-plus/icons-vue'
-import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
-import PageHeader from '@/components/common/PageHeader.vue'
 import ProjectScopeState from '@/components/common/ProjectScopeState.vue'
 import DataTableShell from '@/components/common/DataTableShell.vue'
 import FilterBar from '@/components/common/FilterBar.vue'
 import { usePageProjectScope } from '@/composables/usePageProjectScope'
+import { useCatalogQuery } from '@/composables/useCatalogQuery'
+import { httpApiDetailLocation } from '@/views/capability/businessCapabilityRoutes'
 import { platformSessionId } from '@/auth/platformSession'
 import { listHttpApis } from '@/api/httpApi'
 import type { HttpApiSourceStatus, HttpApiSummary } from '@/types/httpApi'
 
 const route = useRoute()
-const router = useRouter()
+const query = useCatalogQuery('api', ['keyword', 'environment', 'method', 'sourceStatus'])
 const scope = usePageProjectScope()
 const projectId = computed(() => scope?.canLoadData.value ? scope.requestParams.value?.projectId ?? null : null)
 const rows = ref<HttpApiSummary[]>([])
@@ -133,52 +128,41 @@ const statuses: Array<{ value: HttpApiSourceStatus; label: string }> = [
   { value: 'CONTRACT_DRIFT', label: '契约已变化' }, { value: 'CONFLICT', label: '来源冲突' },
   { value: 'SOURCE_UNCONFIRMED', label: '来源待确认' }, { value: 'SOURCE_MISSING', label: '来源已缺失' },
 ]
-const value = (name: string) => typeof route.query[name] === 'string' ? String(route.query[name]) : ''
-const number = (name: string, fallback: number) => {
-  const raw = Number(value(name)); return Number.isInteger(raw) && raw > 0 ? raw : fallback
-}
-const page = computed(() => number('page', 1))
-const size = computed(() => Math.min(100, number('size', 20)))
-const hasFilters = computed(() => Boolean(value('keyword') || value('environment') || value('method') || value('sourceStatus')))
-const draft = reactive({ keyword: '', environment: '', method: '', sourceStatus: '' })
-
-function syncDraft() {
-  draft.keyword = value('keyword'); draft.environment = value('environment')
-  draft.method = value('method'); draft.sourceStatus = value('sourceStatus')
-}
+const page = query.page
+const size = query.size
+const hasFilters = query.hasFilters
+const draft = query.draft
 async function load() {
   const id = projectId.value
   const current = ++sequence
   rows.value = []; total.value = 0; error.value = ''
-  if (!id) return
+  if (!id) { loading.value = false; return }
   loading.value = true
   try {
-    const { data } = await listHttpApis({ projectId: id, environment: value('environment') || undefined,
-      keyword: value('keyword') || undefined, method: value('method') || undefined,
-      sourceStatus: value('sourceStatus') || undefined, current: page.value, size: size.value })
+    const { data } = await listHttpApis({ projectId: id, environment: query.filters.value.environment || undefined,
+      keyword: query.filters.value.keyword || undefined, method: query.filters.value.method || undefined,
+      sourceStatus: query.filters.value.sourceStatus || undefined, current: page.value, size: size.value })
     if (current !== sequence) return
-    rows.value = Array.isArray(data.records) ? data.records : []
-    total.value = Number(data.total || 0)
+    if (!Array.isArray(data.records) || data.records.some(row => row.projectId !== id || !Number.isSafeInteger(row.id) || row.id <= 0)
+      || !Number.isSafeInteger(data.total) || data.total < data.records.length) {
+      throw new Error('Invalid HTTP API owner page')
+    }
+    rows.value = data.records
+    total.value = data.total
   } catch {
     if (current === sequence) error.value = 'API 目录加载失败；请检查项目访问权限或重试'
   } finally { if (current === sequence) loading.value = false }
 }
-function replaceQuery(next: Record<string, string | number | undefined>) {
-  void router.replace({ query: { ...route.query, ...next } })
-}
 function applyFilters() {
   if (composing.value) return
-  replaceQuery({ keyword: draft.keyword.trim() || undefined, environment: draft.environment || undefined,
-    method: draft.method || undefined, sourceStatus: draft.sourceStatus || undefined, page: 1 })
+  void query.apply()
 }
 function resetFilters() {
-  draft.keyword = ''; draft.environment = ''; draft.method = ''; draft.sourceStatus = ''
-  replaceQuery({ keyword: undefined, environment: undefined, method: undefined,
-    sourceStatus: undefined, page: 1 })
+  void query.reset()
 }
-function changePage(next: number) { replaceQuery({ page: next }) }
-function changeSize(next: number) { replaceQuery({ size: next, page: 1 }) }
-function detailLocation(id: number) { return { path: `/apis/${id}`, query: route.query } }
+function changePage(next: number) { void query.changePage(next) }
+function changeSize(next: number) { void query.changeSize(next) }
+function detailLocation(id: number) { return httpApiDetailLocation(id, route.query) }
 function statusLabel(status: HttpApiSourceStatus) { return statuses.find((item) => item.value === status)?.label || status }
 function statusTone(status: HttpApiSourceStatus) {
   return status === 'ACCEPTED' ? 'success' : status === 'DISCOVERED' ? 'warning' : 'danger'
@@ -206,14 +190,16 @@ function latestTrialLabel(row: HttpApiSummary) {
   return ({ UNKNOWN: '结果未知', NOT_DISPATCHED: '未派发', ACCEPTED: '已建立',
     DISPATCHING: '正在调用' } as Record<string, string>)[row.latestInvocationStatus] || '调用已结束'
 }
-watch([() => route.fullPath, () => scope?.requestKey.value, platformSessionId], () => {
+watch([query.requestKey, () => scope?.requestKey.value, projectId, platformSessionId], () => {
   sequence += 1; rows.value = []; total.value = 0; error.value = ''; loading.value = false
-  syncDraft(); void load()
+  void load()
 }, { flush: 'sync' })
-onMounted(() => { syncDraft(); void load() })
+onMounted(() => { void load() })
+onBeforeUnmount(() => { sequence += 1 })
 </script>
 
 <style scoped lang="scss">
+.http-api-catalog { display: flex; min-width: 0; flex-direction: column; gap: var(--layout-page-gap); }
 .filter-control { width: min(190px, 100%); }
 .filter-keyword { width: min(290px, 100%); }
 .api-identity { display: flex; align-items: center; gap: 10px; min-width: 0; color: var(--text-primary); text-decoration: none; }

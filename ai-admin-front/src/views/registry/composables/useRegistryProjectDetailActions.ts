@@ -1,5 +1,5 @@
 import { ElMessage, ElMessageBox } from 'element-plus'
-import type { Ref } from 'vue'
+import { onScopeDispose, watch, type Ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   deleteScanProject,
@@ -14,6 +14,7 @@ import {
 import type { ProjectInstance } from '@/types/registry'
 import type { ScanProject, ScanProjectUpsertRequest } from '@/types/scanProject'
 import { useProjectStore } from '@/store/project'
+import { platformSessionId } from '@/auth/platformSession'
 import {
   formatScanProjectBlockersMessage,
   parseScanProjectBlockersFromError,
@@ -39,10 +40,18 @@ export function useRegistryProjectDetailActions(deps: UseRegistryProjectDetailAc
   const router = useRouter()
   const projectStore = useProjectStore()
 
-  async function ensureScanOperationAllowed(): Promise<boolean> {
-    if (!deps.project.value?.id) return false
+  let deletionContextGeneration = 0
+  watch(() => [platformSessionId.value, deps.project.value?.id, deps.project.value?.projectCode] as const,
+    () => { deletionContextGeneration++; deps.deleteLoading.value = false }, { flush: 'sync' })
+  onScopeDispose(() => { deletionContextGeneration++ })
+  const deletionIsCurrent = (generation: number) =>
+    generation === deletionContextGeneration && Boolean(platformSessionId.value)
+
+  async function ensureProjectDeletionAllowed(projectId: number, generation: number): Promise<boolean> {
+    if (!deletionIsCurrent(generation)) return false
     try {
-      const { data } = await getScanProjectOperationBlockers(deps.project.value.id)
+      const { data } = await getScanProjectOperationBlockers(projectId, 'DELETE')
+      if (!deletionIsCurrent(generation)) return false
       if (!data.blocked) return true
       await ElMessageBox.alert(formatScanProjectBlockersMessage(data), '操作被阻止', {
         type: 'warning',
@@ -50,6 +59,7 @@ export function useRegistryProjectDetailActions(deps: UseRegistryProjectDetailAc
       })
       return false
     } catch {
+      if (!deletionIsCurrent(generation)) return false
       ElMessage.error('检查引用关系失败')
       return false
     }
@@ -180,23 +190,27 @@ export function useRegistryProjectDetailActions(deps: UseRegistryProjectDetailAc
   async function handleDeleteProject() {
     const p = deps.project.value
     if (!p?.id) return
-    if (!(await ensureScanOperationAllowed())) return
+    const generation = deletionContextGeneration
+    if (!(await ensureProjectDeletionAllowed(p.id, generation))) return
     try {
       await ElMessageBox.confirm(
-        `确认删除项目「${p.name}」吗？将删除关联扫描行、能力目录执行定义、模块与语义数据等（若仍存在引用则被阻止）。`,
+        `确认删除项目「${p.name}」吗？将删除项目及关联扫描、模块与语义数据。仍有业务方法、API 资产或受保护引用的项目无法删除。`,
         '删除确认',
         { type: 'warning' },
       )
     } catch {
       return
     }
+    if (!deletionIsCurrent(generation)) return
     deps.deleteLoading.value = true
     try {
       await deleteScanProject(p.id)
+      if (!deletionIsCurrent(generation)) return
       ElMessage.success('已删除')
       projectStore.clearCurrentProject(p.id)
       await router.push('/registry/projects')
     } catch (error) {
+      if (!deletionIsCurrent(generation)) return
       const blockers = parseScanProjectBlockersFromError(error)
       if (blockers?.blocked) {
         await ElMessageBox.alert(formatScanProjectBlockersMessage(blockers), '无法删除', {
@@ -207,7 +221,7 @@ export function useRegistryProjectDetailActions(deps: UseRegistryProjectDetailAc
       }
       ElMessage.error((error as Error).message || '删除失败')
     } finally {
-      deps.deleteLoading.value = false
+      if (deletionIsCurrent(generation)) deps.deleteLoading.value = false
     }
   }
 

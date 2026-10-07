@@ -307,6 +307,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { HTTP_API_CATALOG_PATH } from '@/views/capability/businessCapabilityRoutes'
 import { ElMessage } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
@@ -323,9 +324,8 @@ import { usePageProjectScope } from '@/composables/usePageProjectScope'
 import { listWorkflowCredentials } from '@/api/workflowCredential'
 import { acceptHttpApi, getHttpApi, getHttpApiConnection, getHttpApiInvocation,
   getHttpApiReferences, invokeHttpApi, saveHttpApiConnection } from '@/api/httpApi'
-import type { CapabilityReferences } from '@/api/tool'
-import { referenceStage } from '@/views/capability/capabilityDetail'
-import { referenceKindLabel, usageRoute } from '@/views/capability/referenceUsage'
+import type { AssetReferences } from '@/types/assetReferences'
+import { referenceKindLabel, referenceStage, usageRoute } from '@/views/capability/referenceUsage'
 import { buildHttpApiTrialParameters, canStartNewHttpApiAttempt, httpApiBodyParameters, httpApiTrialFailure, validateHttpApiBody, isCurrentHttpApiEvidence } from './httpApiTrial'
 import { compareHttpApiContracts, compareHttpApiSources } from './httpApiSourceComparison'
 import type { WorkflowCredential } from '@/types/workflowCredential'
@@ -347,7 +347,7 @@ const currentMarketVerified = computed(() => {
     && proof.sourceSetRevision === owner.sourceSetRevision && proof.connectionRevision === connection.value?.revision
     && proof.credentialRevision === connection.value?.credentialRevision
 })
-const references = ref<CapabilityReferences | null>(null)
+const references = ref<AssetReferences | null>(null)
 const referencesLoading = ref(false)
 const referencesError = ref('')
 const credentials = ref<WorkflowCredential[]>([])
@@ -467,7 +467,7 @@ function confirmationSignature() { return JSON.stringify([epoch, platformSession
   detail.value?.summary, connection.value, parameterDraft, bodyDraft.value, bodyRevision.value, hasInvokeGrant.value]) }
 function bodyDraftChanged(state: { valid: boolean; revision: number }) { bodyDraftValid.value = state.valid; bodyRevision.value = state.revision }
 async function focusCancel(event?: Event) { event?.preventDefault(); await nextTick(); cancelButton.value?.$el?.focus() }
-function backToList() { void router.push({ path: '/apis', query: route.query }) }
+function backToList() { void router.push({ path: HTTP_API_CATALOG_PATH, query: route.query }) }
 function pretty(value: unknown) { return value == null ? '尚无可比较契约' : JSON.stringify(value, null, 2) }
 function displayTime(value: string | null) {
   if (!value) return '尚无记录'

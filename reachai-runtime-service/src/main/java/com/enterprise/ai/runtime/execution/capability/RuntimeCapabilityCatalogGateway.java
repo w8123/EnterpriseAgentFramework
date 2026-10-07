@@ -7,6 +7,8 @@ import com.enterprise.ai.runtime.client.capability.RuntimeCapabilityInternalAuth
 import com.enterprise.ai.common.internalauth.InternalServiceAuthHeaders;
 import com.enterprise.ai.common.capability.CapabilityInvocationRequest;
 import com.enterprise.ai.common.capability.CapabilityInvocationResponse;
+import com.enterprise.ai.common.capability.CapabilityInvocationStatus;
+import com.enterprise.ai.common.capability.CapabilityInvocationFailureCategory;
 import com.enterprise.ai.common.capability.HttpApiConsoleContracts;
 import com.enterprise.ai.common.capability.ConsoleCapabilityInvocationContracts;
 import com.enterprise.ai.common.capability.WorkflowReadOnlyTrialPolicy;
@@ -55,7 +57,11 @@ public class RuntimeCapabilityCatalogGateway implements RuntimeCapabilityCatalog
 
     @Override
     public Map<String, Object> getToolDefinition(String qualifiedName) {
-        return transport.getToolDefinition(qualifiedName);
+        try { return transport.getToolDefinition(qualifiedName); }
+        catch (feign.FeignException missing) {
+            if (missing.status() == 404) return null;
+            throw missing;
+        }
     }
 
     @Override
@@ -89,6 +95,7 @@ public class RuntimeCapabilityCatalogGateway implements RuntimeCapabilityCatalog
             outbound.put("constraints", Map.of("consoleCapabilityInvocation", true,
                     "expectedQualifiedName", console.qualifiedName(), "expectedProjectId", console.projectId(),
                     "expectedProjectCode", console.projectCode(), "expectedContractHash", console.expectedContractHash(),
+                    "expectedExecutionRevision", console.expectedExecutionRevision(),
                     "requireSignedInvocation", true));
             outbound.put("deadlineEpochMs", console.deadlineEpochMs());
         }
@@ -120,6 +127,7 @@ public class RuntimeCapabilityCatalogGateway implements RuntimeCapabilityCatalog
             outbound.put("constraints", Map.of(WorkflowReadOnlyTrialPolicy.STUDIO_CONSTRAINT, true,
                     "expectedQualifiedName", qualifiedName, "expectedProjectId", pin.projectId(),
                     "expectedProjectCode", pin.projectCode(), "expectedContractHash", owner.acceptedContractHash(),
+                    "expectedExecutionRevision", owner.executionRevision(),
                     "requireSignedInvocation", true));
             outbound.put("deadlineEpochMs", pin.deadlineEpochMs());
         }
@@ -127,7 +135,14 @@ public class RuntimeCapabilityCatalogGateway implements RuntimeCapabilityCatalog
             // Ordinary Studio debug (including node/session execution) may read owner facts,
             // but it may not bypass the explicit signed method-trial grant. Do not infer
             // the asset type or trusted identity from the caller's node/config/input map.
-            Map<String, Object> definition = transport.getToolDefinition(qualifiedName);
+            Map<String, Object> definition = getToolDefinition(qualifiedName);
+            if (definition == null || !WorkflowReadOnlyTrialPolicy.BUSINESS_METHOD.equals(definition.get("assetType"))) {
+                var missing = CapabilityInvocationRequest.fromRuntime(qualifiedName, outbound);
+                return new CapabilityInvocationResponse(missing.contractVersion(), missing.invocationId(),
+                        missing.qualifiedName(), null, null, CapabilityInvocationStatus.REJECTED, false, null,
+                        "CAPABILITY_TOOL_NOT_FOUND", "业务方法不存在或尚未接纳", CapabilityInvocationFailureCategory.NOT_FOUND,
+                        false, null, null, null, Map.of());
+            }
             if (definition != null && WorkflowReadOnlyTrialPolicy.BUSINESS_METHOD.equals(definition.get("assetType"))) {
                 throw new IllegalStateException("BUSINESS_METHOD_DEBUG_IDENTITY_DENIED: 请使用显式只读真实试运行");
             }
@@ -240,11 +255,6 @@ public class RuntimeCapabilityCatalogGateway implements RuntimeCapabilityCatalog
         Map<String, Object> normalized = new LinkedHashMap<>();
         normalized.put("data", redact(value, null));
         return normalized;
-    }
-
-    @Override
-    public Map<String, Object> getCompositionDefinition(String qualifiedName) {
-        return transport.getCompositionDefinition(qualifiedName);
     }
 
     @Override

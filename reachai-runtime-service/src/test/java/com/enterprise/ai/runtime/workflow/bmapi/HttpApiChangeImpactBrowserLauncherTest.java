@@ -2,6 +2,7 @@ package com.enterprise.ai.runtime.workflow.bmapi;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -10,6 +11,7 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.*;
 
 /** Opt-in real browser gate; browser mutations use the production Control/owner/signed Runtime paths. */
+@EnabledIfSystemProperty(named = "bmapi.changeImpactBrowser.directory", matches = ".+")
 class HttpApiChangeImpactBrowserLauncherTest {
     @Test void waitsForNormalChangeImpactBrowserFlow() throws Exception {
         String directory = System.getProperty("bmapi.changeImpactBrowser.directory");

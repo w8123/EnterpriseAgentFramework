@@ -155,6 +155,12 @@ export interface WorkflowGraphEdge {
 }
 
   export interface WorkflowGraphCapabilityRef {
+  assetType?: 'BUSINESS_METHOD' | 'HTTP_API'
+  assetId?: number
+  acceptedRevisionId?: number
+  businessContractHash?: string
+  bindingHash?: string
+  executionRevision?: string
   kind: 'TOOL' | 'INTERACTION'
   name?: string
   qualifiedName?: string

@@ -6,6 +6,8 @@ import com.enterprise.ai.capability.registry.CapabilitySourceStateMapper;
 import com.enterprise.ai.capability.registry.CapabilitySyncReceiptMapper;
 import com.enterprise.ai.capability.catalog.httpapi.HttpApiAssetMapper;
 import com.enterprise.ai.capability.catalog.httpapi.HttpApiSourceBindingMapper;
+import com.enterprise.ai.capability.catalog.businessmethod.BusinessMethodAssetMapper;
+import com.enterprise.ai.capability.catalog.businessmethod.BusinessMethodRevisionMapper;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.mapping.Environment;
 import org.apache.ibatis.session.SqlSessionFactory;
@@ -46,6 +48,7 @@ class ReachAiCapabilityServiceApplicationContractTest {
                 "com.enterprise.ai.agent.capability",
                 "com.enterprise.ai.capability.registry",
                 "com.enterprise.ai.capability.catalog.retrieval",
+                "com.enterprise.ai.capability.catalog.businessmethod",
                 "com.enterprise.ai.capability.catalog.httpapi",
                 "com.enterprise.ai.capability.externalapi"
         }, mapperScan.value());
@@ -62,7 +65,7 @@ class ReachAiCapabilityServiceApplicationContractTest {
     }
 
     @Test
-    void registersRegistryAndHttpApiMappersThroughApplicationConfiguration() {
+    void registersRegistryMethodAndHttpApiMappersThroughApplicationConfiguration() {
         MybatisConfiguration configuration = new MybatisConfiguration();
         configuration.setEnvironment(new Environment("mapper-registration", new JdbcTransactionFactory(),
                 new DriverManagerDataSource("jdbc:h2:mem:capability_mapper_registration")));
@@ -78,6 +81,8 @@ class ReachAiCapabilityServiceApplicationContractTest {
             assertNotNull(context.getBean(CapabilitySyncReceiptMapper.class));
             assertNotNull(context.getBean(HttpApiAssetMapper.class));
             assertNotNull(context.getBean(HttpApiSourceBindingMapper.class));
+            assertNotNull(context.getBean(BusinessMethodAssetMapper.class));
+            assertNotNull(context.getBean(BusinessMethodRevisionMapper.class));
         }
     }
 }

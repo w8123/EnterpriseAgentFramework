@@ -24,46 +24,18 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class CapabilityToolCatalogService {
 
-    private static final String BUSINESS_METHOD_ASSET_TYPE = "BUSINESS_METHOD";
-
     private final ToolDefinitionMapper toolMapper;
     private final ScanProjectMapper projectMapper;
     private final ScanProjectToolMapper scanToolMapper;
     private final ObjectMapper objectMapper;
 
-    public IPage<ToolDefinitionEntity> page(int current,
-                                            int size,
-                                            String keyword,
-                                            String source,
-                                            Boolean enabled,
-                                            Long projectId) {
-        return page(current, size, keyword, source, enabled, projectId, null);
-    }
-
-    /**
-     * Reads the accepted Java business-method projection from the owner table.
-     * The type condition belongs to the SQL wrapper so count and records share
-     * the same pagination boundary.
-     */
-    public IPage<ToolDefinitionEntity> pageBusinessMethods(int current,
-                                                            int size,
-                                                            String keyword,
-                                                            Boolean enabled,
-                                                            Long projectId) {
-        return page(current, size, keyword, null, enabled, projectId,
-                BUSINESS_METHOD_ASSET_TYPE);
-    }
-
-    private IPage<ToolDefinitionEntity> page(int current,
-                                             int size,
-                                             String keyword,
-                                             String source,
-                                             Boolean enabled,
-                                             Long projectId,
-                                             String assetType) {
+    /** Technical invocation projection; business asset reads use their owner catalog. */
+    public IPage<ToolDefinitionEntity> page(int current, int size, String keyword, String source,
+                                           Boolean enabled, Long projectId) {
         int pageNum = Math.max(1, current);
         int pageSize = Math.min(100, Math.max(1, size));
         LambdaQueryWrapper<ToolDefinitionEntity> wrapper = new LambdaQueryWrapper<>();
+        wrapper.in(ToolDefinitionEntity::getAssetType, List.of("BUSINESS_METHOD", "HTTP_API"));
         if (StringUtils.hasText(keyword)) {
             String term = keyword.trim();
             wrapper.and(q -> q.like(ToolDefinitionEntity::getName, term)
@@ -83,9 +55,6 @@ public class CapabilityToolCatalogService {
         if (projectId != null) {
             wrapper.eq(ToolDefinitionEntity::getProjectId, projectId);
         }
-        if (StringUtils.hasText(assetType)) {
-            wrapper.eq(ToolDefinitionEntity::getAssetType, assetType);
-        }
         wrapper.orderByAsc(ToolDefinitionEntity::getTitle)
                 .orderByAsc(ToolDefinitionEntity::getName);
         return toolMapper.selectPage(new Page<>(pageNum, pageSize, true), wrapper);
@@ -97,22 +66,7 @@ public class CapabilityToolCatalogService {
         }
         return Optional.ofNullable(toolMapper.selectOne(new LambdaQueryWrapper<ToolDefinitionEntity>()
                 .eq(ToolDefinitionEntity::getName, name.trim())
-                .last("limit 1")));
-    }
-
-    public Optional<ToolDefinitionEntity> findBusinessMethodByName(String name) {
-        if (!StringUtils.hasText(name)) {
-            return Optional.empty();
-        }
-        String reference = name.trim();
-        return Optional.ofNullable(toolMapper.selectOne(new LambdaQueryWrapper<ToolDefinitionEntity>()
-                .eq(ToolDefinitionEntity::getAssetType, BUSINESS_METHOD_ASSET_TYPE)
-                // Legacy callers use the catalog name; Workflow nodes persist
-                // the stable project-qualified Runtime reference.  Both resolve
-                // to the same Capability-owned accepted projection.
-                .and(query -> query.eq(ToolDefinitionEntity::getName, reference)
-                        .or()
-                        .eq(ToolDefinitionEntity::getQualifiedName, reference))
+                .in(ToolDefinitionEntity::getAssetType, List.of("BUSINESS_METHOD", "HTTP_API"))
                 .last("limit 1")));
     }
 

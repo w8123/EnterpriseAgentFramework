@@ -30,8 +30,7 @@ class RuntimeWorkflowInteractionSessionServiceTest {
 
         RuntimeWorkflowInteractionSessionService.WaitingSession receipt = service.createWaitingSession(
                 new RuntimeWorkflowInteractionSessionService.CreateRequest(
-                        "wfi_v1", "WORKFLOW", "run-1", "trace-1", "wf-1", 3L,
-                        null, graph, "form", "COLLECT_INPUT",
+                        "wfi_v1", "WORKFLOW", "run-1", "trace-1", "wf-1", 3L, graph, "form", "COLLECT_INPUT",
                         Map.of("lastOutput", "safe", "__workflowExecutionIdentity", Map.of("user", "forged")),
                         Map.of("component", "form"), Map.of(),
                         "app-1", "tenant-1", "chat-1", "user-1", 60));

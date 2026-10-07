@@ -137,7 +137,10 @@ mustInclude(picker, "pickerStep === 'model'", 'ModelTemplatePicker must have mod
 mustInclude(picker, '选择模型厂商', 'ModelTemplatePicker must show provider-step title')
 mustInclude(picker, '其他接入方式', 'ModelTemplatePicker must keep custom entry section')
 mustInclude(picker, '自定义 OpenAI 兼容模型', 'ModelTemplatePicker must keep custom OpenAI entry')
-mustInclude(picker, '返回选择厂商', 'ModelTemplatePicker must provide back-to-provider action')
+if (!/<button\b[^>]*@click="backToProviders"[^>]*>[\s\S]*?选择厂商[\s\S]*?<\/button>/.test(picker)
+    || !/function backToProviders\(\)\s*\{\s*pickerStep\.value = 'provider'\s*modelKeyword\.value = ''/.test(picker)) {
+  failures.push('ModelTemplatePicker must provide a provider-step button that returns to the provider list and clears the model search')
+}
 mustNotInclude(picker, 'FilterBar', 'ModelTemplatePicker must not keep FilterBar')
 mustNotInclude(picker, 'templateId', 'ModelTemplatePicker must not expose templateId to users')
 mustNotInclude(picker, '模板目录', 'ModelTemplatePicker must not use 模板目录 copy')

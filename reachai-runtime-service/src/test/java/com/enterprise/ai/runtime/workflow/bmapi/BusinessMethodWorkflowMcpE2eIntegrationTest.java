@@ -2,7 +2,6 @@ package com.enterprise.ai.runtime.workflow.bmapi;
 
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.extension.spring.MybatisSqlSessionFactoryBean;
-import com.enterprise.ai.agent.capability.ToolAssetMapper;
 import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectMapper;
 import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectToolMapper;
 import com.enterprise.ai.agent.capability.catalog.scan.ScanModuleMapper;
@@ -18,6 +17,10 @@ import com.enterprise.ai.agent.registry.RegistryEnrollmentService;
 import com.enterprise.ai.agent.registry.RegistryEnrollmentTokenMapper;
 import com.enterprise.ai.agent.registry.RegistrySecurityService;
 import com.enterprise.ai.capability.catalog.businessmethod.BusinessMethodCatalogInternalController;
+import com.enterprise.ai.capability.catalog.businessmethod.BusinessMethodAssetStore;
+import com.enterprise.ai.capability.catalog.businessmethod.BusinessMethodAssetMapper;
+import com.enterprise.ai.capability.catalog.businessmethod.BusinessMethodRevisionMapper;
+import com.enterprise.ai.capability.catalog.businessmethod.BusinessMethodCatalogService;
 import com.enterprise.ai.capability.catalog.httpapi.HttpApiAcceptanceMapper;
 import com.enterprise.ai.capability.catalog.httpapi.HttpApiAssetMapper;
 import com.enterprise.ai.capability.catalog.httpapi.HttpApiAssetService;
@@ -446,6 +449,44 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
     }
 
     @Test
+    void credentialRevisionRejectsOldConsoleConfirmationAndPublishedMcpWithoutSdkRequests() throws Exception {
+        fixture.registerAndSync();
+        fixture.grantTrialPermissions();
+        fixture.grantMethodTrialAcl();
+        String methodPath = "/api/business-methods/bmapi2d_normalizeOrderNo";
+        var context = fixture.multiSourcePublicRequest("GET", methodPath + "/invocation-context", null);
+        assertEquals(200, context.statusCode());
+        var old = fixture.responseMap(context);
+        Fixture.WorkflowRelease release = fixture.createSaveReadValidateAndPublish();
+        Fixture.McpSurface surface = fixture.publishMcpWorkflow(release);
+        Long credentialId = fixture.database.jdbc().queryForObject(
+                "SELECT id FROM capability_registry_project_credential WHERE project_code=?", Long.class, PROJECT_CODE);
+        fixture.registrySecurity.updateAdministrativePolicy(credentialId,
+                List.of("https://orders.test"), List.of(), 600, "ACTIVE");
+        fixture.assertMcpRejected(surface, "BUSINESS_METHOD_EXECUTION_BINDING_CHANGED", 0);
+
+        var denied = fixture.multiSourcePublicRequest("POST", methodPath + "/invocations", Map.of(
+                "invocationId", UUID.randomUUID().toString(), "expectedContractHash", old.get("currentContractHash"),
+                "expectedExecutionRevision", old.get("executionRevision"),
+                "input", Map.of("orderNo", "BINDING-6"), "confirmedSideEffect", false));
+        assertEquals(409, denied.statusCode());
+        assertEquals("BUSINESS_METHOD_EXECUTION_BINDING_CHANGED", fixture.responseMap(denied).get("code"));
+        assertEquals(0, fixture.capabilityHits.get());
+        assertEquals(0, fixture.sdkBridge.requestCount());
+        var fresh = fixture.responseMap(fixture.multiSourcePublicRequest("GET", methodPath + "/invocation-context", null));
+        assertEquals(old.get("currentContractHash"), fresh.get("currentContractHash"));
+        assertNotEquals(old.get("executionRevision"), fresh.get("executionRevision"));
+        var called = fixture.multiSourcePublicRequest("POST", methodPath + "/invocations", Map.of(
+                "invocationId", UUID.randomUUID().toString(), "expectedContractHash", fresh.get("currentContractHash"),
+                "expectedExecutionRevision", fresh.get("executionRevision"),
+                "input", Map.of("orderNo", "BINDING-6"), "confirmedSideEffect", false));
+        assertEquals(200, called.statusCode(), new String(called.body(), StandardCharsets.UTF_8));
+        assertEquals("SUCCEEDED", fixture.responseMap(called).get("status"));
+        assertEquals(1, fixture.capabilityHits.get());
+        assertEquals(1, fixture.sdkBridge.requestCount());
+    }
+
+    @Test
     void ordinaryMethodStudioDebugCannotBypassSignedReadOnlyTrial() throws Exception {
         fixture.registerAndSync();
         Fixture.WorkflowRelease release = fixture.createSaveReadValidateAndPublish();
@@ -591,13 +632,12 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
                 new String[]{"POST", "/api/scan-projects/41/scan-tools/promote-by-module"});
         for (var route : routes) {
             var publicResult = fixture.multiSourcePublicRequest(route[0], route[1], Map.of("enabled", false));
-            assertEquals(410, publicResult.statusCode(), route[1] + ": " + new String(publicResult.body(), StandardCharsets.UTF_8));
-            assertEquals("SCAN_EXECUTION_ENTRY_RETIRED", fixture.responseMap(publicResult).get("code"));
+            int retiredStatus = route[1].equals(rowPath) || route[1].endsWith("/promote-by-module") ? 405 : 404;
+            assertEquals(retiredStatus, publicResult.statusCode(), route[1] + ": " + new String(publicResult.body(), StandardCharsets.UTF_8));
             var direct = HttpClient.newHttpClient().send(HttpRequest.newBuilder(URI.create(fixture.capabilityBridge.baseUrl() + route[1]))
                     .header("Content-Type", "application/json").method(route[0], HttpRequest.BodyPublishers.ofString("{}"))
                     .build(), HttpResponse.BodyHandlers.ofByteArray());
-            assertEquals(410, direct.statusCode(), route[1]);
-            assertEquals("/apis", fixture.responseMap(direct).get("apiDirectory"));
+            assertEquals(retiredStatus, direct.statusCode(), route[1]);
         }
         assertEquals(404, fixture.multiSourcePublicRequest("POST",
                 "/api/scan-projects/41/scan-tools/999999/promote-to-tool", Map.of()).statusCode());
@@ -606,12 +646,11 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
         assertEquals(404, cross.statusCode()); assertEquals(0, cross.body().length);
         assertEquals(200, fixture.multiSourcePublicRequest("POST", "/api/scan-projects/41/tools/reconcile", Map.of()).statusCode());
         var generic = fixture.multiSourcePublicRequest("GET", "/api/tools/orders_legacy_query", null);
-        assertEquals(200, generic.statusCode());
-        assertEquals("LEGACY_SCAN_TOOL_RETIRED", fixture.responseMap(generic).get("sourceAvailability"));
+        assertEquals(404, generic.statusCode(), "a raw projection without an owner is not a readable method");
         var gateway = new RuntimeCapabilityCatalogGateway(new LoopbackRuntimeCapabilityTransport(
                 fixture.capabilityBridge.baseUrl(), json), new RuntimeCapabilityInternalAuthSigner(INTERNAL_SECRET), json);
         var denied = gateway.invokeTool("orders:legacy-query", Map.of("input", Map.of()));
-        assertEquals("CAPABILITY_LEGACY_SCAN_TOOL_RETIRED", denied.code()); assertFalse(denied.success());
+        assertEquals("CAPABILITY_TOOL_NOT_FOUND", denied.code()); assertFalse(denied.success());
         String oldGraph = "{\"schemaVersion\":2,\"nodes\":[{\"id\":\"old\",\"type\":\"TOOL\",\"ref\":{\"kind\":\"TOOL\","
                 + "\"qualifiedName\":\"orders:legacy-query\"},\"config\":{}}],\"edges\":[],\"entryNodeId\":\"old\",\"exitNodeIds\":[\"old\"]}";
         var oldExecution = fixture.runtimeGraphExecutor().execute(oldGraph,
@@ -619,7 +658,7 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
                 com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionCancellation.none(),
                 com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity.fromAgent("orders", 41L, "orders", null));
         assertFalse(oldExecution.success());
-        assertTrue((oldExecution.code() + " " + oldExecution.answer()).contains("CAPABILITY_LEGACY_SCAN_TOOL_RETIRED"));
+        assertTrue((oldExecution.code() + " " + oldExecution.answer()).contains("CAPABILITY_TOOL_NOT_FOUND"));
         var working = fixture.changeWorkingCopy();
         Map<String, Object> save = new LinkedHashMap<>();
         for (String key : List.of("name", "keySlug", "description", "workflowKind", "executionEngine",
@@ -633,7 +672,7 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
         var publish = fixture.multiSourcePublicRequest("POST", "/api/workflows/" + fixture.multiSourceWorkflowId + "/versions/publish",
                 Map.of("version", "1.0.0", "baseRevision", oldDraft.get("revision")));
         assertEquals(400, publish.statusCode());
-        assertTrue(new String(publish.body(), StandardCharsets.UTF_8).contains("CAPABILITY_LEGACY_SCAN_TOOL_RETIRED"));
+        assertTrue(new String(publish.body(), StandardCharsets.UTF_8).contains("能力来源或契约尚未就绪"));
         assertEquals(oldDraft.get("graphSpecJson"), fixture.changeWorkingCopy().get("graphSpecJson"));
         assertEquals(beforeDefinitions, fixture.database.jdbc().queryForList("SELECT * FROM capability_tool_definition ORDER BY id"));
         assertEquals(beforeSources, fixture.database.jdbc().queryForList("SELECT * FROM capability_scan_project_tool ORDER BY id"));
@@ -653,6 +692,7 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
         var owner = fixture.responseMap(context);
         var called = fixture.multiSourcePublicRequest("POST", "/api/business-methods/bmapi2d_queryOrder/invocations",
                 Map.of("invocationId", UUID.randomUUID().toString(), "expectedContractHash", owner.get("currentContractHash"),
+                        "expectedExecutionRevision", owner.get("executionRevision"),
                         "input", Map.of("request", Map.of("orderNo", "A-5A", "customerId", "customer-5A")), "confirmedSideEffect", false));
         assertEquals(200, called.statusCode(), new String(called.body(), StandardCharsets.UTF_8));
         assertEquals("SUCCEEDED", fixture.responseMap(called).get("status"));
@@ -895,7 +935,7 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
         String path = "/internal/runtime/workflows/studio/read-only-trials";
         for (int mutation = 0; mutation < 6; mutation++) {
             var allowed = com.enterprise.ai.common.capability.WorkflowReadOnlyTrialPolicy.AllowedTarget.businessMethod(target, owner);
-            if (mutation == 0) allowed = new com.enterprise.ai.common.capability.WorkflowReadOnlyTrialPolicy.AllowedTarget("other", 0, owner.qualifiedName(), null, owner.acceptedContractHash(), null, "BUSINESS_METHOD", owner.name(), owner.sourceContractHash());
+            if (mutation == 0) allowed = new com.enterprise.ai.common.capability.WorkflowReadOnlyTrialPolicy.AllowedTarget("other", 0, owner.qualifiedName(), null, owner.acceptedContractHash(), null, "BUSINESS_METHOD", owner.name(), owner.sourceContractHash(), owner.executionRevision());
             String storedGraph = fixture.database.jdbc().queryForObject("SELECT graph_spec_json FROM runtime_workflow WHERE id = ?", String.class, draft.workflowId());
             var command = new com.enterprise.ai.common.capability.WorkflowReadOnlyTrialPolicy.TrialCommand(1, draft.workflowId(), mutation == 3 ? "old" : draft.revision(),
                     mutation == 4 ? "f".repeat(64) : com.enterprise.ai.common.capability.WorkflowReadOnlyTrialPolicy.graphSha256(storedGraph),
@@ -923,12 +963,58 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
             assertEquals(409, fixture.trialRequest(input).statusCode());
             fixture.database.jdbc().update("UPDATE capability_source_state SET " + column + " = ? WHERE qualified_name = 'bmapi2d:normalizeOrderNo'", hash);
         }
-        fixture.database.jdbc().update("UPDATE capability_tool_definition SET enabled = 0 WHERE qualified_name = 'bmapi2d:normalizeOrderNo'");
+        fixture.database.jdbc().update("UPDATE capability_business_method_asset SET enabled = 0 WHERE qualified_name = 'bmapi2d:normalizeOrderNo'");
         assertEquals(409, fixture.trialRequest(input).statusCode());
-        fixture.database.jdbc().update("UPDATE capability_tool_definition SET enabled = 1 WHERE qualified_name = 'bmapi2d:normalizeOrderNo'");
+        fixture.database.jdbc().update("UPDATE capability_business_method_asset SET enabled = 1 WHERE qualified_name = 'bmapi2d:normalizeOrderNo'");
         fixture.database.jdbc().update("UPDATE capability_registry_project_credential SET status = 'INACTIVE' WHERE project_code = ?", PROJECT_CODE);
         assertEquals(409, fixture.trialRequest(input).statusCode());
         assertEquals(0, fixture.sdkBridge.requestCount()); assertEquals(0, fixture.capabilityHits.get());
+    }
+
+    @Test
+    void signedMethodTrialRejectsChangedExecutionRevisionBeforeSdk() throws Exception {
+        fixture.registerAndSync(); fixture.grantTrialPermissions(); fixture.grantMethodTrialAcl();
+        var draft = fixture.createSavedMethodTrialDraft();
+        var oldOwner = fixture.json.convertValue(fixture.reviewGateway.getBusinessMethodInvocationContext(
+                "bmapi2d:normalizeOrderNo", String.valueOf(fixture.platformUserId)).getBody(),
+                com.enterprise.ai.common.capability.ConsoleCapabilityInvocationContracts.InvocationContext.class);
+        var target = com.enterprise.ai.common.capability.WorkflowReadOnlyTrialPolicy.target(json, methodTrialGraph());
+        String storedGraph = fixture.database.jdbc().queryForObject(
+                "SELECT graph_spec_json FROM runtime_workflow WHERE id=?", String.class, draft.workflowId());
+        var allowed = com.enterprise.ai.common.capability.WorkflowReadOnlyTrialPolicy.AllowedTarget.businessMethod(target, oldOwner);
+        Long credentialId = fixture.database.jdbc().queryForObject(
+                "SELECT id FROM capability_registry_project_credential WHERE project_code=?", Long.class, PROJECT_CODE);
+        fixture.registrySecurity.updateAdministrativePolicy(credentialId, List.of("https://trial.orders.test"), List.of(), 600, "ACTIVE");
+        String path = "/internal/runtime/workflows/studio/read-only-trials";
+        var command = new com.enterprise.ai.common.capability.WorkflowReadOnlyTrialPolicy.TrialCommand(1,
+                draft.workflowId(), draft.revision(), com.enterprise.ai.common.capability.WorkflowReadOnlyTrialPolicy.graphSha256(storedGraph),
+                fixture.projectId(), PROJECT_CODE, String.valueOf(fixture.platformUserId), List.of(allowed),
+                Map.of("orderNo", "A-1024"), System.currentTimeMillis() + 40_000);
+        byte[] body = fixture.json.writeValueAsBytes(command);
+        var headers = new InternalServiceAuthSigner(INTERNAL_SECRET).sign("POST", path,
+                InternalServiceAuthHeaders.IDENTITY_SOURCE_PLATFORM_SESSION, PROJECT_CODE, String.valueOf(fixture.platformUserId), body);
+        var denied = fixture.runtimeRequest("POST", path, body, headers);
+        assertEquals(409, denied.statusCode());
+        assertEquals("BUSINESS_METHOD_TRIAL_OWNER_CHANGED", fixture.responseMap(denied).get("errorCode"));
+        assertEquals(0, fixture.sdkBridge.requestCount()); assertEquals(0, fixture.capabilityHits.get());
+        assertEquals(0, fixture.database.jdbc().queryForObject(
+                "SELECT COUNT(*) FROM runtime_run WHERE workflow_id=?", Integer.class, draft.workflowId()));
+
+        var freshOwner = fixture.json.convertValue(fixture.reviewGateway.getBusinessMethodInvocationContext(
+                "bmapi2d:normalizeOrderNo", String.valueOf(fixture.platformUserId)).getBody(),
+                com.enterprise.ai.common.capability.ConsoleCapabilityInvocationContracts.InvocationContext.class);
+        assertEquals(oldOwner.currentContractHash(), freshOwner.currentContractHash());
+        assertNotEquals(oldOwner.executionRevision(), freshOwner.executionRevision());
+        var refreshed = new com.enterprise.ai.common.capability.WorkflowReadOnlyTrialPolicy.TrialCommand(1,
+                draft.workflowId(), draft.revision(), command.graphSha256(), fixture.projectId(), PROJECT_CODE,
+                String.valueOf(fixture.platformUserId), List.of(
+                        com.enterprise.ai.common.capability.WorkflowReadOnlyTrialPolicy.AllowedTarget.businessMethod(target, freshOwner)),
+                command.inputParams(), System.currentTimeMillis() + 40_000);
+        byte[] freshBody = fixture.json.writeValueAsBytes(refreshed);
+        var freshHeaders = new InternalServiceAuthSigner(INTERNAL_SECRET).sign("POST", path,
+                InternalServiceAuthHeaders.IDENTITY_SOURCE_PLATFORM_SESSION, PROJECT_CODE, String.valueOf(fixture.platformUserId), freshBody);
+        assertEquals(200, fixture.runtimeRequest("POST", path, freshBody, freshHeaders).statusCode());
+        assertEquals(1, fixture.sdkBridge.requestCount()); assertEquals(1, fixture.capabilityHits.get());
     }
 
     private static String methodTrialGraph() {
@@ -1022,6 +1108,7 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
         private AnnotationConfigApplicationContext transactions;
         private TransactionTemplate tx;
         private CapabilityRegistryService registry;
+        private RegistrySecurityService registrySecurity;
         private CapabilityToolCatalogService catalog;
         private CapabilityReviewGateway reviewGateway;
         private CapabilityToolExecutionService capabilityExecution;
@@ -1113,7 +1200,7 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
             CapabilityChangePolicy policy = new CapabilityChangePolicy(json);
             CapabilityChangeLifecycle lifecycle = new CapabilityChangeLifecycle(
                     snapshots, differences, sourceStates, policy, session.getMapper(CapabilitySyncReceiptMapper.class));
-            RegistrySecurityService registrySecurity = new RegistrySecurityService(
+            registrySecurity = new RegistrySecurityService(
                     session.getMapper(RegistryCredentialMapper.class), json);
             RegistryEnrollmentService enrollment = new RegistryEnrollmentService(
                     session.getMapper(RegistryEnrollmentTokenMapper.class), projects);
@@ -1121,8 +1208,12 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
                     projects, registrySecurity, enrollment);
             CapabilitySourceContractGuard guard = new CapabilitySourceContractGuard(lifecycle, policy);
 
+            transactions.registerBean(BusinessMethodAssetStore.class, () -> new BusinessMethodAssetStore(
+                    session.getMapper(BusinessMethodAssetMapper.class), session.getMapper(BusinessMethodRevisionMapper.class),
+                    snapshots, differences, policy, json));
             transactions.registerBean(CapabilityCatalogProjectionStore.class, () -> new CapabilityCatalogProjectionStore(
-                    session.getMapper(ScanProjectToolMapper.class), session.getMapper(ToolDefinitionMapper.class), json, policy));
+                    session.getMapper(ScanProjectToolMapper.class), session.getMapper(ToolDefinitionMapper.class), json, policy,
+                    transactions.getBean(BusinessMethodAssetStore.class)));
             transactions.registerBean(RegistryInstanceLifecycleService.class, () -> new RegistryInstanceLifecycleService(
                     session.getMapper(ProjectInstanceMapper.class), json));
             transactions.registerBean(CapabilityReviewEvidenceStore.class, () -> new CapabilityReviewEvidenceStore(
@@ -1135,7 +1226,8 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
                     session.getMapper(CapabilitySyncLogMapper.class), snapshots, differences, json, policy, lifecycle,
                     transactions.getBean(CapabilityCatalogProjectionStore.class),
                     transactions.getBean(CapabilityReviewEvidenceStore.class),
-                    transactions.getBean(StarterMvcHttpApiIntakeService.class)));
+                    transactions.getBean(StarterMvcHttpApiIntakeService.class),
+                    transactions.getBean(BusinessMethodAssetStore.class)));
             transactions.registerBean(CapabilityRegistryService.class, () -> new CapabilityRegistryService(
                     projects, snapshots, differences, registrySecurity, registration, json, policy, lifecycle,
                     transactions.getBean(CapabilityCatalogProjectionStore.class),
@@ -1245,20 +1337,20 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
                     "DEVELOPMENT_PLAINTEXT", sdkBridge.baseUrl(), sdkBridge.baseUrl(), sdkBridge.baseUrl(),
                     new MockEnvironment()),
                     json);
-            capabilityExecution = new CapabilityToolExecutionService(
-                    session.getMapper(ToolDefinitionMapper.class), httpInvoker, registrySecurity, guard);
+            var businessMethods = new BusinessMethodCatalogService(session.getMapper(BusinessMethodAssetMapper.class),
+                    transactions.getBean(BusinessMethodAssetStore.class), projects, lifecycle);
+            capabilityExecution = new CapabilityToolExecutionService(businessMethods, httpInvoker, registrySecurity, guard);
             CapabilityInvocationApplicationService invocationApplication = new CapabilityInvocationApplicationService(
-                    new CapabilityInvocationAssetResolver(session.getMapper(ToolDefinitionMapper.class),
-                            session.getMapper(ToolAssetMapper.class)),
+                    new CapabilityInvocationAssetResolver(businessMethods),
                     new CapabilityInvocationPolicyChain(),
                     new CapabilityInvokerRegistry(List.of(new CatalogHttpCapabilityInvoker(capabilityExecution))));
             MockMvc capabilityMvc = MockMvcBuilders.standaloneSetup(
                     new CapabilityRegistryCompatibilityController(registry),
                     new CapabilityRegistryOperationsCompatibilityController(registry),
-                    new BusinessMethodCatalogInternalController(catalog, guard),
+                    new BusinessMethodCatalogInternalController(businessMethods),
                     new com.enterprise.ai.capability.catalog.businessmethod.BusinessMethodInvocationContextInternalController(
                             new com.enterprise.ai.capability.catalog.businessmethod.BusinessMethodInvocationContextService(
-                                    catalog, lifecycle, policy, registrySecurity, json)),
+                                    businessMethods, lifecycle, registrySecurity, json)),
                     new HttpApiCatalogInternalController(httpApiCatalog),
                     new com.enterprise.ai.capability.externalapi.ExternalApiCatalogController(market),
                     new CapabilityToolCatalogController(catalog, guard),
@@ -1266,7 +1358,7 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
                     new com.enterprise.ai.capability.catalog.semantic.CapabilitySemanticCatalogController(semanticCatalog),
                     new CapabilityProjectInternalController(new CapabilityProjectLookupService(projects)),
                     new CapabilityToolInternalController(
-                            new CapabilityToolLookupService(session.getMapper(ToolDefinitionMapper.class), policy, guard),
+                            new CapabilityToolLookupService(businessMethods, registrySecurity),
                             capabilityExecution, invocationApplication))
                     .addFilters(capabilityFilter)
                     .setMessageConverters(new MappingJackson2HttpMessageConverter(json))
@@ -3080,8 +3172,10 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
                         .filter(candidate -> qualifiedName.equals(candidate.path("qualifiedName").asText()))
                         .findFirst().orElseThrow(() -> new AssertionError("missing published pin for " + qualifiedName));
                 Map<String, Object> source = sourceToolDefinition(qualifiedName);
-                assertEquals(number(source.get("id")), ref.path("definitionId").asLong(),
-                        "publish must pin the owner definition id rather than a Studio-supplied value");
+                assertEquals(number(source.get("assetId")), ref.path("assetId").asLong(),
+                        "publish must pin the stable source asset rather than a Tool projection");
+                assertEquals(number(source.get("acceptedRevisionId")), ref.path("acceptedRevisionId").asLong());
+                assertEquals("BUSINESS_METHOD", ref.path("assetType").asText());
                 assertEquals(source.get("contractHash"), ref.path("contractHash").asText());
                 assertTrue(ref.path("contractHash").asText().matches("[0-9a-f]{64}"));
             }
@@ -3987,9 +4081,10 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
                     "capability_scan_project", "capability_scan_project_tool", "capability_tool_definition",
                     "capability_project_instance", "capability_sync_log", "capability_snapshot",
                     "capability_sync_receipt", "capability_diff_item", "capability_apply_record",
-                    "capability_source_state", "capability_registry_project_credential",
+                    "capability_source_state", "capability_business_method_asset", "capability_business_method_revision",
+                    "capability_registry_project_credential",
                     "capability_registry_enrollment_token", "capability_registry_request_nonce",
-                    "capability_internal_auth_nonce", "capability_tool_asset",
+                    "capability_internal_auth_nonce",
                     "control_platform_user", "control_platform_role", "control_platform_user_role",
                     "control_platform_permission", "control_platform_role_permission", "control_platform_login_session",
                     "runtime_internal_auth_nonce", "runtime_workflow", "runtime_workflow_version",
@@ -4004,8 +4099,9 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
                     ScanProjectMapper.class, ScanProjectToolMapper.class, ScanModuleMapper.class, SemanticDocMapper.class, ToolDefinitionMapper.class,
                     ProjectInstanceMapper.class, CapabilitySyncLogMapper.class, CapabilitySnapshotMapper.class,
                     CapabilityDiffItemMapper.class, CapabilityApplyRecordMapper.class, CapabilitySourceStateMapper.class,
+                    BusinessMethodAssetMapper.class, BusinessMethodRevisionMapper.class,
                     CapabilitySyncReceiptMapper.class, RegistryCredentialMapper.class, RegistryEnrollmentTokenMapper.class,
-                    ToolAssetMapper.class, PlatformUserMapper.class, PlatformRoleMapper.class, PlatformUserRoleMapper.class,
+                    PlatformUserMapper.class, PlatformRoleMapper.class, PlatformUserRoleMapper.class,
                     PlatformPermissionMapper.class, PlatformRolePermissionMapper.class, PlatformLoginSessionMapper.class,
                     PlatformAuthProviderMapper.class, PlatformAuthAuditEventMapper.class,
                     HttpApiAssetMapper.class, HttpApiSourceBindingMapper.class,
@@ -4252,7 +4348,12 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
                                 .timeout(Duration.ofSeconds(10)).header("Accept", "application/json").GET().build(),
                         HttpResponse.BodyHandlers.ofByteArray());
                 if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                    throw new IllegalStateException("Capability catalog loopback returned HTTP " + response.statusCode());
+                    var request = feign.Request.create(feign.Request.HttpMethod.GET,
+                            baseUrl + "/internal/capability/tools/" + qualifiedName, Map.of(), null,
+                            StandardCharsets.UTF_8, null);
+                    throw feign.FeignException.errorStatus("getToolDefinition", feign.Response.builder()
+                            .status(response.statusCode()).reason("Catalog lookup").request(request).headers(Map.of())
+                            .body(response.body()).build());
                 }
                 return json.readValue(response.body(), new TypeReference<>() { });
             } catch (InterruptedException interrupted) {
@@ -4274,11 +4375,6 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
         public CapabilityInvocationResponse invokeCapability(Map<String, String> internalAuthHeaders,
                                                              byte[] exactBody) {
             return post("/internal/capability/invocations", internalAuthHeaders, exactBody);
-        }
-
-        @Override
-        public Map<String, Object> getCompositionDefinition(String qualifiedName) {
-            throw new UnsupportedOperationException("composition catalog is not part of BMAPI-2D-B");
         }
 
         @Override

@@ -45,7 +45,7 @@
       </template>
     </CollapsibleHeaderRegion>
 
-    <el-card class="market-workbench-card" shadow="never">
+    <el-card class="market-workbench-card workbench-list-surface" shadow="never">
       <div class="market-boundary-note">
         <strong>安全边界</strong>
         <span>安装量仅作发现信号；导入不会自动发布、执行脚本或获得 Tool / MCP / 凭据权限。</span>

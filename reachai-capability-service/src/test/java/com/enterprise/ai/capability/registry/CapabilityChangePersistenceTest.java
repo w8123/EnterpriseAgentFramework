@@ -15,6 +15,7 @@ import com.enterprise.ai.capability.catalog.httpapi.HttpApiAssetMapper;
 import com.enterprise.ai.capability.catalog.httpapi.HttpApiAssetService;
 import com.enterprise.ai.capability.catalog.httpapi.HttpApiContractCanonicalizer;
 import com.enterprise.ai.capability.catalog.httpapi.HttpApiSourceBindingMapper;
+import com.enterprise.ai.capability.catalog.businessmethod.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -68,6 +69,9 @@ class CapabilityChangePersistenceTest {
     CapabilityDiffItemMapper differences;
     CapabilitySnapshotMapper snapshots;
     CapabilitySourceStateMapper sources;
+    BusinessMethodAssetStore methodAssets;
+    BusinessMethodAssetMapper methodAssetMapper;
+    RegistryCredentialMapper credentials;
     TransactionTemplate tx;
     JdbcTemplate jdbc;
 
@@ -77,7 +81,8 @@ class CapabilityChangePersistenceTest {
         String baseline = Files.readString(Path.of("../sql/initV2.sql"));
         for (String table : List.of("capability_scan_project", "capability_scan_project_tool", "capability_tool_definition",
                 "capability_project_instance", "capability_sync_log", "capability_snapshot", "capability_sync_receipt", "capability_diff_item", "capability_apply_record", "capability_source_state",
-                "capability_http_api_asset", "capability_http_api_source_binding")) {
+                "capability_http_api_asset", "capability_http_api_source_binding",
+                "capability_business_method_asset", "capability_business_method_revision", "capability_registry_project_credential")) {
             var match = Pattern.compile("(?is)CREATE TABLE(?: IF NOT EXISTS)? `?" + table + "`?\\s*\\(.*?;", Pattern.DOTALL).matcher(baseline);
             assertTrue(match.find(), "baseline missing " + table);
             String sql = match.group().replaceAll("(?is)\\) ENGINE=.*?;", ");")
@@ -97,9 +102,12 @@ class CapabilityChangePersistenceTest {
         for (Class<?> type : List.of(ScanProjectMapper.class, ScanProjectToolMapper.class, ToolDefinitionMapper.class,
                 ProjectInstanceMapper.class, CapabilitySyncLogMapper.class, CapabilitySnapshotMapper.class,
                 CapabilityDiffItemMapper.class, CapabilityApplyRecordMapper.class, CapabilitySourceStateMapper.class, CapabilitySyncReceiptMapper.class,
-                HttpApiAssetMapper.class, HttpApiSourceBindingMapper.class)) configuration.addMapper(type);
+                HttpApiAssetMapper.class, HttpApiSourceBindingMapper.class,
+                BusinessMethodAssetMapper.class, BusinessMethodRevisionMapper.class, RegistryCredentialMapper.class)) configuration.addMapper(type);
         var factory = new MybatisSqlSessionFactoryBean(); factory.setDataSource(datasource); factory.setConfiguration(configuration);
         var session = new SqlSessionTemplate(factory.getObject());
+        methodAssetMapper = session.getMapper(BusinessMethodAssetMapper.class);
+        credentials = session.getMapper(RegistryCredentialMapper.class);
         projects = session.getMapper(ScanProjectMapper.class); tools = session.getMapper(ToolDefinitionMapper.class);
         differences = session.getMapper(CapabilityDiffItemMapper.class); snapshots = session.getMapper(CapabilitySnapshotMapper.class);
         sources = session.getMapper(CapabilitySourceStateMapper.class);
@@ -109,8 +117,12 @@ class CapabilityChangePersistenceTest {
         context = new AnnotationConfigApplicationContext();
         context.register(Transactions.class);
         context.registerBean("transactionManager", DataSourceTransactionManager.class, () -> transactionManager);
+        context.registerBean(BusinessMethodAssetStore.class, () -> new BusinessMethodAssetStore(
+                session.getMapper(BusinessMethodAssetMapper.class), session.getMapper(BusinessMethodRevisionMapper.class),
+                snapshots, differences, policy, json));
         context.registerBean(CapabilityCatalogProjectionStore.class, () -> new CapabilityCatalogProjectionStore(
-                session.getMapper(ScanProjectToolMapper.class), tools, json, policy));
+                session.getMapper(ScanProjectToolMapper.class), tools, json, policy,
+                context.getBean(BusinessMethodAssetStore.class)));
         context.registerBean(RegistryInstanceLifecycleService.class, () -> new RegistryInstanceLifecycleService(
                 session.getMapper(ProjectInstanceMapper.class), json));
         context.registerBean(CapabilityReviewEvidenceStore.class, () -> new CapabilityReviewEvidenceStore(
@@ -124,9 +136,11 @@ class CapabilityChangePersistenceTest {
         context.registerBean(CapabilitySourceIntakeService.class, () -> new CapabilitySourceIntakeService(
                 projects, session.getMapper(ScanProjectToolMapper.class), tools, session.getMapper(CapabilitySyncLogMapper.class),
                 snapshots, differences, json, policy, lifecycle, context.getBean(CapabilityCatalogProjectionStore.class),
-                context.getBean(CapabilityReviewEvidenceStore.class), context.getBean(StarterMvcHttpApiIntakeService.class)));
+                context.getBean(CapabilityReviewEvidenceStore.class), context.getBean(StarterMvcHttpApiIntakeService.class),
+                context.getBean(BusinessMethodAssetStore.class)));
         context.refresh();
         projections = context.getBean(CapabilityCatalogProjectionStore.class);
+        methodAssets = context.getBean(BusinessMethodAssetStore.class);
         assertTrue(AopUtils.isAopProxy(projections));
         instanceLifecycle = context.getBean(RegistryInstanceLifecycleService.class);
         assertTrue(AopUtils.isAopProxy(instanceLifecycle));
@@ -140,6 +154,217 @@ class CapabilityChangePersistenceTest {
         tx.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
         var project = new ScanProjectEntity(); project.setName("订单系统"); project.setProjectCode("orders");
         project.setBaseUrl("http://orders.local"); project.setScanPath("sdk:orders"); project.setScanType("auto"); projects.insert(project);
+    }
+
+    @Test void credentialRotationChangesExecutionBindingWithoutChangingTheMethodAndRejectsOldPins() {
+        sync("binding-owner", typedRead("/orders", "BUSINESS_METHOD"));
+        var asset = methodAssets.find("orders:read").orElseThrow();
+        var catalog = new BusinessMethodCatalogService(methodAssetMapper, methodAssets, projects, lifecycle);
+        var method = catalog.find("orders:read").orElseThrow();
+        var security = new RegistrySecurityService(credentials, new ObjectMapper());
+        var first = tx.execute(status -> security.savePrimaryCredential(asset.getProjectId(), "orders", "binding-app", "first-secret"));
+        String before = BusinessMethodExecutionRevision.of(method, first);
+        var same = tx.execute(status -> security.savePrimaryCredential(asset.getProjectId(), "orders", "binding-app", "first-secret"));
+        assertEquals(first.getRevision(), same.getRevision(), "identical SDK registration must retain the binding");
+        var changed = tx.execute(status -> security.savePrimaryCredential(asset.getProjectId(), "orders", "binding-app", "second-secret"));
+        assertEquals(first.getId(), changed.getId());
+        assertEquals(first.getRevision() + 1, changed.getRevision());
+        assertNotEquals(before, BusinessMethodExecutionRevision.of(method, changed));
+        assertEquals(method.revision().getContractHash(), catalog.find("orders:read").orElseThrow().revision().getContractHash());
+        AtomicInteger sent = new AtomicInteger();
+        var execution = new CapabilityToolExecutionService(catalog, invocation -> {
+            sent.incrementAndGet(); return Map.of("statusCode", 200, "body", Map.of("success", true));
+        }, security, guard);
+        var constraints = new java.util.LinkedHashMap<String, Object>(Map.of("expectedAssetId", asset.getId().intValue(),
+                "expectedAcceptedRevisionId", method.revision().getId().intValue(), "expectedContractHash", method.revision().getInvocationHash(),
+                "expectedExecutionRevision", before, "requireSignedInvocation", true));
+        assertEquals("BUSINESS_METHOD_EXECUTION_BINDING_CHANGED", assertThrows(CapabilityInvocationPolicyException.class,
+                () -> execution.execute("orders:read", Map.of("constraints", constraints))).code());
+        assertEquals(0, sent.get());
+        constraints.put("expectedExecutionRevision", BusinessMethodExecutionRevision.of(method, changed));
+        execution.execute("orders:read", Map.of("constraints", constraints));
+        assertEquals(1, sent.get());
+        tx.executeWithoutResult(status -> security.updateEmbedPolicy("orders", "binding-app", List.of("https://orders.test"), List.of(), 600));
+        long policyRevision = security.findPrimaryActiveCredential("orders").orElseThrow().getRevision();
+        assertEquals(changed.getRevision() + 1, policyRevision);
+        tx.executeWithoutResult(status -> security.updateEmbedPolicy("orders", "binding-app", List.of("https://orders.test"), List.of(), 600));
+        assertEquals(policyRevision, security.findPrimaryActiveCredential("orders").orElseThrow().getRevision());
+        assertEquals(1L, methodAssetMapper.selectCount(null));
+        assertEquals(asset.getAcceptedRevisionId(), methodAssets.find("orders:read").orElseThrow().getAcceptedRevisionId());
+    }
+
+    @Test void methodFactsRemainIndependentFromDeletedOrChangedInvocationProjection() {
+        sync("method-owner", typedRead("/orders", "BUSINESS_METHOD"));
+        BusinessMethodAssetEntity asset = methodAssets.find("orders:read").orElseThrow();
+        assertNotNull(asset.getAcceptedRevisionId());
+        assertEquals("/orders", methodAssets.acceptedDeclaration(asset).endpointPath());
+        jdbc.update("UPDATE capability_tool_definition SET endpoint_path='/tampered', title='projection-only'");
+        assertEquals("/orders", methodAssets.acceptedDeclaration(asset).endpointPath());
+        assertEquals("自动订单查询", asset.getTitle());
+        jdbc.update("DELETE FROM capability_tool_definition");
+        assertEquals("/orders", methodAssets.acceptedDeclaration(methodAssets.find("orders:read").orElseThrow()).endpointPath());
+        assertEquals(1L, jdbc.queryForObject("SELECT COUNT(*) FROM capability_business_method_asset", Long.class));
+    }
+
+    @Test void identicalReportsKeepOneMethodAssetAndOneAcceptanceRevision() {
+        sync("method-first", typedRead("/orders", "BUSINESS_METHOD"));
+        BusinessMethodAssetEntity first = methodAssets.find("orders:read").orElseThrow();
+        sync("method-repeat", typedRead("/orders", "BUSINESS_METHOD"));
+        BusinessMethodAssetEntity repeated = methodAssets.find("orders:read").orElseThrow();
+        assertEquals(first.getId(), repeated.getId());
+        assertEquals(first.getAcceptedRevisionId(), repeated.getAcceptedRevisionId());
+        assertEquals(1L, jdbc.queryForObject("SELECT COUNT(*) FROM capability_business_method_revision", Long.class));
+        assertEquals(1L, snapshots.selectCount(null));
+    }
+
+    @Test void sourceDiffUsesAcceptedMethodEvenWhenTheProjectionAlreadyMatchesTheCandidate() {
+        sync("owner-before-projection-tamper", typedRead("/orders", "BUSINESS_METHOD"));
+        String acceptedHash = methodAssets.acceptedRevision(methodAssets.find("orders:read").orElseThrow()).getInvocationHash();
+        jdbc.update("UPDATE capability_tool_definition SET endpoint_path='/orders-v2'");
+        jdbc.update("UPDATE capability_scan_project_tool SET endpoint_path='/orders-v2'");
+        sync("owner-after-projection-tamper", typedRead("/orders-v2", "BUSINESS_METHOD"));
+        assertEquals("CHANGED", latest().getChangeType());
+        assertEquals("PENDING", latest().getReviewStatus());
+        assertEquals(acceptedHash, sources.selectOne(null).getAcceptedContractHash());
+        assertEquals("/orders", methodAssets.acceptedDeclaration(methodAssets.find("orders:read").orElseThrow()).endpointPath());
+    }
+
+    @Test void executionDerivesTheAcceptedAddressAndRiskEvenWhenBothProjectionRowsAreMissing() {
+        sync("owner-execution-first", typedRead("/orders", "BUSINESS_METHOD"));
+        BusinessMethodAssetEntity asset = methodAssets.find("orders:read").orElseThrow();
+        String hash = methodAssets.acceptedRevision(asset).getInvocationHash();
+        jdbc.update("DELETE FROM capability_tool_definition");
+        jdbc.update("DELETE FROM capability_scan_project_tool");
+        var credential = new com.enterprise.ai.agent.registry.RegistryCredentialEntity();
+        credential.setAppKey("owner-fixture"); credential.setAppSecret("owner-fixture-secret");
+        credential.setId(1L); credential.setRevision(1L); credential.setStatus("ACTIVE");
+        credential.setProjectId(asset.getProjectId()); credential.setProjectCode(asset.getProjectCode());
+        org.mockito.Mockito.when(registrySecurity.findPrimaryActiveCredential("orders")).thenReturn(java.util.Optional.of(credential));
+        var catalog = new BusinessMethodCatalogService(methodAssetMapper, methodAssets, projects, lifecycle);
+        var captured = new java.util.concurrent.atomic.AtomicReference<
+                com.enterprise.ai.capability.internal.CapabilityHttpToolInvocation>();
+        CapabilityHttpToolInvoker invoker = invocation -> {
+            captured.set(invocation); return Map.of("statusCode", 200, "body", Map.of("success", true));
+        };
+        var execution = new CapabilityToolExecutionService(catalog, invoker, registrySecurity, guard);
+        execution.execute("orders:read", Map.of("input", Map.of(), "context", Map.of(), "constraints", Map.of(
+                "consoleCapabilityInvocation", true, "expectedQualifiedName", "orders:read", "expectedProjectCode", "orders",
+                "expectedProjectId", asset.getProjectId(), "expectedContractHash", hash, "requireSignedInvocation", true,
+                "expectedExecutionRevision", com.enterprise.ai.capability.catalog.businessmethod.BusinessMethodExecutionRevision.of(
+                        catalog.find("orders:read").orElseThrow(), credential))));
+        assertEquals("http://orders.local/orders", captured.get().url());
+        assertEquals("GET", captured.get().method());
+        var descriptor = new com.enterprise.ai.capability.internal.CapabilityToolLookupService(catalog, registrySecurity).getToolDefinition("orders:read");
+        assertEquals(asset.getId(), descriptor.get("assetId"));
+        assertEquals(asset.getAcceptedRevisionId(), descriptor.get("acceptedRevisionId"));
+        assertEquals(hash, descriptor.get("contractHash"));
+    }
+
+    @Test void repeatedAcceptedMethodRebuildsItsProjectionFromTheImmutableOwnerWithoutANewRevision() {
+        sync("owner-repair-first", typedRead("/orders", "BUSINESS_METHOD"));
+        var first = methodAssets.find("orders:read").orElseThrow();
+        jdbc.update("DELETE FROM capability_tool_definition");
+        jdbc.update("DELETE FROM capability_scan_project_tool");
+        sync("owner-repair-repeat", typedRead("/orders", "BUSINESS_METHOD"));
+        assertEquals("/orders", tool().getEndpointPath());
+        assertEquals(first.getId(), methodAssets.find("orders:read").orElseThrow().getId());
+        assertEquals(first.getAcceptedRevisionId(), methodAssets.find("orders:read").orElseThrow().getAcceptedRevisionId());
+        assertEquals(1L, snapshots.selectCount(null));
+        assertEquals(1L, differences.selectCount(null));
+    }
+
+    @Test void missingMethodIsObservedAndRemovedEvenIfBothDerivedRowsWereDeleted() {
+        sync("owner-missing-first", typedRead("/orders", "BUSINESS_METHOD"));
+        var first = methodAssets.find("orders:read").orElseThrow();
+        jdbc.update("DELETE FROM capability_tool_definition");
+        jdbc.update("DELETE FROM capability_scan_project_tool");
+        sync("owner-missing-next");
+        assertEquals("DELETED", latest().getChangeType());
+        assertEquals("SOURCE_MISSING", sources.selectOne(null).getAvailability());
+        review(latest().getId(), "APPLY");
+        assertEquals(first.getId(), methodAssets.find("orders:read").orElseThrow().getId());
+        assertEquals("REMOVED", methodAssets.find("orders:read").orElseThrow().getStatus());
+    }
+
+    @Test void methodDisplayChangeKeepsStableIdentityAndBusinessContract() {
+        sync("method-display-first", typedRead("/orders", "BUSINESS_METHOD"));
+        BusinessMethodAssetEntity first = methodAssets.find("orders:read").orElseThrow();
+        BusinessMethodRevisionEntity firstRevision = methodAssets.acceptedRevision(first);
+        CapabilityRegistration renamed = new CapabilityRegistration("read", "新的订单查询名称", "查询订单", "GET",
+                "http://orders.local", null, "/orders", null, null, "READ_ONLY", true, List.of(),
+                Map.of("assetType", "BUSINESS_METHOD"));
+        sync("method-display-next", renamed);
+        BusinessMethodAssetEntity next = methodAssets.find("orders:read").orElseThrow();
+        BusinessMethodRevisionEntity nextRevision = methodAssets.acceptedRevision(next);
+        assertEquals(first.getId(), next.getId());
+        assertEquals("新的订单查询名称", next.getTitle());
+        assertNotEquals(firstRevision.getId(), nextRevision.getId());
+        assertEquals(firstRevision.getContractHash(), nextRevision.getContractHash());
+        assertEquals(firstRevision.getBindingHash(), nextRevision.getBindingHash());
+    }
+
+    @Test void methodTransportChangeWaitsForAcceptanceAndRollbackRestoresTheOriginalRevision() {
+        sync("method-binding-first", typedRead("/orders", "BUSINESS_METHOD"));
+        BusinessMethodAssetEntity first = methodAssets.find("orders:read").orElseThrow();
+        BusinessMethodRevisionEntity original = methodAssets.acceptedRevision(first);
+        sync("method-binding-next", typedRead("/orders-v2", "BUSINESS_METHOD"));
+        Long changeId = latest().getId();
+        assertEquals("PENDING", latest().getReviewStatus());
+        assertEquals(original.getId(), methodAssets.find("orders:read").orElseThrow().getAcceptedRevisionId());
+        review(changeId, "APPLY");
+        BusinessMethodAssetEntity accepted = methodAssets.find("orders:read").orElseThrow();
+        BusinessMethodRevisionEntity changed = methodAssets.acceptedRevision(accepted);
+        assertEquals(first.getId(), accepted.getId());
+        assertEquals(original.getContractHash(), changed.getContractHash());
+        assertNotEquals(original.getBindingHash(), changed.getBindingHash());
+        assertNotEquals(original.getInvocationHash(), changed.getInvocationHash());
+        tx.execute(status -> registry.rollbackDiffItem("orders", changeId,
+                new CapabilityReviewRequest("ROLLBACK", "tester", "restore owner revision")));
+        BusinessMethodAssetEntity restored = methodAssets.find("orders:read").orElseThrow();
+        assertEquals(original.getId(), restored.getAcceptedRevisionId());
+        assertEquals("/orders", methodAssets.acceptedDeclaration(restored).endpointPath());
+        assertEquals("CONTRACT_DRIFT", sources.selectOne(null).getAvailability());
+    }
+
+    @Test void methodRemovalAndRollbackPreserveItsStableIdentityAndSourceEvidence() {
+        sync("method-remove-first", typedRead("/orders", "BUSINESS_METHOD"));
+        BusinessMethodAssetEntity first = methodAssets.find("orders:read").orElseThrow();
+        sync("method-remove-next");
+        Long deletedId = latest().getId();
+        assertEquals("SOURCE_MISSING", sources.selectOne(null).getAvailability());
+        review(deletedId, "APPLY");
+        BusinessMethodAssetEntity removed = methodAssets.find("orders:read").orElseThrow();
+        assertEquals(first.getId(), removed.getId());
+        assertEquals("REMOVED", removed.getStatus());
+        assertFalse(removed.getEnabled());
+        tx.execute(status -> registry.rollbackDiffItem("orders", deletedId,
+                new CapabilityReviewRequest("ROLLBACK", "tester", "restore removed owner")));
+        BusinessMethodAssetEntity restored = methodAssets.find("orders:read").orElseThrow();
+        assertEquals(first.getAcceptedRevisionId(), restored.getAcceptedRevisionId());
+        assertEquals("ACCEPTED", restored.getStatus());
+        assertEquals("SOURCE_MISSING", sources.selectOne(null).getAvailability(), "rollback does not invent a new source observation");
+    }
+
+    @Test void projectionFailureRollsBackMethodAcceptanceAndSourceSnapshotTogether() {
+        jdbc.execute("ALTER TABLE capability_tool_definition ADD CONSTRAINT reject_method_projection CHECK (endpoint_path <> '/orders')");
+        assertThrows(org.springframework.dao.DataIntegrityViolationException.class,
+                () -> sync("method-atomic-failure", typedRead("/orders", "BUSINESS_METHOD")));
+        assertEquals(0L, jdbc.queryForObject("SELECT COUNT(*) FROM capability_business_method_asset", Long.class));
+        assertEquals(0L, jdbc.queryForObject("SELECT COUNT(*) FROM capability_business_method_revision", Long.class));
+        assertEquals(0L, snapshots.selectCount(null));
+        assertEquals(0L, differences.selectCount(null));
+    }
+
+    @Test void methodAcceptanceRejectsUnrelatedDiffAndCorruptedImmutableSource() {
+        sync("method-proof-first", typedRead("/orders", "BUSINESS_METHOD"));
+        BusinessMethodAssetEntity asset = methodAssets.find("orders:read").orElseThrow();
+        BusinessMethodRevisionEntity revision = methodAssets.acceptedRevision(asset);
+        CapabilityRegistration declaration = methodAssets.acceptedDeclaration(asset);
+        ScanProjectEntity project = projects.selectById(asset.getProjectId());
+        assertThrows(IllegalArgumentException.class, () -> tx.execute(status -> methodAssets.accept(
+                project, declaration, revision.getSnapshotId(), revision.getDiffItemId() + 1000L)));
+        jdbc.update("UPDATE capability_snapshot SET payload_json='{}' WHERE id=?", revision.getSnapshotId());
+        assertThrows(IllegalStateException.class, () -> methodAssets.acceptedDeclaration(asset));
     }
 
     @Test void sourceInventoryFixtureUsesTheProductionReadCommittedBoundary() {
@@ -202,7 +427,7 @@ class CapabilityChangePersistenceTest {
         jdbc.execute("ALTER TABLE capability_apply_record ADD CONSTRAINT reject_new_auto_apply CHECK (snapshot_id <= "
                 + pending.getSnapshotId() + " OR action <> 'AUTO_APPLY')");
         var candidate = new CapabilityRegistration("read", "更新订单查询", "查询订单", "GET", "http://orders.local",
-                null, "/orders", null, null, "READ_ONLY", true, List.of(), Map.of());
+                null, "/orders", null, null, "READ_ONLY", true, List.of(), Map.of("assetType", "BUSINESS_METHOD"));
         assertThrows(org.springframework.dao.DataIntegrityViolationException.class, () -> sync("rejected", candidate));
         assertEquals(snapshotCount, snapshots.selectCount(null));
         assertEquals(differenceCount, differences.selectCount(null));
@@ -270,11 +495,28 @@ class CapabilityChangePersistenceTest {
         assertEquals("ONLINE", tx.execute(status -> registry.heartbeat("orders", heartbeat)).instance().getStatus());
     }
 
+    @Test void rollbackDerivesTheProjectionFromTheAcceptedOwnerEvenIfThePriorProjectionWasCorrupted() {
+        sync("owner-before-corruption", typedRead("/orders", "BUSINESS_METHOD"));
+        Long originalRevision = methodAssets.find("orders:read").orElseThrow().getAcceptedRevisionId();
+        jdbc.update("UPDATE capability_tool_definition SET asset_type = 'CORRUPTED', endpoint_path = '/forged'");
+        jdbc.update("UPDATE capability_scan_project_tool SET asset_type = 'CORRUPTED', endpoint_path = '/forged'");
+        sync("owner-change", typedRead("/orders-v2", "BUSINESS_METHOD"));
+        Long changeId = latest().getId();
+        review(changeId, "APPLY");
+        tx.execute(status -> registry.rollbackDiffItem("orders", changeId,
+                new CapabilityReviewRequest("ROLLBACK", "tester", "restore accepted owner")));
+        assertEquals(originalRevision, methodAssets.find("orders:read").orElseThrow().getAcceptedRevisionId());
+        assertEquals("/orders", methodAssets.acceptedDeclaration(methodAssets.find("orders:read").orElseThrow()).endpointPath());
+        assertProjectionAssetType("BUSINESS_METHOD");
+        assertEquals("/orders", tool().getEndpointPath());
+        assertEquals("/orders", jdbc.queryForObject("SELECT endpoint_path FROM capability_scan_project_tool", String.class));
+    }
+
     @Test void projectionWritesRequireTheRegistryTransaction() {
         assertThrows(IllegalTransactionStateException.class,
-                () -> projections.bindUnchangedSource(null, null, "orders:read", null));
+                () -> projections.acceptBusinessMethod(null, null, null));
         assertThrows(IllegalTransactionStateException.class,
-                () -> projections.applySdkCapabilityCatalogRow(null, null, null, null, null));
+                () -> projections.applySdkCapabilityCatalogRow(null, null, null, null, null, null));
         assertThrows(IllegalTransactionStateException.class,
                 () -> projections.markCatalogRowRemoved(null, null));
         assertThrows(IllegalTransactionStateException.class,
@@ -350,17 +592,18 @@ class CapabilityChangePersistenceTest {
         assertEquals(2, snapshots.selectCount(null));
     }
 
-    @Test void legacyAssetTypeProjectsUnclassifiedWithoutChangingLegacyMetadata() {
-        sync("legacy", read("/orders", null));
-
-        assertProjectionAssetType("UNCLASSIFIED");
-        assertFalse(tool().getCapabilityMetadataJson().contains("assetType"));
-        sync("legacy-repeat", read("/orders", null));
-        assertEquals(1, snapshots.selectCount(null));
-        assertProjectionAssetType("UNCLASSIFIED");
+    @Test void missingAssetTypeIsRejectedBeforeAnySourceOrAssetWrite() {
+        var missing = new CapabilityRegistration("read", "查询订单", "查询订单", "GET", "http://orders.local", null,
+                "/orders", null, null, "READ_ONLY", true, List.of(), Map.of());
+        assertThrows(IllegalArgumentException.class, () -> sync("missing-type", missing));
+        assertEquals(0, snapshots.selectCount(null));
+        assertEquals(0, differences.selectCount(null));
+        assertEquals(0, tools.selectCount(null));
+        assertEquals(0L, jdbc.queryForObject("SELECT COUNT(*) FROM capability_business_method_asset", Long.class));
+        assertEquals(0L, jdbc.queryForObject("SELECT COUNT(*) FROM capability_source_state", Long.class));
     }
 
-    @Test void repeatedAcceptedSourceSyncRepairsLegacyDefaultProjectionWithoutNewObservation() {
+    @Test void repeatedAcceptedSourceSyncRepairsCorruptedProjectionWithoutNewObservation() {
         sync("accepted-business-method", typedRead("/orders", "BUSINESS_METHOD"));
         Long acceptedSnapshotId = snapshots.selectOne(null).getId();
         CapabilitySourceStateEntity beforeRepeat = sources.selectOne(null);
@@ -370,9 +613,9 @@ class CapabilityChangePersistenceTest {
         String acceptedMetadata = tool().getCapabilityMetadataJson();
         Long appliedRecords = jdbc.queryForObject("SELECT COUNT(*) FROM capability_apply_record", Long.class);
 
-        jdbc.update("UPDATE capability_scan_project_tool SET asset_type = 'UNCLASSIFIED'");
-        jdbc.update("UPDATE capability_tool_definition SET asset_type = 'UNCLASSIFIED'");
-        assertProjectionAssetType("UNCLASSIFIED");
+        jdbc.update("UPDATE capability_scan_project_tool SET asset_type = 'CORRUPTED'");
+        jdbc.update("UPDATE capability_tool_definition SET asset_type = 'CORRUPTED'");
+        assertProjectionAssetType("CORRUPTED");
 
         CapabilitySyncResponse repeated = sync("accepted-business-method-repeat",
                 typedRead("/orders", "BUSINESS_METHOD"));
@@ -396,32 +639,32 @@ class CapabilityChangePersistenceTest {
         sync("business-method", typedRead("/orders", "BUSINESS_METHOD"));
         String acceptedMetadata = tool().getCapabilityMetadataJson();
         String acceptedHash = sources.selectOne(null).getAcceptedContractHash();
-        sync("http-candidate", typedRead("/orders", "HTTP_API"));
+        sync("http-candidate", read("/orders-v2", null));
         Long candidateId = latest().getId();
         assertEquals("PENDING", latest().getReviewStatus());
-        jdbc.update("UPDATE capability_scan_project_tool SET asset_type = 'UNCLASSIFIED'");
-        jdbc.update("UPDATE capability_tool_definition SET asset_type = 'UNCLASSIFIED'");
+        jdbc.update("UPDATE capability_scan_project_tool SET asset_type = 'CORRUPTED'");
+        jdbc.update("UPDATE capability_tool_definition SET asset_type = 'CORRUPTED'");
 
         CapabilitySyncResponse pendingRepeat = sync("http-candidate-repeat-pending",
-                typedRead("/orders", "HTTP_API"));
+                read("/orders-v2", null));
 
         assertEquals(0, pendingRepeat.applied());
         assertEquals("PENDING", differences.selectById(candidateId).getReviewStatus());
-        assertProjectionAssetType("UNCLASSIFIED");
+        assertProjectionAssetType("CORRUPTED");
         review(candidateId, "IGNORE");
         assertEquals("IGNORED", differences.selectById(candidateId).getReviewStatus());
 
         CapabilitySyncResponse ignoredRepeat = sync("http-candidate-repeat-ignored",
-                typedRead("/orders", "HTTP_API"));
+                read("/orders-v2", null));
 
         assertEquals(0, ignoredRepeat.applied());
         assertEquals("IGNORED", differences.selectById(candidateId).getReviewStatus());
-        assertProjectionAssetType("UNCLASSIFIED");
+        assertProjectionAssetType("CORRUPTED");
         assertEquals(acceptedMetadata, tool().getCapabilityMetadataJson());
         assertEquals(acceptedHash, sources.selectOne(null).getAcceptedContractHash());
     }
 
-    @Test void acceptedH2ProjectionBlocksDisabledAndSourceDriftBeforeAnyOutboundAttempt() {
+    @Test void ownerExecutionBlocksDisabledMethodsCredentialsAndSourceDriftBeforeAnyOutboundAttempt() {
         sync("accepted-owner-guard", typedRead("/orders", "BUSINESS_METHOD"));
         ToolDefinitionEntity accepted = tool();
         String acceptedHash = policy.contractHash(accepted);
@@ -432,20 +675,19 @@ class CapabilityChangePersistenceTest {
             outbound.incrementAndGet();
             return Map.of("statusCode", 200, "body", Map.of("success", true));
         };
-        CapabilityToolExecutionService execution = new CapabilityToolExecutionService(tools, invoker, registrySecurity, guard);
+        CapabilityToolExecutionService execution = new CapabilityToolExecutionService(
+                new BusinessMethodCatalogService(methodAssetMapper, methodAssets, projects, lifecycle), invoker, registrySecurity, guard);
 
         CapabilityInvocationPolicyException credentialGone = assertThrows(CapabilityInvocationPolicyException.class,
                 () -> execution.execute("orders:read", consoleRequest(acceptedHash)));
         assertEquals("CAPABILITY_PROJECT_CREDENTIAL_REQUIRED", credentialGone.code());
         assertEquals(0, outbound.get());
 
-        accepted.setEnabled(false);
-        tools.updateById(accepted);
+        jdbc.update("UPDATE capability_business_method_asset SET enabled=FALSE");
         assertThrows(IllegalStateException.class, () -> execution.execute("orders:read", consoleRequest(acceptedHash)));
         assertEquals(0, outbound.get());
 
-        accepted.setEnabled(true);
-        tools.updateById(accepted);
+        jdbc.update("UPDATE capability_business_method_asset SET enabled=TRUE");
         jdbc.update("UPDATE capability_tool_definition SET asset_type = 'HTTP_API' WHERE qualified_name = 'orders:read'");
         CapabilityInvocationPolicyException typeChanged = assertThrows(CapabilityInvocationPolicyException.class,
                 () -> guard.validateConsoleAcceptedBusinessMethod(tool(), Map.of("expectedProjectId", tool().getProjectId())));
@@ -462,7 +704,7 @@ class CapabilityChangePersistenceTest {
         assertEquals(0, outbound.get());
         jdbc.update("UPDATE capability_source_state SET accepted_contract_hash = ?", acceptedHash);
 
-        sync("candidate-source-drift", typedRead("/orders-v2", "HTTP_API"));
+        sync("candidate-source-drift", read("/orders-v2", null));
         assertEquals("/orders", tool().getEndpointPath(), "pending source must not switch the accepted outbound address");
         CapabilityInvocationPolicyException drift = assertThrows(CapabilityInvocationPolicyException.class,
                 () -> guard.validateConsoleAcceptedBusinessMethod(tool(), Map.of("expectedProjectId", tool().getProjectId())));
@@ -484,14 +726,14 @@ class CapabilityChangePersistenceTest {
         CapabilitySourceStateEntity currentCandidate = sources.selectOne(null);
         assertEquals(currentCandidate.getSourceContractHash(), currentCandidate.getAcceptedContractHash());
         assertNotEquals(originalSnapshotId, currentCandidate.getSnapshotId());
-        jdbc.update("UPDATE capability_scan_project_tool SET asset_type = 'UNCLASSIFIED'");
-        jdbc.update("UPDATE capability_tool_definition SET asset_type = 'UNCLASSIFIED'");
+        jdbc.update("UPDATE capability_scan_project_tool SET asset_type = 'CORRUPTED'");
+        jdbc.update("UPDATE capability_tool_definition SET asset_type = 'CORRUPTED'");
 
         CapabilitySyncResponse historicalReplay = sync("business-method", typedRead("/orders", "BUSINESS_METHOD"));
 
         assertEquals(0, historicalReplay.applied());
         assertEquals("PENDING", differences.selectById(candidateId).getReviewStatus());
-        assertProjectionAssetType("UNCLASSIFIED");
+        assertProjectionAssetType("CORRUPTED");
         assertEquals(currentCandidate.getSnapshotId(), sources.selectOne(null).getSnapshotId());
         assertEquals(currentCandidate.getDiffItemId(), sources.selectOne(null).getDiffItemId());
     }
@@ -499,22 +741,22 @@ class CapabilityChangePersistenceTest {
     @Test void historicalReceiptCannotRepairLaterAcceptedContract() {
         sync("business-method", typedRead("/orders", "BUSINESS_METHOD"));
         Long originalSnapshotId = snapshots.selectOne(null).getId();
-        sync("http-candidate", typedRead("/orders", "HTTP_API"));
+        sync("http-candidate", read("/orders-v2", null));
         Long httpCandidateId = latest().getId();
         review(httpCandidateId, "APPLY");
-        assertProjectionAssetType("HTTP_API");
+        assertProjectionAssetType("BUSINESS_METHOD");
         String currentMetadata = tool().getCapabilityMetadataJson();
         CapabilitySourceStateEntity beforeReplay = sources.selectOne(null);
         Long appliedRecords = jdbc.queryForObject("SELECT COUNT(*) FROM capability_apply_record", Long.class);
-        jdbc.update("UPDATE capability_scan_project_tool SET asset_type = 'UNCLASSIFIED'");
-        jdbc.update("UPDATE capability_tool_definition SET asset_type = 'UNCLASSIFIED'");
+        jdbc.update("UPDATE capability_scan_project_tool SET asset_type = 'CORRUPTED'");
+        jdbc.update("UPDATE capability_tool_definition SET asset_type = 'CORRUPTED'");
 
         CapabilitySyncResponse historicalReplay = sync("business-method", typedRead("/orders", "BUSINESS_METHOD"));
 
         assertEquals(0, historicalReplay.applied());
         assertEquals(2, snapshots.selectCount(null));
         assertEquals(2, snapshots.selectById(originalSnapshotId).getReportCount());
-        assertProjectionAssetType("UNCLASSIFIED");
+        assertProjectionAssetType("CORRUPTED");
         assertEquals(currentMetadata, tool().getCapabilityMetadataJson());
         CapabilitySourceStateEntity afterReplay = sources.selectOne(null);
         assertEquals(beforeReplay.getSnapshotId(), afterReplay.getSnapshotId());
@@ -531,8 +773,8 @@ class CapabilityChangePersistenceTest {
                 typedRead("/orders", "BUSINESS_METHOD"))));
         CapabilitySnapshotEntity diagnosticSnapshot = snapshots.selectOne(Wrappers.<CapabilitySnapshotEntity>lambdaQuery()
                 .eq(CapabilitySnapshotEntity::getIntakeMode, "DIAGNOSTIC").last("limit 1"));
-        jdbc.update("UPDATE capability_scan_project_tool SET asset_type = 'UNCLASSIFIED'");
-        jdbc.update("UPDATE capability_tool_definition SET asset_type = 'UNCLASSIFIED'");
+        jdbc.update("UPDATE capability_scan_project_tool SET asset_type = 'CORRUPTED'");
+        jdbc.update("UPDATE capability_tool_definition SET asset_type = 'CORRUPTED'");
 
         CapabilitySyncResponse repeatedDiagnostic = tx.execute(status -> registry.diff("orders", request(
                 "diagnostic-repeat", typedRead("/orders", "BUSINESS_METHOD"))));
@@ -540,7 +782,7 @@ class CapabilityChangePersistenceTest {
         assertEquals(0, repeatedDiagnostic.applied());
         assertEquals(2, snapshots.selectCount(null));
         assertEquals(2, snapshots.selectById(diagnosticSnapshot.getId()).getReportCount());
-        assertProjectionAssetType("UNCLASSIFIED");
+        assertProjectionAssetType("CORRUPTED");
         CapabilitySourceStateEntity afterDiagnostic = sources.selectOne(null);
         assertEquals(beforeDiagnostic.getSnapshotId(), afterDiagnostic.getSnapshotId());
         assertEquals(beforeDiagnostic.getDiffItemId(), afterDiagnostic.getDiffItemId());
@@ -554,20 +796,20 @@ class CapabilityChangePersistenceTest {
         CapabilitySourceStateEntity beforeReplay = sources.selectOne(null);
         assertNull(beforeReplay.getSourceContractHash());
         String acceptedHash = beforeReplay.getAcceptedContractHash();
-        jdbc.update("UPDATE capability_scan_project_tool SET asset_type = 'UNCLASSIFIED'");
-        jdbc.update("UPDATE capability_tool_definition SET asset_type = 'UNCLASSIFIED'");
+        jdbc.update("UPDATE capability_scan_project_tool SET asset_type = 'CORRUPTED'");
+        jdbc.update("UPDATE capability_tool_definition SET asset_type = 'CORRUPTED'");
 
         CapabilitySyncResponse historicalReplay = sync("business-method", typedRead("/orders", "BUSINESS_METHOD"));
 
         assertEquals(0, historicalReplay.applied());
-        assertProjectionAssetType("UNCLASSIFIED");
+        assertProjectionAssetType("CORRUPTED");
         assertNull(sources.selectOne(null).getSourceContractHash());
         assertEquals(acceptedHash, sources.selectOne(null).getAcceptedContractHash());
     }
 
     @Test void historicalReceiptCannotRepairRolledBackSource() {
         sync("business-method", typedRead("/orders", "BUSINESS_METHOD"));
-        sync("http-candidate", typedRead("/orders", "HTTP_API"));
+        sync("http-candidate", read("/orders-v2", null));
         Long httpCandidateId = latest().getId();
         review(httpCandidateId, "APPLY");
         tx.execute(status -> registry.rollbackDiffItem("orders", httpCandidateId,
@@ -575,13 +817,13 @@ class CapabilityChangePersistenceTest {
         CapabilitySourceStateEntity beforeReplay = sources.selectOne(null);
         assertNotEquals(beforeReplay.getSourceContractHash(), beforeReplay.getAcceptedContractHash());
         String restoredMetadata = tool().getCapabilityMetadataJson();
-        jdbc.update("UPDATE capability_scan_project_tool SET asset_type = 'UNCLASSIFIED'");
-        jdbc.update("UPDATE capability_tool_definition SET asset_type = 'UNCLASSIFIED'");
+        jdbc.update("UPDATE capability_scan_project_tool SET asset_type = 'CORRUPTED'");
+        jdbc.update("UPDATE capability_tool_definition SET asset_type = 'CORRUPTED'");
 
         CapabilitySyncResponse historicalReplay = sync("business-method", typedRead("/orders", "BUSINESS_METHOD"));
 
         assertEquals(0, historicalReplay.applied());
-        assertProjectionAssetType("UNCLASSIFIED");
+        assertProjectionAssetType("CORRUPTED");
         assertEquals(restoredMetadata, tool().getCapabilityMetadataJson());
         CapabilitySourceStateEntity afterReplay = sources.selectOne(null);
         assertEquals(beforeReplay.getSnapshotId(), afterReplay.getSnapshotId());
@@ -590,14 +832,14 @@ class CapabilityChangePersistenceTest {
         assertEquals(beforeReplay.getAcceptedContractHash(), afterReplay.getAcceptedContractHash());
     }
 
-    @Test void unchangedAcceptedAssetTypeSyncRepairsLegacyDefaultProjection() {
+    @Test void unchangedAcceptedAssetTypeSyncRepairsCorruptedProjection() {
         sync("accepted-business-method", typedRead("/orders", "BUSINESS_METHOD"));
         assertProjectionAssetType("BUSINESS_METHOD");
         String acceptedHash = jdbc.queryForObject(
                 "SELECT accepted_contract_hash FROM capability_source_state", String.class);
         String acceptedMetadata = tool().getCapabilityMetadataJson();
 
-        sync("ignored-http-api", typedRead("/orders", "HTTP_API"));
+        sync("ignored-http-api", read("/orders-v2", null));
         Long ignoredChange = latest().getId();
         assertEquals("PENDING", latest().getReviewStatus());
         review(ignoredChange, "IGNORE");
@@ -606,9 +848,9 @@ class CapabilityChangePersistenceTest {
         assertEquals(acceptedHash, jdbc.queryForObject(
                 "SELECT accepted_contract_hash FROM capability_source_state", String.class));
 
-        jdbc.update("UPDATE capability_scan_project_tool SET asset_type = 'UNCLASSIFIED'");
-        jdbc.update("UPDATE capability_tool_definition SET asset_type = 'UNCLASSIFIED'");
-        assertProjectionAssetType("UNCLASSIFIED");
+        jdbc.update("UPDATE capability_scan_project_tool SET asset_type = 'CORRUPTED'");
+        jdbc.update("UPDATE capability_tool_definition SET asset_type = 'CORRUPTED'");
+        assertProjectionAssetType("CORRUPTED");
         assertEquals(acceptedMetadata, tool().getCapabilityMetadataJson());
         assertEquals(acceptedHash, jdbc.queryForObject(
                 "SELECT accepted_contract_hash FROM capability_source_state", String.class));
@@ -624,29 +866,17 @@ class CapabilityChangePersistenceTest {
                 "SELECT source_contract_hash FROM capability_source_state", String.class));
     }
 
-    @Test void assetTypeCandidateIgnoreApplyAndRollbackPreserveAcceptedProjection() {
+    @Test void apiDeclarationCannotChangeAnAcceptedMethodOrCreateLegacyProjection() {
         sync("business-method", typedRead("/orders", "BUSINESS_METHOD"));
+        Long assetId = methodAssetMapper.selectOne(null).getId();
+        Long revisionId = methodAssetMapper.selectOne(null).getAcceptedRevisionId();
+        Long snapshotCount = snapshots.selectCount(null);
+        assertThrows(IllegalArgumentException.class, () -> sync("wrong-channel", typedRead("/orders-v2", "HTTP_API")));
+        assertEquals(snapshotCount, snapshots.selectCount(null));
+        assertEquals(assetId, methodAssetMapper.selectOne(null).getId());
+        assertEquals(revisionId, methodAssetMapper.selectOne(null).getAcceptedRevisionId());
         assertProjectionAssetType("BUSINESS_METHOD");
-
-        sync("type-candidate", typedRead("/orders", "HTTP_API"));
-        Long ignoredChange = latest().getId();
-        assertEquals("PENDING", latest().getReviewStatus());
-        assertProjectionAssetType("BUSINESS_METHOD");
-        review(ignoredChange, "IGNORE");
-        assertEquals("IGNORED", latest().getReviewStatus());
-        assertProjectionAssetType("BUSINESS_METHOD");
-
-        sync("type-apply", typedRead("/orders-v2", "HTTP_API"));
-        Long appliedChange = latest().getId();
-        assertEquals("PENDING", latest().getReviewStatus());
-        assertProjectionAssetType("BUSINESS_METHOD");
-        review(appliedChange, "APPLY");
-        assertProjectionAssetType("HTTP_API");
-
-        tx.execute(status -> registry.rollbackDiffItem("orders", appliedChange,
-                new CapabilityReviewRequest("ROLLBACK", "tester", "restore business method type")));
-        assertProjectionAssetType("BUSINESS_METHOD");
-        assertEquals("CONTRACT_DRIFT", guard.availability(tool()));
+        assertEquals("/orders", tool().getEndpointPath());
     }
 
     @Test void invalidAssetTypeIsRejectedBeforeSnapshotOrProjectionWrite() {
@@ -694,7 +924,7 @@ class CapabilityChangePersistenceTest {
         assertEquals("SOURCE_MISSING", guard.availability(tool())); assertTrue(tool().getEnabled());
         review(latest().getId(), "APPLY"); assertFalse(tool().getEnabled());
         var write = new CapabilityRegistration("newWrite", "新增写入", "write", "POST", "http://orders.local", null,
-                "/write", null, null, "WRITE", true, List.of(), Map.of());
+                "/write", null, null, "WRITE", true, List.of(), Map.of("assetType", "BUSINESS_METHOD"));
         sync("write-proposal", write); Long proposed = latest().getId(); sync("withdrawn");
         assertEquals("SUPERSEDED", differences.selectById(proposed).getReviewStatus());
         assertThrows(IllegalArgumentException.class, () -> review(proposed, "APPLY"));
@@ -899,7 +1129,7 @@ class CapabilityChangePersistenceTest {
     }
     private CapabilityRegistration read(String path, String response) {
         return new CapabilityRegistration("read", "自动订单查询", "查询订单", "GET", "http://orders.local", null,
-                path, null, response, "READ_ONLY", true, List.of(), Map.of());
+                path, null, response, "READ_ONLY", true, List.of(), Map.of("assetType", "BUSINESS_METHOD"));
     }
     private CapabilityRegistration typedRead(String path, String assetType) {
         return new CapabilityRegistration("read", "自动订单查询", "查询订单", "GET", "http://orders.local", null,
@@ -933,6 +1163,7 @@ class CapabilityChangePersistenceTest {
                 "expectedProjectCode", current.getProjectCode(),
                 "expectedProjectId", current.getProjectId(),
                 "expectedContractHash", hash,
+                "expectedExecutionRevision", "d".repeat(64),
                 "requireSignedInvocation", true));
     }
     private void assertProjectionAssetType(String expected) {

@@ -1178,32 +1178,6 @@ public class ControlRuntimePublicController {
         return runtimeProxyClient.copyAgentConfigVersionToDraft(agentId, configVersionId);
     }
 
-    @PostMapping("/api/runtime/tools/{qualifiedName}/execute")
-    public ResponseEntity<Object> executeRuntimeTool(@PathVariable String qualifiedName,
-                                                     @RequestBody Map<String, Object> body) {
-        return runtimeProxyClient.executeRuntimeTool(qualifiedName, body);
-    }
-
-    @PostMapping("/api/runtime/compositions/{qualifiedName}/execute")
-    public ResponseEntity<Object> executeRuntimeComposition(@PathVariable String qualifiedName,
-                                                            @RequestBody Map<String, Object> body) {
-        return runtimeProxyClient.executeRuntimeComposition(qualifiedName, body);
-    }
-
-    @PostMapping("/api/runtime/interactions/{sessionId}/resume")
-    public ResponseEntity<Object> resumeRuntimeInteraction(@PathVariable String sessionId,
-                                                           @RequestBody Map<String, Object> body) {
-        // Workflow wfi_ sessions must use authenticated Embed/Agent paths, not this compatibility proxy.
-        if (sessionId != null && sessionId.trim().startsWith("wfi_")) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
-                    "success", false,
-                    "code", "RUNTIME_INTERACTION_FORBIDDEN",
-                    "answer", "Workflow interactions cannot be resumed via the public compatibility endpoint",
-                    "interactionId", sessionId.trim()));
-        }
-        return runtimeProxyClient.resumeRuntimeInteraction(sessionId, body);
-    }
-
     @PostMapping("/api/runtime/debug-sessions")
     public ResponseEntity<Object> createRuntimeDebugSession(@RequestBody Map<String, Object> body) {
         return debugSessionGateway.create(body);

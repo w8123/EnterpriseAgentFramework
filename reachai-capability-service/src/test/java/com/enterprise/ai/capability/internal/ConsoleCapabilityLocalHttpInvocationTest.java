@@ -66,12 +66,13 @@ class ConsoleCapabilityLocalHttpInvocationTest {
         tool.setParametersJson("[{\"name\":\"orderNo\",\"type\":\"string\",\"required\":true}]");
         when(tools.selectOne(any())).thenReturn(tool);
         RegistryCredentialEntity credential = new RegistryCredentialEntity();
+        credential.setId(1L); credential.setRevision(1L); credential.setProjectId(7L); credential.setProjectCode("orders"); credential.setStatus("ACTIVE");
         credential.setProjectCode("orders");
         credential.setAppKey("orders-app");
         credential.setAppSecret("local-test-secret");
         when(credentials.findPrimaryActiveCredential("orders")).thenReturn(Optional.of(credential));
         CapabilityOutboundTransportPolicy transport = mock(CapabilityOutboundTransportPolicy.class);
-        CapabilityToolExecutionService service = new CapabilityToolExecutionService(tools,
+        CapabilityToolExecutionService service = new CapabilityToolExecutionService(com.enterprise.ai.capability.internal.BusinessMethodExecutionFixtures.catalog(tools),
                 new DefaultCapabilityHttpToolInvoker(new RestTemplateBuilder(), transport, new ObjectMapper()),
                 credentials, acceptedGuard(tool));
 
@@ -86,7 +87,7 @@ class ConsoleCapabilityLocalHttpInvocationTest {
                         "expectedQualifiedName", "orders.lookup",
                         "expectedProjectCode", "orders",
                         "expectedProjectId", 7L,
-                        "expectedContractHash", "a".repeat(64),
+                        "expectedContractHash", "a".repeat(64), "expectedExecutionRevision", BusinessMethodExecutionFixtures.executionRevision(tool),
                         "requireSignedInvocation", true)));
 
         assertEquals(1, requests.get());
@@ -119,9 +120,10 @@ class ConsoleCapabilityLocalHttpInvocationTest {
         tool.setCapabilityMetadataJson("{\"requiredRoles\":[\"order-reader\"]}");
         when(tools.selectOne(any())).thenReturn(tool);
         RegistryCredentialEntity credential = new RegistryCredentialEntity();
+        credential.setId(1L); credential.setRevision(1L); credential.setProjectId(7L); credential.setProjectCode("orders"); credential.setStatus("ACTIVE");
         credential.setAppKey("orders-app"); credential.setAppSecret("local-test-secret");
         when(credentials.findPrimaryActiveCredential("orders")).thenReturn(Optional.of(credential));
-        CapabilityToolExecutionService service = new CapabilityToolExecutionService(tools,
+        CapabilityToolExecutionService service = new CapabilityToolExecutionService(com.enterprise.ai.capability.internal.BusinessMethodExecutionFixtures.catalog(tools),
                 new DefaultCapabilityHttpToolInvoker(new RestTemplateBuilder(),
                         mock(CapabilityOutboundTransportPolicy.class), new ObjectMapper()),
                 credentials, acceptedGuard(tool));
@@ -130,7 +132,7 @@ class ConsoleCapabilityLocalHttpInvocationTest {
                 () -> service.execute("orders.lookup", Map.of("input", Map.of("orderNo", "O-43"), "context", Map.of(),
                         "constraints", Map.of("consoleCapabilityInvocation", true,
                                 "expectedQualifiedName", "orders.lookup", "expectedProjectCode", "orders",
-                                "expectedProjectId", 7L, "expectedContractHash", "a".repeat(64),
+                                "expectedProjectId", 7L, "expectedContractHash", "a".repeat(64), "expectedExecutionRevision", BusinessMethodExecutionFixtures.executionRevision(tool),
                                 "requireSignedInvocation", true))));
         assertEquals("CAPABILITY_BUSINESS_IDENTITY_REQUIRED", rejected.code());
         assertEquals(0, requests.get());
@@ -152,9 +154,10 @@ class ConsoleCapabilityLocalHttpInvocationTest {
         tool.setParametersJson("[{\"name\":\"orderNo\",\"type\":\"string\",\"required\":true}]");
         when(tools.selectOne(any())).thenReturn(tool);
         RegistryCredentialEntity credential = new RegistryCredentialEntity();
+        credential.setId(1L); credential.setRevision(1L); credential.setProjectId(7L); credential.setProjectCode("orders"); credential.setStatus("ACTIVE");
         credential.setAppKey("orders-app"); credential.setAppSecret("local-test-secret");
         when(credentials.findPrimaryActiveCredential("orders")).thenReturn(Optional.of(credential));
-        CapabilityToolExecutionService service = new CapabilityToolExecutionService(tools,
+        CapabilityToolExecutionService service = new CapabilityToolExecutionService(com.enterprise.ai.capability.internal.BusinessMethodExecutionFixtures.catalog(tools),
                 new DefaultCapabilityHttpToolInvoker(new RestTemplateBuilder(),
                         mock(CapabilityOutboundTransportPolicy.class), new ObjectMapper()),
                 credentials, acceptedGuard(tool));
@@ -163,7 +166,7 @@ class ConsoleCapabilityLocalHttpInvocationTest {
                 () -> service.execute("orders.lookup", Map.of("input", Map.of(), "context", Map.of(),
                         "constraints", Map.of("consoleCapabilityInvocation", true,
                                 "expectedQualifiedName", "orders.lookup", "expectedProjectCode", "orders",
-                                "expectedProjectId", 7L, "expectedContractHash", "a".repeat(64),
+                                "expectedProjectId", 7L, "expectedContractHash", "a".repeat(64), "expectedExecutionRevision", BusinessMethodExecutionFixtures.executionRevision(tool),
                                 "requireSignedInvocation", true))));
 
         assertEquals("CAPABILITY_INPUT_INVALID", rejected.code());
@@ -194,14 +197,15 @@ class ConsoleCapabilityLocalHttpInvocationTest {
                 + "{\"name\":\"items\",\"type\":\"array\",\"required\":true,\"children\":[{\"name\":\"sku\",\"type\":\"string\",\"required\":true}]}] ");
         when(tools.selectOne(any())).thenReturn(tool);
         RegistryCredentialEntity credential = new RegistryCredentialEntity();
+        credential.setId(1L); credential.setRevision(1L); credential.setProjectId(7L); credential.setProjectCode("orders"); credential.setStatus("ACTIVE");
         credential.setAppKey("orders-app"); credential.setAppSecret("local-test-secret");
         when(credentials.findPrimaryActiveCredential("orders")).thenReturn(Optional.of(credential));
-        CapabilityToolExecutionService service = new CapabilityToolExecutionService(tools,
+        CapabilityToolExecutionService service = new CapabilityToolExecutionService(com.enterprise.ai.capability.internal.BusinessMethodExecutionFixtures.catalog(tools),
                 new DefaultCapabilityHttpToolInvoker(new RestTemplateBuilder(),
                         mock(CapabilityOutboundTransportPolicy.class), new ObjectMapper()),
                 credentials, acceptedGuard(tool));
 
-        service.execute("orders.lookup", consoleRequest(Map.of("orderNo", "O-1",
+        service.execute("orders.lookup", consoleRequest(tool, Map.of("orderNo", "O-1",
                 "request", Map.of("quantity", 2), "items", java.util.List.of(Map.of("sku", "SKU-1")))));
 
         assertEquals(1, requests.get());
@@ -225,16 +229,17 @@ class ConsoleCapabilityLocalHttpInvocationTest {
                 + "\"metadata\":{\"enum\":[2,3],\"minimum\":2,\"maximum\":3}}]");
         when(tools.selectOne(any())).thenReturn(tool);
         RegistryCredentialEntity credential = new RegistryCredentialEntity();
+        credential.setId(1L); credential.setRevision(1L); credential.setProjectId(7L); credential.setProjectCode("orders"); credential.setStatus("ACTIVE");
         credential.setAppKey("orders-app"); credential.setAppSecret("local-test-secret");
         when(credentials.findPrimaryActiveCredential("orders")).thenReturn(Optional.of(credential));
-        CapabilityToolExecutionService service = new CapabilityToolExecutionService(tools,
+        CapabilityToolExecutionService service = new CapabilityToolExecutionService(com.enterprise.ai.capability.internal.BusinessMethodExecutionFixtures.catalog(tools),
                 new DefaultCapabilityHttpToolInvoker(new RestTemplateBuilder(),
                         mock(CapabilityOutboundTransportPolicy.class), new ObjectMapper()),
                 credentials, acceptedGuard(tool));
 
         for (Object invalid : java.util.List.of("two", 1, 4)) {
             CapabilityInvocationPolicyException rejected = assertThrows(CapabilityInvocationPolicyException.class,
-                    () -> service.execute("orders.lookup", consoleRequest(Map.of("quantity", invalid))));
+                    () -> service.execute("orders.lookup", consoleRequest(tool, Map.of("quantity", invalid))));
             assertEquals("CAPABILITY_INPUT_INVALID", rejected.code());
         }
         assertEquals(0, requests.get());
@@ -262,14 +267,15 @@ class ConsoleCapabilityLocalHttpInvocationTest {
         tool.setParametersJson("[{\"name\":\"orderNo\",\"type\":\"string\",\"required\":true}]");
         when(tools.selectOne(any())).thenReturn(tool);
         RegistryCredentialEntity credential = new RegistryCredentialEntity();
+        credential.setId(1L); credential.setRevision(1L); credential.setProjectId(7L); credential.setProjectCode("orders"); credential.setStatus("ACTIVE");
         credential.setAppKey("orders-app"); credential.setAppSecret("local-test-secret");
         when(credentials.findPrimaryActiveCredential("orders")).thenReturn(Optional.of(credential));
-        CapabilityToolExecutionService service = new CapabilityToolExecutionService(tools,
+        CapabilityToolExecutionService service = new CapabilityToolExecutionService(com.enterprise.ai.capability.internal.BusinessMethodExecutionFixtures.catalog(tools),
                 new DefaultCapabilityHttpToolInvoker(new RestTemplateBuilder(),
                         mock(CapabilityOutboundTransportPolicy.class), new ObjectMapper()),
                 credentials, acceptedGuard(tool));
 
-        Map<String, Object> result = service.execute("orders.lookup", consoleRequest(Map.of("orderNo", "O-closed")));
+        Map<String, Object> result = service.execute("orders.lookup", consoleRequest(tool, Map.of("orderNo", "O-closed")));
 
         assertEquals(1, requests.get());
         assertEquals(false, result.get("success"));
@@ -303,13 +309,14 @@ class ConsoleCapabilityLocalHttpInvocationTest {
         tool.setParametersJson("[{\"name\":\"orderNo\",\"type\":\"string\",\"required\":true}]");
         when(tools.selectOne(any())).thenReturn(tool);
         RegistryCredentialEntity credential = new RegistryCredentialEntity();
+        credential.setId(1L); credential.setRevision(1L); credential.setProjectId(7L); credential.setProjectCode("orders"); credential.setStatus("ACTIVE");
         credential.setAppKey("orders-app"); credential.setAppSecret("local-test-secret");
         when(credentials.findPrimaryActiveCredential("orders")).thenReturn(Optional.of(credential));
-        CapabilityToolExecutionService service = new CapabilityToolExecutionService(tools,
+        CapabilityToolExecutionService service = new CapabilityToolExecutionService(com.enterprise.ai.capability.internal.BusinessMethodExecutionFixtures.catalog(tools),
                 new DefaultCapabilityHttpToolInvoker(new RestTemplateBuilder(),
                         mock(CapabilityOutboundTransportPolicy.class), new ObjectMapper()),
                 credentials, acceptedGuard(tool));
-        Map<String, Object> request = new LinkedHashMap<>(consoleRequest(Map.of("orderNo", "O-timeout")));
+        Map<String, Object> request = new LinkedHashMap<>(consoleRequest(tool, Map.of("orderNo", "O-timeout")));
         request.put("deadlineEpochMs", System.currentTimeMillis() + 350L);
 
         assertThrows(org.springframework.web.client.ResourceAccessException.class,
@@ -330,6 +337,7 @@ class ConsoleCapabilityLocalHttpInvocationTest {
             tool.setParametersJson("[{\"name\":\"orderNo\",\"type\":\"string\",\"required\":true}]");
             when(tools.selectOne(any())).thenReturn(tool);
             RegistryCredentialEntity credential = new RegistryCredentialEntity();
+        credential.setId(1L); credential.setRevision(1L); credential.setProjectId(7L); credential.setProjectCode("orders"); credential.setStatus("ACTIVE");
             credential.setProjectCode("orders"); credential.setAppKey("orders-app"); credential.setAppSecret("local-test-secret");
             when(credentials.findPrimaryActiveCredential("orders")).thenReturn(
                     "credential".equals(mutation) ? Optional.empty() : Optional.of(credential));
@@ -340,8 +348,8 @@ class ConsoleCapabilityLocalHttpInvocationTest {
             if ("user".equals(mutation)) context.put("externalUserId", "platform:42");
             Map<String, Object> constraints = new LinkedHashMap<>(Map.of("studioReadOnlyTrial", true,
                     "expectedQualifiedName", "orders.lookup", "expectedProjectCode", "orders", "expectedProjectId", 7L,
-                    "expectedContractHash", "hash".equals(mutation) ? "b".repeat(64) : "a".repeat(64), "requireSignedInvocation", true));
-            var service = new CapabilityToolExecutionService(tools, new DefaultCapabilityHttpToolInvoker(new RestTemplateBuilder(),
+                    "expectedContractHash", "hash".equals(mutation) ? "b".repeat(64) : "a".repeat(64), "expectedExecutionRevision", BusinessMethodExecutionFixtures.executionRevision(tool), "requireSignedInvocation", true));
+            var service = new CapabilityToolExecutionService(com.enterprise.ai.capability.internal.BusinessMethodExecutionFixtures.catalog(tools), new DefaultCapabilityHttpToolInvoker(new RestTemplateBuilder(),
                     mock(CapabilityOutboundTransportPolicy.class), new ObjectMapper()), credentials, acceptedGuard(tool));
             assertThrows(RuntimeException.class, () -> service.execute("orders.lookup", Map.of("input",
                     "missing".equals(mutation) ? Map.of() : Map.of("orderNo", "O-42"), "context", context, "constraints", constraints)), mutation);
@@ -361,11 +369,11 @@ class ConsoleCapabilityLocalHttpInvocationTest {
         return tool;
     }
 
-    private Map<String, Object> consoleRequest(Map<String, Object> input) {
+    private Map<String, Object> consoleRequest(ToolDefinitionEntity tool, Map<String, Object> input) {
         return Map.of("input", input, "context", Map.of(), "constraints", Map.of(
                 "consoleCapabilityInvocation", true, "expectedQualifiedName", "orders.lookup",
                 "expectedProjectCode", "orders", "expectedProjectId", 7L,
-                "expectedContractHash", "a".repeat(64), "requireSignedInvocation", true));
+                "expectedContractHash", "a".repeat(64), "expectedExecutionRevision", BusinessMethodExecutionFixtures.executionRevision(tool), "requireSignedInvocation", true));
     }
 
     private CapabilitySourceContractGuard acceptedGuard(ToolDefinitionEntity tool) {
@@ -376,7 +384,7 @@ class ConsoleCapabilityLocalHttpInvocationTest {
         state.setAcceptedContractHash("a".repeat(64));
         state.setAvailability("READY");
         when(lifecycle.sourceState("orders.lookup")).thenReturn(state);
-        when(policy.contractHash(tool)).thenReturn("a".repeat(64));
+        when(policy.contractHash(any(ToolDefinitionEntity.class))).thenReturn("a".repeat(64));
         return new CapabilitySourceContractGuard(lifecycle, policy);
     }
 

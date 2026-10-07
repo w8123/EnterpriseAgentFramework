@@ -18,6 +18,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
         "com.enterprise.ai.agent.capability",
         "com.enterprise.ai.capability.registry",
         "com.enterprise.ai.capability.catalog.retrieval",
+        "com.enterprise.ai.capability.catalog.businessmethod",
         "com.enterprise.ai.capability.catalog.httpapi",
         "com.enterprise.ai.capability.externalapi"
 }, annotationClass = Mapper.class)

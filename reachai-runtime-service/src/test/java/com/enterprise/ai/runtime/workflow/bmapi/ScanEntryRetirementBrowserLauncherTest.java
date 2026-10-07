@@ -2,6 +2,7 @@ package com.enterprise.ai.runtime.workflow.bmapi;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -10,6 +11,7 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.*;
 
 /** Opt-in, disposable H2 + signed production boundary + real business HTTP browser gate. */
+@EnabledIfSystemProperty(named = "bmapi.retirementBrowser.directory", matches = ".+")
 class ScanEntryRetirementBrowserLauncherTest {
     @Test
     void waitsForNormalOwnerDirectoriesSavedTrialAndExplicitPublication() throws Exception {

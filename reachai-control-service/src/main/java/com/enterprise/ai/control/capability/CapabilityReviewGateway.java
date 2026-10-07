@@ -79,6 +79,12 @@ public class CapabilityReviewGateway {
         return exchange("GET", BUSINESS_METHOD_CATALOG_PATH + "/" + segment(name), null, actorId);
     }
 
+    public ResponseEntity<Object> getBusinessMethodSummary(Long projectId, String actorId) {
+        StringJoiner query = new StringJoiner("&");
+        if (projectId != null) query.add("projectId=" + positiveId(projectId, "projectId"));
+        return exchange("GET", BUSINESS_METHOD_CATALOG_PATH + "/summary", null, actorId, query.toString());
+    }
+
     /** Owner-provided execution snapshot; this never returns a target URL or project credential. */
     public ResponseEntity<Object> getBusinessMethodInvocationContext(String name, String actorId) {
         return exchange("GET", BUSINESS_METHOD_CATALOG_PATH + "/" + segment(name) + "/invocation-context",

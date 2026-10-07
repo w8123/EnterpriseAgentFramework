@@ -53,12 +53,10 @@ class RuntimeCapabilityCatalogClientContractTest {
         assertArrayEquals(new String[] {"application/json"}, invocationMapping.consumes());
         assertEquals(CapabilityInvocationResponse.class, invokeCapability.getReturnType());
 
-        Method getCompositionDefinition = RuntimeCapabilityCatalogFeignClient.class
-                .getMethod("getCompositionDefinition", String.class);
-        GetMapping compositionMapping = getCompositionDefinition.getAnnotation(GetMapping.class);
-        assertArrayEquals(new String[] {"/internal/capability/compositions/{qualifiedName}"},
-                compositionMapping.value());
-        assertEquals(Map.class, getCompositionDefinition.getReturnType());
+        org.junit.jupiter.api.Assertions.assertThrows(NoSuchMethodException.class,
+                () -> RuntimeCapabilityCatalogFeignClient.class.getMethod("getCompositionDefinition", String.class));
+        org.junit.jupiter.api.Assertions.assertThrows(NoSuchMethodException.class,
+                () -> RuntimeCapabilityCatalogClient.class.getMethod("getCompositionDefinition", String.class));
 
         Method getProject = RuntimeCapabilityCatalogFeignClient.class.getMethod("getProject", String.class);
         GetMapping projectMapping = getProject.getAnnotation(GetMapping.class);

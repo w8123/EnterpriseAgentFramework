@@ -1,7 +1,5 @@
 package com.enterprise.ai.capability.catalog.scan;
 
-import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectEntity;
-import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectToolEntity;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -13,47 +11,62 @@ import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-/** Legacy requests may inspect their scoped source row, but must never dispatch or mutate it. */
+/** Source observations remain readable; independent maintenance and execution have no route. */
 class CapabilityScanEntryRetirementTest {
-    @Test void manualProjectionAndDirectTestRoutesAreGoneWithOwnerDirections() throws Exception {
+    @Test void manualProjectionAndDirectTestRoutesHaveNoHandlerOrOwnerLookup() throws Exception {
         var service = mock(CapabilityScanProjectCatalogService.class);
-        var project = new ScanProjectEntity(); project.setId(7L); project.setProjectCode("orders");
-        var row = new ScanProjectToolEntity(); row.setId(11L); row.setProjectId(7L);
-        when(service.get(7L)).thenReturn(project);
-        when(service.getTool(7L, 11L)).thenReturn(row);
         var mvc = MockMvcBuilders.standaloneSetup(new CapabilityScanProjectCatalogController(service))
                 .setMessageConverters(new MappingJackson2HttpMessageConverter()).build();
         for (String action : List.of("promote-to-tool", "push-to-global-tool", "unpromote-from-global", "test")) {
             mvc.perform(post("/api/scan-projects/7/scan-tools/11/" + action))
-                    .andExpect(status().isGone()).andExpect(jsonPath("code").value("SCAN_EXECUTION_ENTRY_RETIRED"))
-                    .andExpect(jsonPath("projectCode").value("orders"))
-                    .andExpect(jsonPath("apiDirectory").value("/apis"))
-                    .andExpect(jsonPath("businessMethodDirectory").value("/business-methods"));
+                    .andExpect(status().isNotFound()).andExpect(content().string(""));
         }
         mvc.perform(post("/api/scan-projects/7/scan-tools/promote-by-module"))
-                .andExpect(status().isGone());
+                .andExpect(status().isMethodNotAllowed()).andExpect(content().string(""));
         for (String suffix : List.of("", "/toggle")) {
-            mvc.perform(put("/api/scan-projects/7/scan-tools/11" + suffix).contentType("application/json").content("{}"))
-                    .andExpect(status().isGone());
+            var response = mvc.perform(put("/api/scan-projects/7/scan-tools/11" + suffix)
+                    .contentType("application/json").content("{}"))
+                    .andExpect(content().string("")).andReturn().getResponse();
+            assertEquals(suffix.isEmpty() ? 405 : 404, response.getStatus());
         }
-        // Only the owner lookup methods above are authorized dependencies of retirement.
-        assertEquals(13, mockingDetails(service).getInvocations().size());
-        verify(service, times(7)).get(7L);
-        verify(service, times(6)).getTool(7L, 11L);
-        verifyNoMoreInteractions(service);
+        verifyNoInteractions(service);
     }
 
-    @Test void missingAndCrossProjectRowsDoNotRevealReplacementContext() throws Exception {
+    @Test void missingAndCrossProjectSourceReadsRemainScoped() throws Exception {
         var service = mock(CapabilityScanProjectCatalogService.class);
-        var project = new ScanProjectEntity(); project.setId(7L); project.setProjectCode("orders");
-        when(service.get(7L)).thenReturn(project);
         when(service.getTool(7L, 99L)).thenThrow(new IllegalArgumentException("Scan project tool does not exist"));
-        when(service.get(99L)).thenThrow(new IllegalArgumentException("Scan project does not exist"));
+        when(service.getTool(99L, 11L)).thenThrow(new IllegalArgumentException("Scan project tool does not exist"));
         var mvc = MockMvcBuilders.standaloneSetup(new CapabilityScanProjectCatalogController(service))
                 .setMessageConverters(new MappingJackson2HttpMessageConverter()).build();
-        mvc.perform(post("/api/scan-projects/7/scan-tools/99/promote-to-tool"))
+        mvc.perform(get("/api/scan-projects/7/scan-tools/99"))
                 .andExpect(status().isNotFound()).andExpect(content().string(""));
-        mvc.perform(post("/api/scan-projects/99/scan-tools/promote-by-module"))
+        mvc.perform(get("/api/scan-projects/99/scan-tools/11"))
                 .andExpect(status().isNotFound()).andExpect(content().string(""));
+    }
+
+    @Test void projectOperationIsExplicitAndDeletionReturnsTypedOwnerEvidence() throws Exception {
+        var service = mock(CapabilityScanProjectCatalogService.class);
+        var blockers = new com.enterprise.ai.agent.capability.catalog.scan.ScanProjectBlockers(true, List.of(), List.of(),
+                List.of(new com.enterprise.ai.agent.capability.catalog.scan.ScanProjectBlockers.AssetRef(
+                        "BUSINESS_METHOD", 21L, "orders:read", "查询订单")));
+        when(service.operationBlockers(7L, com.enterprise.ai.agent.capability.catalog.scan.ScanProjectBlockers.Operation.DELETE))
+                .thenReturn(blockers);
+        when(service.operationBlockers(7L, com.enterprise.ai.agent.capability.catalog.scan.ScanProjectBlockers.Operation.RESCAN))
+                .thenReturn(com.enterprise.ai.agent.capability.catalog.scan.ScanProjectBlockers.empty());
+        var mvc = MockMvcBuilders.standaloneSetup(new CapabilityScanProjectCatalogController(service))
+                .setMessageConverters(new MappingJackson2HttpMessageConverter()).build();
+        mvc.perform(get("/api/scan-projects/7/operation-blockers"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(get("/api/scan-projects/7/operation-blockers").param("operation", "CREATE"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(get("/api/scan-projects/7/operation-blockers").param("operation", "DELETE"))
+                .andExpect(status().isOk()).andExpect(jsonPath("blocked").value(true))
+                .andExpect(jsonPath("assets[0].assetType").value("BUSINESS_METHOD"))
+                .andExpect(jsonPath("assets[0].assetId").value(21))
+                .andExpect(jsonPath("assets[0].qualifiedName").value("orders:read"))
+                .andExpect(jsonPath("tools").isArray()).andExpect(jsonPath("agents").isArray());
+        mvc.perform(get("/api/scan-projects/7/operation-blockers").param("operation", "RESCAN"))
+                .andExpect(status().isOk()).andExpect(jsonPath("blocked").value(false));
+        assertEquals(2, mockingDetails(service).getInvocations().size(), "invalid operations must not reach the service");
     }
 }

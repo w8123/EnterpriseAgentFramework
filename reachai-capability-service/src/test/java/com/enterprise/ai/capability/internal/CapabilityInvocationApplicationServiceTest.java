@@ -93,20 +93,17 @@ class CapabilityInvocationApplicationServiceTest {
     }
 
     @Test
-    void builtInEchoUsesKernelAssetWithoutExternalHttp() {
+    void retiredIndependentAssetCannotDispatchAnInvocation() {
         CapabilityInvocationAssetResolver resolver = mock(CapabilityInvocationAssetResolver.class);
-        CapabilityInvocationAsset asset = new CapabilityInvocationAsset(
-                CapabilityInvocationAsset.Source.KERNEL_ASSET,
-                "orders:queryOrder", "echo", "Echo", "orders", "ECHO", "READ", true);
-        when(resolver.require("orders:queryOrder")).thenReturn(asset);
-        CapabilityInvocationApplicationService service = service(
-                resolver, new BuiltinEchoCapabilityInvoker());
+        when(resolver.require("orders:queryOrder")).thenThrow(new CapabilityInvocationPolicyException(
+                "CAPABILITY_TOOL_NOT_FOUND", CapabilityInvocationFailureCategory.NOT_FOUND, "Business method not found"));
+        CapabilityInvocationApplicationService service = service(resolver);
 
         CapabilityInvocationResponse response = service.invoke(request("inv-echo", null));
 
-        assertEquals(CapabilityInvocationStatus.SUCCEEDED, response.status());
-        assertEquals(Map.of("orderNo", "A001"), response.data());
-        assertEquals(Map.of("transport", "BUILTIN"), response.safeMetadata());
+        assertEquals(CapabilityInvocationStatus.REJECTED, response.status());
+        assertEquals(CapabilityInvocationFailureCategory.NOT_FOUND, response.failureCategory());
+        assertNull(response.data());
     }
 
     @Test
@@ -138,7 +135,7 @@ class CapabilityInvocationApplicationServiceTest {
 
     private CapabilityInvocationAsset asset(String executorType, boolean enabled) {
         return new CapabilityInvocationAsset(
-                CapabilityInvocationAsset.Source.TOOL_CATALOG,
+                CapabilityInvocationAsset.Source.BUSINESS_METHOD,
                 "orders:queryOrder", "queryOrder", "Query order", "orders",
                 executorType, "READ_ONLY", enabled);
     }

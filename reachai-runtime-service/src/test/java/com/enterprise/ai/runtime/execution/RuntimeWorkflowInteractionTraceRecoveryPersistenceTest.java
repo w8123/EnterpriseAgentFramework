@@ -143,7 +143,7 @@ class RuntimeWorkflowInteractionTraceRecoveryPersistenceTest {
 
     private RuntimeWorkflowInteractionSessionService.CreateRequest request(String id, String node) {
         return new RuntimeWorkflowInteractionSessionService.CreateRequest(id, "WORKFLOW", "run-a", "trace-a",
-                "wf-a", 23L, null, GRAPH, node, "COLLECT_INPUT", Map.of(),
+                "wf-a", 23L, GRAPH, node, "COLLECT_INPUT", Map.of(),
                 Map.of("interactionId", id, "component", "form"), Map.of(), "orders", "tenant-a", "chat-a", "user-a", 120);
     }
 

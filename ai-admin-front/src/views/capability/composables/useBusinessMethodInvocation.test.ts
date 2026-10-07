@@ -19,7 +19,7 @@ const invocationId = '123e4567-e89b-42d3-a456-426614174000'
 function context(projectCode = 'orders') {
   return {
     contractVersion: 1, name: 'orders.lookup', assetType: 'BUSINESS_METHOD', projectId: 8, projectCode,
-    qualifiedName: 'orders.lookup', currentContractHash: hash, acceptedContractHash: hash, sourceContractHash: hash,
+    qualifiedName: 'orders.lookup', currentContractHash: hash, executionRevision: 'd'.repeat(64), acceptedContractHash: hash, sourceContractHash: hash,
     sourceAvailability: 'READY', enabled: true, credentialAvailable: true, businessIdentityRequired: false,
     executable: true, parameters: [], sideEffect: 'READ',
   }

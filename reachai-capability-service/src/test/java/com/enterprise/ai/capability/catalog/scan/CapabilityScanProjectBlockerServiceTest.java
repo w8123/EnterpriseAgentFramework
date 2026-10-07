@@ -21,7 +21,9 @@ class CapabilityScanProjectBlockerServiceTest {
         ToolDefinitionMapper toolDefinitionMapper = mock(ToolDefinitionMapper.class);
         ScanProjectAgentReferenceReader referenceReader = mock(ScanProjectAgentReferenceReader.class);
         CapabilityScanProjectBlockerService service =
-                new CapabilityScanProjectBlockerService(toolDefinitionMapper, referenceReader);
+                new CapabilityScanProjectBlockerService(toolDefinitionMapper, referenceReader,
+                        mock(com.enterprise.ai.capability.catalog.businessmethod.BusinessMethodAssetMapper.class),
+                        mock(com.enterprise.ai.capability.catalog.httpapi.HttpApiAssetMapper.class));
         when(toolDefinitionMapper.selectList(any())).thenReturn(List.of(
                 tool("orders_create"),
                 tool("orders_query")

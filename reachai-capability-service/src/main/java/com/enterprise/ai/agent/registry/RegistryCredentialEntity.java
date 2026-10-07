@@ -25,6 +25,9 @@ public class RegistryCredentialEntity {
 
     private String status;
 
+    /** Changes only when credential material or effective policy changes. */
+    private Long revision;
+
     private LocalDateTime expiresAt;
 
     private String allowedOriginsJson;

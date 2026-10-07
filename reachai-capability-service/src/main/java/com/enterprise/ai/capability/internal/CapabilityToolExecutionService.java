@@ -1,8 +1,10 @@
 package com.enterprise.ai.capability.internal;
 
-import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionEntity;
-import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionMapper;
+import com.enterprise.ai.capability.catalog.businessmethod.BusinessMethodCatalogService;
+import com.enterprise.ai.capability.catalog.businessmethod.BusinessMethodInvocationProjection;
+import com.enterprise.ai.capability.catalog.businessmethod.BusinessMethodDefinition;
+import com.enterprise.ai.capability.catalog.businessmethod.BusinessMethodExecutionRevision;
 import com.enterprise.ai.agent.registry.RegistryCredentialEntity;
 import com.enterprise.ai.agent.registry.RegistrySecurityService;
 import com.enterprise.ai.capability.catalog.businessmethod.ConsoleBusinessMethodDeclaration;
@@ -32,31 +34,40 @@ public class CapabilityToolExecutionService {
     private static final String CONSOLE_INVOCATION_FIELD = "consoleCapabilityInvocation";
     private static final ObjectMapper METADATA_MAPPER = new ObjectMapper();
 
-    private final ToolDefinitionMapper toolDefinitionMapper;
+    private final BusinessMethodCatalogService businessMethods;
     private final CapabilityHttpToolInvoker invoker;
     private final RegistrySecurityService registrySecurityService;
     private final CapabilitySourceContractGuard sourceContractGuard;
 
     @Autowired
-    public CapabilityToolExecutionService(ToolDefinitionMapper toolDefinitionMapper,
+    public CapabilityToolExecutionService(BusinessMethodCatalogService businessMethods,
                                           CapabilityHttpToolInvoker invoker,
                                           RegistrySecurityService registrySecurityService,
                                           CapabilitySourceContractGuard sourceContractGuard) {
-        this.toolDefinitionMapper = toolDefinitionMapper;
+        this.businessMethods = businessMethods;
         this.invoker = invoker;
         this.registrySecurityService = registrySecurityService;
         this.sourceContractGuard = sourceContractGuard;
     }
 
     public Map<String, Object> execute(String qualifiedName, Map<String, Object> request) {
-        ToolDefinitionEntity tool = findTool(qualifiedName);
+        var definition = businessMethods.find(qualifiedName == null ? "" : qualifiedName.trim())
+                .orElseThrow(() -> new IllegalArgumentException("Business method not found: " + qualifiedName));
+        ToolDefinitionEntity tool = BusinessMethodInvocationProjection.from(definition);
         if (!Boolean.TRUE.equals(tool.getEnabled())) {
             throw new IllegalStateException("Tool definition is disabled: " + qualifiedName);
         }
         validateEvaluationPolicy(tool, request);
         validateExecutionConstraints(tool, request);
         Map<String, Object> constraints = mapValue(request == null ? null : request.get("constraints"));
+        if (constraints != null && (Boolean.TRUE.equals(constraints.get(CONSOLE_INVOCATION_FIELD))
+                || Boolean.TRUE.equals(constraints.get(WorkflowReadOnlyTrialPolicy.STUDIO_CONSTRAINT))
+                || constraints.containsKey("expectedAssetId"))
+                && !(constraints.get("expectedExecutionRevision") instanceof String revision && revision.matches("[0-9a-f]{64}"))) {
+            throw bindingChanged();
+        }
         sourceContractGuard.validate(tool, constraints);
+        validateAssetReference(definition, constraints);
         validateStudioInvocation(tool, request, constraints);
         validateConsoleInvocation(tool, request, constraints);
         Map<String, Object> input = mapValue(request == null ? null : request.get("input"));
@@ -70,7 +81,7 @@ public class CapabilityToolExecutionService {
         if ("GET".equals(method) && !input.isEmpty()) {
             url = appendQuery(url, input);
         }
-        Map<String, Object> invocationMetadata = invocationMetadata(tool, request);
+        Map<String, Object> invocationMetadata = invocationMetadata(definition, tool, request);
         validateInvocationConstraints(request, invocationMetadata);
         CapabilityHttpToolInvocation invocation = new CapabilityHttpToolInvocation(
                 method,
@@ -117,6 +128,36 @@ public class CapabilityToolExecutionService {
             throw new IllegalStateException(
                     "EVAL_SIDE_EFFECT_BLOCKED: Capability must explicitly declare sideEffect=READ_ONLY");
         }
+    }
+
+    private void validateAssetReference(BusinessMethodDefinition definition, Map<String, Object> constraints) {
+        if (constraints == null) return;
+        Map<String, Object> facts = Map.of("expectedAssetId", definition.asset().getId(),
+                "expectedAcceptedRevisionId", definition.revision().getId(),
+                "expectedBusinessContractHash", definition.revision().getContractHash(),
+                "expectedBindingHash", definition.revision().getBindingHash());
+        for (var fact : facts.entrySet()) {
+            Object supplied = constraints.get(fact.getKey());
+            if (fact.getValue() instanceof Long && supplied instanceof Number) {
+                try { supplied = Long.parseLong(supplied.toString()); }
+                catch (NumberFormatException invalid) { throw assetChanged(); }
+            }
+            if (constraints.containsKey(fact.getKey()) && !Objects.equals(fact.getValue(), supplied)) {
+                throw assetChanged();
+            }
+        }
+    }
+
+    private CapabilityInvocationPolicyException bindingChanged() {
+        return new CapabilityInvocationPolicyException("BUSINESS_METHOD_EXECUTION_BINDING_CHANGED",
+                com.enterprise.ai.common.capability.CapabilityInvocationFailureCategory.POLICY_REJECTED,
+                "业务方法的连接或凭据修订已变化，请重新核对并验证");
+    }
+
+    private CapabilityInvocationPolicyException assetChanged() {
+        return new CapabilityInvocationPolicyException("BUSINESS_METHOD_PUBLISHED_ASSET_CHANGED",
+                com.enterprise.ai.common.capability.CapabilityInvocationFailureCategory.POLICY_REJECTED,
+                "业务方法接纳修订已变化，请重新校验并发布 Workflow");
     }
 
     private void validateExecutionConstraints(ToolDefinitionEntity tool,
@@ -262,25 +303,6 @@ public class CapabilityToolExecutionService {
         });
     }
 
-    private ToolDefinitionEntity findTool(String qualifiedName) {
-        if (!StringUtils.hasText(qualifiedName)) {
-            throw new IllegalArgumentException("Tool definition not found: " + qualifiedName);
-        }
-        String key = qualifiedName.trim();
-        ToolDefinitionEntity entity = toolDefinitionMapper.selectOne(Wrappers.<ToolDefinitionEntity>lambdaQuery()
-                .eq(ToolDefinitionEntity::getQualifiedName, key)
-                .last("limit 1"));
-        if (entity == null) {
-            entity = toolDefinitionMapper.selectOne(Wrappers.<ToolDefinitionEntity>lambdaQuery()
-                    .eq(ToolDefinitionEntity::getName, key)
-                    .last("limit 1"));
-        }
-        if (entity == null) {
-            throw new IllegalArgumentException("Tool definition not found: " + key);
-        }
-        return entity;
-    }
-
     private String buildUrl(ToolDefinitionEntity tool) {
         StringBuilder url = new StringBuilder();
         appendUrlPart(url, tool.getBaseUrl());
@@ -289,7 +311,7 @@ public class CapabilityToolExecutionService {
         return url.toString();
     }
 
-    private Map<String, Object> invocationMetadata(ToolDefinitionEntity tool,
+    private Map<String, Object> invocationMetadata(BusinessMethodDefinition definition, ToolDefinitionEntity tool,
                                                    Map<String, Object> request) {
         Map<String, Object> metadata = new LinkedHashMap<>();
         metadata.put("qualifiedName", tool.getQualifiedName());
@@ -312,6 +334,12 @@ public class CapabilityToolExecutionService {
                 .orElse(null);
         if (credential == null || !StringUtils.hasText(credential.getAppSecret())) {
             return metadata;
+        }
+        Map<String, Object> constraints = mapValue(request == null ? null : request.get("constraints"));
+        if (constraints != null && constraints.containsKey("expectedExecutionRevision")
+                && (constraints.get("expectedExecutionRevision") == null
+                || !Objects.equals(constraints.get("expectedExecutionRevision"), BusinessMethodExecutionRevision.of(definition, credential)))) {
+            throw bindingChanged();
         }
         Map<String, Object> context = mapValue(request == null ? null : request.get("context"));
         context = context == null ? Map.of() : context;

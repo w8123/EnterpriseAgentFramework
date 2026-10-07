@@ -77,13 +77,13 @@ describe('business method trial invocation contract helpers', () => {
   it('requires the accepted source hash before enabling an invocation', () => {
     expect(contextIsExecutable({
       contractVersion: 1, name: 'orders.lookup', assetType: 'BUSINESS_METHOD', projectId: 8, projectCode: 'orders',
-      qualifiedName: 'orders.lookup', currentContractHash: hash, acceptedContractHash: hash, sourceContractHash: hash,
+      qualifiedName: 'orders.lookup', currentContractHash: hash, executionRevision: 'd'.repeat(64), acceptedContractHash: hash, sourceContractHash: hash,
       sourceAvailability: 'READY', enabled: true, credentialAvailable: true, businessIdentityRequired: false,
       executable: true, parameters: [],
     })).toBe(true)
     expect(contextIsExecutable({
       contractVersion: 1, name: 'orders.lookup', assetType: 'BUSINESS_METHOD', projectId: 8, projectCode: 'orders',
-      qualifiedName: 'orders.lookup', currentContractHash: hash, acceptedContractHash: 'b'.repeat(64), sourceContractHash: hash,
+      qualifiedName: 'orders.lookup', currentContractHash: hash, executionRevision: 'd'.repeat(64), acceptedContractHash: 'b'.repeat(64), sourceContractHash: hash,
       sourceAvailability: 'READY', enabled: true, credentialAvailable: true, businessIdentityRequired: false,
       executable: true, parameters: [],
     })).toBe(false)

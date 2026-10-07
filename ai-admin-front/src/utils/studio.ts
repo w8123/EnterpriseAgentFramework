@@ -280,6 +280,7 @@ function canvasNodeToGraphNode(node: CanvasNode, base: AgentForm): WorkflowGraph
       name: node.data.label,
       ...graphNodeChrome(node),
       ref: {
+        ...tool.assetReference,
         kind: 'TOOL',
         name: tool.ref,
         qualifiedName: tool.qualifiedName || tool.ref,
@@ -903,6 +904,7 @@ function graphConfigToNodeData(
     return {
       ...common,
       toolConfig: {
+        assetReference: ref ? { ...ref } : undefined,
         ref: firstNonEmptyText(ref?.name, ref?.qualifiedName, configuredRef),
         qualifiedName: resolvedQualifiedName || null,
         projectCode: firstNonEmptyText(ref?.projectCode, config.projectCode, nested.projectCode) || null,
@@ -1441,7 +1443,7 @@ const TOOL_RUNTIME_CONFIG_FIELDS = new Set([
 const TOOL_NESTED_CONFIG_FIELDS = new Set([
   'ref', 'toolName', 'qualifiedName', 'projectCode', 'credentialRef',
   'maxRequestTimeMs', 'inputMapping', 'args', 'mappingNote', 'argumentSource',
-  'runtimeConfigExtras', 'nestedConfigExtras',
+  'runtimeConfigExtras', 'nestedConfigExtras', 'assetReference',
 ])
 function toolExtraFields(value: Record<string, unknown>, knownFields: Set<string>) {
   const extras: Record<string, unknown> = {}
@@ -2066,11 +2068,14 @@ function interactionComponentValue(value: unknown): InteractionNodeConfig['compo
 function interactionBindingValue(value: unknown): InteractionNodeConfig['binding'] {
   const raw = objectRecordValue(value)
   const sourceKind = stringValue(raw.sourceKind).toUpperCase()
-  const normalizedSourceKind = sourceKind === 'API'
-    ? 'API'
-    : (sourceKind === 'TOOL' ? 'TOOL' : 'NONE')
+  if (sourceKind && sourceKind !== 'NONE' && sourceKind !== 'TOOL') {
+    throw new Error('不支持的交互来源类型。API 调用请使用 API 节点，交互节点消费其输出。')
+  }
+  const normalizedSourceKind = sourceKind === 'TOOL' ? 'TOOL' : 'NONE'
   return {
     sourceKind: normalizedSourceKind,
+    assetType: raw.assetType === 'BUSINESS_METHOD' ? 'BUSINESS_METHOD' : undefined,
+    assetId: raw.assetId == null ? undefined : numberValue(raw.assetId, 0),
     ref: stringValue(raw.ref),
     qualifiedName: stringValue(raw.qualifiedName) || null,
     projectCode: stringValue(raw.projectCode) || null,

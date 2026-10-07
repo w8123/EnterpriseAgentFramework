@@ -91,6 +91,7 @@ public class GraphSpec {
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
+    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
     public static class CapabilityRef {
         private String kind;
         private String name;
@@ -98,6 +99,12 @@ public class GraphSpec {
         private Long definitionId;
         private String projectCode;
         private String contractHash;
+        private String assetType;
+        private Long assetId;
+        private Long acceptedRevisionId;
+        private String businessContractHash;
+        private String bindingHash;
+        private String executionRevision;
 
         @JsonAnySetter
         private void rejectUnknownField(String field, Object value) {

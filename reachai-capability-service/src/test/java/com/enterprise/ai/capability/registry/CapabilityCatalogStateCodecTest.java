@@ -4,121 +4,59 @@ import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectToolEntity;
 import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionEntity;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.Test;
-
 import java.time.LocalDateTime;
-
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 class CapabilityCatalogStateCodecTest {
-
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Test
-    void rollbackRestoresNullableCatalogFieldsWithoutRestoringSourceAuthorityOrWriteTimes() throws Exception {
-        LocalDateTime removedAt = LocalDateTime.of(2026, 9, 5, 10, 20);
-        LocalDateTime writtenAt = removedAt.plusHours(1);
-        ScanProjectToolEntity originalScan = new ScanProjectToolEntity();
-        originalScan.setId(12L);
-        originalScan.setProjectId(3L);
-        originalScan.setName("orders");
-        originalScan.setSource("SDK");
-        originalScan.setSourceQualifiedName("project.orders");
-        originalScan.setAssetType("BUSINESS_METHOD");
-        originalScan.setEnabled(false);
-        originalScan.setRemovedFromSource(true);
-        originalScan.setRemovedAt(removedAt);
-        originalScan.setGlobalToolDefinitionId(45L);
-        ToolDefinitionEntity originalGlobal = new ToolDefinitionEntity();
-        originalGlobal.setId(45L);
-        originalGlobal.setName("orders");
-        originalGlobal.setQualifiedName("project.orders");
-        originalGlobal.setSource("SDK");
-        originalGlobal.setSourceQualifiedName("project.orders");
-        originalGlobal.setAssetType("BUSINESS_METHOD");
-        originalGlobal.setEnabled(false);
-
-        ObjectNode snapshot = (ObjectNode) objectMapper.readTree(
-                CapabilityCatalogStateCodec.capture(objectMapper, originalScan, originalGlobal));
-        ObjectNode scanState = (ObjectNode) snapshot.get("scanTool");
-        ObjectNode globalState = (ObjectNode) snapshot.get("globalTool");
-        for (ObjectNode state : new ObjectNode[]{scanState, globalState}) {
-            assertFalse(state.has("sourceQualifiedName"));
-            assertFalse(state.has("createTime"));
-            assertFalse(state.has("updateTime"));
-            state.put("sourceQualifiedName", "forged.source");
-            state.put("createTime", removedAt.toString());
-            state.put("updateTime", removedAt.toString());
+    void capturesDerivedStateWithoutSourceAuthorityOrWriteTimes() throws Exception {
+        var removedAt = LocalDateTime.of(2026, 9, 5, 10, 20);
+        var scan = new ScanProjectToolEntity();
+        scan.setId(12L); scan.setProjectId(3L); scan.setName("orders");
+        scan.setSourceQualifiedName("orders:query"); scan.setAssetType("BUSINESS_METHOD");
+        scan.setEnabled(false); scan.setRemovedFromSource(true); scan.setRemovedAt(removedAt);
+        scan.setCreateTime(removedAt); scan.setUpdateTime(removedAt);
+        var global = new ToolDefinitionEntity();
+        global.setId(45L); global.setProjectId(3L); global.setQualifiedName("orders:query");
+        global.setSourceQualifiedName("orders:query"); global.setAssetType("BUSINESS_METHOD");
+        global.setCreateTime(removedAt); global.setUpdateTime(removedAt);
+        var state = objectMapper.readTree(CapabilityCatalogStateCodec.capture(objectMapper, scan, global));
+        for (String key : new String[]{"scanTool", "globalTool"}) {
+            assertFalse(state.get(key).has("sourceQualifiedName"));
+            assertFalse(state.get(key).has("createTime"));
+            assertFalse(state.get(key).has("updateTime"));
+            assertEquals("BUSINESS_METHOD", state.get(key).get("assetType").asText());
         }
-
-        ScanProjectToolEntity restoredScan = new ScanProjectToolEntity();
-        restoredScan.setSourceQualifiedName("trusted.source");
-        restoredScan.setCreateTime(writtenAt);
-        restoredScan.setUpdateTime(writtenAt);
-        restoredScan.setTitle("new title");
-        restoredScan.setModuleId(99L);
-        restoredScan.setEnabled(true);
-        ToolDefinitionEntity restoredGlobal = new ToolDefinitionEntity();
-        restoredGlobal.setSourceQualifiedName("trusted.source");
-        restoredGlobal.setCreateTime(writtenAt);
-        restoredGlobal.setUpdateTime(writtenAt);
-        restoredGlobal.setDescription("new description");
-        restoredGlobal.setEnabled(true);
-
-        CapabilityCatalogStateCodec.restoreScanTool(restoredScan, scanState);
-        CapabilityCatalogStateCodec.restoreGlobalTool(restoredGlobal, globalState);
-
-        assertEquals("trusted.source", restoredScan.getSourceQualifiedName());
-        assertEquals("trusted.source", restoredGlobal.getSourceQualifiedName());
-        assertEquals(writtenAt, restoredScan.getCreateTime());
-        assertEquals(writtenAt, restoredScan.getUpdateTime());
-        assertEquals(writtenAt, restoredGlobal.getCreateTime());
-        assertEquals(writtenAt, restoredGlobal.getUpdateTime());
-        assertNull(restoredScan.getTitle());
-        assertNull(restoredScan.getModuleId());
-        assertNull(restoredGlobal.getDescription());
-        assertFalse(restoredScan.getEnabled());
-        assertFalse(restoredGlobal.getEnabled());
-        assertTrue(restoredScan.getRemovedFromSource());
-        assertEquals(removedAt, restoredScan.getRemovedAt());
-        assertEquals(45L, restoredScan.getGlobalToolDefinitionId());
-        assertEquals("BUSINESS_METHOD", restoredScan.getAssetType());
-        assertEquals("BUSINESS_METHOD", restoredGlobal.getAssetType());
+        assertEquals(12, state.get("scanTool").get("id").asLong());
+        assertTrue(state.get("scanTool").get("removedFromSource").asBoolean());
+        assertEquals(removedAt.toString(), state.get("scanTool").get("removedAt").asText());
     }
 
     @Test
-    void oldRollbackStateWithoutAssetTypeRestoresTheLegacyProjectionDefault() throws Exception {
-        ObjectNode snapshot = (ObjectNode) objectMapper.readTree(CapabilityCatalogStateCodec.capture(
-                objectMapper, new ScanProjectToolEntity(), new ToolDefinitionEntity()));
-        ((ObjectNode) snapshot.get("scanTool")).remove("assetType");
-        ((ObjectNode) snapshot.get("globalTool")).remove("assetType");
-
-        ObjectNode normalized = (ObjectNode) CapabilityCatalogStateCodec.normalizeLegacyAssetTypes(snapshot);
-        assertEquals("UNCLASSIFIED", normalized.get("scanTool").get("assetType").asText());
-        assertEquals("UNCLASSIFIED", normalized.get("globalTool").get("assetType").asText());
-
-        ScanProjectToolEntity scan = new ScanProjectToolEntity();
-        ToolDefinitionEntity global = new ToolDefinitionEntity();
-        CapabilityCatalogStateCodec.restoreScanTool(scan, snapshot.get("scanTool"));
-        CapabilityCatalogStateCodec.restoreGlobalTool(global, snapshot.get("globalTool"));
-
-        assertEquals("UNCLASSIFIED", scan.getAssetType());
-        assertEquals("UNCLASSIFIED", global.getAssetType());
+    void missingOrCorruptedProjectionClassificationDoesNotInventAnAssetDefault() throws Exception {
+        var scan = new ScanProjectToolEntity();
+        var global = new ToolDefinitionEntity();
+        global.setAssetType("CORRUPTED");
+        var state = objectMapper.readTree(CapabilityCatalogStateCodec.capture(objectMapper, scan, global));
+        assertTrue(state.get("scanTool").get("assetType").isNull());
+        assertEquals("CORRUPTED", state.get("globalTool").get("assetType").asText());
+        assertNull(scan.getAssetType());
+        assertEquals("CORRUPTED", global.getAssetType());
     }
 
     @Test
     void serializationFailureCannotSilentlyDisableTheReviewStateCheck() throws Exception {
         ObjectMapper failingMapper = mock(ObjectMapper.class);
-        JsonProcessingException serializationFailure = new JsonProcessingException("snapshot failure") {};
-        when(failingMapper.writeValueAsString(any())).thenThrow(serializationFailure);
-
-        IllegalStateException failure = assertThrows(IllegalStateException.class,
+        JsonProcessingException failure = new JsonProcessingException("snapshot failure") {};
+        when(failingMapper.writeValueAsString(any())).thenThrow(failure);
+        IllegalStateException error = assertThrows(IllegalStateException.class,
                 () -> CapabilityCatalogStateCodec.capture(failingMapper, null, null));
-
-        assertSame(serializationFailure, failure.getCause());
-        assertTrue(failure.getMessage().contains("不能创建可回滚的评审项"));
+        assertSame(failure, error.getCause());
+        assertTrue(error.getMessage().contains("不能创建可回滚的评审项"));
     }
 }

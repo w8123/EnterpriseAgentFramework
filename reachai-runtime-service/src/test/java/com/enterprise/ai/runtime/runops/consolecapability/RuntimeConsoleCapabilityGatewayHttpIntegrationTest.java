@@ -210,7 +210,7 @@ class RuntimeConsoleCapabilityGatewayHttpIntegrationTest {
     private ConsoleCapabilityInvocationContracts.InvocationCommand command(String id, String phone) {
         return new ConsoleCapabilityInvocationContracts.InvocationCommand(
                 ConsoleCapabilityInvocationContracts.CONTRACT_VERSION, id, "42", 7L, "orders",
-                "orders.lookup", "a".repeat(64),
+                "orders.lookup", "a".repeat(64), "d".repeat(64),
                 Map.of("phone", phone, "normal", "normal-value",
                         "request", Map.of("phone", phone, "normalNested", "normal-nested-value"),
                         "items", List.of(Map.of("phone", phone, "code", "normal-code"))),
@@ -279,7 +279,6 @@ class RuntimeConsoleCapabilityGatewayHttpIntegrationTest {
 
         @Override public Map<String, Object> getToolDefinition(String qualifiedName) { throw unsupported(); }
         @Override public CapabilityInvocationResponse invokeTool(String qualifiedName, Map<String, String> headers, byte[] body) { throw unsupported(); }
-        @Override public Map<String, Object> getCompositionDefinition(String qualifiedName) { throw unsupported(); }
         @Override public Map<String, Object> getProject(String projectCode) { throw unsupported(); }
         @Override public Map<String, Object> getProjectById(Long projectId) { throw unsupported(); }
         @Override public List<Map<String, Object>> listProjectTools(Long projectId) { throw unsupported(); }

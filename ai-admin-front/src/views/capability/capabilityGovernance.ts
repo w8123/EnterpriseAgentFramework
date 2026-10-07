@@ -1,6 +1,19 @@
 import type { StatusTone } from '@/components/common/glassWorkbench'
 import type { CapabilityDiffReviewItem } from '@/types/registry'
-import type { ToolInfo, ToolParameter } from '@/types/tool'
+import type { AssetParameter } from '@/types/assetParameter'
+
+interface AssetPresentation {
+  name: string
+  title?: string | null
+  qualifiedName?: string | null
+  description?: string | null
+  aiDescription?: string | null
+  source?: string | null
+  httpMethod?: string | null
+  baseUrl?: string | null
+  contextPath?: string | null
+  endpointPath?: string | null
+}
 import { formatSideEffectLabel } from '@/utils/capabilityLabels'
 
 export interface CapabilityFieldDiff {
@@ -42,16 +55,16 @@ const CONTRACT_FIELDS = new Set([
   'parameters',
 ])
 
-export function capabilityDisplayName(tool?: Pick<ToolInfo, 'name' | 'title'> | null): string {
-  return tool?.title?.trim() || tool?.name?.trim() || '未命名能力'
+export function capabilityDisplayName(tool?: Pick<AssetPresentation, 'name' | 'title'> | null): string {
+  return tool?.title?.trim() || tool?.name?.trim() || '未命名资产'
 }
 
-export function capabilityStableName(tool?: Pick<ToolInfo, 'name' | 'qualifiedName'> | null): string {
+export function capabilityStableName(tool?: Pick<AssetPresentation, 'name' | 'qualifiedName'> | null): string {
   return tool?.qualifiedName?.trim() || tool?.name?.trim() || '-'
 }
 
 export function capabilityDescription(
-  tool?: Pick<ToolInfo, 'aiDescription' | 'description'> | null,
+  tool?: Pick<AssetPresentation, 'aiDescription' | 'description'> | null,
 ): string {
   const candidates = [tool?.aiDescription, tool?.description]
     .map(value => String(value || '').trim())
@@ -59,11 +72,11 @@ export function capabilityDescription(
   const readable = candidates.find(value => !looksLikeEncodingDamage(value))
   if (readable) return readable
   if (candidates.length) return '来源说明存在编码异常，请从来源项目重新同步'
-  return '尚未补充能力说明'
+  return '尚未补充说明'
 }
 
 export function capabilityDescriptionHasEncodingIssue(
-  tool?: Pick<ToolInfo, 'aiDescription' | 'description'> | null,
+  tool?: Pick<AssetPresentation, 'aiDescription' | 'description'> | null,
 ): boolean {
   return [tool?.aiDescription, tool?.description]
     .some(value => looksLikeEncodingDamage(String(value || '').trim()))
@@ -101,7 +114,7 @@ export function capabilitySideEffectTone(sideEffect?: string | null): StatusTone
   return 'neutral'
 }
 
-export function capabilityProtocol(tool: ToolInfo): string {
+export function capabilityProtocol(tool: AssetPresentation): string {
   const method = tool.httpMethod?.trim().toUpperCase()
   const path = joinHttpPath(tool.contextPath, tool.endpointPath)
   if (method && path) return `${method} ${path}`
@@ -110,13 +123,13 @@ export function capabilityProtocol(tool: ToolInfo): string {
   return tool.source === 'code' ? 'SDK 执行入口' : '平台执行入口'
 }
 
-export function capabilityEndpoint(tool: ToolInfo): string {
+export function capabilityEndpoint<T extends AssetPresentation>(tool: T): string {
   const path = joinHttpPath(tool.contextPath, tool.endpointPath)
   if (!tool.baseUrl) return path || '-'
   return `${tool.baseUrl.replace(/\/$/, '')}${path ? `/${path.replace(/^\//, '')}` : ''}`
 }
 
-export function capabilityParameterCount(parameters?: ToolParameter[] | null): number {
+export function capabilityParameterCount(parameters?: AssetParameter[] | null): number {
   return (parameters || []).reduce(
     (total, parameter) => total + 1 + capabilityParameterCount(parameter.children),
     0,
@@ -153,7 +166,7 @@ export function capabilityReviewAttention(item: CapabilityDiffReviewItem): Revie
   if (item.changeType === 'DELETED') {
     return {
       label: '目录移除',
-      detail: '应用后将停止在能力目录和编排选择器中提供该能力。',
+      detail: '应用后将停止在业务方法目录和编排选择器中提供该方法。',
       tone: 'danger',
     }
   }

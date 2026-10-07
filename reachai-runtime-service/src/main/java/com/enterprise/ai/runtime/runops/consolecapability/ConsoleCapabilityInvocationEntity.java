@@ -26,6 +26,7 @@ public class ConsoleCapabilityInvocationEntity {
     private String credentialRevision;
     private Integer httpStatus;
     private String expectedContractHash;
+    private String expectedExecutionRevision;
     private String inputFingerprint;
     private Long deadlineEpochMs;
     private Long runId;

@@ -140,6 +140,7 @@ class ConsoleBusinessMethodSdkEndpointIntegrationTest {
         when(mapper.selectOne(any())).thenReturn(tool);
         RegistrySecurityService credentials = mock(RegistrySecurityService.class);
         RegistryCredentialEntity credential = new RegistryCredentialEntity();
+        credential.setId(1L); credential.setRevision(1L); credential.setProjectId(7L); credential.setProjectCode("orders"); credential.setStatus("ACTIVE");
         credential.setProjectCode("orders");
         credential.setAppKey("orders-app");
         credential.setAppSecret("local-test-secret");
@@ -153,7 +154,7 @@ class ConsoleBusinessMethodSdkEndpointIntegrationTest {
         state.setAcceptedContractHash(hash);
         state.setAvailability("READY");
         when(lifecycle.sourceState(qualifiedName)).thenReturn(state);
-        CapabilityToolExecutionService service = new CapabilityToolExecutionService(mapper,
+        CapabilityToolExecutionService service = new CapabilityToolExecutionService(com.enterprise.ai.capability.internal.BusinessMethodExecutionFixtures.catalog(mapper),
                 new DefaultCapabilityHttpToolInvoker(
                         new RestTemplateBuilder(), mock(CapabilityOutboundTransportPolicy.class), new ObjectMapper()),
                 credentials, new CapabilitySourceContractGuard(lifecycle, policy));
@@ -168,7 +169,7 @@ class ConsoleBusinessMethodSdkEndpointIntegrationTest {
                         "expectedQualifiedName", qualifiedName,
                         "expectedProjectCode", "orders",
                         "expectedProjectId", 7L,
-                        "expectedContractHash", hash,
+                        "expectedContractHash", hash, "expectedExecutionRevision", com.enterprise.ai.capability.internal.BusinessMethodExecutionFixtures.executionRevision(tool),
                         "requireSignedInvocation", true)));
     }
 

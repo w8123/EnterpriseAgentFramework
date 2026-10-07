@@ -16,9 +16,8 @@ import static org.mockito.Mockito.when;
 class CapabilityToolLookupServiceTest {
 
     private final ToolDefinitionMapper toolDefinitionMapper = mock(ToolDefinitionMapper.class);
-    private final CapabilityToolLookupService service = new CapabilityToolLookupService(toolDefinitionMapper,
-            new com.enterprise.ai.capability.registry.CapabilityChangePolicy(new com.fasterxml.jackson.databind.ObjectMapper()),
-            org.mockito.Mockito.mock(CapabilitySourceContractGuard.class));
+    private final CapabilityToolLookupService service = new CapabilityToolLookupService(
+            BusinessMethodExecutionFixtures.catalog(toolDefinitionMapper), mock(com.enterprise.ai.agent.registry.RegistrySecurityService.class));
 
     @Test
     void returnsToolDefinitionByQualifiedName() {
@@ -46,7 +45,7 @@ class CapabilityToolLookupServiceTest {
                 () -> service.getToolDefinition("missing.tool")
         );
 
-        assertEquals("Tool definition not found: missing.tool", ex.getMessage());
+        assertEquals("Business method not found: missing.tool", ex.getMessage());
     }
 
     private ToolDefinitionEntity newToolDefinition() {

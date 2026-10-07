@@ -38,7 +38,7 @@ public class RuntimeExecutableDebugSessionService {
     private static final long DEFAULT_HEARTBEAT_INTERVAL_MS = 8_000L;
     private static final Set<String> TARGET_TYPES = Set.of(
             "WORKFLOW_WORKING_COPY", "WORKFLOW_VERSION", "AGENT_WORKING_COPY",
-            "COMPOSITION_WORKING_COPY", "EXECUTABLE_WORKING_COPY");
+            "EXECUTABLE_WORKING_COPY");
 
     private static final String REQUEST_PARAMS = "__requestParams";
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {

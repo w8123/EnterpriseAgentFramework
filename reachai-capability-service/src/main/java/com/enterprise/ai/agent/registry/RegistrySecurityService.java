@@ -47,14 +47,20 @@ public class RegistrySecurityService {
             entity.setAppKey(appKey.trim());
             entity.setAppSecret(appSecret.trim());
             entity.setStatus("ACTIVE");
+            entity.setRevision(1L);
             entity.setUpdatedAt(now);
             credentialMapper.insert(entity);
         } else {
+            if (java.util.Objects.equals(entity.getProjectId(), projectId)
+                    && java.util.Objects.equals(entity.getProjectCode(), projectCode.trim())
+                    && java.util.Objects.equals(entity.getAppKey(), appKey.trim())
+                    && java.util.Objects.equals(entity.getAppSecret(), appSecret.trim())) return entity;
             int updated = credentialMapper.update(null, Wrappers.<RegistryCredentialEntity>lambdaUpdate()
                     .eq(RegistryCredentialEntity::getId, entity.getId())
                     .eq(RegistryCredentialEntity::getProjectId, projectId)
                     .eq(RegistryCredentialEntity::getProjectCode, projectCode.trim())
                     .eq(RegistryCredentialEntity::getStatus, "ACTIVE")
+                    .eq(RegistryCredentialEntity::getRevision, entity.getRevision())
                     // Cover each utf8mb4 column's full byte width; lengths distinguish binary padding.
                     .apply("CAST(app_key AS BINARY(512)) = CAST({0} AS BINARY(512)) "
                             + "AND OCTET_LENGTH(app_key) = OCTET_LENGTH({0})", entity.getAppKey())
@@ -62,6 +68,7 @@ public class RegistrySecurityService {
                             + "AND OCTET_LENGTH(app_secret) = OCTET_LENGTH({0})", entity.getAppSecret())
                     .set(RegistryCredentialEntity::getAppKey, appKey.trim())
                     .set(RegistryCredentialEntity::getAppSecret, appSecret.trim())
+                    .setSql("revision = revision + 1")
                     .set(RegistryCredentialEntity::getUpdatedAt, now));
             if (updated != 1) {
                 throw new IllegalArgumentException("registry credential changed during rotation; reload and retry");
@@ -82,6 +89,7 @@ public class RegistrySecurityService {
                 .set(RegistryCredentialEntity::getAllowedOriginsJson, writeJson(allowedOrigins))
                 .set(RegistryCredentialEntity::getAllowedAgentIdsJson, writeJson(allowedAgentIds))
                 .set(RegistryCredentialEntity::getTokenTtlSeconds, tokenTtlSeconds)
+                .setSql("revision = revision + 1")
                 .set(RegistryCredentialEntity::getUpdatedAt, LocalDateTime.now());
         if (StringUtils.hasText(status)) update.set(RegistryCredentialEntity::getStatus, status.trim());
         if (credentialMapper.update(null, update) != 1) {
@@ -104,26 +112,33 @@ public class RegistrySecurityService {
         if (!StringUtils.hasText(projectCode) || !StringUtils.hasText(appKey)) {
             return;
         }
+        RegistryCredentialEntity current = findActiveCredential(projectCode, appKey);
+        if (current == null) return;
         var update = Wrappers.<RegistryCredentialEntity>lambdaUpdate()
                 .eq(RegistryCredentialEntity::getProjectCode, projectCode)
                 .eq(RegistryCredentialEntity::getAppKey, appKey)
+                .eq(RegistryCredentialEntity::getRevision, current.getRevision())
                 .eq(RegistryCredentialEntity::getStatus, "ACTIVE");
         boolean changed = false;
-        if (allowedOrigins != null && !allowedOrigins.isEmpty()) {
+        if (allowedOrigins != null && !allowedOrigins.isEmpty()
+                && !java.util.Objects.equals(writeJson(allowedOrigins), current.getAllowedOriginsJson())) {
             update.set(RegistryCredentialEntity::getAllowedOriginsJson, writeJson(allowedOrigins));
             changed = true;
         }
-        if (allowedAgentIds != null && !allowedAgentIds.isEmpty()) {
+        if (allowedAgentIds != null && !allowedAgentIds.isEmpty()
+                && !java.util.Objects.equals(writeJson(allowedAgentIds), current.getAllowedAgentIdsJson())) {
             update.set(RegistryCredentialEntity::getAllowedAgentIdsJson, writeJson(allowedAgentIds));
             changed = true;
         }
-        if (tokenTtlSeconds != null && tokenTtlSeconds > 0) {
+        if (tokenTtlSeconds != null && tokenTtlSeconds > 0
+                && !java.util.Objects.equals(tokenTtlSeconds, current.getTokenTtlSeconds())) {
             update.set(RegistryCredentialEntity::getTokenTtlSeconds, tokenTtlSeconds);
             changed = true;
         }
         if (changed) {
             update.set(RegistryCredentialEntity::getUpdatedAt, LocalDateTime.now());
-            credentialMapper.update(null, update);
+            update.setSql("revision = revision + 1");
+            if (credentialMapper.update(null, update) != 1) throw new IllegalArgumentException("registry credential policy changed concurrently");
         }
     }
 
@@ -151,6 +166,8 @@ public class RegistrySecurityService {
         }
         credentialMapper.update(null, Wrappers.<RegistryCredentialEntity>lambdaUpdate()
                 .eq(RegistryCredentialEntity::getProjectId, projectId)
+                .ne(RegistryCredentialEntity::getProjectCode, newProjectCode.trim())
+                .setSql("revision = revision + 1")
                 .set(RegistryCredentialEntity::getProjectCode, newProjectCode.trim()));
     }
 

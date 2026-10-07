@@ -16,39 +16,6 @@ export function getTool(name: string) {
   return controlRequest.get<ToolInfo>(`/api/tools/${encodeURIComponent(name)}`)
 }
 
-export type BusinessMethodListQuery = Omit<ToolListQuery, 'source'>
-
-export function getBusinessMethods(params?: BusinessMethodListQuery) {
-  return controlRequest.get<ToolPageResult>('/api/business-methods', { params })
-}
-
-export function getBusinessMethod(name: string) {
-  return controlRequest.get<ToolInfo>(`/api/business-methods/${encodeURIComponent(name)}`)
-}
-
-export interface CapabilityUsage {
-  kind: string
-  id: string | number
-  name?: string
-  stage?: string
-  version?: string
-  versionId?: number
-  nodeId?: string
-  workflowId?: string
-  agentConfigVersionId?: number
-}
-
-export interface CapabilityReferences {
-  runtimeEvidence: 'COMPLETE' | 'PARTIAL' | 'UNKNOWN'
-  publicationEvidence: 'COMPLETE' | 'PARTIAL' | 'UNKNOWN'
-  references: CapabilityUsage[]
-  checkedAt?: string
-}
-
-export function getCapabilityReferences(projectCode: string, name: string) {
-  return controlRequest.get<CapabilityReferences>(`/api/capability-review/projects/${encodeURIComponent(projectCode)}/capabilities/${encodeURIComponent(name)}/references`)
-}
-
 export async function listAllTools(
   params: ToolListQuery = {},
   maxPages = TOOL_SELECTOR_MAX_PAGES,

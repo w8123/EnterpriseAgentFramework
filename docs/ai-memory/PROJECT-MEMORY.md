@@ -93,7 +93,7 @@ Supervisor 策略链已实现分级执行：READ 自动执行，PAGE_ACTION 校�
 
 - 2026-09-15 已确认的目标是同时服务 Java 接入开发者与实施人员，分别建设“业务方法”和“API”的管理与使用路径；`Capability / 能力` 可保留为统称或技术身份。本条记录目标决定，不代表实现状态；恢复本专项先读[实施基线](../plans/业务方法与API重构实施基线.md)和[实施进度](../plans/业务方法与API重构实施进度.md)。
 - ReachAI 禁止重新引入自创的 Skill 业务资产模型。Skill 仅用于标准 Agent Skill 包或外部协议字段；Capability 是业务资产，Tool 是调用协议，Workflow 是 GraphSpec 编排。
-- 通用 Tool 不作为独立产品资产或菜单；当前管理端以能力目录、API、可调用 Workflow、MCP 暴露和调用权限呈现 owning object。`capability_tool_definition` 与 `/api/tools/**` 仅保留为运行时投影和兼容契约。目标模块名“业务方法”替代此前“代码工具 / Code Tools”的预留名；通过现有服务内重构落实，不直接给混合目录换名。
+- 通用 Tool 不作为独立产品资产或菜单；当前管理端以业务方法、API、可调用 Workflow、MCP 暴露和调用权限呈现 owning object。旧能力目录和 `/tool` 重定向已删除，来源变化在所属项目处理。`capability_tool_definition` 与 `/api/tools/**` 仅保留为运行时投影和兼容契约。“业务方法”使用独立 owner、接纳修订、类型和页面，API 使用独立资产与来源关系；调用投影不能作为资产事实源。详见[现行资产架构](../architecture/business-method-api-assets.md)，本批实际验证和限制见专项实施进度。
 - `reachai-knowledge-service` 是 Knowledge / Retrieval 部署单元，不要再描述成“技能服务”。
 - `eaf.*`、`X-EAF-*`、`Eaf*` 属于兼容敏感技术身份；品牌文案改成 ReachAI 时不要顺手替换这些标识。
 

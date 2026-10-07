@@ -18,6 +18,15 @@ public final class GraphSpecToolContract {
                 if (hash == null || !hash.matches("[0-9a-f]{64}")) {
                     throw new IllegalArgumentException("CAPABILITY_PUBLISHED_CONTRACT_REQUIRED: 请重新校验并发布 Workflow");
                 }
+                var ref = node.getRef();
+                boolean api = resolve(node) != null && resolve(node).startsWith("http-api:");
+                if (ref.getAssetId() == null || ref.getAssetId() <= 0
+                        || !(api ? "HTTP_API" : "BUSINESS_METHOD").equals(ref.getAssetType())
+                        || !api && (ref.getAcceptedRevisionId() == null || ref.getAcceptedRevisionId() <= 0
+                        || !validHash(ref.getBusinessContractHash()) || !validHash(ref.getBindingHash()) || !validHash(ref.getExecutionRevision())
+                        || ref.getProjectCode() == null || ref.getProjectCode().isBlank())) {
+                    throw new IllegalArgumentException("CAPABILITY_PUBLISHED_ASSET_REFERENCE_REQUIRED: 请重新选择源资产并发布 Workflow");
+                }
             }
             return graphJson;
         } catch (IllegalArgumentException invalid) { throw invalid; }
@@ -27,6 +36,8 @@ public final class GraphSpecToolContract {
     public static String requirePublishedPins(String graphJson) {
         return requirePublishedPins(graphJson, new ObjectMapper());
     }
+
+    private static boolean validHash(String value) { return value != null && value.matches("[0-9a-f]{64}"); }
 
     public static String resolve(GraphSpec.Node node) {
         if (node.getRef() != null) {

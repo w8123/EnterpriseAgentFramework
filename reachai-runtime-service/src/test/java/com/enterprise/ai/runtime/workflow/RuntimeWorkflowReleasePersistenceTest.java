@@ -33,8 +33,11 @@ class RuntimeWorkflowReleasePersistenceTest {
     private com.enterprise.ai.common.testing.ClonedDevelopmentMysqlDatabase mysql;
     protected boolean useMysql() { return false; }
     private static final String REVISION = "2026-09-05T10:00:00";
-    private static final String GRAPH = "{\"nodes\":[{\"id\":\"read\",\"type\":\"TOOL\",\"ref\":{\"name\":\"orders_read\",\"contractHash\":\""
-            + "a".repeat(64) + "\"}}],\"entryNodeId\":\"read\"}";
+    private static final String GRAPH = """
+            {"nodes":[{"id":"read","type":"TOOL","ref":{"name":"orders_read","contractHash":"%s",
+            "assetType":"BUSINESS_METHOD","assetId":1,"acceptedRevisionId":1,"projectCode":"orders",
+            "businessContractHash":"%s","bindingHash":"%s","executionRevision":"%s"}}],"entryNodeId":"read"}
+            """.formatted("a".repeat(64), "b".repeat(64), "c".repeat(64), "d".repeat(64));
     private RuntimeWorkflowDefinitionMapper workflows;
     private RuntimeWorkflowVersionMapper versions;
     private RuntimeWorkflowReleaseEventMapper events;

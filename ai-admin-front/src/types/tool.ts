@@ -1,25 +1,12 @@
-/** Tool 参数定义 */
-export interface ToolParameter {
-  name: string
-  type: string
-  description: string
-  required: boolean
-  location?: string | null
-  /** body_json 解析出的 DTO 子字段（可递归），仅展示用，运行时 body 以整体 JSON 传入 */
-  children?: ToolParameter[]
-  /** @ReachParam / @ReachOutput 扫描得到的参数级元数据 */
-  metadata?: Record<string, unknown> | null
-}
+import { isAssetInputParameter, type AssetParameter } from './assetParameter'
 
-export function isToolInputParameter(parameter: ToolParameter): boolean {
-  const location = String(parameter.location || '').trim().toLowerCase()
-  return location !== 'output' && location !== 'return' && location !== 'response'
-}
+export type ToolParameter = AssetParameter
+export const isToolInputParameter = isAssetInputParameter
 
 /** 已注册 Tool 信息 */
 export interface ToolInfo {
   /** 来源资产投影：业务方法、API 或尚未分类的存量定义。 */
-  assetType?: 'BUSINESS_METHOD' | 'HTTP_API' | 'UNCLASSIFIED' | string | null
+  assetType?: 'BUSINESS_METHOD' | 'HTTP_API' | string | null
   name: string
   /** 面向用户展示的简短名称；name 仍是稳定机器标识 */
   title: string

@@ -73,12 +73,14 @@
         :knowledge-options="knowledgeOptions"
         :variable-options="variableOptions"
         :credential-options="credentialOptions"
-        :param-source-hints="paramSourceHints"
         :project-id="projectId"
         :project-code="projectCode"
         :request-scope-key="requestScopeKey"
         :options="toolLikeOptions"
         :tool-options="toolOptions"
+        :tool-options-loading="toolOptionsLoading"
+        :tool-options-load-error="toolOptionsLoadError"
+        @retry-methods="$emit('retryMethods')"
         :node-type-options="nodeTypeOptions"
         @credential-created="$emit('credentialCreated', $event)"
         @create-call-node="$emit('createCallNode', $event)"
@@ -135,9 +137,8 @@ import { computed, ref, watch } from 'vue'
 import type { CanvasNodeData, InteractionCallNodeRequest, StudioPort, StudioVariableOption } from '@/types/studio'
 import type { ModelInstance } from '@/types/model'
 import type { KnowledgeBase } from '@/types/knowledge'
-import type { ToolInfo } from '@/types/tool'
+import type { BusinessMethodInfo } from '@/types/businessMethod'
 import type { WorkflowCredential } from '@/types/workflowCredential'
-import type { ApiGraphParamSourceHint } from '@/api/apiGraph'
 import type { WorkflowGraphNodeTypeDescriptor } from '@/types/agent'
 import LlmConfigPanel from './LlmConfigPanel.vue'
 import UserInputConfigPanel from './UserInputConfigPanel.vue'
@@ -168,10 +169,11 @@ const props = defineProps<{
   modelOptionsLoading: boolean
   modelOptionsLoadError: boolean
   knowledgeOptions: KnowledgeBase[]
-  toolOptions: ToolInfo[]
+  toolOptions: BusinessMethodInfo[]
+  toolOptionsLoading?: boolean
+  toolOptionsLoadError?: boolean
   variableOptions: Array<string | StudioVariableOption>
   credentialOptions: WorkflowCredential[]
-  paramSourceHints: ApiGraphParamSourceHint[]
   projectId?: number | null
   projectCode?: string | null
   requestScopeKey?: string | null
@@ -181,6 +183,7 @@ const props = defineProps<{
 defineEmits<{
   credentialCreated: [credential: WorkflowCredential]
   createCallNode: [request: InteractionCallNodeRequest]
+  retryMethods: []
   validationChange: [payload: { nodeId?: string; valid: boolean; message?: string }]
   reloadModelOptions: []
 }>()

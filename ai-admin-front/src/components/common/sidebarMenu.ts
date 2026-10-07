@@ -55,22 +55,8 @@ export const sidebarMenu: SidebarEntry[] = [
   { kind: 'group', label: 'AI 资产' },
   {
     kind: 'item',
-    index: '/capability',
-    label: '能力目录',
-    icon: Grid,
-    requiredPermissions: [PLATFORM_PERMISSION_READ],
-  },
-  {
-    kind: 'item',
-    index: '/business-methods',
-    label: '业务方法',
-    icon: Grid,
-    requiredPermissions: [PLATFORM_PERMISSION_READ],
-  },
-  {
-    kind: 'item',
-    index: '/apis',
-    label: 'API',
+    index: '/business-capabilities',
+    label: '业务能力',
     icon: Grid,
     requiredPermissions: [PLATFORM_PERMISSION_READ],
   },
@@ -187,7 +173,6 @@ export const sidebarMenu: SidebarEntry[] = [
     label: '诊断工具',
     icon: SetUp,
     children: [
-      { index: '/capability/sync-snapshot', label: '同步能力快照', requiredPermissions: [PLATFORM_PERMISSION_WRITE] },
       { index: '/tool/retrieval', label: '调用候选检索' },
       { index: '/retrieval', label: '知识检索测试' },
       { index: '/domain/classifier-test', label: '分类器测试' },
@@ -255,21 +240,13 @@ export function resolveActiveMenu(path: string, metaActiveMenu?: unknown): strin
   if (path.startsWith('/model/instances')) return '/model/instances'
   if (path.startsWith('/model')) return '/model/instances'
   if (path.startsWith('/tool/retrieval')) return '/tool/retrieval'
-  if (path.startsWith('/business-methods')) return '/business-methods'
-  if (path.startsWith('/apis')) return '/apis'
+  if (path.startsWith('/business-capabilities') || path.startsWith('/business-methods') || path.startsWith('/apis')) return '/business-capabilities'
   if (path.startsWith('/settings/platform-users')) return '/settings/platform-users'
   if (path.startsWith('/settings/personal-memory')) return '/settings/personal-memory'
   if (path.startsWith('/settings/memory-erasure')) return '/settings/memory-erasure'
   if (path.startsWith('/settings/business-users')) return '/settings/business-users'
   if (path.startsWith('/settings/auth-providers')) return '/settings/auth-providers'
   if (path.startsWith('/settings/tool-acl')) return '/settings/tool-acl'
-  if (path.startsWith('/capability/review')) return '/capability'
-  if (path.startsWith('/capability/sync-snapshot')) return '/capability/sync-snapshot'
-  if (path.startsWith('/capability/tools')) return '/capability'
-  if (path.startsWith('/capability/compositions')) return '/capability'
-  if (path.startsWith('/capability/interactions')) return '/capability'
-  if (path.startsWith('/capability')) return '/capability'
-  if (path.startsWith('/registry/capability-sync')) return '/capability'
   if (path.startsWith('/registry/projects')) return '/registry/projects'
   if (path.startsWith('/scan-project')) return '/registry/projects'
   if (path.startsWith('/automations')) return '/automations'
@@ -325,8 +302,7 @@ export function resolveOpenGroups(path: string): string[] {
   }
 
   if (
-    active === '/capability/sync-snapshot'
-    || active === '/tool/retrieval'
+    active === '/tool/retrieval'
     || active === '/retrieval'
     || active === '/domain/classifier-test'
   ) {

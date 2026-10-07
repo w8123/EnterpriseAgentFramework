@@ -28,7 +28,7 @@ public class CapabilitySourceContractGuard {
         if (!"READY".equals(availability)) {
             throw new CapabilityInvocationPolicyException("CAPABILITY_" + availability,
                     CapabilityInvocationFailureCategory.CONFIGURATION_INVALID,
-                    "能力来源与当前目录尚未确认一致，请在能力目录处理来源变化: " + tool.getQualifiedName());
+                    "业务方法来源与已接纳契约尚未确认一致，请在所属项目的来源变化中处理: " + tool.getQualifiedName());
         }
         Object expected = constraints == null ? null : constraints.get("expectedContractHash");
         if (expected != null && !currentHash.equals(String.valueOf(expected))) {

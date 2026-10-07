@@ -273,7 +273,9 @@ export function useBusinessMethodInvocation(options: UseBusinessMethodInvocation
     const methodName = String(toValue(options.methodName) || '').trim()
     const expectedScope = scopeKey.value
     const expectedContractHash = String(currentContext?.currentContractHash || '')
-    if (!canUseNetwork.value || !currentContext || !methodName || !expectedScope || !CONTRACT_HASH_PATTERN.test(expectedContractHash)) {
+    const expectedExecutionRevision = String(currentContext?.executionRevision || '')
+    if (!canUseNetwork.value || !currentContext || !methodName || !expectedScope || !CONTRACT_HASH_PATTERN.test(expectedContractHash)
+        || !CONTRACT_HASH_PATTERN.test(expectedExecutionRevision)) {
       actionError.value = '调用条件尚未准备好，请刷新后再试。'
       return false
     }
@@ -295,6 +297,7 @@ export function useBusinessMethodInvocation(options: UseBusinessMethodInvocation
         const { data } = await invokeBusinessMethod(methodName, {
           invocationId,
           expectedContractHash,
+          expectedExecutionRevision,
           input: snapshot,
           confirmedSideEffect,
         })

@@ -163,7 +163,7 @@ public class RuntimeWorkflowHttpApiService implements RuntimeHttpApiToolExecutio
             RuntimeWorkflowHttpApiPinEntity row = requirePin(node);
             if (identity == null || !identity.canResolveProjectCredential()
                     || identity.source() == WorkflowExecutionIdentity.Source.DEBUG_UNTRUSTED
-                    || identity.source() == WorkflowExecutionIdentity.Source.COMPOSITION_UNTRUSTED
+
                     || !identity.authorizeProjectCredential(row.getProjectId(), row.getProjectCode())) {
                 return failure("HTTP_API_WORKFLOW_IDENTITY_DENIED");
             }

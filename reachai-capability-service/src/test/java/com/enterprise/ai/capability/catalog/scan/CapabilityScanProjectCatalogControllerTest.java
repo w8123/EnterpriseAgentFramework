@@ -61,20 +61,9 @@ class CapabilityScanProjectCatalogControllerTest {
         Method tool = CapabilityScanProjectCatalogController.class.getDeclaredMethod("tool", Long.class, Long.class);
         Method rescanScanToolFromSource = CapabilityScanProjectCatalogController.class.getDeclaredMethod(
                 "rescanScanToolFromSource", Long.class, Long.class);
-        Method updateTool = CapabilityScanProjectCatalogController.class.getDeclaredMethod(
-                "updateTool", Long.class, Long.class);
-        Method toggleTool = CapabilityScanProjectCatalogController.class.getDeclaredMethod(
-                "toggleTool", Long.class, Long.class);
-        Method testTool = CapabilityScanProjectCatalogController.class.getDeclaredMethod(
-                "testTool", Long.class, Long.class);
         Method reconcileTools = CapabilityScanProjectCatalogController.class.getDeclaredMethod("reconcileTools", Long.class);
-        Method promoteTool = CapabilityScanProjectCatalogController.class.getDeclaredMethod("promoteTool", Long.class, Long.class);
-        Method unpromoteTool = CapabilityScanProjectCatalogController.class.getDeclaredMethod("unpromoteTool", Long.class, Long.class);
-        Method pushToolToGlobal = CapabilityScanProjectCatalogController.class.getDeclaredMethod("pushToolToGlobal", Long.class, Long.class);
-        Method promoteModuleTools = CapabilityScanProjectCatalogController.class.getDeclaredMethod(
-                "promoteModuleTools", Long.class);
         Method diffSummary = CapabilityScanProjectCatalogController.class.getDeclaredMethod("diffSummary", Long.class);
-        Method operationBlockers = CapabilityScanProjectCatalogController.class.getDeclaredMethod("operationBlockers", Long.class);
+        Method operationBlockers = CapabilityScanProjectCatalogController.class.getDeclaredMethod("operationBlockers", Long.class, ScanProjectBlockers.Operation.class);
 
         assertArrayEquals(new String[] {"/api/scan-projects"}, controllerMapping.value());
         assertArrayEquals(new String[] {}, create.getAnnotation(PostMapping.class).value());
@@ -99,16 +88,36 @@ class CapabilityScanProjectCatalogControllerTest {
         assertArrayEquals(new String[] {"/{projectId}/scan-tools/{scanToolId}"}, tool.getAnnotation(GetMapping.class).value());
         assertArrayEquals(new String[] {"/{projectId}/scan-tools/{scanToolId}/rescan-from-source"},
                 rescanScanToolFromSource.getAnnotation(PostMapping.class).value());
-        assertArrayEquals(new String[] {"/{projectId}/scan-tools/{scanToolId}"}, updateTool.getAnnotation(PutMapping.class).value());
-        assertArrayEquals(new String[] {"/{projectId}/scan-tools/{scanToolId}/toggle"}, toggleTool.getAnnotation(PutMapping.class).value());
-        assertArrayEquals(new String[] {"/{projectId}/scan-tools/{scanToolId}/test"}, testTool.getAnnotation(PostMapping.class).value());
         assertArrayEquals(new String[] {"/{projectId}/tools/reconcile"}, reconcileTools.getAnnotation(PostMapping.class).value());
-        assertArrayEquals(new String[] {"/{projectId}/scan-tools/{scanToolId}/promote-to-tool"}, promoteTool.getAnnotation(PostMapping.class).value());
-        assertArrayEquals(new String[] {"/{projectId}/scan-tools/{scanToolId}/unpromote-from-global"}, unpromoteTool.getAnnotation(PostMapping.class).value());
-        assertArrayEquals(new String[] {"/{projectId}/scan-tools/{scanToolId}/push-to-global-tool"}, pushToolToGlobal.getAnnotation(PostMapping.class).value());
-        assertArrayEquals(new String[] {"/{projectId}/scan-tools/promote-by-module"}, promoteModuleTools.getAnnotation(PostMapping.class).value());
         assertArrayEquals(new String[] {"/{id}/diff-summary"}, diffSummary.getAnnotation(GetMapping.class).value());
         assertArrayEquals(new String[] {"/{id}/operation-blockers"}, operationBlockers.getAnnotation(GetMapping.class).value());
+    }
+
+    @Test
+    void hasNoIndependentScanAssetMutationOrExecutionRoutes() {
+        java.util.Set<String> retiredRoutes = java.util.Set.of(
+                "PUT /{}/scan-tools/{}",
+                "PUT /{}/scan-tools/{}/toggle",
+                "POST /{}/scan-tools/{}/test",
+                "POST /{}/scan-tools/{}/promote-to-tool",
+                "POST /{}/scan-tools/{}/unpromote-from-global",
+                "POST /{}/scan-tools/{}/push-to-global-tool",
+                "POST /{}/scan-tools/promote-by-module");
+        for (Method method : CapabilityScanProjectCatalogController.class.getDeclaredMethods()) {
+            RequestMapping mapping = org.springframework.core.annotation.AnnotatedElementUtils
+                    .findMergedAnnotation(method, RequestMapping.class);
+            if (mapping == null) continue;
+            for (String path : mapping.value()) {
+                String normalized = path.replaceAll("\\{[^/{}]+\\}", "{}");
+                for (var verb : mapping.method()) {
+                    org.junit.jupiter.api.Assertions.assertFalse(retiredRoutes.contains(verb.name() + " " + normalized),
+                            "retired source maintenance route reintroduced by " + method.getName());
+                }
+                org.junit.jupiter.api.Assertions.assertFalse(mapping.method().length == 0
+                                && retiredRoutes.stream().anyMatch(route -> route.endsWith(" " + normalized)),
+                        "retired source maintenance route reintroduced without a verb by " + method.getName());
+            }
+        }
     }
 
     @Test
@@ -352,10 +361,23 @@ class CapabilityScanProjectCatalogControllerTest {
         CapabilityScanProjectCatalogService service = mock(CapabilityScanProjectCatalogService.class);
         CapabilityScanProjectCatalogController controller = new CapabilityScanProjectCatalogController(service);
 
-        ResponseEntity<Void> response = controller.delete(7L);
+        ResponseEntity<?> response = controller.delete(7L);
 
         assertEquals(HttpStatus.NO_CONTENT, response.getStatusCode());
         verify(service).delete(7L);
+    }
+
+    @Test
+    void deleteReturnsOwnerAssetBlockersForDirectCalls() {
+        CapabilityScanProjectCatalogService service = mock(CapabilityScanProjectCatalogService.class);
+        var controller = new CapabilityScanProjectCatalogController(service);
+        var blockers = new ScanProjectBlockers(true, List.of(), List.of(),
+                List.of(new ScanProjectBlockers.AssetRef("BUSINESS_METHOD", 21L, "orders:read", "查询订单")));
+        org.mockito.Mockito.doThrow(new CapabilityScanProjectCatalogService.ScanProjectBlockedException(blockers))
+                .when(service).delete(7L);
+        var response = controller.delete(7L);
+        assertEquals(HttpStatus.CONFLICT, response.getStatusCode());
+        assertEquals(blockers, response.getBody());
     }
 
     @Test
@@ -451,7 +473,7 @@ class CapabilityScanProjectCatalogControllerTest {
         ScanProjectBlockers blockers = new ScanProjectBlockers(
                 true,
                 List.of("orders_create"),
-                List.of());
+                List.of(), List.of());
         when(service.rescan(7L)).thenThrow(new CapabilityScanProjectCatalogService.ScanProjectBlockedException(blockers));
 
         ResponseEntity<?> response = controller.rescan(7L);
@@ -618,10 +640,10 @@ class CapabilityScanProjectCatalogControllerTest {
         ScanProjectBlockers blockers = new ScanProjectBlockers(
                 true,
                 List.of("orders_create"),
-                List.of(new ScanProjectBlockers.AgentRef("agent-1", "Team Assistant")));
-        when(service.operationBlockers(7L)).thenReturn(blockers);
+                List.of(new ScanProjectBlockers.AgentRef("agent-1", "Team Assistant")), List.of());
+        when(service.operationBlockers(7L, ScanProjectBlockers.Operation.RESCAN)).thenReturn(blockers);
 
-        ResponseEntity<?> response = controller.operationBlockers(7L);
+        ResponseEntity<?> response = controller.operationBlockers(7L, ScanProjectBlockers.Operation.RESCAN);
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals(blockers, response.getBody());
@@ -631,9 +653,9 @@ class CapabilityScanProjectCatalogControllerTest {
     void operationBlockersReturnsNotFoundWhenProjectMissing() {
         CapabilityScanProjectCatalogService service = mock(CapabilityScanProjectCatalogService.class);
         CapabilityScanProjectCatalogController controller = new CapabilityScanProjectCatalogController(service);
-        when(service.operationBlockers(404L)).thenThrow(new IllegalArgumentException("missing"));
+        when(service.operationBlockers(404L, ScanProjectBlockers.Operation.RESCAN)).thenThrow(new IllegalArgumentException("missing"));
 
-        ResponseEntity<?> response = controller.operationBlockers(404L);
+        ResponseEntity<?> response = controller.operationBlockers(404L, ScanProjectBlockers.Operation.RESCAN);
 
         assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode());
     }

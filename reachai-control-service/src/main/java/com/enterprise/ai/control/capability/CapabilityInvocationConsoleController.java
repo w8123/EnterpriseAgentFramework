@@ -67,7 +67,8 @@ public class CapabilityInvocationConsoleController {
         if (context.failure() != null) return context.failure();
         ResponseEntity<Object> scoped = requireInvocationScopeAndAcl(request, session, context.context());
         if (scoped != null) return scoped;
-        ResponseEntity<Object> usable = requireUsableContext(context.context(), publicRequest.expectedContractHash());
+        ResponseEntity<Object> usable = requireUsableContext(context.context(), publicRequest.expectedContractHash(),
+                publicRequest.expectedExecutionRevision());
         if (usable != null) return usable;
         if (requiresConfirmation(context.context().sideEffect()) && !publicRequest.confirmedSideEffect()) {
             return error(HttpStatus.CONFLICT, "CONSOLE_CAPABILITY_CONFIRMATION_REQUIRED", "该业务方法含写入副作用，需明确确认后才可调用");
@@ -76,7 +77,7 @@ public class CapabilityInvocationConsoleController {
                 new ConsoleCapabilityInvocationContracts.InvocationCommand(
                         ConsoleCapabilityInvocationContracts.CONTRACT_VERSION,
                         publicRequest.invocationId(), actor, context.context().projectId(), context.context().projectCode(),
-                        context.context().qualifiedName(), context.context().currentContractHash(), publicRequest.input(),
+                        context.context().qualifiedName(), context.context().currentContractHash(), context.context().executionRevision(), publicRequest.input(),
                         sensitiveNames(context.context().parameters()), sideEffect(context.context().sideEffect()),
                         publicRequest.confirmedSideEffect(), System.currentTimeMillis() + deadlineMillis(context.context()));
         try {
@@ -180,7 +181,7 @@ public class CapabilityInvocationConsoleController {
 
     private ResponseEntity<Object> requireUsableContext(
             ConsoleCapabilityInvocationContracts.InvocationContext context,
-            String expectedContractHash) {
+            String expectedContractHash, String expectedExecutionRevision) {
         if (!context.executable()) {
             return error(HttpStatus.CONFLICT, safeCode(context.blockingCode(), "CONSOLE_CAPABILITY_NOT_EXECUTABLE"),
                     "业务方法当前不可试调用");
@@ -193,6 +194,9 @@ public class CapabilityInvocationConsoleController {
         }
         if (!safeEquals(context.currentContractHash(), expectedContractHash)) {
             return error(HttpStatus.CONFLICT, "CAPABILITY_PUBLISHED_CONTRACT_CHANGED", "业务方法契约已变化，请刷新后重试");
+        }
+        if (context.executionRevision() == null || !safeEquals(context.executionRevision(), expectedExecutionRevision)) {
+            return error(HttpStatus.CONFLICT, "BUSINESS_METHOD_EXECUTION_BINDING_CHANGED", "业务方法连接或凭据已变化，请刷新条件并重新确认");
         }
         return null;
     }

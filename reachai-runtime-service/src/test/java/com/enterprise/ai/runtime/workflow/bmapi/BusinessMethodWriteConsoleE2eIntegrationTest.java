@@ -31,8 +31,9 @@ class BusinessMethodWriteConsoleE2eIntegrationTest {
 
     private void authorize() { fixture.grantTrialPermissions(); fixture.grantWriteAcl(); }
     private Map<String, Object> command() throws Exception {
+        var context = fixture.writeContext(StatefulWriteBusinessFixture.STORAGE_NAME);
         return Map.of("invocationId", UUID.randomUUID().toString(), "confirmedSideEffect", true,
-                "expectedContractHash", fixture.writeContext(StatefulWriteBusinessFixture.STORAGE_NAME).get("currentContractHash"),
+                "expectedContractHash", context.get("currentContractHash"), "expectedExecutionRevision", context.get("executionRevision"),
                 "input", Map.of("orderNo", "ORD-2E", "note", "isolated-write", "apiKey", SENSITIVE));
     }
     private Map<String, Object> post(Map<String, Object> body) throws Exception {
@@ -79,7 +80,7 @@ class BusinessMethodWriteConsoleE2eIntegrationTest {
     }
 
     @Test void platformAclConfirmationStaleHashInputAndBusinessIdentityRefuseWithoutAnyWrite() throws Exception {
-        var unscoped = Map.<String, Object>of("invocationId", UUID.randomUUID().toString(), "expectedContractHash", "a".repeat(64), "input", Map.of(), "confirmedSideEffect", true);
+        var unscoped = Map.<String, Object>of("invocationId", UUID.randomUUID().toString(), "expectedContractHash", "a".repeat(64), "expectedExecutionRevision", "c".repeat(64), "input", Map.of(), "confirmedSideEffect", true);
         assertEquals(403, fixture.writeRequest("POST", PATH, unscoped).statusCode()); fixture.assertWriteCounts(0, 0);
         fixture.grantTrialPermissions();
         assertEquals(403, fixture.writeRequest("POST", PATH, unscoped).statusCode()); fixture.assertWriteCounts(0, 0);
@@ -97,7 +98,7 @@ class BusinessMethodWriteConsoleE2eIntegrationTest {
         fixture.setWriteSourceAvailability("READY");
         var identity = fixture.writeContext("bmapi2d_identityOnly"); assertEquals(true, identity.get("businessIdentityRequired"));
         var identityResponse = fixture.writeRequest("POST", "/api/business-methods/bmapi2d_identityOnly/invocations", Map.of(
-                "invocationId", UUID.randomUUID().toString(), "input", Map.of(), "expectedContractHash", identity.get("currentContractHash"), "confirmedSideEffect", true));
+                "invocationId", UUID.randomUUID().toString(), "input", Map.of(), "expectedContractHash", identity.get("currentContractHash"), "expectedExecutionRevision", identity.get("executionRevision"), "confirmedSideEffect", true));
         assertEquals(409, identityResponse.statusCode()); assertEquals("CAPABILITY_BUSINESS_IDENTITY_REQUIRED", fixture.writeResponse(identityResponse).get("code"));
         fixture.assertWriteCounts(0, 1);
         System.out.println("BMAPI_2E_REFUSALS " + json.writeValueAsString(fixture.writeEvidence()));

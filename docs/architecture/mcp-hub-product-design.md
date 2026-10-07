@@ -7,6 +7,8 @@
 
 开发环境验证更新（2026-09-10）：出向 Workflow 已通过真实 HTTP 客户端的双协议执行、固定发布版本与 schema、ACL 和工具范围拒绝、发布暂停、凭证吊销，以及 RunOps/调用日志/MySQL 回读。能力分支已修复发布契约指纹的 HTTP 传递和可信租户丢失，实际 Spring Boot 2 SDK 样例通过注册、平台回调同步、只读自动接纳、契约漂移拒绝、接受新契约、旧发布拒绝及重新发布后的双协议调用。SDK 业务端签名追踪号现与平台生成的 MCP 根追踪号一致，调用参数不能覆盖；客户部署环境、双源业务与浏览器整体验收仍未完成。详见 [Workflow 验收](../../output/tasks/architecture-audit-20260905/mcp-contract-wire-notes.md)、[SDK 能力验收](../../output/tasks/architecture-audit-20260905/capability-tenant-scope-notes.md) 和 [SDK 追踪号验收](../../output/tasks/architecture-audit-20260905/sdk-trace-propagation-notes.md)。
 
+BMAPI-6 更新（2026-10-05）：能力分支先读取已接纳业务方法 owner，再派生 MCP Tool 元数据；旧混合能力目录不再是选择入口。API 通过固定 API owner 的已发布 Workflow 暴露。本批受控发布/执行与限制见[专项进度](../plans/业务方法与API重构实施进度.md)，不将其扩写为 MCP Hub 入向或客户部署验收。
+
 ## 1. 产品决策
 
 MCP Hub 是 ReachAI 的独立产品模块，不是"暴露白名单开关"，也不是现有 `ControlMcpAdminController`、三张表和四个平铺页面的增量升级。
@@ -16,10 +18,10 @@ MCP Hub 是 ReachAI 的独立产品模块，不是"暴露白名单开关"，也�
 - 不兼容旧 `/api/mcp/visibility` 手工字符串白名单模型与 `control_mcp_visibility` 表。
 - 不迁移 `control_mcp_visibility` 数据；`control_mcp_client`、`control_mcp_call_log` 按新模型改造后重建。
 - 不保留"白名单页 + 凭证页 + 流水页 + 向导页"四页并存结构。
-- 允许复用 ReachAI 已成熟的平台能力：能力目录（Capability Catalog）、Workflow-as-Tool 契约、Runtime tool 执行、Supervisor 策略链、Tool ACL、Guard、RunOps、Trace、服务间 HMAC 与管理端设计系统。
+- 允许复用 ReachAI 已成熟的平台能力：业务方法目录（Capability Catalog）、Workflow-as-Tool 契约、Runtime tool 执行、Supervisor 策略链、Tool ACL、Guard、RunOps、Trace、服务间 HMAC 与管理端设计系统。
 - `/mcp/manifest` 与 `/mcp/jsonrpc` 协议入口保留，但语义升级为修订驱动的发布模型（见第 9 节）。
 
-MCP 是开放工具协议渠道，不是新的业务资产类型。出向的 Tool 投影来自能力目录与已发布 Workflow；入向的外部 MCP 工具是受治理的远程工具资产，不进入 `capability_tool_definition`。
+MCP 是开放工具协议渠道，不是新的业务资产类型。出向的 Tool 投影来自已接纳业务方法与已发布 Workflow；入向的外部 MCP 工具是受治理的远程工具资产，不进入 `capability_tool_definition`。
 
 ## 2. 产品定义
 
@@ -27,7 +29,7 @@ MCP Hub 负责让企业能够把平台能力组成 MCP 服务对外发布，安�
 
 它交付的不是"协议通了"，而是四个企业结果：
 
-1. **可发布**：平台管理员可以把一组能力（Capability 目录条目 + 已发布 Workflow）组成版本化、可回滚的 MCP 服务，外部 AI 客户端拿到的是真实 schema 与真实描述，可直接调用。
+1. **可发布**：平台管理员可以把一组能力（业务方法目录条目 + 已发布 Workflow）组成版本化、可回滚的 MCP 服务，外部 AI 客户端拿到的是真实 schema 与真实描述，可直接调用。
 2. **可接入**：集成开发者可以注册外部 MCP 服务，验证连通性与身份，同步工具清单并在远端变化时受控审核。
 3. **可编排**：外部 MCP 工具进入 Workflow Studio 节点目录与 Agent 工具白名单，Workflow 与 Supervisor 都能在明确授权范围内调用外部 MCP 工具。
 4. **可治理**：安全和运维人员可以回答"谁在调用我们哪些能力、我们调用了谁家什么工具、凭什么调用、成功率和延迟如何、失败在哪一层"。
@@ -50,7 +52,7 @@ MCP Hub 不取代 A2A Hub、Gateway、Embed、Workflow Studio 或 RunOps。MCP �
 
 - **MCP 发布（Publication）**：一个对外 MCP 服务单元，由名称、说明、状态和当前修订组成；是出向的聚合根。
 - **发布修订（Publication Revision）**：发布内容在某一时刻的不可变快照，包含全部工具投影的名称、描述、inputSchema 与风险等级；`tools/list` 只从已发布修订出。
-- **发布条目（Publication Item）**：草稿态的组成单元，引用一个 Capability 或已发布 Workflow，可带名称别名与描述覆盖；发布时解析冻结为修订内容。
+- **发布条目（Publication Item）**：草稿态的组成单元，引用一个已接纳业务方法或已发布 Workflow，可带名称别名与描述覆盖；发布时解析冻结为修订内容。
 - **MCP Client**：挂接在单一 Publication 下的外部调用方身份，持有凭证、角色与工具范围。
 - **外部 MCP 服务（Remote MCP Server）**：入向注册的外部 MCP endpoint，经连通性验证与信任审核后可被编排调用。
 - **远程工具（Remote Tool）**：外部 MCP 服务 `tools/list` 同步下来的工具快照；绑定与执行都使用固定快照，不静默跟随远端变化。
@@ -60,7 +62,7 @@ MCP Hub 不取代 A2A Hub、Gateway、Embed、Workflow Studio 或 RunOps。MCP �
 
 ### 4.1 平台管理员（出向）
 
-- 从能力目录与已发布 Workflow 中挑选条目组成发布，配置对外名称与描述。
+- 从业务方法目录与已发布 Workflow 中挑选条目组成发布，配置对外名称与描述。
 - 查看每个条目解析出的真实 inputSchema 与风险等级，修正后再发布。
 - 管理 Client 凭证：创建、限定工具范围、设置有效期、轮换、吊销。
 - 暂停发布、创建下一修订、回滚到历史修订。
@@ -110,7 +112,7 @@ MCP Hub 在管理端提供一个一级产品入口，内部由五个任务型工
 
 发布采用"组包 → 解析 → 预检 → 发布"向导，不提供原始 JSON 编辑界面：
 
-1. **选择资产**：从能力目录（Capability Catalog）与已发布 Workflow 中搜索勾选；列表展示名称、描述、来源、风险等级。不提供手敲字符串。
+1. **选择资产**：从业务方法目录（Capability Catalog）与已发布 Workflow 中搜索勾选；列表展示名称、描述、来源、风险等级。不提供手敲字符串。
 2. **解析契约**：系统按 `source_kind` 实时解析每个条目的真实 `inputSchema` 与描述（Capability 走 Capability internal API 的 `parameters_json`/`ai_description`；Workflow 走 Runtime Workflow-as-Tool 契约的 schema），界面预览解析结果；解析失败的条目标红并阻断发布。
 3. **配置对外身份**：对外名称别名、描述覆盖、条目启停。
 4. **发布前检查**：所有条目 schema 解析成功；Workflow 条目仍有可解析的已发布版本；风险等级汇总确认——`IRREVERSIBLE` 条目必须二次显式放行；至少一个有效 Client 或说明暂不发放凭证。

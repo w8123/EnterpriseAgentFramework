@@ -62,53 +62,11 @@ class CapabilityToolCatalogServiceTest {
         assertEquals(1, result.getTotal());
         assertEquals("orders_create", result.getRecords().get(0).getName());
         assertTrue(capturedQuery.get().getSqlSegment().toLowerCase().contains("qualified_name"));
+        var query = (com.baomidou.mybatisplus.core.conditions.AbstractWrapper<?, ?, ?>) capturedQuery.get();
+        assertTrue(query.getSqlSegment().toLowerCase().contains("asset_type"));
+        assertTrue(query.getParamNameValuePairs().containsValue("BUSINESS_METHOD"));
+        assertTrue(query.getParamNameValuePairs().containsValue("HTTP_API"));
         verify(toolMapper).selectPage(any(), any());
-    }
-
-    @Test
-    void pagesBusinessMethodsWithAssetTypeInsideTheDatabasePaginationQuery() {
-        ToolDefinitionEntity businessMethod = tool("orders_create", "Create order");
-        businessMethod.setAssetType("BUSINESS_METHOD");
-        Page<ToolDefinitionEntity> page = new Page<>(2, 100, 1);
-        page.setRecords(List.of(businessMethod));
-        AtomicReference<Wrapper<ToolDefinitionEntity>> capturedQuery = new AtomicReference<>();
-        when(toolMapper.selectPage(any(), any())).thenAnswer(invocation -> {
-            capturedQuery.set(invocation.getArgument(1));
-            return page;
-        });
-
-        IPage<ToolDefinitionEntity> result = service.pageBusinessMethods(
-                2, 500, "order", true, 7L);
-
-        assertEquals(1, result.getRecords().size());
-        assertTrue(capturedQuery.get().getSqlSegment().toLowerCase().contains("asset_type"));
-        assertTrue(((com.baomidou.mybatisplus.core.conditions.AbstractWrapper<?, ?, ?>) capturedQuery.get())
-                .getParamNameValuePairs().containsValue("BUSINESS_METHOD"));
-        verify(toolMapper).selectPage(any(), any());
-    }
-
-    @Test
-    void findsBusinessMethodsByLegacyNameOrStableQualifiedNameOnlyWhenTheirStoredProjectionTypeMatches() {
-        ToolDefinitionEntity businessMethod = tool("orders_create", "Create order");
-        businessMethod.setAssetType("BUSINESS_METHOD");
-        AtomicReference<Wrapper<ToolDefinitionEntity>> capturedQuery = new AtomicReference<>();
-        when(toolMapper.selectOne(any())).thenAnswer(invocation -> {
-            capturedQuery.set(invocation.getArgument(0));
-            return businessMethod;
-        });
-
-        Optional<ToolDefinitionEntity> found = service.findBusinessMethodByName(" orders_create ");
-
-        assertEquals("orders_create", found.orElseThrow().getName());
-        assertTrue(capturedQuery.get().getSqlSegment().toLowerCase().contains("asset_type"));
-        assertTrue(capturedQuery.get().getSqlSegment().toLowerCase().contains("qualified_name"));
-        assertTrue(((com.baomidou.mybatisplus.core.conditions.AbstractWrapper<?, ?, ?>) capturedQuery.get())
-                .getParamNameValuePairs().containsValue("BUSINESS_METHOD"));
-
-        service.findBusinessMethodByName("orders:orders_create");
-        assertTrue(capturedQuery.get().getSqlSegment().toLowerCase().contains("qualified_name"));
-        assertTrue(((com.baomidou.mybatisplus.core.conditions.AbstractWrapper<?, ?, ?>) capturedQuery.get())
-                .getParamNameValuePairs().containsValue("orders:orders_create"));
     }
 
     @Test
@@ -196,7 +154,8 @@ class CapabilityToolCatalogServiceTest {
         entity.setName(name);
         entity.setTitle("创建订单");
         entity.setDescription(description);
-        entity.setSource("manual");
+        entity.setSource("scanner");
+        entity.setAssetType("BUSINESS_METHOD");
         entity.setHttpMethod("POST");
         entity.setEndpointPath("/orders");
         entity.setEnabled(true);

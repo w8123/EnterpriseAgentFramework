@@ -23,7 +23,7 @@ public final class CapabilitySourceOwnership {
     private static void requireCatalogWritable(String sourceQualifiedName, String location) {
         if (StringUtils.hasText(sourceQualifiedName) || isSdkLocation(location)) {
             throw new IllegalArgumentException(
-                    "CAPABILITY_SOURCE_OWNED: SDK 能力由来源同步和变化处理维护，请在能力目录处理来源变化");
+                    "CAPABILITY_SOURCE_OWNED: SDK 业务方法由来源同步和变化处理维护，请在所属项目的来源变化中处理");
         }
     }
 

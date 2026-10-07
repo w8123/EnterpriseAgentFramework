@@ -1,11 +1,11 @@
 import { controlRequest } from './request'
-import type { CapabilityReferences } from './tool'
+import type { AssetReferences } from '@/types/assetReferences'
 import type { HttpApiConnection, HttpApiDetail, HttpApiInvocationOutcome,
   HttpApiInvocationUnconfirmed, HttpApiPage } from '@/types/httpApi'
 
 export function listHttpApis(params: { projectId: number; environment?: string; keyword?: string;
   method?: string; sourceStatus?: string; current: number; size: number }) {
-  return controlRequest.get<HttpApiPage>('/api/apis', { params })
+  return controlRequest.get<HttpApiPage>('/api/apis', { params, errorFeedback: 'local' })
 }
 
 export function getHttpApi(id: number) {
@@ -13,7 +13,7 @@ export function getHttpApi(id: number) {
 }
 
 export function getHttpApiReferences(id: number) {
-  return controlRequest.get<CapabilityReferences>(`/api/apis/${id}/references`)
+  return controlRequest.get<AssetReferences>(`/api/apis/${id}/references`)
 }
 
 export function acceptHttpApi(id: number, expectedSourceSetRevision: string) {

@@ -54,10 +54,9 @@ class RuntimeWorkflowResumePersistenceTest {
                 mock(RuntimeInteractionExpiryTracePort.class), mock(RuntimeSupervisorApprovalService.class)));
         executor = mock(RuntimeGraphSpecExecutor.class);
         when(executor.executeFromCheckpoint(any(), any(), any(), anyInt(), any(), any())).thenReturn(done());
-        resume = transactional(new RuntimeInteractionResumeService(waits,
-                mock(RuntimeCapabilityCatalogClient.class), executor, json, expiry));
+        resume = transactional(new RuntimeInteractionResumeService(waits, executor, json, expiry));
         waits.createWaitingSession(new RuntimeWorkflowInteractionSessionService.CreateRequest(ID, "WORKFLOW",
-                "run-a", "trace-a", "wf-a", 23L, null, GRAPH, "form", "COLLECT_INPUT",
+                "run-a", "trace-a", "wf-a", 23L, GRAPH, "form", "COLLECT_INPUT",
                 Map.of("lastOutput", "已读取的业务数据"), Map.of("component", "form"), Map.of(),
                 "orders", "tenant-a", "chat-a", "user-a", 120));
     }

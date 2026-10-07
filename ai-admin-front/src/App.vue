@@ -1,13 +1,17 @@
 <template>
   <router-view v-slot="{ Component, route }">
     <transition name="page" mode="out-in">
-      <component :is="Component" :key="route.path" />
+      <component :is="Component" :key="viewKey(route)" />
     </transition>
   </router-view>
 </template>
 
 <script setup lang="ts">
-// Theme is initialized in useTheme.ts
+import type { RouteLocationNormalizedLoaded } from 'vue-router'
+
+// Nested workbenches retain their shell and focus while the active panel changes.
+const viewKey = (route: RouteLocationNormalizedLoaded) =>
+  typeof route.meta.rootViewKey === 'string' ? route.meta.rootViewKey : route.path
 </script>
 
 <style>

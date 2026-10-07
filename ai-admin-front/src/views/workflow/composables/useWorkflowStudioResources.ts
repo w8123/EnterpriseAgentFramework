@@ -1,13 +1,14 @@
 import { computed, getCurrentScope, onScopeDispose, ref, watch, type Ref } from 'vue'
-import { getApiGraphParamHints, type ApiGraphParamSourceHint } from '@/api/apiGraph'
 import { getKnowledgeList } from '@/api/knowledge'
 import { getModelInstances } from '@/api/model'
-import { listAllTools } from '@/api/tool'
+import { listAllBusinessMethods } from '@/api/businessMethod'
+import { platformSessionId } from '@/auth/platformSession'
+import { isBusinessMethodInfo, type BusinessMethodInfo } from '@/types/businessMethod'
+import { isSelectableBusinessMethod } from '../businessMethodWorkflow'
 import { getWorkflowGraphNodeTypes } from '@/api/workflow'
 import { listWorkflowCredentials } from '@/api/workflowCredential'
 import type { KnowledgeBase } from '@/types/knowledge'
 import type { ModelInstance } from '@/types/model'
-import type { ToolInfo } from '@/types/tool'
 import type { WorkflowCredential } from '@/types/workflowCredential'
 import type { WorkflowGraphNodeTypeDescriptor, WorkflowWorkingCopyState } from '@/types/workflow'
 import { normalizeActiveModelInstances } from '@/utils/modelSelection'
@@ -25,12 +26,13 @@ export function useWorkflowStudioResources(deps: UseWorkflowStudioResourcesDeps)
   const modelOptionsLoading = ref(false)
   const modelOptionsLoadError = ref(false)
   const knowledgeOptions = ref<KnowledgeBase[]>([])
-  const toolOptions = ref<ToolInfo[]>([])
+  const toolOptions = ref<BusinessMethodInfo[]>([])
+  const toolOptionsLoading = ref(false)
+  const toolOptionsLoadError = ref(false)
   const credentialOptions = ref<WorkflowCredential[]>([])
-  const paramSourceHints = ref<ApiGraphParamSourceHint[]>([])
   const graphNodeTypeCapabilitiesLoaded = ref(false)
   let toolOptionsSequence = 0
-  let paramSourceHintsSequence = 0
+  let credentialOptionsSequence = 0
   let modelOptionsSequence = 0
   let knowledgeOptionsSequence = 0
   let graphResourceScope = ''
@@ -39,11 +41,13 @@ export function useWorkflowStudioResources(deps: UseWorkflowStudioResourcesDeps)
 
   // Catalogs belong to the document/project, not a particular saved draft object.
   const resourceScope = () => [
-    deps.studio.value?.workflowId, deps.studio.value?.projectId, deps.studio.value?.projectCode,
+    platformSessionId.value, deps.studio.value?.workflowId, deps.studio.value?.projectId, deps.studio.value?.projectCode,
   ].join('\u0000')
   const invalidateCatalogRequests = () => {
     ++modelOptionsSequence
     ++knowledgeOptionsSequence
+    ++toolOptionsSequence
+    ++credentialOptionsSequence
   }
   function resetGraphResourceScope(scope: string) {
     graphResourceScope = scope
@@ -52,6 +56,10 @@ export function useWorkflowStudioResources(deps: UseWorkflowStudioResourcesDeps)
     invalidateCatalogRequests()
     modelOptions.value = []
     knowledgeOptions.value = []
+    toolOptions.value = []
+    credentialOptions.value = []
+    toolOptionsLoading.value = false
+    toolOptionsLoadError.value = false
     modelOptionsLoading.value = false
     modelOptionsLoadError.value = false
   }
@@ -60,10 +68,12 @@ export function useWorkflowStudioResources(deps: UseWorkflowStudioResourcesDeps)
   if (getCurrentScope()) onScopeDispose(() => {
     invalidateCatalogRequests()
     modelOptionsLoading.value = false
+    toolOptionsLoading.value = false
   })
 
   const availableTools = computed(() =>
-    toolOptions.value.filter((tool) => tool.enabled),
+    toolOptions.value.filter((method) => isSelectableBusinessMethod(method, deps.studio.value?.projectId)
+      && method.projectCode === deps.studio.value?.projectCode),
   )
 
   const authoringModelOptions = computed(() => {
@@ -101,27 +111,31 @@ export function useWorkflowStudioResources(deps: UseWorkflowStudioResourcesDeps)
   }
 
   async function loadToolOptions(state: WorkflowWorkingCopyState | null = deps.studio.value) {
-    const requestSequence = ++toolOptionsSequence
-    const requestedProjectId = state?.projectId ?? null
-    const requestedProjectCode = state?.projectCode ?? null
-    const isCurrentRequestScope = () => requestSequence === toolOptionsSequence
-      && (deps.studio.value?.projectId ?? null) === requestedProjectId
-      && (deps.studio.value?.projectCode ?? null) === requestedProjectCode
+    const sequence = ++toolOptionsSequence
+    const scope = resourceScope()
+    const projectId = state?.projectId
+    const projectCode = state?.projectCode
+    const isCurrent = () => sequence === toolOptionsSequence && scope === resourceScope()
+      && deps.studio.value?.projectId === projectId && deps.studio.value?.projectCode === projectCode
     toolOptions.value = []
+    toolOptionsLoading.value = false
+    toolOptionsLoadError.value = false
+    if (!projectId || !projectCode) return
+    toolOptionsLoading.value = true
     try {
-      const tools = await listAllTools({
-        enabled: true,
-        ...(requestedProjectId ? { projectId: requestedProjectId } : {}),
-      })
-      if (!isCurrentRequestScope()) {
-        return
+      const methods = await listAllBusinessMethods(projectId)
+      if (!isCurrent()) return
+      if (!Array.isArray(methods) || methods.some(method => !isBusinessMethodInfo(method)
+        || method.projectId !== projectId || method.projectCode !== projectCode)) {
+        throw new Error('业务方法来源身份不匹配。')
       }
-      toolOptions.value = tools
+      toolOptions.value = methods
     } catch {
-      if (!isCurrentRequestScope()) {
-        return
-      }
+      if (!isCurrent()) return
       toolOptions.value = []
+      toolOptionsLoadError.value = true
+    } finally {
+      if (sequence === toolOptionsSequence) toolOptionsLoading.value = false
     }
   }
 
@@ -187,15 +201,18 @@ export function useWorkflowStudioResources(deps: UseWorkflowStudioResourcesDeps)
     state: WorkflowWorkingCopyState | null = deps.studio.value,
     shouldApply: () => boolean = () => true,
   ) {
+    const sequence = ++credentialOptionsSequence
+    const scope = resourceScope()
+    const isCurrent = () => shouldApply() && sequence === credentialOptionsSequence && scope === resourceScope()
     try {
       const { data } = await listWorkflowCredentials({
         projectId: state?.projectId || null,
         projectCode: state?.projectCode || null,
       })
-      if (!shouldApply()) return
+      if (!isCurrent()) return
       credentialOptions.value = Array.isArray(data) ? data : []
     } catch {
-      if (!shouldApply()) return
+      if (!isCurrent()) return
       credentialOptions.value = []
     }
   }
@@ -207,27 +224,6 @@ export function useWorkflowStudioResources(deps: UseWorkflowStudioResourcesDeps)
     ]
   }
 
-  async function refreshParamSourceHints() {
-    const requestSequence = ++paramSourceHintsSequence
-    paramSourceHints.value = []
-    const tool = selectedToolInfo.value
-    // API Graph hints belong to scanned HTTP/API definitions. A Business
-    // Method already owns its parameter contract in the dedicated picker;
-    // asking the API Graph to resolve its catalog storage name both duplicates
-    // that contract and can target no scan row at all.
-    if (!tool?.projectId || !tool.name || tool.assetType === 'BUSINESS_METHOD') {
-      return
-    }
-    try {
-      const { data } = await getApiGraphParamHints(tool.projectId, tool.name)
-      if (requestSequence !== paramSourceHintsSequence) return
-      paramSourceHints.value = Array.isArray(data) ? data : []
-    } catch {
-      if (requestSequence !== paramSourceHintsSequence) return
-      paramSourceHints.value = []
-    }
-  }
-
   return {
     nodeTypes,
     modelOptions,
@@ -235,7 +231,8 @@ export function useWorkflowStudioResources(deps: UseWorkflowStudioResourcesDeps)
     modelOptionsLoadError,
     knowledgeOptions,
     credentialOptions,
-    paramSourceHints,
+    toolOptionsLoading,
+    toolOptionsLoadError,
     graphNodeTypeCapabilitiesLoaded,
     availableTools,
     authoringModelOptions,
@@ -248,6 +245,5 @@ export function useWorkflowStudioResources(deps: UseWorkflowStudioResourcesDeps)
     loadGraphResourceOptions,
     loadCredentialOptions,
     handleCredentialCreated,
-    refreshParamSourceHints,
   }
 }

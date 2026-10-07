@@ -1,18 +1,19 @@
+import { businessMethodFixture } from '@/test/fixtures/businessMethod'
 import { effectScope, nextTick, ref } from 'vue'
 import { describe, expect, it, vi } from 'vitest'
-import type { ToolInfo } from '@/types/tool'
+import type { BusinessMethodInfo } from '@/types/businessMethod'
 
 const api = vi.hoisted(() => ({
   getBusinessMethods: vi.fn(),
   getBusinessMethod: vi.fn(),
 }))
 
-vi.mock('@/api/tool', () => api)
+vi.mock('@/api/businessMethod', () => api)
 
 import { useWorkflowBusinessMethodPicker } from './useWorkflowBusinessMethodPicker'
 
-function method(name: string, projectId = 7): ToolInfo {
-  return {
+function method(name: string, projectId = 7): BusinessMethodInfo {
+  return businessMethodFixture({
     assetType: 'BUSINESS_METHOD',
     name,
     title: name,
@@ -24,7 +25,7 @@ function method(name: string, projectId = 7): ToolInfo {
     qualifiedName: `orders:${name}`,
     enabled: true,
     sourceAvailability: 'READY',
-  }
+  })
 }
 
 function deferred<T>() {
@@ -78,9 +79,9 @@ describe('useWorkflowBusinessMethodPicker', () => {
   })
 
   it('ignores late A→B→A list responses and keeps retryable errors in the current dialog generation', async () => {
-    const aFirst = deferred<{ data: { records: ToolInfo[]; total: number } }>()
-    const b = deferred<{ data: { records: ToolInfo[]; total: number } }>()
-    const aLatest = deferred<{ data: { records: ToolInfo[]; total: number } }>()
+    const aFirst = deferred<{ data: { records: BusinessMethodInfo[]; total: number } }>()
+    const b = deferred<{ data: { records: BusinessMethodInfo[]; total: number } }>()
+    const aLatest = deferred<{ data: { records: BusinessMethodInfo[]; total: number } }>()
     api.getBusinessMethods
       .mockReturnValueOnce(aFirst.promise)
       .mockReturnValueOnce(b.promise)
@@ -119,7 +120,7 @@ describe('useWorkflowBusinessMethodPicker', () => {
   })
 
   it('does not accept cross-project or stale detail data after a saved reference changes', async () => {
-    const oldDetail = deferred<{ data: ToolInfo }>()
+    const oldDetail = deferred<{ data: BusinessMethodInfo }>()
     api.getBusinessMethod.mockReturnValueOnce(oldDetail.promise)
     const state = createPicker()
     const pending = state.picker.loadSelectedDetail('old-query')
@@ -134,7 +135,7 @@ describe('useWorkflowBusinessMethodPicker', () => {
   })
 
   it('keeps an adopted business-method detail current after the picker closes', async () => {
-    const detail = deferred<{ data: ToolInfo }>()
+    const detail = deferred<{ data: BusinessMethodInfo }>()
     api.getBusinessMethods.mockResolvedValue({ data: { records: [], total: 0 } })
     api.getBusinessMethod.mockReturnValueOnce(detail.promise)
     const state = createPicker()

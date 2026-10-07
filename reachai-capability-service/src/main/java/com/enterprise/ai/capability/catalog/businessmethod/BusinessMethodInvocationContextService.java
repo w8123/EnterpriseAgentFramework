@@ -1,13 +1,11 @@
 package com.enterprise.ai.capability.catalog.businessmethod;
 
-import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionEntity;
 import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionParameter;
+import com.enterprise.ai.agent.registry.RegistryContracts.CapabilityRegistration;
 import com.enterprise.ai.agent.registry.RegistryCredentialEntity;
 import com.enterprise.ai.agent.registry.RegistrySecurityService;
 import com.enterprise.ai.capability.catalog.tool.CapabilityParameterContractCodec;
-import com.enterprise.ai.capability.catalog.tool.CapabilityToolCatalogService;
 import com.enterprise.ai.capability.registry.CapabilityChangeLifecycle;
-import com.enterprise.ai.capability.registry.CapabilityChangePolicy;
 import com.enterprise.ai.capability.registry.CapabilitySourceStateEntity;
 import com.enterprise.ai.common.capability.ConsoleCapabilityInvocationContracts;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -30,33 +28,35 @@ import java.net.URI;
 public class BusinessMethodInvocationContextService {
 
     private static final String BUSINESS_METHOD = "BUSINESS_METHOD";
-    private final CapabilityToolCatalogService toolCatalogService;
+    private final BusinessMethodCatalogService catalog;
     private final CapabilityChangeLifecycle changeLifecycle;
-    private final CapabilityChangePolicy changePolicy;
     private final RegistrySecurityService registrySecurityService;
     private final ObjectMapper objectMapper;
 
     public ConsoleCapabilityInvocationContracts.InvocationContext get(String name) {
-        ToolDefinitionEntity tool = toolCatalogService.findBusinessMethodByName(name)
+        BusinessMethodDefinition method = catalog.find(name)
                 .orElseThrow(() -> new BusinessMethodNotFoundException(name));
-        String currentHash = changePolicy.contractHash(tool);
-        CapabilitySourceStateEntity state = StringUtils.hasText(tool.getSourceQualifiedName())
-                ? changeLifecycle.sourceState(tool.getSourceQualifiedName()) : null;
+        BusinessMethodAssetEntity asset = method.asset();
+        CapabilityRegistration declaration = method.declaration();
+        String currentHash = method.revision().getInvocationHash();
+        CapabilitySourceStateEntity state = changeLifecycle.sourceState(asset.getQualifiedName());
         String sourceHash = state == null ? null : trim(state.getSourceContractHash());
         String acceptedHash = state == null ? null : trim(state.getAcceptedContractHash());
-        String sourceAvailability = state == null ? "SOURCE_UNKNOWN" : trim(state.getAvailability());
-        boolean enabled = Boolean.TRUE.equals(tool.getEnabled());
-        boolean credentialAvailable = credentialAvailable(tool);
-        boolean businessIdentityRequired = hasRequiredRoles(tool);
+        String sourceAvailability = method.sourceAvailability();
+        boolean enabled = Boolean.TRUE.equals(asset.getEnabled());
+        RegistryCredentialEntity credential = registrySecurityService.findPrimaryActiveCredential(asset.getProjectCode()).orElse(null);
+        String executionRevision = BusinessMethodExecutionRevision.of(method, credential);
+        boolean credentialAvailable = executionRevision != null;
+        boolean businessIdentityRequired = ConsoleBusinessMethodDeclaration.hasRequiredRoles(declaration.metadata(), objectMapper);
 
         String code = null;
         String message = null;
         if (!enabled) {
             code = "CAPABILITY_DISABLED";
             message = "业务方法当前未启用";
-        } else if (!StringUtils.hasText(tool.getProjectCode()) || tool.getProjectId() == null
-                || !StringUtils.hasText(tool.getSourceQualifiedName())
-                || !tool.getSourceQualifiedName().trim().equals(tool.getQualifiedName())) {
+        } else if (!StringUtils.hasText(asset.getProjectCode()) || asset.getProjectId() == null
+                || !StringUtils.hasText(asset.getQualifiedName())
+                || !"ACCEPTED".equals(asset.getStatus())) {
             code = "CAPABILITY_SOURCE_UNAVAILABLE";
             message = "业务方法缺少可验证的项目来源绑定";
         } else if (!currentHash.equals(sourceHash) || !currentHash.equals(acceptedHash)
@@ -73,22 +73,22 @@ public class BusinessMethodInvocationContextService {
 
         return new ConsoleCapabilityInvocationContracts.InvocationContext(
                 ConsoleCapabilityInvocationContracts.CONTRACT_VERSION,
-                tool.getName(),
-                tool.getQualifiedName(),
-                tool.getSourceQualifiedName(),
+                asset.getInvocationName(),
+                asset.getQualifiedName(),
+                asset.getQualifiedName(),
                 BUSINESS_METHOD,
-                tool.getProjectId(),
-                trim(tool.getProjectCode()),
+                asset.getProjectId(),
+                trim(asset.getProjectCode()),
                 currentHash,
                 acceptedHash,
                 sourceHash,
                 sourceAvailability,
                 enabled,
-                trim(tool.getSideEffect()),
-                safeParameters(tool),
-                trim(tool.getRequestBodyType()),
-                trim(tool.getResponseType()),
-                targetDescription(tool),
+                trim(declaration.sideEffect()),
+                safeParameters(declaration),
+                trim(declaration.requestBodyType()),
+                trim(declaration.responseType()),
+                targetDescription(declaration),
                 null,
                 "UNKNOWN",
                 credentialAvailable,
@@ -96,24 +96,11 @@ public class BusinessMethodInvocationContextService {
                 code == null,
                 code,
                 message,
-                ConsoleBusinessMethodDeclaration.timeoutMillis(tool, objectMapper));
+                ConsoleBusinessMethodDeclaration.timeoutMillis(declaration.metadata(), objectMapper), executionRevision);
     }
 
-    /** Used at dispatch time as a second owner-side guard, after Control's read snapshot. */
-    public boolean hasRequiredRoles(ToolDefinitionEntity tool) {
-        return ConsoleBusinessMethodDeclaration.hasRequiredRoles(tool, objectMapper);
-    }
-
-    private boolean credentialAvailable(ToolDefinitionEntity tool) {
-        if (tool == null || !StringUtils.hasText(tool.getProjectCode())) return false;
-        RegistryCredentialEntity credential = registrySecurityService
-                .findPrimaryActiveCredential(tool.getProjectCode()).orElse(null);
-        return credential != null && StringUtils.hasText(credential.getAppKey())
-                && StringUtils.hasText(credential.getAppSecret());
-    }
-
-    private List<ConsoleCapabilityInvocationContracts.Parameter> safeParameters(ToolDefinitionEntity tool) {
-        return CapabilityParameterContractCodec.logicalTree(toolCatalogService.parseParameters(tool.getParametersJson())).stream()
+    private List<ConsoleCapabilityInvocationContracts.Parameter> safeParameters(CapabilityRegistration declaration) {
+        return CapabilityParameterContractCodec.logicalTree(declaration.parameters()).stream()
                 .map(parameter -> safeParameter(parameter, false)).toList();
     }
 
@@ -145,16 +132,16 @@ public class BusinessMethodInvocationContextService {
         return false;
     }
 
-    private String targetDescription(ToolDefinitionEntity tool) {
-        String method = StringUtils.hasText(tool.getHttpMethod()) ? tool.getHttpMethod().trim().toUpperCase() : "POST";
+    private String targetDescription(CapabilityRegistration declaration) {
+        String method = StringUtils.hasText(declaration.httpMethod()) ? declaration.httpMethod().trim().toUpperCase() : "POST";
         try {
-            if (!StringUtils.hasText(tool.getBaseUrl())) return method + " · 已接受项目契约";
-            URI uri = URI.create(tool.getBaseUrl().trim());
+            if (!StringUtils.hasText(declaration.baseUrl())) return method + " · 已接受项目契约";
+            URI uri = URI.create(declaration.baseUrl().trim());
             if (!StringUtils.hasText(uri.getScheme()) || !StringUtils.hasText(uri.getHost())) {
                 return method + " · 已接受项目契约";
             }
             String authority = uri.getHost() + (uri.getPort() < 0 ? "" : ":" + uri.getPort());
-            String path = joinPath(uri.getRawPath(), tool.getContextPath(), tool.getEndpointPath());
+            String path = joinPath(uri.getRawPath(), declaration.contextPath(), declaration.endpointPath());
             return method + " · " + uri.getScheme().toLowerCase() + "://" + authority + path;
         } catch (IllegalArgumentException invalid) {
             return method + " · 已接受项目契约";

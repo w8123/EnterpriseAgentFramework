@@ -283,7 +283,9 @@ class RuntimeDebugSessionOwnershipTest {
         String digest = InternalServiceHmac.bodySha256Hex(body);
         String canonical = InternalServiceHmac.canonical(method, path, InternalServiceAuthHeaders.CALLER_CONTROL,
                 source, tenant, user, timestamp, nonce, digest);
-        return request(HttpMethod.valueOf(method), path).contentType(MediaType.APPLICATION_JSON).content(body)
+        return request(HttpMethod.valueOf(method), path)
+                .accept(path.endsWith("/stream") ? MediaType.TEXT_EVENT_STREAM : MediaType.APPLICATION_JSON)
+                .contentType(MediaType.APPLICATION_JSON).content(body)
                 .header(InternalServiceAuthHeaders.CALLER, InternalServiceAuthHeaders.CALLER_CONTROL)
                 .header(InternalServiceAuthHeaders.IDENTITY_SOURCE, source)
                 .header(InternalServiceAuthHeaders.IDENTITY_TENANT_ID, tenant)

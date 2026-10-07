@@ -81,7 +81,7 @@ final class WriteWorkflowAgentFixture {
                 interactions, RuntimeSessionMemoryService.transientOnly(), guard, trace, json);
         supervisor.setWorkflowInputProtection(inputProtection);
         var execution = new RuntimeAgentExecutionService(resolver, supervisor, approvals,
-                new RuntimeInteractionResumeService(interactions, null, graphExecutor, json, null),
+                new RuntimeInteractionResumeService(interactions, graphExecutor, json, null),
                 (sessionId, identity) -> { throw new UnsupportedOperationException("Session clearing is outside this fixture"); }, runs);
         executions = new RuntimeAgentExecutionInternalController(execution, null, 8_000L);
     }
