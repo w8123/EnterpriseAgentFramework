@@ -32,6 +32,7 @@ const foundationTokenFiles = [
   'src/styles/tokens/_brand.scss',
   'src/styles/tokens/_semantic.scss',
   'src/styles/tokens/_density.scss',
+  'src/styles/tokens/_layout.scss',
 ]
 const foundationCssVariables = new Set()
 for (const relativePath of foundationTokenFiles) {
@@ -93,6 +94,17 @@ function forbiddenColorLiterals(value) {
 
 function isTokenBoxShadow(value) {
   return /^var\(\s*--[-a-zA-Z0-9_]+\s*\)$/i.test(value)
+}
+
+function isNamedPresentationReset(selector, value, presentationReset) {
+  if (value !== 'none' || !presentationReset) return false
+  const [className, presentation] = presentationReset
+  const unscopedSelector = selector.replace(/\[data-v-[^\]]+\]/g, '')
+  return [
+    `.${className}[data-presentation='${presentation}']`,
+    `.${className}[data-presentation="${presentation}"]`,
+    `.${className}[data-presentation=${presentation}]`,
+  ].includes(unscopedSelector)
 }
 
 function compileSassSyntax(style, label, localFailures) {
@@ -188,7 +200,10 @@ async function validateCommonSfc(source, label, options = {}) {
       }
     }
 
-    for (const { property, value } of compiledDeclarations(compiled.code)) {
+    for (const { selector, property, value } of compiledRules([compiled.code]).flatMap(
+      ({ selector, declarations }) => declarations.map((declaration) => ({ selector, ...declaration })),
+    )) {
+      const isPresentationReset = isNamedPresentationReset(selector, value, options.presentationReset)
       if (!allowColorLiterals) {
         for (const literal of forbiddenColorLiterals(value)) {
           localFailures.push(`${styleLabel} must not contain color literal ${literal}`)
@@ -196,14 +211,16 @@ async function validateCommonSfc(source, label, options = {}) {
       }
       if (
         !allowBackdropFilter &&
-        (property === 'backdrop-filter' || property === '-webkit-backdrop-filter')
+        (property === 'backdrop-filter' || property === '-webkit-backdrop-filter') &&
+        !isPresentationReset
       ) {
         localFailures.push(`${styleLabel} must not declare ${property}`)
       }
       if (
         !allowLiteralBoxShadow &&
         (property === 'box-shadow' || property === '-webkit-box-shadow') &&
-        !isTokenBoxShadow(value)
+        !isTokenBoxShadow(value) &&
+        !isPresentationReset
       ) {
         localFailures.push(`${styleLabel} must not contain literal ${property}: ${value}`)
       }
@@ -1238,11 +1255,14 @@ function styleUsesVariable(codes, variable) {
   return codes.some((code) => code.includes(`var(${variable})`))
 }
 
-function validateRecipeOwnership(codes, label, localFailures) {
+function validateRecipeOwnership(codes, label, localFailures, presentationReset) {
   if (
-    codes
-      .flatMap(compiledDeclarations)
-      .some(({ property }) => property === 'box-shadow' || property === '-webkit-box-shadow')
+    compiledRules(codes).some(({ selector, declarations }) =>
+      declarations.some(({ property, value }) =>
+        (property === 'box-shadow' || property === '-webkit-box-shadow') &&
+        !isNamedPresentationReset(selector, value, presentationReset),
+      ),
+    )
   ) {
     localFailures.push(`${label} must leave box-shadow ownership to the glass recipe`)
   }
@@ -1315,6 +1335,7 @@ async function validatePageHeader(source, label) {
     ['eyebrow', 'string', true],
     ['description', 'string', true],
     ['density', 'WorkbenchDensity', true],
+    ['presentation', ['panel', 'plain'], true],
     ['backLabel', 'string', true],
     ['showBack', 'boolean', true],
   ]) {
@@ -1324,6 +1345,12 @@ async function validatePageHeader(source, label) {
   }
   if (!defaultMatches(contract, 'density', 'comfortable')) {
     localFailures.push(`${label} density must default to 'comfortable'`)
+  }
+  if (!defaultMatches(contract, 'presentation', 'panel')) {
+    localFailures.push(`${label} presentation must default to 'panel'`)
+  }
+  if (!isPropertyChain(directiveExpression(rootElement, 'bind', 'data-presentation'), ['props', 'presentation'])) {
+    localFailures.push(`${label} root must bind props.presentation to data-presentation`)
   }
   if (!defaultMatches(contract, 'backLabel', '返回')) {
     localFailures.push(`${label} backLabel must default to '返回'`)
@@ -1389,6 +1416,14 @@ function isConditionalEmptyClass(node) {
   const property = expression.properties[0]
   return ts.isPropertyAssignment(property) && isStringValue(property.name, 'is-empty') &&
     isEmptyVisibleCondition(property.initializer)
+}
+
+function isConditionalEmptyBodyClass(node) {
+  const expression = unwrapExpression(node)
+  if (!expression || !ts.isObjectLiteralExpression(expression) || expression.properties.length !== 1) return false
+  const property = expression.properties[0]
+  return ts.isPropertyAssignment(property) && isStringValue(property.name, 'data-table-shell--preserve-empty-body') &&
+    isPropertyChain(property.initializer, ['props', 'preserveEmptyBody'])
 }
 
 async function validateWorkbenchPanel(source, label) {
@@ -1487,7 +1522,8 @@ async function validateWorkbenchPanel(source, label) {
 }
 
 async function validateFilterBar(source, label) {
-  const localFailures = await validateCommonSfc(source, label)
+  const presentationReset = ['filter-bar', 'inline']
+  const localFailures = await validateCommonSfc(source, label, { presentationReset })
   const parsed = parse(source, { filename: label })
   if (parsed.errors.length > 0) return localFailures
   const { descriptor } = parsed
@@ -1505,16 +1541,18 @@ async function validateFilterBar(source, label) {
 
   const expectedProps = [
     ['density', 'WorkbenchDensity', true],
+    ['presentation', ['panel', 'inline'], true],
     ['loading', 'boolean', true],
     ['showReset', 'boolean', true],
     ['queryLabel', 'string', true],
     ['resetLabel', 'string', true],
   ]
   if (!hasExactTypedProps(contract, expectedProps)) {
-    localFailures.push(`${label} must declare exactly density/loading/showReset/queryLabel/resetLabel props`)
+    localFailures.push(`${label} must declare exactly density/presentation/loading/showReset/queryLabel/resetLabel props`)
   }
   for (const [name, expected] of [
     ['density', 'comfortable'],
+    ['presentation', 'panel'],
     ['loading', false],
     ['showReset', true],
     ['queryLabel', '查询'],
@@ -1546,6 +1584,9 @@ async function validateFilterBar(source, label) {
       localFailures.push(
         `${label} root must bind only filter-bar, glass-surface-control, and densityClass(props.density)`,
       )
+    }
+    if (!isPropertyChain(directiveExpression(rootElement, 'bind', 'data-presentation'), ['props', 'presentation'])) {
+      localFailures.push(`${label} root must bind props.presentation to data-presentation`)
     }
     if (
       !emitsNamed(directiveExpression(rootElement, 'on', 'submit'), 'query') ||
@@ -1596,7 +1637,7 @@ async function validateFilterBar(source, label) {
   if (!styleUsesVariable(styles, '--panel-padding') || !styleUsesVariable(styles, '--section-gap')) {
     localFailures.push(`${label} styles must consume shared density variables`)
   }
-  validateRecipeOwnership(styles, label, localFailures)
+  validateRecipeOwnership(styles, label, localFailures, presentationReset)
   return localFailures
 }
 
@@ -1620,6 +1661,7 @@ async function validateDataTableShell(source, label) {
     ['density', 'WorkbenchDensity', true],
     ['loading', 'boolean', true],
     ['empty', 'boolean', true],
+    ['preserveEmptyBody', 'boolean', true],
     ['emptyDescription', 'string', true],
     ['currentPage', 'number', true],
     ['pageSize', 'number', true],
@@ -1632,6 +1674,9 @@ async function validateDataTableShell(source, label) {
   }
   if (!defaultMatches(contract, 'density', 'comfortable')) {
     localFailures.push(`${label} density must default to 'comfortable'`)
+  }
+  if (!defaultMatches(contract, 'preserveEmptyBody', false)) {
+    localFailures.push(`${label} persistent empty body must default to false`)
   }
   if (
     !declaresExactEmits(sourceFile, [
@@ -1662,6 +1707,7 @@ async function validateDataTableShell(source, label) {
       (entry) => isStringValue(entry, 'glass-surface-panel'),
       isDensityClassCall,
       isConditionalEmptyClass,
+      isConditionalEmptyBodyClass,
     ])
   ) {
     localFailures.push(
@@ -3311,7 +3357,9 @@ function isToneClassTemplate(node, sourceProperty) {
 }
 
 async function validateMetricStrip(source, label) {
-  const localFailures = await validateCommonSfc(source, label)
+  const localFailures = await validateCommonSfc(source, label, {
+    presentationReset: ['metric-strip', 'inline'],
+  })
   const parsed = parse(source, { filename: label })
   if (parsed.errors.length > 0) return localFailures
   const { descriptor } = parsed
@@ -3338,6 +3386,7 @@ async function validateMetricStrip(source, label) {
   for (const [name, type, optional] of [
     ['items', 'MetricStripItem[]', false],
     ['density', 'WorkbenchDensity', true],
+    ['presentation', ['panel', 'inline'], true],
     ['ariaLabel', 'string', true],
   ]) {
     if (!hasTypedProp(contract, name, type, optional)) {
@@ -3346,6 +3395,12 @@ async function validateMetricStrip(source, label) {
   }
   if (!defaultMatches(contract, 'density', 'comfortable')) {
     localFailures.push(`${label} density must default to 'comfortable'`)
+  }
+  if (!defaultMatches(contract, 'presentation', 'panel')) {
+    localFailures.push(`${label} presentation must default to 'panel'`)
+  }
+  if (!isPropertyChain(directiveExpression(rootElement, 'bind', 'data-presentation'), ['props', 'presentation'])) {
+    localFailures.push(`${label} root must bind props.presentation to data-presentation`)
   }
   if (!defaultMatches(contract, 'ariaLabel', '指标概览')) {
     localFailures.push(`${label} ariaLabel must default to '指标概览'`)
@@ -3402,7 +3457,22 @@ async function validateMetricStrip(source, label) {
   }
 
   const itemNodes = itemElement ? transformedTemplateNodes(itemElement) : []
-  const metricIcons = itemNodes.filter((node) => node.type === 1 && node.tag === 'MetricIconBg')
+  const presentationIconNodes = itemNodes
+    .filter((node) => node.type === 9 && node.branches.length === 1)
+    .flatMap((node) => {
+      const branch = node.branches[0]
+      const condition = parseTemplateExpression(branch.condition?.content)
+      if (
+        !condition ||
+        !ts.isBinaryExpression(condition) ||
+        condition.operatorToken.kind !== ts.SyntaxKind.ExclamationEqualsEqualsToken ||
+        !isPropertyChain(condition.left, ['props', 'presentation']) ||
+        !isStringValue(condition.right, 'inline')
+      ) return []
+      return transformedTemplateNodes(branch)
+    })
+  const metricIcons = [...itemNodes, ...presentationIconNodes]
+    .filter((node) => node.type === 1 && node.tag === 'MetricIconBg')
   const metricIcon = metricIcons.length === 1 ? metricIcons[0] : undefined
   if (
     !metricIcon ||
@@ -5874,9 +5944,11 @@ import { densityClass, type MetricStripItem, type WorkbenchDensity } from './gla
 const props = withDefaults(defineProps<{
   items: MetricStripItem[]
   density?: WorkbenchDensity
+  presentation?: 'panel' | 'inline'
   ariaLabel?: string
 }>(), {
   density: 'comfortable',
+  presentation: 'panel',
   ariaLabel: '指标概览',
 })
 </script>
@@ -5884,6 +5956,7 @@ const props = withDefaults(defineProps<{
 <template>
   <section
     :class="['metric-strip', 'glass-surface-panel', densityClass(props.density)]"
+    :data-presentation="props.presentation"
     role="list"
     :aria-label="props.ariaLabel"
   >
@@ -5914,6 +5987,15 @@ const props = withDefaults(defineProps<{
 
 .metric-strip__item + .metric-strip__item {
   border-inline-start: 1px solid var(--border-divider);
+}
+
+.metric-strip[data-presentation='inline'] {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
 }
 </style>
 `
@@ -6068,10 +6150,12 @@ const props = withDefaults(defineProps<{
   eyebrow?: string
   description?: string
   density?: WorkbenchDensity
+  presentation?: 'panel' | 'plain'
   backLabel?: string
   showBack?: boolean
 }>(), {
   density: 'comfortable',
+  presentation: 'panel',
   backLabel: '返回',
   showBack: false,
 })
@@ -6079,7 +6163,7 @@ const emit = defineEmits<{ back: [] }>()
 </script>
 
 <template>
-  <header :class="['app-page-header', 'glass-surface-panel', densityClass(props.density)]">
+  <header :class="['app-page-header', 'glass-surface-panel', densityClass(props.density)]" :data-presentation="props.presentation">
     <button
       v-if="props.showBack"
       class="app-page-header__back"
@@ -6147,12 +6231,14 @@ import { densityClass, type WorkbenchDensity } from './glassWorkbench'
 
 const props = withDefaults(defineProps<{
   density?: WorkbenchDensity
+  presentation?: 'panel' | 'inline'
   loading?: boolean
   showReset?: boolean
   queryLabel?: string
   resetLabel?: string
 }>(), {
   density: 'comfortable',
+  presentation: 'panel',
   loading: false,
   showReset: true,
   queryLabel: '查询',
@@ -6164,6 +6250,7 @@ const emit = defineEmits<{ query: []; reset: [] }>()
 <template>
   <form
     :class="['filter-bar', 'glass-surface-control', densityClass(props.density)]"
+    :data-presentation="props.presentation"
     @submit.prevent="emit('query')"
   >
     <div class="filter-bar__fields"><slot /></div>
@@ -6190,6 +6277,14 @@ const emit = defineEmits<{ query: []; reset: [] }>()
   gap: var(--section-gap);
   padding: var(--panel-padding);
 }
+
+.filter-bar[data-presentation='inline'] {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
 </style>
 `
 
@@ -6200,6 +6295,7 @@ const props = withDefaults(defineProps<{
   density?: WorkbenchDensity
   loading?: boolean
   empty?: boolean
+  preserveEmptyBody?: boolean
   emptyDescription?: string
   currentPage?: number
   pageSize?: number
@@ -6210,6 +6306,7 @@ const props = withDefaults(defineProps<{
   density: 'comfortable',
   loading: false,
   empty: false,
+  preserveEmptyBody: false,
   emptyDescription: '暂无数据',
   currentPage: 1,
   pageSize: 20,
@@ -6236,7 +6333,7 @@ function handleSizeChange(size: number) {
 <template>
   <section
     v-loading="props.loading"
-    :class="['data-table-shell', 'glass-surface-panel', densityClass(props.density), { 'is-empty': props.empty && !props.loading }]"
+    :class="['data-table-shell', 'glass-surface-panel', densityClass(props.density), { 'is-empty': props.empty && !props.loading }, { 'data-table-shell--preserve-empty-body': props.preserveEmptyBody }]"
   >
     <div v-if="$slots.toolbar" class="data-table-shell__toolbar">
       <slot name="toolbar" />
@@ -9390,7 +9487,6 @@ const toolRetrievalComponentImports = [
   ['WorkbenchPanel', '@/components/common/WorkbenchPanel.vue'],
   ['DataTableShell', '@/components/common/DataTableShell.vue'],
   ['StatusTag', '@/components/common/StatusTag.vue'],
-  ['AppDialog', '@/components/common/AppDialog.vue'],
 ]
 
 let cachedHeadToolRetrievalTest
@@ -9548,25 +9644,9 @@ function toolRetrievalBusinessSnapshot(ast) {
       element.tag.toLowerCase() === 'el-table' &&
       isIdentifierValue(directiveExpression(element, 'bind', 'data'), 'candidates'),
   )
-  const descriptions = elements.find(
-    (element) => element.tag.toLowerCase() === 'el-descriptions',
-  )
-  const progress = elements.find((element) => element.tag.toLowerCase() === 'el-progress')
-  const failureAlert = elements.find(
-    (element) =>
-      element.tag.toLowerCase() === 'el-alert' && staticAttributeValue(element, 'type') === 'error',
-  )
-  const dialog = elements.find((element) =>
-    ['el-dialog', 'AppDialog'].includes(element.tag),
-  )
-  const dialogChildren = (dialog?.children ?? []).map(canonicalToolRetrievalBusinessNode).filter(Boolean)
   return {
     searchForm: canonicalToolRetrievalBusinessNode(searchForm),
     resultTable: canonicalToolRetrievalBusinessNode(resultTable),
-    descriptions: canonicalToolRetrievalBusinessNode(descriptions),
-    progress: canonicalToolRetrievalBusinessNode(progress),
-    failureAlert: canonicalToolRetrievalBusinessNode(failureAlert),
-    dialogChildren,
   }
 }
 
@@ -9603,12 +9683,9 @@ function toolRetrievalApprovedSections() {
   const searchForm = elements.find(
     (element) => element.tag.toLowerCase() === 'el-form' && hasStaticClass(element, 'search-form'),
   )
-  const dialog = elements.find((element) => element.tag === 'AppDialog')
   cachedToolRetrievalApprovedSections = {
     search: canonicalTemplateNode(searchForm),
     results: canonicalTemplateNode(panels[1]),
-    task: canonicalTemplateNode(panels[2]),
-    dialog: canonicalTemplateNode(dialog),
   }
   return cachedToolRetrievalApprovedSections
 }
@@ -9676,9 +9753,6 @@ function toolRetrievalExactStyleOracle(styles) {
     'root|.form-label[scope]|align-items:center;display:inline-flex;gap:4px',
     'root|.form-label__tip[scope]|color:var(--text-muted);cursor:help;font-size:0.875rem;outline:none',
     'root|.text-ellipsis[scope]|display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap',
-    'root|.task-state[scope]|display:flex;flex-direction:column;gap:var(--section-gap)',
-    'root|.task-empty[scope]|color:var(--text-muted);line-height:1.6;margin:0',
-    'root|.rebuild-dialog__control[scope]|width:100%',
     'media:(max-width: 720px)|.search-form__query[scope], .search-form__score[scope]|width:100%',
   ].sort()
   return arraysEqual(records.sort(), expected)
@@ -9709,7 +9783,47 @@ function validateToolRetrievalHeadScript(sourceFile, ast, label, localFailures) 
     )
     .replace('  agentVisibleOnly: false,\n', '')
     .replace('      agentVisibleOnly: form.agentVisibleOnly,\n', '')
-  const parsed = parse(approvedHeadSource, { filename: 'HEAD:ToolRetrievalTest.vue' })
+  const retainedHeadSfc = parse(approvedHeadSource, { filename: 'HEAD:ToolRetrievalTest.vue' })
+  const retainedHeadScript = parseTypeScript(
+    retainedHeadSfc.descriptor.scriptSetup?.content ?? '',
+    'HEAD:ToolRetrievalTest.vue retained search script',
+    localFailures,
+  )
+  const retainedVariableNames = new Set(['form', 'searching', 'candidates'])
+  const retainedFunctionNames = new Set(['handleSearch', 'scoreTag'])
+  const retainedVariables = retainedHeadScript.statements.filter(statement =>
+    ts.isVariableStatement(statement) && statement.declarationList.declarations.some(declaration =>
+      ts.isIdentifier(declaration.name) && retainedVariableNames.has(declaration.name.text)))
+  const retainedFunctions = retainedHeadScript.statements.filter(statement =>
+    ts.isFunctionDeclaration(statement) && retainedFunctionNames.has(statement.name?.text))
+  const approvedImports = [
+    "import { onBeforeUnmount, reactive, ref } from 'vue'",
+    "import { ElMessage } from 'element-plus'",
+    "import { searchToolRetrieval } from '@/api/toolRetrieval'",
+    "import type { ToolCandidate, ToolRetrievalSearchRequest } from '@/types/toolRetrieval'",
+  ].join('\n')
+  const approvedSearchRuntime = [
+    approvedImports,
+    ...retainedVariables.map(statement => statement.getText(retainedHeadScript)),
+    'let disposed = false',
+    'onBeforeUnmount(() => { disposed = true })',
+    ...retainedFunctions.map(statement => statement.getText(retainedHeadScript)
+      .replace(/async function handleSearch\(\) \{\n(?!  if \(disposed \|\| searching.value\) return)/, 'async function handleSearch() {\n  if (disposed || searching.value) return\n')
+      .replace('请输入用户问题', '请输入检索关键词')
+      .replace(/    const \{ data \} = await searchToolRetrieval\(payload\)\n(?!    if \(disposed\) return)/, '    const { data } = await searchToolRetrieval(payload)\n    if (disposed) return\n')
+      .replace("    ElMessage.error((err as Error).message || '检索失败')", "    if (!disposed) ElMessage.error((err as Error).message || '检索失败')")
+      .replace('    searching.value = false', '    if (!disposed) searching.value = false')),
+  ].join('\n')
+  const approvedSearchTemplate = (retainedHeadSfc.descriptor.template?.content ?? '')
+    .replace('class="search-form" @submit', 'class="search-form" novalidate @submit')
+    .replace('label="用户问题"', 'label="检索关键词"')
+    .replace('例如：帮我查询最近一周的工单数量', '例如：工单数量')
+    .replaceAll('相似度下限', '匹配分数下限')
+    .replace('0=不过滤；清空后使用服务端 min-score', '清空或设为 0 时不按匹配分数过滤')
+    .replace('label="入库文本"', 'label="匹配文本"')
+  const parsed = parse(`<template>${approvedSearchTemplate}</template><script setup lang="ts">${approvedSearchRuntime}</script>`, {
+    filename: 'HEAD:ToolRetrievalTest.vue approved keyword-search projection',
+  })
   if (parsed.errors.length > 0) {
     localFailures.push(`${label} HEAD Tool retrieval baseline must remain parseable`)
     return
@@ -9757,7 +9871,7 @@ function validateToolRetrievalHeadScript(sourceFile, ast, label, localFailures) 
     JSON.stringify(toolRetrievalBusinessSnapshot(headAst))
   ) {
     localFailures.push(
-      `${label} must preserve HEAD Tool retrieval form, table, task, and dialog business subtrees`,
+      `${label} must preserve HEAD Tool retrieval search form and result table business subtrees`,
     )
   }
 }
@@ -9780,7 +9894,7 @@ async function validateToolRetrievalTestConsumer(source, label, options = {}) {
 
   if (!toolRetrievalPresentationImportsExact(sourceFile)) {
     localFailures.push(
-      `${label} must directly import PageHeader, WorkbenchPage, WorkbenchPanel, DataTableShell, StatusTag, and AppDialog`,
+      `${label} must directly import PageHeader, WorkbenchPage, WorkbenchPanel, DataTableShell, and StatusTag`,
     )
   }
 
@@ -9789,11 +9903,6 @@ async function validateToolRetrievalTestConsumer(source, label, options = {}) {
   const allPageHeaders = allElements.filter((element) => element.tag === 'PageHeader')
   const pageHeader = pageHeaders[0]
   const headerActions = templateSlot(ast, pageHeader, 'actions')
-  const actionButtons = headerActions
-    ? descendantElements(ast, headerActions).filter(
-        (element) => element.tag.toLowerCase() === 'el-button',
-      )
-    : []
   const headerContract = Boolean(
     rootElement &&
       workbenchPageRootContract(rootElement, 'comfortable') &&
@@ -9805,31 +9914,24 @@ async function validateToolRetrievalTestConsumer(source, label, options = {}) {
       staticAttributeValue(pageHeader, 'eyebrow') === 'Retrieval Lab' &&
       staticAttributeValue(pageHeader, 'title') === 'Tool 检索测试' &&
       staticAttributeValue(pageHeader, 'description') ===
-        '验证 Tool 语义召回、相似度阈值与向量索引状态，辅助定位能力检索质量。' &&
+        '按调用定义的名称、标题和说明进行关键词匹配，核对候选结果与匹配分数。' &&
       staticAttributeValue(pageHeader, 'density') === 'comfortable' &&
       !hasStaticBooleanAttribute(pageHeader, 'compact') &&
-      actionButtons.length === 1 &&
-      staticAttributeValue(actionButtons[0], 'type') === 'warning' &&
-      hasStaticBooleanAttribute(actionButtons[0], 'circle') &&
-      staticAttributeValue(actionButtons[0], 'aria-label') === '重建向量索引' &&
-      isIdentifierValue(
-        directiveExpression(actionButtons[0], 'on', 'click'),
-        'openRebuildDialog',
-      ),
+      !headerActions,
   )
   if (!headerContract) {
     localFailures.push(
-      `${label} must render the exact comfortable Tool retrieval root and PageHeader action`,
+      `${label} must render the exact comfortable Tool retrieval root and PageHeader without rebuild actions`,
     )
   }
 
   const panels = elements.filter((element) => element.tag === 'WorkbenchPanel')
   const allPanels = allElements.filter((element) => element.tag === 'WorkbenchPanel')
   const panelContract = Boolean(
-    panels.length === 3 &&
-      allPanels.length === 3 &&
-      arraysEqual(rootChildren.slice(1, 4), panels) &&
-      rootChildren.length === 5 &&
+    panels.length === 2 &&
+      allPanels.length === 2 &&
+      arraysEqual(rootChildren.slice(1), panels) &&
+      rootChildren.length === 3 &&
       panels.every(
         (panel) =>
           staticAttributeValue(panel, 'density') === 'comfortable' &&
@@ -9838,13 +9940,12 @@ async function validateToolRetrievalTestConsumer(source, label, options = {}) {
       staticAttributeValue(panels[0], 'title') === '检索配置' &&
       expressionMatchesSource(
         directiveExpression(panels[1], 'bind', 'title'),
-        '`召回结果（${candidates.length}）`',
-      ) &&
-      staticAttributeValue(panels[2], 'title') === '重建任务',
+        '`匹配结果（${candidates.length}）`',
+      ),
   )
   if (!panelContract) {
     localFailures.push(
-      `${label} must render three direct, ordered, unconditional comfortable WorkbenchPanel shells`,
+      `${label} must render two direct, ordered, unconditional comfortable WorkbenchPanel shells`,
     )
   }
 
@@ -9859,7 +9960,7 @@ async function validateToolRetrievalTestConsumer(source, label, options = {}) {
         directiveExpression(dataTableShells[0], 'bind', 'empty'),
         'candidates.length === 0',
       ) &&
-      staticAttributeValue(dataTableShells[0], 'empty-description') === '无召回结果',
+      staticAttributeValue(dataTableShells[0], 'empty-description') === '无匹配结果',
   )
   if (!resultShellContract) {
     localFailures.push(
@@ -9902,57 +10003,13 @@ async function validateToolRetrievalTestConsumer(source, label, options = {}) {
       'row.score.toFixed(4)',
     ),
   )
-  const stageStatus = statusTags.find((element) =>
-    expressionMatchesSource(directiveExpression(element, 'bind', 'label'), 'task.stage'),
-  )
-  if (!scoreStatus || !stageStatus || statusTags.length < 3) {
+  if (!scoreStatus || statusTags.length !== 1) {
     localFailures.push(
-      `${label} must use semantic StatusTag controls for score, task stage, and no-task state`,
+      `${label} must use one semantic StatusTag control for the result score`,
     )
   }
-
-  const exactTaskContract = Boolean(
-    panels[2] &&
-      JSON.stringify(canonicalTemplateNode(panels[2])) ===
-        JSON.stringify(approvedSections.task),
-  )
-  if (!exactTaskContract) {
-    localFailures.push(
-      `${label} must preserve the exact fixed task shell, no-task state, nine descriptions, progress, and failure alert`,
-    )
-  }
-
-  const dialogs = elements.filter((element) => element.tag === 'AppDialog')
-  const allDialogs = allElements.filter((element) => element.tag === 'AppDialog')
-  const dialog = dialogs[0]
-  const dialogContract = Boolean(
-    dialogs.length === 1 &&
-      allDialogs.length === 1 &&
-      rootChildren[4] === dialog &&
-      isIdentifierValue(directiveExpression(dialog, 'model', undefined), 'rebuildDialogVisible') &&
-      staticAttributeValue(dialog, 'title') === '选择向量索引模型' &&
-      staticAttributeValue(dialog, 'width') === '480px' &&
-      hasStaticBooleanAttribute(dialog, 'destroy-on-close') &&
-      isIdentifierValue(
-        directiveExpression(dialog, 'on', 'open'),
-        'loadEmbeddingInstances',
-      ),
-  )
-  if (!dialogContract) {
-    localFailures.push(
-      `${label} must render one direct AppDialog with model, title, width, destroy-on-close, and open passthrough`,
-    )
-  }
-
-  const exactDialogContract = Boolean(
-    dialog &&
-      JSON.stringify(canonicalTemplateNode(dialog)) ===
-        JSON.stringify(approvedSections.dialog),
-  )
-  if (!exactDialogContract) {
-    localFailures.push(
-      `${label} must preserve the exact AppDialog default and footer subtrees with provider filtering controls`,
-    )
+  if (/\b(?:rebuild\w*|startToolRetrievalRebuild|getToolRetrievalRebuildStatus|ToolRebuildTask|loadEmbeddingInstances|pollTimer)\b|重建任务|向量索引|tool_retrieval_setting/i.test(source)) {
+    localFailures.push(`${label} must keep retired Tool retrieval rebuild APIs, model controls, task state, and polling deleted`)
   }
 
   if (
@@ -10009,6 +10066,7 @@ async function validateToolRetrievalTestConsumer(source, label, options = {}) {
   return localFailures
 }
 
+// Approved keyword-search-only topology after retiring the inert rebuild UI.
 const syntheticToolRetrievalTestConsumer = `<template>
   <WorkbenchPage density="comfortable">
     <PageHeader
@@ -10016,29 +10074,17 @@ const syntheticToolRetrievalTestConsumer = `<template>
       domain="tool"
       eyebrow="Retrieval Lab"
       title="Tool 检索测试"
-      description="验证 Tool 语义召回、相似度阈值与向量索引状态，辅助定位能力检索质量。"
+      description="按调用定义的名称、标题和说明进行关键词匹配，核对候选结果与匹配分数。"
       density="comfortable"
-    >
-      <template #actions>
-        <el-tooltip content="重建向量索引" placement="top">
-          <el-button
-            circle
-            type="warning"
-            :icon="RefreshRight"
-            aria-label="重建向量索引"
-            @click="openRebuildDialog"
-          />
-        </el-tooltip>
-      </template>
-    </PageHeader>
+    />
 
     <WorkbenchPanel title="检索配置" density="comfortable">
-      <el-form :inline="true" class="search-form" @submit.prevent="handleSearch">
-        <el-form-item label="用户问题">
+      <el-form :inline="true" class="search-form" novalidate @submit.prevent="handleSearch">
+        <el-form-item label="检索关键词">
           <el-input
             v-model="form.query"
             class="search-form__query"
-            placeholder="例如：帮我查询最近一周的工单数量"
+            placeholder="例如：工单数量"
             clearable
             @keyup.enter="handleSearch"
           />
@@ -10052,12 +10098,12 @@ const syntheticToolRetrievalTestConsumer = `<template>
         <el-form-item>
           <template #label>
             <span class="form-label">
-              相似度下限
+              匹配分数下限
               <el-tooltip
-                content="0=不过滤；清空后使用服务端 min-score"
+                content="清空或设为 0 时不按匹配分数过滤"
                 placement="top"
               >
-                <el-icon class="form-label__tip" tabindex="0" aria-label="相似度下限说明">
+                <el-icon class="form-label__tip" tabindex="0" aria-label="匹配分数下限说明">
                   <QuestionFilled />
                 </el-icon>
               </el-tooltip>
@@ -10080,12 +10126,12 @@ const syntheticToolRetrievalTestConsumer = `<template>
       </el-form>
     </WorkbenchPanel>
 
-    <WorkbenchPanel :title="\`召回结果（\${candidates.length}）\`" density="comfortable">
+    <WorkbenchPanel :title="\`匹配结果（\${candidates.length}）\`" density="comfortable">
       <DataTableShell
         density="compact"
         :loading="searching"
         :empty="candidates.length === 0"
-        empty-description="无召回结果"
+        empty-description="无匹配结果"
       >
         <el-table :data="candidates" stripe empty-text=" ">
           <el-table-column label="#" type="index" width="60" />
@@ -10103,7 +10149,7 @@ const syntheticToolRetrievalTestConsumer = `<template>
           </el-table-column>
           <el-table-column prop="projectId" label="项目 ID" width="100" />
           <el-table-column prop="moduleId" label="模块 ID" width="100" />
-          <el-table-column label="入库文本" min-width="320" show-overflow-tooltip>
+          <el-table-column label="匹配文本" min-width="320" show-overflow-tooltip>
             <template #default="{ row }">
               <span class="text-ellipsis">{{ row.text }}</span>
             </template>
@@ -10111,138 +10157,6 @@ const syntheticToolRetrievalTestConsumer = `<template>
         </el-table>
       </DataTableShell>
     </WorkbenchPanel>
-
-    <WorkbenchPanel title="重建任务" density="comfortable">
-      <template #actions>
-        <StatusTag
-          v-if="task"
-          :label="task.stage"
-          :tone="stageTag(task.stage) || 'neutral'"
-        />
-        <StatusTag v-else label="暂无任务" tone="neutral" />
-      </template>
-      <div v-if="task" class="task-state">
-        <el-descriptions :column="4" border size="small">
-          <el-descriptions-item label="总数">{{ task.totalSteps }}</el-descriptions-item>
-          <el-descriptions-item label="已完成">{{ task.completedSteps }}</el-descriptions-item>
-          <el-descriptions-item label="成功">{{ task.successCount }}</el-descriptions-item>
-          <el-descriptions-item label="跳过">{{ task.skippedCount }}</el-descriptions-item>
-          <el-descriptions-item label="失败">{{ task.failedCount }}</el-descriptions-item>
-          <el-descriptions-item label="向量模型实例">
-            {{ task.embeddingModelInstanceId || '-' }}
-          </el-descriptions-item>
-          <el-descriptions-item label="当前">{{ task.currentStep || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="开始">{{ task.startedAt || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="结束">{{ task.finishedAt || '-' }}</el-descriptions-item>
-        </el-descriptions>
-        <el-progress
-          v-if="task.stage === 'QUEUED' || task.stage === 'RUNNING'"
-          :percentage="taskPercent"
-          :text-inside="true"
-          :stroke-width="18"
-        />
-        <el-alert
-          v-if="task.stage === 'FAILED'"
-          type="error"
-          :title="\`重建失败：\${task.errorMessage || '未知错误'}\`"
-          :closable="false"
-          show-icon
-        />
-      </div>
-      <p v-else class="task-empty">尚无重建任务</p>
-    </WorkbenchPanel>
-
-    <AppDialog
-      v-model="rebuildDialogVisible"
-      title="选择向量索引模型"
-      width="480px"
-      destroy-on-close
-      @open="loadEmbeddingInstances"
-    >
-      <el-form label-width="120px">
-        <el-form-item required>
-          <template #label>
-            <span class="form-label">
-              模型厂商
-              <el-tooltip content="请选择与 Milvus 集合维度一致、状态可用的 Embedding 实例所属厂商" placement="top">
-                <el-icon class="form-label__tip" tabindex="0" aria-label="模型厂商说明">
-                  <QuestionFilled />
-                </el-icon>
-              </el-tooltip>
-            </span>
-          </template>
-          <el-select
-            v-model="rebuildModelProvider"
-            class="rebuild-dialog__control"
-            placeholder="请选择厂商"
-            filterable
-            :loading="embeddingInstancesLoading"
-            @change="handleRebuildProviderChange"
-            @visible-change="handleEmbeddingSelectVisible"
-          >
-            <el-option
-              v-for="provider in embeddingProviderOptions"
-              :key="provider"
-              :label="provider"
-              :value="provider"
-            />
-            <template #empty>
-              <ModelSelectEmptyState
-                model-type="EMBEDDING"
-                :option-count="embeddingProviderOptions.length"
-                :loading="embeddingInstancesLoading"
-                :load-error="embeddingInstancesLoadError"
-                @retry="loadEmbeddingInstances"
-              />
-            </template>
-          </el-select>
-        </el-form-item>
-        <el-form-item required>
-          <template #label>
-            <span class="form-label">
-              Embedding 实例
-              <el-tooltip
-                content="所选实例会写入 tool_retrieval_setting，供对话时的 Tool 语义召回共用"
-                placement="top"
-              >
-                <el-icon class="form-label__tip" tabindex="0" aria-label="Embedding 实例说明">
-                  <QuestionFilled />
-                </el-icon>
-              </el-tooltip>
-            </span>
-          </template>
-          <el-select
-            v-model="rebuildModelInstanceId"
-            class="rebuild-dialog__control"
-            placeholder="请选择向量模型实例"
-            filterable
-            :disabled="!rebuildModelProvider"
-            :loading="embeddingInstancesLoading"
-            @visible-change="handleEmbeddingSelectVisible"
-          >
-            <el-option
-              v-for="item in filteredEmbeddingInstances"
-              :key="item.id"
-              :label="\`\${item.name} / \${item.modelName}\`"
-              :value="item.id"
-            />
-            <template #empty>
-              <ModelSelectEmptyState
-                model-type="EMBEDDING"
-                :option-count="filteredEmbeddingInstances.length"
-                :loading="embeddingInstancesLoading"
-                :load-error="embeddingInstancesLoadError"
-                @retry="loadEmbeddingInstances"
-              />
-            </template>
-          </el-select>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="rebuildDialogVisible = false">取消</el-button>
-        <el-button type="warning" :loading="rebuildStarting" @click="confirmRebuild">开始重建</el-button>
-      </template>
-    </AppDialog>
   </WorkbenchPage>
 </template>
 
@@ -10252,29 +10166,11 @@ import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
 import WorkbenchPanel from '@/components/common/WorkbenchPanel.vue'
 import DataTableShell from '@/components/common/DataTableShell.vue'
 import StatusTag from '@/components/common/StatusTag.vue'
-import AppDialog from '@/components/common/AppDialog.vue'
-import ModelSelectEmptyState from '@/components/model/ModelSelectEmptyState.vue'
 const form = { query: '', topK: 10, enabledOnly: false, minScore: undefined }
 const searching = false
 const candidates = [{ score: 0.8 }]
-const task = { stage: 'DONE' }
-const rebuildDialogVisible = false
-const rebuildModelProvider = ''
-const rebuildModelInstanceId = ''
-const embeddingProviderOptions = ['demo']
-const filteredEmbeddingInstances = [{ id: 1, name: 'demo', modelName: 'embedding' }]
-const taskPercent = 100
-const rebuildStarting = false
-const embeddingInstancesLoading = false
-const embeddingInstancesLoadError = false
 function handleSearch() {}
-function openRebuildDialog() {}
-function handleRebuildProviderChange() {}
-function handleEmbeddingSelectVisible() {}
-function loadEmbeddingInstances() {}
-function confirmRebuild() {}
 function scoreTag(_score: number) { return 'success' }
-function stageTag(_stage: string) { return 'success' }
 </script>
 
 <style scoped lang="scss">
@@ -10312,22 +10208,6 @@ function stageTag(_stage: string) { return 'success' }
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-}
-
-.task-state {
-  display: flex;
-  flex-direction: column;
-  gap: var(--section-gap);
-}
-
-.task-empty {
-  margin: 0;
-  color: var(--text-muted);
-  line-height: 1.6;
-}
-
-.rebuild-dialog__control {
-  width: 100%;
 }
 
 @media (max-width: 720px) {
@@ -11484,10 +11364,6 @@ async function runMutationProofs() {
     'must preserve the exact five-item search form, three search triggers, controls, models, and props'
   const toolRetrievalResultsFailure =
     'must preserve the exact compact results table, seven ordered columns, empty suppression, and score status'
-  const toolRetrievalTaskFailure =
-    'must preserve the exact fixed task shell, no-task state, nine descriptions, progress, and failure alert'
-  const toolRetrievalDialogFailure =
-    'must preserve the exact AppDialog default and footer subtrees with provider filtering controls'
 
   for (const [name, mutate, expectedFailures] of [
     [
@@ -11498,7 +11374,7 @@ async function runMutationProofs() {
         "@/components/common/MissingPageHeader.vue",
         'Tool retrieval PageHeader import mutation',
       ),
-      'must directly import PageHeader, WorkbenchPage, WorkbenchPanel, DataTableShell, StatusTag, and AppDialog',
+      'must directly import PageHeader, WorkbenchPage, WorkbenchPanel, DataTableShell, and StatusTag',
     ],
     [
       'tool-retrieval-root-density',
@@ -11509,20 +11385,7 @@ async function runMutationProofs() {
         'Tool retrieval root density mutation',
       ),
       [
-        'must render the exact comfortable Tool retrieval root and PageHeader action',
-        toolRetrievalTopologyFailure,
-      ],
-    ],
-    [
-      'tool-retrieval-header-action',
-      (source) => replaceRequired(
-        source,
-        '@click="openRebuildDialog"',
-        '@click="confirmRebuild"',
-        'Tool retrieval header action mutation',
-      ),
-      [
-        'must render the exact comfortable Tool retrieval root and PageHeader action',
+        'must render the exact comfortable Tool retrieval root and PageHeader without rebuild actions',
         toolRetrievalTopologyFailure,
       ],
     ],
@@ -11535,7 +11398,7 @@ async function runMutationProofs() {
         'Tool retrieval conditional panel mutation',
       ),
       [
-        'must render three direct, ordered, unconditional comfortable WorkbenchPanel shells',
+        'must render two direct, ordered, unconditional comfortable WorkbenchPanel shells',
         toolRetrievalTopologyFailure,
       ],
     ],
@@ -11554,7 +11417,7 @@ async function runMutationProofs() {
       (source) => replaceRequired(
         source,
         '@keyup.enter="handleSearch"',
-        '@keyup.enter="openRebuildDialog"',
+        '@keyup.enter="handleWrongSearch"',
         'Tool retrieval enter mutation',
       ),
       [toolRetrievalSearchFailure, toolRetrievalTopologyFailure],
@@ -11604,92 +11467,6 @@ async function runMutationProofs() {
       [toolRetrievalResultsFailure, toolRetrievalTopologyFailure],
     ],
     [
-      'tool-retrieval-task-panel-condition',
-      (source) => replaceRequired(
-        source,
-        '<WorkbenchPanel title="重建任务" density="comfortable">',
-        '<WorkbenchPanel v-if="task" title="重建任务" density="comfortable">',
-        'Tool retrieval task panel condition mutation',
-      ),
-      [
-        'must render three direct, ordered, unconditional comfortable WorkbenchPanel shells',
-        toolRetrievalTaskFailure,
-        toolRetrievalTopologyFailure,
-      ],
-    ],
-    [
-      'tool-retrieval-stage-tone',
-      (source) => replaceRequired(
-        source,
-        ":tone=\"stageTag(task.stage) || 'neutral'\"",
-        'tone="info"',
-        'Tool retrieval stage tone mutation',
-      ),
-      [toolRetrievalTaskFailure, toolRetrievalTopologyFailure],
-    ],
-    [
-      'tool-retrieval-no-task-status',
-      (source) => replaceRequired(
-        source,
-        '        <StatusTag v-else label="暂无任务" tone="neutral" />\n',
-        '',
-        'Tool retrieval no-task status mutation',
-      ),
-      [
-        'must use semantic StatusTag controls for score, task stage, and no-task state',
-        toolRetrievalTaskFailure,
-        toolRetrievalTopologyFailure,
-      ],
-    ],
-    [
-      'tool-retrieval-task-description',
-      (source) => replaceRequired(
-        source,
-        '          <el-descriptions-item label="结束">{{ task.finishedAt || \'-\' }}</el-descriptions-item>\n',
-        '',
-        'Tool retrieval task description mutation',
-      ),
-      [toolRetrievalTaskFailure, toolRetrievalTopologyFailure],
-    ],
-    [
-      'tool-retrieval-task-percentage',
-      (source) => replaceRequired(
-        source,
-        ':percentage="taskPercent"',
-        ':percentage="0"',
-        'Tool retrieval task percentage mutation',
-      ),
-      [toolRetrievalTaskFailure, toolRetrievalTopologyFailure],
-    ],
-    [
-      'tool-retrieval-dialog-destroy',
-      (source) => replaceRequired(
-        source,
-        '      destroy-on-close\n',
-        '',
-        'Tool retrieval dialog destroy mutation',
-      ),
-      [
-        'must render one direct AppDialog with model, title, width, destroy-on-close, and open passthrough',
-        toolRetrievalDialogFailure,
-        toolRetrievalTopologyFailure,
-      ],
-    ],
-    [
-      'tool-retrieval-dialog-open',
-      (source) => replaceRequired(
-        source,
-        '@open="loadEmbeddingInstances"',
-        '@open="openRebuildDialog"',
-        'Tool retrieval dialog open mutation',
-      ),
-      [
-        'must render one direct AppDialog with model, title, width, destroy-on-close, and open passthrough',
-        toolRetrievalDialogFailure,
-        toolRetrievalTopologyFailure,
-      ],
-    ],
-    [
       'tool-retrieval-inline-style',
       (source) => replaceRequired(
         source,
@@ -11708,7 +11485,7 @@ async function runMutationProofs() {
       (source) => replaceRequired(
         source,
         '        <el-table :data="candidates" stripe empty-text=" ">',
-        '        <el-empty description="无召回结果" />\n        <el-table :data="candidates" stripe empty-text=" ">',
+        '        <el-empty description="无匹配结果" />\n        <el-table :data="candidates" stripe empty-text=" ">',
         'Tool retrieval raw empty mutation',
       ),
       [
@@ -11721,8 +11498,8 @@ async function runMutationProofs() {
       'tool-retrieval-private-background',
       (source) => replaceRequired(
         source,
-        '  gap: var(--section-gap);\n}',
-        '  gap: var(--section-gap);\n  background: var(--surface-glass-panel);\n}',
+        '  gap: 4px;\n}',
+        '  gap: 4px;\n  background: var(--surface-glass-panel);\n}',
         'Tool retrieval private background mutation',
       ),
       [
@@ -11734,8 +11511,8 @@ async function runMutationProofs() {
       'tool-retrieval-side-reservation',
       (source) => replaceRequired(
         source,
-        '  gap: var(--section-gap);\n}',
-        '  gap: var(--section-gap);\n  margin-inline-start: 240px;\n}',
+        '  gap: 4px;\n}',
+        '  gap: 4px;\n  margin-inline-start: 240px;\n}',
         'Tool retrieval side reservation mutation',
       ),
       'must keep the exact approved Tool retrieval compiled selector, declaration, and media oracle',
@@ -11749,7 +11526,7 @@ async function runMutationProofs() {
         'Tool retrieval hidden root mutation',
       ),
       [
-        'must render the exact comfortable Tool retrieval root and PageHeader action',
+        'must render the exact comfortable Tool retrieval root and PageHeader without rebuild actions',
         toolRetrievalTopologyFailure,
       ],
     ],
@@ -11779,41 +11556,6 @@ async function runMutationProofs() {
       ],
     ],
     [
-      'tool-retrieval-raw-dialog',
-      (source) =>
-        replaceRequired(
-          replaceRequired(
-            source,
-            '    <AppDialog\n',
-            '    <el-dialog\n',
-            'Tool retrieval raw dialog opening mutation',
-          ),
-          '    </AppDialog>',
-          '    </el-dialog>',
-          'Tool retrieval raw dialog closing mutation',
-        ),
-      [
-        'must render one direct AppDialog with model, title, width, destroy-on-close, and open passthrough',
-        toolRetrievalDialogFailure,
-        'must not render raw el-card, el-dialog, or page-owned el-empty surfaces',
-        toolRetrievalTopologyFailure,
-      ],
-    ],
-    [
-      'tool-retrieval-task-v-show',
-      (source) => replaceRequired(
-        source,
-        '<WorkbenchPanel title="重建任务" density="comfortable">',
-        '<WorkbenchPanel v-show="task" title="重建任务" density="comfortable">',
-        'Tool retrieval task v-show mutation',
-      ),
-      [
-        'must render three direct, ordered, unconditional comfortable WorkbenchPanel shells',
-        toolRetrievalTaskFailure,
-        toolRetrievalTopologyFailure,
-      ],
-    ],
-    [
       'tool-retrieval-runtime-class-override',
       (source) => replaceRequired(
         source,
@@ -11830,8 +11572,8 @@ async function runMutationProofs() {
       'tool-retrieval-public-panel-style',
       (source) => replaceRequired(
         source,
-        '<WorkbenchPanel :title="\`召回结果（\${candidates.length}）\`" density="comfortable">',
-        '<WorkbenchPanel :title="\`召回结果（\${candidates.length}）\`" density="comfortable" style="width: 100%">',
+        '<WorkbenchPanel :title="\`匹配结果（\${candidates.length}）\`" density="comfortable">',
+        '<WorkbenchPanel :title="\`匹配结果（\${candidates.length}）\`" density="comfortable" style="width: 100%">',
         'Tool retrieval public panel style mutation',
       ),
       [
@@ -11858,8 +11600,8 @@ async function runMutationProofs() {
       `tool-retrieval-${variant}-style`,
       (source) => replaceRequired(
         source,
-        '  gap: var(--section-gap);\n}',
-        `  gap: var(--section-gap);\n${declarations}\n}`,
+        '  gap: 4px;\n}',
+        `  gap: 4px;\n${declarations}\n}`,
         `Tool retrieval ${variant} style mutation`,
       ),
       'must keep the exact approved Tool retrieval compiled selector, declaration, and media oracle',
@@ -11893,8 +11635,8 @@ async function runMutationProofs() {
       'tool-retrieval-actual-api-import',
       (source) => replaceRequired(
         source,
-        'searchToolRetrieval,',
-        'searchToolRetrievalChanged,',
+        '{ searchToolRetrieval }',
+        '{ searchToolRetrievalChanged }',
         'Tool retrieval API import mutation',
       ),
       'must preserve HEAD Tool retrieval non-presentation/API imports',
@@ -11910,37 +11652,17 @@ async function runMutationProofs() {
       'must preserve HEAD Tool retrieval runtime variables and initializers',
     ],
     [
-      'tool-retrieval-actual-poll-interval',
-      (source) => replaceRequired(
-        source,
-        '  }, 1500)',
-        '  }, 1000)',
-        'Tool retrieval polling interval mutation',
-      ),
-      'must preserve HEAD Tool retrieval runtime functions exactly',
-    ],
-    [
-      'tool-retrieval-actual-unmount-lifecycle',
-      (source) => replaceRequired(
-        source,
-        'onUnmounted(stopPolling)',
-        'onUnmounted(loadLatest)',
-        'Tool retrieval unmount lifecycle mutation',
-      ),
-      'must preserve HEAD Tool retrieval lifecycle and top-level statement order',
-    ],
-    [
       'tool-retrieval-actual-query-placeholder',
       (source) => replaceRequired(
         source,
-        'placeholder="例如：帮我查询最近一周的工单数量"',
+        'placeholder="例如：工单数量"',
         'placeholder="输入问题"',
         'Tool retrieval query placeholder mutation',
       ),
       [
         toolRetrievalSearchFailure,
         toolRetrievalTopologyFailure,
-        'must preserve HEAD Tool retrieval form, table, task, and dialog business subtrees',
+        'must preserve HEAD Tool retrieval search form and result table business subtrees',
       ],
     ],
     [
@@ -11954,21 +11676,7 @@ async function runMutationProofs() {
       [
         toolRetrievalResultsFailure,
         toolRetrievalTopologyFailure,
-        'must preserve HEAD Tool retrieval form, table, task, and dialog business subtrees',
-      ],
-    ],
-    [
-      'tool-retrieval-actual-provider-change',
-      (source) => replaceRequired(
-        source,
-        '@change="handleRebuildProviderChange"',
-        '@change="loadEmbeddingInstances"',
-        'Tool retrieval provider handler mutation',
-      ),
-      [
-        toolRetrievalDialogFailure,
-        toolRetrievalTopologyFailure,
-        'must preserve HEAD Tool retrieval form, table, task, and dialog business subtrees',
+        'must preserve HEAD Tool retrieval search form and result table business subtrees',
       ],
     ],
   ]) {
@@ -11983,26 +11691,6 @@ async function runMutationProofs() {
 
   for (const [name, mutate, expectedFailure] of [
     [
-      'tool-retrieval-actual-task-percent',
-      (source) => replaceRequired(
-        source,
-        'task.value.completedSteps / task.value.totalSteps',
-        'task.value.failedCount / task.value.totalSteps',
-        'Tool retrieval task percent initializer mutation',
-      ),
-      'must preserve HEAD Tool retrieval runtime variables and initializers',
-    ],
-    [
-      'tool-retrieval-actual-stage-function',
-      (source) => replaceRequired(
-        source,
-        "return 'warning'",
-        "return 'info'",
-        'Tool retrieval stage function mutation',
-      ),
-      'must preserve HEAD Tool retrieval runtime functions exactly',
-    ],
-    [
       'tool-retrieval-actual-score-function',
       (source) => replaceRequired(
         source,
@@ -12011,30 +11699,6 @@ async function runMutationProofs() {
         'Tool retrieval score function mutation',
       ),
       'must preserve HEAD Tool retrieval runtime functions exactly',
-    ],
-    [
-      'tool-retrieval-actual-default-parameter',
-      (source) => replaceRequired(
-        source,
-        'function startPolling(taskId: string)',
-        "function startPolling(taskId: string = '')",
-        'Tool retrieval default parameter mutation',
-      ),
-      'must preserve HEAD Tool retrieval runtime functions exactly',
-    ],
-    [
-      'tool-retrieval-actual-lifecycle-order',
-      (source) => {
-        const mutated = source.replace(
-          /onMounted\(loadLatest\)\r?\nonUnmounted\(stopPolling\)/,
-          'onUnmounted(stopPolling)\nonMounted(loadLatest)',
-        )
-        if (mutated === source) {
-          throw new Error('Tool retrieval lifecycle order mutation could not locate its required source span')
-        }
-        return mutated
-      },
-      'must preserve HEAD Tool retrieval lifecycle and top-level statement order',
     ],
   ]) {
     await runToolRetrievalMutationProof(
@@ -12058,29 +11722,34 @@ async function runMutationProofs() {
           '      domain="tool"\n      variant="standard"',
           'Tool retrieval safe PageHeader attribute reorder',
         ),
-        '  display: flex;\n  flex-direction: column;\n  gap: var(--section-gap);',
-        '  gap: var(--section-gap);\n  display: flex;\n  flex-direction: column;',
+        '  display: flex;\n  flex-wrap: wrap;\n  align-items: center;',
+        '  align-items: center;\n  display: flex;\n  flex-wrap: wrap;',
         'Tool retrieval safe declaration reorder',
       ),
   )
-  // Fixed approved fixture includes the immutable HEAD async model-selection contract.
-  // The oracle is never derived from the current source being validated.
-  for (const [name, needle, replacement] of [
-    ['tool-retrieval-provider-loading', ':loading="embeddingInstancesLoading"', ':loading="false"'],
-    ['tool-retrieval-provider-visible-retry', '@visible-change="handleEmbeddingSelectVisible"', '@visible-change="handleRebuildProviderChange"'],
-    ['tool-retrieval-empty-model-type', 'model-type="EMBEDDING"', 'model-type="LLM"'],
-    ['tool-retrieval-provider-option-count', ':option-count="embeddingProviderOptions.length"', ':option-count="filteredEmbeddingInstances.length"'],
-    ['tool-retrieval-instance-option-count', ':option-count="filteredEmbeddingInstances.length"', ':option-count="embeddingProviderOptions.length"'],
-    ['tool-retrieval-empty-load-error', ':load-error="embeddingInstancesLoadError"', ':load-error="false"'],
-    ['tool-retrieval-empty-retry', '@retry="loadEmbeddingInstances"', '@retry="confirmRebuild"'],
+  for (const [name, needle, replacement, expectedFailure] of [
+    ['tool-retrieval-late-response', '    if (disposed) return', '', 'must preserve HEAD Tool retrieval runtime functions exactly'],
+    ['tool-retrieval-duplicate-request', 'disposed || searching.value', 'disposed', 'must preserve HEAD Tool retrieval runtime functions exactly'],
+    ['tool-retrieval-unmount-disposal', 'onBeforeUnmount(() => { disposed = true })', 'onBeforeUnmount(() => { disposed = false })', 'must preserve HEAD Tool retrieval lifecycle and top-level statement order'],
+    ['tool-retrieval-retired-api-import', "import { searchToolRetrieval } from '@/api/toolRetrieval'", "import { searchToolRetrieval, startToolRetrievalRebuild } from '@/api/toolRetrieval'", [
+      'must keep retired Tool retrieval rebuild APIs, model controls, task state, and polling deleted',
+      'must preserve HEAD Tool retrieval non-presentation/API imports',
+    ]],
   ]) {
-    await runToolRetrievalMutationProof(name, syntheticToolRetrievalTestConsumer, structuralToolRetrievalOptions,
-      source => replaceRequired(source, needle, replacement, name),
-      [toolRetrievalTopologyFailure, toolRetrievalDialogFailure])
+    await runToolRetrievalMutationProof(name, actualToolRetrievalSource, {},
+      source => replaceRequired(source, needle, replacement, name), expectedFailure)
   }
-  await runToolRetrievalSafeVariantProof('tool-retrieval-empty-comment', actualToolRetrievalSource, {},
-    source => replaceRequired(source, '<template #empty>\n              <ModelSelectEmptyState',
-      '<template #empty>\n              <!-- async model feedback -->\n              <ModelSelectEmptyState', 'Tool retrieval safe empty-slot comment'))
+  await runToolRetrievalSafeVariantProof('tool-retrieval-result-comment', actualToolRetrievalSource, {},
+    source => replaceRequired(source, '        <el-table :data="candidates"',
+      '        <!-- keyword candidates -->\n        <el-table :data="candidates"', 'Tool retrieval safe result-table comment'))
+  await runToolRetrievalMutationProof('tool-retrieval-restored-header-action', syntheticToolRetrievalTestConsumer,
+    structuralToolRetrievalOptions, source => replaceRequired(source,
+      '      density="comfortable"\n    />',
+      '      density="comfortable"\n    ><template #actions><el-button @click="handleSearch">更新索引</el-button></template></PageHeader>',
+      'Tool retrieval restored header action'), [
+      'must render the exact comfortable Tool retrieval root and PageHeader without rebuild actions',
+      toolRetrievalTopologyFailure,
+    ])
 
   for (const [name, mutate, expectedFailure] of [
     [
@@ -14520,7 +14189,7 @@ async function runMutationProofs() {
     syntheticFilterBar,
     validateFilterBar,
     (source) => source.replace('  loading?: boolean\n', '  loading?: string\n'),
-    'must declare exactly density/loading/showReset/queryLabel/resetLabel props',
+    'must declare exactly density/presentation/loading/showReset/queryLabel/resetLabel props',
   )
   await runContractMutationProof(
     'filter-bar-default-slot-ownership',
@@ -14563,6 +14232,153 @@ async function runMutationProofs() {
     ),
     'must not contain page-scoped Element Plus skin',
   )
+  for (const [name, source, validate, alternate, propFailure, expectedUnion] of [
+    ['page-header', syntheticPageHeader, validatePageHeader, 'plain', 'must declare prop presentation?: panel,plain', "'panel' | 'plain'"],
+    ['filter-bar', syntheticFilterBar, validateFilterBar, 'inline', 'must declare exactly density/presentation/loading/showReset/queryLabel/resetLabel props', "'panel' | 'inline'"],
+    ['metric-strip', syntheticMetricStrip, validateMetricStrip, 'inline', 'must declare prop presentation?: panel,inline', "'panel' | 'inline'"],
+  ]) {
+    await runPassingContractVariantProof(
+      `${name}-presentation-expression-parentheses`,
+      source,
+      validate,
+      (candidate) => replaceRequired(
+        candidate,
+        ':data-presentation="props.presentation"',
+        ':data-presentation="(props.presentation)"',
+        `${name} presentation safe expression variant`,
+      ),
+    )
+    await runContractMutationProof(
+      `${name}-presentation-widened-type`,
+      source,
+      validate,
+      (candidate) => replaceRequired(
+        candidate,
+        `presentation?: ${expectedUnion}`,
+        `presentation?: ${expectedUnion} | 'hidden'`,
+        `${name} presentation widened type mutation`,
+      ),
+      propFailure,
+    )
+    await runContractMutationProof(
+      `${name}-presentation-wrong-default`,
+      source,
+      validate,
+      (candidate) => replaceRequired(
+        candidate,
+        "presentation: 'panel'",
+        `presentation: '${alternate}'`,
+        `${name} presentation default mutation`,
+      ),
+      name === 'filter-bar' ? 'presentation must use its shared default' : "presentation must default to 'panel'",
+    )
+    await runContractMutationProof(
+      `${name}-presentation-static-root`,
+      source,
+      validate,
+      (candidate) => replaceRequired(
+        candidate,
+        ':data-presentation="props.presentation"',
+        'data-presentation="panel"',
+        `${name} presentation binding mutation`,
+      ),
+      'root must bind props.presentation to data-presentation',
+    )
+  }
+  for (const [name, source, validate, className] of [
+    ['filter-bar', syntheticFilterBar, validateFilterBar, 'filter-bar'],
+    ['metric-strip', syntheticMetricStrip, validateMetricStrip, 'metric-strip'],
+  ]) {
+    const inlineSelector = `.${className}[data-presentation='inline']`
+    await runPassingContractVariantProof(
+      `${name}-inline-reset-selector-double-quotes`,
+      source,
+      validate,
+      (candidate) => replaceRequired(
+        candidate,
+        inlineSelector,
+        `.${className}[data-presentation="inline"]`,
+        `${name} inline reset selector safe quote variant`,
+      ),
+    )
+    for (const [suffix, replacement] of [
+      ['default-root', `.${className}`],
+      ['panel-root', `.${className}[data-presentation='panel']`],
+      ['descendant', `${inlineSelector} .${className}__content`],
+    ]) {
+      await runContractMutationProof(
+        `${name}-inline-reset-${suffix}`,
+        source,
+        validate,
+        (candidate) => replaceRequired(candidate, inlineSelector, replacement, `${name} reset ${suffix} mutation`),
+        [
+          'compiled style 1 must not contain literal box-shadow: none',
+          ...(name === 'filter-bar'
+            ? ['must leave box-shadow ownership to the glass recipe']
+            : [
+                'compiled style 1 must not declare backdrop-filter',
+                ...(suffix === 'default-root' ? ['root must own exactly border-radius: var(--radius-lg)'] : []),
+              ]),
+        ],
+      )
+    }
+    await runContractMutationProof(
+      `${name}-inline-reset-restored-shadow`,
+      source,
+      validate,
+      (candidate) => replaceRequired(
+        candidate,
+        '  box-shadow: none;',
+        '  box-shadow: 0 1px 4px currentColor;',
+        `${name} inline reset shadow mutation`,
+      ),
+      [
+        'compiled style 1 must not contain literal box-shadow: 0 1px 4px currentColor',
+        ...(name === 'filter-bar' ? ['must leave box-shadow ownership to the glass recipe'] : []),
+      ],
+    )
+  }
+  await runContractMutationProof(
+    'metric-strip-inline-reset-restored-backdrop-filter',
+    syntheticMetricStrip,
+    validateMetricStrip,
+    (source) => replaceRequired(
+      source,
+      '  backdrop-filter: none;',
+      '  backdrop-filter: blur(12px);',
+      'MetricStrip inline reset backdrop mutation',
+    ),
+    'compiled style 1 must not declare backdrop-filter',
+  )
+  await runPassingContractVariantProof(
+    'metric-strip-inline-icon-safe-condition',
+    syntheticMetricStrip,
+    validateMetricStrip,
+    (source) => replaceRequired(
+      source,
+      '<MetricIconBg :icon-key=',
+      '<MetricIconBg v-if="props.presentation !== \'inline\'" :icon-key=',
+      'MetricStrip inline icon condition safe variant',
+    ),
+  )
+  for (const [name, condition] of [
+    ['hidden-icon', 'false'],
+    ['reversed-icon', "props.presentation === 'inline'"],
+    ['unrelated-icon', "props.density !== 'compact'"],
+  ]) {
+    await runContractMutationProof(
+      `metric-strip-inline-${name}`,
+      syntheticMetricStrip,
+      validateMetricStrip,
+      (source) => replaceRequired(
+        source,
+        '<MetricIconBg :icon-key=',
+        `<MetricIconBg v-if="${condition}" :icon-key=`,
+        `MetricStrip inline ${name} mutation`,
+      ),
+      'each item must render MetricIconBg from item.iconKey and item.tone',
+    )
+  }
   await runContractMutationProof(
     'data-table-shell-prop-shape',
     syntheticDataTableShell,
@@ -14570,6 +14386,12 @@ async function runMutationProofs() {
     (source) => source.replace('  pageSizes?: number[]\n', '  pageSizes?: string\n'),
     'must declare exactly the controlled table-shell props',
   )
+  await runContractMutationProof('data-table-shell-persistent-body-default', syntheticDataTableShell, validateDataTableShell,
+    source => replaceRequired(source, 'preserveEmptyBody: false', 'preserveEmptyBody: true', 'persistent body default'),
+    'persistent empty body must default to false')
+  await runContractMutationProof('data-table-shell-persistent-body-binding', syntheticDataTableShell, validateDataTableShell,
+    source => replaceRequired(source, "{ 'data-table-shell--preserve-empty-body': props.preserveEmptyBody }", "{ 'data-table-shell--preserve-empty-body': props.empty }", 'persistent body binding'),
+    'root must bind only data-table-shell, one glass-surface-panel, densityClass(props.density), and is-empty for empty && !loading')
   await runContractMutationProof(
     'data-table-shell-raw-table',
     syntheticDataTableShell,

@@ -61,7 +61,8 @@ class KnowledgeBaseCommandsTest {
         var questions = mock(KnowledgeQuestionService.class);
         var deletion = mock(KnowledgeFileDeletionService.class);
         var lifecycle = new KnowledgeBaseLifecycleService(bases, tags, questions, deletion,
-                mock(KnowledgeCollectionLifecycleStore.class), mock(VectorService.class), manager);
+                mock(KnowledgeCollectionLifecycleStore.class), mock(VectorService.class),
+                mock(com.enterprise.ai.embedding.EmbeddingService.class), manager);
         service = KnowledgeManagementTestServices.create(mock(FileInfoRepository.class), mock(ChunkRepository.class), tags,
                 questions, mock(KnowledgeOperationsQuery.class), mock(KnowledgeIndexWriteService.class),
                 new KnowledgeBaseLookup(bases), mock(KnowledgeRetrievalEngine.class), deletion, lifecycle,

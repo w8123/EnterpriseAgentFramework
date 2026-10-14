@@ -166,8 +166,13 @@
           <el-descriptions-item label="开始时间">{{ formatDateTime(summary.startedAt) }}</el-descriptions-item>
           <el-descriptions-item label="结束时间">{{ summary.endedAt ? formatDateTime(summary.endedAt) : '—（运行未结束）' }}</el-descriptions-item>
           <el-descriptions-item label="调用统计">
+            <template v-if="summary.runType === 'CONSOLE_HTTP_API'">
+              {{ consoleHttpApiAuditLabel(detail) }} · {{ detail?.spans.length ?? 0 }} 个阶段
+            </template>
+            <template v-else>
             {{ summary.planCount ?? 0 }} 规划 · {{ summary.replanCount ?? 0 }} 重规划 ·
             {{ summary.workflowCallCount ?? 0 }} Workflow · {{ summary.toolCallCount ?? 0 }} Tool
+            </template>
           </el-descriptions-item>
         </el-descriptions>
       </section>
@@ -368,6 +373,7 @@ import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
 import RunOpsInvestigationWorkbench from './components/RunOpsInvestigationWorkbench.vue'
 import { toolCallFailed, toolCallStatus } from './toolCallOutcome'
 import { HTTP_API_WRITE_UNCONFIRMED_GUIDANCE, runHasUnconfirmedHttpApiWrite } from './httpApiWriteOutcome'
+import { consoleHttpApiAuditLabel, consoleHttpApiTransportMessage } from './consoleHttpApiDiagnostics'
 import { canOfferWorkflowCandidate, canReplayRunType } from './runOpsActionEligibility'
 import {
   compareRunOpsTrace,
@@ -508,7 +514,7 @@ const failureFocus = computed<FailureFocus | null>(() => {
       status: failedSpan.status || 'FAILED',
       code: failedSpan.errorCode,
       message: compactMessage(
-        failedSpan.errorMessage || failedSpan.outputSummary,
+        consoleHttpApiTransportMessage(run, failedSpan) || failedSpan.errorMessage || failedSpan.outputSummary,
         `${phaseLabel(failedSpan.spanType)}“${title}”未成功完成${codeSuffix}。`,
       ),
     }
@@ -1015,6 +1021,17 @@ function phaseLabel(spanType?: string) {
 }
 
 function semanticDepth(span: RunSpan) {
+  if (summary.value?.runType === 'CONSOLE_HTTP_API') {
+    const byId = new Map((detail.value?.spans || []).map(item => [item.spanId, item]))
+    const visited = new Set([span.spanId])
+    let depth = 0, parentId = span.parentSpanId
+    while (parentId && !visited.has(parentId)) {
+      visited.add(parentId)
+      depth += 1
+      parentId = byId.get(parentId)?.parentSpanId
+    }
+    return depth
+  }
   if (span.spanType === 'SUPERVISOR') return 0
   if (span.spanType === 'PLAN' || span.spanType === 'REPLAN') return 1
   if (span.spanType === 'WORKFLOW_TOOL') return 2
@@ -1051,7 +1068,8 @@ async function copyIssueSummary() {
     `错误: ${run.errorCode || '-'} ${run.errorMessage || ''}`.trim(),
     `耗时: ${formatDuration(run.latencyMs)}`,
     `规划/重规划: ${run.planCount ?? 0}/${run.replanCount ?? 0}`,
-    `工作流/工具调用: ${run.workflowCallCount ?? 0}/${run.toolCallCount ?? 0}`,
+    run.runType === 'CONSOLE_HTTP_API' ? `API 试调用与审计: ${consoleHttpApiAuditLabel(detail.value)}`
+      : `工作流/工具调用: ${run.workflowCallCount ?? 0}/${run.toolCallCount ?? 0}`,
     `修复建议: ${(detail.value?.repairHints || []).join(' | ') || '-'}`,
   ].join('\n')
   try {

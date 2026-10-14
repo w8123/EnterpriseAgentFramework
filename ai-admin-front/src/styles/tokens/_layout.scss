@@ -1,18 +1,30 @@
 :root {
   --layout-breadcrumb-height: 40px;
-  --layout-content-inline: 28px;
-  --layout-page-start: 10px;
+  --layout-content-inline: 16px;
+  --layout-page-start: 8px;
   --layout-page-end: 16px;
   --layout-list-page-end: var(--layout-sidebar-inset-block);
   --layout-page-gap: 10px;
-  --layout-page-header-padding-block: 14px;
-  --layout-page-header-padding-inline: 28px;
-  --layout-page-header-compact-padding-block: 10px;
-  --layout-page-header-compact-padding-inline: 22px;
-  --layout-page-header-height-compact: 76px;
-  --layout-page-header-height-standard: 96px;
-  --layout-page-header-height-emphasis: 112px;
-  --layout-page-header-leading-size: 52px;
+  --layout-panel-padding: 16px;
+  --layout-section-gap: 12px;
+  --layout-control-gap: 8px;
+  --layout-filter-padding-block: 8px;
+  --layout-filter-padding-inline: 12px;
+  --layout-pagination-padding-block: 12px;
+  --layout-metric-strip-min-height: 72px;
+  --layout-metric-padding-block: 12px;
+  --layout-metric-padding-inline: 16px;
+  --layout-metric-gap: 12px;
+  --layout-metric-icon-size: 40px;
+  --layout-metric-value-size: 24px;
+  --layout-page-header-padding-block: 12px;
+  --layout-page-header-padding-inline: 16px;
+  --layout-page-header-compact-padding-block: 8px;
+  --layout-page-header-compact-padding-inline: 16px;
+  --layout-page-header-height-compact: 60px;
+  --layout-page-header-height-standard: 80px;
+  --layout-page-header-height-emphasis: 88px;
+  --layout-page-header-leading-size: 40px;
   --layout-page-header-action-gap: 8px;
   --layout-page-header-tag-gap: 8px;
   --layout-page-header-art-opacity: 0.92;
@@ -56,11 +68,11 @@
 @media (max-width: 900px) {
   :root {
     --layout-content-inline: 16px;
-    --layout-page-start: 10px;
+    --layout-page-start: 8px;
     --layout-page-end: 16px;
     --layout-page-gap: 10px;
-    --layout-page-header-padding-block: 18px;
-    --layout-page-header-padding-inline: 18px;
+    --layout-page-header-padding-block: 12px;
+    --layout-page-header-padding-inline: 16px;
   }
 }
 
@@ -70,7 +82,9 @@
     --layout-page-start: 8px;
     --layout-page-end: 12px;
     --layout-page-gap: 8px;
-    --layout-page-header-padding-block: 16px;
-    --layout-page-header-padding-inline: 16px;
+    --layout-panel-padding: 12px;
+    --layout-page-header-padding-block: 12px;
+    --layout-page-header-padding-inline: 12px;
+    --layout-page-header-compact-padding-inline: 12px;
   }
 }

@@ -15,38 +15,11 @@ export interface ToolRetrievalSearchRequest {
   moduleIds?: number[]
   toolWhitelist?: number[]
   enabledOnly?: boolean
-  /** 覆盖后端 ai.tool-retrieval.min-score；0 表示不按阈值过滤 */
+  /** 缺省、null 或 0 表示不按匹配分数过滤 */
   minScore?: number | null
 }
 
 export interface ToolRetrievalSearchResponse {
   candidates: ToolCandidate[]
   message?: string | null
-}
-
-export type ToolRebuildStage = 'QUEUED' | 'RUNNING' | 'DONE' | 'FAILED'
-
-export interface ToolRebuildTask {
-  taskId: string
-  stage: ToolRebuildStage
-  totalSteps: number
-  completedSteps: number
-  successCount: number
-  skippedCount: number
-  failedCount: number
-  currentStep?: string | null
-  /** 本次重建使用的模型实例 ID */
-  embeddingModelInstanceId?: string | null
-  errorMessage?: string | null
-  startedAt?: string
-  finishedAt?: string | null
-}
-
-export interface ToolRebuildStartResponse {
-  taskId: string
-}
-
-/** POST /api/tool-retrieval/rebuild */
-export interface ToolRetrievalRebuildRequest {
-  embeddingModelInstanceId?: string
 }

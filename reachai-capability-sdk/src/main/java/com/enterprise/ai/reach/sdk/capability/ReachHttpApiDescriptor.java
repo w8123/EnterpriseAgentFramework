@@ -28,6 +28,9 @@ public class ReachHttpApiDescriptor {
     private List<String> authenticationSchemes = new ArrayList<String>();
     private List<String> requiredHeaderNames = new ArrayList<String>();
     private String sideEffect;
+    private List<String> businessGroups = new ArrayList<String>();
+    public List<String> getBusinessGroups() { return Collections.unmodifiableList(businessGroups); }
+    public void setBusinessGroups(List<String> values) { businessGroups = copy(values); }
 
     public String getSourceKey() { return sourceKey; }
     public void setSourceKey(String sourceKey) { this.sourceKey = sourceKey; }

@@ -33,6 +33,7 @@ public class DocumentImportJobController {
 
     private final DocumentImportJobService documentImportJobService;
     private final ObjectMapper objectMapper;
+    private final com.enterprise.ai.service.impl.KnowledgeFileReadAccessService readAccess;
 
     @GetMapping("/knowledge-bases/{knowledgeBaseCode}/scope")
     public ApiResult<DocumentImportResourceScope> knowledgeBaseScope(
@@ -118,6 +119,20 @@ public class DocumentImportJobController {
             throw new IllegalArgumentException("知识库授权作用域不能为空");
         }
         return ApiResult.ok(documentImportJobService.reparse(fileId,
+                access(request, assertion.workspaceId(), assertion.projectCode(), assertion.resourceScope())));
+    }
+
+    @GetMapping(value = "/files/{fileId}/read-access", produces = org.springframework.http.MediaType.APPLICATION_JSON_VALUE)
+    public ApiResult<com.enterprise.ai.service.impl.KnowledgeFileReadAccessService.ReadAccess> readAccess(
+            HttpServletRequest request, @PathVariable String fileId) {
+        return ApiResult.ok(readAccess.readOwn(fileId, identity(request)));
+    }
+
+    @PostMapping(value = "/files/{fileId}/read-access", produces = org.springframework.http.MediaType.APPLICATION_JSON_VALUE)
+    public ApiResult<com.enterprise.ai.service.impl.KnowledgeFileReadAccessService.ReadAccess> ensureReadAccess(
+            HttpServletRequest request, @PathVariable String fileId, @RequestBody ScopeAssertion assertion) {
+        if (assertion == null) throw new IllegalArgumentException("知识库授权作用域不能为空");
+        return ApiResult.ok(readAccess.ensureOwn(fileId,
                 access(request, assertion.workspaceId(), assertion.projectCode(), assertion.resourceScope())));
     }
 

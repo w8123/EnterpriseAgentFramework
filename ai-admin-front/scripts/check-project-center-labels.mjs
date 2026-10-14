@@ -138,13 +138,26 @@ if (
   || !router.includes("path: 'http-apis'")
   || !router.includes("path: 'business-methods'")
   || !router.includes("path: 'apis'")
-  || !router.includes("path: 'registry/projects/:projectCode/sync-diagnostics'")
-  || !router.includes("name: 'RegistrySyncDiagnostics'")
   || router.includes('CapabilityReview')
   || router.includes('CapabilitySyncSnapshot')
   || router.includes('CapabilityKernel')
 ) {
-  failures.push('typed catalogs must belong to the workbench routes and sync diagnostics must require a project route')
+  failures.push('typed catalogs must belong to the workbench routes')
+}
+
+const retiredDiagnosticsRedirect = /\{\s*path:\s*'registry\/projects\/:projectCode\/sync-diagnostics',\s*meta:\s*\{\s*layoutMode:\s*'project-workbench'\s*\},\s*redirect:\s*to\s*=>\s*\(\{\s*name:\s*'RegistryProjectDetail',\s*params:\s*\{\s*projectCode:\s*to\.params\.projectCode\s*\},\s*query:\s*\{\s*section:\s*'source-changes'\s*\},?\s*\}\),?\s*\}/g
+if (
+  [...router.matchAll(retiredDiagnosticsRedirect)].length !== 1
+  || router.replace(retiredDiagnosticsRedirect, '').includes('sync-diagnostics')
+  || router.includes('RegistrySyncDiagnostics')
+  || existsSync(resolve(root, 'src/views/registry/RegistrySyncDiagnostics.vue'))
+) {
+  failures.push('the retired diagnostics URL must only redirect to source changes in the same project, without a diagnostics name or page')
+}
+
+const registryApi = readFileSync(resolve(root, 'src/api/registry.ts'), 'utf8')
+if (/\b(?:diffRegistryCapabilities|syncRegistryCapabilities|CapabilitySyncRequest|CapabilitySyncResponse)\b|\/capabilities\/(?:diff|sync)/.test(registryApi)) {
+  failures.push('the frontend must not restore dedicated project sync diagnostics API wrappers')
 }
 
 const capabilityWorkbench = readFileSync(resolve(root, 'src/views/capability/BusinessCapabilityWorkbench.vue'), 'utf8')
@@ -167,34 +180,44 @@ if (projectWorkbench.includes("title: '能力变更评审'") || projectWorkbench
 }
 
 const projectDetail = readFileSync(resolve(root, 'src/views/registry/RegistryProjectDetail.vue'), 'utf8')
+const projectNavigation = readFileSync(resolve(root, 'src/views/registry/composables/useRegistryProjectDetailNavigation.ts'), 'utf8')
 const sourceChanges = readFileSync(resolve(root, 'src/views/registry/components/ProjectSourceChanges.vue'), 'utf8')
-const syncDiagnostics = readFileSync(resolve(root, 'src/views/registry/RegistrySyncDiagnostics.vue'), 'utf8')
+const sourceActions = readFileSync(resolve(root, 'src/views/capability/source/components/SourceActions.vue'), 'utf8')
+const sourceWorkbench = readFileSync(resolve(root, 'src/views/capability/source/SourceWorkbenchPanel.vue'), 'utf8')
 const capabilityReviewPanel = readFileSync(resolve(root, 'src/views/registry/components/CapabilityReviewPanel.vue'), 'utf8')
-if (!projectDetail.includes('<ProjectSourceChanges') || !projectDetail.includes("projectSection === 'source-changes'")
-  || !projectDetail.includes('project?.projectCode === projectCode')) {
-  failures.push('project detail must show source changes only for the current project section')
+if (projectDetail.includes('<ProjectSourceChanges')
+  || !projectNavigation.includes('projectCapabilityWorkspaceLocation(project)')
+  || !projectNavigation.includes('project.projectCode !== projectCode.value')
+  || !sourceWorkbench.includes("project && workspace === 'sources'")
+  || !sourceWorkbench.includes('<ProjectSourceChanges v-if="project.projectCode"')) {
+  failures.push('project detail must hand source changes to the current project capability workspace without a duplicate panel')
 }
 if (
   !sourceChanges.includes('<CapabilityReviewPanel v-if="canRead && platformSessionId" :key="contextKey"')
   || !sourceChanges.includes("PLATFORM_PERMISSION_READ, 'PROJECT', null, props.project.projectCode")
-  || !sourceChanges.includes("PLATFORM_PERMISSION_WRITE, 'PROJECT', null, props.project.projectCode")
   || !sourceChanges.includes("{ flush: 'sync' }")
-  || !sourceChanges.includes("name: 'RegistrySyncDiagnostics'")
 ) {
-  failures.push('source changes must enforce project read/write permissions and discard stale session/project panels')
+  failures.push('source changes must enforce project read permissions and discard stale session/project panels')
 }
-if (!syncDiagnostics.includes('route.params.projectCode')
-  || !syncDiagnostics.includes("PLATFORM_PERMISSION_WRITE, 'PROJECT', null, project.projectCode")
-  || !syncDiagnostics.includes('payload = { ...parsed, apply: false }')
-  || syncDiagnostics.includes('<CapabilityReviewPanel')
-  || /<el-select\b/.test(syncDiagnostics)) {
-  failures.push('sync diagnostics must remain project-bound, diagnostic-only, and separate from source decisions')
+for (const [file, content] of [
+  ['sidebarMenu', sidebar],
+  ['useRegistryProjectWorkbench', projectWorkbench],
+  ['RegistryProjectDetail', projectDetail],
+  ['useRegistryProjectDetailNavigation', projectNavigation],
+  ['ProjectSourceChanges', sourceChanges],
+  ['SourceActions', sourceActions],
+  ['SourceWorkbenchPanel', sourceWorkbench],
+]) {
+  if (/RegistrySyncDiagnostics|sync-diagnostics|openDiagnostics|canDiagnose|同步诊断|同步与诊断/.test(content)) {
+    failures.push(`${file} must not expose the retired project sync diagnostics action`)
+  }
 }
 const methodCatalog = readFileSync(resolve(root, 'src/views/capability/BusinessMethodCatalog.vue'), 'utf8')
 const methodDetail = readFileSync(resolve(root, 'src/views/capability/components/BusinessMethodDetailDialog.vue'), 'utf8')
-if (!methodCatalog.includes("useCatalogQuery('method'") || !methodCatalog.includes('getBusinessMethodSummary')
+if (!methodCatalog.includes("useCatalogQuery('method'") || !methodCatalog.includes('getBusinessMethods')
+  || !methodCatalog.includes('total.value = data.total')
   || /\bsize:\s*1\s*[,}]/.test(methodCatalog) || methodCatalog.includes('<PageHeader')) {
-  failures.push('method panel must use namespaced query state and aggregate counts without its own page header or count-only pages')
+  failures.push('method panel must use namespaced query state and owner pagination totals without its own page header or count-only pages')
 }
 for (const [file, content] of [['BusinessMethodCatalog', methodCatalog], ['BusinessMethodDetailDialog', methodDetail]]) {
   if (!content.includes('@/api/businessMethod') || !content.includes('BusinessMethodInfo')
@@ -212,7 +235,7 @@ if (
 }
 
 const scanVisibleCopyFiles = [
-  'src/views/scan/components/scan-project/ScanProjectAddInterfaceDialog.vue',
+  'src/views/capability/source/components/SourceImportDialog.vue',
 ]
 
 for (const file of scanVisibleCopyFiles) {

@@ -63,8 +63,7 @@ final class ControllerHttpApiInventoryExtractor {
             "DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT", "TRACE");
     private static final Set<String> HTTP_METHODS = Set.copyOf(ALL_HTTP_METHODS);
     private static final Set<String> RESPONSE_WRAPPERS = Set.of(
-            "apiresult", "webapiresult", "apiresponse", "result", "responseentity", "response",
-            "basresult", "commonresult", "restult", "ajaxresult", "jsonresult", "httpentity", "optional");
+            "responseentity", "httpentity", "optional");
     private static final Set<String> COLLECTION_TYPES = Set.of(
             "list", "set", "collection", "iterable", "queue", "deque", "stream");
     private static final Set<String> MAP_TYPES = Set.of("map", "hashmap", "linkedhashmap", "treemap");
@@ -183,12 +182,55 @@ final class ControllerHttpApiInventoryExtractor {
                             "UNKNOWN",
                             List.of(),
                             List.of(),
-                            readOnly(variant.method()) ? "READ_ONLY" : "WRITE");
+                            readOnly(variant.method()) ? "READ_ONLY" : "WRITE", businessGroups(declaration, method));
                     result.add(withRevision(operation));
                 }
             }
         }
         return new FileResult(result, complete);
+    }
+
+
+    private List<String> businessGroups(ClassOrInterfaceDeclaration type, MethodDeclaration method) {
+        java.util.LinkedHashSet<String> names = new java.util.LinkedHashSet<>();
+        method.getAnnotations().forEach(annotation -> collectBusinessGroups(annotation, names));
+        if (names.isEmpty()) type.getAnnotations().forEach(annotation -> collectBusinessGroups(annotation, names));
+        if (names.isEmpty()) type.getJavadoc().ifPresent(doc -> addBusinessGroup(doc.getDescription().toText().split("[\\r\\n]", 2)[0], names));
+        return List.copyOf(names);
+    }
+
+    private void collectBusinessGroups(AnnotationExpr annotation, java.util.Set<String> names) {
+        if (!isBusinessDocumentationAnnotation(annotation)) return;
+        String name = annotation.getName().getIdentifier();
+        if (annotation.isNormalAnnotationExpr()) annotation.asNormalAnnotationExpr().getPairs().forEach(pair -> {
+            if (("Tag".equals(name) && "name".equals(pair.getNameAsString()))
+                    || (("Api".equals(name) || "Operation".equals(name)) && "tags".equals(pair.getNameAsString()))
+                    || ("Tags".equals(name) && "value".equals(pair.getNameAsString()))) businessGroupExpression(pair.getValue(), names);
+        });
+        if (annotation.isSingleMemberAnnotationExpr() && ("Api".equals(name) || "Tags".equals(name)))
+            businessGroupExpression(annotation.asSingleMemberAnnotationExpr().getMemberValue(), names);
+        if (names.isEmpty() && "Api".equals(name) && annotation.isNormalAnnotationExpr()) annotation.asNormalAnnotationExpr().getPairs().stream()
+                .filter(pair -> "value".equals(pair.getNameAsString())).forEach(pair -> businessGroupExpression(pair.getValue(), names));
+    }
+    private void businessGroupExpression(Expression expression, java.util.Set<String> names) {
+        if (expression.isStringLiteralExpr()) addBusinessGroup(expression.asStringLiteralExpr().asString(), names);
+        else if (expression.isArrayInitializerExpr()) expression.asArrayInitializerExpr().getValues().forEach(value -> businessGroupExpression(value, names));
+        else if (expression.isAnnotationExpr()) collectBusinessGroups(expression.asAnnotationExpr(), names);
+    }
+    private void addBusinessGroup(String value, java.util.Set<String> names) {
+        String text = value.trim();
+        if (names.size() < 30 && !text.isEmpty() && text.length() <= 128 && !text.chars().anyMatch(Character::isISOControl)) names.add(text);
+    }
+
+    private boolean isBusinessDocumentationAnnotation(AnnotationExpr annotation) {
+        Set<String> known = Set.of("io.swagger.v3.oas.annotations.tags.Tag", "io.swagger.v3.oas.annotations.tags.Tags",
+                "io.swagger.v3.oas.annotations.Operation", "io.swagger.annotations.Api");
+        String name = annotation.getNameAsString();
+        if (known.contains(name)) return true;
+        if (name.contains(".")) return false;
+        return annotation.findCompilationUnit().map(unit -> unit.getImports().stream().filter(item -> !item.isStatic())
+                .anyMatch(item -> known.contains(item.isAsterisk() ? item.getNameAsString() + "." + name : item.getNameAsString())
+                        && (item.isAsterisk() || item.getName().getIdentifier().equals(name)))).orElse(false);
     }
 
     private MappingParse parseClassMapping(NodeList<AnnotationExpr> annotations,
@@ -296,6 +338,7 @@ final class ControllerHttpApiInventoryExtractor {
                                              Map<String, TypeDeclaration<?>> classIndex,
                                              Set<String> visiting) {
         for (AnnotationExpr annotation : annotations) {
+            if (isBusinessDocumentationAnnotation(annotation)) continue;
             String name = simpleName(annotation.getNameAsString());
             // Standard non-mapping annotations have a known meaning; custom annotations do not.
             if (Set.of("RestController", "Controller", "ResponseBody", "ResponseStatus", "ExceptionHandler",
@@ -509,9 +552,25 @@ final class ControllerHttpApiInventoryExtractor {
                             Map<String, TypeDeclaration<?>> classIndex,
                             Set<String> visiting,
                             int depth) {
-        String type = unwrapType(rawType);
+        return schema(rawType, classIndex, visiting, depth, Map.of());
+    }
+
+    private JsonNode schema(String rawType,
+                            Map<String, TypeDeclaration<?>> classIndex,
+                            Set<String> visiting,
+                            int depth,
+                            Map<String, String> bindings) {
+        String type = unwrapType(resolveType(rawType, bindings));
         if (type == null || type.isBlank()) {
-            return JsonNodeFactory.instance.objectNode().put("type", "object");
+            return JsonNodeFactory.instance.objectNode();
+        }
+        if ("?".equals(type) || type.startsWith("? super ")
+                || "object".equalsIgnoreCase(simpleType(type))) {
+            // Object and unbound type variables describe arbitrary JSON, not a declared object.
+            return JsonNodeFactory.instance.objectNode();
+        }
+        if (type.startsWith("? extends ")) {
+            return schema(type.substring("? extends ".length()), classIndex, visiting, depth, bindings);
         }
         if ("void".equalsIgnoreCase(type) || "Void".equals(type)) {
             // The Starter descriptor represents an intentionally bodyless response as an empty
@@ -561,17 +620,36 @@ final class ControllerHttpApiInventoryExtractor {
         if (declaration == null || depth >= 6) {
             return JsonNodeFactory.instance.objectNode().put("type", "object");
         }
-        String key = declaration.getFullyQualifiedName().orElse(declaration.getNameAsString());
+        String key = declaration.getFullyQualifiedName().orElse(declaration.getNameAsString()) + arguments;
         if (!visiting.add(key)) {
             return JsonNodeFactory.instance.objectNode().put("type", "object");
         }
         try {
             TreeMap<String, JsonNode> properties = new TreeMap<>();
             Set<String> required = new java.util.TreeSet<>();
+            Map<String, String> localBindings = new TreeMap<>();
+            if (declaration instanceof ClassOrInterfaceDeclaration clazz) {
+                for (int index = 0; index < clazz.getTypeParameters().size(); index++) {
+                    localBindings.put(clazz.getTypeParameters().get(index).getNameAsString(),
+                            index < arguments.size() ? arguments.get(index) : "Object");
+                }
+                for (var parentType : clazz.getExtendedTypes()) {
+                    JsonNode parent = schema(parentType.asString(), classIndex, visiting, depth + 1, localBindings);
+                    if (parent.path("properties").isObject()) {
+                        parent.path("properties").fields().forEachRemaining(field -> properties.put(field.getKey(), field.getValue()));
+                    }
+                    parent.path("required").forEach(name -> required.add(name.asText()));
+                }
+            } else if (declaration instanceof RecordDeclaration record) {
+                for (int index = 0; index < record.getTypeParameters().size(); index++) {
+                    localBindings.put(record.getTypeParameters().get(index).getNameAsString(),
+                            index < arguments.size() ? arguments.get(index) : "Object");
+                }
+            }
             if (declaration instanceof RecordDeclaration record) {
                 for (Parameter component : record.getParameters()) {
                     String property = jsonName(component.getAnnotations(), component.getNameAsString());
-                    properties.put(property, nonNullSchema(schema(component.getType().asString(), classIndex, visiting, depth + 1)));
+                    properties.put(property, nonNullSchema(schema(component.getType().asString(), classIndex, visiting, depth + 1, localBindings)));
                     if (required(component.getAnnotations())) {
                         required.add(property);
                     }
@@ -583,7 +661,7 @@ final class ControllerHttpApiInventoryExtractor {
                     }
                     for (VariableDeclarator variable : field.getVariables()) {
                         String property = jsonName(field.getAnnotations(), variable.getNameAsString());
-                        properties.put(property, nonNullSchema(schema(variable.getType().asString(), classIndex, visiting, depth + 1)));
+                        properties.put(property, nonNullSchema(schema(variable.getType().asString(), classIndex, visiting, depth + 1, localBindings)));
                         if (required(field.getAnnotations())) {
                             required.add(property);
                         }
@@ -649,6 +727,19 @@ final class ControllerHttpApiInventoryExtractor {
             }
             result = arguments.get(0).trim();
         }
+    }
+
+    private String resolveType(String raw, Map<String, String> bindings) {
+        if (raw == null) return null;
+        String type = raw.trim();
+        if (bindings.containsKey(type)) return bindings.get(type);
+        if (type.endsWith("[]")) return resolveType(type.substring(0, type.length() - 2), bindings) + "[]";
+        if (type.startsWith("? extends ")) return "? extends " + resolveType(type.substring(10), bindings);
+        if (type.startsWith("? super ")) return "? super " + resolveType(type.substring(8), bindings);
+        List<String> arguments = typeArguments(type);
+        if (arguments.isEmpty()) return type;
+        return outerType(type) + "<" + arguments.stream().map(argument -> resolveType(argument, bindings))
+                .collect(java.util.stream.Collectors.joining(",")) + ">";
     }
 
     private String responseBodyType(String raw) {
@@ -1002,7 +1093,7 @@ final class ControllerHttpApiInventoryExtractor {
                 operation.httpMethod(), operation.contextPath(), operation.endpointPath(), operation.consumes(),
                 operation.produces(), operation.mappingConditions(), operation.parameters(), operation.requestBody(),
                 operation.responses(), operation.authenticationState(), operation.authenticationSchemes(),
-                operation.requiredHeaderNames(), operation.sideEffect());
+                operation.requiredHeaderNames(), operation.sideEffect(), operation.businessGroups());
     }
 
     private String methodSignature(MethodDeclaration method) {

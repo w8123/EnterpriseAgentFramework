@@ -11,12 +11,11 @@ import {
   PLATFORM_PERMISSION_MEMORY_ERASURE_MANAGE,
   PLATFORM_PERMISSION_READ,
   PLATFORM_PERMISSION_RUNOPS_READ,
-  PLATFORM_PERMISSION_WRITE,
   PLATFORM_PERMISSION_WORKFLOW_READ,
   PLATFORM_PERMISSION_WORKFLOW_WRITE,
 } from '@/auth/platformAccess'
 import { resolvePlatformNavigation } from '@/auth/platformNavigation'
-import { legacyCatalogQuery } from '@/views/capability/businessCapabilityRoutes'
+import { BUSINESS_CAPABILITY_SCOPE_QUERY_KEYS, businessCapabilityWorkspaceLocation, legacyCatalogQuery } from '@/views/capability/businessCapabilityRoutes'
 
 /** 项目详情动态面包屑目标：从当前路由取 projectCode。 */
 const toProjectDetail = (route: RouteLocationNormalizedLoaded) => ({
@@ -31,7 +30,7 @@ const resolveAgentEditorTitle = (route: RouteLocationNormalizedLoaded) => (
   route.params.id === 'new' ? '新建 Agent' : 'Agent 编辑'
 )
 
-const routes: RouteRecordRaw[] = [
+export const routes: RouteRecordRaw[] = [
   {
     path: '/login',
     name: 'Login',
@@ -268,7 +267,8 @@ const routes: RouteRecordRaw[] = [
         path: 'api-market',
         name: 'ApiMarket',
         component: () => import('@/views/api-market/ApiMarket.vue'),
-        meta: { title: 'API 市场', layoutMode: 'standard' },
+        meta: { title: 'API 市场', layoutMode: 'standard',
+          projectScope: { permission: PLATFORM_PERMISSION_READ, resourceLabel: 'API 接入', requiresProjectCode: true } },
       },
 
       // ── Runtime 调用诊断；通用 Tool 不再作为可编辑产品资产 ──
@@ -285,18 +285,35 @@ const routes: RouteRecordRaw[] = [
         meta: {
           title: '业务能力',
           rootViewKey: 'business-capability-workbench',
+          compactSidebarOnNarrow: true,
           layoutMode: 'standard',
           requiredPermissions: [PLATFORM_PERMISSION_READ],
           projectScope: {
             permission: PLATFORM_PERMISSION_READ,
             resourceLabel: '业务能力',
             requiresProjectCode: false,
+            resetQueryKeysOnScopeChange: BUSINESS_CAPABILITY_SCOPE_QUERY_KEYS,
           },
           activeMenu: '/business-capabilities',
           breadcrumb: [{ title: 'AI 资产' }, { title: '业务能力' }],
         },
         children: [
           { path: '', name: 'BusinessCapabilityEntry', redirect: to => ({ path: '/business-capabilities/java-methods', query: to.query }) },
+          {
+            path: ':category(java-methods|http-apis)/groups',
+            name: 'BusinessCapabilityLegacyGroups',
+            redirect: to => businessCapabilityWorkspaceLocation(to.params.category === 'http-apis' ? 'http-apis' : 'java-methods', 'groups', to.query),
+          },
+          {
+            path: ':category(java-methods|http-apis)/:workspace(sources|semantics|graph)',
+            name: 'BusinessCapabilitySourceWorkbench',
+            component: () => import('@/views/capability/source/BusinessCapabilitySourceWorkbench.vue'),
+            meta: { title: '业务能力工具',
+              projectScope: { permission: PLATFORM_PERMISSION_READ, resourceLabel: '业务能力', requiresProjectCode: false,
+                resetQueryKeysOnScopeChange: BUSINESS_CAPABILITY_SCOPE_QUERY_KEYS },
+              breadcrumb: [{ title: 'AI 资产' }, { title: '业务能力' }, { title: (route: RouteLocationNormalizedLoaded) =>
+                ({ sources: '接入与变更', semantics: '批量整理说明', graph: '关联分析' }[String(route.params.workspace)] || '能力目录') }] },
+          },
           {
             path: 'java-methods', name: 'BusinessMethodCatalog',
             component: () => import('@/views/capability/BusinessMethodCatalog.vue'),
@@ -307,7 +324,8 @@ const routes: RouteRecordRaw[] = [
             path: 'http-apis', name: 'HttpApiCatalog',
             component: () => import('@/views/api/HttpApiCatalog.vue'),
             meta: { title: 'HTTP API · 业务能力',
-              projectScope: { permission: PLATFORM_PERMISSION_READ, resourceLabel: 'HTTP API', requiresProjectCode: true },
+              projectScope: { permission: PLATFORM_PERMISSION_READ, resourceLabel: 'HTTP API', requiresProjectCode: true,
+                resetQueryKeysOnScopeChange: BUSINESS_CAPABILITY_SCOPE_QUERY_KEYS },
               breadcrumb: [{ title: 'AI 资产' }, { title: '业务能力' }, { title: 'HTTP API' }] },
           },
         ],
@@ -323,18 +341,20 @@ const routes: RouteRecordRaw[] = [
         redirect: to => ({ path: '/business-capabilities/http-apis', query: legacyCatalogQuery(to.query, 'api') }),
       },
       {
-        path: 'business-capabilities/http-apis/:id',
+        path: 'business-capabilities/http-apis/:id([1-9]\\d*)',
         name: 'HttpApiDetail',
         component: () => import('@/views/api/HttpApiDetail.vue'),
         meta: {
           title: 'HTTP API 详情', layoutMode: 'standard', requiredPermissions: [PLATFORM_PERMISSION_READ],
-          projectScope: { permission: PLATFORM_PERMISSION_READ, resourceLabel: 'HTTP API', requiresProjectCode: true },
+          compactSidebarOnNarrow: true,
+          projectScope: { permission: PLATFORM_PERMISSION_READ, resourceLabel: 'HTTP API', requiresProjectCode: true,
+            resetQueryKeysOnScopeChange: BUSINESS_CAPABILITY_SCOPE_QUERY_KEYS },
           activeMenu: '/business-capabilities',
           breadcrumb: [{ title: 'AI 资产' }, { title: '业务能力', to: (route: RouteLocationNormalizedLoaded) => ({ path: '/business-capabilities/http-apis', query: route.query }) }, { title: 'HTTP API 详情' }],
         },
       },
       {
-        path: 'apis/:id',
+        path: 'apis/:id([1-9]\\d*)',
         meta: { layoutMode: 'standard' },
         redirect: to => ({ path: `/business-capabilities/http-apis/${to.params.id}`, query: legacyCatalogQuery(to.query, 'api') }),
       },
@@ -352,16 +372,12 @@ const routes: RouteRecordRaw[] = [
       },
       {
         path: 'registry/projects/:projectCode/sync-diagnostics',
-        name: 'RegistrySyncDiagnostics',
-        component: () => import('@/views/registry/RegistrySyncDiagnostics.vue'),
-        meta: {
-          title: '项目同步诊断', layoutMode: 'project-workbench',
-          requiredPermissions: [PLATFORM_PERMISSION_WRITE], activeMenu: '/registry/projects',
-          breadcrumb: [
-            { title: '项目中心' }, { title: '项目管理', to: { path: '/registry/projects' } },
-            { title: '项目详情', to: toProjectDetail }, { title: '同步诊断' },
-          ],
-        },
+        meta: { layoutMode: 'project-workbench' },
+        redirect: to => ({
+          name: 'RegistryProjectDetail',
+          params: { projectCode: to.params.projectCode },
+          query: { section: 'source-changes' },
+        }),
       },
       {
         path: 'registry/projects/:projectCode',
@@ -445,28 +461,6 @@ const routes: RouteRecordRaw[] = [
           ],
         },
       },
-      {
-        path: 'scan-project',
-        name: 'ScanProjectList',
-        redirect: '/registry/projects',
-        meta: { title: '项目与 API 接入', layoutMode: 'project-workbench' },
-      },
-      {
-        path: 'scan-project/:id',
-        name: 'ScanProjectDetail',
-        component: () => import('@/views/scan/ScanProjectDetail.vue'),
-        meta: {
-          title: 'API 管理',
-          layoutMode: 'project-workbench',
-          activeMenu: '/registry/projects',
-          breadcrumb: [
-            { title: '项目中心' },
-            { title: '项目管理', to: { path: '/registry/projects' } },
-            { title: 'API 管理' },
-          ],
-        },
-      },
-
       // ── MCP 互联中心：独立产品模块 ──
       {
         path: 'mcp-hub',
@@ -601,25 +595,7 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '调用权限', layoutMode: 'standard' },
       },
 
-      // ── 治理 / 领域 ──
-      {
-        path: 'domain',
-        name: 'DomainList',
-        component: () => import('@/views/domain/DomainList.vue'),
-        meta: { title: '领域定义', layoutMode: 'standard' },
-      },
-      {
-        path: 'domain/board',
-        name: 'DomainAssignmentBoard',
-        component: () => import('@/views/domain/DomainAssignmentBoard.vue'),
-        meta: { title: '领域归属画布', layoutMode: 'standard' },
-      },
-      {
-        path: 'domain/classifier-test',
-        name: 'DomainClassifierTest',
-        component: () => import('@/views/domain/DomainClassifierTest.vue'),
-        meta: { title: '分类器测试', layoutMode: 'standard' },
-      },
+      // ── 上下文治理 ──
       {
         path: 'context/governance',
         name: 'ContextGovernance',

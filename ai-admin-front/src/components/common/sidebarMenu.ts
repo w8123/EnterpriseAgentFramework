@@ -163,8 +163,6 @@ export const sidebarMenu: SidebarEntry[] = [
     icon: Compass,
     children: [
       { index: '/context/governance', label: '上下文治理' },
-      { index: '/domain', label: '领域定义' },
-      { index: '/domain/board', label: '归属画布' },
     ],
   },
   {
@@ -175,7 +173,6 @@ export const sidebarMenu: SidebarEntry[] = [
     children: [
       { index: '/tool/retrieval', label: '调用候选检索' },
       { index: '/retrieval', label: '知识检索测试' },
-      { index: '/domain/classifier-test', label: '分类器测试' },
     ],
   },
 ]
@@ -248,13 +245,9 @@ export function resolveActiveMenu(path: string, metaActiveMenu?: unknown): strin
   if (path.startsWith('/settings/auth-providers')) return '/settings/auth-providers'
   if (path.startsWith('/settings/tool-acl')) return '/settings/tool-acl'
   if (path.startsWith('/registry/projects')) return '/registry/projects'
-  if (path.startsWith('/scan-project')) return '/registry/projects'
   if (path.startsWith('/automations')) return '/automations'
   if (path.startsWith('/runops')) return '/runops'
   if (path.startsWith('/context/governance')) return '/context/governance'
-  if (path.startsWith('/domain/board')) return '/domain/board'
-  if (path.startsWith('/domain/classifier-test')) return '/domain/classifier-test'
-  if (path.startsWith('/domain')) return '/domain'
   if (path.startsWith('/mcp-hub')) return '/mcp-hub'
   if (path.startsWith('/a2a-hub')) return '/a2a-hub'
   return path
@@ -293,18 +286,13 @@ export function resolveOpenGroups(path: string): string[] {
   }
 
 
-  if (
-    active === '/context/governance'
-    || active === '/domain'
-    || active === '/domain/board'
-  ) {
+  if (active === '/context/governance') {
     open.push('/experimental-group')
   }
 
   if (
     active === '/tool/retrieval'
     || active === '/retrieval'
-    || active === '/domain/classifier-test'
   ) {
     open.push('/diagnostics-group')
   }

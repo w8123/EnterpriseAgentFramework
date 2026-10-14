@@ -47,6 +47,7 @@ import ExplorationStageDialog from '@/components/common/ExplorationStageDialog.v
 import AppPageBackground from '@/components/common/AppPageBackground.vue'
 import AppSidebar from '@/components/common/AppSidebar.vue'
 import { providePageProjectScope } from '@/composables/usePageProjectScope'
+import { useResponsiveSidebar } from './useResponsiveSidebar'
 
 const { theme } = useTheme()
 const appStore = useAppStore()
@@ -60,7 +61,11 @@ const layoutMode = computed<LayoutMode>(
   () => (route.meta.layoutMode as LayoutMode | undefined) ?? 'standard',
 )
 const isStudioPage = computed(() => layoutMode.value === 'studio')
-const isSidebarCollapsed = computed(() => appStore.sidebarCollapsed)
+const { isSidebarCollapsed, toggleSidebar } = useResponsiveSidebar({
+  compactOnNarrow: () => route.meta.compactSidebarOnNarrow === true,
+  collapsedPreference: () => appStore.sidebarCollapsed,
+  togglePreference: () => appStore.toggleSidebar(),
+})
 const breadcrumbShowBack = computed(
   () => route.meta.breadcrumbShowBack !== false,
 )
@@ -70,10 +75,6 @@ const sidebarWidth = computed(() =>
     : 'var(--layout-sidebar-expanded-width)',
 )
 const hideSidebarProjectPanel = computed(() => Boolean(route.meta.hideSidebarProjectPanel))
-
-function toggleSidebar() {
-  appStore.toggleSidebar()
-}
 
 </script>
 

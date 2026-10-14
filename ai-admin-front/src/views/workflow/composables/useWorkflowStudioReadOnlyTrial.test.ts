@@ -36,7 +36,7 @@ function deferred<T>() {
 const methodGraph = () => ({ nodes: [
   { id: 'method', type: 'TOOL', ref: { kind: 'TOOL', qualifiedName: 'orders:normalize' },
     config: { inputMapping: { orderNo: 'params.orderNo' } } },
-  { id: 'variable', type: 'VARIABLE_ASSIGN', config: { assignments: { normalized: 'nodeOutput.method.data' } } },
+  { id: 'variable', type: 'VARIABLE_ASSIGN', config: { assignments: { normalized: 'nodeOutput.method' } } },
 ], edges: [{ from: 'method', to: 'variable', condition: 'always' }], entryNodeId: 'method', exitNodeIds: ['variable'] })
 const methodOwner = (): any => ({ contractVersion: 1, name: 'orders_normalize', qualifiedName: 'orders:normalize',
   sourceQualifiedName: 'orders:normalize', assetType: 'BUSINESS_METHOD', projectId: 41, projectCode: 'orders',
@@ -44,7 +44,7 @@ const methodOwner = (): any => ({ contractVersion: 1, name: 'orders_normalize', 
   sourceAvailability: 'READY', enabled: true, sideEffect: 'READ_ONLY', credentialAvailable: true,
   businessIdentityRequired: false, executable: true, responseType: 'java.lang.String', parameters: [{ name: 'orderNo', type: 'String', required: true }] })
 const methodResult = { ...result, assetType: 'BUSINESS_METHOD' as const, qualifiedName: 'orders:normalize', apiId: 0,
-  environment: null, apiOutput: null, methodName: 'orders_normalize', methodOutput: { data: 'N-A-1024' },
+  environment: null, apiOutput: null, methodName: 'orders_normalize', methodOutput: 'N-A-1024',
   variables: { normalized: 'N-A-1024' } }
 function trial(method = false) {
   const scope = effectScope()
@@ -168,8 +168,21 @@ describe('saved business method draft read-only trial', () => {
     t.state.inputParams.orderNo = 'A-1024'; await t.state.run()
     expect(api.run).toHaveBeenCalledExactlyOnceWith({ workflowId: 'wf-api', expectedRevision: 'saved-r1',
       inputParams: { orderNo: 'A-1024' } })
-    expect(t.state.result.value?.methodOutput).toEqual({ data: 'N-A-1024' })
+    expect(t.state.result.value?.methodOutput).toBe('N-A-1024')
     expect(t.state.result.value?.variables).toEqual({ normalized: 'N-A-1024' }); t.scope.stop()
+  })
+  it('accepts only the scalar node root and rejects the former trial-only data field', () => {
+    expect(savedReadOnlyTrialTarget(JSON.stringify(methodGraph()))?.supported).toBe(true)
+    for (const source of ['nodeOutput.method.data', 'nodeOutput.method.other', 'nodeOutput.other', 'var.normalized']) {
+      const graph = methodGraph(); graph.nodes[1].config!.assignments!.normalized = source
+      expect(savedReadOnlyTrialTarget(JSON.stringify(graph))?.supported, source).toBe(false)
+    }
+  })
+  it.each([2, 0, false])('retains the actual scalar %s and its assigned variable', async (scalar) => {
+    api.run.mockResolvedValueOnce({ data: { ...methodResult, methodOutput: scalar, variables: { normalized: scalar } } })
+    const t = trial(true); await settle(); t.state.inputParams.orderNo = 'A-1024'; await t.state.run()
+    expect(t.state.result.value?.methodOutput).toBe(scalar)
+    expect(t.state.result.value?.variables).toEqual({ normalized: scalar }); t.scope.stop()
   })
   it('owner type/project/acceptance/source/credential/identity/side-effect drift never submits', async () => {
     for (const change of [ { projectId: 99 }, { qualifiedName: 'other:normalize' }, { assetType: 'HTTP_API' },

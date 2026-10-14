@@ -88,7 +88,7 @@ public final class RegistryContracts {
 
     /** A separately scoped HTTP API source fact; it is never a business-method declaration. */
     public record HttpApiRegistration(
-            String sourceKey,
+String sourceKey,
             String sourceLocation,
             String httpMethod,
             String contextPath,
@@ -102,8 +102,28 @@ public final class RegistryContracts {
             String authenticationState,
             List<String> authenticationSchemes,
             List<String> requiredHeaderNames,
-            String sideEffect
-    ) {
+            String sideEffect,
+        List<String> businessGroups
+) {
+    public HttpApiRegistration(String sourceKey,
+            String sourceLocation,
+            String httpMethod,
+            String contextPath,
+            String endpointPath,
+            List<String> consumes,
+            List<String> produces,
+            List<HttpApiMappingConditionRegistration> mappingConditions,
+            List<HttpApiParameterRegistration> parameters,
+            HttpApiRequestBodyRegistration requestBody,
+            List<HttpApiResponseRegistration> responses,
+            String authenticationState,
+            List<String> authenticationSchemes,
+            List<String> requiredHeaderNames,
+            String sideEffect) {
+        this(sourceKey, sourceLocation, httpMethod, contextPath, endpointPath, consumes, produces, mappingConditions, parameters, requestBody, responses, authenticationState, authenticationSchemes, requiredHeaderNames, sideEffect, List.of());
+    }
+    public HttpApiRegistration { businessGroups = businessGroups == null ? List.of() : List.copyOf(businessGroups); }
+
     }
 
     public record HttpApiMappingConditionRegistration(

@@ -179,6 +179,18 @@ public class CapabilityChangeLifecycle {
                 .eq(CapabilitySourceStateEntity::getQualifiedName, qualifiedName).last("limit 1"));
     }
 
+    public Map<String, CapabilitySourceStateEntity> sourceStates(List<String> qualifiedNames) {
+        if (qualifiedNames.isEmpty()) return Map.of();
+        Map<String, CapabilitySourceStateEntity> result = new LinkedHashMap<>();
+        for (CapabilitySourceStateEntity source : sources.selectList(Wrappers.<CapabilitySourceStateEntity>lambdaQuery()
+                .in(CapabilitySourceStateEntity::getQualifiedName, qualifiedNames))) {
+            if (result.put(source.getQualifiedName(), source) != null) {
+                throw new IllegalStateException("业务方法来源状态存在重复身份");
+            }
+        }
+        return Map.copyOf(result);
+    }
+
     private String availability(String sourceHash, String acceptedHash) {
         if (sourceHash == null) return "SOURCE_MISSING";
         if (acceptedHash == null) return "UNACCEPTED";

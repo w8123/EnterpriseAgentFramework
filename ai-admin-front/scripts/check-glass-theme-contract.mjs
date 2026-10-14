@@ -57,7 +57,7 @@ function themeImportOrderFailure(source) {
 }
 
 function runFinalSpacingMutationProofs() {
-  const cleanSemantic = ':root { --reachai-workbench-title-height: 120px; }'
+  const cleanSemantic = ':root { --reachai-workbench-title-height: var(--layout-page-header-height-emphasis); }'
   if (forbiddenLegacySpacingTokenFailures(cleanSemantic, 'synthetic semantic').length !== 0) {
     failures.push('final spacing mutation baseline unexpectedly rejects retained visual tokens')
   }
@@ -1480,7 +1480,7 @@ const semanticRuleOracles = [
       '--transition-normal': 'var(--motion-duration-normal) ease',
       '--transition-slow':
         'var(--motion-duration-slow) var(--motion-easing-standard)',
-      '--reachai-workbench-title-height': '120px',
+      '--reachai-workbench-title-height': 'var(--layout-page-header-height-emphasis)',
       '--reachai-workbench-title-radius': 'var(--radius-lg)',
     },
   },
@@ -1513,15 +1513,15 @@ const densityRuleOracles = [
       '--density-compact-control-height': '32px',
       '--density-compact-row-height': '40px',
       '--density-compact-section-gap': '12px',
-      '--density-compact-panel-padding': '16px',
+      '--density-compact-panel-padding': '12px',
       '--density-comfortable-control-height': '38px',
       '--density-comfortable-row-height': '48px',
-      '--density-comfortable-section-gap': '20px',
-      '--density-comfortable-panel-padding': '24px',
+      '--density-comfortable-section-gap': '16px',
+      '--density-comfortable-panel-padding': '16px',
       '--density-spacious-control-height': '44px',
       '--density-spacious-row-height': '56px',
-      '--density-spacious-section-gap': '28px',
-      '--density-spacious-panel-padding': '32px',
+      '--density-spacious-section-gap': '20px',
+      '--density-spacious-panel-padding': '24px',
     },
   },
   {
@@ -1923,6 +1923,8 @@ const componentElementPlusMappings = [
     selector: '.el-pagination',
     label: 'Element Plus pagination mapping',
     declarations: {
+      'flex-wrap': 'wrap',
+      'row-gap': 'var(--layout-control-gap)',
       '--el-fill-color-blank': 'var(--surface-solid-control)',
       '--el-pagination-button-color': 'var(--text-secondary)',
       '--el-pagination-button-disabled-color': 'var(--text-disabled)',
@@ -1945,6 +1947,7 @@ const componentElementPlusMappings = [
     selector: '.el-card',
     label: 'Element Plus card mapping',
     declarations: {
+      '--el-card-padding': 'var(--layout-panel-padding)',
       '--el-card-bg-color': 'var(--surface-solid-panel)',
       '--el-card-border-color': 'var(--border-subtle)',
     },

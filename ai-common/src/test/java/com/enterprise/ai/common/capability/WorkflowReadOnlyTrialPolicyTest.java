@@ -12,7 +12,7 @@ class WorkflowReadOnlyTrialPolicyTest {
     static final String GRAPH = """
             {"nodes":[{"id":"method","type":"TOOL","ref":{"kind":"TOOL","qualifiedName":"orders:normalize"},
             "config":{"inputMapping":{"orderNo":"params.orderNo"}}},
-            {"id":"variable","type":"VARIABLE_ASSIGN","config":{"assignments":{"normalized":"nodeOutput.method.data"}}}],
+            {"id":"variable","type":"VARIABLE_ASSIGN","config":{"assignments":{"normalized":"nodeOutput.method"}}}],
             "edges":[{"from":"method","to":"variable","condition":"always"}],"entryNodeId":"method","exitNodeIds":["variable"]}
             """;
     private ConsoleCapabilityInvocationContracts.InvocationContext owner() {
@@ -22,7 +22,7 @@ class WorkflowReadOnlyTrialPolicyTest {
                 null, true, "BODY", List.of(), Map.of())), null, "java.lang.String", null, null, "UNKNOWN",
                 true, false, true, null, null, 30_000, "d".repeat(64));
     }
-    @Test void oneScalarMethodUsesTheSharedEnvelopeAndStableSdkDataSource() {
+    @Test void oneScalarMethodUsesTheSharedEnvelopeAndDeclaredOutputRoot() {
         var target = WorkflowReadOnlyTrialPolicy.target(json, GRAPH);
         assertEquals("BUSINESS_METHOD", target.assetType());
         assertNull(WorkflowReadOnlyTrialPolicy.businessOwnerRejection(owner(), 41L, "orders", target.qualifiedName()));
@@ -32,6 +32,10 @@ class WorkflowReadOnlyTrialPolicyTest {
         assertEquals(owner().sourceContractHash(), allowed.sourceContractHash());
         assertEquals("orders_normalize", allowed.methodName());
         assertEquals(owner().executionRevision(), allowed.executionRevision());
+    }
+    @Test void inventedDataEnvelopeCannotBeUsedForDeclaredScalarOutput() {
+        assertThrows(IllegalArgumentException.class,
+                () -> WorkflowReadOnlyTrialPolicy.target(json, GRAPH.replace("nodeOutput.method\"", "nodeOutput.method.data\"")));
     }
     @Test void complexMixedPinnedConditionalRetryFallbackAndForeignReturnShapesAreRejected() throws Exception {
         for (String mutation : List.of("extra", "pin", "hash", "conditional", "fallback", "retry", "mapping", "foreignOutput", "undeclaredOutput", "args")) {

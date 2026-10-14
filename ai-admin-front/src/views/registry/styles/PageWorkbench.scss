@@ -253,7 +253,7 @@
   min-width: 0;
   min-height: 0;
   flex: 1;
-  padding: 20px 22px 24px;
+  padding: var(--layout-panel-padding);
   overflow-y: auto;
   background:
     radial-gradient(
@@ -478,7 +478,7 @@
   min-height: 0;
   flex: 1;
   flex-direction: column;
-  padding: 20px 22px 24px;
+  padding: var(--layout-panel-padding);
   overflow-y: auto;
   background: color-mix(
     in srgb,
@@ -1067,7 +1067,7 @@
   flex: 1;
   flex-direction: column;
   gap: 16px;
-  padding: 20px 22px 32px;
+  padding: var(--layout-panel-padding);
   overflow-y: auto;
   background:
     radial-gradient(620px 240px at 8% 0%, rgb(var(--brand-primary-rgb) / 0.045), transparent 72%),
@@ -1453,7 +1453,7 @@
 .page-detail-stage-card > .journey-stage-workspace {
   display: flex;
   flex-direction: column;
-  padding: 22px;
+  padding: var(--layout-panel-padding);
   overflow-y: auto;
 }
 
@@ -1759,7 +1759,7 @@
   min-width: 0;
   min-height: 460px;
   flex: 1;
-  padding: clamp(18px, 2vw, 28px);
+  padding: var(--layout-panel-padding);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-xl);
   background: color-mix(in srgb, var(--surface-solid-panel) 94%, transparent);
@@ -1771,8 +1771,8 @@
   min-width: 0;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 20px;
-  margin-bottom: 18px;
+  gap: var(--layout-panel-padding);
+  margin-bottom: var(--layout-section-gap);
 }
 
 .page-workbench-section__header h2,
@@ -2025,7 +2025,7 @@
   display: flex;
   min-height: 0;
   flex-direction: column;
-  padding: 24px;
+  padding: var(--layout-panel-padding);
   background: color-mix(in srgb, var(--surface-solid-control) 72%, transparent);
 }
 
@@ -2034,7 +2034,7 @@
   min-width: 0;
   min-height: 0;
   flex-direction: column;
-  padding: 22px 14px;
+  padding: var(--layout-panel-padding) 12px;
   border-right: 1px solid var(--border-divider);
   background: color-mix(in srgb, var(--surface-solid-panel) 90%, transparent);
 }
@@ -2133,8 +2133,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 20px;
-  margin-bottom: 20px;
+  gap: var(--layout-section-gap);
+  margin-bottom: var(--layout-section-gap);
 }
 
 .page-map-pages__toolbar > .el-input {
@@ -2490,7 +2490,7 @@
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 24px;
+  gap: var(--layout-section-gap);
 }
 
 .page-detail__heading {
@@ -3442,8 +3442,8 @@
   box-sizing: border-box;
   min-height: 0;
   flex-direction: column;
-  gap: 18px;
-  padding: 20px;
+  gap: var(--layout-section-gap);
+  padding: var(--layout-panel-padding);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
   background: var(--surface-solid-panel);
@@ -4417,8 +4417,8 @@
   flex: 0 0 auto;
   align-items: center;
   justify-content: space-between;
-  gap: 20px;
-  padding: 18px 22px;
+  gap: var(--layout-panel-padding);
+  padding: var(--layout-panel-padding);
   border: 1px dashed var(--border-readable);
   border-radius: var(--radius-lg);
   background: color-mix(
@@ -5169,7 +5169,7 @@
 }
 
 .page-journey-state {
-  padding: 22px;
+  padding: var(--layout-panel-padding);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-xl);
   background: var(--surface-solid-panel);
@@ -5633,7 +5633,7 @@
 .page-detail-route-loading {
   min-height: 520px;
   flex: 1;
-  padding: 28px;
+  padding: var(--layout-panel-padding);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-xl);
   background: var(--surface-solid-panel);
@@ -7508,7 +7508,7 @@
 .resource-action-pane {
   min-height: 0;
   flex: 1;
-  padding: 20px 22px 24px;
+  padding: var(--layout-panel-padding);
   overflow-y: auto;
   background: color-mix(
     in srgb,

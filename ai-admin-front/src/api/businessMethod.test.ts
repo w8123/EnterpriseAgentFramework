@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { businessMethodFixture } from '@/test/fixtures/businessMethod'
 const request = vi.hoisted(() => ({ get: vi.fn() }))
 vi.mock('./request', () => ({ controlRequest: request }))
-import { getBusinessMethodSummary, listAllBusinessMethods } from './businessMethod'
+import { listAllBusinessMethods } from './businessMethod'
 
 beforeEach(() => vi.resetAllMocks())
 describe('business-method owner pagination', () => {
@@ -31,11 +31,4 @@ describe('business-method owner pagination', () => {
     await expect(listAllBusinessMethods(7)).rejects.toThrow('owner unavailable')
   })
 
-  it('reads independent project counts with local error feedback', async () => {
-    request.get.mockResolvedValue({ data: { total: 3, enabled: 2, disabled: 1 } })
-    await getBusinessMethodSummary(7)
-    expect(request.get).toHaveBeenCalledWith('/api/business-methods/summary', {
-      params: { projectId: 7 }, errorFeedback: 'local',
-    })
-  })
 })

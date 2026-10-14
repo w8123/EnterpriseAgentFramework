@@ -93,7 +93,7 @@ mustInclude(detailPage, 'editing', 'ModelInstanceDetail.vue must support edit mo
 mustInclude(detailPage, 'ARCHIVE_CONFIRM_MESSAGE', 'archive confirmation must live on detail page')
 mustNotInclude(listPage, 'archiveModelInstance', 'archive action must not live on list page cards')
 
-mustInclude(vite, 'templates|instances|chat', 'vite proxy must cover templates')
+mustInclude(vite, 'templates|instances|chat|catalog', 'vite proxy must cover templates, instances, chat and catalog')
 mustNotInclude(vite, 'providers|instances', 'vite proxy must not keep removed providers route')
 
 if (!exists('src/views/model/components/ModelProviderIcon.vue')) {

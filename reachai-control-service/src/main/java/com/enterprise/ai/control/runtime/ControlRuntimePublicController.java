@@ -63,6 +63,12 @@ public class ControlRuntimePublicController {
     private RuntimeManagementAccess runtimeManagementAccess;
     private RuntimeWorkflowReleaseGateway workflowReleaseGateway;
     private RuntimeDebugSessionGateway debugSessionGateway;
+    private RuntimeTrustedRunOpsReplayGateway runOpsReplayGateway;
+
+    @Autowired
+    void setRunOpsReplayGateway(RuntimeTrustedRunOpsReplayGateway gateway) {
+        this.runOpsReplayGateway = gateway;
+    }
 
     @Autowired
     void setDebugSessionGateway(RuntimeDebugSessionGateway gateway) {
@@ -341,6 +347,15 @@ public class ControlRuntimePublicController {
             PlatformAuthenticatedSession session = requireRuntimePermission(PlatformPermissions.RUNOPS_OPERATE);
             requireRuntimeResponseProject(
                     session, PlatformPermissions.RUNOPS_OPERATE, runtimeProxyClient.runOpsDetail(traceId));
+            if (runOpsReplayGateway == null) {
+                throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Trusted replay gateway is unavailable");
+            }
+            Map<String, Object> command = new LinkedHashMap<>();
+            for (String field : List.of("messageOverride", "sessionId")) {
+                if (body != null && body.containsKey(field)) command.put(field, body.get(field));
+            }
+            command.put("roles", session.roles());
+            return runOpsReplayGateway.replay(traceId, command, trustedAgentUserId(session.user()));
         }
         return runtimeProxyClient.runOpsReplay(traceId, body);
     }
@@ -1331,6 +1346,7 @@ public class ControlRuntimePublicController {
         Optional<PlatformPrincipal> user = authenticatedAgentUser(authorization);
         if (user.isPresent() && trustedExecutionGateway != null) {
             String trustedUserId = trustedAgentUserId(user.get());
+            attestPlatformAgentContext(safeBody, trustedUserId);
             ResponseEntity<Map<String, Object>> trusted =
                     trustedExecutionGateway.executeTrusted(safeBody, "AGENT", trustedUserId);
             if (!detailed) {
@@ -1360,6 +1376,7 @@ public class ControlRuntimePublicController {
         StreamingResponseBody stream;
         if (user.isPresent() && trustedExecutionGateway != null) {
             String trustedUserId = trustedAgentUserId(user.get());
+            attestPlatformAgentContext(safeBody, trustedUserId);
             stream = outputStream -> trustedExecutionGateway.streamTrusted(
                     safeBody, "AGENT", trustedUserId, outputStream, SseStreamRelay.passthrough());
         } else {
@@ -1378,6 +1395,25 @@ public class ControlRuntimePublicController {
         // Direct non-MVC callers retain the existing Bearer resolution contract.
         return bearerAuthService == null ? Optional.empty()
                 : bearerAuthService.resolveBearerPrincipal(authorization);
+    }
+
+    private void attestPlatformAgentContext(Map<String, Object> body, String trustedUserId) {
+        List<String> roles = List.of();
+        if (RequestContextHolder.getRequestAttributes() instanceof ServletRequestAttributes attributes
+                && attributes.getRequest().getAttribute(PlatformConsoleAuthInterceptor.SESSION_REQUEST_ATTRIBUTE)
+                    instanceof PlatformAuthenticatedSession session) {
+            roles = session.roles();
+        }
+        // The public platform entry uses the same default tenant as its signed identity.
+        // Body and metadata must agree so neither can impersonate a caller's roles or tenant.
+        Map<String, Object> attested = Map.of("tenantId", "default", "roles", roles, "userId", trustedUserId);
+        body.putAll(attested);
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        if (body.get("metadata") instanceof Map<?, ?> supplied) {
+            supplied.forEach((key, value) -> metadata.put(String.valueOf(key), value));
+        }
+        metadata.putAll(attested);
+        body.put("metadata", metadata);
     }
 
     private String trustedAgentUserId(PlatformPrincipal user) {

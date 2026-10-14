@@ -92,7 +92,7 @@ class DocumentImportTargetSnapshotTest {
         setSnapshot("physical-old"); c.setVectorCollectionName("physical-old");
         var metadata = new MetadataPersistStep(db.mapper(KnowledgeBaseRepository.class), db.mapper(FileInfoRepository.class),
                 db.mapper(ChunkRepository.class), new com.fasterxml.jackson.databind.ObjectMapper(),
-                new DocumentImportPublicationGuard(db.mapper(DocumentImportJobRepository.class), store, org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeFileDeletionService.class)), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeTagService.class), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeQuestionService.class));
+                new DocumentImportPublicationGuard(db.mapper(DocumentImportJobRepository.class), store, org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeFileDeletionService.class), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeFileReadAccessService.class)), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeTagService.class), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeQuestionService.class));
         tx().executeWithoutResult(status -> metadata.process(c));
         assertTrue(c.isImportPublished());
         assertEquals("COMPLETED", db.jdbc().queryForObject("SELECT status FROM knowledge_document_import_job", String.class));

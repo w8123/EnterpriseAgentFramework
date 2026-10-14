@@ -7,6 +7,6 @@ export default defineConfig({
   test: { environment: 'happy-dom', css: false, include: [
     'src/views/workflow/studio-panels/ToolConfigPanel.test.ts',
     'src/views/workflow/studio-panels/InteractionConfigPanel.test.ts',
-    'src/views/scan/scanProjectOwnerRoutes.test.ts',
+    'src/views/capability/source/sourceOwnerRoutes.test.ts',
   ] },
 })

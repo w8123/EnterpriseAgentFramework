@@ -249,6 +249,73 @@ class RuntimeHttpApiInvocationPersistenceTest {
     }
 
     @Test
+    void safeTlsCausePersistsInAttemptAndRunWhileReceiptStaysUnknownAndIdIsNeverResent() {
+        String secret = "private-diagnostic-token-marker";
+        when(http.execute(any())).thenReturn(new WorkflowHttpClient.HttpExecutionResult(false,
+                "RUNTIME_HTTP_TLS_FAILED", 0, Map.of("Authorization", List.of("Bearer " + secret)),
+                "raw failure https://private.example/path?token=" + secret, null, null, 5031L, 0, 0,
+                "https://private.example/path?token=" + secret, false, "SSLHandshakeException"));
+        var command = command(UUID.randomUUID().toString(), "O-TLS");
+
+        var first = service.invoke(command);
+        var second = service.invoke(command);
+        var read = service.get(command.invocationId(), "actor-1");
+
+        assertEquals("UNKNOWN", first.status());
+        assertEquals("UNCONFIRMED", first.dispatchStage());
+        assertEquals("HTTP_API_DISPATCH_UNKNOWN", first.errorCode());
+        assertTrue(first.terminal());
+        assertNull(first.result());
+        assertNull(first.httpStatus());
+        assertEquals(first.runId(), second.runId());
+        assertEquals(first.traceId(), read.traceId());
+        String expected = "[rejected:HTTP_API_DISPATCH_UNKNOWN] "
+                + "[transport:code=RUNTIME_HTTP_TLS_FAILED;exceptionClass=SSLHandshakeException;elapsedMs=5031]";
+        assertEquals(expected, database.jdbc().queryForObject(
+                "SELECT error_message FROM runtime_console_capability_invocation WHERE invocation_id = ?",
+                String.class, command.invocationId()));
+        assertEquals(expected, database.jdbc().queryForObject(
+                "SELECT error_message FROM runtime_run WHERE id = ?", String.class, first.runId()));
+        String persisted = database.jdbc().queryForMap(
+                "SELECT error_code, error_message, result_json FROM runtime_console_capability_invocation WHERE invocation_id = ?",
+                command.invocationId()).toString() + database.jdbc().queryForMap(
+                "SELECT error_code, error_message, metadata_json FROM runtime_run WHERE id = ?", first.runId())
+                + database.jdbc().queryForMap(
+                "SELECT error_code, error_message, metadata_json FROM runtime_trace_span WHERE trace_id = ?", first.traceId());
+        assertFalse(persisted.contains(secret));
+        assertFalse(persisted.contains("private.example"));
+        assertFalse(persisted.contains("Authorization"));
+        verify(http, times(1)).execute(any());
+    }
+
+    @Test
+    void untrustedTransportCodeOrExceptionClassCannotCrossThePersistenceBoundary() {
+        String secret = "poisoned-transport-token-marker";
+        for (var result : List.of(
+                new WorkflowHttpClient.HttpExecutionResult(false, "RUNTIME_HTTP_TLS_FAILED?token=" + secret,
+                        0, Map.of(), secret, null, null, 12, 0, 0, "https://private.example/" + secret,
+                        false, "SSLHandshakeException"),
+                new WorkflowHttpClient.HttpExecutionResult(false, "RUNTIME_HTTP_TLS_FAILED",
+                        0, Map.of(), secret, null, null, 12, 0, 0, "https://private.example/" + secret,
+                        false, "SSLHandshakeException?token=" + secret))) {
+            when(http.execute(any())).thenReturn(result);
+            var command = command(UUID.randomUUID().toString(), "O-POISON");
+            var outcome = service.invoke(command);
+            assertEquals("UNKNOWN", outcome.status());
+            assertEquals("UNCONFIRMED", outcome.dispatchStage());
+            assertEquals("HTTP_API_DISPATCH_UNKNOWN", outcome.errorCode());
+            assertNull(outcome.result());
+            String expected = "[rejected:HTTP_API_DISPATCH_UNKNOWN]";
+            assertEquals(expected, database.jdbc().queryForObject(
+                    "SELECT error_message FROM runtime_console_capability_invocation WHERE invocation_id = ?",
+                    String.class, command.invocationId()));
+            assertEquals(expected, database.jdbc().queryForObject(
+                    "SELECT error_message FROM runtime_run WHERE id = ?", String.class, outcome.runId()));
+        }
+        verify(http, times(2)).execute(any());
+    }
+
+    @Test
     void unconfirmedSourceOrMissingRequiredCredentialCannotClaimAnAttempt() throws Exception {
         var current = owner();
         when(connections.owner(any())).thenReturn(new HttpApiConsoleContracts.ExecutionContext(

@@ -283,8 +283,8 @@ onMounted(reload)
   --metric-tone: var(--status-neutral);
   position: relative;
   min-width: 0;
-  min-height: 126px;
-  padding: 14px 15px;
+  min-height: var(--layout-metric-strip-min-height);
+  padding: var(--layout-metric-padding-block) var(--layout-metric-padding-inline);
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--metric-tone) 20%, var(--border-divider));
   border-radius: var(--radius-lg);
@@ -364,8 +364,8 @@ onMounted(reload)
 
 .metric-card__value {
   display: block;
-  margin: 10px 0 6px;
-  font-size: 27px;
+  margin: 8px 0 4px;
+  font-size: var(--layout-metric-value-size);
   font-variant-numeric: tabular-nums;
   line-height: 1;
 }

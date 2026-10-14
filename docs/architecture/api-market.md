@@ -7,6 +7,8 @@
 
 ## 1. 产品定位
 
+2026-10-10 入口调整：按[实施基线 D16](../plans/业务方法与API重构实施基线.md)，市场及能力详情不再从单个接口创建或交接 Workflow。用户在 Workflow 列表创建/打开流程，再在 Studio 内选择所属项目 API；市场接入、配置、验证和发布执行约束保持。
+
 API 市场是 ReachAI 面向开发者的“外部 API 发现与接入工作台”。它解决的不是“列出很多链接”，而是把公开 API 从发现信息转换成可治理、可配置、可进入 Workflow Studio 的项目资产。
 
 核心结果链路：
@@ -67,7 +69,7 @@ API 市场是 ReachAI 面向开发者的“外部 API 发现与接入工作台�
 API 市场页面包含四个工作区：
 
 1. **发现 API**：搜索、分类、认证、验证状态、来源和 OpenAPI 可用性筛选；卡片优先展示用途、认证、质量、来源和更新时间。
-2. **我的接入**：按授权项目管理固定版本和 Operation；直接进入同一 API 补齐条件，当前真实验证成立后创建 Studio 草稿。
+2. **我的接入**：按授权项目管理固定版本和 Operation；直接进入同一 API 补齐接纳、连接和真实验证条件，供 Studio 内选择使用。
 3. **变更与风险**：集中展示 `STALE`、`FAILED`、`CHANGED`、废弃版本和未来的受影响 Workflow。
 4. **来源与质量**：展示来源类型、信任等级、同步策略、最近同步时间和收录数量。
 
@@ -103,20 +105,20 @@ API 市场页面包含四个工作区：
 
 每次 owner 查询重读固定目录与绑定事实。发现下线、Operation 移除或事实漂移时，由 Capability 在同一选择计数上锁存 `BROKEN`；目录重新出现不自动恢复，用户必须明确重新选择。已有 API/草稿/版本和引用保留，当前使用在派发前阻断。
 
-### 4.3 生成 Workflow
+### 4.3 在 Workflow 中使用 API
 
-当前市场作者入口使用已接纳且当前真实验证成立的同一 API，不再由目录 URL 生成 raw HTTP_REQUEST。
+用户在 Workflow 列表创建或打开流程，在 Studio 内选择所属项目 API。市场不再生成草稿；节点继续使用同一 API 的稳定引用与已接纳契约，市场 API 发布/执行仍要求当前真实验证成立。
 
 1. 前端使用服务端 owner 返回的 API 稳定引用，复用既有 API 技术节点与 Workflow 输入/输出映射。
 2. 输入/返回声明来自已接纳的固定 Operation 来源，不由浏览器改写目录契约。
 3. GraphSpec 保存稳定 API ref、项目范围和受约束映射，不复制 origin、明文凭据或自算 hash。
 4. 发布/执行从 owning service 重新验证项目、目录版本/Operation、来源/契约、连接和当前 Runtime 验证记录；raw marketRef 不能代替这些事实。
-5. 前端调用现有 Workflow API 创建草稿，并进入 Workflow Studio。
+5. 作者在 Studio 中完成节点、连线及映射后，显式保存、只读试运行和发布。
 6. 当前认证 Operation 在接入前明确阻断；未来支持认证仍须走 Runtime-owned 凭据契约，市场不接触明文。
 
-代表草稿为 `API → 变量 → END`（START/END 是现有画布边界），API 节点沿用 TOOL 技术投影和 owner qualifiedName，输入映射来自已接纳声明，变量引用已声明输出。旧 raw HTTP_REQUEST 的顶层或嵌套 `marketRef`（即使 null）可保存 WIP，但最终发布/执行返回迁往 API 的明确原因；普通无市场引用 HTTP_REQUEST 保持原行为。
+API 节点沿用 TOOL 技术投影和 owner qualifiedName，输入映射来自已接纳声明，输出按流程需要引用；市场不预设 `API → 变量 → END` 草稿。旧 raw HTTP_REQUEST 的顶层或嵌套 `marketRef`（即使 null）可保存 WIP，但最终发布/执行返回迁往 API 的明确原因；普通无市场引用 HTTP_REQUEST 保持原行为。
 
-项目接入创建成功但 Workflow 创建失败时，保留接入记录并提示重试。这里不存在跨 Capability 与 Runtime 数据库的伪分布式事务。
+项目接入与 Workflow 编排是独立操作，接入不会创建 Workflow，也不会因后续流程编辑失败而撤销。
 
 ### 4.4 调试、发布和运行
 
@@ -214,7 +216,7 @@ CONFIGURING / READY → DISABLED / BROKEN
 
 - 只调用 Control `/api/**`；
 - 目录 DTO 独立放在 `types/apiMarket.ts`；
-- GraphSpec 投影为纯函数 `utils/apiMarketWorkflow.ts`，可单测且不依赖 Vue 组件；
+- 市场仅负责发现、接入和配置跳转；GraphSpec 节点及映射复用 Studio 原生 API 选择器，不保留市场专用草稿构造器；
 - 页面组件只处理交互状态，不复制后端归属校验。
 
 ## 7. 公共 API
@@ -301,7 +303,7 @@ fetch source revision
 
 - 搜索后进入详情率；
 - 详情到项目接入转化率；
-- 接入到 Workflow 草稿创建成功率；
+- 接入 API 在 Workflow 中的使用率；
 - 从发现到首次调试成功的中位时长；
 - `VERIFIED` 条目覆盖率和验证新鲜度；
 - 因契约、认证或限流导致的运行失败率；
@@ -313,12 +315,12 @@ fetch source revision
 - 条目可按关键词、分类、认证、验证状态、来源和契约可用性筛选；
 - 详情可看到来源、文档、条款、认证、版本、Operation 和 schema；
 - 接入请求服务端校验项目/版本/Operation 归属且不接受秘密；
-- 明确只读无认证 Operation 正常接入同一 API、接纳/连接/ACL/实际 Console 后生成稳定 `API → 变量 → END` 草稿，保存、只读试运行、显式发布和实际已发布调用；
+- 明确只读无认证 Operation 正常接入同一 API、接纳/连接/ACL/实际 Console 后，在 Studio 中选择稳定 API 引用，完成映射、保存、只读试运行、显式发布和实际已发布调用；
 - 当前不支持认证/schema/方法明确拒绝，不猜测或降为 NONE；旧 raw marketRef 最终发布/执行拒绝，普通 raw HTTP 保留；
 - Control 鉴权与 BFF、Capability 表所有权、Runtime 执行边界均有自动测试或静态检查；
 - 新库基线和已有库升级脚本包含相同 API 市场表与种子；
 - 至少一个无认证只读项目 API 完成真实 HTTP/RunTrace 验证；目录全局质量不因此变为 VERIFIED，项目当前 proof 与配置分开；
-- 浏览器验收覆盖页面首屏、详情、接入对话框和 Workflow 跳转；若环境未应用 SQL 或服务未启动，必须标记为 `PENDING`，不能以构建通过代替。
+- 浏览器验收覆盖页面首屏、详情、接入对话框、配置 API 跳转及 Studio 选取 API；若环境未应用 SQL 或服务未启动，必须标记为 `PENDING`，不能以构建通过代替。
 
 ## 12. 演进顺序
 

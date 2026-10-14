@@ -7,7 +7,6 @@ import { useWorkflowStudioPersistence } from './useWorkflowStudioPersistence'
 import type { WorkflowWorkingCopyState } from '@/types/workflow'
 
 const mocks = vi.hoisted(() => ({
-  getApiGraphParamHints: vi.fn(),
   getKnowledgeList: vi.fn(),
   getModelInstances: vi.fn(),
   listAllBusinessMethods: vi.fn(),
@@ -18,7 +17,6 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('@/api/apiGraph', () => ({
-  getApiGraphParamHints: mocks.getApiGraphParamHints,
 }))
 vi.mock('@/api/knowledge', () => ({
   getKnowledgeList: mocks.getKnowledgeList,
@@ -117,7 +115,6 @@ describe('useWorkflowStudioResources owner catalogs', () => {
     expect(mocks.listAllBusinessMethods).toHaveBeenCalledWith(1)
     expect(resources.availableTools.value.map(method => method.assetId)).toEqual([101])
     expect(resources.selectedToolInfo.value?.acceptedRevisionId).toBe(102)
-    expect(mocks.getApiGraphParamHints).not.toHaveBeenCalled()
   })
 
   it('reports a failed owner read and does not turn it into a successful empty catalog', async () => {

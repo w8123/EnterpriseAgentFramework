@@ -29,7 +29,7 @@
   display: grid;
   flex-shrink: 0;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 21px;
+  gap: var(--layout-section-gap);
 }
 
 .detail-card {
@@ -40,7 +40,7 @@
   backdrop-filter: blur(9px);
 
   :deep(.el-card__header) {
-    padding: 20px 24px 8px;
+    padding: var(--layout-panel-padding) var(--layout-panel-padding) 8px;
     border-bottom: 0;
     background: transparent;
   }
@@ -166,7 +166,7 @@
 
   :deep(.el-card__header) {
     flex-shrink: 0;
-    padding: 24px 24px 8px;
+    padding: var(--layout-panel-padding) var(--layout-panel-padding) 8px;
     border-bottom: 0;
     background: transparent;
   }
@@ -213,11 +213,11 @@
   }
 
   :deep(.el-table__header-wrapper) {
-    padding: 0 24px;
+    padding: 0 var(--layout-panel-padding);
   }
 
   :deep(.el-table__body-wrapper) {
-    padding: 0 24px;
+    padding: 0 var(--layout-panel-padding);
   }
 
   :deep(th.el-table__cell) {
@@ -308,9 +308,9 @@
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  min-height: 64px;
+  min-height: 58px;
   margin-top: auto;
-  padding: 14px 28px 16px;
+  padding: var(--layout-pagination-padding-block) var(--layout-panel-padding);
   border-top: 1px solid #dbe6f8;
   color: #687b95;
   font-size: 13px;

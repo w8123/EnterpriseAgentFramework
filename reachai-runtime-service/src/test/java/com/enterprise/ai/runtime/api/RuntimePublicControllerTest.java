@@ -407,7 +407,6 @@ class RuntimePublicControllerTest {
                 Map.of("GENERAL_CHAT", 5L),
                 Map.of("agent-a", 2L),
                 true,
-                false,
                 "keep collecting trace");
         when(routeEvaluationService.evaluate(30)).thenReturn(expected);
 

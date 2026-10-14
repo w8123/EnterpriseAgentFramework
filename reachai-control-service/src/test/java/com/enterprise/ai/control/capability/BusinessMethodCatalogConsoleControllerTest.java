@@ -42,6 +42,33 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class BusinessMethodCatalogConsoleControllerTest {
 
     @Test
+    void groupSelectionRequiresAnExplicitProjectAndIsForwardedAfterOwnerAuthorization() {
+        var gateway = mock(CapabilityReviewGateway.class);
+        var controller = controller(gateway);
+        for (String raw : List.of("0", "-1", "abc", "1.5", "9223372036854775808")) {
+            var invalid = request(globalSession());
+            invalid.addParameter("groupId", raw);
+            assertEquals(HttpStatus.BAD_REQUEST, assertThrows(ResponseStatusException.class,
+                    () -> controller.listBusinessMethods(invalid, 1, 20, null, null, 7L)).getStatusCode());
+        }
+        var noProject = request(globalSession());
+        noProject.addParameter("groupId", "71");
+        assertEquals(HttpStatus.BAD_REQUEST, assertThrows(ResponseStatusException.class,
+                () -> controller.listBusinessMethods(noProject, 1, 20, null, null, null)).getStatusCode());
+        verifyNoInteractions(gateway);
+
+        var selected = request(projectSession("orders"));
+        selected.addParameter("groupId", "71");
+        when(gateway.getProjectById(7L, "7")).thenReturn(ResponseEntity.ok(
+                Map.of("projectId", 7L, "projectCode", "orders")));
+        when(gateway.listBusinessMethods(2, 10, "order", true, 7L, "7", 71L, false, CatalogReadAuthorization.body(projectSession("orders"), 7L)))
+                .thenReturn(ownerPage(Map.of("records", List.of(), "total", 0)));
+        assertEquals(HttpStatus.OK, controller.listBusinessMethods(selected, 2, 10, "order", true, 7L).getStatusCode());
+        verify(gateway).listBusinessMethods(2, 10, "order", true, 7L, "7", 71L, false, CatalogReadAuthorization.body(projectSession("orders"), 7L));
+        verify(gateway, never()).getProjectById(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
     void exposesDedicatedPublicBusinessMethodReadRoutes() throws Exception {
         Method list = CapabilityCatalogConsoleController.class.getDeclaredMethod(
                 "listBusinessMethods", HttpServletRequest.class, int.class, int.class,
@@ -57,30 +84,30 @@ class BusinessMethodCatalogConsoleControllerTest {
     void resolvesTheOwnerProjectBeforeForwardingAProjectScopedBusinessMethodList() {
         CapabilityReviewGateway gateway = mock(CapabilityReviewGateway.class);
         CapabilityCatalogConsoleController controller = controller(gateway);
-        ResponseEntity<Object> ownerPage = ResponseEntity.ok(Map.of("records", List.of(), "total", 0));
+        ResponseEntity<Object> ownerPage = ownerPage(Map.of("records", List.of(), "total", 0));
         when(gateway.getProjectById(7L, "7")).thenReturn(ResponseEntity.ok(
                 Map.of("projectId", 7L, "projectCode", "orders")));
-        when(gateway.listBusinessMethods(1, 20, "order", true, 7L, "7")).thenReturn(ownerPage);
+        when(gateway.listBusinessMethods(1, 20, "order", true, 7L, "7", null, false, CatalogReadAuthorization.body(projectSession("orders"), 7L))).thenReturn(ownerPage);
 
         ResponseEntity<Object> response = controller.listBusinessMethods(
                 request(projectSession("orders")), 1, 20, "order", true, 7L);
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals(ownerPage.getBody(), response.getBody());
-        verify(gateway).getProjectById(7L, "7");
-        verify(gateway).listBusinessMethods(1, 20, "order", true, 7L, "7");
+        verify(gateway, never()).getProjectById(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+        verify(gateway).listBusinessMethods(1, 20, "order", true, 7L, "7", null, false, CatalogReadAuthorization.body(projectSession("orders"), 7L));
     }
 
     @Test
     void returnsOnlyTheOwnerConfirmedBusinessMethodDetail() {
         CapabilityReviewGateway gateway = mock(CapabilityReviewGateway.class);
         CapabilityCatalogConsoleController controller = controller(gateway);
-        ResponseEntity<Object> method = ResponseEntity.ok(Map.of(
+        ResponseEntity<Object> method = ownerPage(Map.of(
                 "assetType", "BUSINESS_METHOD",
                 "name", "orders_create",
                 "projectId", 7L,
                 "projectCode", "orders"));
-        when(gateway.getBusinessMethod("orders_create", "7")).thenReturn(method);
+        when(gateway.getBusinessMethod(org.mockito.ArgumentMatchers.eq("orders_create"), org.mockito.ArgumentMatchers.eq("7"), org.mockito.ArgumentMatchers.anyMap())).thenReturn(method);
         when(gateway.getProjectById(7L, "7")).thenReturn(ResponseEntity.ok(
                 Map.of("projectId", 7L, "projectCode", "orders")));
 
@@ -89,21 +116,21 @@ class BusinessMethodCatalogConsoleControllerTest {
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals("BUSINESS_METHOD", ((Map<?, ?>) response.getBody()).get("assetType"));
-        verify(gateway).getBusinessMethod("orders_create", "7");
-        verify(gateway).getProjectById(7L, "7");
+        verify(gateway).getBusinessMethod(org.mockito.ArgumentMatchers.eq("orders_create"), org.mockito.ArgumentMatchers.eq("7"), org.mockito.ArgumentMatchers.anyMap());
+        verify(gateway, never()).getProjectById(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
     }
 
     @Test
     void acceptsTheStableQualifiedRuntimeReferenceReturnedByTheOwner() {
         CapabilityReviewGateway gateway = mock(CapabilityReviewGateway.class);
         CapabilityCatalogConsoleController controller = controller(gateway);
-        ResponseEntity<Object> method = ResponseEntity.ok(Map.of(
+        ResponseEntity<Object> method = ownerPage(Map.of(
                 "assetType", "BUSINESS_METHOD",
                 "name", "orders_read",
                 "qualifiedName", "orders:orders_read",
                 "projectId", 7L,
                 "projectCode", "orders"));
-        when(gateway.getBusinessMethod("orders:orders_read", "7")).thenReturn(method);
+        when(gateway.getBusinessMethod(org.mockito.ArgumentMatchers.eq("orders:orders_read"), org.mockito.ArgumentMatchers.eq("7"), org.mockito.ArgumentMatchers.anyMap())).thenReturn(method);
         when(gateway.getProjectById(7L, "7")).thenReturn(ResponseEntity.ok(
                 Map.of("projectId", 7L, "projectCode", "orders")));
 
@@ -112,66 +139,23 @@ class BusinessMethodCatalogConsoleControllerTest {
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals("orders:orders_read", ((Map<?, ?>) response.getBody()).get("qualifiedName"));
-        verify(gateway).getBusinessMethod("orders:orders_read", "7");
-        verify(gateway).getProjectById(7L, "7");
+        verify(gateway).getBusinessMethod(org.mockito.ArgumentMatchers.eq("orders:orders_read"), org.mockito.ArgumentMatchers.eq("7"), org.mockito.ArgumentMatchers.anyMap());
+        verify(gateway, never()).getProjectById(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
     }
 
     @Test
     void preservesNotFoundWhenTheOwnerDoesNotClassifyTheRequestedDefinitionAsABusinessMethod() {
         CapabilityReviewGateway gateway = mock(CapabilityReviewGateway.class);
         CapabilityCatalogConsoleController controller = controller(gateway);
-        when(gateway.getBusinessMethod("legacy_http_api", "7")).thenReturn(ResponseEntity.notFound().build());
+        when(gateway.getBusinessMethod(org.mockito.ArgumentMatchers.eq("legacy_http_api"), org.mockito.ArgumentMatchers.eq("7"), org.mockito.ArgumentMatchers.anyMap())).thenReturn(ResponseEntity.notFound().build());
 
         assertEquals(HttpStatus.NOT_FOUND, controller.getBusinessMethod(
                 request(globalSession()), "legacy_http_api").getStatusCode());
     }
 
-    @Test
-    void summaryResolvesAndAuthorizesTheOwnerProjectBeforeReadingCounts() {
-        var gateway = mock(CapabilityReviewGateway.class);
-        when(gateway.getProjectById(7L, "7")).thenReturn(ResponseEntity.ok(Map.of("projectId", 7L, "projectCode", "orders")));
-        when(gateway.getBusinessMethodSummary(7L, "7")).thenReturn(ResponseEntity.ok(Map.of("total", 3, "enabled", 2, "disabled", 1)));
-        var response = controller(gateway).businessMethodSummary(request(projectSession("orders")), 7L);
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertEquals(Map.of("total", 3, "enabled", 2, "disabled", 1), response.getBody());
-        verify(gateway).getProjectById(7L, "7");
-        verify(gateway).getBusinessMethodSummary(7L, "7");
-        verifyNoMoreInteractions(gateway);
-    }
-
-    @Test
-    void projectGrantCannotReadAnotherProjectOrGlobalSummary() {
-        var gateway = mock(CapabilityReviewGateway.class);
-        var controller = controller(gateway);
-        when(gateway.getProjectById(8L, "7")).thenReturn(ResponseEntity.ok(Map.of("projectId", 8L, "projectCode", "other")));
-        assertEquals(HttpStatus.FORBIDDEN, assertThrows(ResponseStatusException.class,
-                () -> controller.businessMethodSummary(request(projectSession("orders")), 8L)).getStatusCode());
-        verify(gateway, never()).getBusinessMethodSummary(8L, "7");
-        assertEquals(HttpStatus.FORBIDDEN, assertThrows(ResponseStatusException.class,
-                () -> controller.businessMethodSummary(request(projectSession("orders")), null)).getStatusCode());
-        verify(gateway, never()).getBusinessMethodSummary(null, "7");
-    }
-
-    @Test
-    void summaryRejectsInvalidProjectAndPreservesUnavailableCountsAsAnError() {
-        var gateway = mock(CapabilityReviewGateway.class);
-        var controller = controller(gateway);
-        assertEquals(HttpStatus.BAD_REQUEST, controller.businessMethodSummary(request(globalSession()), 0L).getStatusCode());
-        verifyNoInteractions(gateway);
-        when(gateway.getBusinessMethodSummary(null, "7")).thenReturn(ResponseEntity.status(503).build());
-        assertEquals(HttpStatus.SERVICE_UNAVAILABLE, controller.businessMethodSummary(request(globalSession()), null).getStatusCode());
-    }
-
-    @Test
-    void summaryRouteTakesPrecedenceOverTheNamedMethodRoute() throws Exception {
-        var gateway = mock(CapabilityReviewGateway.class);
-        when(gateway.getBusinessMethodSummary(null, "7")).thenReturn(ResponseEntity.ok(Map.of("total", 0, "enabled", 0, "disabled", 0)));
-        MockMvcBuilders.standaloneSetup(controller(gateway)).build()
-                .perform(get("/api/business-methods/summary").requestAttr(
-                        PlatformConsoleAuthInterceptor.SESSION_REQUEST_ATTRIBUTE, globalSession()))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.total").value(0));
-        verify(gateway).getBusinessMethodSummary(null, "7");
-        verifyNoMoreInteractions(gateway);
+    private static ResponseEntity<Object> ownerPage(Map<String, Object> body) {
+        return ResponseEntity.ok().header(CatalogReadAuthorization.SCOPE, "PROJECT")
+                .header(CatalogReadAuthorization.PROJECT_ID, "7").header(CatalogReadAuthorization.PROJECT_CODE, "orders").body(body);
     }
 
     private static CapabilityCatalogConsoleController controller(CapabilityReviewGateway gateway) {

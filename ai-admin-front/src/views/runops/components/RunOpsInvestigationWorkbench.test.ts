@@ -5,6 +5,70 @@ import type { RunDetail, RunSummary } from '@/types/runops'
 import RunOpsInvestigationWorkbench from './RunOpsInvestigationWorkbench.vue'
 
 describe('RunOps invocation evidence', () => {
+  it('shows safe Console TLS/UNKNOWN facts and actual audits instead of legacy Tool count, without a false jump', async () => {
+    const summary: RunSummary = { traceId: 'console-safe', runType: 'CONSOLE_HTTP_API', entryType: 'CONSOLE',
+      runtimeType: 'HTTP_API', status: 'FAILED', toolCallCount: 1, errorCode: 'HTTP_API_DISPATCH_UNKNOWN',
+      errorMessage: '[rejected:HTTP_API_DISPATCH_UNKNOWN] [transport:code=RUNTIME_HTTP_TLS_FAILED;exceptionClass=SSLHandshakeException;elapsedMs=5008]' }
+    const detail: RunDetail = { summary, guardDecisions: [],
+      repairHints: ['检查 Supervisor 调度链。', '检查 Workflow Tool 与 Workflow Node。'], toolCalls: [],
+      spans: [{ id: 1, spanId: 'root', spanType: 'CONSOLE_CAPABILITY', runtimeType: 'HTTP_API',
+        toolName: 'http-api:owned:DEVELOPMENT:market:stable', status: 'ERROR', errorCode: 'HTTP_API_DISPATCH_UNKNOWN',
+        errorMessage: '[rejected:HTTP_API_DISPATCH_UNKNOWN]' }] }
+    const wrapper = mount(RunOpsInvestigationWorkbench, { props: { summary, detail }, global: { plugins: [ElementPlus] } })
+    try {
+      expect(wrapper.find('.node-diagnostic').text()).toContain('TLS 握手失败')
+      expect(wrapper.find('.node-diagnostic').text()).toContain('结果仍未确认（UNKNOWN）')
+      expect(wrapper.find('.workbench-summary').text()).toContain('1 次 API 试调用 · 0 条 Tool 审计')
+      expect(wrapper.find('.workbench-summary').text()).toContain('1 个阶段')
+      expect(wrapper.findAll('button').some(button => button.text() === '查看工具调用')).toBe(false)
+      const steps = wrapper.find('.next-steps').text()
+      expect(steps).toContain('同一调用 ID')
+      expect(steps).toContain('核对目标状态')
+      expect(steps).toContain('不要自动重发')
+      expect(steps).toContain('当前 API 连接与调用契约')
+      expect(steps).toContain('原调用实际记录的传输分类')
+      expect(steps).toContain('不猜测证书或其他根因')
+      expect(steps).not.toContain('Supervisor')
+      expect(steps).not.toContain('Workflow')
+      await wrapper.findAll('button').find(button => button.text() === '调用与治理')!.trigger('click')
+      const tools = wrapper.findAll('section.data-view').find(view => view.find('h2').text() === '工具调用')!
+      expect(tools.text()).toContain('没有工具调用审计记录')
+      expect(tools.text()).toContain('缺少 Tool 审计不能证明请求未派发')
+      expect(tools.text()).not.toContain('该运行未调用工具')
+    } finally { wrapper.unmount() }
+  })
+
+  it.each([false, true])('preserves existing repair hints for a non-Console or deeper failed span: consoleChild=%s', consoleChild => {
+    const summary: RunSummary = { traceId: 'existing-hints', runType: consoleChild ? 'CONSOLE_HTTP_API' : 'WORKFLOW',
+      entryType: consoleChild ? 'CONSOLE' : 'API', runtimeType: 'HTTP_API', status: 'FAILED' }
+    const hints = ['检查原有 Workflow Node 输入与契约。']
+    const detail: RunDetail = { summary, guardDecisions: [], repairHints: hints, toolCalls: [],
+      spans: [{ id: 1, spanId: 'failed-node', parentSpanId: consoleChild ? 'console-root' : undefined,
+        spanType: consoleChild ? 'CONSOLE_CAPABILITY' : 'WORKFLOW_NODE', runtimeType: 'HTTP_API',
+        status: 'ERROR', errorCode: 'SPECIFIC_ERROR', errorMessage: '具体节点失败' }] }
+    const wrapper = mount(RunOpsInvestigationWorkbench, { props: { summary, detail }, global: { plugins: [ElementPlus] } })
+    try {
+      expect(wrapper.find('.next-steps').text()).toContain(hints[0])
+      expect(wrapper.find('.next-steps').text()).not.toContain('同一调用 ID')
+    } finally { wrapper.unmount() }
+  })
+
+  it('only offers a Console root Tool jump for an actual span-correlated audit, not a matching Tool name', async () => {
+    const summary: RunSummary = { traceId: 'console-safe', runType: 'CONSOLE_HTTP_API', entryType: 'CONSOLE',
+      runtimeType: 'HTTP_API', status: 'COMPLETED', toolCallCount: 99 }
+    const detail: RunDetail = { summary, guardDecisions: [], repairHints: [],
+      toolCalls: [{ id: 1, toolName: 'owned-api', success: true, statusSourceSpanId: 'other-root' }],
+      spans: [{ id: 1, spanId: 'root', spanType: 'CONSOLE_CAPABILITY', runtimeType: 'HTTP_API', toolName: 'owned-api', status: 'SUCCESS' }] }
+    const wrapper = mount(RunOpsInvestigationWorkbench, { props: { summary, detail }, global: { plugins: [ElementPlus] } })
+    try {
+      expect(wrapper.find('.workbench-summary').text()).toContain('1 条 Tool 审计')
+      expect(wrapper.find('.workbench-summary').text()).not.toContain('99 Tool')
+      expect(wrapper.findAll('button').some(button => button.text() === '查看工具调用')).toBe(false)
+      await wrapper.setProps({ detail: { ...detail, toolCalls: [{ ...detail.toolCalls[0]!, statusSourceSpanId: 'root' }] } })
+      expect(wrapper.findAll('button').some(button => button.text() === '查看工具调用')).toBe(true)
+    } finally { wrapper.unmount() }
+  })
+
   it('distinguishes absent persisted payload from a missing execution result without issuing another write', async () => {
     const summary: RunSummary = { traceId: 'confirmed-write', runType: 'MCP', entryType: 'MCP', status: 'COMPLETED' }
     const detail: RunDetail = { summary, guardDecisions: [], repairHints: [], toolCalls: [],

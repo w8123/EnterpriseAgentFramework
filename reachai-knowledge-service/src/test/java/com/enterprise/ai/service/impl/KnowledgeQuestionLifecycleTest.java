@@ -51,7 +51,8 @@ class KnowledgeQuestionLifecycleTest {
                 mock(DocumentIndexExecutionStore.class), mock(DocumentArtifactStore.class), db.mapper(UserFilePermissionRepository.class),
                 questions, manager, mock(KnowledgeTagService.class));
         bases = new KnowledgeBaseLifecycleService(db.mapper(KnowledgeBaseRepository.class), db.mapper(KnowledgeTagRepository.class),
-                questions, files, mock(KnowledgeCollectionLifecycleStore.class), mock(VectorService.class), manager);
+                questions, files, mock(KnowledgeCollectionLifecycleStore.class), mock(VectorService.class),
+                mock(com.enterprise.ai.embedding.EmbeddingService.class), manager);
         service = KnowledgeManagementTestServices.create(db.mapper(FileInfoRepository.class),
                 db.mapper(ChunkRepository.class), db.mapper(KnowledgeTagRepository.class), questions,
                 mock(KnowledgeOperationsQuery.class), mock(KnowledgeIndexWriteService.class),

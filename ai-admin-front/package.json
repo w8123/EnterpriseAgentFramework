@@ -16,7 +16,7 @@
     "check:studio-canvas": "node scripts/check-studio-canvas-node-data.mjs",
     "check:sdk-access-workbench": "node scripts/check-sdk-access-workbench-ui.mjs",
     "check:page-workbench": "node scripts/check-page-workbench-ui.mjs",
-    "check:scan-project-detail-ui": "node scripts/check-scan-project-detail-ui.mjs",
+    "check:business-capability-workbench-ui": "node scripts/check-business-capability-workbench-ui.mjs",
     "check:model-center-v2-ui": "node scripts/check-model-center-v2-ui.mjs",
     "build:sdk": "vite build --config vite.sdk.config.ts && node scripts/write-embed-chat-package.mjs",
     "build:sdk:pack": "npm run build:sdk && node scripts/pack-embed-chat.mjs",

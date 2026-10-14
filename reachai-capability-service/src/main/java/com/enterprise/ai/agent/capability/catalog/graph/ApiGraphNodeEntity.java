@@ -22,13 +22,19 @@ public class ApiGraphNodeEntity {
 
     private Long projectId;
 
+    /** SHA-256 typed owner + structural path; display text and grouping never participate. */
+    private String nodeKey;
+
+    private Boolean active;
+
     /** API / FIELD_IN / FIELD_OUT / DTO / MODULE */
     private String kind;
 
-    /** 业务表外键：API → capability_scan_project_tool.id；MODULE → capability_scan_module.id；FIELD/DTO 为 null。 */
+    /** API points to the typed owner described in props; fields point to their graph operation. */
     private Long refId;
 
     /** 字段树嵌套：指向父字段节点；DTO 内部 children 也建节点。 */
+    @com.baomidou.mybatisplus.annotation.TableField(updateStrategy = com.baomidou.mybatisplus.annotation.FieldStrategy.ALWAYS)
     private Long parentId;
 
     private String label;

@@ -1,6 +1,6 @@
 import { computed, type Ref } from 'vue'
 import type { CanvasEdge, CanvasNode } from '@/types/studio'
-import { BUSINESS_METHOD_SCALAR_TRIAL_OUTPUT } from '@/views/workflow/businessMethodWorkflow'
+import { BUSINESS_METHOD_SCALAR_OUTPUT } from '@/views/workflow/businessMethodWorkflow'
 import {
   isRouteCondition,
   isSupportedCanvasCondition,
@@ -178,13 +178,10 @@ export function useWorkflowStudioGraphAnalysis(deps: UseWorkflowStudioGraphAnaly
           .filter(Boolean)
         for (const field of [...new Set(declaredFields)]) {
           const declaration = (node.data.outputs || []).find((port) => port.id === `${alias}.${field}`)
-          const isScalarTrial = declaration?.source === BUSINESS_METHOD_SCALAR_TRIAL_OUTPUT
           const fieldLabel = declaration?.source && declaration.source !== field
             ? `${field}（${declaration.source}）`
             : field
-          // The bounded scalar draft policy accepts only nodeOutput.<method>.data,
-          // not a business alias. Keep that trial-only choice unambiguous.
-          if (!isScalarTrial) vars.push({
+          vars.push({
             name: `${varPath}.${field}`,
             source: node.data.label || node.id,
             nodeId: node.id,
@@ -196,9 +193,7 @@ export function useWorkflowStudioGraphAnalysis(deps: UseWorkflowStudioGraphAnaly
             name: `nodeOutput.${node.id}.${field}`,
             source: node.data.label || node.id,
             nodeId: node.id,
-            label: isScalarTrial
-              ? `${node.data.label || node.id} · ${BUSINESS_METHOD_SCALAR_TRIAL_OUTPUT}`
-              : `${node.data.label || node.id} · 节点输出 · ${fieldLabel}`,
+            label: `${node.data.label || node.id} · 节点输出 · ${fieldLabel}`,
             group: '节点输出',
             description: `节点声明字段：${field}`,
           })
@@ -208,7 +203,10 @@ export function useWorkflowStudioGraphAnalysis(deps: UseWorkflowStudioGraphAnaly
         name: `nodeOutput.${node.id}`,
         source: node.data.label || node.id,
         nodeId: node.id,
-        label: `${node.data.label || node.id} · 节点输出`,
+        label: (node.data.outputs || []).some((port) => port.id === node.data.outputAlias
+          && port.source === BUSINESS_METHOD_SCALAR_OUTPUT)
+          ? `${node.data.label || node.id} · ${BUSINESS_METHOD_SCALAR_OUTPUT}`
+          : `${node.data.label || node.id} · 节点输出`,
         group: '节点输出',
         description: node.data.kind,
       })

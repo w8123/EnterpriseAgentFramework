@@ -160,7 +160,8 @@ class KnowledgeQuestionLifecycleIT {
                     mock(DocumentIndexExecutionStore.class), mock(DocumentArtifactStore.class),
                     session.getMapper(UserFilePermissionRepository.class), questions, manager, tags);
             bases = new KnowledgeBaseLifecycleService(baseRepository, tagRepository, questions, files,
-                    mock(KnowledgeCollectionLifecycleStore.class), mock(VectorService.class), manager);
+                    mock(KnowledgeCollectionLifecycleStore.class), mock(VectorService.class),
+                    mock(com.enterprise.ai.embedding.EmbeddingService.class), manager);
             jdbc.update("INSERT INTO knowledge_base(id,code,name,vector_collection_name) VALUES "
                     + "(7,'kb','问题并发验证','question_fixture_physical'),(8,'other','其他知识库','other_physical')");
             jdbc.update("INSERT INTO knowledge_file_info(id,file_id,knowledge_base_id,file_name) VALUES (11,'file-1',7,'目标文件'),(12,'keep',8,'保留文件')");

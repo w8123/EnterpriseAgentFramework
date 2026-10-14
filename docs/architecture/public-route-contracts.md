@@ -39,11 +39,13 @@ This document is the short source of truth for public route lifecycle decisions.
 | Capability snapshot review and diagnostics | `/api/capability-review/projects/{projectCode}/**` | Control | Capability; Control enforces platform session, project-scoped RBAC, trusted operator identity and exact-body HMAC; bulk apply is not exposed |
 | Business page workbench | `/api/registry/projects/{projectCode}/page-workbench/**` | Control | Control, with Runtime published-data query |
 | AI Coding task console, handoff activation and task protocol | `/api/ai-coding-console/tasks/**`, `/api/ai-coding/handoffs/**`, `/api/ai-coding/tasks/{taskId}/**` | Control | Control |
-| Capability catalog and API graph | `GET /api/tools/**`, `/api/api-graph/**` | Control | Capability; `/api/tools` is a read-only projection and legacy `/api/capabilities/**` returns `410 Gone` |
+| Read-only invocation projection | `GET /api/tools/**` | Control | Capability; `/api/tools` is a read-only projection and legacy `/api/capabilities/**` returns `410 Gone`; graph resources use the signed project facade below |
 | API 市场公开目录与项目接入 | `/api/api-market/**` | Control | Capability；Workflow 执行和凭据仍归 Runtime |
 | Skill Center catalog, import, review and release | `/api/skills/**` | Control | Control |
 | Public built-in Agent Skill downloads | `/api/ai-assist/skills/**` | Control | Control |
-| Scan projects and semantic documents | `/api/scan-projects/**`, `/api/scan-modules/**`, `/api/semantic-docs/**` | Control | Capability |
+| Source intake and scan observations | `/api/scan-projects/**` | Control | Capability; semantic prose and catalog groups use the typed owner-attached resource facade below |
+| Owner-attached business capability resources | `/api/business-capabilities/projects/{projectId}/**`, `/api/api-graph/projects/{projectId}/**` | Control, platform session and owning project read/write grant | Capability, signed internal facade and typed subject/project validation |
+| Complete catalog classification index | `/api/business-capabilities/projects/{projectId}/classification/{BUSINESS_METHOD\|HTTP_API}` | Control, owning project read grant; GET only | Capability, formal typed owners and complete group membership; list `groupId` / `ungrouped=true` selection uses the same membership before pagination |
 | Embed and page actions | `/api/embed/**` and `/embed/**` | Control | Control with Runtime/Capability checks when needed |
 | Gateway, MCP, A2A, market, context governance | `/gateway/**`, `/api/v1/agents/**`, `/mcp/**`, `/a2a/**`, `/api/market/**`, `/api/context/**` | Control | Control, with Runtime/Capability calls by subdomain |
 | MCP Hub management and outbound protocol | `/api/mcp/publications/**` (including publication-scoped clients), `/api/mcp/overview`, `/api/mcp/call-logs`, `/mcp/manifest`, `/mcp`, `/mcp/jsonrpc` | Control | Control; the public protocol surface is default-off and `tools/call` dispatches through the Runtime internal MCP tool-execution boundary |

@@ -1,106 +1,57 @@
-﻿import { controlRequest } from './request'
-import type {
-  BatchStartResponse,
-  ModuleMergeRequest,
-  ScanModule,
-  SemanticDoc,
-  SemanticEditRequest,
-  SemanticLevel,
-  SemanticTask,
-} from '@/types/semanticDoc'
+import { controlRequest } from './request'
+import type { BatchStartResponse, CapabilityEnrichment, CatalogClassificationIndex, CatalogClassificationSubjectType, ScanModule, SemanticDoc,
+  SemanticDocIndex, SemanticEditRequest, SemanticSubjectType, SemanticTask } from '@/types/semanticDoc'
 
-/** 生成语义文档，可用于项目/模块/工具级别的提示词生成。 */
-export type SemanticLlmParams = {
-  modelInstanceId?: string
-}
-
-function llmQueryParams(llm?: SemanticLlmParams): Record<string, string> {
-  const q: Record<string, string> = {}
-  const id = llm?.modelInstanceId?.trim()
-  if (id) q.modelInstanceId = id
-  return q
-}
+export type SemanticLlmParams = { modelInstanceId?: string }
+const projectPath = (projectId: number) => `/api/business-capabilities/projects/${projectId}`
+const subjectPath = (projectId: number, subjectType: SemanticSubjectType, subjectId: number) =>
+  `${projectPath(projectId)}/subjects/${subjectType}/${subjectId}`
+const llmQueryParams = (llm?: SemanticLlmParams) => llm?.modelInstanceId?.trim() ? { modelInstanceId: llm.modelInstanceId.trim() } : {}
 
 export function startProjectBatchGenerate(projectId: number, force = false, llm?: SemanticLlmParams) {
-  return controlRequest.post<BatchStartResponse>(
-    `/api/scan-projects/${projectId}/semantic/generate`,
-    null,
-    { params: { force, ...llmQueryParams(llm) } },
-  )
+  return controlRequest.post<BatchStartResponse>(`${projectPath(projectId)}/semantic/generate`, null,
+    { params: { force, ...llmQueryParams(llm) } })
 }
-
-/** 查询异步任务状态接口，返回 200 或 404。 */
 export function getProjectBatchStatus(projectId: number, taskId?: string) {
-  return controlRequest.get<SemanticTask | null>(
-    `/api/scan-projects/${projectId}/semantic/status`,
-    { params: taskId ? { taskId } : {} },
-  )
+  return controlRequest.get<SemanticTask | null>(`${projectPath(projectId)}/semantic/status`, { params: taskId ? { taskId } : {} })
 }
-
-export function generateProjectDoc(projectId: number, force = true, llm?: SemanticLlmParams) {
-  return controlRequest.post<SemanticDoc>(
-    `/api/scan-projects/${projectId}/semantic/generate-project`,
-    null,
-    { params: { force, ...llmQueryParams(llm) } },
-  )
+export function generateSubjectSemanticDoc(projectId: number, subjectType: SemanticSubjectType, subjectId: number,
+  force = true, llm?: SemanticLlmParams) {
+  return controlRequest.post<SemanticDoc>(`${subjectPath(projectId, subjectType, subjectId)}/semantic/generate`, null,
+    { params: { force, ...llmQueryParams(llm) } })
 }
-
-export function generateModuleDoc(moduleId: number, force = true, llm?: SemanticLlmParams) {
-  return controlRequest.post<SemanticDoc>(
-    `/api/scan-modules/${moduleId}/semantic/generate`,
-    null,
-    { params: { force, ...llmQueryParams(llm) } },
-  )
-}
-
-export function generateToolDoc(toolName: string, force = true, llm?: SemanticLlmParams) {
-  return controlRequest.post<SemanticDoc>(
-    `/api/tools/${encodeURIComponent(toolName)}/semantic/generate`,
-    null,
-    { params: { force, ...llmQueryParams(llm) } },
-  )
-}
-
-/** 生成扫描工具对应的语义文档，scanTool 为 scan_tool.id。 */
-export function generateScanToolDoc(projectId: number, scanToolId: number, force = true, llm?: SemanticLlmParams) {
-  return controlRequest.post<SemanticDoc>(
-    `/api/scan-projects/${projectId}/scan-tools/${scanToolId}/semantic/generate`,
-    null,
-    { params: { force, ...llmQueryParams(llm) } },
-  )
-}
-
-export function findSemanticDoc(params: {
-  level: SemanticLevel
-  projectId?: number
-  moduleId?: number
-  toolName?: string
-  /** level 为 scan_tool 时，对应 scan_project_tool.id */
-  scanToolId?: number
-}) {
-  /** 当前记录不存在时返回 404，表示无需生成语义文档。 */
-  return controlRequest.get<SemanticDoc | null>('/api/semantic-docs', {
-    params,
-    validateStatus: (status) => (status >= 200 && status < 300) || status === 404,
-  })
-}
-
 export function listProjectSemanticDocs(projectId: number) {
-  return controlRequest.get<SemanticDoc[]>(`/api/scan-projects/${projectId}/semantic-docs`)
+  return controlRequest.get<SemanticDocIndex[]>(`${projectPath(projectId)}/semantic-docs`)
 }
-
-export function editSemanticDoc(id: number, payload: SemanticEditRequest) {
-  return controlRequest.put<SemanticDoc>(`/api/semantic-docs/${id}`, payload)
+export function getSubjectSemanticDoc(projectId: number, subjectType: SemanticSubjectType, subjectId: number) {
+  return controlRequest.get<SemanticDoc | null>(`${subjectPath(projectId, subjectType, subjectId)}/semantic`, { errorFeedback: 'local' })
 }
-
+export function editSubjectSemanticDoc(projectId: number, subjectType: SemanticSubjectType, subjectId: number, payload: SemanticEditRequest) {
+  return controlRequest.put<SemanticDoc>(`${subjectPath(projectId, subjectType, subjectId)}/semantic`, payload)
+}
+export function getCapabilityEnrichment(projectId: number, subjectType: SemanticSubjectType, subjectId: number) {
+  return controlRequest.get<CapabilityEnrichment>(`${subjectPath(projectId, subjectType, subjectId)}/enrichment`)
+}
 export function listScanModules(projectId: number) {
-  return controlRequest.get<ScanModule[]>(`/api/scan-projects/${projectId}/modules`)
+  return controlRequest.get<ScanModule[]>(`${projectPath(projectId)}/groups`, { errorFeedback: 'local' })
 }
-
-export function renameScanModule(id: number, displayName: string) {
-  return controlRequest.put<ScanModule>(`/api/scan-modules/${id}`, { displayName })
+export function createScanModule(projectId: number, displayName: string) {
+  return controlRequest.post<ScanModule>(`${projectPath(projectId)}/groups`, { displayName }, { errorFeedback: 'local' })
 }
-
-export function mergeScanModules(payload: ModuleMergeRequest) {
-  return controlRequest.post<ScanModule>('/api/scan-modules/merge', payload)
+export function getCatalogClassificationIndex(projectId: number, subjectType: CatalogClassificationSubjectType) {
+  return controlRequest.get<CatalogClassificationIndex>(`${projectPath(projectId)}/classification/${subjectType}`, { errorFeedback: 'local' })
+}
+export interface ClassificationAssignment {
+  projectId: number; subjectType: CatalogClassificationSubjectType; subjectId: number; revision: number; groupIds: number[]
+}
+export function getClassificationAssignments(projectId: number, type: CatalogClassificationSubjectType, subjectIds: number[]) {
+  return controlRequest.get<ClassificationAssignment[]>(`${projectPath(projectId)}/classification/${type}/assignments`,
+    { params: { subjectIds: subjectIds.join(',') }, errorFeedback: 'local' })
+}
+export function replaceClassifications(projectId: number, type: CatalogClassificationSubjectType,
+  body: { subjects: { subjectId: number; expectedRevision: number }[]; groupIds: number[]; newNames: string[] }) {
+  return controlRequest.put<ClassificationAssignment[]>(`${projectPath(projectId)}/classification/${type}`, body, { errorFeedback: 'local' })
+}
+export function renameScanModule(projectId: number, id: number, displayName: string) {
+  return controlRequest.put<ScanModule>(`${projectPath(projectId)}/groups/${id}`, { displayName })
 }

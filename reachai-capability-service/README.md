@@ -9,8 +9,8 @@
 - 项目 Enrollment、项目凭据验证、实例注册/心跳和 SDK 能力同步；
 - Capability 来源观察、内容去重、自动接纳策略、当前候选、项目归属校验、逐项 apply/ignore 与回滚、调用前来源一致性保护；
 - 扫描项目、模块、接口资产、语义文档和 API 图谱快照；
-- 内部 Runtime Composition 兼容存储、领域归属，以及 `capability_tool_definition` 运行时调用投影；不将 Kernel 模块/Tool 暴露为公共人工资产模型；
-- 调用候选检索管理和 Runtime Tool/Capability internal execution；
+- 内部 Runtime Composition 兼容存储，以及 `capability_tool_definition` 运行时调用投影；不将 Kernel 模块/Tool 暴露为公共人工资产模型；
+- 调用候选关键词检索诊断和 Runtime Tool/Capability internal execution；
 - API 市场的来源、提供方、条目、不可变版本、Operation、验证证据和项目接入意图。
 
 本服务不保存第三方 API 调用凭据，不执行 Workflow，不拥有 Agent/Trace，也不拥有 Knowledge/Model 数据。历史扫描器底层实现仍可通过 Knowledge internal API 复用，但扫描目录和资产落库归 Capability。
@@ -25,8 +25,7 @@
 | `/api/scan-projects/**`、`/api/scan-modules/**` | 扫描项目与接口目录 |
 | `/api/semantic-docs/**`、`/api/api-graph/**` | 语义文档与 API 图谱 |
 | `GET /api/tools/**` | 能力目录与兼容的运行时调用投影；只读 |
-| `/api/tool-retrieval/**` | 调用候选召回与索引管理 |
-| `/api/domains/**` | 领域定义与资产归属 |
+| `POST /api/tool-retrieval/search`、`GET /api/tool-retrieval/health` | 调用候选关键词检索诊断与健康检查；直接读取当前调用投影，无需索引重建 |
 | `/api/api-market/**` | 外部 API 发现、详情、统计和项目接入 |
 | `/internal/capability/**` | Control/Runtime 的 HMAC internal contract |
 
@@ -52,7 +51,7 @@ Runtime 通过 Capability internal API 获取/执行能力；不得直接读取 
 | `capability.catalog.semantic` | 语义文档 |
 | `capability.catalog.graph` | API 图谱快照 |
 | `capability.catalog.retrieval` | 调用候选检索 |
-| `agent.capability.catalog` | 内部 Composition 兼容存储与 Domain；无公共 Kernel CRUD |
+| `agent.capability.catalog` | 内部 Composition 兼容存储；无公共 Kernel CRUD |
 | `capability.externalapi` | API 市场目录和项目接入 |
 | `capability.internal` | Runtime/Control internal contract |
 

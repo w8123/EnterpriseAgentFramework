@@ -1,10 +1,11 @@
 package com.enterprise.ai.capability.catalog.scan;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.enterprise.ai.common.dto.ApiResult;
-import com.enterprise.ai.agent.capability.catalog.scan.ScanModuleEntity;
 import com.enterprise.ai.agent.capability.catalog.scan.ScanModuleMapper;
+import com.enterprise.ai.agent.capability.catalog.scan.ScanModuleEntity;
 import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectEntity;
 import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectMapper;
 import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectBlockers;
@@ -18,17 +19,14 @@ import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinition
 import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionParameter;
 import com.enterprise.ai.agent.capability.catalog.semantic.SemanticDocEntity;
 import com.enterprise.ai.agent.capability.catalog.semantic.SemanticDocMapper;
-import com.enterprise.ai.agent.registry.ProjectInstanceEntity;
-import com.enterprise.ai.agent.registry.ProjectInstanceMapper;
-import com.enterprise.ai.agent.registry.CapabilitySnapshotEntity;
-import com.enterprise.ai.agent.registry.CapabilitySnapshotMapper;
 import com.enterprise.ai.agent.registry.RegistryCredentialEntity;
 import com.enterprise.ai.agent.registry.RegistryCredentialMapper;
 import com.enterprise.ai.agent.registry.RegistrySecurityService;
 import com.enterprise.ai.capability.aicoding.AiCodingAccessKeys;
 import com.enterprise.ai.capability.catalog.CapabilitySourceOwnership;
+import com.enterprise.ai.capability.catalog.httpapi.HttpApiSourceKind;
+import com.enterprise.ai.capability.catalog.enrichment.CapabilityCatalogGroupingService;
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -59,11 +57,20 @@ public class CapabilityScanProjectCatalogService {
     private final CapabilityScanProjectBlockerService scanProjectBlockerService;
     private final ToolDefinitionMapper toolDefinitionMapper;
     private final CapabilityScannerClient scannerClient;
-    private final ProjectInstanceMapper projectInstanceMapper;
-    private final CapabilitySnapshotMapper capabilitySnapshotMapper;
     private final ObjectMapper objectMapper;
-    private final ControllerScanHttpApiIntakeService controllerHttpApiIntake;
-    private final OpenApiScanHttpApiIntakeService openApiHttpApiIntake;
+    private final ScannerHttpApiIntakeService scannerHttpApiIntake;
+    private final ScannerHttpApiSingleSourceIntakeService singleSourceIntake;
+    private final CapabilityScanProjectReadinessService readinessService;
+    private final CapabilityCatalogGroupingService groupingService;
+    private org.springframework.transaction.PlatformTransactionManager transactionManager;
+    private CapabilityScanRevisionService scanRevisions;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setScanTransactions(org.springframework.transaction.PlatformTransactionManager transactionManager,
+                                    CapabilityScanRevisionService scanRevisions) {
+        this.transactionManager = transactionManager;
+        this.scanRevisions = scanRevisions;
+    }
 
     public List<ScanProjectEntity> list() {
         return list(null, null, null);
@@ -137,40 +144,6 @@ public class CapabilityScanProjectCatalogService {
         return entity;
     }
 
-    public ScanProjectEntity updateAuthSettings(Long id, ScanProjectAuthSaveRequest request) {
-        ScanProjectEntity entity = get(id);
-        if (request == null) {
-            throw new IllegalArgumentException("Auth settings are required");
-        }
-        String authType = StringUtils.hasText(request.authType())
-                ? request.authType().trim().toLowerCase(Locale.ROOT)
-                : "none";
-        if (!List.of("none", "api_key").contains(authType)) {
-            throw new IllegalArgumentException("Unsupported auth type: " + request.authType());
-        }
-        entity.setAuthType(authType);
-        if ("none".equals(authType)) {
-            entity.setAuthApiKeyIn(null);
-            entity.setAuthApiKeyName(null);
-            entity.setAuthApiKeyValue(null);
-        } else {
-            String keyIn = StringUtils.hasText(request.authApiKeyIn())
-                    ? request.authApiKeyIn().trim().toLowerCase(Locale.ROOT)
-                    : "header";
-            if (!List.of("header", "query").contains(keyIn)) {
-                throw new IllegalArgumentException("Unsupported api key location: " + request.authApiKeyIn());
-            }
-            if (!StringUtils.hasText(request.authApiKeyName()) || !StringUtils.hasText(request.authApiKeyValue())) {
-                throw new IllegalArgumentException("API key name/value are required");
-            }
-            entity.setAuthApiKeyIn(keyIn);
-            entity.setAuthApiKeyName(request.authApiKeyName().trim());
-            entity.setAuthApiKeyValue(request.authApiKeyValue().trim());
-        }
-        scanProjectMapper.updateById(entity);
-        return entity;
-    }
-
     public ScanProjectEntity updateRegistryCredential(Long id, ScanProjectRegistryCredentialSaveRequest request) {
         ScanProjectEntity entity = get(id);
         if (request == null) {
@@ -200,112 +173,11 @@ public class CapabilityScanProjectCatalogService {
     }
 
     public Map<String, Object> readinessFacts(Long projectId) {
-        ScanProjectEntity project = get(projectId);
-        ProjectInstanceEntity latest = latestInstance(projectId);
-        boolean instanceExists = latest != null;
-        boolean online = CapabilityProjectInstanceOnlineSupport.isOnline(latest);
-        SdkAccessCheckItem callbackCheck = sdkSyncCallbackCheck(project);
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("schema", "capability.project-readiness-facts.v1");
-        body.put("projectId", project.getId());
-        body.put("projectCode", project.getProjectCode());
-        body.put("instanceExists", instanceExists);
-        body.put("latestInstanceId", latest == null ? null : latest.getInstanceId());
-        body.put("latestInstanceStatus", CapabilityProjectInstanceOnlineSupport.statusOrNull(latest));
-        body.put("lastHeartbeatAt", latest == null || latest.getLastHeartbeatAt() == null
-                ? null
-                : latest.getLastHeartbeatAt().toString());
-        body.put("online", online);
-        body.put("heartbeatOnlineThresholdMinutes", CapabilityProjectInstanceOnlineSupport.HEARTBEAT_ONLINE_MINUTES);
-        body.put("instanceCount", instanceExists ? 1 : 0);
-        body.put("sdkCallbackStatus", callbackCheck.status());
-        body.put("sdkCallbackMessage", callbackCheck.message());
-        body.put("sdkCallbackEvidence", callbackCheck.evidence());
-        return body;
+        return readinessService.readinessFacts(get(projectId));
     }
 
-    public SdkAccessCheckResponse sdkAccessCheck(Long projectId) {
-        ScanProjectEntity entity = get(projectId);
-        RegistryCredentialEntity credential = primaryCredential(entity.getProjectCode());
-        boolean credentialConfigured = credential != null;
-        boolean aiCodingEnabled = Boolean.TRUE.equals(entity.getAiCodingAccessEnabled())
-                && StringUtils.hasText(entity.getAiCodingAccessKey());
-        SdkAccessCheckItem sdkSyncCallbackCheck = sdkSyncCallbackCheck(entity);
-        Map<String, Object> facts = readinessFacts(projectId);
-        boolean instanceExists = Boolean.TRUE.equals(facts.get("instanceExists"));
-        boolean online = Boolean.TRUE.equals(facts.get("online"));
-        String lastHeartbeatAt = facts.get("lastHeartbeatAt") == null ? null : String.valueOf(facts.get("lastHeartbeatAt"));
-        List<SdkAccessCheckItem> checks = List.of(
-                new SdkAccessCheckItem(
-                        "PROJECT",
-                        "项目识别",
-                        "PASS",
-                        "已读取项目 " + entity.getProjectCode(),
-                        null),
-                new SdkAccessCheckItem(
-                        "REGISTRY_CREDENTIAL",
-                        "注册凭据",
-                        credentialConfigured ? "PASS" : "WARN",
-                        credentialConfigured ? "已配置启用中的注册凭据" : "尚未配置启用中的注册凭据",
-                        null),
-                new SdkAccessCheckItem(
-                        "AI_CODING_ACCESS",
-                        "AI Coding 接入",
-                        aiCodingEnabled ? "PASS" : "WARN",
-                        aiCodingEnabled ? "已启用 AI Coding 接入" : "AI Coding 接入未启用",
-                        null),
-                sdkSyncCallbackCheck,
-                new SdkAccessCheckItem(
-                        "INSTANCE_HEARTBEAT",
-                        "业务实例心跳",
-                        online ? "PASS" : (instanceExists ? "WARN" : "FAIL"),
-                        online
-                                ? "业务实例在线，且最近心跳有效"
-                                : (instanceExists
-                                ? "业务实例已注册，但没有有效的在线心跳；请启动或重启业务服务"
-                                : "尚无业务实例注册；请使用 ReachAI Starter 启动业务服务"),
-                        lastHeartbeatAt));
-        String codeReady;
-        if (!aiCodingEnabled || !credentialConfigured) {
-            codeReady = "WARN";
-        } else if (!instanceExists) {
-            codeReady = "PENDING";
-        } else {
-            codeReady = "PASS";
-        }
-        String runtimeReady = online ? "PASS" : (instanceExists ? "WARN" : "FAIL");
-        String sdkCallbackReady = "PASS".equals(sdkSyncCallbackCheck.status()) ? "PASS" : "PENDING";
-        String overall = checks.stream().anyMatch(check -> "FAIL".equals(check.status()))
-                ? "FAIL"
-                : (checks.stream().allMatch(check -> "PASS".equals(check.status())) ? "PASS" : "WARN");
-        return new SdkAccessCheckResponse(
-                entity.getId(),
-                entity.getProjectCode(),
-                overall,
-                List.of(
-                        new SdkAccessReadiness("CODE_READY", "代码接入", codeReady,
-                                "PASS".equals(codeReady)
-                                        ? "项目接入配置已启用，且已观测到业务实例通过 ReachAI Starter 注册"
-                                        : (instanceExists
-                                        ? "业务实例已注册，但项目凭据或 AI Coding 接入尚未配置完整"
-                                        : "尚未观测到业务实例通过 ReachAI Starter 注册")),
-                        new SdkAccessReadiness("RUNTIME_READY", "Runtime 就绪", runtimeReady,
-                                online
-                                        ? "业务实例在线，且最近心跳有效"
-                                        : "业务服务当前没有有效的在线心跳；请启动服务并等待心跳"),
-                        new SdkAccessReadiness("SDK_CALLBACK_READY", "SDK 回调闭环", sdkCallbackReady,
-                                "PASS".equals(sdkCallbackReady)
-                                        ? "ReachAI 已完成签名 SDK 回调并收到能力快照"
-                                        : "尚无签名 SDK 回调证据；仅配置回调地址不能视为通过")),
-                checks);
-    }
-
-    private ProjectInstanceEntity latestInstance(Long projectId) {
-        return projectInstanceMapper.selectOne(
-                Wrappers.<ProjectInstanceEntity>lambdaQuery()
-                        .eq(ProjectInstanceEntity::getProjectId, projectId)
-                        .orderByDesc(ProjectInstanceEntity::getLastHeartbeatAt)
-                        .last("LIMIT 1"));
+    public CapabilityScanProjectReadinessService.SdkAccessCheckResponse sdkAccessCheck(Long projectId) {
+        return readinessService.sdkAccessCheck(get(projectId));
     }
 
     @Transactional
@@ -317,6 +189,7 @@ public class CapabilityScanProjectCatalogService {
         if (blockers.blocked()) {
             throw new ScanProjectBlockedException(blockers);
         }
+        groupingService.deleteProject(projectId);
         semanticDocMapper.delete(Wrappers.<SemanticDocEntity>lambdaQuery()
                 .eq(SemanticDocEntity::getProjectId, projectId));
         scanProjectToolMapper.delete(Wrappers.<ScanProjectToolEntity>lambdaQuery()
@@ -328,43 +201,6 @@ public class CapabilityScanProjectCatalogService {
         scanProjectMapper.deleteById(entity.getId());
     }
 
-    public ScanDiffSummary diffSummary(Long projectId) {
-        if (scanProjectMapper.selectById(projectId) == null) {
-            throw new IllegalArgumentException("Scan project does not exist: " + projectId);
-        }
-        List<ScanProjectToolEntity> tools = scanProjectToolMapper.selectList(
-                new LambdaQueryWrapper<ScanProjectToolEntity>()
-                        .eq(ScanProjectToolEntity::getProjectId, projectId));
-        Map<String, List<Long>> idsByStableKey = new LinkedHashMap<>();
-        int missingDescription = 0;
-        int missingAiDescription = 0;
-        int promoted = 0;
-        for (ScanProjectToolEntity tool : tools) {
-            idsByStableKey.computeIfAbsent(stableKey(tool), ignored -> new ArrayList<>()).add(tool.getId());
-            if (!StringUtils.hasText(tool.getDescription())) {
-                missingDescription++;
-            }
-            if (!StringUtils.hasText(tool.getAiDescription())) {
-                missingAiDescription++;
-            }
-            if (tool.getGlobalToolDefinitionId() != null) {
-                promoted++;
-            }
-        }
-        List<DuplicateStableKey> duplicates = idsByStableKey.entrySet().stream()
-                .filter(entry -> entry.getValue().size() > 1)
-                .map(entry -> new DuplicateStableKey(entry.getKey(), entry.getValue()))
-                .toList();
-        return new ScanDiffSummary(
-                projectId,
-                tools.size(),
-                promoted,
-                missingDescription,
-                missingAiDescription,
-                duplicates.size(),
-                duplicates);
-    }
-
     public List<ScanProjectToolEntity> listTools(Long projectId) {
         if (scanProjectMapper.selectById(projectId) == null) {
             throw new IllegalArgumentException("Scan project does not exist: " + projectId);
@@ -373,6 +209,62 @@ public class CapabilityScanProjectCatalogService {
                 .eq(ScanProjectToolEntity::getProjectId, projectId)
                 .orderByAsc(ScanProjectToolEntity::getId));
     }
+
+    /** Filter/count before paging; only the requested page hydrates source/link details. */
+    public SourcePage sourcePage(Long projectId, int current, int size, String keyword, Long moduleId,
+                                 boolean ungrouped, List<Long> observationIds, Long focusObservationId) {
+        get(projectId);
+        if (moduleId != null && (moduleId <= 0 || ungrouped)) throw new IllegalArgumentException("来源模块筛选无效");
+        if (observationIds != null && (observationIds.size() > 1000
+                || observationIds.stream().anyMatch(id -> id == null || id <= 0))) {
+            throw new IllegalArgumentException("来源标识筛选无效");
+        }
+        int page = Math.max(1, current), pageSize = Math.min(100, Math.max(1, size));
+        var query = Wrappers.<ScanProjectToolEntity>lambdaQuery().eq(ScanProjectToolEntity::getProjectId, projectId)
+                .eq(moduleId != null, ScanProjectToolEntity::getModuleId, moduleId)
+                .isNull(ungrouped, ScanProjectToolEntity::getModuleId);
+        if (observationIds != null && !observationIds.isEmpty()) query.in(ScanProjectToolEntity::getId, observationIds);
+        if (StringUtils.hasText(keyword)) {
+            String term = keyword.trim().toLowerCase(Locale.ROOT).replace("!", "!!").replace("%", "!%").replace("_", "!_");
+            query.apply("(LOWER(CONCAT_WS(' ', title, description, name, source_qualified_name, "
+                    + "CONCAT(COALESCE(context_path, ''), COALESCE(endpoint_path, '')))) LIKE {0} ESCAPE '!' "
+                    + "OR EXISTS (SELECT 1 FROM capability_tool_definition projection "
+                    + "WHERE projection.id = capability_scan_project_tool.global_tool_definition_id "
+                    + "AND LOWER(projection.name) LIKE {0} ESCAPE '!'))", "%" + term + "%");
+        }
+        List<Map<String, Object>> counts = scanProjectToolMapper.selectMaps(new QueryWrapper<ScanProjectToolEntity>()
+                .select("module_id", "COUNT(1) AS source_count", "SUM(CASE WHEN removed_from_source = TRUE THEN 1 ELSE 0 END) AS removed_count")
+                .eq("project_id", projectId).groupBy("module_id"));
+        long all = counts.stream().mapToLong(row -> ((Number)row.get("source_count")).longValue()).sum();
+        long removed = counts.stream().mapToLong(row -> ((Number)row.get("removed_count")).longValue()).sum();
+        boolean filtered = moduleId != null || ungrouped || StringUtils.hasText(keyword)
+                || (observationIds != null && !observationIds.isEmpty());
+        long total = filtered ? scanProjectToolMapper.selectCount(query) : all;
+        if (focusObservationId != null) {
+            if (focusObservationId <= 0) throw new IllegalArgumentException("来源焦点标识无效");
+            if (scanProjectToolMapper.selectCount(query.clone().eq(ScanProjectToolEntity::getId, focusObservationId)) > 0) {
+                page = (int)(scanProjectToolMapper.selectCount(query.clone().lt(ScanProjectToolEntity::getId, focusObservationId)) / pageSize) + 1;
+            }
+        }
+        long offset = (long)(page - 1) * pageSize;
+        List<ScanProjectToolEntity> records = offset >= total ? List.of() : scanProjectToolMapper.selectList(query
+                .orderByAsc(ScanProjectToolEntity::getId).last("LIMIT " + pageSize + " OFFSET " + offset));
+        List<Long> moduleIds = counts.stream().map(row -> (Number)row.get("module_id")).filter(Objects::nonNull)
+                .map(Number::longValue).toList();
+        Map<Long, String> labels = moduleDisplayNames(projectId, moduleIds);
+        List<SourceModule> modules = counts.stream().map(row -> {
+            Number module = (Number)row.get("module_id");
+            Long id = module == null ? null : module.longValue();
+            return new SourceModule(id, id == null ? "未关联模块" : labels.getOrDefault(id, "模块 #" + id),
+                    ((Number)row.get("source_count")).longValue());
+        }).sorted(java.util.Comparator.comparing(SourceModule::moduleId, java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder()))).toList();
+        return new SourcePage(records, total, page, pageSize, new SourceStats(all, removed), modules);
+    }
+
+    public record SourceStats(long total, long removed) { }
+    public record SourceModule(Long moduleId, String moduleDisplayName, long count) { }
+    public record SourcePage(List<ScanProjectToolEntity> records, long total, int current, int size,
+                             SourceStats stats, List<SourceModule> modules) { }
 
     public ScanProjectToolEntity getTool(Long projectId, Long scanToolId) {
         return getTool(projectId, scanToolId, false);
@@ -393,44 +285,107 @@ public class CapabilityScanProjectCatalogService {
     }
 
 
-    @Transactional(isolation = Isolation.READ_COMMITTED)
-    public ScanResult scan(Long projectId) {
-        scanProjectMapper.lockCapabilityChanges(projectId);
-        ScanProjectEntity project = get(projectId);
-        if (!listTools(projectId).isEmpty()) {
-            throw new IllegalArgumentException("Project already has scan results, use rescan instead");
-        }
-        return performScan(project, false);
-    }
-
-    @Transactional(isolation = Isolation.READ_COMMITTED)
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.NOT_SUPPORTED)
     public ScanResult rescan(Long projectId) {
-        scanProjectMapper.lockCapabilityChanges(projectId);
-        ScanProjectEntity project = get(projectId);
-        ScanProjectBlockers blockers = scanProjectBlockerService.analyze(projectId);
-        if (blockers != null && blockers.blocked()) {
-            throw new ScanProjectBlockedException(blockers);
-        }
-        return performScan(project, true);
+        return scanProject(projectId);
     }
 
-    @Transactional
-    public ScanProjectToolEntity rescanSingleTool(Long projectId, Long scanToolId) {
-        scanProjectMapper.lockCapabilityChanges(projectId);
-        ScanProjectEntity project = get(projectId);
+    private ScanResult scanProject(Long projectId) {
+        ScanPreparation prepared = shortTransaction(() -> {
+            scanProjectMapper.lockCapabilityChanges(projectId);
+            ScanProjectEntity project = get(projectId);
+            requireScanAllowed(projectId);
+            return new ScanPreparation(project, scanRevision(project));
+        });
+        try {
+            CapabilityScannerClient.ManifestData manifest = scanManifest(prepared.project(), null);
+            return shortTransaction(() -> {
+                ScanProjectEntity current = requireCurrentScan(projectId, prepared.revision());
+                requireScanAllowed(projectId);
+                return performScan(current, true, manifest);
+            });
+        } catch (ScanResultStaleException | ScanProjectBlockedException ex) {
+            throw ex;
+        } catch (RuntimeException failed) {
+            // Only this prepared generation may be marked failed; an obsolete failure cannot
+            // overwrite a newer successful sync, changed project, or different inventory.
+            shortTransaction(() -> {
+                requireCurrentScan(projectId, prepared.revision());
+                markFailed(projectId, failed.getMessage());
+                return null;
+            });
+            throw new ScanExecutionFailedException(failed.getMessage(), failed);
+        }
+    }
+
+    private void requireScanAllowed(Long projectId) {
+        ScanProjectBlockers blockers = scanProjectBlockerService.analyze(projectId);
+        if (blockers != null && blockers.blocked()) throw new ScanProjectBlockedException(blockers);
+    }
+
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.NOT_SUPPORTED)
+    public SingleSourceRefreshResult rescanSingleTool(Long projectId, Long scanToolId) {
+        ScanPreparation prepared = shortTransaction(() -> {
+            scanProjectMapper.lockCapabilityChanges(projectId);
+            ScanProjectEntity project = get(projectId);
+            requireCatalogWritable(getTool(projectId, scanToolId, true));
+            return new ScanPreparation(project, scanRevision(project));
+        });
+        CapabilityScannerClient.ManifestData manifest = scanManifest(prepared.project(), null);
+        return shortTransaction(() -> {
+        ScanProjectEntity project = requireCurrentScan(projectId, prepared.revision());
         ScanProjectToolEntity existing = getTool(projectId, scanToolId, true);
         requireCatalogWritable(existing);
-        CapabilityScannerClient.ManifestData manifest = scanManifest(project, null);
         CapabilityScannerClient.ToolData matched = findManifestTool(project, existing, manifest);
-        if (matched == null) {
-            throw new IllegalArgumentException("No matching endpoint found in scanner manifest for scan tool: " + scanToolId);
+        HttpApiSourceKind kind = usesControllerScanner(project) ? HttpApiSourceKind.CONTROLLER_SCAN : HttpApiSourceKind.OPENAPI_SCAN;
+        ScannerHttpApiSingleSourceIntakeService.Plan plan = singleSourceIntake.prepare(kind, project, existing, manifest.httpApis());
+        if (matched != null) {
+            applyManifestTool(project, matched, existing, false, existing.getName());
+            scanProjectToolMapper.updateById(existing);
         }
-        applyManifestTool(project, matched, existing, false, existing.getName());
-        scanProjectToolMapper.updateById(existing);
+        ScannerHttpApiIntakeService.Summary summary = singleSourceIntake.observe(plan);
         bootstrapModulesFromTools(projectId);
-        clearStaleProjectErrorAfterSingleToolRefresh(project);
-        return existing;
+        boolean confirmed = summary.observed() == 1;
+        if (confirmed) clearStaleProjectErrorAfterSingleToolRefresh(project);
+        return new SingleSourceRefreshResult(existing,
+                new HttpApiRefreshResult(confirmed, summary.observed(), confirmed ? null : plan.reason(), !confirmed));
+        });
     }
+
+    private record ScanPreparation(ScanProjectEntity project, String revision) { }
+
+    private ScanProjectEntity requireCurrentScan(Long projectId, String expectedRevision) {
+        scanProjectMapper.lockCapabilityChanges(projectId);
+        ScanProjectEntity current = get(projectId);
+        if (!Objects.equals(expectedRevision, scanRevision(current))) {
+            throw new ScanResultStaleException("项目接入或来源已变化，本次扫描结果已丢弃，请重新扫描");
+        }
+        return current;
+    }
+
+    private String scanRevision(ScanProjectEntity project) {
+        if (scanRevisions == null) throw new IllegalStateException("Scan revision boundary is unavailable");
+        return scanRevisions.revision(project);
+    }
+
+    private <T> T shortTransaction(java.util.function.Supplier<T> action) {
+        if (transactionManager == null) throw new IllegalStateException("Scan transaction boundary is unavailable");
+        var transaction = new org.springframework.transaction.support.TransactionTemplate(transactionManager);
+        transaction.setIsolationLevel(org.springframework.transaction.TransactionDefinition.ISOLATION_READ_COMMITTED);
+        transaction.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        return transaction.execute(status -> action.get());
+    }
+
+    public static class ScanResultStaleException extends IllegalStateException {
+        public ScanResultStaleException(String message) { super(message); }
+    }
+
+    public static class ScanExecutionFailedException extends IllegalStateException {
+        public ScanExecutionFailedException(String message, Throwable cause) { super(message, cause); }
+    }
+
+    public record SingleSourceRefreshResult(ScanProjectToolEntity sourceObservation, HttpApiRefreshResult httpApiRefresh) { }
+    public record HttpApiRefreshResult(boolean confirmed, int observed, String reason, boolean fullSyncRequired) { }
 
     public void markFailed(Long projectId, String errorMessage) {
         ScanProjectEntity project = scanProjectMapper.selectById(projectId);
@@ -479,6 +434,29 @@ public class CapabilityScanProjectCatalogService {
         return resolveToolLink(tool, toolDefinitionMapper.selectById(tool.getGlobalToolDefinitionId()));
     }
 
+    /** Source lists share one projection read, including duplicate and missing projection references. */
+    public Map<Long, ToolLinkStatus> resolveToolLinks(List<ScanProjectToolEntity> tools) {
+        Map<Long, ToolDefinitionEntity> globals = globalToolsById(tools);
+        Map<Long, ToolLinkStatus> result = new LinkedHashMap<>();
+        for (ScanProjectToolEntity tool : tools) {
+            result.put(tool.getId(), resolveToolLink(tool, globals.get(tool.getGlobalToolDefinitionId())));
+        }
+        return result;
+    }
+
+    public Map<Long, String> moduleDisplayNames(Long projectId, List<Long> moduleIds) {
+        List<Long> ids = moduleIds.stream().filter(Objects::nonNull).distinct().toList();
+        if (ids.isEmpty()) return Map.of();
+        Map<Long, String> result = new LinkedHashMap<>();
+        for (ScanModuleEntity module : scanModuleMapper.selectList(Wrappers.<ScanModuleEntity>lambdaQuery()
+                .eq(ScanModuleEntity::getProjectId, projectId).in(ScanModuleEntity::getId, ids))) {
+            if (Objects.equals(projectId, module.getProjectId()) && ids.contains(module.getId())) {
+                result.put(module.getId(), StringUtils.hasText(module.getDisplayName()) ? module.getDisplayName() : module.getName());
+            }
+        }
+        return result;
+    }
+
 
     public ScanProjectBlockers operationBlockers(Long projectId, ScanProjectBlockers.Operation operation) {
         if (scanProjectMapper.selectById(projectId) == null) {
@@ -490,28 +468,17 @@ public class CapabilityScanProjectCatalogService {
                 : scanProjectBlockerService.analyze(projectId);
     }
 
-    private ScanResult performScan(ScanProjectEntity project, boolean merge) {
+    private ScanResult performScan(ScanProjectEntity project, boolean merge, CapabilityScannerClient.ManifestData manifest) {
         boolean controllerScan = usesControllerScanner(project);
         // Both Controller and OpenAPI HTTP facts reconcile only from a full inventory. Legacy Tool
         // rows remain on their own path; a partial/unchanged document delta must never tombstone
         // an unreported source binding.
-        Long sinceMs = null;
-        CapabilityScannerClient.ManifestData manifest = scanManifest(project, sinceMs);
-        List<String> toolNames;
-        if (controllerScan) {
-            ControllerScanHttpApiIntakeService.Plan httpApiPlan = controllerHttpApiIntake.prepare(
-                    project, manifest.httpApis(), manifest.httpApiInventoryComplete());
-            toolNames = persistManifestTools(project, manifest, merge);
-            // prepare() validates all candidates before legacy scan rows mutate; observe() participates
-            // in this same project-lock transaction, so a binding failure rolls the whole scan back.
-            controllerHttpApiIntake.observe(httpApiPlan);
-        } else {
-            OpenApiScanHttpApiIntakeService.Plan httpApiPlan = openApiHttpApiIntake.prepare(
-                    project, manifest.httpApis(), manifest.httpApiInventoryComplete());
-            toolNames = persistManifestTools(project, manifest, merge);
-            // The same prevalidation and outer READ_COMMITTED transaction apply to OPENAPI_SCAN.
-            openApiHttpApiIntake.observe(httpApiPlan);
-        }
+        HttpApiSourceKind sourceKind = controllerScan ? HttpApiSourceKind.CONTROLLER_SCAN : HttpApiSourceKind.OPENAPI_SCAN;
+        ScannerHttpApiIntakeService.Plan httpApiPlan = scannerHttpApiIntake.prepare(
+                sourceKind, project, manifest.httpApis(), manifest.httpApiInventoryComplete());
+        List<String> toolNames = persistManifestTools(project, manifest, merge);
+        // Whole-inventory validation precedes source rows; both writes share the project lock/transaction.
+        scannerHttpApiIntake.observe(httpApiPlan);
         project.setToolCount(toolNames.size());
         project.setLastScannedAt(LocalDateTime.now(ZoneId.systemDefault()));
         bootstrapModulesFromTools(project.getId());
@@ -659,76 +626,23 @@ public class CapabilityScanProjectCatalogService {
                                                               ScanProjectToolEntity existing,
                                                               CapabilityScannerClient.ManifestData manifest) {
         List<CapabilityScannerClient.ToolData> tools = manifest.tools() == null ? List.of() : manifest.tools();
-        String wantMethod = normalizeHttpMethod(existing.getHttpMethod());
-        String wantPath = normalizePathForCompare(combineHttpPath(existing.getContextPath(), existing.getEndpointPath()));
-        String wantProjectPath = normalizePathForCompare(combineHttpPath(project.getContextPath(), existing.getEndpointPath()));
-        for (CapabilityScannerClient.ToolData tool : tools) {
-            if (!wantMethod.equals(normalizeHttpMethod(tool.method()))) {
-                continue;
-            }
-            String candidate = normalizePathForCompare(combineHttpPath(project.getContextPath(), tool.path()));
-            if (wantPath.equals(candidate) || wantProjectPath.equals(candidate)) {
-                return tool;
-            }
-        }
-        if (!StringUtils.hasText(existing.getSourceLocation())) {
-            return null;
-        }
-        String sourceLocation = existing.getSourceLocation().trim();
-        for (CapabilityScannerClient.ToolData tool : tools) {
-            if (tool.source() != null
-                    && StringUtils.hasText(tool.source().location())
-                    && sourceLocation.equals(tool.source().location().trim())) {
-                return tool;
-            }
-        }
-        return null;
+        HttpApiSourceKind kind = usesControllerScanner(project) ? HttpApiSourceKind.CONTROLLER_SCAN : HttpApiSourceKind.OPENAPI_SCAN;
+        String sourceKind = kind == HttpApiSourceKind.CONTROLLER_SCAN ? "controller" : "openapi";
+        String method = ScannerHttpApiSourceIdentity.method(existing.getHttpMethod());
+        String route = ScannerHttpApiSourceIdentity.route(existing.getContextPath(), existing.getEndpointPath());
+        List<CapabilityScannerClient.ToolData> matches = tools.stream().filter(Objects::nonNull)
+                .filter(tool -> tool.source() != null && sourceKind.equals(tool.source().scanner())
+                        && method.equals(ScannerHttpApiSourceIdentity.method(tool.method()))
+                        && route.equals(ScannerHttpApiSourceIdentity.route(project.getContextPath(), tool.path()))
+                        && ScannerHttpApiSourceIdentity.matches(kind, existing.getSourceLocation(), tool.source().location()))
+                .toList();
+        return matches.size() == 1 ? matches.get(0) : null;
     }
 
     private void bootstrapModulesFromTools(Long projectId) {
         List<ScanProjectToolEntity> tools = scanProjectToolMapper.selectList(new LambdaQueryWrapper<ScanProjectToolEntity>()
                 .eq(ScanProjectToolEntity::getProjectId, projectId));
-        if (tools.isEmpty()) {
-            return;
-        }
-        Map<String, ScanModuleEntity> modulesByName = new LinkedHashMap<>();
-        for (ScanModuleEntity module : scanModuleMapper.selectList(new LambdaQueryWrapper<ScanModuleEntity>()
-                .eq(ScanModuleEntity::getProjectId, projectId))) {
-            modulesByName.put(module.getName().toLowerCase(Locale.ROOT), module);
-        }
-        for (ScanProjectToolEntity tool : tools) {
-            String moduleName = resolveModuleName(tool);
-            ScanModuleEntity module = modulesByName.get(moduleName.toLowerCase(Locale.ROOT));
-            if (module == null) {
-                module = new ScanModuleEntity();
-                module.setProjectId(projectId);
-                module.setName(moduleName);
-                module.setDisplayName(moduleName);
-                module.setSourceClasses(writeJson(List.of(moduleName)));
-                scanModuleMapper.insert(module);
-                modulesByName.put(moduleName.toLowerCase(Locale.ROOT), module);
-            }
-            if (!Objects.equals(tool.getModuleId(), module.getId())) {
-                tool.setModuleId(module.getId());
-                scanProjectToolMapper.updateById(tool);
-            }
-        }
-    }
-
-    private String resolveModuleName(ScanProjectToolEntity tool) {
-        String sourceLocation = tool.getSourceLocation();
-        if (StringUtils.hasText(sourceLocation)) {
-            String[] parts = sourceLocation.split("#");
-            if (parts.length >= 2 && StringUtils.hasText(parts[1])) {
-                return parts[1].trim();
-            }
-            String first = parts[0].trim();
-            int dot = first.lastIndexOf('.');
-            return dot > 0 ? first.substring(0, dot) : first;
-        }
-        return StringUtils.hasText(tool.getHttpMethod())
-                ? tool.getHttpMethod().trim().toLowerCase(Locale.ROOT) + "_module"
-                : "default";
+        groupingService.bootstrap(projectId, tools);
     }
 
     private CapabilityScannerClient.ScanOptions toScannerOptions(ScanSettings settings) {
@@ -797,100 +711,6 @@ public class CapabilityScanProjectCatalogService {
         return StringUtils.hasText(project.getBaseUrl()) ? project.getBaseUrl().trim() : null;
     }
 
-    private SdkAccessCheckItem sdkSyncCallbackCheck(ScanProjectEntity project) {
-        String baseUrl = resolveManifestBaseUrl(project);
-        if (!StringUtils.hasText(baseUrl)) {
-            return new SdkAccessCheckItem(
-                    "SDK_SYNC_CALLBACK",
-                    "SDK 同步回调",
-                    "WARN",
-                    "尚未配置 ReachAI 服务端可访问的 reachai.project.base-url",
-                    null);
-        }
-        String targetUrl = baseUrl.replaceAll("/+$", "")
-                + normalizeContextPath(project.getContextPath())
-                + "/reachai/registry/capabilities/sync";
-        CapabilitySnapshotEntity callbackSnapshot = capabilitySnapshotMapper.selectOne(
-                Wrappers.<CapabilitySnapshotEntity>lambdaQuery()
-                        .eq(CapabilitySnapshotEntity::getProjectId, project.getId())
-                        .eq(CapabilitySnapshotEntity::getSource, "SDK_CALLBACK")
-                        .orderByDesc(CapabilitySnapshotEntity::getCreatedAt)
-                        .orderByDesc(CapabilitySnapshotEntity::getId)
-                        .last("LIMIT 1"));
-        if (callbackSnapshot != null) {
-            if (project.getUpdateTime() != null
-                    && (callbackSnapshot.getCreatedAt() == null
-                    || callbackSnapshot.getCreatedAt().isBefore(project.getUpdateTime()))
-                    && !callbackSnapshotMatchesCurrentEndpoint(callbackSnapshot, project)) {
-                return new SdkAccessCheckItem(
-                        "SDK_SYNC_CALLBACK",
-                        "SDK 同步回调",
-                        "WARN",
-                        "STALE_EVIDENCE: 项目接入配置已在上次签名回调后更新，请重新执行 SDK 同步验证",
-                        targetUrl);
-            }
-            String verifiedAt = callbackSnapshot.getCreatedAt() == null
-                    ? null
-                    : callbackSnapshot.getCreatedAt().toString();
-            return new SdkAccessCheckItem(
-                    "SDK_SYNC_CALLBACK",
-                    "SDK 同步回调",
-                    "PASS",
-                    verifiedAt == null
-                            ? "ReachAI 已完成签名回调并收到能力快照"
-                            : "ReachAI 已完成签名回调并收到能力快照，验证时间：" + verifiedAt,
-                    targetUrl);
-        }
-        boolean loopback = isLoopbackUrl(targetUrl);
-        String message = "CONFIGURED_NOT_PROBED: "
-                + (loopback
-                ? "已推导同步回调目标（回环地址），未主动探测可达性"
-                : "已推导同步回调目标，未主动探测可达性/鉴权");
-        return new SdkAccessCheckItem(
-                "SDK_SYNC_CALLBACK",
-                "SDK 同步回调",
-                "WARN",
-                message,
-                targetUrl);
-    }
-
-    private boolean callbackSnapshotMatchesCurrentEndpoint(CapabilitySnapshotEntity snapshot,
-                                                           ScanProjectEntity project) {
-        if (!StringUtils.hasText(snapshot.getPayloadJson())) {
-            return false;
-        }
-        try {
-            JsonNode capabilities = objectMapper.readTree(snapshot.getPayloadJson()).path("capabilities");
-            if (!capabilities.isArray() || capabilities.isEmpty()) {
-                return false;
-            }
-            String currentBaseUrl = normalizeHttpBaseUrl(project.getBaseUrl());
-            String currentContextPath = normalizeContextPath(project.getContextPath());
-            for (JsonNode capability : capabilities) {
-                String snapshotBaseUrl = normalizeHttpBaseUrl(capability.path("baseUrl").asText(null));
-                String snapshotContextPath = normalizeContextPath(capability.path("contextPath").asText(null));
-                if (!Objects.equals(currentBaseUrl, snapshotBaseUrl)
-                        || !Objects.equals(currentContextPath, snapshotContextPath)) {
-                    return false;
-                }
-            }
-            return true;
-        } catch (JsonProcessingException ex) {
-            return false;
-        }
-    }
-
-    private boolean isLoopbackUrl(String value) {
-        try {
-            String host = URI.create(value).getHost();
-            return host != null && ("localhost".equalsIgnoreCase(host)
-                    || "127.0.0.1".equals(host)
-                    || "::1".equals(host));
-        } catch (IllegalArgumentException ex) {
-            return false;
-        }
-    }
-
     private void updateStatus(ScanProjectEntity project, String status, String errorMessage) {
         project.setStatus(status);
         project.setErrorMessage(errorMessage);
@@ -922,42 +742,6 @@ public class CapabilityScanProjectCatalogService {
             return 0L;
         }
         return time.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
-    }
-
-    private String normalizeHttpMethod(String method) {
-        if (!StringUtils.hasText(method)) {
-            return "GET";
-        }
-        return method.trim().toUpperCase(Locale.ROOT);
-    }
-
-    private String combineHttpPath(String contextPath, String endpointPath) {
-        String context = normalizeContextPath(contextPath);
-        String endpoint = StringUtils.hasText(endpointPath) ? endpointPath.trim() : "";
-        if (!endpoint.isEmpty() && !endpoint.startsWith("/")) {
-            endpoint = "/" + endpoint;
-        }
-        if (!StringUtils.hasText(context)) {
-            return endpoint.isEmpty() ? "/" : endpoint;
-        }
-        if (endpoint.isEmpty()) {
-            return context;
-        }
-        return context.endsWith("/") ? context.substring(0, context.length() - 1) + endpoint : context + endpoint;
-    }
-
-    private String normalizePathForCompare(String path) {
-        if (!StringUtils.hasText(path)) {
-            return "/";
-        }
-        String normalized = path.trim();
-        if (!normalized.startsWith("/")) {
-            normalized = "/" + normalized;
-        }
-        while (normalized.length() > 1 && normalized.endsWith("/")) {
-            normalized = normalized.substring(0, normalized.length() - 1);
-        }
-        return normalized;
     }
 
     private String normalizeName(String value) {
@@ -1194,14 +978,6 @@ public class CapabilityScanProjectCatalogService {
     ) {
     }
 
-    public record ScanProjectAuthSaveRequest(
-            String authType,
-            String authApiKeyIn,
-            String authApiKeyName,
-            String authApiKeyValue
-    ) {
-    }
-
     public record ScanProjectRegistryCredentialSaveRequest(String appKey, String appSecret) {
     }
 
@@ -1221,33 +997,6 @@ public class CapabilityScanProjectCatalogService {
 
 
     public record ScanResult(Long projectId, String projectName, int toolCount, List<String> toolNames) {
-    }
-
-    public record ScanDiffSummary(Long projectId,
-                                  int toolCount,
-                                  int promotedCount,
-                                  int missingDescriptionCount,
-                                  int missingAiDescriptionCount,
-                                  int duplicateStableKeyCount,
-                                  List<DuplicateStableKey> duplicates) {
-    }
-
-    public record DuplicateStableKey(String stableKey, List<Long> scanToolIds) {
-    }
-
-    public record SdkAccessCheckResponse(
-            Long projectId,
-            String projectCode,
-            String overallStatus,
-            List<SdkAccessReadiness> readiness,
-            List<SdkAccessCheckItem> checks
-    ) {
-    }
-
-    public record SdkAccessReadiness(String key, String label, String status, String message) {
-    }
-
-    public record SdkAccessCheckItem(String key, String label, String status, String message, String evidence) {
     }
 
     public static class ScanProjectBlockedException extends RuntimeException {

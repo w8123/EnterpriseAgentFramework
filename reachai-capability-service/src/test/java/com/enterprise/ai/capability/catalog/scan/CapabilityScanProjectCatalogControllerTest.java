@@ -21,6 +21,8 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
@@ -40,8 +42,6 @@ class CapabilityScanProjectCatalogControllerTest {
         Method get = CapabilityScanProjectCatalogController.class.getDeclaredMethod("get", Long.class);
         Method update = CapabilityScanProjectCatalogController.class.getDeclaredMethod(
                 "update", Long.class, CapabilityScanProjectCatalogController.ScanProjectUpsertRequest.class);
-        Method updateAuthSettings = CapabilityScanProjectCatalogController.class.getDeclaredMethod(
-                "updateAuthSettings", Long.class, CapabilityScanProjectCatalogController.ScanProjectAuthSaveRequest.class);
         Method updateRegistryCredential = CapabilityScanProjectCatalogController.class.getDeclaredMethod(
                 "updateRegistryCredential", Long.class, CapabilityScanProjectCatalogController.ScanProjectRegistryCredentialSaveRequest.class);
         Method sdkAccessCheck = CapabilityScanProjectCatalogController.class.getDeclaredMethod(
@@ -49,7 +49,6 @@ class CapabilityScanProjectCatalogControllerTest {
         Method updateScanSettings = CapabilityScanProjectCatalogController.class.getDeclaredMethod(
                 "updateScanSettings", Long.class, com.enterprise.ai.agent.capability.catalog.scan.ScanSettings.class);
         Method delete = CapabilityScanProjectCatalogController.class.getDeclaredMethod("delete", Long.class);
-        Method scan = CapabilityScanProjectCatalogController.class.getDeclaredMethod("scan", Long.class);
         Method rescan = CapabilityScanProjectCatalogController.class.getDeclaredMethod("rescan", Long.class);
         Method triggerSdkScan = CapabilityScanProjectCatalogController.class.getDeclaredMethod(
                 "triggerSdkScan", Long.class);
@@ -62,7 +61,6 @@ class CapabilityScanProjectCatalogControllerTest {
         Method rescanScanToolFromSource = CapabilityScanProjectCatalogController.class.getDeclaredMethod(
                 "rescanScanToolFromSource", Long.class, Long.class);
         Method reconcileTools = CapabilityScanProjectCatalogController.class.getDeclaredMethod("reconcileTools", Long.class);
-        Method diffSummary = CapabilityScanProjectCatalogController.class.getDeclaredMethod("diffSummary", Long.class);
         Method operationBlockers = CapabilityScanProjectCatalogController.class.getDeclaredMethod("operationBlockers", Long.class, ScanProjectBlockers.Operation.class);
 
         assertArrayEquals(new String[] {"/api/scan-projects"}, controllerMapping.value());
@@ -70,12 +68,10 @@ class CapabilityScanProjectCatalogControllerTest {
         assertArrayEquals(new String[] {}, list.getAnnotation(GetMapping.class).value());
         assertArrayEquals(new String[] {"/{id}"}, get.getAnnotation(GetMapping.class).value());
         assertArrayEquals(new String[] {"/{id}"}, update.getAnnotation(PutMapping.class).value());
-        assertArrayEquals(new String[] {"/{id}/auth-settings"}, updateAuthSettings.getAnnotation(PatchMapping.class).value());
         assertArrayEquals(new String[] {"/{id}/registry-credential"}, updateRegistryCredential.getAnnotation(PatchMapping.class).value());
         assertArrayEquals(new String[] {"/{id}/sdk-access-check"}, sdkAccessCheck.getAnnotation(PostMapping.class).value());
         assertArrayEquals(new String[] {"/{id}/scan-settings"}, updateScanSettings.getAnnotation(PatchMapping.class).value());
         assertArrayEquals(new String[] {"/{id}"}, delete.getAnnotation(DeleteMapping.class).value());
-        assertArrayEquals(new String[] {"/{id}/scan"}, scan.getAnnotation(PostMapping.class).value());
         assertArrayEquals(new String[] {"/{id}/rescan"}, rescan.getAnnotation(PostMapping.class).value());
         assertArrayEquals(new String[] {"/{id}/sdk-sync/scan"},
                 triggerSdkScan.getAnnotation(PostMapping.class).value());
@@ -89,7 +85,6 @@ class CapabilityScanProjectCatalogControllerTest {
         assertArrayEquals(new String[] {"/{projectId}/scan-tools/{scanToolId}/rescan-from-source"},
                 rescanScanToolFromSource.getAnnotation(PostMapping.class).value());
         assertArrayEquals(new String[] {"/{projectId}/tools/reconcile"}, reconcileTools.getAnnotation(PostMapping.class).value());
-        assertArrayEquals(new String[] {"/{id}/diff-summary"}, diffSummary.getAnnotation(GetMapping.class).value());
         assertArrayEquals(new String[] {"/{id}/operation-blockers"}, operationBlockers.getAnnotation(GetMapping.class).value());
     }
 
@@ -337,18 +332,18 @@ class CapabilityScanProjectCatalogControllerTest {
     void sdkAccessCheckReturnsReadiness() {
         CapabilityScanProjectCatalogService service = mock(CapabilityScanProjectCatalogService.class);
         CapabilityScanProjectCatalogController controller = new CapabilityScanProjectCatalogController(service);
-        CapabilityScanProjectCatalogService.SdkAccessCheckResponse check =
-                new CapabilityScanProjectCatalogService.SdkAccessCheckResponse(
+        CapabilityScanProjectReadinessService.SdkAccessCheckResponse check =
+                new CapabilityScanProjectReadinessService.SdkAccessCheckResponse(
                         7L,
                         "orders",
                         "PASS",
-                        List.of(new CapabilityScanProjectCatalogService.SdkAccessReadiness(
+                        List.of(new CapabilityScanProjectReadinessService.SdkAccessReadiness(
                                 "CODE_READY", "代码接入", "PASS", "项目可读取")),
-                        List.of(new CapabilityScanProjectCatalogService.SdkAccessCheckItem(
+                        List.of(new CapabilityScanProjectReadinessService.SdkAccessCheckItem(
                                 "PROJECT", "项目识别", "PASS", "已读取项目", null)));
         when(service.sdkAccessCheck(7L)).thenReturn(check);
 
-        ResponseEntity<CapabilityScanProjectCatalogService.SdkAccessCheckResponse> response =
+        ResponseEntity<CapabilityScanProjectReadinessService.SdkAccessCheckResponse> response =
                 controller.sdkAccessCheck(7L);
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
@@ -378,36 +373,6 @@ class CapabilityScanProjectCatalogControllerTest {
         var response = controller.delete(7L);
         assertEquals(HttpStatus.CONFLICT, response.getStatusCode());
         assertEquals(blockers, response.getBody());
-    }
-
-    @Test
-    void scansProject() {
-        CapabilityScanProjectCatalogService service = mock(CapabilityScanProjectCatalogService.class);
-        CapabilityScanProjectCatalogController controller = new CapabilityScanProjectCatalogController(service);
-        CapabilityScanProjectCatalogService.ScanResult result =
-                new CapabilityScanProjectCatalogService.ScanResult(7L, "Orders", 1, List.of("orders__create"));
-        when(service.scan(7L)).thenReturn(result);
-
-        ResponseEntity<?> response = controller.scan(7L);
-
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        CapabilityScanProjectCatalogController.ScanResultDTO body =
-                (CapabilityScanProjectCatalogController.ScanResultDTO) response.getBody();
-        assertEquals(1, body.toolCount());
-        assertEquals(List.of("orders__create"), body.toolNames());
-        verify(service).scan(7L);
-    }
-
-    @Test
-    void scanReturnsBadRequestAndMarksFailedWhenScannerRejectsProject() {
-        CapabilityScanProjectCatalogService service = mock(CapabilityScanProjectCatalogService.class);
-        CapabilityScanProjectCatalogController controller = new CapabilityScanProjectCatalogController(service);
-        when(service.scan(7L)).thenThrow(new IllegalArgumentException("scan path missing"));
-
-        ResponseEntity<?> response = controller.scan(7L);
-
-        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
-        verify(service).markFailed(7L, "scan path missing");
     }
 
     @Test
@@ -483,41 +448,17 @@ class CapabilityScanProjectCatalogControllerTest {
     }
 
     @Test
-    void diffSummaryReturnsCatalogSummary() {
-        CapabilityScanProjectCatalogService service = mock(CapabilityScanProjectCatalogService.class);
-        CapabilityScanProjectCatalogController controller = new CapabilityScanProjectCatalogController(service);
-        when(service.diffSummary(7L)).thenReturn(new CapabilityScanProjectCatalogService.ScanDiffSummary(
-                7L,
-                3,
-                1,
-                1,
-                2,
-                1,
-                List.of(new CapabilityScanProjectCatalogService.DuplicateStableKey(
-                        "GET /orders",
-                        List.of(1L, 2L)))
-        ));
-
-        ResponseEntity<?> response = controller.diffSummary(7L);
-
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        CapabilityScanProjectCatalogController.ScanDiffSummaryDTO body =
-                (CapabilityScanProjectCatalogController.ScanDiffSummaryDTO) response.getBody();
-        assertEquals(3, body.toolCount());
-        assertEquals(1, body.duplicates().size());
-        assertEquals("GET /orders", body.duplicates().get(0).stableKey());
-    }
-
-    @Test
     void listsScanProjectTools() {
         CapabilityScanProjectCatalogService service = mock(CapabilityScanProjectCatalogService.class);
         CapabilityScanProjectCatalogController controller = new CapabilityScanProjectCatalogController(service);
         ScanProjectToolEntity tool = scanTool();
+        tool.setModuleId(4L);
+        when(service.moduleDisplayNames(7L, List.of(4L))).thenReturn(Map.of(4L, "订单查询"));
         when(service.listTools(7L)).thenReturn(List.of(tool));
-        when(service.resolveToolLink(tool)).thenReturn(new CapabilityScanProjectCatalogService.ToolLinkStatus(
+        when(service.resolveToolLinks(List.of(tool))).thenReturn(Map.of(tool.getId(), new CapabilityScanProjectCatalogService.ToolLinkStatus(
                 "PENDING_UPDATE",
                 "Global Tool differs from scan row",
-                List.of("description")));
+                List.of("description"))));
 
         ResponseEntity<List<CapabilityScanProjectCatalogController.ProjectToolDTO>> response =
                 controller.tools(7L, "summary");
@@ -532,7 +473,38 @@ class CapabilityScanProjectCatalogControllerTest {
         assertEquals(true, dto.globalToolOutOfSync());
         assertEquals(List.of("description"), dto.toolSyncDiffFields());
         assertEquals(99L, dto.globalToolDefinitionId());
+        assertEquals("订单查询", dto.moduleDisplayName());
         verify(service).listTools(7L);
+        verify(service).moduleDisplayNames(7L, List.of(4L));
+        verify(service).resolveToolLinks(List.of(tool));
+        verify(service, never()).resolveToolLink(tool);
+    }
+
+    @Test
+    void pagedSourcesReturnGlobalStatsWithoutFetchingAllTools() {
+        var service = mock(CapabilityScanProjectCatalogService.class);
+        var controller = new CapabilityScanProjectCatalogController(service);
+        var tool = scanTool();
+        when(service.sourcePage(7L, 2, 5, "订单", 3L, false, List.of(11L), 11L)).thenReturn(
+                new CapabilityScanProjectCatalogService.SourcePage(List.of(tool), 9, 2, 5,
+                        new CapabilityScanProjectCatalogService.SourceStats(100, 4),
+                        List.of(new CapabilityScanProjectCatalogService.SourceModule(3L, "订单模块", 60))));
+        when(service.resolveToolLinks(List.of(tool))).thenReturn(Map.of());
+        var response = controller.sources(7L, 2, 5, "订单", 3L, false, List.of(11L), 11L);
+        var page = (CapabilityScanProjectCatalogController.SourcePageDTO)response.getBody();
+        assertEquals(HttpStatus.OK, response.getStatusCode()); assertEquals(9, page.total());
+        assertEquals(100, page.stats().total()); assertEquals(4, page.stats().removed());
+        assertEquals(1, page.records().size()); assertTrue(page.records().get(0).parameters().isEmpty());
+        verify(service, never()).listTools(7L);
+    }
+
+    @Test
+    void obsoleteScanDoesNotMarkTheNewerProjectAsFailed() {
+        var service = mock(CapabilityScanProjectCatalogService.class);
+        var controller = new CapabilityScanProjectCatalogController(service);
+        when(service.rescan(7L)).thenThrow(new CapabilityScanProjectCatalogService.ScanResultStaleException("来源已变化"));
+        assertEquals(HttpStatus.CONFLICT, controller.rescan(7L).getStatusCode());
+        verify(service, never()).markFailed(org.mockito.ArgumentMatchers.any(Long.class), anyString());
     }
 
     @Test
@@ -552,6 +524,8 @@ class CapabilityScanProjectCatalogControllerTest {
         CapabilityScanProjectCatalogService service = mock(CapabilityScanProjectCatalogService.class);
         CapabilityScanProjectCatalogController controller = new CapabilityScanProjectCatalogController(service);
         ScanProjectToolEntity tool = scanTool();
+        tool.setModuleId(4L);
+        when(service.moduleDisplayNames(7L, List.of(4L))).thenReturn(Map.of(4L, "订单查询"));
         when(service.getTool(7L, 11L)).thenReturn(tool);
 
         ResponseEntity<CapabilityScanProjectCatalogController.ProjectToolDTO> response =
@@ -564,6 +538,7 @@ class CapabilityScanProjectCatalogControllerTest {
         assertEquals(1, dto.parameters().size());
         assertEquals("body", dto.parameters().get(0).name());
         assertEquals("LINKED", dto.toolLinkStatus());
+        assertEquals("订单查询", dto.moduleDisplayName());
         verify(service).getTool(7L, 11L);
     }
 
@@ -573,15 +548,31 @@ class CapabilityScanProjectCatalogControllerTest {
         CapabilityScanProjectCatalogController controller = new CapabilityScanProjectCatalogController(service);
         ScanProjectToolEntity tool = scanTool();
         tool.setDescription("Fresh description");
-        when(service.rescanSingleTool(7L, 11L)).thenReturn(tool);
+        when(service.rescanSingleTool(7L, 11L)).thenReturn(new CapabilityScanProjectCatalogService.SingleSourceRefreshResult(
+                tool, new CapabilityScanProjectCatalogService.HttpApiRefreshResult(true, 1, null, false)));
 
         ResponseEntity<?> response = controller.rescanScanToolFromSource(7L, 11L);
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
-        CapabilityScanProjectCatalogController.ProjectToolDTO body =
-                (CapabilityScanProjectCatalogController.ProjectToolDTO) response.getBody();
-        assertEquals("Fresh description", body.description());
+        CapabilityScanProjectCatalogController.SingleSourceRefreshDTO body =
+                (CapabilityScanProjectCatalogController.SingleSourceRefreshDTO) response.getBody();
+        assertEquals("Fresh description", body.sourceObservation().description());
+        assertTrue(body.httpApiRefresh().confirmed());
         verify(service).rescanSingleTool(7L, 11L);
+    }
+
+    @Test
+    void unknownSingleSourceRefreshReturnsCommittedUnconfirmedResult() {
+        CapabilityScanProjectCatalogService service = mock(CapabilityScanProjectCatalogService.class);
+        var controller = new CapabilityScanProjectCatalogController(service);
+        when(service.rescanSingleTool(7L, 11L)).thenReturn(new CapabilityScanProjectCatalogService.SingleSourceRefreshResult(
+                scanTool(), new CapabilityScanProjectCatalogService.HttpApiRefreshResult(false, 0, "身份变化需完整同步", true)));
+        ResponseEntity<?> response = controller.rescanScanToolFromSource(7L, 11L);
+        var body = (CapabilityScanProjectCatalogController.SingleSourceRefreshDTO) response.getBody();
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertFalse(body.httpApiRefresh().confirmed());
+        assertEquals("身份变化需完整同步", body.httpApiRefresh().reason());
+        assertTrue(body.httpApiRefresh().fullSyncRequired());
     }
 
     @Test
@@ -621,17 +612,6 @@ class CapabilityScanProjectCatalogControllerTest {
 
 
 
-
-    @Test
-    void diffSummaryReturnsNotFoundWhenProjectMissing() {
-        CapabilityScanProjectCatalogService service = mock(CapabilityScanProjectCatalogService.class);
-        CapabilityScanProjectCatalogController controller = new CapabilityScanProjectCatalogController(service);
-        when(service.diffSummary(404L)).thenThrow(new IllegalArgumentException("missing"));
-
-        ResponseEntity<?> response = controller.diffSummary(404L);
-
-        assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode());
-    }
 
     @Test
     void operationBlockersReturnsCatalogBlockers() {

@@ -4,7 +4,7 @@ import type { HttpApiConnection, HttpApiDetail, HttpApiInvocationOutcome,
   HttpApiInvocationUnconfirmed, HttpApiPage } from '@/types/httpApi'
 
 export function listHttpApis(params: { projectId: number; environment?: string; keyword?: string;
-  method?: string; sourceStatus?: string; current: number; size: number }) {
+  method?: string; sourceStatus?: string; groupId?: number; ungrouped?: boolean; current: number; size: number }) {
   return controlRequest.get<HttpApiPage>('/api/apis', { params, errorFeedback: 'local' })
 }
 

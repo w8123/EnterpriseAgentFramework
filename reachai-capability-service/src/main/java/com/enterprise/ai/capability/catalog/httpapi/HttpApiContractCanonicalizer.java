@@ -2,6 +2,7 @@ package com.enterprise.ai.capability.catalog.httpapi;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -80,6 +81,32 @@ public class HttpApiContractCanonicalizer {
                 mappingConditionsJson,
                 sha256(contractJson),
                 contractJson);
+    }
+
+    /** Decode persisted owner evidence without reconstructing or guessing a different contract. */
+    public JsonNode readStoredContract(HttpApiAssetEntity owner, String contractHash, String contractJson) {
+        if (owner == null || contractHash == null || contractJson == null) return null;
+        try {
+            JsonNode root = objectMapper.reader().with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS).readTree(contractJson);
+            if (root == null || !root.isObject() || !Objects.equals(contractHash, sha256(contractJson))) return null;
+            JsonNode scope = root.path("scope"); JsonNode identity = root.path("identity");
+            if (!scope.isObject() || !identity.isObject()
+                    || !Objects.equals(owner.getProjectCode(), scope.path("projectCode").asText())
+                    || !Objects.equals(owner.getEnvironment(), scope.path("environment").asText())
+                    || !Objects.equals(owner.getHttpMethod(), identity.path("method").asText())
+                    || !Objects.equals(owner.getRouteTemplate(), identity.path("routeTemplate").asText())) return null;
+            String identityHash = sha256(canonicalJson(Map.of("scope", scope, "identity", identity)));
+            if (!Objects.equals(owner.getIdentityHash(), identityHash)) return null;
+            String externalKey = scope.path("externalServiceKey").isMissingNode() || scope.path("externalServiceKey").isNull()
+                    ? null : scope.path("externalServiceKey").asText();
+            var ownerScope = new HttpApiServiceScope(owner.getProjectId(), owner.getProjectCode(), owner.getEnvironment(), externalKey);
+            if (!Objects.equals(owner.getQualifiedName(), ownerScope.qualifiedNamePrefix() + identityHash)
+                    || !Objects.equals(objectMapper.reader().with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+                    .readTree(owner.getMappingConditionsJson()), identity.path("mappingConditions"))) return null;
+            return root;
+        } catch (Exception invalid) {
+            return null;
+        }
     }
 
     private CanonicalMappingConditions mappingConditions(HttpApiOperationContract.MappingConditions raw) {

@@ -4,14 +4,16 @@ import ElementPlus from 'element-plus'
 import HttpApiDetail from './HttpApiDetail.vue'
 
 const mocks = vi.hoisted(() => ({ detail: vi.fn(), connection: vi.fn(), references: vi.fn(), credentials: vi.fn(),
-  sessionId: null as { value: string } | null }))
+  sessionId: null as { value: string } | null, push: vi.fn(), route: {} as any,
+  project: { id: 41, projectCode: 'orders', name: 'Orders' } }))
 vi.mock('@/api/httpApi', () => ({ getHttpApi: mocks.detail, getHttpApiConnection: mocks.connection,
   getHttpApiReferences: mocks.references, getHttpApiInvocation: vi.fn(), acceptHttpApi: vi.fn(),
   invokeHttpApi: vi.fn(), saveHttpApiConnection: vi.fn() }))
 vi.mock('@/api/workflowCredential', () => ({ listWorkflowCredentials: mocks.credentials }))
 vi.mock('@/composables/usePageProjectScope', async () => {
   const { ref } = await import('vue')
-  return { usePageProjectScope: () => ({ canLoadData: ref(true), requestParams: ref({ projectId: 41 }),
+  return { usePageProjectScope: () => ({ canLoadData: ref(true), requestParams: ref({ projectId: mocks.project.id, projectCode: mocks.project.projectCode }),
+    resolution: ref({ kind: 'project', project: mocks.project }),
     requestKey: ref('orders:41'), status: ref('ready'), feedbackMessage: ref(''), recoveryAction: ref('') }) }
 })
 vi.mock('@/auth/platformSession', async () => {
@@ -20,8 +22,8 @@ vi.mock('@/auth/platformSession', async () => {
   mocks.sessionId = sessionId
   return { platformSessionId: sessionId, platformSessionUser: ref({ userId: 7, permissionGrants: [] }) }
 })
-vi.mock('vue-router', () => ({ useRoute: () => ({ params: { id: '1' }, query: {} }),
-  useRouter: () => ({ push: vi.fn() }) }))
+vi.mock('vue-router', () => ({ useRoute: () => mocks.route,
+  useRouter: () => ({ push: mocks.push }), onBeforeRouteLeave: vi.fn() }))
 
 const owner = { summary: { id: 1, projectId: 41, projectCode: 'orders', environment: 'dev',
   httpMethod: 'GET', routeTemplate: '/orders/{orderId}', sourceStatus: 'ACCEPTED',
@@ -32,10 +34,12 @@ const owner = { summary: { id: 1, projectId: 41, projectCode: 'orders', environm
   sources: [] }
 let wrapper: ReturnType<typeof mount>
 function start() { wrapper = mount(HttpApiDetail, { attachTo: document.body,
-  global: { plugins: [ElementPlus], stubs: { RouterLink: { props: ['to'], template: '<a :data-route="JSON.stringify(to)"><slot /></a>' } } } }) }
+  global: { plugins: [ElementPlus], stubs: { CapabilityEnrichmentPanel: true, RouterLink: { props: ['to'], template: '<a :data-route="JSON.stringify(to)"><slot /></a>' } } } }) }
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mocks.project = { id: 41, projectCode: 'orders', name: 'Orders' }
+  mocks.route = { params: { id: '1' }, query: {}, hash: '' }
   if (mocks.sessionId) mocks.sessionId.value = 'test-session'
   mocks.detail.mockResolvedValue({ data: owner })
   mocks.connection.mockResolvedValue({ data: { status: 'CONFIGURED', revision: 1, origin: 'http://127.0.0.1:1', authMode: 'NONE' } })
@@ -44,6 +48,33 @@ beforeEach(() => {
 afterEach(() => { wrapper?.unmount(); document.body.innerHTML = '' })
 
 describe('HTTP API detail usage', () => {
+  it('starts with the contract and exposes the same five task sections as Java details', async () => {
+    mocks.references.mockResolvedValue({ data: { runtimeEvidence: 'COMPLETE', publicationEvidence: 'COMPLETE', references: [] } })
+    start(); await flushPromises()
+    expect(wrapper.findAll('[role="tab"]').map(tab => tab.text())).toEqual(['输入与返回', '业务说明', '试调用', '使用位置', '接入信息'])
+    expect(wrapper.find('#tab-contract').attributes('aria-selected')).toBe('true')
+    expect(wrapper.findComponent({ name: 'CapabilityEnrichmentPanel' }).exists()).toBe(false)
+    expect(wrapper.find('[aria-labelledby="api-source-heading"]').isVisible()).toBe(false)
+    await wrapper.find('#tab-description').trigger('click'); await flushPromises()
+    expect(wrapper.findComponent({ name: 'CapabilityEnrichmentPanel' }).exists()).toBe(true)
+    expect(wrapper.findComponent({ name: 'CapabilityEnrichmentPanel' }).attributes('projectcode')).toBe('orders')
+    await wrapper.find('#tab-technical').trigger('click'); await flushPromises()
+    expect(wrapper.find('[aria-labelledby="api-source-heading"]').isVisible()).toBe(true)
+  })
+  it('returns to my integrations with the confirmed project and preserves filters and hash', async () => {
+    mocks.project = { id: 36, projectCode: 'bzjs21', name: 'Business' }
+    mocks.route.query = { scope: 'all', apiKeyword: 'weather', marketSource: 'official' }
+    mocks.route.hash = '#connection'
+    mocks.detail.mockResolvedValue({ data: { ...owner, summary: { ...owner.summary, projectId: 36,
+      projectCode: 'bzjs21', sourceKinds: ['API_MARKET_OPERATION'] } } })
+    mocks.references.mockResolvedValue({ data: { runtimeEvidence: 'COMPLETE', publicationEvidence: 'COMPLETE', references: [] } })
+    start(); await flushPromises()
+    Array.from(document.querySelectorAll('button')).find(button => button.textContent?.includes('返回市场接入'))?.click()
+    await flushPromises()
+    expect(mocks.push).toHaveBeenCalledWith({ path: '/api-market', query: { projectId: '36', projectCode: 'bzjs21',
+      marketTab: 'integrations', apiKeyword: 'weather', marketSource: 'official' }, hash: '#connection' })
+  })
+
   it('separates supported published POST execution from the unchanged Studio read-only boundary', async () => {
     const accepted = { ...owner.acceptedContract, sideEffect: 'WRITE', requestBody: {
       required: true, contentTypes: ['application/json'], schema: { type: 'object',
@@ -96,6 +127,7 @@ describe('HTTP API detail usage', () => {
     expect(changes.text()).toContain('候选')
     expect(changes.text()).toContain('未声明')
     expect(changes.text()).toContain('4')
+    await wrapper.find('#tab-technical').trigger('click'); await flushPromises()
     expect(wrapper.find('.api-accept-impact').text()).toContain('已查到 1 处使用位置')
     expect(wrapper.find('.api-accept-impact').text()).toContain('尚未完整确认')
     expect(wrapper.find('.api-accept-impact').text()).toContain('不会更新旧版本')
@@ -147,6 +179,7 @@ describe('HTTP API detail usage', () => {
       references: [{ kind: 'WORKFLOW', id: 'draft-wf', name: '订单处理', stage: 'DRAFT', nodeId: 'api-node' },
         { kind: 'WORKFLOW', id: 'published-wf', name: '订单处理', stage: 'PUBLISHED', versionId: 9 }] } })
     start(); await flushPromises()
+    await wrapper.find('#tab-references').trigger('click'); await flushPromises()
     expect(mocks.references).toHaveBeenCalledWith(1)
     expect(document.body.textContent).toContain('使用位置')
     expect(document.body.textContent).toContain('订单处理')
@@ -159,6 +192,7 @@ describe('HTTP API detail usage', () => {
   it('never labels partial or failed reference evidence as unused', async () => {
     mocks.references.mockResolvedValueOnce({ data: { runtimeEvidence: 'PARTIAL', publicationEvidence: 'COMPLETE', references: [] } })
     start(); await flushPromises()
+    await wrapper.find('#tab-references').trigger('click'); await flushPromises()
     expect(document.body.textContent).toContain('部分使用位置尚未确认')
     expect(document.body.textContent).not.toContain('还没有被引用')
     mocks.references.mockRejectedValueOnce(new Error('offline'))
@@ -174,12 +208,98 @@ describe('HTTP API detail usage', () => {
     mocks.references.mockResolvedValueOnce({ data: { runtimeEvidence: 'COMPLETE',
       publicationEvidence: 'COMPLETE', references: [{ kind: 'WORKFLOW', id: 'new-wf', name: '新会话使用方', stage: 'DRAFT' }] } })
     start(); await flushPromises()
+    await wrapper.find('#tab-references').trigger('click'); await flushPromises()
     mocks.sessionId!.value = 'next-session'
     await flushPromises()
+    await wrapper.find('#tab-references').trigger('click'); await flushPromises()
     resolveOld({ data: { runtimeEvidence: 'COMPLETE', publicationEvidence: 'COMPLETE',
       references: [{ kind: 'WORKFLOW', id: 'old-wf', name: '旧会话使用方', stage: 'DRAFT' }] } })
     await flushPromises()
     expect(document.body.textContent).toContain('新会话使用方')
     expect(document.body.textContent).not.toContain('旧会话使用方')
+  })
+  it('keeps optional references and credentials lazy, shares the reference read with acceptance impact and reads each tab once', async () => {
+    mocks.references.mockResolvedValue({ data: { runtimeEvidence: 'COMPLETE', publicationEvidence: 'COMPLETE', references: [] } })
+    start(); await flushPromises()
+    expect(mocks.detail).toHaveBeenCalledOnce(); expect(mocks.connection).toHaveBeenCalledOnce()
+    expect(mocks.references).not.toHaveBeenCalled(); expect(mocks.credentials).not.toHaveBeenCalled()
+    await wrapper.find('#tab-references').trigger('click'); await flushPromises()
+    expect(mocks.references).toHaveBeenCalledOnce(); expect(mocks.credentials).not.toHaveBeenCalled()
+    await wrapper.find('#tab-technical').trigger('click'); await flushPromises()
+    expect(mocks.references).toHaveBeenCalledOnce(); expect(mocks.credentials).toHaveBeenCalledOnce()
+    await wrapper.find('#tab-contract').trigger('click'); await wrapper.find('#tab-technical').trigger('click'); await flushPromises()
+    expect(mocks.references).toHaveBeenCalledOnce(); expect(mocks.credentials).toHaveBeenCalledOnce()
+  })
+  it('publishes configured connection state while an on-demand credential read is still pending', async () => {
+    let resolveCredentials!: (value: unknown) => void
+    mocks.credentials.mockReturnValueOnce(new Promise(resolve => { resolveCredentials = resolve }))
+    mocks.references.mockResolvedValue({ data: { runtimeEvidence: 'COMPLETE', publicationEvidence: 'COMPLETE', references: [] } })
+    start(); await flushPromises()
+    await wrapper.find('#tab-technical').trigger('click'); await flushPromises()
+    expect(mocks.credentials).toHaveBeenCalledOnce()
+    expect(document.body.textContent).toContain('连接已配置')
+    resolveCredentials({ data: [] }); await flushPromises()
+    expect(document.body.textContent).toContain('连接已配置')
+  })
+  it('does not turn credential failures into a known empty list and retries only when requested', async () => {
+    const authentication = { state: 'REQUIRED', schemes: ['http:bearer:token'], requiredHeaderNames: [] }
+    mocks.detail.mockResolvedValue({ data: { ...owner, acceptedContract: { ...owner.acceptedContract, authentication } } })
+    mocks.connection.mockResolvedValue({ data: { status: 'CONFIGURED', revision: 1, origin: 'http://127.0.0.1:1', authMode: 'BEARER' } })
+    mocks.credentials.mockRejectedValueOnce(new Error('unavailable'))
+    mocks.references.mockResolvedValue({ data: { runtimeEvidence: 'COMPLETE', publicationEvidence: 'COMPLETE', references: [] } })
+    start(); await flushPromises(); await wrapper.find('#tab-technical').trigger('click'); await flushPromises()
+    expect(document.body.textContent).toContain('项目凭据读取失败')
+    expect(document.body.textContent).not.toContain('没有匹配的活动项目凭据')
+    await wrapper.find('#tab-contract').trigger('click'); await wrapper.find('#tab-technical').trigger('click'); await flushPromises()
+    expect(mocks.credentials).toHaveBeenCalledOnce()
+    Array.from(document.querySelectorAll('button')).find(button => button.textContent?.trim() === '重读项目凭据')?.click()
+    await flushPromises()
+    expect(mocks.credentials).toHaveBeenCalledTimes(2)
+    expect(document.body.textContent).not.toContain('项目凭据读取失败')
+    expect(document.body.textContent).toContain('没有匹配的活动项目凭据')
+  })
+  it('discards late credential failures after a session change without restoring old errors', async () => {
+    const authentication = { state: 'REQUIRED', schemes: ['http:bearer:token'], requiredHeaderNames: [] }
+    mocks.detail.mockResolvedValue({ data: { ...owner, acceptedContract: { ...owner.acceptedContract, authentication } } })
+    mocks.connection.mockResolvedValue({ data: { status: 'CONFIGURED', revision: 1, origin: 'http://127.0.0.1:1', authMode: 'BEARER' } })
+    let rejectOld!: (error: unknown) => void
+    mocks.credentials.mockReturnValueOnce(new Promise((_resolve, reject) => { rejectOld = reject }))
+    mocks.references.mockResolvedValue({ data: { runtimeEvidence: 'COMPLETE', publicationEvidence: 'COMPLETE', references: [] } })
+    start(); await flushPromises(); await wrapper.find('#tab-technical').trigger('click'); await flushPromises()
+    mocks.sessionId!.value = 'next-session'; await flushPromises()
+    expect(mocks.credentials).toHaveBeenCalledOnce()
+    await wrapper.find('#tab-technical').trigger('click'); await flushPromises()
+    expect(mocks.credentials).toHaveBeenCalledTimes(2)
+    rejectOld(new Error('old session unavailable')); await flushPromises()
+    expect(document.body.textContent).not.toContain('项目凭据读取失败')
+    expect(document.body.textContent).toContain('没有匹配的活动项目凭据')
+  })
+  it('does not let a late credential list restore the previous session selection', async () => {
+    const authentication = { state: 'REQUIRED', schemes: ['http:bearer:token'], requiredHeaderNames: [] }
+    mocks.detail.mockResolvedValue({ data: { ...owner, acceptedContract: { ...owner.acceptedContract, authentication } } })
+    mocks.connection.mockResolvedValue({ data: { status: 'CONFIGURED', revision: 1, origin: 'http://127.0.0.1:1', authMode: 'BEARER' } })
+    let resolveOld!: (value: unknown) => void
+    mocks.credentials.mockReturnValueOnce(new Promise(resolve => { resolveOld = resolve }))
+    const credential = (name: string) => ({ scope: 'PROJECT', status: 'ACTIVE', projectId: 41, projectCode: 'orders',
+      type: 'BEARER', credentialRef: name, name })
+    mocks.credentials.mockResolvedValueOnce({ data: [credential('current-session-option')] })
+    mocks.references.mockResolvedValue({ data: { runtimeEvidence: 'COMPLETE', publicationEvidence: 'COMPLETE', references: [] } })
+    start(); await flushPromises(); await wrapper.find('#tab-technical').trigger('click'); await flushPromises()
+    mocks.sessionId!.value = 'next-session'; await flushPromises()
+    await wrapper.find('#tab-technical').trigger('click'); await flushPromises()
+    resolveOld({ data: [credential('old-session-option')] }); await flushPromises()
+    const labels = wrapper.findAllComponents({ name: 'ElOption' }).map(option => option.props('label'))
+    expect(labels).toContain('current-session-option / BEARER')
+    expect(labels).not.toContain('old-session-option / BEARER')
+  })
+  it('refreshes optional data for the currently visible tab without preloading the other task', async () => {
+    mocks.references.mockResolvedValue({ data: { runtimeEvidence: 'COMPLETE', publicationEvidence: 'COMPLETE', references: [] } })
+    start(); await flushPromises(); await wrapper.find('#tab-references').trigger('click'); await flushPromises()
+    Array.from(document.querySelectorAll('button')).find(button => button.textContent?.trim() === '刷新当前状态')?.click()
+    await flushPromises()
+    expect(mocks.detail).toHaveBeenCalledTimes(2); expect(mocks.references).toHaveBeenCalledTimes(2)
+    expect(mocks.credentials).not.toHaveBeenCalled()
+    await wrapper.find('#tab-technical').trigger('click'); await flushPromises()
+    expect(mocks.credentials).toHaveBeenCalledOnce(); expect(mocks.references).toHaveBeenCalledTimes(2)
   })
 })

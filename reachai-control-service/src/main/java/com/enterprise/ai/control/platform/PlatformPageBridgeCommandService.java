@@ -83,6 +83,10 @@ public class PlatformPageBridgeCommandService {
                 || !Objects.equals(session.getAgentId(), request.agentId())) {
             return failure("PAGE_BRIDGE_SESSION_MISMATCH", "Embed session project or Agent mismatch", List.of());
         }
+        if (!StringUtils.hasText(session.getPageKey())) {
+            return failure("PAGE_BRIDGE_PAGE_NOT_BOUND",
+                    "当前页面尚未绑定页面动作，请打开目标业务页面后重试。", List.of());
+        }
         List<PageBridgePhase> phases = new ArrayList<>();
         String parentRequestId = "bridge-" + UUID.randomUUID();
         boolean crossRoute = !Objects.equals(normalize(session.getPageKey()), normalize(request.targetPageKey()));

@@ -773,7 +773,8 @@ onMounted(async () => {
   align-items: stretch;
   width: 100%;
   min-width: 0;
-  min-height: 104px;
+  height: auto;
+  min-height: var(--layout-metric-strip-min-height);
   overflow: hidden;
   border: 1px solid rgb(var(--brand-primary-rgb) / 0.16);
   border-radius: 8px;
@@ -786,7 +787,7 @@ onMounted(async () => {
   flex: 0 0 1px;
   align-self: center;
   width: 1px;
-  height: 68px;
+  height: 52px;
   border-radius: 1px;
   background: rgb(var(--brand-primary-rgb) / 0.18);
 }
@@ -796,14 +797,15 @@ onMounted(async () => {
   flex: 1 1 0;
   align-items: center;
   min-width: 0;
-  min-height: 104px;
-  gap: 18px;
-  padding: 18px 22px;
+  min-height: var(--layout-metric-strip-min-height);
+  gap: var(--layout-section-gap);
+  padding: var(--layout-metric-padding-block) var(--layout-metric-padding-inline);
 }
 
 .metric-segment-icon {
   flex-shrink: 0;
-  --metric-icon-glyph-size: 24px;
+  --metric-icon-bg-size: var(--layout-metric-icon-size);
+  --metric-icon-glyph-size: 20px;
 }
 
 .metric-content {
@@ -863,7 +865,7 @@ onMounted(async () => {
   margin: 4px 0 2px;
   overflow: hidden;
   color: #0f172a;
-  font-size: 25px;
+  font-size: var(--layout-metric-value-size);
   font-weight: 700;
   line-height: 30px;
   text-overflow: ellipsis;
@@ -899,7 +901,7 @@ onMounted(async () => {
   align-items: center;
   min-height: 44px;
   gap: 10px;
-  padding: 0 28px;
+  padding: 0 var(--layout-panel-padding);
   border-bottom: 1px solid rgb(var(--brand-primary-rgb) / 0.1);
   color: #64748b;
   background: rgba(255, 255, 255, 0.44);
@@ -914,7 +916,7 @@ onMounted(async () => {
 
 .market-tabs :deep(.el-tabs__header) {
   margin: 0;
-  padding: 0 28px;
+  padding: 0 var(--layout-panel-padding);
   border-bottom: 1px solid rgb(var(--brand-primary-rgb) / 0.1);
   background: rgba(255, 255, 255, 0.34);
 }
@@ -924,7 +926,7 @@ onMounted(async () => {
 }
 
 .market-tabs :deep(.el-tabs__item) {
-  height: 52px;
+  height: 44px;
   color: #52627a;
   font-weight: 600;
 }
@@ -944,8 +946,8 @@ onMounted(async () => {
   grid-template-columns: minmax(340px, 2.4fr) minmax(180px, 1fr) minmax(170px, 1fr) 74px 88px;
   align-items: center;
   gap: 12px;
-  margin: 24px 28px 0;
-  padding: 9px 14px;
+  margin: var(--layout-panel-padding) var(--layout-panel-padding) 0;
+  padding: var(--layout-filter-padding-block) var(--layout-filter-padding-inline);
   border: 1px solid rgb(var(--brand-primary-rgb) / 0.11);
   border-radius: 12px;
   background: var(--brand-soft-bg, rgba(238, 242, 255, 0.76));
@@ -994,7 +996,7 @@ onMounted(async () => {
 }
 
 .inline-error {
-  margin: 16px 28px 0;
+  margin: var(--layout-section-gap) var(--layout-panel-padding) 0;
 }
 
 .market-card-shell,
@@ -1002,7 +1004,7 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  margin: 20px 28px 28px;
+  margin: var(--layout-section-gap) var(--layout-panel-padding) var(--layout-panel-padding);
   overflow: hidden;
   border: 1px solid rgb(var(--brand-primary-rgb) / 0.12);
   border-radius: 13px;
@@ -1469,19 +1471,19 @@ onMounted(async () => {
   }
 
   .market-boundary-note {
-    padding: 12px 18px;
+    padding: var(--layout-section-gap) var(--layout-panel-padding);
   }
 
   .market-tabs :deep(.el-tabs__header) {
-    padding: 0 18px;
+    padding: 0 var(--layout-panel-padding);
   }
 
   .discover-toolbar,
   .market-card-shell,
   .market-table-shell,
   .inline-error {
-    margin-right: 18px;
-    margin-left: 18px;
+    margin-right: var(--layout-panel-padding);
+    margin-left: var(--layout-panel-padding);
   }
 
   .market-source-bar {

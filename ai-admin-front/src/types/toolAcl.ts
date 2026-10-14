@@ -1,13 +1,17 @@
 /**
- * Phase 3.1 Tool ACL 前端类型定义。
- *
- * 决策语义与 `tool_acl_phase3_1.sql` 和 `ToolAclService.decide` 保持一致。
+ * 调用权限前端契约。
+ * 项目范围与决策值由当前 Control 接口和决策服务定义。
  */
 
 export type ToolAclTargetKind = 'TOOL' | 'ALL'
 export type ToolAclPermission = 'ALLOW' | 'DENY'
 
-export interface ToolAclRule {
+export interface ToolAclProjectScope {
+  projectId?: number | null
+  projectCode?: string | null
+}
+
+export interface ToolAclRule extends ToolAclProjectScope {
   id: number
   roleCode: string
   targetKind: ToolAclTargetKind
@@ -24,14 +28,14 @@ export interface ToolAclTargetRef {
   name: string
 }
 
-export interface ToolAclBatchGrantRequest {
+export interface ToolAclBatchGrantRequest extends ToolAclProjectScope {
   roleCode: string
   permission: ToolAclPermission
   targets: ToolAclTargetRef[]
   note?: string
 }
 
-export interface ToolAclExplainRequest {
+export interface ToolAclExplainRequest extends ToolAclProjectScope {
   roles: string[]
   targets: ToolAclTargetRef[]
 }

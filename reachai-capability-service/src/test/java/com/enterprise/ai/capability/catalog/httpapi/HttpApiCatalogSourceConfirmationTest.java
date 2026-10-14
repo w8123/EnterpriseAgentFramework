@@ -13,7 +13,7 @@ import static org.mockito.Mockito.*;
 
 class HttpApiCatalogSourceConfirmationTest {
     @Test
-    void starterInventoryIsConfirmedWithoutAnUnrelatedScanProjectRecord() {
+    void starterInventoryIsConfirmedWithoutAnUnrelatedScanProjectRecord() throws Exception {
         Fixture fixture = fixture(HttpApiSourceKind.STARTER_MVC.name(), "inventory-1", "inventory-1");
 
         HttpApiCatalogService.ApiDetail detail = fixture.catalog.detail(9L);
@@ -24,7 +24,7 @@ class HttpApiCatalogSourceConfirmationTest {
     }
 
     @Test
-    void scanSourceNeedsItsProjectAndLatestOperationMembership() {
+    void scanSourceNeedsItsProjectAndLatestOperationMembership() throws Exception {
         Fixture absentProject = fixture(HttpApiSourceKind.OPENAPI_SCAN.name(), "inventory-1", "inventory-1");
         assertFalse(absentProject.catalog.detail(9L).summary().sourceConfirmed());
         assertEquals("SOURCE_UNCONFIRMED", absentProject.catalog.detail(9L).summary().sourceStatus());
@@ -36,7 +36,7 @@ class HttpApiCatalogSourceConfirmationTest {
         assertFalse(detail.sources().get(0).confirmedInLatestInventory());
     }
 
-    private Fixture fixture(String kind, String inventoryToken, String memberToken) {
+    private Fixture fixture(String kind, String inventoryToken, String memberToken) throws Exception {
         HttpApiAssetMapper assets = mock(HttpApiAssetMapper.class);
         HttpApiSourceBindingMapper bindings = mock(HttpApiSourceBindingMapper.class);
         HttpApiInventoryStateMapper inventories = mock(HttpApiInventoryStateMapper.class);
@@ -52,9 +52,11 @@ class HttpApiCatalogSourceConfirmationTest {
         binding.setProjectCode("orders"); binding.setEnvironment("dev");
         binding.setSourceKind(kind); binding.setSourceKey("source-1");
         binding.setStatus(HttpApiSourceBindingStatus.DISCOVERED.name());
-        binding.setSourceContractHash("a".repeat(64)); binding.setSourceContractJson("{\"sideEffect\":\"READ_ONLY\"}");
+        binding.setSourceContractJson("{\"sideEffect\":\"READ_ONLY\"}");
+        binding.setSourceContractHash(HttpApiSqlTestFunctions.sha2(binding.getSourceContractJson(), 256));
         binding.setObservedAt(LocalDateTime.now());
         HttpApiInventoryStateEntity inventory = new HttpApiInventoryStateEntity();
+        inventory.setProjectId(7L); inventory.setProjectCode("orders"); inventory.setEnvironment("dev"); inventory.setSourceKind(kind);
         inventory.setInventoryToken(inventoryToken); inventory.setSupported(true);
         inventory.setComplete(true); inventory.setObservedAt(LocalDateTime.now());
         HttpApiInventoryMemberEntity member = new HttpApiInventoryMemberEntity();
@@ -62,10 +64,10 @@ class HttpApiCatalogSourceConfirmationTest {
         member.setObservedAt(LocalDateTime.now());
         when(assets.selectById(9L)).thenReturn(asset);
         when(bindings.selectList(any())).thenReturn(List.of(binding));
-        when(inventories.selectOne(any())).thenReturn(inventory);
-        when(members.selectOne(any())).thenReturn(member);
+        when(inventories.selectList(any())).thenReturn(List.of(inventory));
+        when(members.selectList(any())).thenReturn(List.of(member));
         HttpApiCatalogService catalog = new HttpApiCatalogService(assets, bindings, inventories, members,
-                acceptances, projects, new ObjectMapper());
+                acceptances, projects, new ObjectMapper(), new HttpApiContractCanonicalizer(new ObjectMapper()));
         return new Fixture(catalog);
     }
 

@@ -8,6 +8,7 @@ import com.enterprise.ai.capability.catalog.httpapi.HttpApiAssetMapper;
 import com.enterprise.ai.capability.catalog.httpapi.HttpApiSourceBindingMapper;
 import com.enterprise.ai.capability.catalog.businessmethod.BusinessMethodAssetMapper;
 import com.enterprise.ai.capability.catalog.businessmethod.BusinessMethodRevisionMapper;
+import com.enterprise.ai.capability.catalog.enrichment.CatalogGroupMemberMapper;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.mapping.Environment;
 import org.apache.ibatis.session.SqlSessionFactory;
@@ -50,6 +51,7 @@ class ReachAiCapabilityServiceApplicationContractTest {
                 "com.enterprise.ai.capability.catalog.retrieval",
                 "com.enterprise.ai.capability.catalog.businessmethod",
                 "com.enterprise.ai.capability.catalog.httpapi",
+                "com.enterprise.ai.capability.catalog.enrichment",
                 "com.enterprise.ai.capability.externalapi"
         }, mapperScan.value());
         assertEquals(Mapper.class, mapperScan.annotationClass());
@@ -83,6 +85,7 @@ class ReachAiCapabilityServiceApplicationContractTest {
             assertNotNull(context.getBean(HttpApiSourceBindingMapper.class));
             assertNotNull(context.getBean(BusinessMethodAssetMapper.class));
             assertNotNull(context.getBean(BusinessMethodRevisionMapper.class));
+            assertNotNull(context.getBean(CatalogGroupMemberMapper.class));
         }
     }
 }

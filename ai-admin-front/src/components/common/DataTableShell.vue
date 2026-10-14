@@ -6,6 +6,7 @@ const props = withDefaults(
     density?: WorkbenchDensity
     loading?: boolean
     empty?: boolean
+    preserveEmptyBody?: boolean
     emptyDescription?: string
     currentPage?: number
     pageSize?: number
@@ -17,6 +18,7 @@ const props = withDefaults(
     density: 'comfortable',
     loading: false,
     empty: false,
+    preserveEmptyBody: false,
     emptyDescription: '暂无数据',
     currentPage: 1,
     pageSize: 20,
@@ -52,6 +54,7 @@ function handleSizeChange(size: number) {
       'glass-surface-panel',
       densityClass(props.density),
       { 'is-empty': props.empty && !props.loading },
+      { 'data-table-shell--preserve-empty-body': props.preserveEmptyBody },
     ]"
   >
     <div v-if="$slots.toolbar" class="data-table-shell__toolbar">

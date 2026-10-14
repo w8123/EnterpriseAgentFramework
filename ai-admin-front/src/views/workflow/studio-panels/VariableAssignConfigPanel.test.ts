@@ -14,7 +14,7 @@ describe('VariableAssignConfigPanel variable choices', () => {
         data,
         variableOptions: [
           'lastOutput',
-          { value: 'nodeOutput.scalar.data', label: '标量只读方法 · 只读试运行返回值（标量）', group: '节点输出' },
+          { value: 'nodeOutput.scalar', label: '标量只读方法 · 标量返回值', group: '节点输出' },
         ],
       },
       global: { plugins: [ElementPlus] },
@@ -23,12 +23,12 @@ describe('VariableAssignConfigPanel variable choices', () => {
     expect(selects[1]!.props('fitInputWidth')).toBe(true)
     const options = selects[1]!.findAllComponents({ name: 'ElOption' })
     expect(selects[1]!.props('popperClass')).toBe('workflow-variable-assign-options')
-    expect(options.map((option) => option.props('label'))).toContain('标量只读方法 · 只读试运行返回值（标量）')
+    expect(options.map((option) => option.props('label'))).toContain('标量只读方法 · 标量返回值')
     expect(options.map((option) => option.props('label'))).toContain('lastOutput')
-    selects[1]!.vm.$emit('update:modelValue', 'nodeOutput.scalar.data')
-    selects[1]!.vm.$emit('change', 'nodeOutput.scalar.data')
+    selects[1]!.vm.$emit('update:modelValue', 'nodeOutput.scalar')
+    selects[1]!.vm.$emit('change', 'nodeOutput.scalar')
     await flushPromises()
-    expect(data.assignments.scalar_result).toBe('nodeOutput.scalar.data')
+    expect(data.assignments.scalar_result).toBe('nodeOutput.scalar')
     wrapper.unmount()
   })
 })

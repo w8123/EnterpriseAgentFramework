@@ -26,6 +26,7 @@ const props = withDefaults(
     compact?: boolean
     collapsed?: boolean
     artwork?: boolean
+    presentation?: 'panel' | 'plain'
     backLabel?: string
     showBack?: boolean
   }>(),
@@ -36,6 +37,7 @@ const props = withDefaults(
     compact: false,
     collapsed: false,
     artwork: true,
+    presentation: 'panel',
     backLabel: '返回',
     showBack: false,
   },
@@ -80,6 +82,7 @@ if (import.meta.env.DEV) {
     ]"
     :aria-labelledby="titleId"
     :data-collapsed="props.collapsed ? 'true' : 'false'"
+    :data-presentation="props.presentation"
   >
     <div v-if="props.showBack || $slots.leading" class="app-page-header__leading">
       <button
@@ -158,13 +161,14 @@ if (import.meta.env.DEV) {
   display: grid;
   width: 100%;
   min-width: 0;
-  height: var(--layout-page-header-height-standard);
-  // Progressive enhancement for responsive layouts whose expanded height is auto.
-  // Unsupported browsers keep the fixed-height transition used on wider screens.
+  height: auto;
+  min-height: var(--layout-page-header-height-standard);
+  // Expanded headers grow for descriptions and metadata; collapse keeps its preset.
+  // Supporting browsers interpolate between natural and collapsed heights.
   interpolate-size: allow-keywords;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: var(--section-gap);
+  gap: var(--layout-section-gap);
   overflow: hidden;
   padding: var(--layout-page-header-padding-block) var(--layout-page-header-padding-inline);
   border-radius: var(--radius-xl);
@@ -214,31 +218,31 @@ if (import.meta.env.DEV) {
 
 .app-page-header--overview,
 .app-page-header--workbench {
-  height: var(--layout-page-header-height-emphasis);
+  min-height: var(--layout-page-header-height-emphasis);
 }
 
 .app-page-header--entity {
-  height: var(--layout-page-header-height-standard);
+  min-height: var(--layout-page-header-height-standard);
 }
 
 .app-page-header--standard.is-compact {
-  height: var(--layout-page-header-height-compact);
+  min-height: var(--layout-page-header-height-compact);
   padding-block: var(--layout-page-header-compact-padding-block);
   padding-inline: var(--layout-page-header-compact-padding-inline);
 }
 
 .app-page-header--height-compact {
-  height: var(--layout-page-header-height-compact);
+  min-height: var(--layout-page-header-height-compact);
   padding-block: var(--layout-page-header-compact-padding-block);
   padding-inline: var(--layout-page-header-compact-padding-inline);
 }
 
 .app-page-header--height-standard {
-  height: var(--layout-page-header-height-standard);
+  min-height: var(--layout-page-header-height-standard);
 }
 
 .app-page-header--height-emphasis {
-  height: var(--layout-page-header-height-emphasis);
+  min-height: var(--layout-page-header-height-emphasis);
 }
 
 .app-page-header.is-collapsed,
@@ -399,7 +403,7 @@ if (import.meta.env.DEV) {
 
 .app-page-header--overview .app-page-header__title,
 .app-page-header--workbench .app-page-header__title {
-  font-size: 1.75rem;
+  font-size: 1.5rem;
 }
 
 .app-page-header__tags,
@@ -584,6 +588,27 @@ if (import.meta.env.DEV) {
 
 [data-theme='dark'] .app-page-header__tags :deep(.el-tag--info) {
   color: var(--text-secondary);
+}
+
+.app-page-header[data-presentation='plain'] {
+  height: auto;
+  min-height: 52px;
+  padding: 8px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.app-page-header[data-presentation='plain']::before,
+.app-page-header[data-presentation='plain']::after { display: none; }
+
+.app-page-header[data-presentation='plain'] .app-page-header__title { font-size: 22px; }
+.app-page-header[data-presentation='plain'] .app-page-header__action-dock {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 @media (max-width: 900px) {

@@ -3,6 +3,7 @@ package com.enterprise.ai.runtime.runops.consolehttpapi;
 import com.enterprise.ai.common.capability.HttpApiConsoleContracts;
 import com.enterprise.ai.common.internalauth.InternalServiceAuthHeaders;
 import com.enterprise.ai.runtime.internalauth.VerifiedInternalServiceAuth;
+import com.enterprise.ai.runtime.execution.http.WorkflowHttpEgressPolicy;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -45,6 +46,9 @@ public class RuntimeHttpApiConnectionInternalController {
             return ResponseEntity.ok(service.save(command, auth.identityUserId()));
         } catch (RuntimeHttpApiConnectionService.Conflict conflict) {
             return ResponseEntity.status(409).body(error(conflict.code(), conflict.getMessage()));
+        } catch (WorkflowHttpEgressPolicy.WorkflowHttpEgressException denied) {
+            return ResponseEntity.status(409).body(error(denied.code(),
+                    "服务地址被 HTTP 出站策略拒绝，请由管理员核对目标主机白名单；连接未保存"));
         } catch (IllegalArgumentException invalid) {
             return ResponseEntity.badRequest().body(error("HTTP_API_CONNECTION_INVALID", "连接请求无效"));
         }

@@ -49,7 +49,8 @@ npm run build
 | Agent / Workflow | `/agent/**`、`/workflows/**` | Runtime，经 Control |
 | Agent Skill | `/skills` | Control Skill Center；部署态验收仍按专题证据矩阵 |
 | RunOps / Agent Eval | `/runops/**`、`/agent/:id/evals` | Runtime，经 Control |
-| 项目与页面工作台 | `/registry/**`、`/scan-project/**` | Control 编排，Capability/Runtime 协作 |
+| 项目与页面工作台 | `/registry/**` | Control 编排，Capability/Runtime 协作 |
+| 业务能力工作台 | `/business-capabilities/**`（能力目录／接入与变更；业务分类融入目录，批量说明及关联分析按需打开） | Capability 维护，Control 项目授权 |
 | Knowledge / Business Index | `/knowledge/**`、`/retrieval`、`/biz-index/**` | Knowledge；受保护入口经 Control |
 | Model Center | `/model/instances/**`、`/model/playground` | Model |
 | API 市场 | `/api-market` | Capability，经 Control |

@@ -126,14 +126,6 @@ export interface ScanProjectUpsertRequest {
   specFile?: string | null
 }
 
-/** PATCH /api/scan-projects/:id/auth-settings */
-export interface ScanProjectAuthSaveRequest {
-  authType: ScanProjectAuthType
-  authApiKeyIn?: ScanProjectAuthApiKeyIn | null
-  authApiKeyName?: string | null
-  authApiKeyValue?: string | null
-}
-
 /** PATCH /api/scan-projects/:id/registry-credential */
 export interface ScanProjectRegistryCredentialSaveRequest {
   appKey: string
@@ -316,77 +308,6 @@ export interface AiOnboardingManifest {
   }
 }
 
-export interface AiCodingGatewayManifest {
-  schema: 'reachai.ai-coding.gateway.v3' | string
-  project: {
-    id: number
-    projectCode?: string | null
-    name?: string | null
-    projectKind?: string | null
-    environment?: string | null
-  }
-  auth: {
-    headerName: string
-    auditActor: string
-    guidance: string[]
-  }
-  sdkArtifacts?: SdkArtifact[]
-  responseShapes?: Record<string, ResponseShape>
-  gatewayChecklist?: GatewayChecklistItem[]
-  endpoints: {
-    manifestUrl: string
-    contextCandidatesUrl: string
-    contextCandidatesBatchUrl: string
-    contextCandidateStatusUrlTemplate: string
-    sdkAccessManifestUrl: string
-    handoffActivationUrlTemplate: string
-    taskContextUrlTemplate: string
-    taskHeartbeatUrlTemplate: string
-    taskEventsUrlTemplate: string
-    taskQuestionsUrlTemplate: string
-    taskArtifactsUrlTemplate: string
-    workflowCreateUrl: string
-    workflowContextUrlTemplate: string
-    workflowPatchUrlTemplate: string
-    workflowValidateUrlTemplate: string
-    workflowRunUrlTemplate: string
-    workflowVersionsUrlTemplate: string
-    workflowPublishUrlTemplate: string
-    workflowRunsUrlTemplate: string
-    contextCandidateReviewUrl: string
-    contextCandidateAuditUrlTemplate: string
-  }
-  contextCandidateSubmission: {
-    schema: 'reachai.context-candidate-submission.v1' | string
-    endpoint: string
-    batchEndpoint: string
-    reviewMode: 'PENDING_HUMAN_REVIEW' | string
-    memoryLane: 'PROJECT_DEV' | string
-    tenantId: string
-    defaultSourceType: string
-    defaultCandidateType: string
-    requiredFields: string[]
-    candidateTypes: string[]
-    sourceTypes: string[]
-    traceMetadata: {
-      metadataKey: string
-      generatedSubmissionIdPrefix: string
-      defaultOrigin: string
-      traceIdPolicy: string
-      sessionIdPolicy: string
-    }
-    serverControlledFields: string[]
-    guidance: string[]
-  }
-  capabilities: Array<{
-    key: 'SDK_ACCESS' | 'PAGE_ASSISTANT' | 'WORKFLOW_AI_CODING' | 'CONTEXT_CANDIDATES' | string
-    title: string
-    targetType: 'PROJECT' | 'PAGE' | 'WORKFLOW' | string
-    entryUrl: string
-    guidance: string[]
-  }>
-}
-
 export interface AiCodingAccessUpdateRequest {
   enabled: boolean
   accessKey?: string | null
@@ -438,6 +359,13 @@ export interface SensitiveScanTask {
   finishedAt: string | null
 }
 
+export interface SourceModuleSummary { moduleId: number | null; moduleDisplayName: string; count: number }
+export interface SourceStatistics { total: number; removed: number }
+export interface SourcePageQuery { current: number; size: number; keyword?: string; moduleId?: number; ungrouped?: boolean;
+  observationIds?: number[]; focusObservationId?: number; defer?: boolean }
+export interface SourcePage { records: ProjectToolInfo[]; total: number; current: number; size: number;
+  stats: SourceStatistics; modules: SourceModuleSummary[] }
+
 export interface ProjectToolInfo extends ToolInfo {
   /** 扫描表 capability_scan_project_tool.id，仅用于来源详情、重扫与语义证据。 */
   scanToolId: number
@@ -465,6 +393,17 @@ export interface ProjectToolInfo extends ToolInfo {
   sensitiveData?: ScanToolSensitiveData | null
   /** summary 视图不返回完整参数树，首屏用该字段展示参数数量 */
   parameterCount?: number
+}
+
+/** 单条来源刷新只在唯一匹配时确认所属 HTTP API；其余结果要求完整项目同步。 */
+export interface SourceObservationRescanResult {
+  sourceObservation: ProjectToolInfo
+  httpApiRefresh: {
+    confirmed: boolean
+    observed: number
+    reason: string | null
+    fullSyncRequired: boolean
+  }
 }
 
 /** POST /api/scan-projects/:id/tools/reconcile 汇总 */

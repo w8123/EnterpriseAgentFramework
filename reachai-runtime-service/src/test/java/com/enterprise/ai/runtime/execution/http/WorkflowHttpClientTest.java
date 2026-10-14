@@ -16,12 +16,16 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
 import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -132,6 +136,53 @@ class WorkflowHttpClientTest {
                 Map.of(), Map.of(), "JSON", "{}", 1000, null, WorkflowExecutionIdentity.untrustedDebug(), null, false));
         assertEquals(1, writes.get()); assertEquals(0, result.statusCode()); assertFalse(result.success());
         assertFalse(result.retryableFailure());
+        assertEquals("RUNTIME_HTTP_TIMEOUT", result.code());
+        assertEquals("SocketTimeoutException", result.transportExceptionClass());
+        assertTrue(WorkflowHttpClient.safeTransportFailureSummary(result).contains("RUNTIME_HTTP_TIMEOUT"));
+    }
+
+    @Test
+    void actualTlsHandshakeFailureHasOnlySafeTransportFactsAndDoesNotRetry() throws Exception {
+        String secret = "private-tls-token-marker";
+        AtomicInteger connections = new AtomicInteger();
+        var responder = Executors.newSingleThreadExecutor();
+        try (ServerSocket peer = new ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))) {
+            var sent = responder.submit(() -> {
+                try (Socket socket = peer.accept()) {
+                    connections.incrementAndGet();
+                    socket.setSoTimeout(5_000);
+                    socket.getInputStream().read(new byte[4096]);
+                    socket.getOutputStream().write(("HTTP/1.1 200 OK\r\nContent-Length: 0\r\nX-Token: "
+                            + secret + "\r\n\r\n").getBytes(StandardCharsets.US_ASCII));
+                    socket.getOutputStream().flush();
+                }
+                return null;
+            });
+            var secureClient = new WorkflowHttpClient(objectMapper, WorkflowHttpEgressPolicy.permissiveForTests(), null);
+            var result = secureClient.execute(new WorkflowHttpClient.HttpExecutionRequest("GET",
+                    "https://127.0.0.1:" + peer.getLocalPort() + "/private-path?token=" + secret,
+                    Map.of(), Map.of("Authorization", "Bearer " + secret), "NONE", null, 5_000,
+                    null, WorkflowExecutionIdentity.untrustedDebug(), null, false));
+            sent.get(5, TimeUnit.SECONDS);
+
+            assertFalse(result.success());
+            assertEquals(0, result.statusCode());
+            assertEquals("RUNTIME_HTTP_TLS_FAILED", result.code());
+            assertTrue(List.of("SSLException", "SSLHandshakeException", "SSLProtocolException")
+                    .contains(result.transportExceptionClass()));
+            assertEquals("HTTP TLS connection failed", result.body());
+            assertFalse(result.retryableFailure());
+            assertEquals(1, connections.get());
+            String diagnostic = WorkflowHttpClient.safeTransportFailureSummary(result);
+            assertTrue(diagnostic.contains("RUNTIME_HTTP_TLS_FAILED"));
+            assertTrue(diagnostic.contains("exceptionClass=SSL"));
+            assertFalse(diagnostic.contains(secret));
+            assertFalse(diagnostic.contains("127.0.0.1"));
+            assertFalse(diagnostic.contains("private-path"));
+            assertFalse(diagnostic.contains("Authorization"));
+        } finally {
+            responder.shutdownNow();
+        }
     }
 
     @Test

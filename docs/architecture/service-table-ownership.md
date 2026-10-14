@@ -13,6 +13,7 @@ Knowledge 独占文件及授权的 `record_generation`、导入任务的 `replac
 - `sql/initV2.sql` is the long-term SQL baseline and every `CREATE TABLE` row must appear in this matrix, even if the table has no current direct code access.
 - Temporary same-database reads or compatibility writes must be documented in `Additional direct access` with the accessing service and reason.
 - The current target state is zero cross-service direct table access in application code; service collaboration must go through internal HTTP APIs, explicit clients, or service-owned read models.
+- Catalog adjunct GETs are read-only: candidate prose/classification adoption belongs to the Capability-owned Java/HTTP acceptance transaction. Source rescans stage external Knowledge I/O outside the project-lock transaction, then verify a fresh Capability-owned revision before committing. Cached immutable publication facts do not replace fresh Control publication state or Runtime ownership/pin checks.
 - The current baseline targets a new database: legacy names such as `ai_workflow`, `ai_agent`, `skill_draft`, `skill_interaction`, `eaf_page_registry`, and `tool_call_log` are replaced by service/domain-prefixed names. No old-table compatibility views or data migration scripts are required. ReachAI no longer creates `capability_draft`, `runtime_skill_interaction`, or `kind=SKILL` catalog rows.
 
 ## Shared Table Exceptions Retired
@@ -116,6 +117,8 @@ These rows remain in the ownership matrix because the current baseline still rec
 | `capability_api_graph_edge` | `reachai-capability-service` | - | Capability API graph edge |
 | `capability_api_graph_layout` | `reachai-capability-service` | - | Capability API graph layout |
 | `capability_api_graph_node` | `reachai-capability-service` | - | Capability API graph node |
+| `capability_catalog_group_member` | `reachai-capability-service` | - | Typed owner catalog grouping; no asset contract |
+| `capability_catalog_classification_state` | `reachai-capability-service` | - | Persistent owner classification revision and manual empty selection; no asset contract |
 | `knowledge_business_index` | `reachai-knowledge-service` | - | Knowledge business index |
 | `knowledge_business_index_attachment` | `reachai-knowledge-service` | - | Knowledge business index attachment |
 | `knowledge_business_index_record` | `reachai-knowledge-service` | - | Knowledge business index record |
@@ -145,8 +148,6 @@ These rows remain in the ownership matrix because the current baseline still rec
 | `control_context_runtime_user_mapping` | `reachai-control-service` | - | Control to Runtime user mapping |
 | `knowledge_personal_memory_index` | `reachai-knowledge-service` | - | Rebuildable owner-hashed lexical/vector search projection; never canonical |
 | `knowledge_personal_memory_index_event` | `reachai-knowledge-service` | - | Idempotent personal-memory projection consumption ledger |
-| `capability_domain_assignment` | `reachai-capability-service` | - | Capability domain assignment |
-| `capability_domain_def` | `reachai-capability-service` | - | Capability domain definition |
 | `control_ai_coding_task` | `reachai-control-service` | - | ReachAI-wide AI Coding task root |
 | `control_ai_coding_task_artifact` | `reachai-control-service` | - | Generic contracted artifacts and domain apply results |
 | `control_ai_coding_task_event` | `reachai-control-service` | - | Immutable AI Coding task events |
@@ -206,9 +207,8 @@ These rows remain in the ownership matrix because the current baseline still rec
 | `capability_scan_module` | `reachai-capability-service` | - | Capability scan module |
 | `capability_scan_project` | `reachai-capability-service` | - | Capability project identity; non-null project_code is unique across registration and catalog writes |
 | `capability_scan_project_tool` | `reachai-capability-service` | - | Capability scan project tool |
-| `capability_semantic_doc` | `reachai-capability-service` | - | Capability semantic document |
+| `capability_semantic_doc` | `reachai-capability-service` | - | Typed owner adjunct prose; contract/accepted-state basis and microsecond edit revision, no execution contract |
 | `control_tool_acl` | `reachai-control-service` | - | Control tool ACL |
 | `runtime_tool_call_log` | `reachai-runtime-service` | - | Runtime Tool call audit |
 | `capability_tool_definition` | `reachai-capability-service` | - | Runtime Tool projection for governed Capability/API execution; not a product asset |
-| `capability_tool_retrieval_setting` | `reachai-capability-service` | - | Capability tool retrieval setting |
 | `knowledge_user_file_permission` | `reachai-knowledge-service` | - | Knowledge file permission; file retirement revokes grants in the same transaction, subsequent reads use current database rows |

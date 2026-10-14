@@ -54,20 +54,19 @@ public class HttpApiConsoleController {
         if (projectId == null || projectId <= 0 || current <= 0 || size <= 0 || size > 100) {
             return error(HttpStatus.BAD_REQUEST, "HTTP_API_LIST_INVALID", "项目或分页条件无效");
         }
-        ProjectResolution project = project(projectId, actor(session));
-        if (project.failure() != null) return project.failure();
-        authorization.requireResourcePermission(request, PlatformPermissions.PLATFORM_READ,
-                PROJECT, null, project.projectCode());
-        ResponseEntity<Object> page = forward(capability.listHttpApis(projectId, environment, keyword, method,
-                sourceStatus, current, size, actor(session)));
+        Long groupId = CatalogGroupQuery.parse(request, projectId);
+        boolean ungrouped = CatalogGroupQuery.ungrouped(request, projectId);
+        ResponseEntity<Object> raw = capability.listHttpApis(projectId, environment, keyword, method, sourceStatus,
+                current, size, actor(session), groupId, ungrouped, CatalogReadAuthorization.body(session, projectId));
+        ResponseEntity<Object> page = CatalogReadAuthorization.verifyResponse(request, projectId, raw, authorization);
         if (!page.getStatusCode().is2xxSuccessful()) return page;
-        return catalogWithRuntimeState(page, projectId, project.projectCode(), actor(session));
+        return catalogWithRuntimeState(page, projectId, CatalogReadAuthorization.projectCode(raw), actor(session));
     }
 
     @GetMapping("/api/apis/{id}")
     public ResponseEntity<Object> detail(HttpServletRequest request, @PathVariable long id) {
         PlatformAuthenticatedSession session = authorization.requirePermission(request, PlatformPermissions.PLATFORM_READ);
-        OwnerResolution resolved = owner(id, actor(session));
+        OwnerResolution resolved = owner(id, actor(session), CatalogReadAuthorization.resourceBody(session, PlatformPermissions.PLATFORM_READ));
         if (resolved.failure() != null) return resolved.failure();
         authorizeProject(request, PlatformPermissions.PLATFORM_READ, resolved.owner());
         return resolved.response();
@@ -82,7 +81,7 @@ public class HttpApiConsoleController {
                 || !revision.matches("[a-f0-9]{64}")) {
             return error(HttpStatus.BAD_REQUEST, "HTTP_API_ACCEPT_INVALID", "接纳修订无效");
         }
-        OwnerResolution resolved = owner(id, actor(session));
+        OwnerResolution resolved = owner(id, actor(session), CatalogReadAuthorization.resourceBody(session, PlatformPermissions.PLATFORM_WRITE));
         if (resolved.failure() != null) return resolved.failure();
         authorizeProject(request, PlatformPermissions.PLATFORM_WRITE, resolved.owner());
         return forward(capability.acceptHttpApi(id, revision, actor(session)));
@@ -91,7 +90,7 @@ public class HttpApiConsoleController {
     @GetMapping("/api/apis/{id}/connection")
     public ResponseEntity<Object> connection(HttpServletRequest request, @PathVariable long id) {
         PlatformAuthenticatedSession session = authorization.requirePermission(request, PlatformPermissions.PLATFORM_READ);
-        OwnerResolution resolved = owner(id, actor(session));
+        OwnerResolution resolved = identity(id, actor(session), CatalogReadAuthorization.resourceBody(session, PlatformPermissions.PLATFORM_READ));
         if (resolved.failure() != null) return resolved.failure();
         authorizeProject(request, PlatformPermissions.PLATFORM_READ, resolved.owner());
         try {
@@ -110,7 +109,7 @@ public class HttpApiConsoleController {
         catch (IllegalArgumentException invalid) {
             return error(HttpStatus.BAD_REQUEST, "HTTP_API_CONNECTION_INVALID", "连接配置格式无效");
         }
-        OwnerResolution resolved = owner(id, actor(session));
+        OwnerResolution resolved = identity(id, actor(session), CatalogReadAuthorization.resourceBody(session, PlatformPermissions.PLATFORM_WRITE));
         if (resolved.failure() != null) return resolved.failure();
         authorizeProject(request, PlatformPermissions.PLATFORM_WRITE, resolved.owner());
         try {
@@ -130,7 +129,7 @@ public class HttpApiConsoleController {
         }
         PlatformAuthenticatedSession session = authorization.requirePermission(request, PlatformPermissions.PLATFORM_READ);
         authorization.requirePermission(request, PlatformPermissions.CAPABILITY_INVOKE);
-        OwnerResolution resolved = owner(id, actor(session));
+        OwnerResolution resolved = owner(id, actor(session), CatalogReadAuthorization.resourceBody(session, PlatformPermissions.PLATFORM_READ));
         if (resolved.failure() != null) return resolved.failure();
         Owner owner = resolved.owner();
         ResponseEntity<Object> denied = invokePermission(request, session, owner.projectId(),
@@ -194,18 +193,30 @@ public class HttpApiConsoleController {
         return denied == null ? response : denied;
     }
 
-    private OwnerResolution owner(long id, String actor) {
+    private OwnerResolution identity(long id, String actor, Map<String, Object> grant) {
+        return resolveOwner(id, actor, true, grant);
+    }
+
+    private OwnerResolution owner(long id, String actor, Map<String, Object> grant) {
+        return resolveOwner(id, actor, false, grant);
+    }
+
+    private OwnerResolution resolveOwner(long id, String actor, boolean identityOnly, Map<String, Object> grant) {
         if (id <= 0) return new OwnerResolution(null, null,
                 error(HttpStatus.BAD_REQUEST, "HTTP_API_ID_INVALID", "API 标识无效"));
-        ResponseEntity<Object> response = capability.getHttpApi(id, actor);
+        ResponseEntity<Object> response = identityOnly ? capability.getHttpApiIdentity(id, actor, grant) : capability.getHttpApi(id, actor, grant);
         if (response == null || response.getStatusCode().value() == 404) {
             return new OwnerResolution(null, null, ResponseEntity.notFound().build());
         }
-        if (!response.getStatusCode().is2xxSuccessful() || !(response.getBody() instanceof Map<?, ?> body)
-                || !(body.get("summary") instanceof Map<?, ?> summary)) {
+        if (response.getStatusCode().value() == 403) return new OwnerResolution(null, null,
+                ResponseEntity.status(HttpStatus.FORBIDDEN).body(response.getBody()));
+        if (!response.getStatusCode().is2xxSuccessful() || !(response.getBody() instanceof Map<?, ?> body)) {
             return new OwnerResolution(null, null,
                     error(HttpStatus.SERVICE_UNAVAILABLE, "HTTP_API_OWNER_UNAVAILABLE", "API owner 暂不可用"));
         }
+        Map<?, ?> summary = identityOnly ? body : body.get("summary") instanceof Map<?, ?> detail ? detail : null;
+        if (summary == null) return new OwnerResolution(null, null,
+                error(HttpStatus.BAD_GATEWAY, "HTTP_API_OWNER_INVALID", "API owner 返回无效身份"));
         Long returnedId = positive(summary.get("id"));
         Long projectId = positive(summary.get("projectId"));
         String projectCode = text(summary.get("projectCode"));
@@ -216,16 +227,14 @@ public class HttpApiConsoleController {
             return new OwnerResolution(null, null,
                     error(HttpStatus.BAD_GATEWAY, "HTTP_API_OWNER_INVALID", "API owner 返回无效身份"));
         }
-        ProjectResolution project = project(projectId, actor);
-        if (project.failure() != null) return new OwnerResolution(null, null, project.failure());
-        if (!projectCode.equals(project.projectCode())) return new OwnerResolution(null, null,
-                error(HttpStatus.CONFLICT, "HTTP_API_PROJECT_CHANGED", "API 所属项目已变化"));
+        if (!CatalogReadAuthorization.matchesOwner(response, projectId, projectCode)) return new OwnerResolution(null, null,
+                error(HttpStatus.BAD_GATEWAY, "HTTP_API_OWNER_INVALID", "API owner 与读取授权身份不一致"));
         Owner owner = new Owner(id, projectId, projectCode, qualifiedName, environment,
                 Boolean.TRUE.equals(summary.get("sourceConfirmed")),
                 text(summary.get("sourceStatus")), text(summary.get("candidateContractHash")),
                 text(summary.get("acceptedContractHash")), text(summary.get("sourceSetRevision")),
                 body.get("acceptedContract") instanceof Map<?, ?> contract ? text(contract.get("sideEffect")) : null);
-        return new OwnerResolution(owner, response, null);
+        return new OwnerResolution(owner, ResponseEntity.status(response.getStatusCode()).body(response.getBody()), null);
     }
 
     private ResponseEntity<Object> catalogWithRuntimeState(ResponseEntity<Object> response, long projectId,
@@ -283,18 +292,6 @@ public class HttpApiConsoleController {
         }
         page.put("records", rows);
         return ResponseEntity.ok(page);
-    }
-
-    private ProjectResolution project(long id, String actor) {
-        ResponseEntity<Object> response = capability.getProjectById(id, actor);
-        if (response == null || !response.getStatusCode().is2xxSuccessful()
-                || !(response.getBody() instanceof Map<?, ?> body)
-                || !Objects.equals(positive(body.get("projectId")), id)
-                || !StringUtils.hasText(text(body.get("projectCode")))) {
-            return new ProjectResolution(null,
-                    error(HttpStatus.BAD_GATEWAY, "HTTP_API_PROJECT_UNCONFIRMED", "项目归属无法确认"));
-        }
-        return new ProjectResolution(text(body.get("projectCode")), null);
     }
 
     private void authorizeProject(HttpServletRequest request, String permission, Owner owner) {
@@ -379,5 +376,4 @@ public class HttpApiConsoleController {
                          String environment, boolean sourceConfirmed, String sourceStatus,
                          String candidateHash, String acceptedHash, String sourceSetRevision, String sideEffect) { }
     private record OwnerResolution(Owner owner, ResponseEntity<Object> response, ResponseEntity<Object> failure) { }
-    private record ProjectResolution(String projectCode, ResponseEntity<Object> failure) { }
 }

@@ -25,9 +25,14 @@ final class SupervisorExecutionPhases {
     }
 
     void emit(String stepId, String name, String state, String source, String title, String detail) {
+        emit(stepId, name, state, source, title, detail, Map.of());
+    }
+
+    void emit(String stepId, String name, String state, String source, String title, String detail,
+              Map<String, String> evidence) {
         boolean deliver;
         synchronized (monitor) {
-            record(stepId, name, state, source, title, detail);
+            record(stepId, name, state, source, title, detail, evidence);
             deliver = claimDelivery();
         }
         if (deliver) drain();
@@ -37,7 +42,7 @@ final class SupervisorExecutionPhases {
         boolean deliver;
         synchronized (monitor) {
             if (!phases.containsKey(stepId) && !"final_answer".equals(name)) return;
-            record(stepId, name, "completed", source, title, detail);
+            record(stepId, name, "completed", source, title, detail, Map.of());
             deliver = claimDelivery();
         }
         if (deliver) drain();
@@ -54,7 +59,7 @@ final class SupervisorExecutionPhases {
                 String source = String.valueOf(step.getOrDefault("source", "runtime_lifecycle"));
                 String title = String.valueOf(step.getOrDefault("title", name));
                 record(stepId, name, terminalState, source, title,
-                        StringUtils.hasText(detail) ? detail : terminalState);
+                        StringUtils.hasText(detail) ? detail : terminalState, Map.of());
             }
             deliver = claimDelivery();
         }
@@ -69,7 +74,8 @@ final class SupervisorExecutionPhases {
         }
     }
 
-    private void record(String stepId, String name, String state, String source, String title, String detail) {
+    private void record(String stepId, String name, String state, String source, String title, String detail,
+                        Map<String, String> evidence) {
         Map<String, Object> previous = phases.get(stepId);
         Map<String, Object> phase = new LinkedHashMap<>();
         phase.put("stepId", stepId);
@@ -78,6 +84,12 @@ final class SupervisorExecutionPhases {
         phase.put("source", source);
         phase.put("title", title);
         if (StringUtils.hasText(detail)) phase.put("detail", detail);
+        // Only safe runtime identifiers are structured evidence. Args, answers and credentials stay out.
+        for (String key : List.of("toolName", "decision")) {
+            if (previous != null && previous.get(key) instanceof String value) phase.put(key, value);
+            String value = evidence == null ? null : evidence.get(key);
+            if (StringUtils.hasText(value)) phase.put(key, value);
+        }
         phase.put("timestamp", OffsetDateTime.now().toString());
         phase.put("sequence", previous == null ? ++sequence : previous.get("sequence"));
         Map<String, Object> stored = Collections.unmodifiableMap(phase);

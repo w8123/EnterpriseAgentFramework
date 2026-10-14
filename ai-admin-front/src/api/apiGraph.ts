@@ -137,18 +137,8 @@ export function rejectApiGraphCandidate(projectId: number, edgeId: number, rejec
   })
 }
 
-export function getApiGraphParamHints(projectId: number, toolName: string) {
-  return controlRequest.get<ApiGraphParamSourceHint[]>(
-    `/api/api-graph/projects/${projectId}/tools/${encodeURIComponent(toolName)}/param-hints`
-  )
-}
-
 export function upsertApiGraphEdge(projectId: number, payload: ApiGraphEdgeUpsertRequest) {
   return controlRequest.post<ApiGraphEdge>(`/api/api-graph/projects/${projectId}/edges`, payload)
-}
-
-export function deleteApiGraphEdge(projectId: number, edgeId: number) {
-  return controlRequest.delete(`/api/api-graph/projects/${projectId}/edges/${edgeId}`)
 }
 
 export function saveApiGraphLayout(projectId: number, payload: ApiGraphLayoutSaveRequest) {

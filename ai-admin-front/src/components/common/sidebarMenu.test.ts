@@ -30,6 +30,15 @@ describe('sidebarMenu information architecture', () => {
     expect(new Set(targets).size).toBe(targets.length)
   })
 
+  it('keeps context and retrieval navigation after retiring domain governance', () => {
+    const targets = sidebarMenu.flatMap((entry) => (
+      entry.kind === 'item' ? [entry.index, ...(entry.children ?? []).map(child => child.index)] : []
+    ))
+
+    expect(targets.some(path => path === '/domain' || path.startsWith('/domain/'))).toBe(false)
+    expect(targets).toEqual(expect.arrayContaining(['/context/governance', '/tool/retrieval', '/retrieval']))
+  })
+
   it('does not expose a generic Tool catalog as a product asset', () => {
     const items = sidebarMenu.flatMap((entry) => {
       if (entry.kind === 'group') return []
@@ -126,7 +135,6 @@ describe('resolveActiveMenu', () => {
     ['/business-capabilities/http-apis/17', '/business-capabilities'],
     ['/business-methods', '/business-capabilities'],
     ['/apis/17', '/business-capabilities'],
-    ['/registry/projects/orders/sync-diagnostics', '/registry/projects'],
     ['/model', '/model/instances'],
     ['/automations/demo', '/automations'],
     ['/tool/retrieval', '/tool/retrieval'],
@@ -150,7 +158,10 @@ describe('resolveOpenGroups', () => {
     ['/model/playground', ['/model-group']],
     ['/a2a-hub/overview', ['/integration-group']],
     ['/tool/retrieval', ['/diagnostics-group']],
-    ['/domain/classifier-test', ['/diagnostics-group']],
+    ['/context/governance', ['/experimental-group']],
+    ['/domain', []],
+    ['/domain/board', []],
+    ['/domain/classifier-test', []],
   ])('opens the owning group for %s', (path, expected) => {
     expect(resolveOpenGroups(path)).toEqual(expected)
   })

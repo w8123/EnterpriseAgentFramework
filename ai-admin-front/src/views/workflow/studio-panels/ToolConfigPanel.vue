@@ -189,8 +189,8 @@
       <p v-if="businessMethodOutputFields.length">
         已声明 {{ businessMethodOutputFields.length }} 个返回字段；下游可选择节点输出根对象、业务别名和声明字段路径。
       </p>
-      <p v-else-if="businessMethodHasScalarTrialReturn(selectedBusinessMethod.responseType)">
-        来源声明标量返回。只读试运行在下游选择“只读试运行返回值（标量）”；已发布执行使用节点输出根值。这里不推断业务返回字段。
+      <p v-else-if="businessMethodHasScalarReturn(selectedBusinessMethod.responseType)">
+        来源声明标量返回。下游选择“标量返回值”，只读试运行与已发布执行都使用节点输出根值。
       </p>
       <p v-else>
         {{ selectedBusinessMethod.responseType
@@ -366,7 +366,7 @@ import {
   businessMethodOutputCandidates as buildBusinessMethodOutputCandidates,
   businessMethodOutputFields as buildBusinessMethodOutputFields,
   businessMethodOutputPorts,
-  businessMethodHasScalarTrialReturn,
+  businessMethodHasScalarReturn,
   businessMethodSideEffectLabel,
   applyBusinessMethodSelection,
   isSelectableBusinessMethod,

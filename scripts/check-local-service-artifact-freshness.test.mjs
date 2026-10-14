@@ -30,6 +30,22 @@ await withFixture(async fixture => {
   assert.match(result.stderr, /no deployable JAR found/)
 })
 
+await withFixture(async fixture => {
+  await fixture.createSourceAndJar({ sourceTime: baseTime, jarTime: baseTime + 1_000 })
+  await fixture.createPlainJar({ jarTime: baseTime + 2_000 })
+  const result = await fixture.run()
+  assert.strictEqual(result.status, 0, result.stderr || result.stdout)
+  assert.doesNotMatch(result.stdout, /-plain\.jar/)
+})
+
+await withFixture(async fixture => {
+  await fixture.createSource({ sourceTime: baseTime })
+  await fixture.createPlainJar({ jarTime: baseTime + 1_000 })
+  const result = await fixture.run()
+  assert.notStrictEqual(result.status, 0, result.stdout)
+  assert.match(result.stderr, /no deployable JAR found/)
+})
+
 async function withFixture(run) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'reachai-artifact-freshness-'))
   const serviceName = 'reachai-control-service'
@@ -42,6 +58,10 @@ async function withFixture(run) {
     async createSourceAndJar({ sourceTime, jarTime }) {
       await createTimedFile(sourcePath, 'final class Example {}\n', sourceTime)
       await createTimedFile(jarPath, 'synthetic jar', jarTime)
+    },
+    async createPlainJar({ jarTime }) {
+      const plainPath = jarPath.replace(/\.jar$/, '-plain.jar')
+      await createTimedFile(plainPath, 'synthetic plain jar', jarTime)
     },
     run() {
       return runScript(root, serviceName)

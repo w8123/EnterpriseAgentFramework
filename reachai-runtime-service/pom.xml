@@ -93,6 +93,7 @@
             <groupId>com.enterprise.ai</groupId>
             <artifactId>reachai-capability-service</artifactId>
             <version>${project.version}</version>
+            <classifier>plain</classifier>
             <scope>test</scope>
         </dependency>
         <!-- Isolated BMAPI-3B1 browser bridge starts from the real OpenAPI scanner. -->
@@ -100,6 +101,7 @@
             <groupId>com.enterprise.ai</groupId>
             <artifactId>reachai-knowledge-service</artifactId>
             <version>${project.version}</version>
+            <classifier>plain</classifier>
             <scope>test</scope>
         </dependency>
         <!-- Isolated BMAPI-2D-B fixture exercises the actual SDK scanner, registry client and endpoint. -->
@@ -114,6 +116,7 @@
             <groupId>com.enterprise.ai</groupId>
             <artifactId>reachai-control-service</artifactId>
             <version>${project.version}</version>
+            <classifier>plain</classifier>
             <scope>test</scope>
         </dependency>
     </dependencies>

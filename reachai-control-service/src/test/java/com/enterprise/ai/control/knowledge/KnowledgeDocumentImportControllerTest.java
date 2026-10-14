@@ -77,6 +77,51 @@ class KnowledgeDocumentImportControllerTest {
         verify(gateway, never()).exchange(anyString(), anyString(), anyString(), anyString(), any(), any());
     }
 
+    @Test
+    void ownReadAccessUsesLiveActorAndRequiresReadScopeBeforeForwarding() {
+        String root = KnowledgeBizIndexGateway.DOCUMENT_IMPORT_INTERNAL_ROOT + "/files/file_test";
+        when(gateway.exchange("GET", root + "/scope", "default", "42", null, null))
+                .thenReturn(json("{\"code\":200,\"data\":{\"workspaceId\":\"workspace-a\",\"projectCode\":\"orders\",\"scope\":\"PROJECT\"}}"));
+        when(gateway.exchange("GET", root + "/read-access", "default", "42", null, null))
+                .thenReturn(json("{\"code\":200,\"data\":{\"fileId\":\"file_test\",\"userId\":\"42\",\"readable\":false}}"));
+        assertEquals(200, controller.fileReadAccess(authenticatedRequest(), "file_test").getStatusCode().value());
+        verify(authorization).requireResourcePermission(any(), eq("platform:read"), eq("PROJECT"), eq("workspace-a"), eq("orders"));
+        verify(gateway).exchange("GET", root + "/read-access", "default", "42", null, null);
+    }
+
+    @Test
+    void ownGrantSignsOnlyResolvedScopeWithLiveActorAndRequiresWritePermission() throws Exception {
+        String root = KnowledgeBizIndexGateway.DOCUMENT_IMPORT_INTERNAL_ROOT + "/files/file_test";
+        when(gateway.exchange("GET", root + "/scope", "default", "42", null, null))
+                .thenReturn(json("{\"code\":200,\"data\":{\"workspaceId\":\"workspace-a\",\"projectCode\":\"orders\",\"scope\":\"PROJECT\"}}"));
+        when(gateway.exchange(eq("POST"), eq(root + "/read-access"), eq("default"), eq("42"), any(), any()))
+                .thenReturn(json("{\"code\":200,\"data\":{\"readable\":true}}"));
+        MockHttpServletRequest request = authenticatedRequest();
+        request.setContent("{\"userId\":\"victim\",\"projectCode\":\"foreign\"}".getBytes(StandardCharsets.UTF_8));
+        assertEquals(200, controller.ensureFileReadAccess(request, "file_test").getStatusCode().value());
+        verify(authorization).requireResourcePermission(any(), eq("platform:write"), eq("PROJECT"), eq("workspace-a"), eq("orders"));
+        ArgumentCaptor<byte[]> body = ArgumentCaptor.forClass(byte[].class);
+        verify(gateway).exchange(eq("POST"), eq(root + "/read-access"), eq("default"), eq("42"), body.capture(), eq("application/json"));
+        var assertion = new ObjectMapper().readTree(body.getValue());
+        assertEquals("workspace-a", assertion.path("workspaceId").asText());
+        assertEquals("orders", assertion.path("projectCode").asText());
+        assertEquals("PROJECT", assertion.path("resourceScope").asText());
+        assertEquals(false, assertion.has("userId"));
+    }
+
+    @Test
+    void failedScopePermissionAndUnsignedRequestsCannotGrant() {
+        String root = KnowledgeBizIndexGateway.DOCUMENT_IMPORT_INTERNAL_ROOT + "/files/file_test";
+        when(gateway.exchange("GET", root + "/scope", "default", "42", null, null))
+                .thenReturn(json("{\"code\":200,\"data\":{\"workspaceId\":\"workspace-a\",\"projectCode\":\"orders\",\"scope\":\"PROJECT\"}}"));
+        org.mockito.Mockito.doThrow(new ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN, "denied"))
+                .when(authorization).requireResourcePermission(any(), eq("platform:write"), anyString(), anyString(), anyString());
+        assertThrows(ResponseStatusException.class, () -> controller.ensureFileReadAccess(authenticatedRequest(), "file_test"));
+        assertThrows(ResponseStatusException.class, () -> controller.ensureFileReadAccess(new MockHttpServletRequest(), "file_test"));
+        assertThrows(ResponseStatusException.class, () -> controller.fileReadAccess(new MockHttpServletRequest(), "file_test"));
+        verify(gateway, never()).exchange(eq("POST"), anyString(), anyString(), anyString(), any(), any());
+    }
+
     private static KnowledgeBizIndexGateway.GatewayResponse json(String body) {
         return new KnowledgeBizIndexGateway.GatewayResponse(
                 200, "application/json", body.getBytes(StandardCharsets.UTF_8));

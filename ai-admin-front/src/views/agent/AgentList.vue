@@ -876,9 +876,9 @@ watch(isAgentHeaderCollapsed, () => {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
+  gap: var(--layout-control-gap);
   width: 100%;
-  padding: 9px 14px;
+  padding: var(--layout-filter-padding-block) var(--layout-filter-padding-inline);
   border-color: rgb(var(--brand-primary-rgb) / 0.11);
   border-radius: 12px;
   background: var(--brand-soft-bg, var(--surface-glass-control));
@@ -899,7 +899,7 @@ watch(isAgentHeaderCollapsed, () => {
   flex: 1 1 480px;
   grid-template-columns: minmax(300px, 2.2fr) minmax(138px, 0.72fr);
   align-items: center;
-  gap: 12px;
+  gap: var(--layout-control-gap);
   min-width: min(100%, 480px);
 }
 
@@ -918,7 +918,7 @@ watch(isAgentHeaderCollapsed, () => {
   display: grid;
   grid-template-columns: 40px 88px;
   align-items: center;
-  gap: 10px;
+  gap: var(--layout-control-gap);
 }
 
 .agent-filter-bar :deep(.el-input__wrapper),
@@ -975,7 +975,7 @@ watch(isAgentHeaderCollapsed, () => {
 .agent-shell :deep(.data-table-shell__toolbar) {
   display: block;
   flex: 0 0 auto;
-  margin: 20px 24px 0;
+  margin: var(--layout-panel-padding) var(--layout-panel-padding) 0;
 }
 
 .agent-shell :deep(.data-table-shell__body) {
@@ -983,7 +983,7 @@ watch(isAgentHeaderCollapsed, () => {
   min-height: 0;
   flex: 1 1 auto;
   flex-direction: column;
-  margin: 16px 24px 0;
+  margin: var(--layout-section-gap) var(--layout-panel-padding) 0;
 }
 
 .agent-shell.is-empty :deep(.data-table-shell__body) {
@@ -992,18 +992,18 @@ watch(isAgentHeaderCollapsed, () => {
 }
 
 .agent-shell :deep(.data-table-shell__pagination) {
-  min-height: 64px;
+  min-height: 0;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  padding: 12px 24px 14px;
+  gap: var(--layout-section-gap);
+  padding: var(--layout-pagination-padding-block) var(--layout-panel-padding);
   border-top-color: rgb(var(--brand-primary-rgb) / 0.12);
   color: var(--text-muted);
   background: color-mix(in srgb, var(--surface-glass-control) 78%, transparent);
 }
 
 .agent-shell :deep(.data-table-shell__empty) {
-  padding: 20px 24px 24px;
+  padding: var(--layout-panel-padding);
 }
 
 .agent-scope-panel {
@@ -1451,16 +1451,16 @@ watch(isAgentHeaderCollapsed, () => {
 @media (max-width: 760px) {
   .agent-shell :deep(.data-table-shell__toolbar),
   .agent-shell :deep(.data-table-shell__body) {
-    margin-right: 16px;
-    margin-left: 16px;
+    margin-right: var(--layout-panel-padding);
+    margin-left: var(--layout-panel-padding);
   }
 
   .agent-shell :deep(.data-table-shell__toolbar) {
-    margin-top: 16px;
+    margin-top: var(--layout-panel-padding);
   }
 
   .agent-shell :deep(.data-table-shell__body) {
-    margin-top: 16px;
+    margin-top: var(--layout-section-gap);
   }
 
   .agent-filter-bar :deep(.filter-bar__fields) {
@@ -1489,13 +1489,13 @@ watch(isAgentHeaderCollapsed, () => {
   .agent-shell :deep(.data-table-shell__pagination) {
     align-items: flex-start;
     flex-direction: column;
-    padding-right: 16px;
-    padding-left: 16px;
+    padding-right: var(--layout-panel-padding);
+    padding-left: var(--layout-panel-padding);
     overflow-x: auto;
   }
 
   .agent-shell :deep(.data-table-shell__empty) {
-    padding: 18px 16px 22px;
+    padding: var(--layout-panel-padding);
   }
 
   .agent-empty-guide {

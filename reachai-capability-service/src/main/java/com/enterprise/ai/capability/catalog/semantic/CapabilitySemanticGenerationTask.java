@@ -12,12 +12,12 @@ public class CapabilitySemanticGenerationTask {
     private String taskId;
     private Long projectId;
     private String modelInstanceId;
-    private Stage stage;
-    private int totalSteps;
-    private int completedSteps;
-    private String currentStep;
-    private String errorMessage;
-    private int totalTokens;
+    private volatile Stage stage;
+    private volatile int totalSteps;
+    private volatile int completedSteps;
+    private volatile String currentStep;
+    private volatile String errorMessage;
+    private volatile int totalTokens;
     private Instant startedAt;
-    private Instant finishedAt;
+    private volatile Instant finishedAt;
 }

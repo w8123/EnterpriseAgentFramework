@@ -1,5 +1,17 @@
 <template>
-  <section class="capability-review-panel" aria-label="能力变化">
+  <section class="capability-review-panel" :class="{ 'capability-review-panel--compact': density === 'compact', 'capability-review-panel--status': presentation === 'status' }" aria-label="能力变化">
+    <div v-if="presentation === 'status'" class="review-status">
+      <span :role="error ? 'alert' : 'status'" aria-live="polite" class="review-status__message" :class="{ 'is-warning': error || pending > 0 }">
+        <el-icon aria-hidden="true"><component :is="error || pending > 0 ? Warning : loading ? Clock : CircleCheck" /></el-icon>
+        {{ loading ? '正在读取来源变化…' : error ? `来源变化读取失败：${error}` : !projectCode ? '请选择项目查看来源变化' : pending > 0 ? `${pending} 项变化待确认` : '暂无待处理变化' }}
+      </span>
+      <div class="review-status__actions">
+        <el-button v-if="error" link @click="loadChanges">重新加载</el-button>
+        <el-button v-if="pending > 0 && !error" link type="primary" :disabled="loading" :aria-expanded="reviewExpanded && state === 'PENDING'" @click="openReview('PENDING')">查看变化</el-button>
+        <el-button link :disabled="loading || !projectCode" :aria-expanded="reviewExpanded && state === 'PROCESSED'" @click="openReview('PROCESSED')">处理记录</el-button>
+      </div>
+    </div>
+    <div v-if="presentation !== 'status' || reviewExpanded" class="review-expanded">
     <div class="review-toolbar">
       <el-radio-group v-model="state" class="review-tabs" aria-label="变化范围" @change="changeFilter">
         <el-radio-button value="PENDING">待处理 <span v-if="pending" class="tab-count">{{ pending }}</span></el-radio-button>
@@ -9,19 +21,27 @@
         <el-input v-model="keyword" clearable :prefix-icon="Search" placeholder="搜索能力名称或标识"
           aria-label="搜索能力" class="review-search" @compositionstart="composing = true" @compositionend="compositionEnd" />
         <el-button :icon="Refresh" :loading="loading" :disabled="!projectCode" @click="loadChanges">刷新</el-button>
+        <el-button v-if="presentation === 'status'" link @click="reviewExpanded = false">收起</el-button>
       </div>
     </div>
-    <p class="review-summary">
+    <p v-if="density !== 'compact'" class="review-summary">
       <el-icon aria-hidden="true"><InfoFilled /></el-icon>
       <span>{{ state === 'PENDING' ? '系统自动处理可确定的变化，只在需要业务判断时留待确认。' : '自动处理、人工决定与已被替代的变化，都保存在这里。' }}</span>
     </p>
 
     <div v-loading="loading" element-loading-text="正在加载变化…" class="review-content" :aria-busy="loading">
-      <el-empty v-if="error" class="review-empty" :image-size="48" description="暂时无法加载能力变化">
-        <template #image><el-icon class="empty-icon is-warning"><Warning /></el-icon></template>
-        <p class="empty-hint">{{ error }}</p>
-        <el-button @click="loadChanges">重新加载</el-button>
-      </el-empty>
+      <template v-if="error">
+        <div v-if="density === 'compact'" class="review-state" role="alert">
+          <el-icon class="review-state__icon is-warning" aria-hidden="true"><Warning /></el-icon>
+          <div class="review-state__copy"><strong>暂时无法加载能力变化</strong><p>{{ error }}</p></div>
+          <el-button class="review-state__action" @click="loadChanges">重新加载</el-button>
+        </div>
+        <el-empty v-else class="review-empty" :image-size="48" description="暂时无法加载能力变化">
+          <template #image><el-icon class="empty-icon is-warning"><Warning /></el-icon></template>
+          <p class="empty-hint">{{ error }}</p>
+          <el-button @click="loadChanges">重新加载</el-button>
+        </el-empty>
+      </template>
       <template v-else-if="projectCode && items.length">
         <div class="review-cards" aria-label="能力变化列表">
           <article v-for="item in items" :key="item.id">
@@ -55,15 +75,23 @@
           </el-table-column>
         </el-table>
       </template>
-      <el-empty v-else-if="!loading" class="review-empty" :description="projectCode ? emptyDescription : '选择项目，查看需要确认的变化'" :image-size="48">
-        <template #image><el-icon class="empty-icon" :class="{ 'is-clear': projectCode && !keyword && state === 'PENDING' }"><component :is="!projectCode ? FolderOpened : keyword ? Search : state === 'PENDING' ? CircleCheck : Clock" /></el-icon></template>
-        <p class="empty-hint">{{ emptyHint }}</p>
-        <el-button v-if="keyword && projectCode" @click="keyword = ''">清除搜索</el-button>
-      </el-empty>
+      <template v-else-if="!loading">
+        <div v-if="density === 'compact'" class="review-state" role="status" aria-live="polite">
+          <el-icon class="review-state__icon" :class="{ 'is-clear': projectCode && !keyword && state === 'PENDING' }" aria-hidden="true"><component :is="!projectCode ? FolderOpened : keyword ? Search : state === 'PENDING' ? CircleCheck : Clock" /></el-icon>
+          <div class="review-state__copy"><strong>{{ projectCode ? emptyDescription : '选择项目，查看需要确认的变化' }}</strong><p>{{ emptyHint }}</p></div>
+          <el-button v-if="keyword && projectCode" class="review-state__action" @click="keyword = ''">清除搜索</el-button>
+        </div>
+        <el-empty v-else class="review-empty" :description="projectCode ? emptyDescription : '选择项目，查看需要确认的变化'" :image-size="48">
+          <template #image><el-icon class="empty-icon" :class="{ 'is-clear': projectCode && !keyword && state === 'PENDING' }"><component :is="!projectCode ? FolderOpened : keyword ? Search : state === 'PENDING' ? CircleCheck : Clock" /></el-icon></template>
+          <p class="empty-hint">{{ emptyHint }}</p>
+          <el-button v-if="keyword && projectCode" @click="keyword = ''">清除搜索</el-button>
+        </el-empty>
+      </template>
     </div>
     <div v-if="projectCode && total > 0 && !error" class="review-pagination">
       <el-pagination v-model:current-page="page" v-model:page-size="size" :total="total" :page-sizes="[10, 20, 50]"
         layout="total, sizes, prev, pager, next" @current-change="changePage" @size-change="changeFilter" />
+    </div>
     </div>
 
     <AppDrawer v-model="detailVisible" class="capability-change-drawer" title="变化详情" size="min(720px, 96vw)" append-to-body destroy-on-close>
@@ -94,7 +122,7 @@
           <div v-for="field in fields" :key="field.field" class="field-diff">
             <strong class="field-name">{{ capabilityFieldLabel(field.field) }}</strong>
             <div class="field-comparison">
-              <section class="field-before"><small>当前目录</small><pre class="field-value">{{ prettyCapabilityValue(field.oldValue) }}</pre></section>
+              <section class="field-before"><small>变更前目录</small><pre class="field-value">{{ prettyCapabilityValue(field.oldValue) }}</pre></section>
               <section class="field-after"><small><el-icon aria-hidden="true"><ArrowRight /></el-icon>本次上报</small><pre class="field-value">{{ prettyCapabilityValue(field.newValue) }}</pre></section>
             </div>
           </div>
@@ -155,10 +183,11 @@ import { capabilityFieldLabel, parseCapabilityFieldDiffs, prettyCapabilityValue 
 type Action = 'APPLY' | 'IGNORE' | 'ROLLBACK'
 type Reference = { kind: string; id: string; name?: string; stage?: string; version?: string }
 interface Impact { reason?: string; policyVersion?: string; sourceAvailability?: string; currentCandidate?: boolean; runtimeEvidence?: string; publicationEvidence?: string; references?: Reference[]; checkedAt?: string; candidate?: { title?: string; description?: string; sideEffect?: string; httpMethod?: string; endpointPath?: string } }
-const props = defineProps<{ projectCode: string }>()
+const props = withDefaults(defineProps<{ projectCode: string; density?: 'comfortable' | 'compact'; presentation?: 'panel' | 'status' }>(), { density: 'comfortable', presentation: 'panel' })
 const emit = defineEmits<{ summaryChange: [summary: { pending: number; attention: number; state: 'unselected' | 'loading' | 'ready' | 'error' }]; catalogChange: [] }>()
 const route = useRoute(); const router = useRouter()
 const state = ref<'PENDING' | 'PROCESSED'>(route.query.changes === 'history' ? 'PROCESSED' : 'PENDING')
+const reviewExpanded = ref(Boolean(route.query.changes || route.query.changeSearch || route.query.changePage))
 const keyword = ref(String(route.query.changeSearch || '')); const page = ref(Math.max(1, Number(route.query.changePage) || 1)); const size = ref(20)
 const items = ref<CapabilityDiffReviewItem[]>([]); const total = ref(0); const pending = ref(0); const loading = ref(false); const error = ref(''); const composing = ref(false)
 const selected = ref<CapabilityDiffReviewItem | null>(null); const detailVisible = ref(false); const decisionVisible = ref(false); const action = ref<Action>('APPLY'); const acting = ref(false); const note = ref(''); const decisionError = ref('')
@@ -200,6 +229,12 @@ async function loadChanges(): Promise<void> {
 }
 function changePage() { persistFilters(); void loadChanges() }
 function changeFilter() { clearTimeout(timer); page.value = 1; changePage() }
+function openReview(nextState: 'PENDING' | 'PROCESSED') {
+  reviewExpanded.value = true
+  state.value = nextState
+  restoringRoute = true; keyword.value = ''; restoringRoute = false
+  changeFilter()
+}
 function scheduleSearch() { clearTimeout(timer); if (!composing.value) timer = setTimeout(changeFilter, 300) }
 function compositionEnd() { composing.value = false; scheduleSearch() }
 watch(keyword, () => { if (!restoringRoute) scheduleSearch() }, { flush: 'sync' })
@@ -207,6 +242,7 @@ watch(() => props.projectCode, (_project, previous) => { clearTimeout(timer); de
 watch(() => [route.query.changes, route.query.changeSearch, route.query.changePage], () => {
   const nextState = route.query.changes === 'history' ? 'PROCESSED' : 'PENDING'; const nextKeyword = String(route.query.changeSearch || ''); const nextPage = Math.max(1, Number(route.query.changePage) || 1)
   if (nextState === state.value && nextKeyword === keyword.value && nextPage === page.value) return
+  if (route.query.changes || route.query.changeSearch || route.query.changePage) reviewExpanded.value = true
   restoringRoute = true; state.value = nextState; keyword.value = nextKeyword; page.value = nextPage; restoringRoute = false
   clearTimeout(timer); void loadChanges()
 })
@@ -231,6 +267,15 @@ defineExpose({ refresh: loadChanges })
 
 <style scoped lang="scss">
 .capability-review-panel { min-width: 0; padding: 20px 24px 0; container-type: inline-size; }
+.capability-review-panel--status { padding: 0; }
+.review-status { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 16px; min-height: 40px; }
+.review-status__message { display: flex; min-width: 0; align-items: center; gap: 8px; color: var(--text-secondary); font-size: 12px; overflow-wrap: anywhere; }
+.review-status__message .el-icon { color: var(--success-color); flex-shrink: 0; }
+.review-status__message.is-warning .el-icon { color: var(--warning-color); }
+.review-status__actions { display: flex; align-items: center; gap: 12px; margin-left: auto; }
+.review-status__actions :deep(.el-button + .el-button) { margin-left: 0; }
+.review-expanded { min-width: 0; }
+.capability-review-panel--status .review-expanded { padding-block: var(--density-compact-section-gap); border-top: 1px solid var(--border-divider); }
 .review-toolbar, .review-filters { display: flex; align-items: center; gap: 12px; }
 .review-toolbar { justify-content: space-between; flex-wrap: wrap; }
 .review-filters { margin-left: auto; }
@@ -270,6 +315,15 @@ defineExpose({ refresh: loadChanges })
 .review-pagination { display: flex; justify-content: flex-end; padding: 18px 0; border-top: 1px solid var(--border-divider); }
 .review-pagination :deep(.el-pagination) { justify-content: flex-end; flex-wrap: wrap; row-gap: 10px; }
 .review-empty { min-height: 300px; padding: 38px 16px 48px; }
+.capability-review-panel--compact .review-content { min-height: 80px; margin: var(--density-compact-section-gap) 0 0; }
+.review-state { display: flex; min-width: 0; min-height: 80px; box-sizing: border-box; align-items: center; gap: 12px; padding-block: 12px; }
+.review-state__icon { display: grid; width: 32px; height: 32px; place-items: center; flex-shrink: 0; border-radius: var(--radius-md); background: var(--status-neutral-soft); color: var(--text-muted); font-size: 22px; }
+.review-state__icon.is-clear { color: var(--status-success); background: var(--status-success-soft); }
+.review-state__icon.is-warning { color: var(--status-warning); background: var(--status-warning-soft); }
+.review-state__copy { min-width: 0; flex: 1; }
+.review-state__copy strong { display: block; color: var(--text-primary); font-size: 13px; font-weight: 600; line-height: 1.6; }
+.review-state__copy p { margin: 3px 0 0; color: var(--text-secondary); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.review-state__action { flex-shrink: 0; }
 .review-empty :deep(.el-empty__image) { opacity: 1; }
 .empty-icon { display: grid; width: 48px; height: 48px; place-items: center; border-radius: var(--radius-lg); background: var(--status-neutral-soft); color: var(--text-muted); font-size: 27px; }
 .empty-icon :deep(svg) { color: inherit; }
@@ -336,6 +390,7 @@ defineExpose({ refresh: loadChanges })
 @container (max-width: 830px) { .review-table { display: none; } .review-cards { display: grid; } }
 @container (max-width: 630px) { .review-filters { width: 100%; margin-left: 0; } .review-search { width: auto; flex: 1; } }
 @container (max-width: 330px) { .card-heading { display: grid; } .card-heading :deep(.status-tag) { justify-self: start; } }
+@container (max-width: 420px) { .review-state { flex-wrap: wrap; } .review-state__copy { flex-basis: calc(100% - 44px); } .review-state__action { margin-left: 44px; } }
 @media (max-width: 900px) { .capability-review-panel { padding: 16px 16px 0; } }
 @media (max-width: 600px) {
   .review-cards article { padding: 15px; }

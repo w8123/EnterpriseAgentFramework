@@ -141,6 +141,35 @@ public class KnowledgeDocumentImportController {
                 MediaType.APPLICATION_JSON_VALUE));
     }
 
+    @GetMapping("/import-files/{fileId}/read-access")
+    public ResponseEntity<byte[]> fileReadAccess(HttpServletRequest request, @PathVariable String fileId) {
+        PlatformAuthenticatedSession actor = requireSession(request);
+        String id = requiredIdentifier(fileId, "fileId", 128);
+        authorizeScope(actor, READ_PERMISSION, fileScopePath(id));
+        return respond(gateway.exchange("GET", fileReadAccessPath(id), consoleTenantId, actorId(actor), null, null));
+    }
+
+    @PostMapping("/import-files/{fileId}/read-access")
+    public ResponseEntity<byte[]> ensureFileReadAccess(HttpServletRequest request, @PathVariable String fileId) {
+        PlatformAuthenticatedSession actor = requireSession(request);
+        String id = requiredIdentifier(fileId, "fileId", 128);
+        ResourceScope scope = authorizeScope(actor, WRITE_PERMISSION, fileScopePath(id));
+        Map<String, Object> assertion = new LinkedHashMap<>();
+        assertion.put("workspaceId", scope.workspaceId());
+        assertion.put("projectCode", scope.projectCode());
+        assertion.put("resourceScope", scope.scope());
+        audit(actor, "KNOWLEDGE_DOCUMENT_IMPORTER_READ_GRANT_REQUESTED", id, Map.of("resourceScope", scope.scope()));
+        return respond(gateway.exchange("POST", fileReadAccessPath(id), consoleTenantId, actorId(actor),
+                jsonBody(assertion), MediaType.APPLICATION_JSON_VALUE));
+    }
+
+    private static String fileScopePath(String id) {
+        return KnowledgeBizIndexGateway.DOCUMENT_IMPORT_INTERNAL_ROOT + "/files/" + encode(id) + "/scope";
+    }
+    private static String fileReadAccessPath(String id) {
+        return KnowledgeBizIndexGateway.DOCUMENT_IMPORT_INTERNAL_ROOT + "/files/" + encode(id) + "/read-access";
+    }
+
     private ResponseEntity<byte[]> mutateJob(HttpServletRequest request,
                                              String rawJobId,
                                              String operation,

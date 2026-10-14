@@ -86,8 +86,8 @@
   z-index: 1;
   display: flex;
   align-items: stretch;
-  min-height: var(--reachai-workbench-title-height, 120px);
-  height: var(--reachai-workbench-title-height, 120px);
+  min-height: var(--reachai-workbench-title-height, 88px);
+  height: auto;
   padding: 0;
   overflow: hidden;
   border: 1px solid rgb(var(--brand-primary-rgb) / 0.28) !important;
@@ -170,16 +170,16 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 24px;
+  gap: var(--layout-panel-padding);
   width: 100%;
-  min-height: var(--reachai-workbench-title-height, 120px);
-  padding: 26px 28px;
+  min-height: var(--reachai-workbench-title-height, 88px);
+  padding: var(--layout-page-header-padding-block) var(--layout-page-header-padding-inline);
 }
 
 .sdk-access-page .hero-copy {
   display: flex;
   align-items: flex-start;
-  gap: 20px;
+  gap: var(--layout-section-gap);
   min-width: 0;
 }
 
@@ -314,7 +314,7 @@
 .sdk-access-page .ai-coding-side .access-progress {
   position: relative;
   z-index: 1;
-  padding: 26px 28px 18px;
+  padding: var(--layout-panel-padding);
   color: var(--sdk-muted);
   font-size: 14px;
   font-weight: 600;
@@ -462,7 +462,7 @@
 
 .sdk-access-page .ai-coding-main {
   min-height: 0;
-  padding: 30px 28px 24px;
+  padding: var(--layout-panel-padding);
 }
 
 .sdk-access-page .ai-coding-main .panel-glass-highlight {
@@ -473,7 +473,7 @@
 .sdk-access-page .ai-coding-main .panel-head {
   position: relative;
   z-index: 1;
-  margin-bottom: 24px;
+  margin-bottom: var(--layout-section-gap);
 }
 
 .sdk-access-page .ai-coding-main .panel-head h2 {
@@ -784,7 +784,7 @@
   .sdk-access-page .title-card-body {
     flex-direction: column;
     align-items: stretch;
-    padding: 24px;
+    padding: var(--layout-page-header-padding-block) var(--layout-page-header-padding-inline);
   }
 
   .sdk-access-page .title-mode-switch.access-mode-switch {

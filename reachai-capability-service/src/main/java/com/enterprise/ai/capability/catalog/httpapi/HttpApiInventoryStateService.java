@@ -41,17 +41,43 @@ public class HttpApiInventoryStateService {
         state.setReason(reason);
         state.setObservedAt(now);
         if (created) states.insert(state); else states.updateById(state);
-        for (Long bindingId : observedBindingIds) {
-            HttpApiInventoryMemberEntity member = members.selectOne(Wrappers.<HttpApiInventoryMemberEntity>lambdaQuery()
-                    .eq(HttpApiInventoryMemberEntity::getBindingId, bindingId).last("LIMIT 1"));
-            boolean newMember = member == null;
-            if (newMember) {
-                member = new HttpApiInventoryMemberEntity();
-                member.setBindingId(bindingId);
-            }
-            member.setInventoryToken(token);
-            member.setObservedAt(now);
-            if (newMember) members.insert(member); else members.updateById(member);
+        for (Long bindingId : observedBindingIds) writeMember(bindingId, token, now);
+    }
+
+    /** A trusted subset updates its own members without changing other members' confirmation. */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void recordSubset(HttpApiServiceScope scope, HttpApiSourceKind kind,
+                             Collection<Long> confirmedBindingIds, Collection<Long> unconfirmedBindingIds,
+                             String reason) {
+        HttpApiInventoryStateEntity state = states.selectOne(Wrappers.<HttpApiInventoryStateEntity>lambdaQuery()
+                .eq(HttpApiInventoryStateEntity::getProjectId, scope.projectId())
+                .eq(HttpApiInventoryStateEntity::getProjectCode, scope.projectCode())
+                .eq(HttpApiInventoryStateEntity::getEnvironment, scope.environment())
+                .eq(HttpApiInventoryStateEntity::getSourceKind, kind.name()).last("LIMIT 1"));
+        if (state == null || !Boolean.TRUE.equals(state.getSupported())) {
+            // A prior unknown inventory cannot confer freshness on any unobserved old binding.
+            record(scope, kind, !confirmedBindingIds.isEmpty(), false, reason, confirmedBindingIds);
+            return;
         }
+        LocalDateTime now = LocalDateTime.now().withNano(0);
+        state.setObservedAt(now);
+        if (!unconfirmedBindingIds.isEmpty()) {
+            state.setComplete(false);
+            state.setReason(reason);
+        }
+        states.updateById(state);
+        for (Long bindingId : confirmedBindingIds) writeMember(bindingId, state.getInventoryToken(), now);
+        String staleToken = UUID.randomUUID().toString();
+        for (Long bindingId : unconfirmedBindingIds) writeMember(bindingId, staleToken, now);
+    }
+
+    private void writeMember(Long bindingId, String token, LocalDateTime observedAt) {
+        HttpApiInventoryMemberEntity member = members.selectOne(Wrappers.<HttpApiInventoryMemberEntity>lambdaQuery()
+                .eq(HttpApiInventoryMemberEntity::getBindingId, bindingId).last("LIMIT 1"));
+        boolean created = member == null;
+        if (created) { member = new HttpApiInventoryMemberEntity(); member.setBindingId(bindingId); }
+        member.setInventoryToken(token);
+        member.setObservedAt(observedAt);
+        if (created) members.insert(member); else members.updateById(member);
     }
 }

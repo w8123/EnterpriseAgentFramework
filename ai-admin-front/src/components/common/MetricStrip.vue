@@ -6,10 +6,12 @@ const props = withDefaults(
   defineProps<{
     items: MetricStripItem[]
     density?: WorkbenchDensity
+    presentation?: 'panel' | 'inline'
     ariaLabel?: string
   }>(),
   {
     density: 'comfortable',
+    presentation: 'panel',
     ariaLabel: '指标概览',
   },
 )
@@ -18,6 +20,7 @@ const props = withDefaults(
 <template>
   <section
     :class="['metric-strip', 'glass-surface-panel', densityClass(props.density)]"
+    :data-presentation="props.presentation"
     role="list"
     :aria-label="props.ariaLabel"
   >
@@ -26,12 +29,14 @@ const props = withDefaults(
       :key="item.key"
       class="metric-strip__item"
       role="listitem"
+      :title="props.presentation === 'inline' ? item.hint : undefined"
     >
-      <MetricIconBg :icon-key="item.iconKey" :tone="item.tone ?? 'brand'" />
+      <MetricIconBg v-if="props.presentation !== 'inline'" :icon-key="item.iconKey" :tone="item.tone ?? 'brand'" />
       <div class="metric-strip__content">
         <span class="metric-strip__label">{{ item.label }}</span>
         <strong class="metric-strip__value">{{ item.value }}</strong>
-        <small v-if="item.hint" class="metric-strip__hint">{{ item.hint }}</small>
+        <small v-if="item.hint" class="metric-strip__hint"
+          :class="{ 'metric-strip__hint--assistive': props.presentation === 'inline' && item.value !== '—' }">{{ item.hint }}</small>
       </div>
     </article>
   </section>
@@ -39,10 +44,13 @@ const props = withDefaults(
 
 <style scoped lang="scss">
 .metric-strip {
+  --metric-icon-bg-size: var(--layout-metric-icon-size);
+  --metric-icon-bg-radius: 12px;
+  --metric-icon-glyph-size: 20px;
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
   gap: var(--section-gap);
-  padding: var(--panel-padding);
+  padding: var(--layout-metric-padding-block) var(--panel-padding);
   border-radius: var(--radius-lg);
 }
 
@@ -51,19 +59,19 @@ const props = withDefaults(
   --metric-icon-bg-radius: 10px;
   --metric-icon-glyph-size: 18px;
   --metric-icon-stroke-width: 1.45;
-  padding-block: 12px;
+  padding-block: var(--layout-metric-padding-block);
 }
 
 .metric-strip__item {
   display: flex;
   align-items: center;
   min-width: 0;
-  gap: calc(var(--section-gap) / 2);
+  gap: var(--layout-metric-gap);
 }
 
 .metric-strip__item + .metric-strip__item {
   border-inline-start: 1px solid var(--border-divider);
-  padding-inline-start: var(--section-gap);
+  padding-inline-start: var(--layout-metric-gap);
 }
 
 .metric-strip__content {
@@ -125,5 +133,61 @@ const props = withDefaults(
     padding-block-start: var(--section-gap);
     padding-inline-start: 0;
   }
+}
+
+.metric-strip[data-presentation='inline'] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px var(--section-gap);
+  padding: 4px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.metric-strip[data-presentation='inline'] .metric-strip__item {
+  flex: 0 1 auto;
+  min-height: 24px;
+}
+
+.metric-strip[data-presentation='inline'] .metric-strip__item + .metric-strip__item {
+  border-block-start: 0;
+  border-inline-start: 1px solid var(--border-divider);
+  padding-block-start: 0;
+  padding-inline-start: var(--section-gap);
+}
+
+.metric-strip[data-presentation='inline'] .metric-strip__content {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 6px;
+  row-gap: 2px;
+}
+
+.metric-strip[data-presentation='inline'] .metric-strip__label {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.metric-strip[data-presentation='inline'] .metric-strip__value {
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.metric-strip[data-presentation='inline'] .metric-strip__hint {
+  font-size: 12px;
+}
+
+.metric-strip[data-presentation='inline'] .metric-strip__hint--assistive {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 </style>

@@ -235,7 +235,7 @@ const missingMigratedCapabilityRouteResult = spawnSync(process.execPath, [script
 
 assert.notStrictEqual(missingMigratedCapabilityRouteResult.status, 0, missingMigratedCapabilityRouteResult.stderr || missingMigratedCapabilityRouteResult.stdout)
 assert.match(missingMigratedCapabilityRouteResult.stderr, /migrated Capability route must have a real implementation/)
-assert.match(missingMigratedCapabilityRouteResult.stderr, /GET \/api\/api-graph\/projects\/\{projectId\}\/snapshot/)
+assert.match(missingMigratedCapabilityRouteResult.stderr, /GET \/internal\/capability\/api-graph\/projects\/\{projectId\}\/snapshot/)
 
 const forbiddenCapabilityProxyRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'reachai-route-contracts-forbidden-capability-proxy-'))
 writeFile(forbiddenCapabilityProxyRoot, 'reachai-capability-service/src/main/java/com/enterprise/ai/capability/compat/CapabilityLegacyCompatibilityProxyController.java', `
@@ -293,7 +293,7 @@ const missingMigratedCapabilityWithoutLegacyAgentResult = spawnSync(process.exec
 
 assert.notStrictEqual(missingMigratedCapabilityWithoutLegacyAgentResult.status, 0, missingMigratedCapabilityWithoutLegacyAgentResult.stderr || missingMigratedCapabilityWithoutLegacyAgentResult.stdout)
 assert.match(missingMigratedCapabilityWithoutLegacyAgentResult.stderr, /migrated Capability route must have a real implementation/)
-assert.match(missingMigratedCapabilityWithoutLegacyAgentResult.stderr, /GET \/api\/api-graph\/projects\/\{projectId\}\/snapshot/)
+assert.match(missingMigratedCapabilityWithoutLegacyAgentResult.stderr, /GET \/internal\/capability\/api-graph\/projects\/\{projectId\}\/snapshot/)
 
 const missingPlatformOwnerRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'reachai-route-contracts-missing-platform-owner-'))
 writeFile(missingPlatformOwnerRoot, 'ai-agent-service/src/main/java/com/enterprise/ai/agent/platform/PlatformAuthController.java', `
@@ -975,8 +975,6 @@ class CapabilityScanProjectCatalogController {
     @PutMapping("/{id}")
     Object update() { return null; }
 
-    @PatchMapping("/{id}/auth-settings")
-    Object updateAuthSettings() { return null; }
 
     @PatchMapping("/{id}/registry-credential")
     Object updateRegistryCredential() { return null; }
@@ -990,8 +988,6 @@ class CapabilityScanProjectCatalogController {
     @DeleteMapping("/{id}")
     Object delete() { return null; }
 
-    @PostMapping("/{id}/scan")
-    Object scan() { return null; }
 
     @PostMapping("/{id}/rescan")
     Object rescan() { return null; }
@@ -1014,8 +1010,8 @@ class CapabilityScanProjectCatalogController {
     @PostMapping("/{projectId}/scan-tools/{scanToolId}/rescan-from-source")
     Object rescanTool() { return null; }
 
-    @GetMapping("/{id}/diff-summary")
-    Object diffSummary() { return null; }
+    @GetMapping("/{id}/sources")
+    Object sources() { return null; }
 
     @GetMapping("/{id}/operation-blockers")
     Object operationBlockers() { return null; }
@@ -1082,12 +1078,6 @@ class CapabilityToolRetrievalController {
     @PostMapping("/search")
     Object search() { return null; }
 
-    @PostMapping("/rebuild")
-    Object rebuild() { return null; }
-
-    @GetMapping("/rebuild/status")
-    Object status() { return null; }
-
     @GetMapping("/health")
     Object health() { return null; }
 }
@@ -1142,8 +1132,8 @@ class CapabilityCompositionCatalogController {
     Object cancelAllPending() { return null; }
 }
 `)
-writeFile(allowedRoot, 'reachai-capability-service/src/main/java/com/enterprise/ai/capability/catalog/semantic/CapabilitySemanticCatalogController.java', `
-package com.enterprise.ai.capability.catalog.semantic;
+writeFile(allowedRoot, 'reachai-capability-service/src/main/java/com/enterprise/ai/capability/catalog/enrichment/CapabilityCatalogEnrichmentController.java', `
+package com.enterprise.ai.capability.catalog.enrichment;
 
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -1152,84 +1142,56 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/api")
-class CapabilitySemanticCatalogController {
+@RequestMapping("/internal/capability/business-capabilities/projects/{projectId}")
+class CapabilityCatalogEnrichmentController {
     @GetMapping("/semantic-docs")
     Object query() { return null; }
 
-    @GetMapping("/scan-projects/{id}/semantic-docs")
-    Object docs() { return null; }
-
-    @PostMapping("/scan-projects/{id}/semantic/generate")
+    @PostMapping("/semantic/generate")
     Object batchGenerate() { return null; }
 
-    @GetMapping("/scan-projects/{id}/semantic/status")
+    @GetMapping("/semantic/status")
     Object batchStatus() { return null; }
 
-    @PostMapping("/scan-projects/{id}/semantic/generate-project")
-    Object generateProject() { return null; }
-
-    @GetMapping("/scan-projects/{id}/modules")
+    @GetMapping("/groups")
     Object modules() { return null; }
 
-    @PutMapping("/scan-modules/{id}")
+    @PostMapping("/groups")
+    Object createGroup() { return null; }
+
+    @PutMapping("/groups/{groupId}")
     Object rename() { return null; }
 
-    @PostMapping("/scan-modules/{id}/semantic/generate")
-    Object generateModule() { return null; }
-
-    @PostMapping("/scan-modules/merge")
-    Object merge() { return null; }
-
-    @PostMapping("/tools/{name}/semantic/generate")
-    Object generateTool() { return null; }
-
-    @PostMapping("/scan-projects/{projectId}/scan-tools/{scanToolId}/semantic/generate")
+    @PostMapping("/subjects/{subjectType}/{subjectId}/semantic/generate")
     Object generateScanTool() { return null; }
 
-    @PutMapping("/semantic-docs/{id}")
+    @PutMapping("/subjects/{subjectType}/{subjectId}/semantic")
     Object edit() { return null; }
+
+    @GetMapping("/subjects/{subjectType}/{subjectId}/enrichment")
+    Object enrichment() { return null; }
+
+    @GetMapping("/subjects/{subjectType}/{subjectId}/semantic")
+    Object semanticBody() { return null; }
+
+    @GetMapping("/classification/{subjectType}/assignments")
+    Object assignments() { return null; }
+
+    @PutMapping("/classification/{subjectType}")
+    Object assign() { return null; }
+
+    @GetMapping("/subjects/{subjectType}/{subjectId}/classification")
+    Object assignment() { return null; }
 }
 `)
-writeFile(allowedRoot, 'reachai-capability-service/src/main/java/com/enterprise/ai/capability/catalog/DomainController.java', `
-package com.enterprise.ai.capability.catalog;
-
-import org.springframework.web.bind.annotation.DeleteMapping;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.PutMapping;
+writeFile(allowedRoot, 'reachai-control-service/src/main/java/com/enterprise/ai/control/capability/CatalogResourcesConsoleController.java', `
+package com.enterprise.ai.control.capability;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-
 @RestController
-@RequestMapping("/api/domains")
-class DomainController {
-    @GetMapping
-    Object list() { return null; }
-
-    @PostMapping
-    Object create() { return null; }
-
-    @PutMapping("/{id}")
-    Object update() { return null; }
-
-    @DeleteMapping("/{id}")
-    Object delete() { return null; }
-
-    @GetMapping("/{code}/assignments")
-    Object listAssignments() { return null; }
-
-    @PostMapping("/{code}/assignments")
-    Object grantBatch() { return null; }
-
-    @DeleteMapping("/assignments/{id}")
-    Object deleteAssignment() { return null; }
-
-    @PostMapping("/classify")
-    Object classify() { return null; }
-
-    @GetMapping("/coverage")
-    Object coverage() { return null; }
+class CatalogResourcesConsoleController {
+    @RequestMapping(path = {"/api/business-capabilities/projects/{projectId}/{*path}", "/api/api-graph/projects/{projectId}/{*path}"})
+    Object resource() { return null; }
 }
 `)
 writeFile(allowedRoot, 'reachai-capability-service/src/main/java/com/enterprise/ai/capability/registry/CapabilityRegistryCompatibilityController.java', `
@@ -1299,7 +1261,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/api/api-graph/projects/{projectId}")
+@RequestMapping("/internal/capability/api-graph/projects/{projectId}")
 class CapabilityApiGraphSnapshotController {
     @GetMapping("/snapshot")
     Object snapshot() { return null; }
@@ -1313,7 +1275,7 @@ class CapabilityApiGraphSnapshotController {
     @PostMapping("/candidates/{edgeId}/reject")
     Object reject() { return null; }
 
-    @GetMapping("/tools/{toolName}/param-hints")
+    @GetMapping("/subjects/{subjectType}/{subjectId}/param-hints")
     Object paramHints() { return null; }
 
     @PostMapping("/infer")
@@ -1345,6 +1307,67 @@ const allowedResult = spawnSync(process.execPath, [scriptPath], {
 })
 
 assert.strictEqual(allowedResult.status, 0, allowedResult.stderr || allowedResult.stdout)
+
+for (const [annotation, suffix] of [['PatchMapping', '/{id}/auth-settings'],
+  ['PostMapping', '/{id}/scan'], ['GetMapping', '/{id}/diff-summary']]) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'reachai-route-contracts-unused-scan-'))
+  fs.cpSync(allowedRoot, root, { recursive: true })
+  writeFile(root, 'reachai-capability-service/src/main/java/com/enterprise/ai/capability/UnusedScanController.java', `
+@RestController
+@RequestMapping("/api/scan-projects")
+class UnusedScanController {
+    @${annotation}("${suffix}")
+    Object unused() { return null; }
+}
+`)
+  const result = spawnSync(process.execPath, [scriptPath], { cwd: root, encoding: 'utf8' })
+  assert.notStrictEqual(result.status, 0, `unused route was accepted: ${suffix}`)
+  assert.match(result.stderr, /retired unused catalog routes must stay deleted/)
+}
+
+for (const [name, mutate, expected] of [
+  ['missing-standalone-classification-create', root => {
+    const rel = 'reachai-capability-service/src/main/java/com/enterprise/ai/capability/catalog/enrichment/CapabilityCatalogEnrichmentController.java'
+    const file = path.join(root, rel)
+    fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace('@PostMapping("/groups")', '@PostMapping("/unrelated-create")'))
+  }, /migrated Capability route must have a real implementation/],
+  ['missing-typed-owner', root => {
+    const rel = 'reachai-capability-service/src/main/java/com/enterprise/ai/capability/catalog/enrichment/CapabilityCatalogEnrichmentController.java'
+    const file = path.join(root, rel)
+    fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace('@GetMapping("/subjects/{subjectType}/{subjectId}/enrichment")', '@GetMapping("/unrelated")'))
+  }, /migrated Capability route must have a real implementation/],
+  ['missing-typed-control', root => fs.unlinkSync(path.join(root, 'reachai-control-service/src/main/java/com/enterprise/ai/control/capability/CatalogResourcesConsoleController.java')), /typed catalog public route must have a Control facade/],
+  ['retired-classification-merge-owner', root => writeFile(root, 'reachai-capability-service/src/main/java/com/enterprise/ai/capability/RetiredClassificationMergeController.java', `
+@RestController class RetiredClassificationMergeController {
+  @PostMapping("/internal/capability/business-capabilities/projects/{projectKey}/groups/merge") Object merge() { return null; }
+}`), /retired business classification merge routes must stay deleted/],
+  ['retired-classification-merge-control', root => writeFile(root, 'reachai-control-service/src/main/java/com/enterprise/ai/control/RetiredClassificationMergeController.java', `
+@RestController class RetiredClassificationMergeController {
+  @PostMapping("/api/business-capabilities/projects/{projectKey}/groups/merge") Object merge() { return null; }
+}`), /retired business classification merge routes must stay deleted/],
+  ['retired-semantic-owner', root => writeFile(root, 'reachai-capability-service/src/main/java/com/enterprise/ai/capability/RetiredSemanticController.java', `
+@RestController class RetiredSemanticController {
+  @PostMapping("/api/tools/{name}/semantic/generate") Object generate() { return null; }
+}`), /retired duplicate semantic and group routes must stay deleted/],
+  ...[
+    ['owner', 'reachai-capability-service/src/main/java/com/enterprise/ai/capability'],
+    ['control', 'reachai-control-service/src/main/java/com/enterprise/ai/control']
+  ].flatMap(([owner, directory]) => [
+    ['PostMapping', '/rebuild'],
+    ['GetMapping', '/rebuild/status']
+  ].map(([annotation, suffix]) => [`retired-tool-retrieval-${owner}-${suffix.replaceAll('/', '-')}`,
+    root => writeFile(root, `${directory}/RetiredToolRetrievalController.java`, `
+@RestController
+@RequestMapping("/api/tool-retrieval")
+class RetiredToolRetrievalController {
+  @${annotation}("${suffix}") Object retired() { return null; }
+}`), /retired Tool retrieval rebuild routes must stay deleted/]))
+]) {
+  const mutated = fs.mkdtempSync(path.join(os.tmpdir(), `reachai-route-contracts-${name}-`))
+  fs.cpSync(allowedRoot, mutated, { recursive: true }); mutate(mutated)
+  const result = spawnSync(process.execPath, [scriptPath], { cwd: mutated, encoding: 'utf8' })
+  assert.notStrictEqual(result.status, 0, name); assert.match(result.stderr, expected)
+}
 
 for (const [annotation, suffix] of [
   ['PutMapping', '/{projectKey}/scan-tools/{observationKey}'],

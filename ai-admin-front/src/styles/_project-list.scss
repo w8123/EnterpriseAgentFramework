@@ -1,9 +1,14 @@
 /* Project management list language, shared by dense administration tables. */
+.project-list-controls,
+.filter-bar.project-list-filter-bar {
+  --project-list-control-height: 40px;
+}
+
 .filter-bar.project-list-filter-bar {
   align-items: center;
-  gap: 12px !important;
+  gap: var(--layout-control-gap) !important;
   width: 100%;
-  padding: 9px 14px !important;
+  padding: var(--layout-filter-padding-block) var(--layout-filter-padding-inline) !important;
   border-color: color-mix(in srgb, var(--brand-primary) 16%, transparent);
   border-radius: 12px;
   box-shadow: var(--inner-highlight);
@@ -12,11 +17,11 @@
 .project-list-filter-bar .filter-bar__fields {
   align-items: center;
   flex-wrap: nowrap;
-  gap: 12px;
+  gap: var(--layout-control-gap);
 }
 
 .project-list-filter-bar .filter-bar__actions {
-  gap: 10px;
+  gap: var(--layout-control-gap);
 }
 
 .project-list-filter-bar .el-form-item {
@@ -51,9 +56,16 @@
   white-space: nowrap;
 }
 
+.project-list-filter-bar .el-input {
+  --el-input-height: var(--project-list-control-height);
+  height: var(--project-list-control-height);
+}
+
 .project-list-filter-bar .el-input__wrapper,
 .project-list-filter-bar .el-select__wrapper {
-  min-height: 40px;
+  box-sizing: border-box;
+  height: var(--project-list-control-height);
+  min-height: var(--project-list-control-height);
   padding: 0 14px;
   border-radius: 9px;
   background: color-mix(in srgb, var(--surface-solid-control) 92%, transparent);
@@ -89,7 +101,8 @@
 
 .project-list-filter-bar .el-button {
   min-width: 74px;
-  min-height: 40px;
+  height: var(--project-list-control-height);
+  min-height: var(--project-list-control-height);
   margin: 0;
   border-radius: 10px;
   font-weight: 700;
@@ -346,11 +359,11 @@
 
 .project-list-table-shell .data-table-shell__toolbar {
   display: block;
-  padding: 28px 28px 0;
+  padding: var(--layout-panel-padding) var(--layout-panel-padding) 0;
 }
 
 .project-list-table-shell .data-table-shell__body {
-  margin: 22px 28px 0;
+  margin: var(--layout-section-gap) var(--layout-panel-padding) 0;
   overflow: auto;
   border: 1px solid var(--border-subtle);
   border-radius: 13px;
@@ -426,8 +439,8 @@
 
 .project-list-table-shell .data-table-shell__empty {
   min-height: clamp(260px, 36vh, 430px);
-  margin: 0 28px;
-  padding: 28px;
+  margin: 0 var(--layout-panel-padding);
+  padding: var(--layout-panel-padding);
   border: 1px solid var(--border-subtle);
   border-top: 0;
   border-radius: 0 0 13px 13px;
@@ -439,7 +452,7 @@
   align-items: center;
   gap: 18px;
   margin-top: auto;
-  padding: 14px 28px 16px;
+  padding: var(--layout-pagination-padding-block) var(--layout-panel-padding);
   border-top-color: var(--border-divider);
   color: var(--text-muted);
   background: color-mix(in srgb, var(--surface-solid-panel) 42%, transparent);
@@ -470,6 +483,50 @@
   border-radius: 8px;
   background: color-mix(in srgb, var(--surface-solid-control) 86%, transparent);
   box-shadow: 0 0 0 1px var(--border-subtle) inset;
+}
+
+/* Capability catalogs use the project-list frame with room for multi-line identity. */
+.project-list-table-shell--catalog .filter-bar.project-list-filter-bar {
+  border-radius: 12px;
+  background: var(--brand-soft-bg);
+}
+
+.project-list-table-shell--catalog td.el-table__cell {
+  padding-block: 12px;
+}
+
+.project-list-table-shell--catalog .el-pagination.is-background .el-pager li.is-active {
+  color: var(--brand-active);
+  background: var(--brand-soft-bg);
+}
+
+@media (min-width: 961px) {
+  .data-table-shell.project-list-table-shell--fit {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .data-table-shell.project-list-table-shell--fit .data-table-shell__body {
+    flex: 1;
+    min-height: 0;
+  }
+
+  .data-table-shell.project-list-table-shell--fit:not(.data-table-shell--preserve-empty-body):has(.data-table-shell__empty) .data-table-shell__body {
+    display: none;
+  }
+
+  .data-table-shell.project-list-table-shell--fit.data-table-shell--preserve-empty-body:has(.data-table-shell__empty) .data-table-shell__body {
+    flex: 0 0 auto;
+  }
+
+  .data-table-shell.project-list-table-shell--fit .data-table-shell__empty {
+    flex: 1;
+    min-height: 0;
+    margin-top: var(--layout-section-gap);
+    border-top: 1px solid var(--border-subtle);
+    border-radius: 13px;
+  }
 }
 
 @media (max-width: 960px) {
@@ -512,23 +569,23 @@
   }
 
   .project-list-table-shell .data-table-shell__toolbar {
-    padding: 16px 16px 0;
+    padding: var(--layout-panel-padding) var(--layout-panel-padding) 0;
   }
 
   .project-list-table-shell .data-table-shell__body {
-    margin: 16px 16px 0;
+    margin: var(--layout-section-gap) var(--layout-panel-padding) 0;
   }
 
   .project-list-table-shell .data-table-shell__empty {
     min-height: 260px;
-    margin: 0 16px;
-    padding: 20px;
+    margin: 0 var(--layout-panel-padding);
+    padding: var(--layout-panel-padding);
   }
 
   .project-list-table-shell .data-table-shell__pagination {
     align-items: flex-start;
     flex-direction: column;
-    padding: 14px 16px 16px;
+    padding: var(--layout-pagination-padding-block) var(--layout-panel-padding);
   }
 
   .project-list-empty-state img {

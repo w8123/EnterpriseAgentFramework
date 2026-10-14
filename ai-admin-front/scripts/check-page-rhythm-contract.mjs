@@ -9,18 +9,44 @@ import ts from 'typescript'
 const REQUIRED_LAYOUT_MODES = new Set(['standard', 'project-workbench', 'edge-to-edge', 'studio'])
 const REQUIRED_LAYOUT_TOKEN_SEQUENCES = new Map([
   ['--layout-breadcrumb-height', [['base :root', '40px']]],
-  ['--layout-page-header-height-compact', [['base :root', '76px']]],
-  ['--layout-page-header-height-standard', [['base :root', '96px']]],
-  ['--layout-page-header-height-emphasis', [['base :root', '112px']]],
-  ['--layout-page-header-leading-size', [['base :root', '52px']]],
+  ['--layout-page-header-height-compact', [['base :root', '60px']]],
+  ['--layout-page-header-height-standard', [['base :root', '80px']]],
+  ['--layout-page-header-height-emphasis', [['base :root', '88px']]],
+  ['--layout-page-header-leading-size', [['base :root', '40px']]],
   ['--layout-page-header-action-gap', [['base :root', '8px']]],
   ['--layout-page-header-tag-gap', [['base :root', '8px']]],
   ['--layout-page-header-art-opacity', [['base :root', '0.92']]],
   ['--layout-list-page-end', [['base :root', 'var(--layout-sidebar-inset-block)']]],
   [
+    '--layout-panel-padding',
+    [
+      ['base :root', '16px'],
+      ['@media (max-width: 760px) :root', '12px'],
+    ],
+  ],
+  ['--layout-section-gap', [['base :root', '12px']]],
+  ['--layout-control-gap', [['base :root', '8px']]],
+  ['--layout-filter-padding-block', [['base :root', '8px']]],
+  ['--layout-filter-padding-inline', [['base :root', '12px']]],
+  ['--layout-pagination-padding-block', [['base :root', '12px']]],
+  ['--layout-metric-strip-min-height', [['base :root', '72px']]],
+  ['--layout-metric-padding-block', [['base :root', '12px']]],
+  ['--layout-metric-padding-inline', [['base :root', '16px']]],
+  ['--layout-metric-gap', [['base :root', '12px']]],
+  ['--layout-metric-icon-size', [['base :root', '40px']]],
+  ['--layout-metric-value-size', [['base :root', '24px']]],
+  ['--layout-page-header-compact-padding-block', [['base :root', '8px']]],
+  [
+    '--layout-page-header-compact-padding-inline',
+    [
+      ['base :root', '16px'],
+      ['@media (max-width: 760px) :root', '12px'],
+    ],
+  ],
+  [
     '--layout-content-inline',
     [
-      ['base :root', '28px'],
+      ['base :root', '16px'],
       ['@media (max-width: 900px) :root', '16px'],
       ['@media (max-width: 760px) :root', '12px'],
     ],
@@ -28,8 +54,8 @@ const REQUIRED_LAYOUT_TOKEN_SEQUENCES = new Map([
   [
     '--layout-page-start',
     [
-      ['base :root', '10px'],
-      ['@media (max-width: 900px) :root', '10px'],
+      ['base :root', '8px'],
+      ['@media (max-width: 900px) :root', '8px'],
       ['@media (max-width: 760px) :root', '8px'],
     ],
   ],
@@ -52,17 +78,17 @@ const REQUIRED_LAYOUT_TOKEN_SEQUENCES = new Map([
   [
     '--layout-page-header-padding-block',
     [
-      ['base :root', '14px'],
-      ['@media (max-width: 900px) :root', '18px'],
-      ['@media (max-width: 760px) :root', '16px'],
+      ['base :root', '12px'],
+      ['@media (max-width: 900px) :root', '12px'],
+      ['@media (max-width: 760px) :root', '12px'],
     ],
   ],
   [
     '--layout-page-header-padding-inline',
     [
-      ['base :root', '28px'],
-      ['@media (max-width: 900px) :root', '18px'],
-      ['@media (max-width: 760px) :root', '16px'],
+      ['base :root', '16px'],
+      ['@media (max-width: 900px) :root', '16px'],
+      ['@media (max-width: 760px) :root', '12px'],
     ],
   ],
 ])
@@ -129,9 +155,6 @@ const STANDARD_PAGE_FILES = new Set([
   'src/views/settings/ToolAclList.vue',
   'src/views/settings/PersonalMemory.vue',
   'src/views/settings/MemoryErasure.vue',
-  'src/views/domain/DomainList.vue',
-  'src/views/domain/DomainAssignmentBoard.vue',
-  'src/views/domain/DomainClassifierTest.vue',
   'src/views/context/ContextGovernance.vue',
 ])
 
@@ -139,8 +162,6 @@ const PROJECT_WORKBENCH_PAGE_FILES = new Set([
   'src/views/workflow/WorkflowList.vue',
   'src/views/registry/RegistryProjectList.vue',
   'src/views/registry/RegistryProjectDetail.vue',
-  'src/views/registry/RegistrySyncDiagnostics.vue',
-  'src/views/scan/ScanProjectDetail.vue',
   'src/views/registry/PageAssistantWizard.vue',
   'src/views/registry/SdkAccessWizard.vue',
   'src/views/settings/EmbedOpsMonitor.vue',
@@ -163,7 +184,6 @@ const LIST_FILL_PAGE_FILES = new Set([
   'src/views/settings/BusinessUserDirectory.vue',
   'src/views/settings/AuthProviderSettings.vue',
   'src/views/settings/ToolAclList.vue',
-  'src/views/domain/DomainList.vue',
 ])
 
 const PROJECT_WORKBENCH_STYLE_FILES = new Map([
@@ -187,18 +207,11 @@ const PROJECT_WORKBENCH_STYLE_FILES = new Map([
     'src/views/registry/styles/SdkAccessWizard.ai-coding.figma.scss',
     'src/views/registry/SdkAccessWizard.vue',
   ],
-  [
-    'src/views/scan/styles/ScanProjectDetail.scss',
-    'src/views/scan/ScanProjectDetail.vue',
-  ],
 ])
 
-const PROJECT_WORKBENCH_DIRECT_COMPONENT_FILES = new Map([
-  [
-    'src/views/scan/components/scan-project/ScanProjectHeader.vue',
-    'src/views/scan/ScanProjectDetail.vue',
-  ],
-])
+// Project source views are nested in the canonical BusinessCapabilityWorkbench;
+// their composition is enforced by check-business-capability-workbench-ui.mjs.
+const PROJECT_WORKBENCH_DIRECT_COMPONENT_FILES = new Map([])
 
 const EXEMPT_PAGE_FILES = new Set([
   'src/views/agent/AgentDebug.vue',
@@ -213,20 +226,34 @@ function createValidFixture() {
         'src/styles/tokens/_layout.scss',
         `:root {
   --layout-breadcrumb-height: 40px;
-  --layout-page-header-height-compact: 76px;
-  --layout-page-header-height-standard: 96px;
-  --layout-page-header-height-emphasis: 112px;
-  --layout-page-header-leading-size: 52px;
+  --layout-page-header-height-compact: 60px;
+  --layout-page-header-height-standard: 80px;
+  --layout-page-header-height-emphasis: 88px;
+  --layout-page-header-leading-size: 40px;
   --layout-page-header-action-gap: 8px;
   --layout-page-header-tag-gap: 8px;
   --layout-page-header-art-opacity: 0.92;
   --layout-list-page-end: var(--layout-sidebar-inset-block);
-  --layout-content-inline: 28px;
-  --layout-page-start: 10px;
+  --layout-panel-padding: 16px;
+  --layout-section-gap: 12px;
+  --layout-control-gap: 8px;
+  --layout-filter-padding-block: 8px;
+  --layout-filter-padding-inline: 12px;
+  --layout-pagination-padding-block: 12px;
+  --layout-metric-strip-min-height: 72px;
+  --layout-metric-padding-block: 12px;
+  --layout-metric-padding-inline: 16px;
+  --layout-metric-gap: 12px;
+  --layout-metric-icon-size: 40px;
+  --layout-metric-value-size: 24px;
+  --layout-page-header-compact-padding-block: 8px;
+  --layout-page-header-compact-padding-inline: 16px;
+  --layout-content-inline: 16px;
+  --layout-page-start: 8px;
   --layout-page-end: 16px;
   --layout-page-gap: 10px;
-  --layout-page-header-padding-block: 14px;
-  --layout-page-header-padding-inline: 28px;
+  --layout-page-header-padding-block: 12px;
+  --layout-page-header-padding-inline: 16px;
 }
 
 .project-workbench-page {
@@ -252,11 +279,11 @@ function createValidFixture() {
 @media (max-width: 900px) {
   :root {
     --layout-content-inline: 16px;
-    --layout-page-start: 10px;
+    --layout-page-start: 8px;
     --layout-page-end: 16px;
     --layout-page-gap: 10px;
-    --layout-page-header-padding-block: 18px;
-    --layout-page-header-padding-inline: 18px;
+    --layout-page-header-padding-block: 12px;
+    --layout-page-header-padding-inline: 16px;
   }
 }
 
@@ -266,8 +293,10 @@ function createValidFixture() {
     --layout-page-start: 8px;
     --layout-page-end: 12px;
     --layout-page-gap: 8px;
-    --layout-page-header-padding-block: 16px;
-    --layout-page-header-padding-inline: 16px;
+    --layout-panel-padding: 12px;
+    --layout-page-header-padding-block: 12px;
+    --layout-page-header-padding-inline: 12px;
+    --layout-page-header-compact-padding-inline: 12px;
   }
 }`,
       ],
@@ -2037,8 +2066,8 @@ function createRepositoryFixture() {
     projectWorkbenchDirectComponentFiles: PROJECT_WORKBENCH_DIRECT_COMPONENT_FILES,
     exemptPageFiles: EXEMPT_PAGE_FILES,
     listFillPageFiles: LIST_FILL_PAGE_FILES,
-    expectedSetSizes: { standard: 35, projectWorkbench: 9, exempt: 3 },
-    expectedListFillSize: 16,
+    expectedSetSizes: { standard: 32, projectWorkbench: 7, exempt: 3 },
+    expectedListFillSize: 15,
   }
 }
 

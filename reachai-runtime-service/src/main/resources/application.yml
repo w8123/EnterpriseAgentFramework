@@ -17,6 +17,9 @@ spring:
     username: ${AI_MYSQL_USER:reach_ai}
     password: ${AI_MYSQL_PASSWORD}
     driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      # Internal nonce capacity reads require InnoDB shared next-key locks.
+      transaction-isolation: TRANSACTION_REPEATABLE_READ
 
   cloud:
     openfeign:

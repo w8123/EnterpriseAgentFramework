@@ -32,6 +32,27 @@ class KnowledgeBizIndexConsoleControllerTest {
             gateway, authorization, audit, objectMapper, "default");
 
     @Test
+    void listRequiresReadPermissionAndTargetsTheKnowledgeListRoute() {
+        PlatformAuthenticatedSession session = session(42L);
+        MockHttpServletRequest request = request(session);
+        byte[] downstream = "{\"code\":200,\"data\":[]}".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        when(gateway.exchange("GET", KnowledgeBizIndexGateway.INTERNAL_ROOT + "/list",
+                "default", "42", null, null))
+                .thenReturn(new KnowledgeBizIndexGateway.GatewayResponse(
+                        200, "application/json", downstream));
+
+        var response = controller.list(request);
+
+        assertEquals(200, response.getStatusCode().value());
+        assertEquals("no-store", response.getHeaders().getCacheControl());
+        org.junit.jupiter.api.Assertions.assertArrayEquals(downstream, response.getBody());
+        verify(gateway).exchange("GET", KnowledgeBizIndexGateway.INTERNAL_ROOT + "/list",
+                "default", "42", null, null);
+        verify(authorization).requireGlobalPermission(session,
+                KnowledgeBizIndexConsoleController.READ_PERMISSION);
+    }
+
+    @Test
     void searchRequiresReadPermissionAndUsesSignedInternalPath() throws Exception {
         PlatformAuthenticatedSession session = session(42L);
         MockHttpServletRequest request = request(session);

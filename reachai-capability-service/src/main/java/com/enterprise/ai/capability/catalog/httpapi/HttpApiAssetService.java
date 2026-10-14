@@ -32,6 +32,7 @@ public class HttpApiAssetService {
     private final HttpApiAssetMapper assetMapper;
     private final HttpApiSourceBindingMapper bindingMapper;
     private final HttpApiContractCanonicalizer canonicalizer;
+    private final com.enterprise.ai.capability.catalog.enrichment.CapabilityCatalogGroupingService grouping;
 
     /**
      * Uses a current-read transaction: after an asset row lock is acquired, ordinary active
@@ -45,6 +46,7 @@ public class HttpApiAssetService {
         String sourceLocation = sourceFact(request.sourceLocation(), "HTTP API source location", 1024, false);
         String sourceRevision = sourceFact(request.sourceRevision(), "HTTP API source revision", 256, false);
 
+        grouping.lockProject(request.scope().projectId());
         AssetResolution assetResolution = ensureAsset(canonical);
         HttpApiSourceBindingEntity sourceSnapshot = findBinding(canonical.scope(), request.sourceKind(), sourceKey);
         // The normal lock order is asset -> source binding. Existing source moves lock the old
@@ -66,6 +68,7 @@ public class HttpApiAssetService {
         }
 
         HttpApiAssetEntity aggregate = recomputeAffectedAssets(lockedAssets, assetResolution.asset().getId());
+        grouping.seedHttpApi(request.scope().projectId(), aggregate.getId(), request.businessGroups(), request.sourceKind().name(), sourceLocation);
         return new Observation(aggregate, bindingMapper.selectById(binding.getId()), assetResolution.created());
     }
 
@@ -81,6 +84,8 @@ public class HttpApiAssetService {
         sourceFact(request.sourceKey(), "HTTP API source key", 256, true);
         sourceFact(request.sourceLocation(), "HTTP API source location", 1024, false);
         sourceFact(request.sourceRevision(), "HTTP API source revision", 256, false);
+        if (request.businessGroups().size() > 30) throw new IllegalArgumentException("业务分类最多 30 项");
+        request.businessGroups().forEach(com.enterprise.ai.capability.catalog.enrichment.CapabilityCatalogGroupingService::classificationName);
         return canonicalizer.canonicalize(request.scope(), request.contract());
     }
 
@@ -406,8 +411,14 @@ public class HttpApiAssetService {
             String sourceKey,
             String sourceLocation,
             String sourceRevision,
-            HttpApiOperationContract contract
+            HttpApiOperationContract contract,
+            List<String> businessGroups
     ) {
+        public ObserveRequest { businessGroups = businessGroups == null ? List.of() : List.copyOf(businessGroups); }
+        public ObserveRequest(HttpApiServiceScope scope, HttpApiSourceKind sourceKind, String sourceKey,
+                              String sourceLocation, String sourceRevision, HttpApiOperationContract contract) {
+            this(scope, sourceKind, sourceKey, sourceLocation, sourceRevision, contract, List.of());
+        }
     }
 
     public record RemoveRequest(

@@ -1,13 +1,9 @@
 import { controlRequest } from './request'
-import { isBusinessMethodInfo, type BusinessMethodInfo, type BusinessMethodListQuery, type BusinessMethodPageResult, type BusinessMethodCatalogSummary } from '@/types/businessMethod'
+import { isBusinessMethodInfo, type BusinessMethodInfo, type BusinessMethodListQuery, type BusinessMethodPageResult } from '@/types/businessMethod'
 import type { AssetReferences } from '@/types/assetReferences'
 
-export function getBusinessMethods(params?: BusinessMethodListQuery) {
+export function getBusinessMethods(params?: BusinessMethodListQuery & { ungrouped?: boolean }) {
   return controlRequest.get<BusinessMethodPageResult>('/api/business-methods', { params, errorFeedback: 'local' })
-}
-
-export function getBusinessMethodSummary(projectId?: number) {
-  return controlRequest.get<BusinessMethodCatalogSummary>('/api/business-methods/summary', { params: { projectId }, errorFeedback: 'local' })
 }
 
 export function getBusinessMethod(name: string) {

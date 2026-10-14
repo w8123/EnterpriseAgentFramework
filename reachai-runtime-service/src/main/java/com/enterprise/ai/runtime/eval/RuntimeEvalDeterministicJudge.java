@@ -96,7 +96,7 @@ class RuntimeEvalDeterministicJudge {
         List<Map<String, Object>> steps = json.mapList(response.get("steps"));
         List<String> calledTools = steps.stream()
                 .filter(step -> "workflow".equalsIgnoreCase(text(step, "name")))
-                .map(step -> text(json.map(step.get("detail")), "toolName"))
+                .map(step -> stepEvidence(step, "toolName"))
                 .filter(StringUtils::hasText)
                 .toList();
         for (String tool : stringList(expected.get("calledTools"))) {
@@ -109,7 +109,7 @@ class RuntimeEvalDeterministicJudge {
             String decision = text(expected, "policyDecision");
             boolean found = steps.stream()
                     .filter(step -> "policy".equalsIgnoreCase(text(step, "name")))
-                    .map(step -> text(json.map(step.get("detail")), "decision"))
+                    .map(step -> stepEvidence(step, "decision"))
                     .anyMatch(value -> decision != null && decision.equalsIgnoreCase(value));
             check(checks, "policyDecision", true, found);
         }
@@ -125,6 +125,13 @@ class RuntimeEvalDeterministicJudge {
                 .orElse("Deterministic assertions failed");
         return new ScoreResult(key, type, score, allPassed, weight, required, reason,
                 Map.of("checks", List.copyOf(checks), "passedCount", passed, "checkCount", checks.size()));
+    }
+
+    private String stepEvidence(Map<String, Object> step, String key) {
+        String structured = text(step, key);
+        if (StringUtils.hasText(structured)) return structured;
+        // Older structured responses used detail maps. Human-facing phase text is never evidence.
+        return step.get("detail") instanceof Map<?, ?> ? text(json.map(step.get("detail")), key) : null;
     }
 
     private ScoreResult latencyScore(String key,

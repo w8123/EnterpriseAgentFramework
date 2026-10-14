@@ -12,16 +12,21 @@ import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
 import com.enterprise.ai.runtime.runops.RuntimeRunLifecycleService;
 import com.enterprise.ai.runtime.runops.RuntimeRunSnapshots;
 import com.enterprise.ai.runtime.trace.RuntimeTraceRootService;
+import com.enterprise.ai.runtime.trace.RuntimeTraceEvidenceWriter;
+import com.enterprise.ai.runtime.trace.WorkflowTraceSanitizer;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowExecutionQuery;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowExecutionView;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowPublishedVersionView;
 import com.enterprise.ai.runtime.workflow.RuntimePublishedWorkflowSnapshot;
 import com.enterprise.ai.runtime.workflow.WorkflowSemanticValues;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import java.time.LocalDateTime;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -33,6 +38,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 @ConditionalOnProperty(name = "reachai.runtime.automation.enabled", havingValue = "true")
 final class RuntimeAutomationTargetExecutor {
 
@@ -42,6 +48,7 @@ final class RuntimeAutomationTargetExecutor {
     private final RuntimeGraphSpecExecutor graphSpecExecutor;
     private final RuntimeRunLifecycleService runLifecycleService;
     private final RuntimeTraceRootService rootSpans;
+    private final RuntimeTraceEvidenceWriter traceEvidence;
     private final RuntimeAutomationInteractionTerminationService interactionTerminationService;
     private final RuntimeAutomationJsonSupport json;
     private final ScheduledExecutorService runtimeAutomationTimeoutScheduler;
@@ -220,7 +227,9 @@ final class RuntimeAutomationTargetExecutor {
                         workflow.getId(), workflow.getKeySlug(), workflow.getName(), workflow.getProjectId(),
                         workflow.getProjectCode(), executionEngine, version.getId(), version.getVersion(),
                         version.getGraphSpecSnapshotJson()), input, identity);
-        return new WorkflowTrace(root.id(), traceId, spanId, now);
+        return new WorkflowTrace(root.id(), traceId, spanId, now, workflow.getId(), workflow.getName(),
+                workflow.getProjectId(), workflow.getProjectCode(), identity.tenantId(), version.getId(),
+                version.getVersion(), executionEngine);
     }
 
     private void finishWorkflowTrace(WorkflowTrace trace, RuntimeGraphSpecExecutionResult result) {
@@ -229,9 +238,63 @@ final class RuntimeAutomationTargetExecutor {
         String status = waiting ? "WAITING_USER" : (result.success() ? "SUCCESS" : "ERROR");
         if (!rootSpans.finish(new RuntimeTraceRootService.Handle(
                 trace.rootId(), trace.traceId(), trace.rootSpanId(), trace.startedAt()),
-                new RuntimeTraceRootService.Completion(status, result.code(), result.answer(), ended, null))) return;
+                new RuntimeTraceRootService.Completion(status, result.code(), result.answer(), ended,
+                        json.write(Map.of("workflowResult", WorkflowTraceSanitizer.sanitizeWorkflowResult(result.metadata())))))) return;
+        recordWorkflowNodeEvidence(trace, result, ended);
         runLifecycleService.finishWorkflow(trace.traceId(), result.success(), result.code(), result.answer(),
                 result.steps() == null ? 0 : result.steps().size(), result.metadata());
+    }
+
+    private void recordWorkflowNodeEvidence(WorkflowTrace trace, RuntimeGraphSpecExecutionResult result,
+                                            LocalDateTime ended) {
+        // The executor already projects canonical events even when the live delegate is NOOP.
+        // Persist those actual execution facts; never recover them from the saved canvas or input.
+        Object projected = result.metadata() == null ? null : result.metadata().get("workflowNodeTraces");
+        if (!(projected instanceof List<?> nodes)) return;
+        for (Object value : nodes) {
+            if (!(value instanceof Map<?, ?> raw)) continue;
+            Map<String, Object> node = WorkflowTraceSanitizer.sanitizeNodeTrace(raw);
+            String nodeId = text(node.get("nodeId"));
+            if (!StringUtils.hasText(nodeId)) continue;
+            String status = firstText(text(node.get("status")), result.success() ? "SUCCESS" : "FAILED");
+            String toolName = text(node.get("qualifiedName"));
+            String failureCode = text(node.get("failureCode"));
+            Map<String, Object> metadata = new LinkedHashMap<>(node);
+            metadata.put("sourceType", "AUTOMATION");
+            metadata.put("workflowId", trace.workflowId());
+            metadata.put("workflowVersionId", trace.workflowVersionId());
+            metadata.put("workflowVersion", trace.workflowVersion());
+            int latency = node.get("latencyMs") instanceof Number n
+                    ? (int) Math.min(Integer.MAX_VALUE, Math.max(0, n.longValue())) : 0;
+            try {
+                traceEvidence.appendChild(RuntimeTraceEvidenceWriter.ChildSpan.builder()
+                        .traceId(trace.traceId()).spanId("span_" + UUID.randomUUID().toString().replace("-", "").substring(0, 20))
+                        .parentSpanId(trace.rootSpanId()).spanType("WORKFLOW_NODE").runtimeType(trace.runtimeType())
+                        .agentId(trace.workflowId()).agentName(trace.workflowName()).nodeId(nodeId).toolName(toolName)
+                        .projectCode(trace.projectCode()).tenantId(trace.tenantId()).status(status)
+                        .metadataJson(json.write(metadata)).errorCode(failureCode).latencyMs(latency)
+                        .startedAt(nodeTime(node.get("startedAt"), ended))
+                        .endedAt("WAITING_USER".equals(status) ? null : nodeTime(node.get("endedAt"), ended))
+                        .createdAt(ended).build());
+                if ("TOOL".equals(node.get("nodeType")) && StringUtils.hasText(toolName)) {
+                    traceEvidence.appendToolCall(RuntimeTraceEvidenceWriter.ToolCall.builder()
+                            .traceId(trace.traceId()).agentName(trace.workflowName()).intentType("AUTOMATION_WORKFLOW_NODE")
+                            .projectId(trace.projectId()).projectCode(trace.projectCode()).tenantId(trace.tenantId())
+                            .origin("AUTOMATION").toolName(toolName).argsJson("{}")
+                            .resultSummary(WorkflowTraceSanitizer.sanitizeAnswer(result.answer()))
+                            .success("SUCCESS".equals(status) || "BUSINESS_TERMINAL".equals(status))
+                            .errorCode(failureCode).elapsedMs(latency).retrievalTraceJson(json.write(metadata))
+                            .createTime(ended).build());
+                }
+            } catch (RuntimeException failure) {
+                // A Trace storage outage must not retry an already completed business operation.
+                log.warn("Cannot persist Automation node evidence: {}", failure.getClass().getSimpleName());
+            }
+        }
+    }
+
+    private LocalDateTime nodeTime(Object value, LocalDateTime fallback) {
+        return value instanceof Number n ? LocalDateTime.ofInstant(Instant.ofEpochMilli(n.longValue()), ZoneOffset.UTC) : fallback;
     }
 
     private ScheduledFuture<?> scheduleTimeout(RuntimeAutomationVersionEntity version, Runnable cancellation) {
@@ -295,6 +358,8 @@ final class RuntimeAutomationTargetExecutor {
         }
     }
 
-    private record WorkflowTrace(Long rootId, String traceId, String rootSpanId, LocalDateTime startedAt) {
+    private record WorkflowTrace(Long rootId, String traceId, String rootSpanId, LocalDateTime startedAt,
+                                 String workflowId, String workflowName, Long projectId, String projectCode,
+                                 String tenantId, Long workflowVersionId, String workflowVersion, String runtimeType) {
     }
 }

@@ -7,18 +7,18 @@ import { platformSessionId, platformSessionUser } from '@/auth/platformSession'
 import type { ScanProject } from '@/types/scanProject'
 import type { PlatformUserProfile } from '@/utils/platformAuth'
 
-const mocks = vi.hoisted(() => ({ read: vi.fn(), push: vi.fn(), unmounted: vi.fn() }))
-vi.mock('vue-router', () => ({ useRouter: () => ({ push: mocks.push }) }))
+const mocks = vi.hoisted(() => ({ read: vi.fn(), unmounted: vi.fn(), refresh: vi.fn() }))
 vi.mock('@/auth/platformSession', async () => {
   const { ref } = await import('vue')
   return { platformSessionId: ref('account-a'), platformSessionUser: ref(null) }
 })
 vi.mock('./CapabilityReviewPanel.vue', async () => {
   const { defineComponent, onUnmounted, ref } = await import('vue')
-  return { default: defineComponent({ props: ['projectCode'], setup(props) {
+  return { default: defineComponent({ props: ['projectCode', 'density'], setup(props, { expose }) {
     const text = ref('loading')
     void mocks.read(props.projectCode, platformSessionId.value).then((result: string) => { text.value = result })
     onUnmounted(mocks.unmounted)
+    expose({ refresh: mocks.refresh })
     return { text }
   }, template: '<div data-test="changes">{{ text }}</div>' }) }
 })
@@ -39,17 +39,24 @@ beforeEach(() => {
   mocks.read.mockResolvedValue('current')
 })
 afterEach(() => wrapper?.unmount())
-function start() { wrapper = mount(ProjectSourceChanges, { props: { project: project() }, global: { plugins: [ElementPlus] } }); return wrapper }
+function start(density: 'comfortable' | 'compact' = 'comfortable') { wrapper = mount(ProjectSourceChanges, { props: { project: project(), density }, global: { plugins: [ElementPlus] } }); return wrapper }
 describe('project source changes context', () => {
-  it('keeps diagnostics behind project write permission and uses the owning project', async () => {
-    const view = start()
+  it('forwards a same-project refresh to the change owner and ignores refresh when access is removed', async () => {
+    const view = start('compact'); await flushPromises()
+    await (view.vm as unknown as { refresh: () => Promise<void> }).refresh()
+    expect(mocks.refresh).toHaveBeenCalledOnce()
+    ;(platformSessionUser as Ref<PlatformUserProfile | null>).value!.permissionGrants = []
     await flushPromises()
-    expect(view.text()).not.toContain('同步诊断')
-    ;(platformSessionUser as Ref<PlatformUserProfile | null>).value!.permissionGrants!.push(
-      { permissionCode: 'platform:write', scopeType: 'PROJECT', scopeValue: 'orders' })
-    await flushPromises()
-    await view.get('button').trigger('click')
-    expect(mocks.push).toHaveBeenCalledWith({ name: 'RegistrySyncDiagnostics', params: { projectCode: 'orders' } })
+    await (view.vm as unknown as { refresh: () => Promise<void> }).refresh()
+    expect(mocks.refresh).toHaveBeenCalledOnce()
+  })
+  it('uses concise copy only for compact workspaces and passes density to the review owner', async () => {
+    const view = start('compact'); await flushPromises()
+    expect(view.text()).toContain('可信 SDK 声明自动处理，只需确认例外变化。')
+    expect(view.getComponent({ name: 'CapabilityReviewPanel' }).props('density')).toBe('compact')
+    await view.setProps({ density: 'comfortable' })
+    expect(view.text()).toContain('可信 SDK 同步按项目策略自动接纳声明')
+    expect(view.getComponent({ name: 'CapabilityReviewPanel' }).props('density')).toBe('comfortable')
   })
   it('unmounts the read context when project access is removed', async () => {
     const view = start()

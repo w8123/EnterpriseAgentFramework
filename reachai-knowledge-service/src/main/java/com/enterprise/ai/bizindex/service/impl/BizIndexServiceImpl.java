@@ -15,6 +15,7 @@ import com.enterprise.ai.bizindex.service.BusinessMemoryIndexPolicy;
 import com.enterprise.ai.bizindex.template.TemplateEngine;
 import com.enterprise.ai.bizindex.vector.BizVectorService;
 import com.enterprise.ai.embedding.EmbeddingService;
+import com.enterprise.ai.embedding.EmbeddingDimensions;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
@@ -55,10 +56,7 @@ public class BizIndexServiceImpl implements BizIndexService {
         String embeddingModelInstanceId = requireEmbeddingModelInstanceId(request.getEmbeddingModelInstanceId(), request.getIndexCode());
         index.setEmbeddingModelInstanceId(embeddingModelInstanceId);
 
-        // 默认使用系统当前的 Embedding 配置
-        if (index.getDimension() == null || index.getDimension() == 0) {
-            index.setDimension(1536);
-        }
+        index.setDimension(EmbeddingDimensions.resolve(request.getDimension(), embeddingModelInstanceId, embeddingService));
         if (index.getChunkSize() == null) {
             index.setChunkSize(500);
         }

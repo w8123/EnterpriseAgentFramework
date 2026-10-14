@@ -25,6 +25,8 @@ export interface BusinessMethodInfo {
   sideEffect: string
   parameters: AssetParameter[]
   metadata: Record<string, unknown> | null
+  /** Persistent business classifications returned with the owner catalog row. */
+  classifications?: Array<{ id: number; displayName: string }> | null
   httpMethod?: string | null
   baseUrl?: string | null
   contextPath?: string | null
@@ -39,6 +41,7 @@ export interface BusinessMethodListQuery {
   keyword?: string
   projectId?: number
   enabled?: boolean
+  groupId?: number
 }
 
 export interface BusinessMethodPageResult {
@@ -47,12 +50,6 @@ export interface BusinessMethodPageResult {
   size: number
   current: number
   pages: number
-}
-
-export interface BusinessMethodCatalogSummary {
-  total: number
-  enabled: number
-  disabled: number
 }
 
 export function isBusinessMethodInfo(value: unknown): value is BusinessMethodInfo {
@@ -72,4 +69,7 @@ export function isBusinessMethodInfo(value: unknown): value is BusinessMethodInf
     && typeof method.invocationHash === 'string' && Boolean(method.invocationHash.trim())
     && typeof method.bindingHash === 'string' && Boolean(method.bindingHash.trim())
     && Array.isArray(method.parameters)
+    && (method.classifications == null || Array.isArray(method.classifications)
+      && method.classifications.every(group => Number.isSafeInteger(group?.id) && group.id > 0
+        && typeof group.displayName === 'string' && Boolean(group.displayName.trim())))
 }

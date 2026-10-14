@@ -95,16 +95,6 @@ public class CapabilityScanProjectCatalogController {
         }
     }
 
-    @PatchMapping("/{id}/auth-settings")
-    public ResponseEntity<ScanProjectDTO> updateAuthSettings(@PathVariable Long id,
-                                                             @RequestBody ScanProjectAuthSaveRequest request) {
-        try {
-            return ResponseEntity.ok(toDto(scanProjectCatalogService.updateAuthSettings(id, request.toServiceRequest())));
-        } catch (IllegalArgumentException ex) {
-            return ResponseEntity.badRequest().build();
-        }
-    }
-
     @PatchMapping("/{id}/registry-credential")
     public ResponseEntity<ScanProjectDTO> updateRegistryCredential(
             @PathVariable Long id,
@@ -117,7 +107,7 @@ public class CapabilityScanProjectCatalogController {
     }
 
     @PostMapping("/{id}/sdk-access-check")
-    public ResponseEntity<CapabilityScanProjectCatalogService.SdkAccessCheckResponse> sdkAccessCheck(
+    public ResponseEntity<CapabilityScanProjectReadinessService.SdkAccessCheckResponse> sdkAccessCheck(
             @PathVariable Long id) {
         try {
             return ResponseEntity.ok(scanProjectCatalogService.sdkAccessCheck(id));
@@ -150,26 +140,14 @@ public class CapabilityScanProjectCatalogController {
         }
     }
 
-    @PostMapping("/{id}/scan")
-    public ResponseEntity<?> scan(@PathVariable Long id) {
-        try {
-            return ResponseEntity.ok(ScanResultDTO.from(scanProjectCatalogService.scan(id)));
-        } catch (IllegalArgumentException ex) {
-            if (isMissing(ex)) {
-                return ResponseEntity.notFound().build();
-            }
-            scanProjectCatalogService.markFailed(id, ex.getMessage());
-            return ResponseEntity.badRequest().body(new ApiErrorResponse(ex.getMessage()));
-        } catch (RuntimeException ex) {
-            scanProjectCatalogService.markFailed(id, ex.getMessage());
-            return ResponseEntity.badRequest().body(new ApiErrorResponse(ex.getMessage()));
-        }
-    }
-
     @PostMapping("/{id}/rescan")
     public ResponseEntity<?> rescan(@PathVariable Long id) {
         try {
             return ResponseEntity.ok(ScanResultDTO.from(scanProjectCatalogService.rescan(id)));
+        } catch (CapabilityScanProjectCatalogService.ScanResultStaleException ex) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(new ApiErrorResponse(ex.getMessage()));
+        } catch (CapabilityScanProjectCatalogService.ScanExecutionFailedException ex) {
+            return ResponseEntity.badRequest().body(new ApiErrorResponse(ex.getMessage()));
         } catch (CapabilityScanProjectCatalogService.ScanProjectBlockedException ex) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(ex.blockers());
         } catch (IllegalArgumentException ex) {
@@ -233,13 +211,44 @@ public class CapabilityScanProjectCatalogController {
     public ResponseEntity<List<ProjectToolDTO>> tools(@PathVariable Long id,
                                                       @RequestParam(required = false) String view) {
         try {
-            return ResponseEntity.ok(scanProjectCatalogService.listTools(id).stream()
-                    .map(tool -> toToolDto(tool, view))
+            List<ScanProjectToolEntity> tools = scanProjectCatalogService.listTools(id);
+            var links = scanProjectCatalogService.resolveToolLinks(tools);
+            var moduleNames = scanProjectCatalogService.moduleDisplayNames(id, tools.stream().map(ScanProjectToolEntity::getModuleId)
+                    .filter(java.util.Objects::nonNull).distinct().toList());
+            return ResponseEntity.ok(tools.stream()
+                    .map(tool -> toToolDto(tool, view, links.get(tool.getId()), moduleNames.get(tool.getModuleId())))
                     .toList());
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.notFound().build();
         }
     }
+
+    @GetMapping("/{id}/sources")
+    public ResponseEntity<?> sources(@PathVariable Long id,
+                                    @RequestParam(defaultValue = "1") int current,
+                                    @RequestParam(defaultValue = "20") int size,
+                                    @RequestParam(required = false) String keyword,
+                                    @RequestParam(required = false) Long moduleId,
+                                    @RequestParam(defaultValue = "false") boolean ungrouped,
+                                    @RequestParam(required = false) List<Long> observationIds,
+                                    @RequestParam(required = false) Long focusObservationId) {
+        try {
+            var page = scanProjectCatalogService.sourcePage(id, current, size, keyword, moduleId, ungrouped, observationIds, focusObservationId);
+            var links = scanProjectCatalogService.resolveToolLinks(page.records());
+            var labels = page.modules().stream().filter(module -> module.moduleId() != null)
+                    .collect(java.util.stream.Collectors.toMap(CapabilityScanProjectCatalogService.SourceModule::moduleId,
+                            CapabilityScanProjectCatalogService.SourceModule::moduleDisplayName));
+            return ResponseEntity.ok(new SourcePageDTO(page.records().stream()
+                    .map(tool -> toToolDto(tool, "summary", links.get(tool.getId()), labels.get(tool.getModuleId()))).toList(),
+                    page.total(), page.current(), page.size(), page.stats(), page.modules()));
+        } catch (IllegalArgumentException ex) {
+            return isMissing(ex) ? ResponseEntity.notFound().build() : ResponseEntity.badRequest().body(new ApiErrorResponse(ex.getMessage()));
+        }
+    }
+
+    record SourcePageDTO(List<ProjectToolDTO> records, long total, int current, int size,
+                         CapabilityScanProjectCatalogService.SourceStats stats,
+                         List<CapabilityScanProjectCatalogService.SourceModule> modules) { }
 
     @GetMapping("/{projectId}/scan-tools/{scanToolId}")
     public ResponseEntity<ProjectToolDTO> tool(@PathVariable Long projectId,
@@ -255,9 +264,11 @@ public class CapabilityScanProjectCatalogController {
     public ResponseEntity<?> rescanScanToolFromSource(@PathVariable Long projectId,
                                                       @PathVariable Long scanToolId) {
         try {
-            return ResponseEntity.ok(toToolDto(
-                    scanProjectCatalogService.rescanSingleTool(projectId, scanToolId),
-                    "full"));
+            var result = scanProjectCatalogService.rescanSingleTool(projectId, scanToolId);
+            return ResponseEntity.ok(new SingleSourceRefreshDTO(toToolDto(result.sourceObservation(), "full"),
+                    result.httpApiRefresh()));
+        } catch (CapabilityScanProjectCatalogService.ScanResultStaleException ex) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(new ApiErrorResponse(ex.getMessage()));
         } catch (IllegalArgumentException ex) {
             if (isMissing(ex)) {
                 return ResponseEntity.notFound().build();
@@ -268,20 +279,14 @@ public class CapabilityScanProjectCatalogController {
         }
     }
 
+    record SingleSourceRefreshDTO(ProjectToolDTO sourceObservation,
+                                  CapabilityScanProjectCatalogService.HttpApiRefreshResult httpApiRefresh) { }
+
     @PostMapping("/{projectId}/tools/reconcile")
     public ResponseEntity<CapabilityScanProjectCatalogService.ToolReconcileSummary> reconcileTools(
             @PathVariable Long projectId) {
         try {
             return ResponseEntity.ok(scanProjectCatalogService.reconcileTools(projectId));
-        } catch (IllegalArgumentException ex) {
-            return ResponseEntity.notFound().build();
-        }
-    }
-
-    @GetMapping("/{id}/diff-summary")
-    public ResponseEntity<?> diffSummary(@PathVariable Long id) {
-        try {
-            return ResponseEntity.ok(ScanDiffSummaryDTO.from(scanProjectCatalogService.diffSummary(id)));
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.notFound().build();
         }
@@ -360,11 +365,20 @@ public class CapabilityScanProjectCatalogController {
     }
 
     private ProjectToolDTO toToolDto(ScanProjectToolEntity tool, String view) {
+        String moduleName = tool.getModuleId() == null ? null : scanProjectCatalogService
+                .moduleDisplayNames(tool.getProjectId(), List.of(tool.getModuleId())).get(tool.getModuleId());
+        return toToolDto(tool, view, resolveToolLink(tool), moduleName);
+    }
+
+    private ProjectToolDTO toToolDto(ScanProjectToolEntity tool, String view, CapabilityScanProjectCatalogService.ToolLinkStatus toolLink, String moduleDisplayName) {
         List<ToolDefinitionParameter> rawParameters = parseParameters(tool.getParametersJson());
         List<ToolParameterDTO> parameters = "summary".equalsIgnoreCase(view)
                 ? List.of()
                 : rawParameters.stream().map(ToolParameterDTO::from).toList();
-        CapabilityScanProjectCatalogService.ToolLinkStatus toolLink = resolveToolLink(tool);
+        if (toolLink == null) {
+            toolLink = new CapabilityScanProjectCatalogService.ToolLinkStatus(
+                    tool.getGlobalToolDefinitionId() == null ? "NOT_LINKED" : "LINKED", null, List.of());
+        }
         String linkStatus = toolLink.status();
         return new ProjectToolDTO(
                 tool.getName(),
@@ -391,7 +405,7 @@ public class CapabilityScanProjectCatalogController {
                 null,
                 tool.getId(),
                 tool.getModuleId(),
-                null,
+                moduleDisplayName,
                 tool.getGlobalToolDefinitionId(),
                 null,
                 "PENDING_UPDATE".equals(linkStatus),
@@ -467,22 +481,6 @@ public class CapabilityScanProjectCatalogController {
                     scanPath,
                     scanType,
                     specFile
-            );
-        }
-    }
-
-    record ScanProjectAuthSaveRequest(
-            String authType,
-            String authApiKeyIn,
-            String authApiKeyName,
-            String authApiKeyValue
-    ) {
-        CapabilityScanProjectCatalogService.ScanProjectAuthSaveRequest toServiceRequest() {
-            return new CapabilityScanProjectCatalogService.ScanProjectAuthSaveRequest(
-                    authType,
-                    authApiKeyIn,
-                    authApiKeyName,
-                    authApiKeyValue
             );
         }
     }
@@ -628,31 +626,5 @@ public class CapabilityScanProjectCatalogController {
             );
         }
     }
-
-    record ScanDiffSummaryDTO(Long projectId,
-                              int toolCount,
-                              int promotedCount,
-                              int missingDescriptionCount,
-                              int missingAiDescriptionCount,
-                              int duplicateStableKeyCount,
-                              List<DuplicateStableKeyDTO> duplicates) {
-        static ScanDiffSummaryDTO from(CapabilityScanProjectCatalogService.ScanDiffSummary summary) {
-            return new ScanDiffSummaryDTO(
-                    summary.projectId(),
-                    summary.toolCount(),
-                    summary.promotedCount(),
-                    summary.missingDescriptionCount(),
-                    summary.missingAiDescriptionCount(),
-                    summary.duplicateStableKeyCount(),
-                    summary.duplicates().stream()
-                            .map(item -> new DuplicateStableKeyDTO(item.stableKey(), item.scanToolIds()))
-                            .toList()
-            );
-        }
-    }
-
-    record DuplicateStableKeyDTO(String stableKey, List<Long> scanToolIds) {
-    }
-
 
 }

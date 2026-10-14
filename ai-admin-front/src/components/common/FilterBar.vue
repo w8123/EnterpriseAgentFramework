@@ -8,6 +8,7 @@ const props = withDefaults(
     showReset?: boolean
     queryLabel?: string
     resetLabel?: string
+    presentation?: 'panel' | 'inline'
   }>(),
   {
     density: 'comfortable',
@@ -15,6 +16,7 @@ const props = withDefaults(
     showReset: true,
     queryLabel: '查询',
     resetLabel: '重置',
+    presentation: 'panel',
   },
 )
 
@@ -27,6 +29,7 @@ const emit = defineEmits<{
 <template>
   <form
     :class="['filter-bar', 'glass-surface-control', densityClass(props.density)]"
+    :data-presentation="props.presentation"
     novalidate
     @submit.prevent="emit('query')"
   >
@@ -69,6 +72,14 @@ const emit = defineEmits<{
   align-items: flex-end;
   gap: calc(var(--section-gap) / 2);
   min-width: 0;
+}
+
+.filter-bar[data-presentation='inline'] {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .filter-bar__actions {

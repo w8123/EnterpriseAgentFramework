@@ -2,6 +2,22 @@
 
 ## 当前基线
 
+2026-10-14 领域治理退场：新库不再创建 `capability_domain_def`、`capability_domain_assignment` 或扫描项目的 `default_domain_code`。已有开发/测试库使用 [领域治理清理脚本](./upgrade-20261014-retire-domain-governance.sql)，兼容 MySQL 5.7/8，可重复执行。脚本直接丢弃领域定义、领域归属以及项目默认领域，不迁移成业务分类；业务能力目录的 `capability_scan_module`、`capability_catalog_group_member`、`capability_catalog_classification_state` 和既有分类数据保留。
+
+执行顺序：先核对目标库、版本和字符集，备份两张领域表及 `capability_scan_project` 的结构/数据，记录业务分类相关表的行数与摘要；停止配套旧 Capability/Control 服务，执行上述清理脚本，再部署本批 Capability、Control 和前端。MySQL DDL 隐式提交，不能用事务回滚；恢复须使用执行前备份。执行后回读脚本的两个计数均为 0，核对保留分类表的行数与摘要保持，再恢复服务。本批仅交付脚本，尚未执行到数据库；全新环境只执行 `initV2.sql`，不要同时执行本升级。
+
+2026-10-13 业务分类持久归属：新增 `capability_catalog_classification_state`，由 Capability 独占，记录人工选择（含清空）和分类修订。已有开发/测试库使用 [升级脚本](./upgrade-20261013-business-classification-ownership.sql)：先备份分类、成员及新状态表（若存在），停止 Capability 写入，执行脚本，回读状态唯一键、中文分类和成员归属后更新服务。脚本保留可确认的历史来源分类和人工追加成员的并集；无唯一精确 HTTP 来源位置匹配的旧资产不猜测关联，由下一次同步或手工归类补充。可重跑，已有状态（包括人工空集合）不覆盖；不改资产契约/调用授权。用户随后授权执行开发库升级：已于 2026-10-13 10:56（北京时间）在 `39.106.238.224:33106/reach_ai`（MySQL 5.7.40-log）完成原脚本及幂等重跑；六张相关表先作 DPAPI 加密备份并核验解密一致，数据事务用完整主键范围锁暂停相关写入。成员由 1 条增至 2 条，新增状态 2 条，原有行均保留，中文及唯一键回读通过，Capability 仍为 UP。随后按用户要求重新打包并重启本机五服务及前端，健康与运行包新鲜度通过；真实界面写入与再次同步尚待验收。详见[数据库执行记录](../output/tasks/business-classification-20261013/数据库升级记录.md)和[重启记录](../output/tasks/restart-20261013-business-classification/重启验证记录.md)。
+
+2026-10-13 移除无效调用候选索引重建：新库不再创建 `capability_tool_retrieval_setting`。已有开发/测试库可在部署配套 Capability 代码并备份该表后执行 [清理脚本](./upgrade-20261013-retire-tool-retrieval-rebuild.sql)，只删除重建时的模型选择设置；不修改能力资产、调用投影、知识库或向量数据。执行后回读 `information_schema.tables` 确认目标表不存在，重复执行安全。本批只交付脚本，尚未执行到数据库。
+
+2026-10-09 新增 [知识库集合历史归属索引修正](./upgrade-20261009-knowledge-collection-owner-history.sql)：把 `knowledge_collection_lifecycle.knowledge_base_id` 的历史唯一索引改为普通索引。MySQL 5.7 空表重启或开发库重建后可能重用已删除的自增 ID，已回收集合的日志不能阻止新知识库创建；集合主键、知识库物理集合唯一键和发布/回收时的绑定核对保持。执行前备份 `knowledge_base` 与 `knowledge_collection_lifecycle` 的结构/数据并暂停知识库创建/删除；先执行 20260908 集合生命周期升级，再执行本脚本，核对两表行摘要不变和新索引 `NON_UNIQUE=1`。不删除历史日志或提升自增起点掩盖问题，新库基线已对应修正。当前开发库执行结果另见本次联调记录，不以此说明视为已执行。
+
+2026-10-08 新增 [业务能力附属资源整理](./upgrade-20261008-business-capability-enrichment.sql)：语义文档改为项目、分组、业务方法、HTTP API 或来源观察的 typed 引用，所有主体唯一键列必填；文档保存契约和接纳状态依据，使用非空 `DATETIME(6)` 编辑版本，候选说明不会因同指纹接纳被误标为当前。图谱节点使用稳定结构键，名称/分组不参与身份；新增 Capability 独占的人工分组关系。未上线开发库脚本明确重建旧语义文档和图谱三表，旧文档、手工边与布局会清空，不推断或迁移旧 Tool 身份；保留方法/API owner、接纳修订、来源、项目与模块、凭据、Workflow 和审计。新系统内的名称/分组变化保留已有人工关系和布局，契约变化使参数提示失效。用户随后明确授权执行远程开发库升级；已完成本次执行，其他环境执行前仍须核对目标、备份并停止相关写入，禁止对已升级库重复执行。
+
+2026-10-08 BMAPI-8 开发环境执行记录：目标为 `39.106.238.224:33106/reach_ai`（MySQL 5.7.40-log）。本机五服务与 Vite 停写后，宝塔完整备份 `/www/backup/database/mysql/reach_ai/reach_ai_2026-10-08_13-32-19_mysql_data_HSmVS.sql.zip` 的压缩完整性、184 张原表与结束标记校验通过；按执行文件 SHA256 `a6f991d3770b2f109a82ab55ed521e8c9f57dcf61455100cc79be3c5333a81d6` 单次执行，exit0。四张重建表执行前均零行，升级后 185 张表、五张目标表的字段/索引/中文回读通过；180 张保留表全部原列、10328 行和结构摘要保持。临时项目凭据已清理，备份与私有证明保留。随后 Capability/Control 使用新包，五服务与前端重启且健康/运行包新鲜度通过。脚本头部后来只将历史“未授权”注释改为通用执行约束，DDL 未改变；以上指纹指实际执行字节。详见[升级与重启验证](../output/tasks/business-method-api/BMAPI-8/远程开发库升级与重启验证.md)。
+
+附属图谱的展示名称使用 `TEXT NOT NULL`，完整保留合法的 256 字符分组名称与较长 HTTP 路径；名称仍不参与稳定节点身份。
+
 2026-10-05 新增 [旧独立资产退场](./upgrade-20261005-retire-independent-capability-assets.sql)：在业务方法资产升级后删除 `capability_module`、`capability_tool_asset`、`capability_composition_definition`、`capability_interaction_definition`，并删除 Runtime 交互会话的未使用组合身份列。未分类或非法分类的旧来源观察和调用投影直接清理，不猜测资产类型，由当前 SDK/扫描来源重新同步；两张投影表不再提供分类缺省值。方法/API 分别拥有源契约，编排由 Workflow 承担，交互恢复只使用已保存快照。新库基线已移除这些定义和种子；已有开发库执行须核验目标、可恢复备份并停止相关写入。本会话已在核验并备份的远程开发库执行；实际影响及回读见下方执行记录。不修改历史调用/审批状态，不重发未知请求。
 
 2026-10-04 新增 [业务方法独立资产升级](./upgrade-20261004-business-method-assets.sql)：Capability 独占的资产和不可变接纳修订引用可信 SDK 来源快照，分别保存业务契约、完整调用契约与传输指纹。SDK 凭据新增 revision，轮换或有效策略变化递增，相同重报保持；Runtime 调用审计新增 expected_execution_revision，固定方法接纳、传输和凭据修订，API仍使用自己的连接/凭据列。旧审计值不回填执行证明，也不重发未知调用。脚本不从旧 Tool/未分类记录回填；新 SDK 来源按正常同步形成资产。现有开发库执行前须核对目标、备份并停止 Capability 与 Runtime 写入，执行后回读两表、修订列和唯一索引。本会话已执行本份及后续旧模型退场专项升级；未从旧投影回填方法，当前来源按正常SDK同步建立owner。
@@ -63,6 +79,10 @@
 2026-09-07，本轮架构整理涉及的 10 份 `upgrade-20260905-*`、`upgrade-20260906-*`、`upgrade-20260907-*` 脚本已在当前 `reach_ai` 开发库执行两遍，结构、回填、UTF-8 和幂等验证通过，执行前全库备份已验证完整性。详见[执行记录](../output/tasks/architecture-audit-20260905/development-database-upgrade-notes.md)。该结果仅适用于本次确认的开发库；其他环境仍按下列依赖顺序执行，不要重复初始化现有库。
 
 ## 执行方式
+
+### 2026-10-09 Open-Meteo 不可变官方版本
+
+[upgrade-20261009-open-meteo-official-version.sql](./upgrade-20261009-open-meteo-official-version.sql) 只在已存在且PUBLISHED/NONE认证的open-meteo目录下增加一个固定官方commit的标量参数版本及Operation，与新库基线一致，无DDL。旧v1/Operation、已有项目绑定、provider和凭据不更新；重复执行不覆盖已有不可变版本。官方规范、字节摘要、明确参数子集及限制见[事实源文档](../docs/integrations/api-market/open-meteo-forecast-scalar-20261009.md)。已有库先回读本条公开目录的引用，再由Capability owner执行本增量并回读中文与新旧版本；不得重跑整份initV2覆盖旧种子。项目仍须显式选择新版本，独立接纳HTTP owner、配置连接与调用权限，再以真实GET receipt完成验证。
 
 ### BMAPI-3D 市场受控 HTTP API 绑定（未执行）
 
@@ -148,7 +168,7 @@ Workflow 恢复期限需要 [恢复期限升级](./upgrade-20260906-workflow-res
 - 扫描项目、扫描模块、项目接口、语义文档、API 图谱。
 - Tool / Capability 资产、交互式能力挂起恢复。
 - API 市场公开目录、来源与验证证据、不可变版本/Operation，以及不含任何调用凭据的项目接入意图。
-- RunOps 根运行事实 `runtime_run`、通用子事件 `runtime_trace_span`、Tool 调用、Tool ACL、Guard、DomainClassifier。
+- RunOps 根运行事实 `runtime_run`、通用子事件 `runtime_trace_span`、Tool 调用、Tool ACL、Guard。
 - Runtime Automation：不可变定义版本、CRON/ONCE 持久时钟、幂等 occurrence、尝试与审计事件、命令 outbox、跨副本并发槽；Agent/Workflow 执行固定已发布版本并进入 RunOps。
 - MCP Hub、A2A Hub、Gateway、市场资产、嵌入式对话。MCP Hub 包含对外发布单元、草稿发布条目（引用能力或已发布 Workflow）、不可变发布修订（tools/list 事实源）、按项目/环境/租户挂接单一发布单元的 Client 凭证与双向调用审计（direction OUTBOUND/INBOUND）；原文正文默认不保留，启用后使用 MEDIUMTEXT 承载经脱敏且限长的保留期数据。旧 Phase P2 暴露白名单与平铺 Client 模型已按 clean-slate 退场；已有库升级见当前合并脚本 Section 14。A2A Hub 包含不可变本地发布/远端修订、Principal/Trust/Credential、Context/Task/Message/Artifact/Event、出站 Task 接受快照与分布式查询租约、无原文 transport audit、conformance 与 durable outbox。
 - 标准 Agent Skill 包治理：`control_agent_skill`、不可变版本与人工审核；包字节由 Control 的 `AgentSkillArtifactStore` 保存，不回退为旧 Skill 业务资产或 Capability 类型。

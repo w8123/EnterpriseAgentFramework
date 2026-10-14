@@ -71,18 +71,16 @@ public class CapabilityReviewGateway {
         return exchange("GET", projectSnapshotsPath(projectCode), null, actorId);
     }
 
-    public ResponseEntity<Object> getCapability(String name, String actorId) {
-        return exchange("GET", TOOL_CATALOG_PATH + "/" + segment(name), null, actorId);
+    public ResponseEntity<Object> getCapability(String name, String actorId, Map<String, Object> grantBody) {
+        return exchange("GET", TOOL_CATALOG_PATH + "/" + segment(name), grantBody, actorId);
     }
 
-    public ResponseEntity<Object> getBusinessMethod(String name, String actorId) {
-        return exchange("GET", BUSINESS_METHOD_CATALOG_PATH + "/" + segment(name), null, actorId);
+    public ResponseEntity<Object> getCapabilityIdentity(String name, String actorId, Map<String, Object> grantBody) {
+        return exchange("GET", TOOL_CATALOG_PATH + "/" + segment(name) + "/identity", grantBody, actorId);
     }
 
-    public ResponseEntity<Object> getBusinessMethodSummary(Long projectId, String actorId) {
-        StringJoiner query = new StringJoiner("&");
-        if (projectId != null) query.add("projectId=" + positiveId(projectId, "projectId"));
-        return exchange("GET", BUSINESS_METHOD_CATALOG_PATH + "/summary", null, actorId, query.toString());
+    public ResponseEntity<Object> getBusinessMethod(String name, String actorId, Map<String, Object> grantBody) {
+        return exchange("GET", BUSINESS_METHOD_CATALOG_PATH + "/" + segment(name), grantBody, actorId);
     }
 
     /** Owner-provided execution snapshot; this never returns a target URL or project credential. */
@@ -91,13 +89,9 @@ public class CapabilityReviewGateway {
                 null, actorId);
     }
 
-    public ResponseEntity<Object> listCapabilities(int current,
-                                                    int size,
-                                                    String keyword,
-                                                    String source,
-                                                    Boolean enabled,
-                                                    Long projectId,
-                                                    String actorId) {
+    public ResponseEntity<Object> listCapabilities(int current, int size, String keyword, String source,
+                                                    Boolean enabled, Long projectId, String actorId,
+                                                    Map<String, Object> grantBody) {
         StringJoiner query = new StringJoiner("&")
                 .add("current=" + Math.max(1, current))
                 .add("size=" + Math.min(100, Math.max(1, size)));
@@ -109,26 +103,26 @@ public class CapabilityReviewGateway {
         if (projectId != null) {
             query.add("projectId=" + positiveId(projectId, "projectId"));
         }
-        return exchange("GET", TOOL_CATALOG_PATH, null, actorId, query.toString());
+        return exchange("GET", TOOL_CATALOG_PATH, grantBody, actorId, query.toString());
     }
 
-    public ResponseEntity<Object> listBusinessMethods(int current,
-                                                       int size,
-                                                       String keyword,
-                                                       Boolean enabled,
-                                                       Long projectId,
-                                                       String actorId) {
+    public ResponseEntity<Object> listBusinessMethods(int current, int size, String keyword, Boolean enabled,
+                                                       Long projectId, String actorId, Long groupId, boolean ungrouped,
+                                                       Map<String, Object> grantBody) {
+        if (ungrouped && (groupId != null || projectId == null || projectId <= 0)) throw new IllegalArgumentException("ungrouped requires an explicit project without groupId");
         StringJoiner query = new StringJoiner("&")
                 .add("current=" + Math.max(1, current))
                 .add("size=" + Math.min(100, Math.max(1, size)));
         addQueryParam(query, "keyword", keyword);
+        if (groupId != null) query.add("groupId=" + positiveId(groupId, "groupId"));
+        if (ungrouped) query.add("ungrouped=true");
         if (enabled != null) {
             query.add("enabled=" + enabled);
         }
         if (projectId != null) {
             query.add("projectId=" + positiveId(projectId, "projectId"));
         }
-        return exchange("GET", BUSINESS_METHOD_CATALOG_PATH, null, actorId, query.toString());
+        return exchange("GET", BUSINESS_METHOD_CATALOG_PATH, grantBody, actorId, query.toString());
     }
 
     public ResponseEntity<Object> getProjectById(Long projectId, String actorId) {
@@ -136,9 +130,25 @@ public class CapabilityReviewGateway {
                 + positiveId(projectId, "projectId"), null, actorId);
     }
 
+    public ResponseEntity<Object> catalogResources(String method, Long projectId, boolean graph,
+                                                    String relativePath, Map<String, String> parameters,
+                                                    Object body, String actorId) {
+        if (relativePath == null || !relativePath.startsWith("/") || relativePath.contains("..")
+                || relativePath.contains("\\") || relativePath.contains("?") || relativePath.contains("#")) {
+            throw new IllegalArgumentException("catalog resource path is invalid");
+        }
+        StringJoiner query = new StringJoiner("&");
+        if (parameters != null) parameters.forEach((key, value) -> addQueryParam(query, key, value));
+        String path = (graph ? "/internal/capability/api-graph/projects/" : "/internal/capability/business-capabilities/projects/")
+                + positiveId(projectId, "projectId") + relativePath;
+        return exchange(method, path, body, actorId, query.length() == 0 ? null : query.toString());
+    }
+
     public ResponseEntity<Object> listHttpApis(long projectId, String environment, String keyword,
                                                String method, String sourceStatus, int current, int size,
-                                               String actorId) {
+                                               String actorId, Long groupId, boolean ungrouped,
+                                               Map<String, Object> grantBody) {
+        if (ungrouped && groupId != null) throw new IllegalArgumentException("ungrouped cannot combine groupId");
         StringJoiner query = new StringJoiner("&")
                 .add("projectId=" + positiveId(projectId, "projectId"))
                 .add("current=" + Math.max(1, current))
@@ -147,11 +157,17 @@ public class CapabilityReviewGateway {
         addQueryParam(query, "keyword", keyword);
         addQueryParam(query, "method", method);
         addQueryParam(query, "sourceStatus", sourceStatus);
-        return exchange("GET", HTTP_API_CATALOG_PATH, null, actorId, query.toString());
+        if (groupId != null) query.add("groupId=" + positiveId(groupId, "groupId"));
+        if (ungrouped) query.add("ungrouped=true");
+        return exchange("GET", HTTP_API_CATALOG_PATH, grantBody, actorId, query.toString());
     }
 
-    public ResponseEntity<Object> getHttpApi(long id, String actorId) {
-        return exchange("GET", HTTP_API_CATALOG_PATH + "/" + positiveId(id, "apiId"), null, actorId);
+    public ResponseEntity<Object> getHttpApi(long id, String actorId, Map<String, Object> grantBody) {
+        return exchange("GET", HTTP_API_CATALOG_PATH + "/" + positiveId(id, "apiId"), grantBody, actorId);
+    }
+
+    public ResponseEntity<Object> getHttpApiIdentity(long id, String actorId, Map<String, Object> grantBody) {
+        return exchange("GET", HTTP_API_CATALOG_PATH + "/" + positiveId(id, "apiId") + "/identity", grantBody, actorId);
     }
 
     public ResponseEntity<Object> readApiMarket(String relativePath, Map<String, String> parameters, String actorId) {
@@ -243,7 +259,12 @@ public class CapabilityReviewGateway {
             Object responseBody = responseBytes.length == 0
                     ? null
                     : objectMapper.readValue(responseBytes, Object.class);
-            return ResponseEntity.status(response.statusCode()).body(responseBody);
+            var result = ResponseEntity.status(response.statusCode());
+            for (String header : java.util.List.of(CatalogReadAuthorization.PROJECT_ID,
+                    CatalogReadAuthorization.PROJECT_CODE, CatalogReadAuthorization.SCOPE)) {
+                response.headers().firstValue(header).ifPresent(value -> result.header(header, value));
+            }
+            return result.body(responseBody);
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
             return unavailable("CAPABILITY_REVIEW_INTERRUPTED");

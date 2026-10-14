@@ -1,6 +1,9 @@
 package com.enterprise.ai.runtime.supervisor;
 
 import com.enterprise.ai.runtime.runops.RuntimeRunReplayExecutionPort;
+import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
+import com.enterprise.ai.runtime.execution.RuntimeAgentExecutionEventSink;
+import com.enterprise.ai.runtime.execution.RuntimeAgentExecutionCancellation;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import java.util.Map;
@@ -14,5 +17,12 @@ public class SupervisorRunReplayExecutor implements RuntimeRunReplayExecutionPor
     @Override
     public Map<String, Object> executePublishedAgent(String agentId, Long configVersionId, Map<String, Object> input) {
         return executionService.executePublishedConfig(agentId, configVersionId, input, true);
+    }
+
+    @Override
+    public Map<String, Object> executePublishedAgent(String agentId, Long configVersionId,
+                                                    Map<String, Object> input, WorkflowExecutionIdentity identity) {
+        return executionService.executePublishedConfig(agentId, configVersionId, input, true,
+                RuntimeAgentExecutionEventSink.NOOP, RuntimeAgentExecutionCancellation.NOOP, identity);
     }
 }

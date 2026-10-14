@@ -1,6 +1,7 @@
 package com.enterprise.ai.control.governance;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -61,14 +62,30 @@ public class ControlToolAclController {
 
     @PutMapping("/{id}")
     public ResponseEntity<ControlToolAclEntity> update(@PathVariable Long id,
-                                                       @RequestBody ControlToolAclEntity request) {
+                                                       @RequestBody ToolAclUpdateRequest request) {
         ControlToolAclEntity entity = mapper.selectById(id);
         if (entity == null) {
             return ResponseEntity.notFound().build();
         }
+        Long previousProjectId = entity.getProjectId();
+        String previousProjectCode = entity.getProjectCode();
         applyPayload(entity, request);
+        if (!request.projectIdPresent()) entity.setProjectId(previousProjectId);
+        if (!request.projectCodePresent()) entity.setProjectCode(previousProjectCode);
         entity.setUpdatedAt(LocalDateTime.now());
-        mapper.updateById(entity);
+        // Explicit NULL means platform scope; missing fields preserve the stored restriction.
+        // updateById's non-null strategy would silently retain an explicitly cleared project.
+        mapper.update(null, new LambdaUpdateWrapper<ControlToolAclEntity>()
+                .eq(ControlToolAclEntity::getId, id)
+                .set(ControlToolAclEntity::getRoleCode, entity.getRoleCode())
+                .set(ControlToolAclEntity::getProjectId, entity.getProjectId())
+                .set(ControlToolAclEntity::getProjectCode, entity.getProjectCode())
+                .set(ControlToolAclEntity::getTargetKind, entity.getTargetKind())
+                .set(ControlToolAclEntity::getTargetName, entity.getTargetName())
+                .set(ControlToolAclEntity::getPermission, entity.getPermission())
+                .set(ControlToolAclEntity::getNote, entity.getNote())
+                .set(ControlToolAclEntity::getEnabled, entity.getEnabled())
+                .set(ControlToolAclEntity::getUpdatedAt, entity.getUpdatedAt()));
         return ResponseEntity.ok(entity);
     }
 
@@ -95,6 +112,8 @@ public class ControlToolAclController {
     public ResponseEntity<Map<String, Object>> grantBatch(@RequestBody GrantBatchRequest request) {
         String roleCode = requireText(request == null ? null : request.roleCode(), "roleCode");
         String permission = permission(request.permission());
+        Long projectId = request.projectId();
+        String projectCode = trimToNull(request.projectCode());
         List<ToolAclTargetRef> targets = request.targets() == null ? List.of() : request.targets();
         LocalDateTime now = LocalDateTime.now();
         int count = 0;
@@ -105,6 +124,10 @@ public class ControlToolAclController {
                     .eq(ControlToolAclEntity::getRoleCode, roleCode)
                     .eq(ControlToolAclEntity::getTargetKind, targetKind)
                     .eq(ControlToolAclEntity::getTargetName, targetName)
+                    .eq(projectId != null, ControlToolAclEntity::getProjectId, projectId)
+                    .isNull(projectId == null, ControlToolAclEntity::getProjectId)
+                    .eq(projectCode != null, ControlToolAclEntity::getProjectCode, projectCode)
+                    .isNull(projectCode == null, ControlToolAclEntity::getProjectCode)
                     .last("limit 1"));
             if (entity == null) {
                 entity = new ControlToolAclEntity();
@@ -113,6 +136,8 @@ public class ControlToolAclController {
                 entity.setTargetName(targetName);
                 entity.setCreatedAt(now);
             }
+            entity.setProjectId(projectId);
+            entity.setProjectCode(projectCode);
             entity.setPermission(permission);
             entity.setNote(trimToNull(request.note()));
             entity.setEnabled(true);
@@ -138,7 +163,9 @@ public class ControlToolAclController {
                 .map(target -> new ControlToolAclDecisionService.Target(
                         target == null ? null : target.kind(), target == null ? null : target.name()))
                 .toList();
-        return ResponseEntity.ok(decisionService.decideAll(roles, null, null, decisionTargets));
+        return ResponseEntity.ok(decisionService.decideAll(roles,
+                request == null ? null : request.projectId(),
+                request == null ? null : trimToNull(request.projectCode()), decisionTargets));
     }
 
     private void applyPayload(ControlToolAclEntity entity, ControlToolAclEntity request) {
@@ -198,10 +225,32 @@ public class ControlToolAclController {
     public record ToggleRequest(Boolean enabled) {
     }
 
-    public record GrantBatchRequest(String roleCode, String permission, List<ToolAclTargetRef> targets, String note) {
+    public static class ToolAclUpdateRequest extends ControlToolAclEntity {
+        private boolean projectIdPresent;
+        private boolean projectCodePresent;
+
+        @Override
+        public void setProjectId(Long projectId) {
+            super.setProjectId(projectId);
+            projectIdPresent = true;
+        }
+
+        @Override
+        public void setProjectCode(String projectCode) {
+            super.setProjectCode(projectCode);
+            projectCodePresent = true;
+        }
+
+        boolean projectIdPresent() { return projectIdPresent; }
+        boolean projectCodePresent() { return projectCodePresent; }
     }
 
-    public record ExplainRequest(List<String> roles, List<ToolAclTargetRef> targets) {
+    public record GrantBatchRequest(String roleCode, String permission, List<ToolAclTargetRef> targets, String note,
+                                    Long projectId, String projectCode) {
+    }
+
+    public record ExplainRequest(List<String> roles, List<ToolAclTargetRef> targets,
+                                 Long projectId, String projectCode) {
     }
 
     public record ToolAclTargetRef(String kind, String name) {

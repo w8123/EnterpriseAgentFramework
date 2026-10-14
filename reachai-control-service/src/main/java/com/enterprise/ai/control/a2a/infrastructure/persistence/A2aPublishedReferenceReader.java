@@ -23,13 +23,17 @@ public class A2aPublishedReferenceReader implements A2aPublishedReferenceQuery {
     @Transactional(readOnly = true)
     public Evidence inspect() {
         var published = publications.selectList(Wrappers.<A2aPublicationEntity>lambdaQuery()
+                .select(A2aPublicationEntity::getId, A2aPublicationEntity::getAgentId, A2aPublicationEntity::getCurrentRevisionId)
                 .eq(A2aPublicationEntity::getStatus, "PUBLISHED")
                 .orderByAsc(A2aPublicationEntity::getId).last("limit " + (LIMIT + 1)));
         boolean complete = published.size() <= LIMIT;
         var selected = published.stream().limit(LIMIT).toList();
         var ids = selected.stream().map(A2aPublicationEntity::getCurrentRevisionId)
                 .filter(Objects::nonNull).distinct().toList();
-        var frozen = ids.isEmpty() ? List.<A2aPublicationRevisionEntity>of() : revisions.selectBatchIds(ids);
+        var frozen = ids.isEmpty() ? List.<A2aPublicationRevisionEntity>of() : revisions.selectList(Wrappers.<A2aPublicationRevisionEntity>lambdaQuery()
+                .select(A2aPublicationRevisionEntity::getId, A2aPublicationRevisionEntity::getPublicationId,
+                        A2aPublicationRevisionEntity::getName, A2aPublicationRevisionEntity::getAgentConfigVersionId)
+                .in(A2aPublicationRevisionEntity::getId, ids));
         var byId = frozen.stream().collect(Collectors.toMap(A2aPublicationRevisionEntity::getId, Function.identity()));
         List<Binding> bindings = new ArrayList<>();
         for (var publication : selected) {

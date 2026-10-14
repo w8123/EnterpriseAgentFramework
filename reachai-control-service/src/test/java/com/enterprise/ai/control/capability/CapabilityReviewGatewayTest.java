@@ -19,10 +19,64 @@ import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 
 class CapabilityReviewGatewayTest {
 
     private static final String SECRET = "control-capability-review-gateway-secret";
+
+    @Test void standaloneClassificationCreationSignsTheExactOwnerPathActorAndChineseRequestBody() throws Exception {
+        List<CatalogRequest> captured = new CopyOnWriteArrayList<>();
+        var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/", exchange -> captureCatalog(exchange, captured)); server.start();
+        try {
+            var json = new ObjectMapper();
+            var gateway = new CapabilityReviewGateway(new InternalServiceAuthSigner(SECRET), json,
+                    "http://127.0.0.1:" + server.getAddress().getPort(), HttpClient.newHttpClient());
+            var body = Map.of("displayName", "字典查询与统计");
+            gateway.catalogResources("POST", 7L, false, "/groups", Map.of(), body, "42");
+            assertEquals(1, captured.size()); var request = captured.get(0);
+            assertEquals("POST", request.method());
+            assertEquals("/internal/capability/business-capabilities/projects/7/groups", request.path());
+            assertEquals(null, request.query());
+            assertEquals("42", request.headers().get(InternalServiceAuthHeaders.IDENTITY_USER_ID.toLowerCase(Locale.ROOT)));
+            assertArrayEquals(json.writeValueAsBytes(body), request.body());
+            assertEquals(InternalServiceHmac.bodySha256Hex(request.body()), request.headers().get(InternalServiceAuthHeaders.BODY_SHA256.toLowerCase(Locale.ROOT)));
+            assertSigned(request);
+        } finally { server.stop(0); }
+    }
+
+    @Test void classificationAndUngroupedQueriesUseTheExactSignedOwnerReadPaths() throws Exception {
+        List<CatalogRequest> captured = new CopyOnWriteArrayList<>();
+        var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/", exchange -> captureCatalog(exchange, captured)); server.start();
+        try {
+            var gateway = new CapabilityReviewGateway(new InternalServiceAuthSigner(SECRET), new ObjectMapper(),
+                    "http://127.0.0.1:" + server.getAddress().getPort(), HttpClient.newHttpClient());
+            gateway.catalogResources("GET", 7L, false, "/classification/BUSINESS_METHOD", Map.of(), null, "42");
+            gateway.listBusinessMethods(2, 5, "query", true, 7L, "42", null, true, testGrant());
+            gateway.listHttpApis(7L, "dev", "query", "GET", "DISCOVERED", 2, 5, "42", null, true, testGrant());
+            assertEquals("/internal/capability/business-capabilities/projects/7/classification/BUSINESS_METHOD", captured.get(0).path());
+            assertEquals("current=2&size=5&keyword=query&ungrouped=true&enabled=true&projectId=7", captured.get(1).query());
+            assertEquals("projectId=7&current=2&size=5&environment=dev&keyword=query&method=GET&sourceStatus=DISCOVERED&ungrouped=true", captured.get(2).query());
+            captured.forEach(CapabilityReviewGatewayTest::assertSigned);
+        } finally { server.stop(0); }
+    }
+
+    @Test void typedResourcesSignInternalSubjectAndGraphPathsWithActorAndExactBody() throws Exception {
+        List<CatalogRequest> captured = new CopyOnWriteArrayList<>();
+        var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/", exchange -> captureCatalog(exchange, captured)); server.start();
+        try {
+            var gateway = new CapabilityReviewGateway(new InternalServiceAuthSigner(SECRET), new ObjectMapper(),
+                    "http://127.0.0.1:" + server.getAddress().getPort(), HttpClient.newHttpClient());
+            gateway.catalogResources("PUT", 7L, false, "/subjects/HTTP_API/21/semantic", Map.of(), Map.of("contentMd", "人工说明"), "42");
+            gateway.catalogResources("GET", 7L, true, "/subjects/BUSINESS_METHOD/11/param-hints", Map.of(), null, "42");
+            assertEquals(List.of("/internal/capability/business-capabilities/projects/7/subjects/HTTP_API/21/semantic",
+                    "/internal/capability/api-graph/projects/7/subjects/BUSINESS_METHOD/11/param-hints"), captured.stream().map(CatalogRequest::path).toList());
+            captured.forEach(CapabilityReviewGatewayTest::assertSigned);
+        } finally { server.stop(0); }
+    }
 
     @Test
     void sendsEveryReviewOperationThroughTheProjectScopedCapabilityRoutes() throws Exception {
@@ -74,9 +128,9 @@ class CapabilityReviewGatewayTest {
                     HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build());
 
             gateway.listCapabilities(2, 500, "订单 & status=ALL#+/", "code+/source",
-                    false, 7L, "42");
-            gateway.listBusinessMethods(3, 1, "orders / create", true, 7L, "42");
-            gateway.getBusinessMethod("orders_create", "42");
+                    false, 7L, "42", testGrant());
+            gateway.listBusinessMethods(3, 1, "orders / create", true, 7L, "42", null, false, testGrant());
+            gateway.getBusinessMethod("orders_create", "42", testGrant());
             gateway.getProjectById(7L, "42");
 
             assertEquals(4, captured.size());
@@ -137,26 +191,36 @@ class CapabilityReviewGatewayTest {
         } finally { server.stop(0); }
     }
 
-    @Test
-    void summarySignsTheAggregateOwnerPathForProjectAndGlobalReads() throws Exception {
+    @Test void signedGetGrantBodyAndOnlyOwnerHeadersSurviveTheGateway() throws Exception {
         List<CatalogRequest> captured = new CopyOnWriteArrayList<>();
-        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        server.createContext("/", exchange -> captureCatalog(exchange, captured));
-        server.start();
+        var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/", exchange -> {
+            exchange.getResponseHeaders().add("X-EAF-Catalog-Scope", "PROJECT");
+            exchange.getResponseHeaders().add("X-EAF-Catalog-Project-Id", "7");
+            exchange.getResponseHeaders().add("X-EAF-Catalog-Project-Code", "orders%20%2B%20api");
+            exchange.getResponseHeaders().add("Set-Cookie", "private=value");
+            exchange.getResponseHeaders().add("X-Internal-Secret", "must-not-forward");
+            captureCatalog(exchange, captured);
+        }); server.start();
         try {
-            var gateway = new CapabilityReviewGateway(new InternalServiceAuthSigner(SECRET), new ObjectMapper(),
+            var json = new ObjectMapper();
+            var gateway = new CapabilityReviewGateway(new InternalServiceAuthSigner(SECRET), json,
                     "http://127.0.0.1:" + server.getAddress().getPort(), HttpClient.newHttpClient());
-            gateway.getBusinessMethodSummary(7L, "42");
-            gateway.getBusinessMethodSummary(null, "42");
-            assertEquals(2, captured.size());
-            assertEquals("projectId=7", captured.get(0).query());
-            assertEquals(null, captured.get(1).query());
-            for (var request : captured) {
-                assertEquals("GET", request.method());
-                assertEquals("/internal/capability/business-methods/summary", request.path());
-                assertSigned(request);
-            }
+            var body = Map.<String, Object>of("catalogReadGrant", Map.of("global", false, "projects", List.of("orders + api"), "requestedProjectId", 7));
+            var response = gateway.catalogResources("GET", 7L, false, "/semantic-docs", Map.of(), body, "42");
+            gateway.listBusinessMethods(1, 20, null, null, 7L, "42", null, false, body);
+            gateway.listHttpApis(7L, null, null, null, null, 1, 20, "42", null, false, body);
+            assertEquals(3, captured.size());
+            for (var request : captured) { assertArrayEquals(json.writeValueAsBytes(body), request.body()); assertSigned(request); }
+            assertEquals("7", response.getHeaders().getFirst(CatalogReadAuthorization.PROJECT_ID));
+            assertEquals("orders%20%2B%20api", response.getHeaders().getFirst(CatalogReadAuthorization.PROJECT_CODE));
+            assertEquals(null, response.getHeaders().getFirst("Set-Cookie"));
+            assertEquals(null, response.getHeaders().getFirst("X-Internal-Secret"));
         } finally { server.stop(0); }
+    }
+
+    private static Map<String, Object> testGrant() {
+        return Map.of("catalogReadGrant", Map.of("global", false, "projects", List.of("orders"), "requestedProjectId", 7));
     }
 
     private static void capture(HttpExchange exchange,

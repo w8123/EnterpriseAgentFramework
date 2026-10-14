@@ -2239,7 +2239,7 @@
 /* Extra compact pass: keep the whole first step visible in the main scroll area. */
 .page-header {
   min-height: 112px;
-  padding: 13px 26px;
+  padding: var(--layout-page-header-padding-block) var(--layout-page-header-padding-inline);
 }
 
 .page-header h1 {
@@ -2310,7 +2310,7 @@
 
 .focus-panel {
   min-height: 390px;
-  padding: 22px 26px 12px;
+  padding: var(--layout-panel-padding);
 }
 
 .panel-head {
@@ -2355,7 +2355,7 @@
 
 .wizard-footer {
   min-height: 48px;
-  padding: 9px 26px;
+  padding: var(--layout-pagination-padding-block) var(--layout-panel-padding);
 }
 
 @media (min-width: 1600px) {
@@ -2868,7 +2868,7 @@
 
 .page-header {
   align-items: center;
-  gap: 24px;
+  gap: var(--layout-panel-padding);
 }
 
 .title-mode-switch {

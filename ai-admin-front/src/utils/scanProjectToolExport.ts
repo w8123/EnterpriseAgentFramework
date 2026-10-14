@@ -1,34 +1,7 @@
 import type { ProjectToolInfo } from '@/types/scanProject'
 import type { ToolParameter } from '@/types/tool'
 import * as XLSX from 'xlsx'
-
-/** 与敏感扫描类型代码对应的中文（表格 / 导出共用） */
-export const SCAN_TOOL_SENSITIVE_TYPE_LABELS: Record<string, string> = {
-  PHONE: '电话号码/手机号',
-  EMAIL: '邮箱',
-  ID_CARD: '身份证',
-  BANK_CARD: '银行卡',
-  REAL_NAME: '姓名',
-  USER_CODE: '工号',
-  USER_ID: '用户ID',
-  PASSWORD_SECRET: '密码/密钥',
-  ADDRESS: '地址',
-  IP_ADDRESS: 'IP',
-  DEVICE_ID: '设备标识',
-  SSO_TOKEN: 'SSO/会话令牌',
-  API_KEY: 'API Key',
-  COOKIE_SESSION: 'Cookie/会话',
-  MEDICAL: '医疗信息',
-  BIOMETRIC: '生物特征',
-  LOCATION: '位置',
-  EDUCATIONAL_BACKGROUND: '学历',
-  CREDIT: '征信',
-  OTHER_PII: '其他个人信息',
-}
-
-export function scanSensitiveTypeLabel(code: string): string {
-  return SCAN_TOOL_SENSITIVE_TYPE_LABELS[code] ?? code
-}
+import { scanSensitiveTypeLabel } from './scanSensitiveLabels'
 
 function buildApiAddress(tool: ProjectToolInfo): string {
   const pathPart = `${tool.contextPath ?? ''}${tool.endpointPath ?? ''}`.trim()

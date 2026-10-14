@@ -32,7 +32,7 @@
       show-icon
       :closable="false"
       title="决策规则：DENY 优先；无命中默认拒绝"
-      description="上下文 roles 为空时后端走兼容旧行为（不拦截，仅 warn），接入生产前请确保所有入口都把用户角色注入 ChatRequest.roles 或由网关从 JWT 解出。target_name='*' 代表通配；target_kind='ALL' 表示全部 TOOL。"
+      description="角色为空时 ACL 诊断返回 SKIPPED，该结果不表示允许调用；MCP 与 Console 等严格入口仅接受 ALLOW，并从可信身份取得角色。平台范围规则适用于所有项目，项目规则仅匹配指定项目。能力名 * 代表通配，类型 ALL 表示全部调用目标。"
     />
 
     <div class="acl-body workbench-list-surface">
@@ -76,6 +76,9 @@
         <el-card shadow="never">
           <el-table :data="rules" v-loading="loading" stripe size="default">
             <el-table-column prop="roleCode" label="角色" min-width="140" />
+            <el-table-column label="项目范围" min-width="180" show-overflow-tooltip>
+              <template #default="{ row }">{{ projectScopeLabel(row) }}</template>
+            </el-table-column>
             <el-table-column prop="targetKind" label="类型" width="110">
               <template #default="{ row }">
                 <el-tag size="small" :type="kindTagType(row.targetKind)">{{ row.targetKind }}</el-tag>
@@ -135,13 +138,14 @@
     <!-- 新建 / 编辑弹窗 -->
     <AppDialog v-model="editDialogOpen" :title="editing?.id ? `编辑规则 #${editing.id}` : '新建规则'" width="520px">
       <el-form :model="editing" label-width="90px" v-if="editing">
+        <ToolAclProjectScopeField :model-value="editing" :disabled="saving" @update:model-value="setEditingScope" />
         <el-form-item label="角色" required>
           <el-input v-model="editing.roleCode" placeholder="admin / ops / customer-service" />
         </el-form-item>
         <el-form-item label="类型" required>
           <el-radio-group v-model="editing.targetKind">
-            <el-radio-button label="TOOL" />
-            <el-radio-button label="ALL" />
+            <el-radio-button value="TOOL">TOOL</el-radio-button>
+            <el-radio-button value="ALL">ALL</el-radio-button>
           </el-radio-group>
         </el-form-item>
         <el-form-item label="能力" required>
@@ -149,8 +153,8 @@
         </el-form-item>
         <el-form-item label="决策" required>
           <el-radio-group v-model="editing.permission">
-            <el-radio-button label="ALLOW" />
-            <el-radio-button label="DENY" />
+            <el-radio-button value="ALLOW">ALLOW</el-radio-button>
+            <el-radio-button value="DENY">DENY</el-radio-button>
           </el-radio-group>
         </el-form-item>
         <el-form-item label="启用">
@@ -169,13 +173,14 @@
     <!-- 批量授权 -->
     <AppDialog v-model="batchDialogOpen" title="批量授权" width="600px">
       <el-form :model="batchForm" label-width="90px">
+        <ToolAclProjectScopeField :model-value="batchForm" :disabled="saving" @update:model-value="setBatchScope" />
         <el-form-item label="角色" required>
           <el-input v-model="batchForm.roleCode" placeholder="一次授权给一个角色" />
         </el-form-item>
         <el-form-item label="决策" required>
           <el-radio-group v-model="batchForm.permission">
-            <el-radio-button label="ALLOW" />
-            <el-radio-button label="DENY" />
+            <el-radio-button value="ALLOW">ALLOW</el-radio-button>
+            <el-radio-button value="DENY">DENY</el-radio-button>
           </el-radio-group>
         </el-form-item>
         <el-form-item label="TOOL 列表">
@@ -199,6 +204,7 @@
     <!-- 诊断：给 roles + targets 查看决策 -->
     <AppDialog v-model="explainDialogOpen" title="ACL 决策诊断" width="640px">
       <el-form :model="explainForm" label-width="90px">
+        <ToolAclProjectScopeField :model-value="explainForm" :disabled="explaining" @update:model-value="setExplainScope" />
         <el-form-item label="roles" required>
           <el-select v-model="explainForm.roles" multiple filterable allow-create placeholder="选择或输入角色">
             <el-option v-for="r in roles" :key="r" :label="r" :value="r" />
@@ -232,11 +238,14 @@
 
 <script setup lang="ts">
 import AppDialog from '@/components/common/AppDialog.vue'
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Plus, Refresh, Search, Magnet, MagicStick } from '@element-plus/icons-vue'
 import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
+import ToolAclProjectScopeField from './components/ToolAclProjectScopeField.vue'
+import { useProjectStore } from '@/store/project'
+import { usePageProjectScope } from '@/composables/usePageProjectScope'
 
 import {
   createToolAcl,
@@ -251,6 +260,7 @@ import {
 import type {
   ToolAclDecision,
   ToolAclPermission,
+  ToolAclProjectScope,
   ToolAclRule,
   ToolAclTargetKind,
   ToolAclTargetRef,
@@ -259,6 +269,8 @@ import type {
 const loading = ref(false)
 const saving = ref(false)
 const explaining = ref(false)
+const projectStore = useProjectStore()
+const pageProjectScope = usePageProjectScope()
 
 const rules = ref<ToolAclRule[]>([])
 const roles = ref<string[]>([])
@@ -275,6 +287,8 @@ const editing = ref<Partial<ToolAclRule> | null>(null)
 
 const batchDialogOpen = ref(false)
 const batchForm = reactive({
+  projectId: undefined as number | null | undefined,
+  projectCode: undefined as string | null | undefined,
   roleCode: '',
   permission: 'ALLOW' as ToolAclPermission,
   toolsRaw: '',
@@ -283,10 +297,29 @@ const batchForm = reactive({
 
 const explainDialogOpen = ref(false)
 const explainForm = reactive({
+  projectId: undefined as number | null | undefined,
+  projectCode: undefined as string | null | undefined,
   roles: [] as string[],
   targetsRaw: '',
 })
 const explainResult = ref<{ kind: string; name: string; decision: ToolAclDecision }[]>([])
+let explainRevision = 0
+
+function invalidateExplain() {
+  explainRevision += 1
+  explainResult.value = []
+  explaining.value = false
+}
+
+watch([
+  () => explainForm.projectId,
+  () => explainForm.projectCode,
+  () => [...explainForm.roles],
+  () => explainForm.targetsRaw,
+  () => explainDialogOpen.value,
+], invalidateExplain, { flush: 'sync' })
+
+onBeforeUnmount(invalidateExplain)
 
 const filteredRoles = computed(() => {
   const f = roleFilter.value.trim().toLowerCase()
@@ -296,7 +329,7 @@ const filteredRoles = computed(() => {
 
 function kindTagType(kind: ToolAclTargetKind) {
   if (kind === 'ALL') return 'info'
-  return ''
+  return 'primary'
 }
 
 function decisionTag(d: ToolAclDecision) {
@@ -349,8 +382,42 @@ function selectRole(r: string) {
   reload()
 }
 
+function defaultProjectScope(): ToolAclProjectScope {
+  if (pageProjectScope?.isActive.value) {
+    const current = pageProjectScope.requestParams.value
+    return { projectId: current?.projectId, projectCode: current?.projectId ? current.projectCode || null : undefined }
+  }
+  const project = projectStore.currentProject
+  return { projectId: project?.id, projectCode: project ? project.projectCode?.trim() || null : undefined }
+}
+
+function hasSelectedScope(scope: ToolAclProjectScope) {
+  return scope.projectId != null || Boolean(scope.projectCode?.trim())
+    || (scope.projectId === null && scope.projectCode === null)
+}
+
+function projectScopeLabel(scope: ToolAclProjectScope) {
+  if (scope.projectId == null && !scope.projectCode) return '平台范围（所有项目）'
+  const project = projectStore.projects.find(project => scope.projectId != null
+    ? project.id === scope.projectId : project.projectCode === scope.projectCode)
+  return project ? projectStore.projectLabel(project) : scope.projectCode || `项目 #${scope.projectId}`
+}
+
+function setEditingScope(scope: ToolAclProjectScope) {
+  if (editing.value) Object.assign(editing.value, scope)
+}
+
+function setBatchScope(scope: ToolAclProjectScope) {
+  Object.assign(batchForm, scope)
+}
+
+function setExplainScope(scope: ToolAclProjectScope) {
+  Object.assign(explainForm, scope)
+}
+
 function openCreateDialog() {
   editing.value = {
+    ...defaultProjectScope(),
     roleCode: selectedRole.value || '',
     targetKind: 'TOOL',
     targetName: '',
@@ -362,12 +429,16 @@ function openCreateDialog() {
 }
 
 function openEditDialog(row: ToolAclRule) {
-  editing.value = { ...row }
+  editing.value = { ...row, projectId: row.projectId ?? null, projectCode: row.projectCode ?? null }
   editDialogOpen.value = true
 }
 
 async function handleSave() {
-  if (!editing.value) return
+  if (!editing.value || saving.value) return
+  if (!hasSelectedScope(editing.value)) {
+    ElMessage.warning('请选择项目范围')
+    return
+  }
   if (!editing.value.roleCode || !editing.value.targetName) {
     ElMessage.warning('请填写角色与能力')
     return
@@ -421,6 +492,7 @@ function parseLines(raw: string, kind: ToolAclTargetKind): ToolAclTargetRef[] {
 }
 
 function openBatchDialog() {
+  Object.assign(batchForm, defaultProjectScope())
   batchForm.roleCode = selectedRole.value || ''
   batchForm.permission = 'ALLOW'
   batchForm.toolsRaw = ''
@@ -429,6 +501,11 @@ function openBatchDialog() {
 }
 
 async function handleBatchGrant() {
+  if (saving.value) return
+  if (!hasSelectedScope(batchForm)) {
+    ElMessage.warning('请选择项目范围')
+    return
+  }
   if (!batchForm.roleCode) {
     ElMessage.warning('请填写 role')
     return
@@ -443,6 +520,8 @@ async function handleBatchGrant() {
   saving.value = true
   try {
     const { data } = await grantToolAclBatch({
+      projectId: batchForm.projectId,
+      projectCode: batchForm.projectCode,
       roleCode: batchForm.roleCode,
       permission: batchForm.permission,
       targets,
@@ -460,13 +539,19 @@ async function handleBatchGrant() {
 }
 
 function openExplainDialog() {
+  invalidateExplain()
+  Object.assign(explainForm, defaultProjectScope())
   explainForm.roles = selectedRole.value ? [selectedRole.value] : []
   explainForm.targetsRaw = ''
-  explainResult.value = []
   explainDialogOpen.value = true
 }
 
 async function handleExplain() {
+  if (!explainDialogOpen.value || explaining.value) return
+  if (!hasSelectedScope(explainForm)) {
+    ElMessage.warning('请选择项目范围')
+    return
+  }
   if (!explainForm.roles.length) {
     ElMessage.warning('请选择至少一个 role')
     return
@@ -476,7 +561,9 @@ async function handleExplain() {
     .map((l) => l.trim())
     .filter((l) => !!l)
     .map((line) => {
-      const [kind, name] = line.split(':').map((s) => s.trim())
+      const separator = line.indexOf(':')
+      const kind = (separator < 0 ? 'TOOL' : line.slice(0, separator)).trim()
+      const name = (separator < 0 ? line : line.slice(separator + 1)).trim()
       return {
         kind: (kind?.toUpperCase() as ToolAclTargetKind) || 'TOOL',
         name: name || kind,
@@ -486,18 +573,22 @@ async function handleExplain() {
     ElMessage.warning('请填写至少一条 target')
     return
   }
+  const requestRevision = ++explainRevision
+  explainResult.value = []
   explaining.value = true
   try {
-    const { data } = await explainToolAcl({ roles: explainForm.roles, targets })
+    const { data } = await explainToolAcl({ roles: [...explainForm.roles], targets,
+      projectId: explainForm.projectId, projectCode: explainForm.projectCode })
+    if (requestRevision !== explainRevision) return
     explainResult.value = targets.map((t) => ({
       kind: t.kind,
       name: t.name,
       decision: (data?.[t.name] ?? 'DENY_NO_MATCH') as ToolAclDecision,
     }))
   } catch (err) {
-    ElMessage.error('诊断失败：' + (err as Error).message)
+    if (requestRevision === explainRevision) ElMessage.error('诊断失败：' + (err as Error).message)
   } finally {
-    explaining.value = false
+    if (requestRevision === explainRevision) explaining.value = false
   }
 }
 

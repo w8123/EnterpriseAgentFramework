@@ -9,7 +9,7 @@ export function businessMethodReadiness(tool: BusinessMethodInfo): BusinessMetho
   if (tool.status === 'REMOVED' || tool.sourceAvailability === 'SOURCE_MISSING') return { label: '来源已移除', title: '业务系统已移除这项方法', description: '既有资产与使用位置保留，执行会被拦截。请核对来源项目和 Workflow 引用。', tone: 'danger' }
   if (!tool.enabled) return { label: '已停用', title: '这项业务方法已停用', description: '当前保留方法资产，不能作为新调用的可用方法。', tone: 'neutral' }
   switch (tool.sourceAvailability) {
-    case 'READY': return { label: '可用', title: '来源契约已核验', description: '来源与目录定义一致。实际调用仍需通过权限、凭据和业务校验。', tone: 'success' }
+    case 'READY': return { label: '来源一致', title: '来源契约已核验', description: '来源与目录定义一致。实际调用仍需通过权限、凭据和业务校验。', tone: 'success' }
     case 'CONTRACT_DRIFT': return { label: '契约已变化', title: '调用契约需要更新', description: '来源与目录中的参数或调用定义不一致。处理当前方法变化后，再校验引用它的 Workflow。', tone: 'warning' }
     case 'SOURCE_MISSING': return { label: '来源已移除', title: '来源已不再上报这项业务方法', description: '当前调用会被拦截。请检查业务系统，并核对已有流程的引用。', tone: 'danger' }
     case 'UNACCEPTED': return { label: '待纳管', title: '来源定义尚未纳管', description: '请在项目来源变化中确认这项定义，再用于调用。', tone: 'warning' }

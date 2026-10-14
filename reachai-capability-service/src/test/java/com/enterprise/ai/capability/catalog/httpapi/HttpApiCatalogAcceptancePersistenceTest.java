@@ -5,8 +5,8 @@ import com.baomidou.mybatisplus.extension.spring.MybatisSqlSessionFactoryBean;
 import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectMapper;
 import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectEntity;
 import com.enterprise.ai.capability.catalog.scan.CapabilityScannerClient;
-import com.enterprise.ai.capability.catalog.scan.OpenApiScanHttpApiIntakeService;
-import com.enterprise.ai.capability.catalog.scan.ControllerScanHttpApiIntakeService;
+import com.enterprise.ai.capability.catalog.scan.ScannerHttpApiIntakeService;
+import com.enterprise.ai.capability.catalog.scan.ScannerHttpApiContractAdapter;
 import com.enterprise.ai.text.tooling.scanner.controller.ControllerAnnotationToolManifestScanner;
 import com.enterprise.ai.text.tooling.scanner.manifest.HttpApiOperation;
 import com.enterprise.ai.text.tooling.scanner.manifest.ProjectMetadata;
@@ -26,15 +26,14 @@ import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
-import static org.mockito.Mockito.spy;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.*;
 
 /** Real H2/MyBatis acceptance evidence and latest-source membership, without a live project database. */
 class HttpApiCatalogAcceptancePersistenceTest {
@@ -55,7 +54,11 @@ class HttpApiCatalogAcceptancePersistenceTest {
         var source = new DriverManagerDataSource("jdbc:h2:mem:http_api_catalog_" + UUID.randomUUID()
                 + ";MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1", "sa", "");
         jdbc = new JdbcTemplate(source);
-        for (String table : List.of("capability_scan_project", "capability_http_api_asset",
+        for (String function : List.of("JSON_VALID:jsonValid", "JSON_TYPE:jsonType", "SHA2:sha2")) {
+            String[] parts = function.split(":");
+            jdbc.execute("CREATE ALIAS " + parts[0] + " FOR '" + HttpApiSqlTestFunctions.class.getName() + "." + parts[1] + "'");
+        }
+        for (String table : List.of("capability_scan_project", "capability_scan_module", "capability_catalog_group_member", "capability_http_api_asset",
                 "capability_http_api_source_binding", "capability_http_api_inventory_state",
                 "capability_http_api_inventory_member", "capability_http_api_acceptance")) createTable(table);
         MybatisConfiguration config = new MybatisConfiguration();
@@ -72,8 +75,9 @@ class HttpApiCatalogAcceptancePersistenceTest {
         members = session.getMapper(HttpApiInventoryMemberMapper.class);
         acceptances = session.getMapper(HttpApiAcceptanceMapper.class);
         projects = session.getMapper(ScanProjectMapper.class);
-        assetService = new HttpApiAssetService(assets, bindings, new HttpApiContractCanonicalizer(json));
-        catalog = new HttpApiCatalogService(assets, bindings, inventories, members, acceptances, projects, json);
+        assetService = new HttpApiAssetService(assets, bindings, new HttpApiContractCanonicalizer(json), org.mockito.Mockito.mock(com.enterprise.ai.capability.catalog.enrichment.CapabilityCatalogGroupingService.class));
+        catalog = new HttpApiCatalogService(assets, bindings, inventories, members, acceptances, projects, json,
+                new HttpApiContractCanonicalizer(json));
         tx = new TransactionTemplate(new DataSourceTransactionManager(source));
         jdbc.update("INSERT INTO capability_scan_project (id, name, project_code, environment, base_url, scan_path, scan_type, status) "
                 + "VALUES (41, 'orders', 'orders', 'dev', 'https://unused.invalid', '.', 'openapi', 'scanned')");
@@ -170,12 +174,12 @@ class HttpApiCatalogAcceptancePersistenceTest {
         assertTrue(scan.httpApiInventoryComplete());
         assertEquals(1, scan.httpApis().size());
         HttpApiOperation operation = scan.httpApis().get(0);
-        OpenApiScanHttpApiIntakeService intake = new OpenApiScanHttpApiIntakeService(assetService, bindings,
-                new HttpApiInventoryStateService(inventories, members));
+        ScannerHttpApiIntakeService intake = new ScannerHttpApiIntakeService(new HttpApiInventoryIntakeService(assetService, bindings,
+                new HttpApiInventoryStateService(inventories, members)), new ScannerHttpApiContractAdapter());
         ScanProjectEntity project = new ScanProjectEntity();
         project.setId(41L); project.setProjectCode("orders"); project.setEnvironment("dev");
         project.setContextPath("");
-        var plan = intake.prepare(project, List.of(scannerData(operation)), true);
+        var plan = intake.prepare(HttpApiSourceKind.OPENAPI_SCAN, project, List.of(scannerData(operation)), true);
         tx.execute(status -> intake.observe(plan));
         HttpApiAssetEntity asset = assets.selectList(null).get(0);
         HttpApiSourceBindingEntity binding = bindings.selectList(null).get(0);
@@ -372,18 +376,18 @@ class HttpApiCatalogAcceptancePersistenceTest {
     private void observeController(ScanProjectEntity project, Path source) {
         var manifest = new ControllerAnnotationToolManifestScanner().scan(source,
                 new ProjectMetadata(project.getProjectCode(), project.getBaseUrl(), ""));
-        var intake = new ControllerScanHttpApiIntakeService(assetService, bindings,
-                new HttpApiInventoryStateService(inventories, members));
-        tx.execute(status -> intake.observe(intake.prepare(project, manifest.httpApis().stream()
+        var intake = new ScannerHttpApiIntakeService(new HttpApiInventoryIntakeService(assetService, bindings,
+                new HttpApiInventoryStateService(inventories, members)), new ScannerHttpApiContractAdapter());
+        tx.execute(status -> intake.observe(intake.prepare(HttpApiSourceKind.CONTROLLER_SCAN, project, manifest.httpApis().stream()
                 .map(this::scannerData).toList(), manifest.httpApiInventoryComplete())));
     }
 
     private void observeOpenApi(ScanProjectEntity project, Path root, Path spec) {
         var manifest = new OpenApiToolManifestScanner().scan(root, spec,
                 new ProjectMetadata(project.getProjectCode(), project.getBaseUrl(), ""), null, null);
-        var intake = new OpenApiScanHttpApiIntakeService(assetService, bindings,
-                new HttpApiInventoryStateService(inventories, members));
-        tx.execute(status -> intake.observe(intake.prepare(project, manifest.httpApis().stream()
+        var intake = new ScannerHttpApiIntakeService(new HttpApiInventoryIntakeService(assetService, bindings,
+                new HttpApiInventoryStateService(inventories, members)), new ScannerHttpApiContractAdapter());
+        tx.execute(status -> intake.observe(intake.prepare(HttpApiSourceKind.OPENAPI_SCAN, project, manifest.httpApis().stream()
                 .map(this::scannerData).toList(), manifest.httpApiInventoryComplete())));
     }
 
@@ -417,8 +421,13 @@ class HttpApiCatalogAcceptancePersistenceTest {
 
         HttpApiAssetMapper countedAssets = spy(assets);
         HttpApiSourceBindingMapper countedBindings = spy(bindings);
+        HttpApiInventoryStateMapper countedInventories = spy(inventories);
+        HttpApiInventoryMemberMapper countedMembers = spy(members);
+        HttpApiAcceptanceMapper countedAcceptances = spy(acceptances);
+        ScanProjectMapper countedProjects = spy(projects);
         HttpApiCatalogService counted = new HttpApiCatalogService(countedAssets, countedBindings,
-                inventories, members, acceptances, projects, json);
+                countedInventories, countedMembers, countedAcceptances, countedProjects, json,
+                new HttpApiContractCanonicalizer(json));
         HttpApiCatalogService.ApiPage second = counted.list(41L, "dev", null, "GET", null, 2, 5);
         assertEquals(25, second.total());
         assertEquals(5, second.pages());
@@ -426,10 +435,20 @@ class HttpApiCatalogAcceptancePersistenceTest {
         verify(countedAssets, times(1)).selectCount(any());
         verify(countedAssets, times(1)).selectList(argThat(wrapper ->
                 wrapper.getSqlSegment().contains("LIMIT 5 OFFSET 5")));
-        verify(countedBindings, times(5)).selectList(any());
+        verify(countedBindings, times(1)).selectList(any()); // One shared source read for this entire page.
+        verify(countedInventories, times(1)).selectList(any());
+        verify(countedMembers, times(1)).selectList(any());
+        verify(countedAcceptances, times(1)).selectLatestByAssetIds(any());
+        verify(countedProjects, times(1)).selectBatchIds(any());
+        verify(countedInventories, never()).selectOne(any());
+        verify(countedMembers, never()).selectOne(any());
+        verify(countedAcceptances, never()).selectOne(any());
+        verify(countedProjects, never()).selectById(any());
 
         assertEquals(23, catalog.list(41L, "dev", null, "GET", "DISCOVERED", 1, 5).total());
-        assertEquals(1, catalog.list(41L, "dev", null, "GET", "ACCEPTED", 1, 5).total());
+        HttpApiCatalogService.ApiPage accepted = catalog.list(41L, "dev", null, "GET", "ACCEPTED", 1, 5);
+        assertEquals(1, accepted.total());
+        assertEquals("actor-1", accepted.records().get(0).acceptedBy());
         HttpApiCatalogService.ApiPage unconfirmed = catalog.list(41L, "dev", null, "GET",
                 "SOURCE_UNCONFIRMED", 1, 5);
         assertEquals(1, unconfirmed.total());
@@ -438,6 +457,188 @@ class HttpApiCatalogAcceptancePersistenceTest {
         assertEquals(0, catalog.list(41L, "dev", "item-1%", "GET", null, 1, 5).total(),
                 "keyword wildcards are literal text, not a broader SQL pattern");
         assertEquals(0, catalog.list(41L, "dev", null, "POST", null, 1, 5).total());
+        var selected = assetIds.subList(0, 6);
+        var groupPage = catalog.list(41L, "dev", null, "GET", null, 2, 5, selected);
+        assertEquals(6, groupPage.total());
+        assertEquals(1, groupPage.records().size());
+        assertTrue(selected.contains(groupPage.records().get(0).id()));
+        assertEquals(4, catalog.list(41L, "dev", null, "GET", "DISCOVERED", 1, 5, selected).total());
+        assertEquals(0, catalog.list(41L, "dev", null, "GET", null, 1, 5, List.of()).total());
+
+        jdbc.update("INSERT INTO capability_scan_module(id,project_id,name) VALUES (4,41,'Orders'),(5,42,'Foreign')");
+        jdbc.update("INSERT INTO capability_catalog_group_member(project_id,group_id,subject_type,subject_id) VALUES (41,4,'HTTP_API',?)", assetIds.get(0));
+        jdbc.update("INSERT INTO capability_catalog_group_member(project_id,group_id,subject_type,subject_id) VALUES (41,4,'BUSINESS_METHOD',?)", assetIds.get(1));
+        // An invalid foreign-group row or a foreign project membership cannot hide this project's API.
+        jdbc.update("INSERT INTO capability_catalog_group_member(project_id,group_id,subject_type,subject_id) VALUES (41,5,'HTTP_API',?)", assetIds.get(1));
+        jdbc.update("INSERT INTO capability_catalog_group_member(project_id,group_id,subject_type,subject_id) VALUES (42,4,'HTTP_API',?)", assetIds.get(2));
+
+        var grouping = mock(com.enterprise.ai.capability.catalog.enrichment.CapabilityCatalogGroupingService.class);
+        var group = new com.enterprise.ai.agent.capability.catalog.scan.ScanModuleEntity(); group.setId(4L); group.setProjectId(41L); group.setName("Orders");
+        when(grouping.list(41L)).thenReturn(List.of(group));
+        var adjunctMembers = mock(com.enterprise.ai.capability.catalog.enrichment.CatalogGroupMemberMapper.class);
+        var groupedApi = new com.enterprise.ai.capability.catalog.enrichment.CatalogGroupMemberEntity();
+        groupedApi.setProjectId(41L); groupedApi.setGroupId(4L); groupedApi.setSubjectType("HTTP_API"); groupedApi.setSubjectId(assetIds.get(0));
+        var sameNumericMethod = new com.enterprise.ai.capability.catalog.enrichment.CatalogGroupMemberEntity();
+        sameNumericMethod.setProjectId(41L); sameNumericMethod.setGroupId(4L); sameNumericMethod.setSubjectType("BUSINESS_METHOD"); sameNumericMethod.setSubjectId(assetIds.get(1));
+        when(adjunctMembers.selectList(any())).thenReturn(List.of(groupedApi, sameNumericMethod));
+        var subjects = new com.enterprise.ai.capability.catalog.enrichment.CatalogSubjectResolver(projects,
+                mock(com.enterprise.ai.agent.capability.catalog.scan.ScanProjectToolMapper.class),
+                mock(com.enterprise.ai.capability.catalog.businessmethod.BusinessMethodAssetMapper.class),
+                mock(com.enterprise.ai.capability.catalog.businessmethod.BusinessMethodAssetStore.class), assets, bindings, catalog, grouping, json);
+        var classification = new com.enterprise.ai.capability.catalog.enrichment.CatalogClassificationService(subjects, grouping, adjunctMembers);
+        var selection = new com.enterprise.ai.capability.catalog.enrichment.CatalogGroupSelection(grouping, classification);
+        var complete = classification.index(41L, "HTTP_API");
+        assertEquals(25, complete.memberships().size()); assertEquals(24, complete.ungroupedCount());
+        assertEquals(1, complete.groups().get(0).memberCount());
+        var controller = new HttpApiCatalogInternalController(catalog, selection);
+        var classified = (HttpApiCatalogService.ApiPage) controller.list(41L, "dev", null, "GET", null, 1, 5, 4L, false).getBody();
+        assertNotNull(classified); assertEquals(1, classified.total());
+        assertEquals(assetIds.get(0), classified.records().get(0).id());
+        assertEquals(0, ((HttpApiCatalogService.ApiPage) controller.list(41L, "dev", null, "GET", "DISCOVERED", 1, 5, 4L, false).getBody()).total());
+        var ungroupedPage = (HttpApiCatalogService.ApiPage) controller.list(41L, "dev", null, "GET", null, 5, 5, null, true).getBody();
+        assertNotNull(ungroupedPage); assertEquals(24, ungroupedPage.total()); assertEquals(4, ungroupedPage.records().size());
+        assertTrue(ungroupedPage.records().stream().noneMatch(row -> row.id().equals(assetIds.get(0))));
+        var ungroupedStatus = (HttpApiCatalogService.ApiPage) controller.list(41L, "dev", null, "GET", "DISCOVERED", 1, 5, null, true).getBody();
+        assertNotNull(ungroupedStatus); assertEquals(23, ungroupedStatus.total());
+        assertEquals(400, controller.list(41L, "dev", null, "GET", null, 1, 5, 4L, true).getStatusCode().value());
+    }
+
+    @Test
+    void marketStatusFilteringUsesBoundedBatchesAndCountsAfterLateSelectionInvalidation() throws Exception {
+        for (int index = 0; index < 101; index++) {
+            int item = index;
+            HttpApiOperationContract itemContract = contract("READ_ONLY", "/bounded/" + item);
+            tx.execute(status -> assetService.observe(new HttpApiAssetService.ObserveRequest(
+                    new HttpApiServiceScope(41L, "orders", "dev"), HttpApiSourceKind.OPENAPI_SCAN,
+                    "openapi:bounded-" + item, "orders.yaml#/" + item, "scan-r1",
+                    itemContract)));
+        }
+        jdbc.update("UPDATE capability_http_api_source_binding SET source_kind='API_MARKET_OPERATION'");
+        var market = mock(com.enterprise.ai.capability.externalapi.ApiMarketHttpApiBindingService.class);
+        var invalid = new java.util.concurrent.atomic.AtomicBoolean(false);
+        when(market.confirmationReasons(any(), any(), any(), any())).thenAnswer(call -> {
+            List<HttpApiAssetEntity> batch = call.getArgument(0);
+            List<HttpApiSourceBindingEntity> sources = call.getArgument(1);
+            com.enterprise.ai.capability.externalapi.ApiMarketHttpApiBindingService.ConfirmationSession session = call.getArgument(3);
+            batch.forEach(row -> session.recordSelection(row.getId(), 100L));
+            // A late operation from one integration invalidates the whole selection. Counting must
+            // not keep an earlier batch's success after this current owner fact has been observed.
+            if (batch.size() == 1) { invalid.set(true); session.rejectIntegration(100L); }
+            Map<Long, String> reasons = new java.util.HashMap<>();
+            sources.forEach(source -> reasons.put(source.getId(), invalid.get() ? "selection BROKEN" : null));
+            return reasons;
+        });
+        HttpApiAssetMapper countedAssets = spy(assets);
+        HttpApiCatalogService counted = new HttpApiCatalogService(countedAssets, bindings,
+                inventories, members, acceptances, projects, json, new HttpApiContractCanonicalizer(json));
+        counted.setMarketBindings(market);
+
+        var discovered = counted.list(41L, "dev", null, "GET", "DISCOVERED", 1, 5);
+        assertEquals(0, discovered.total());
+        assertTrue(discovered.records().isEmpty());
+        var unconfirmed = counted.list(41L, "dev", null, "GET", "SOURCE_UNCONFIRMED", 2, 5);
+        assertEquals(101, unconfirmed.total());
+        assertEquals(21, unconfirmed.pages());
+        assertEquals(5, unconfirmed.records().size());
+        assertTrue(unconfirmed.records().stream().allMatch(row -> !row.sourceConfirmed()));
+        verify(countedAssets, times(4)).selectList(argThat(wrapper ->
+                wrapper.getSqlSegment().contains("LIMIT 100 OFFSET ")));
+        verify(countedAssets, never()).selectList(argThat(wrapper ->
+                !wrapper.getSqlSegment().contains("LIMIT")));
+    }
+
+    @Test
+    void singleDetailReadsManySourceMembersInOneBatchAndStillRereadsFreshFacts() throws Exception {
+        var scope = new HttpApiServiceScope(41L, "orders", "dev");
+        var readOnlyContract = contract("READ_ONLY");
+        List<Long> bindingIds = new ArrayList<>();
+        long assetId = 0;
+        for (int index = 0; index < 12; index++) {
+            int item = index;
+            var observed = tx.execute(status -> assetService.observe(new HttpApiAssetService.ObserveRequest(scope,
+                    HttpApiSourceKind.OPENAPI_SCAN, "openapi:shared-" + item, "orders.yaml#" + item,
+                    "scan-r1", readOnlyContract)));
+            assetId = observed.asset().getId(); bindingIds.add(observed.binding().getId());
+        }
+        tx.execute(status -> { new HttpApiInventoryStateService(inventories, members).record(scope,
+                HttpApiSourceKind.OPENAPI_SCAN, true, true, null, bindingIds); return null; });
+        var countedInventories = spy(inventories); var countedMembers = spy(members); var countedProjects = spy(projects);
+        var counted = new HttpApiCatalogService(assets, bindings, countedInventories, countedMembers,
+                acceptances, countedProjects, json, new HttpApiContractCanonicalizer(json));
+        var before = counted.detail(assetId);
+        assertEquals(12, before.sources().size()); assertTrue(before.summary().sourceConfirmed());
+        verify(countedInventories, times(1)).selectList(any()); verify(countedMembers, times(1)).selectList(any());
+        verify(countedProjects, times(1)).selectBatchIds(any());
+        verify(countedInventories, never()).selectOne(any()); verify(countedMembers, never()).selectOne(any());
+        jdbc.update("UPDATE capability_http_api_inventory_member SET inventory_token='stale' WHERE binding_id=?", bindingIds.get(11));
+        assertFalse(counted.detail(assetId).summary().sourceConfirmed());
+        verify(countedMembers, times(2)).selectList(any());
+    }
+
+    @Test void minimalIdentityConfirmsCanonicalProjectWithoutReadingContractFacts() throws Exception {
+        var observed = observe(contract("READ_ONLY"), "scan-r1");
+        var countedBindings = spy(bindings); var countedInventories = spy(inventories);
+        var identityReader = new HttpApiCatalogService(assets, countedBindings, countedInventories, members,
+                acceptances, projects, json, new HttpApiContractCanonicalizer(json));
+        var identity = identityReader.identity(observed.asset().getId());
+        assertEquals("orders", identity.projectCode());
+        assertEquals(41L, identity.projectId());
+        verifyNoInteractions(countedBindings, countedInventories);
+        jdbc.update("UPDATE capability_scan_project SET project_code='Orders' WHERE id=41");
+        assertNull(identityReader.identity(observed.asset().getId()), "Owner code comparison remains exact under a case-insensitive database collation");
+        jdbc.update("UPDATE capability_scan_project SET project_code='other' WHERE id=41");
+        assertNull(identityReader.identity(observed.asset().getId()), "Stale asset owner cannot attest a different project code");
+    }
+
+    @Test
+    void sourceIntegrityFailureHasTheSameStatusInDetailAndFilteredTotals() throws Exception {
+        var observed = observe(contract("READ_ONLY"), "source-r1");
+        confirm(observed.binding().getId(), "inventory-r1", true, null);
+        for (String corrupt : List.of("{broken", "{} {}", "[]", "{}")) {
+            jdbc.update("UPDATE capability_http_api_source_binding SET source_contract_json=? WHERE id=?",
+                    corrupt, observed.binding().getId());
+            assertEquals("SOURCE_UNCONFIRMED", catalog.detail(observed.asset().getId()).summary().sourceStatus());
+            assertEquals(0, catalog.list(41L, "dev", null, "GET", "DISCOVERED", 1, 5).total());
+            var filtered = catalog.list(41L, "dev", null, "GET", "SOURCE_UNCONFIRMED", 1, 5);
+            assertEquals(1, filtered.total());
+            assertFalse(filtered.records().get(0).sourceConfirmed());
+        }
+        jdbc.update("UPDATE capability_http_api_source_binding SET source_contract_json=? WHERE id=?",
+                observed.binding().getSourceContractJson(), observed.binding().getId());
+        assertEquals("DISCOVERED", catalog.detail(observed.asset().getId()).summary().sourceStatus());
+    }
+
+    @Test
+    void acceptedEvidenceCannotFallbackToTheCandidateAfterCorruptionOrOwnerSubstitution() throws Exception {
+        var observed = observe(contract("READ_ONLY"), "source-r1");
+        confirm(observed.binding().getId(), "inventory-r1", true, null);
+        tx.execute(status -> catalog.accept(observed.asset().getId(),
+                catalog.detail(observed.asset().getId()).summary().sourceSetRevision(), "actor-1"));
+        var accepted = assets.selectById(observed.asset().getId());
+        assertNotNull(catalog.details(List.of(accepted)).get(accepted.getId()).acceptedContract());
+        jdbc.update("UPDATE capability_http_api_asset SET accepted_contract_json='{}' WHERE id=?", accepted.getId());
+        assertThrows(IllegalStateException.class, () -> catalog.detail(accepted.getId()));
+        jdbc.update("UPDATE capability_http_api_asset SET accepted_contract_json=?,route_template='/another-owner' WHERE id=?",
+                accepted.getAcceptedContractJson(), accepted.getId());
+        assertThrows(IllegalStateException.class, () -> catalog.detail(accepted.getId()));
+    }
+
+    @Test
+    void successfulInventoryClearsThePreviousDiagnosticInTheDatabase() throws Exception {
+        var observed = observe(contract("READ_ONLY"), "source-r1");
+        var state = new HttpApiInventoryStateService(inventories, members);
+        var scope = new HttpApiServiceScope(41L, "orders", "dev");
+        tx.execute(status -> {
+            state.record(scope, HttpApiSourceKind.OPENAPI_SCAN, false, false, "来源未确认", List.of());
+            return null;
+        });
+        assertEquals("来源未确认", inventories.selectList(null).get(0).getReason());
+        tx.execute(status -> {
+            state.record(scope, HttpApiSourceKind.OPENAPI_SCAN, true, true, null, List.of(observed.binding().getId()));
+            return null;
+        });
+        assertNull(inventories.selectList(null).get(0).getReason());
+        assertTrue(catalog.detail(observed.asset().getId()).summary().sourceConfirmed());
     }
 
     private CapabilityScannerClient.HttpApiData scannerData(HttpApiOperation operation) {

@@ -3,7 +3,7 @@ package com.enterprise.ai.capability.catalog.retrieval;
 import java.util.List;
 
 /**
- * Capability-local retrieval filters for management testing and rebuild smoke flows.
+ * Capability-local keyword retrieval filters for management testing.
  */
 public record CapabilityRetrievalScope(
         List<Long> projectIds,

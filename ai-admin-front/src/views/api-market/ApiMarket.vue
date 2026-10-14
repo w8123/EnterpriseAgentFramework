@@ -142,21 +142,20 @@
           </div>
           <div class="workspace-panel__filters">
             <el-select
-              v-model="integrationFilters.projectId"
-              clearable
+              :model-value="integrationProjectId"
+              :clearable="scope.canSelectAll.value"
               filterable
               placeholder="请选择项目"
               style="width: 220px"
               @change="changeIntegrationProject"
             >
-              <el-option v-for="project in projects" :key="project.id" :label="project.name" :value="project.id" />
+              <el-option v-for="project in scope.readableProjects.value" :key="project.id" :label="project.name" :value="project.id" />
             </el-select>
             <el-select
               v-model="integrationFilters.status"
               clearable
               placeholder="全部状态"
               style="width: 150px"
-              @change="loadIntegrations"
             >
               <el-option label="待配置" value="CONFIGURING" />
               <el-option label="来源已选择" value="READY" />
@@ -171,7 +170,7 @@
         </el-alert>
         <div v-loading="loadingIntegrations" class="integration-table-shell">
           <el-empty v-if="!loadingIntegrations && !integrations.length"
-            :description="!integrationFilters.projectId ? '选择项目后读取受控接入，不跨项目汇总授权' : integrationListError ? '接入状态未知，请重新读取' : '该项目还没有接入外部 API'">
+            :description="!integrationProjectId ? scope.feedbackMessage.value || '选择项目后读取受控接入，不跨项目汇总授权' : integrationListError ? '接入状态未知，请重新读取' : '该项目还没有接入外部 API'">
             <el-button type="primary" @click="switchTab('discover')">去发现 API</el-button>
           </el-empty>
           <el-table v-else :data="integrations" class="integration-table">
@@ -212,13 +211,10 @@
             <el-table-column label="最近更新" width="170">
               <template #default="{ row }">{{ formatDate(row.updatedAt) }}</template>
             </el-table-column>
-            <el-table-column label="操作" fixed="right" width="270">
+            <el-table-column label="操作" fixed="right" width="190">
               <template #default="{ row }">
                 <el-button v-for="binding in row.apiBindings || []" :key="binding.apiId" text type="primary"
                   @click="openOwnerApi(row, binding.apiId)">配置 API</el-button>
-                <el-button text type="primary" :disabled="!canProject(row.projectCode, PLATFORM_PERMISSION_WORKFLOW_WRITE) || creatingWorkflow"
-                  :title="!canProject(row.projectCode, PLATFORM_PERMISSION_WORKFLOW_WRITE) ? '缺少此项目 Workflow 写入权限' : '先核对当前 API 验证，再创建稳定引用草稿'"
-                  @click="createWorkflowFromIntegration(row)">创建 Workflow</el-button>
                 <el-button
                   v-if="!['DISABLED', 'BROKEN'].includes(row.status)"
                   :disabled="!canProject(row.projectCode, PLATFORM_PERMISSION_WRITE)"
@@ -395,8 +391,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, markRaw, onMounted, reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, markRaw, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   CircleCheckFilled,
@@ -425,12 +421,11 @@ import {
   listApiMarketSources,
   updateApiMarketIntegrationStatus,
 } from '@/api/apiMarket'
-import { createWorkflow } from '@/api/workflow'
-import { getHttpApi, getHttpApiConnection } from '@/api/httpApi'
-import { getApiMarketIntegration } from '@/api/apiMarket'
 import { useProjectStore } from '@/store/project'
 import { platformSessionUser } from '@/auth/platformSession'
-import { hasPlatformResourcePermission, PLATFORM_PERMISSION_WRITE, PLATFORM_PERMISSION_WORKFLOW_WRITE } from '@/auth/platformAccess'
+import { usePageProjectScope } from '@/composables/usePageProjectScope'
+import { apiMarketLocation, apiMarketTab, type ApiMarketTab } from './apiMarketRoutes'
+import { hasPlatformResourcePermission, PLATFORM_PERMISSION_WRITE } from '@/auth/platformAccess'
 import type {
   ApiMarketEntryDetail,
   ApiMarketEntrySummary,
@@ -442,7 +437,6 @@ import type {
   ApiMarketVersion,
 } from '@/types/apiMarket'
 import type { ScanProject } from '@/types/scanProject'
-import { buildApiMarketWorkflowDraft } from '@/utils/apiMarketWorkflow'
 import {
   apiMarketIntegrationTone,
   apiMarketSideEffectTone,
@@ -451,13 +445,12 @@ import {
   formatApiMarketVerification,
 } from '@/utils/apiMarketLabels'
 
-type MarketTab = 'discover' | 'integrations' | 'changes' | 'sources'
-
+const route = useRoute()
 const router = useRouter()
+const scope = usePageProjectScope({ required: true })
 const projectStore = useProjectStore()
 const integrationError = ref('')
 const integrationListError = ref('')
-const creatingWorkflow = ref(false)
 let integrationSequence = 0
 function canProject(code: string, permission: string) {
   return hasPlatformResourcePermission(platformSessionUser.value?.permissionGrants, permission, 'PROJECT', null, code)
@@ -469,7 +462,7 @@ const tabs = [
   { name: 'sources' as const, label: '来源与质量', description: '证据与同步', icon: markRaw(DataLine) },
 ]
 
-const activeTab = ref<MarketTab>('discover')
+const activeTab = computed(() => apiMarketTab(route.query.marketTab))
 const refreshing = ref(false)
 const loadingEntries = ref(false)
 const loadingIntegrations = ref(false)
@@ -495,7 +488,13 @@ const filters = reactive({
   source: '',
   specFilter: '' as '' | 'yes' | 'no',
 })
-const integrationFilters = reactive<{ projectId?: number; status?: string }>({ projectId: projectStore.currentProjectId || undefined })
+const integrationFilters = reactive<{ status?: string }>({})
+const integrationProjectId = computed(() => scope.canLoadData.value ? scope.requestParams.value?.projectId : undefined)
+watch([activeTab, () => scope.requestKey.value, () => integrationFilters.status], () => {
+  if (activeTab.value === 'integrations') void loadIntegrations()
+  if (activeTab.value === 'changes') void loadChanges()
+}, { flush: 'sync', immediate: true })
+onBeforeUnmount(() => { integrationSequence += 1 })
 
 const detailVisible = ref(false)
 const selectedDetail = ref<ApiMarketEntryDetail | null>(null)
@@ -568,20 +567,19 @@ async function loadProjects() {
 }
 
 async function loadIntegrations() {
-  const sequence = ++integrationSequence, projectId = integrationFilters.projectId
+  const sequence = ++integrationSequence, projectId = integrationProjectId.value
   integrations.value = []; integrationListError.value = ''
   if (!projectId) { loadingIntegrations.value = false; return }
   loadingIntegrations.value = true
   try {
     const { data } = await listApiMarketIntegrations({ projectId, status: integrationFilters.status })
-    if (sequence === integrationSequence && projectId === integrationFilters.projectId) integrations.value = data || []
+    if (sequence === integrationSequence && projectId === integrationProjectId.value) integrations.value = data || []
   } catch {
     if (sequence === integrationSequence) integrationListError.value = '项目接入读取失败，当前状态未知；请重新读取'
   } finally { if (sequence === integrationSequence) loadingIntegrations.value = false }
 }
-function changeIntegrationProject() {
-  projectStore.selectCurrentProject(integrationFilters.projectId || null)
-  void loadIntegrations()
+function changeIntegrationProject(projectId?: number) {
+  void scope.selectScope(projectId || 'all')
 }
 
 async function loadChanges() {
@@ -601,10 +599,8 @@ async function loadChanges() {
   }
 }
 
-function switchTab(tab: MarketTab) {
-  activeTab.value = tab
-  if (tab === 'integrations') void loadIntegrations()
-  if (tab === 'changes') void loadChanges()
+function switchTab(tab: ApiMarketTab) {
+  void router.push(apiMarketLocation(tab, route.query, undefined, route.hash))
 }
 
 async function refreshCurrentTab() {
@@ -691,19 +687,21 @@ async function submitIntegration() {
       versionId: version.id, operationIds: [operation.id], environment: integrationForm.environment,
       note: `从 API 市场接入 ${operation.title}`,
     })
-    integrationFilters.projectId = integration.projectId; projectStore.selectCurrentProject(integration.projectId)
+    await scope.selectScope(integration.projectId)
     await Promise.allSettled([loadStats(), loadIntegrations()])
     const binding = integration.apiBindings?.find(item => item.operationId === operation.id)
     integrationDialogVisible.value = false
     ElMessage.success('来源选择已保存；请在 API 详情接纳、配置连接与权限，并完成真实验证')
     if (binding) await openOwnerApi(integration, binding.apiId)
-    else { activeTab.value = 'integrations'; ElMessage.warning('所属 API 指针尚不可读取，不能创建执行草稿') }
+    else { switchTab('integrations'); ElMessage.warning('所属 API 尚不可读取，请刷新接入记录后配置 API') }
   } catch (error) { integrationError.value = errorMessage(error) }
   finally { submittingIntegration.value = false }
 }
 async function openOwnerApi(row: ApiMarketIntegration, id: number) {
-  projectStore.selectCurrentProject(row.projectId)
-  await router.push({ name: 'HttpApiDetail', params: { id }, query: { projectId: row.projectId, projectCode: row.projectCode } })
+  const location = apiMarketLocation('integrations', route.query, { kind: 'project',
+    project: { id: row.projectId, name: row.projectName, projectCode: row.projectCode } }, route.hash)
+  await router.push({ name: 'HttpApiDetail', params: { id },
+    query: location.query, hash: location.hash })
 }
 
 async function openIntegrationEntry(row: ApiMarketIntegration) {
@@ -711,32 +709,6 @@ async function openIntegrationEntry(row: ApiMarketIntegration) {
   await openEntry(row.entry)
 }
 
-async function createWorkflowFromIntegration(row: ApiMarketIntegration) {
-  if (creatingWorkflow.value || !canProject(row.projectCode, PLATFORM_PERMISSION_WORKFLOW_WRITE)) return
-  creatingWorkflow.value = true
-  try {
-    const { data: current } = await getApiMarketIntegration(row.id)
-    if (current.version?.id !== row.version?.id || current.projectId !== row.projectId
-        || current.projectCode !== row.projectCode || current.status !== 'READY'
-        || current.apiBindings?.length !== 1 || row.selectedOperations[0]?.id !== current.selectedOperations[0]?.id) {
-      throw new Error('固定选择已变化或不可用；请刷新接入记录并显式重新选择，不跟随目录最新版本')
-    }
-    const binding = current.apiBindings[0]
-    if (binding.blockingReason) throw new Error(binding.blockingReason)
-    const [{ data: detail }, { data: connection }] = await Promise.all([getHttpApi(binding.apiId), getHttpApiConnection(binding.apiId)])
-    if (detail.summary.qualifiedName !== binding.qualifiedName || detail.summary.projectId !== current.projectId) throw new Error('API owner 已变化，请刷新')
-    const draft = buildApiMarketWorkflowDraft(detail, connection, {
-      name: `${current.entry?.title || '市场 API'} · ${current.selectedOperations[0]?.title || 'Workflow'}`.slice(0, 80),
-      keySlug: uniqueWorkflowKey(current.entry?.entryKey || 'market', current.selectedOperations[0]?.operationKey || 'api'),
-      projectId: current.projectId, projectCode: current.projectCode, environment: binding.environment,
-    })
-    const { data: workflow } = await createWorkflow(draft)
-    projectStore.selectCurrentProject(current.projectId)
-    ElMessage.success('稳定 API 引用草稿已创建；请在 Studio 保存、只读试运行并显式校验发布')
-    await router.push(`/workflows/${workflow.id}/studio`)
-  } catch (error) { ElMessage.warning(errorMessage(error)) }
-  finally { creatingWorkflow.value = false }
-}
 async function reselectIntegration(row: ApiMarketIntegration) {
   if (!row.entry || !row.version || !canProject(row.projectCode, PLATFORM_PERMISSION_WRITE)) return
   detailLoading.value = true
@@ -765,14 +737,6 @@ async function setIntegrationStatus(row: ApiMarketIntegration, status: string) {
   } catch {
     // 用户取消或请求拦截器已提示。
   }
-}
-
-function uniqueWorkflowKey(entryKey: string, operationKey: string) {
-  return `api-${entryKey}-${operationKey}-${Date.now().toString(36).slice(-5)}`
-    .toLowerCase()
-    .replace(/[^a-z0-9_-]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 128)
 }
 
 function normalizeEnvironment(value?: string | null) {
@@ -1305,11 +1269,6 @@ function errorMessage(error: unknown) {
   :deep(.el-select) {
     width: 100%;
   }
-}
-
-.workflow-toggle {
-  align-self: flex-start;
-  font-weight: 650;
 }
 
 .workflow-hint {

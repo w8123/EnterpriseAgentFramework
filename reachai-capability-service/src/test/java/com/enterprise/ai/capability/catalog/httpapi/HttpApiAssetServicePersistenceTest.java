@@ -73,7 +73,7 @@ class HttpApiAssetServicePersistenceTest {
         SqlSessionTemplate session = new SqlSessionTemplate(factory.getObject());
         assets = session.getMapper(HttpApiAssetMapper.class);
         bindings = session.getMapper(HttpApiSourceBindingMapper.class);
-        service = new HttpApiAssetService(assets, bindings, new HttpApiContractCanonicalizer(json));
+        service = new HttpApiAssetService(assets, bindings, new HttpApiContractCanonicalizer(json), org.mockito.Mockito.mock(com.enterprise.ai.capability.catalog.enrichment.CapabilityCatalogGroupingService.class));
         tx = new TransactionTemplate(new DataSourceTransactionManager(dataSource));
         tx.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
     }
@@ -240,7 +240,7 @@ class HttpApiAssetServicePersistenceTest {
     @Test
     void concurrentFirstObservationsOfEquivalentSourcesConvergeThroughDatabaseLocks() throws Exception {
         HttpApiAssetService concurrent = new HttpApiAssetService(
-                blockFirstTwoNullLookups(assets, "selectOne"), bindings, new HttpApiContractCanonicalizer(json));
+                blockFirstTwoNullLookups(assets, "selectOne"), bindings, new HttpApiContractCanonicalizer(json), org.mockito.Mockito.mock(com.enterprise.ai.capability.catalog.enrichment.CapabilityCatalogGroupingService.class));
         runConcurrently(concurrent,
                 new HttpApiAssetService.ObserveRequest(ordersProd, HttpApiSourceKind.STARTER_MVC,
                         "starter:concurrent", "OrdersController.java:42", "r1", contract("READ_ONLY")),
@@ -262,7 +262,7 @@ class HttpApiAssetServicePersistenceTest {
                 contract("READ_ONLY"));
         HttpApiAssetService concurrent = new HttpApiAssetService(assets,
                 blockFirstTwoNullLookups(bindings, "selectOne"),
-                new HttpApiContractCanonicalizer(json));
+                new HttpApiContractCanonicalizer(json), org.mockito.Mockito.mock(com.enterprise.ai.capability.catalog.enrichment.CapabilityCatalogGroupingService.class));
         runConcurrently(concurrent,
                 new HttpApiAssetService.ObserveRequest(ordersProd, HttpApiSourceKind.OPENAPI_SCAN,
                         "openapi:same-source", "orders.yaml#/read", "r1", contract("READ_ONLY")),
@@ -291,7 +291,7 @@ class HttpApiAssetServicePersistenceTest {
 
         HttpApiAssetService concurrent = new HttpApiAssetService(assets,
                 blockFirstTwoInserts(bindings),
-                new HttpApiContractCanonicalizer(json));
+                new HttpApiContractCanonicalizer(json), org.mockito.Mockito.mock(com.enterprise.ai.capability.catalog.enrichment.CapabilityCatalogGroupingService.class));
         runConcurrently(concurrent,
                 new HttpApiAssetService.ObserveRequest(ordersProd, HttpApiSourceKind.OPENAPI_SCAN,
                         "openapi:shared-source", "orders-left.yaml#/read", "r1", left),
@@ -311,7 +311,7 @@ class HttpApiAssetServicePersistenceTest {
     @Test
     void concurrentDifferentContractsConvergeToConflictInsteadOfStaleDiscoveredState() throws Exception {
         HttpApiAssetService concurrent = new HttpApiAssetService(
-                blockFirstTwoNullLookups(assets, "selectOne"), bindings, new HttpApiContractCanonicalizer(json));
+                blockFirstTwoNullLookups(assets, "selectOne"), bindings, new HttpApiContractCanonicalizer(json), org.mockito.Mockito.mock(com.enterprise.ai.capability.catalog.enrichment.CapabilityCatalogGroupingService.class));
         runConcurrently(concurrent,
                 new HttpApiAssetService.ObserveRequest(ordersProd, HttpApiSourceKind.STARTER_MVC,
                         "starter:conflict", "OrdersController.java:42", "r1", contract("READ_ONLY")),

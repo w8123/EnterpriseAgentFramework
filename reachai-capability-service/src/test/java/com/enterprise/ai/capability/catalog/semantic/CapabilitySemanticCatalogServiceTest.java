@@ -1,181 +1,133 @@
 package com.enterprise.ai.capability.catalog.semantic;
 
-import com.enterprise.ai.agent.capability.catalog.scan.ScanModuleEntity;
-import com.enterprise.ai.agent.capability.catalog.scan.ScanModuleMapper;
-import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectEntity;
-import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectMapper;
-import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectToolEntity;
-import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectToolMapper;
 import com.enterprise.ai.agent.capability.catalog.semantic.SemanticDocEntity;
-import com.enterprise.ai.agent.capability.catalog.semantic.SemanticDocMapper;
-import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionEntity;
-import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionMapper;
+import com.enterprise.ai.capability.catalog.enrichment.CatalogSubject;
+import com.enterprise.ai.capability.catalog.enrichment.CatalogSubjectResolver;
+import com.enterprise.ai.capability.catalog.enrichment.CapabilityCatalogGroupingService;
 import com.enterprise.ai.capability.catalog.scan.CapabilityModelClient;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
-
+import java.time.LocalDateTime;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicReference;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
 
 class CapabilitySemanticCatalogServiceTest {
+    final CapabilitySemanticDocumentStore docs = mock(CapabilitySemanticDocumentStore.class);
+    final CatalogSubjectResolver subjects = mock(CatalogSubjectResolver.class);
+    final CapabilityCatalogGroupingService grouping = mock(CapabilityCatalogGroupingService.class);
+    final CapabilityModelClient model = mock(CapabilityModelClient.class);
+    final CapabilitySemanticCatalogService service = new CapabilitySemanticCatalogService(docs, subjects, grouping, model, new ObjectMapper());
 
-    private final SemanticDocMapper semanticDocMapper = mock(SemanticDocMapper.class);
-    private final ScanProjectMapper scanProjectMapper = mock(ScanProjectMapper.class);
-    private final ScanModuleMapper scanModuleMapper = mock(ScanModuleMapper.class);
-    private final ScanProjectToolMapper scanProjectToolMapper = mock(ScanProjectToolMapper.class);
-    private final ToolDefinitionMapper toolDefinitionMapper = mock(ToolDefinitionMapper.class);
-    private final CapabilityModelClient modelClient = mock(CapabilityModelClient.class);
-    private final CapabilitySemanticCatalogService service = new CapabilitySemanticCatalogService(
-            semanticDocMapper,
-            scanProjectMapper,
-            scanModuleMapper,
-            scanProjectToolMapper,
-            toolDefinitionMapper,
-            modelClient,
-            new ObjectMapper()
-    );
-
-    @Test
-    void findsToolSemanticDocByToolName() {
-        ToolDefinitionEntity tool = new ToolDefinitionEntity();
-        tool.setId(21L);
-        tool.setName("orders_create");
-        SemanticDocEntity doc = doc("tool", 7L, 3L, 21L);
-        when(toolDefinitionMapper.selectOne(any())).thenReturn(tool);
-        when(semanticDocMapper.selectOne(any())).thenReturn(doc);
-
-        SemanticDocEntity result = service.findDoc("tool", 7L, 3L, "orders_create", null).orElseThrow();
-
-        assertEquals(21L, result.getToolId());
+    @Test void groupReadsUseTheReadOnlyDocumentPath() {
+        var group = subject(CatalogSubject.GROUP, "hash-a");
+        var doc = doc("edited");
+        when(docs.findGroup(group)).thenReturn(java.util.Optional.of(doc));
+        assertSame(doc, service.find(group).orElseThrow());
+        verify(docs).findGroup(group);
+        verify(docs, never()).find(group);
     }
 
-    @Test
-    void requiresScanToolIdForScanToolLevel() {
-        assertThrows(IllegalArgumentException.class,
-                () -> service.findDoc("scan_tool", 7L, null, null, null));
+    @Test void documentListReadsPersistedProseWithoutResolvingContractsOrAdoptingCandidates() {
+        var doc = doc("edited");
+        when(docs.list(7L)).thenReturn(List.of(doc));
+        assertEquals(List.of(doc), service.listProjectDocs(7L));
+        verify(subjects).requireProject(7L);
+        verify(subjects, never()).operations(any());
+        verify(docs).list(7L);
+        verifyNoMoreInteractions(docs);
+        verifyNoInteractions(grouping, model);
     }
 
-    @Test
-    void listsProjectDocs() {
-        when(semanticDocMapper.selectList(any())).thenReturn(List.of(doc("project", 7L, null, null)));
-
-        List<SemanticDocEntity> docs = service.listProjectDocs(7L);
-
-        assertEquals(1, docs.size());
-        verify(semanticDocMapper).selectList(any());
+    @Test void generatesTypedSubjectsWithCorrectAggregateCandidateAndAcceptedInstructionsAndNoContractMutationDependency() {
+        record Scenario(String type, long id, boolean accepted) { }
+        for (Scenario scenario : List.of(new Scenario(CatalogSubject.BUSINESS_METHOD, 21L, true), new Scenario(CatalogSubject.HTTP_API, 21L, true),
+                new Scenario(CatalogSubject.PROJECT, 7L, false), new Scenario(CatalogSubject.GROUP, 21L, false),
+                new Scenario(CatalogSubject.SOURCE_OBSERVATION, 21L, false), new Scenario(CatalogSubject.HTTP_API, 21L, false))) {
+            String type = scenario.type(); boolean accepted = scenario.accepted(); long id = scenario.id();
+            CatalogSubject subject = new CatalogSubject(type, id, 7L, "orders:query", "Orders", "Source prose", "hash-a", accepted, "GET", "/orders", List.of(), List.of());
+            when(subjects.resolve(7L, type, id)).thenReturn(subject);
+            doAnswer(call -> {
+                CapabilityModelClient.ChatRequest request = call.getArgument(0); String prompt = request.messages().get(1).content();
+                if (CatalogSubject.PROJECT.equals(type) || CatalogSubject.GROUP.equals(type)) {
+                    assertTrue(prompt.contains("聚合整理对象")); assertFalse(prompt.contains("来源候选")); assertFalse(prompt.contains("已接纳："));
+                } else if (CatalogSubject.SOURCE_OBSERVATION.equals(type)) assertTrue(prompt.contains("未接纳的来源候选"));
+                else if (accepted) assertTrue(prompt.contains("正式资产"));
+                else assertTrue(prompt.contains("未接纳的 API 资产候选"));
+                return com.enterprise.ai.common.dto.ApiResult.ok(new CapabilityModelClient.ChatResponse("# Orders\n\nGenerated prose", "model-main", null, new CapabilityModelClient.Usage(2, 3, 5)));
+            }).when(model).chat(any());
+            SemanticDocEntity result = service.generate(7L, type, id, true, "model-main");
+            assertEquals(type, result.getSubjectType()); assertEquals("hash-a", result.getBasisContractHash());
+            assertEquals(id, result.getSubjectId()); assertEquals(5, result.getTokenUsage()); assertEquals(accepted, result.getBasisAccepted());
+        }
+        verify(docs, times(6)).save(any(SemanticDocEntity.class), isNull());
     }
 
-    @Test
-    void renamesScanModule() {
-        ScanModuleEntity module = module(3L, 7L, "OrderController");
-        when(scanModuleMapper.selectById(3L)).thenReturn(module);
-
-        ScanModuleEntity result = service.renameModule(3L, "Orders");
-
-        assertEquals("Orders", result.getDisplayName());
-        verify(scanModuleMapper).updateById(module);
+    @Test void missingModePreservesGeneratedAndEditedProseWithoutModelCost() {
+        for (String status : List.of("generated", "edited")) {
+            CatalogSubject subject = subject(CatalogSubject.BUSINESS_METHOD, "hash-a");
+            when(subjects.resolve(7L, subject.subjectType(), 21L)).thenReturn(subject);
+            SemanticDocEntity existing = doc(status); when(docs.find(any())).thenReturn(java.util.Optional.of(existing));
+            assertSame(existing, service.generate(7L, subject.subjectType(), 21L, false, "model-main"));
+        }
+        verifyNoInteractions(model); verify(docs, never()).save(any(), any());
     }
 
-    @Test
-    void mergesScanModulesAndMovesTools() {
-        ScanModuleEntity target = module(3L, 7L, "OrderController");
-        target.setSourceClasses("[\"OrderController\"]");
-        ScanModuleEntity source = module(4L, 7L, "LegacyOrderController");
-        source.setSourceClasses("[\"LegacyOrderController\"]");
-        ScanProjectToolEntity sourceTool = new ScanProjectToolEntity();
-        sourceTool.setId(31L);
-        sourceTool.setModuleId(4L);
-        when(scanModuleMapper.selectById(3L)).thenReturn(target);
-        when(scanModuleMapper.selectById(4L)).thenReturn(source);
-        when(scanProjectToolMapper.selectList(any())).thenReturn(List.of(sourceTool));
-        AtomicReference<ScanModuleEntity> updatedTarget = new AtomicReference<>();
-        when(scanModuleMapper.updateById(any())).thenAnswer(invocation -> {
-            updatedTarget.set(invocation.getArgument(0));
-            return 1;
+    @Test void rejectsSourceContractChangeDuringGenerationAndKeepsPriorProse() {
+        when(subjects.resolve(7L, CatalogSubject.HTTP_API, 21L)).thenReturn(subject(CatalogSubject.HTTP_API, "hash-a"), subject(CatalogSubject.HTTP_API, "hash-b"));
+        when(model.chat(any())).thenReturn(com.enterprise.ai.common.dto.ApiResult.ok(new CapabilityModelClient.ChatResponse("generated", "model", null, null)));
+        assertThrows(IllegalStateException.class, () -> service.generate(7L, CatalogSubject.HTTP_API, 21L, true, "model"));
+        verify(docs, never()).save(any(), any());
+    }
+
+    @Test void rejectsStaleManualEditAndAllowsCurrentVersion() {
+        CatalogSubject subject = subject(CatalogSubject.BUSINESS_METHOD, "hash-a"); when(subjects.resolve(7L, subject.subjectType(), 21L)).thenReturn(subject);
+        SemanticDocEntity existing = doc("generated"); when(docs.find(any())).thenReturn(java.util.Optional.of(existing));
+        assertThrows(IllegalStateException.class, () -> service.edit(7L, subject.subjectType(), 21L, "new", "2020-01-01T00:00"));
+        String version = existing.getUpdateTime().format(java.time.format.DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+        assertEquals("edited", service.edit(7L, subject.subjectType(), 21L, "new", version).getStatus());
+        verifyNoInteractions(model);
+    }
+
+    @Test void rejectsCandidateAcceptanceDuringGenerationEvenWhenContractHashDoesNotChange() {
+        var accepted = subject(CatalogSubject.HTTP_API, "hash-a");
+        var candidate = new CatalogSubject(accepted.subjectType(), accepted.subjectId(), accepted.projectId(), accepted.subjectKey(), accepted.title(), accepted.description(), accepted.contractHash(), false,
+                accepted.httpMethod(), accepted.endpointPath(), accepted.parameters(), accepted.observations());
+        when(subjects.resolve(7L, CatalogSubject.HTTP_API, 21L)).thenReturn(candidate, accepted);
+        when(model.chat(any())).thenReturn(com.enterprise.ai.common.dto.ApiResult.ok(new CapabilityModelClient.ChatResponse("候选说明", "model", null, null)));
+        assertThrows(IllegalStateException.class, () -> service.generate(7L, CatalogSubject.HTTP_API, 21L, true, "model"));
+        verify(docs, never()).save(any(), any());
+    }
+
+    @Test void refusesEmptyModelAndNeverReturnsAnotherProjectsTask() {
+        assertThrows(IllegalArgumentException.class, () -> service.startProjectBatch(7L, false, ""));
+        assertTrue(service.task(8L, "missing").isEmpty());
+    }
+
+    @Test void pageReloadRecoversRunningBatchAndFailedParallelStartCannotReplaceIt() throws Exception {
+        var project = new CatalogSubject("PROJECT", 7L, 7L, "project:orders", "Orders", "", "project-hash", false, "", "", List.of(), List.of());
+        when(subjects.resolve(7L, "PROJECT", 7L)).thenReturn(project);
+        var entered = new java.util.concurrent.CountDownLatch(1); var release = new java.util.concurrent.CountDownLatch(1);
+        when(model.chat(any())).thenAnswer(call -> {
+            entered.countDown(); assertTrue(release.await(3, java.util.concurrent.TimeUnit.SECONDS));
+            return com.enterprise.ai.common.dto.ApiResult.ok(new CapabilityModelClient.ChatResponse("project prose", "model", null, null));
         });
-
-        ScanModuleEntity result = service.mergeModules(3L, List.of(4L), "Merged Orders");
-
-        assertEquals("Merged Orders", result.getDisplayName());
-        assertEquals(3L, sourceTool.getModuleId());
-        assertEquals("[\"LegacyOrderController\",\"OrderController\"]", updatedTarget.get().getSourceClasses());
-        verify(scanProjectToolMapper).updateById(sourceTool);
-        verify(scanModuleMapper).deleteById(4L);
+        String taskId = service.startProjectBatch(7L, false, "model");
+        assertTrue(entered.await(3, java.util.concurrent.TimeUnit.SECONDS));
+        assertEquals(taskId, service.task(7L, null).orElseThrow().getTaskId()); assertEquals(CapabilitySemanticGenerationTask.Stage.RUNNING, service.task(7L, taskId).orElseThrow().getStage());
+        assertThrows(IllegalStateException.class, () -> service.startProjectBatch(7L, false, "model")); assertTrue(service.task(8L, taskId).isEmpty());
+        release.countDown();
+        for (int retry = 0; retry < 200 && service.task(7L, taskId).orElseThrow().getFinishedAt() == null; retry++) Thread.sleep(10);
+        assertEquals(CapabilitySemanticGenerationTask.Stage.DONE, service.task(7L, taskId).orElseThrow().getStage());
+        assertEquals(1, service.task(7L, taskId).orElseThrow().getCompletedSteps());
     }
 
-    @Test
-    void generatesProjectDocThroughModelServiceAndPersistsSemanticDoc() {
-        ScanProjectEntity project = project(7L, "orders");
-        when(scanProjectMapper.selectById(7L)).thenReturn(project);
-        when(modelClient.chat(any())).thenReturn(com.enterprise.ai.common.dto.ApiResult.ok(
-                new CapabilityModelClient.ChatResponse(
-                        "# Orders\n\nGenerated summary",
-                        "qwen-plus",
-                        null,
-                        new CapabilityModelClient.Usage(10, 7, 17))));
-
-        SemanticDocEntity result = service.generateProjectDoc(7L, true, "model-main");
-
-        assertEquals("project", result.getLevel());
-        assertEquals(7L, result.getProjectId());
-        assertEquals("# Orders\n\nGenerated summary", result.getContentMd());
-        assertEquals("qwen-plus", result.getModelName());
-        assertEquals(17, result.getTokenUsage());
-        assertEquals("generated", result.getStatus());
-        verify(semanticDocMapper).insert(any(SemanticDocEntity.class));
+    private CatalogSubject subject(String type, String hash) {
+        return new CatalogSubject(type, 21L, 7L, "orders:query", "Orders", "Source prose", hash, true, "GET", "/orders", List.of(), List.of());
     }
-
-    @Test
-    void editsSemanticDocAndMarksEdited() {
-        SemanticDocEntity existing = doc("tool", 7L, 3L, 21L);
-        when(semanticDocMapper.selectById(11L)).thenReturn(existing);
-
-        SemanticDocEntity edited = service.editDoc(11L, "# Edited");
-
-        assertEquals("# Edited", edited.getContentMd());
-        assertEquals("edited", edited.getStatus());
-        verify(semanticDocMapper).updateById(existing);
-    }
-
-    private SemanticDocEntity doc(String level, Long projectId, Long moduleId, Long toolId) {
-        SemanticDocEntity doc = new SemanticDocEntity();
-        doc.setId(11L);
-        doc.setLevel(level);
-        doc.setProjectId(projectId);
-        doc.setModuleId(moduleId);
-        doc.setToolId(toolId);
-        doc.setContentMd("# Orders");
-        doc.setPromptVersion("v1");
-        doc.setModelName("gpt");
-        doc.setTokenUsage(42);
-        doc.setStatus("generated");
-        return doc;
-    }
-
-    private ScanModuleEntity module(Long id, Long projectId, String name) {
-        ScanModuleEntity module = new ScanModuleEntity();
-        module.setId(id);
-        module.setProjectId(projectId);
-        module.setName(name);
-        module.setDisplayName(name);
-        module.setSourceClasses("[\"" + name + "\"]");
-        return module;
-    }
-
-    private ScanProjectEntity project(Long id, String name) {
-        ScanProjectEntity project = new ScanProjectEntity();
-        project.setId(id);
-        project.setName(name);
-        project.setProjectCode(name);
-        project.setEnvironment("dev");
-        project.setBaseUrl("http://localhost");
-        return project;
+    private SemanticDocEntity doc(String status) {
+        SemanticDocEntity doc = new SemanticDocEntity(); doc.setId(11L); doc.setProjectId(7L); doc.setSubjectType(CatalogSubject.BUSINESS_METHOD);
+        doc.setSubjectId(21L); doc.setContentMd("existing"); doc.setStatus(status); doc.setUpdateTime(LocalDateTime.of(2026, 10, 8, 1, 2)); return doc;
     }
 }

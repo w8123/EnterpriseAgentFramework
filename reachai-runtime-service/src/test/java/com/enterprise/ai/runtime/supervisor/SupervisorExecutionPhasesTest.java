@@ -16,6 +16,29 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class SupervisorExecutionPhasesTest {
     @Test
+    void structuredEvidenceIsWhitelistedAndSurvivesCompletionAndTermination() {
+        List<Map<?, ?>> events = new ArrayList<>();
+        SupervisorExecutionPhases phases = new SupervisorExecutionPhases((event, payload) -> events.add((Map<?, ?>) payload));
+        phases.emit("workflow-1", "workflow", "started", "workflow_runtime", "调用 Workflow", "正在执行",
+                Map.of("toolName", "query_dictionary_children_count", "decision", "ALLOW",
+                        "args", "secret-input", "answer", "secret-output", "credential", "secret-credential"));
+        phases.complete("workflow-1", "workflow", "workflow_runtime", "调用 Workflow", "已完成：query_dictionary_children_count");
+        Map<String, Object> completed = phases.snapshot().get(0);
+        assertEquals("query_dictionary_children_count", completed.get("toolName"));
+        assertEquals("ALLOW", completed.get("decision"));
+        assertEquals("已完成：query_dictionary_children_count", completed.get("detail"));
+        assertFalse(completed.containsKey("args"));
+        assertFalse(completed.containsKey("answer"));
+        assertFalse(completed.containsKey("credential"));
+        assertEquals(completed, events.get(1));
+        phases.emit("workflow-2", "workflow", "started", "workflow_runtime", "调用 Workflow", "正在执行",
+                Map.of("toolName", "other_readonly_tool"));
+        phases.terminateActive("failed", "运行结束");
+        assertEquals("other_readonly_tool", phases.snapshot().get(1).get("toolName"));
+        assertEquals("failed", phases.snapshot().get(1).get("state"));
+    }
+
+    @Test
     @SuppressWarnings("unchecked")
     void eventDecorationAndReturnedSnapshotsCannotChangeOwnedState() {
         SupervisorExecutionPhases phases = new SupervisorExecutionPhases((event, data) -> {

@@ -16,6 +16,12 @@ import java.security.MessageDigest;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.LinkedHashMap;
+import java.util.HashSet;
+import java.util.Collections;
+import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
@@ -94,7 +100,13 @@ public class ApiMarketHttpApiBindingService {
                 + version.getSpecHash() + "|" + canonical.contractHash() + "|" + selectionRevision);
         return new HttpApiAssetService.ObserveRequest(scope, HttpApiSourceKind.API_MARKET_OPERATION,
                 "market:" + entry.getEntryKey() + ":" + canonical.identityHash(),
-                "api-market/" + entry.getEntryKey() + "/" + version.getVersionKey() + "/" + operation.getOperationKey(), revision, contract);
+                "api-market/" + entry.getEntryKey() + "/" + version.getVersionKey() + "/" + operation.getOperationKey(), revision, contract, businessGroups(entry));
+    }
+
+    private List<String> businessGroups(ExternalApiEntryEntity entry) {
+        if (entry.getCategoryCode() == null) return List.of();
+        String name = ExternalApiCatalogService.CATEGORY_NAMES.get(entry.getCategoryCode());
+        return name == null || "OTHER".equals(entry.getCategoryCode()) ? List.of() : List.of(name);
     }
 
     public void validateSelection(ScanProjectEntity project, ExternalApiEntryEntity entry,
@@ -141,14 +153,146 @@ public class ApiMarketHttpApiBindingService {
         }
     }
 
-    /** Re-read owning catalog tables on every owner lookup, including immediately before Runtime dispatch. */
+    /** Re-read owning catalog tables on every single owner lookup, including before Runtime dispatch. */
     public String confirmationReason(HttpApiAssetEntity asset, HttpApiSourceBindingEntity source, ScanProjectEntity project) {
-        if (asset == null || source == null || project == null || !Objects.equals(project.getId(), asset.getProjectId())
-                || !Objects.equals(project.getProjectCode(), asset.getProjectCode())) return "市场绑定所属项目已变化，请显式重新接入";
+        if (!sameProject(asset, source, project)) return "市场绑定所属项目已变化，请显式重新接入";
         List<ProjectExternalApiOperationEntity> selected = selections.selectList(Wrappers.<ProjectExternalApiOperationEntity>lambdaQuery()
                 .eq(ProjectExternalApiOperationEntity::getApiAssetId, asset.getId()));
         if (selected.size() != 1) return "所选市场 Operation 已移除或绑定不唯一，请显式重新选择";
         ProjectExternalApiEntity integration = integrations.selectById(selected.get(0).getIntegrationId());
+        return confirmCurrentSelection(asset, source, project, integration, () -> new SelectionFacts(
+                entries.selectById(integration.getEntryId()), versions.selectById(integration.getVersionId()),
+                operations.selectById(selected.get(0).getOperationId())));
+    }
+
+    /**
+     * Request-local owner facts for catalog lists. Success is an explicit binding-id entry with a null reason.
+     * A broken Operation invalidates every result for the same integration within this request.
+     */
+    public Map<Long, String> confirmationReasons(List<HttpApiAssetEntity> assetRows,
+                                                 List<HttpApiSourceBindingEntity> sourceRows,
+                                                 Map<Long, ScanProjectEntity> projectsById) {
+        return confirmationReasons(assetRows, sourceRows, projectsById, new ConfirmationSession());
+    }
+
+    /** One catalog request shares owner facts and late invalidation across bounded batches. */
+    public Map<Long, String> confirmationReasons(List<HttpApiAssetEntity> assetRows,
+                                                 List<HttpApiSourceBindingEntity> sourceRows,
+                                                 Map<Long, ScanProjectEntity> projectsById,
+                                                 ConfirmationSession session) {
+        List<HttpApiSourceBindingEntity> marketSources = sourceRows.stream().filter(source ->
+                HttpApiSourceKind.API_MARKET_OPERATION.name().equals(source.getSourceKind())).toList();
+        if (marketSources.isEmpty()) return Map.of();
+        Map<Long, HttpApiAssetEntity> assetsById = byId(assetRows, HttpApiAssetEntity::getId);
+        List<Long> assetIds = marketSources.stream().map(HttpApiSourceBindingEntity::getAssetId)
+                .filter(Objects::nonNull).distinct().toList();
+        List<ProjectExternalApiOperationEntity> selectedRows = assetIds.isEmpty() ? List.of()
+                : selections.selectList(Wrappers.<ProjectExternalApiOperationEntity>lambdaQuery()
+                        .in(ProjectExternalApiOperationEntity::getApiAssetId, assetIds));
+        Map<Long, List<ProjectExternalApiOperationEntity>> selectedByAsset = new LinkedHashMap<>();
+        for (var selected : selectedRows) selectedByAsset.computeIfAbsent(selected.getApiAssetId(),
+                ignored -> new ArrayList<>()).add(selected);
+        List<Long> integrationIds = selectedRows.stream().map(ProjectExternalApiOperationEntity::getIntegrationId)
+                .filter(Objects::nonNull).distinct().toList();
+        List<Long> missingIntegrations = integrationIds.stream().filter(id -> !session.loadedIntegrations.contains(id)).toList();
+        session.integrations.putAll(byId(missingIntegrations.isEmpty() ? List.of()
+                : integrations.selectBatchIds(missingIntegrations), ProjectExternalApiEntity::getId));
+        session.loadedIntegrations.addAll(missingIntegrations);
+        Map<Long, ProjectExternalApiEntity> integrationsById = session.integrations;
+        List<Long> entryIds = integrationsById.values().stream().map(ProjectExternalApiEntity::getEntryId)
+                .filter(Objects::nonNull).distinct().toList();
+        List<Long> versionIds = integrationsById.values().stream().map(ProjectExternalApiEntity::getVersionId)
+                .filter(Objects::nonNull).distinct().toList();
+        List<Long> operationIds = selectedRows.stream().map(ProjectExternalApiOperationEntity::getOperationId)
+                .filter(Objects::nonNull).distinct().toList();
+        List<Long> missingEntries = entryIds.stream().filter(id -> !session.loadedEntries.contains(id)).toList();
+        List<Long> missingVersions = versionIds.stream().filter(id -> !session.loadedVersions.contains(id)).toList();
+        List<Long> missingOperations = operationIds.stream().filter(id -> !session.loadedOperations.contains(id)).toList();
+        session.entries.putAll(byId(missingEntries.isEmpty() ? List.of()
+                : entries.selectBatchIds(missingEntries), ExternalApiEntryEntity::getId));
+        session.versions.putAll(byId(missingVersions.isEmpty() ? List.of()
+                : versions.selectBatchIds(missingVersions), ExternalApiVersionEntity::getId));
+        session.operations.putAll(byId(missingOperations.isEmpty() ? List.of()
+                : operations.selectBatchIds(missingOperations), ExternalApiOperationEntity::getId));
+        session.loadedEntries.addAll(missingEntries); session.loadedVersions.addAll(missingVersions);
+        session.loadedOperations.addAll(missingOperations);
+        Map<Long, ExternalApiEntryEntity> entriesById = session.entries;
+        Map<Long, ExternalApiVersionEntity> versionsById = session.versions;
+        Map<Long, ExternalApiOperationEntity> operationsById = session.operations;
+        Map<Long, String> reasons = new LinkedHashMap<>();
+        Map<Long, Long> integrationByBinding = new LinkedHashMap<>();
+        Set<Long> invalidIntegrations = session.invalidIntegrations;
+        for (HttpApiSourceBindingEntity source : marketSources) {
+            HttpApiAssetEntity asset = assetsById.get(source.getAssetId());
+            ScanProjectEntity project = asset == null ? null : projectsById.get(asset.getProjectId());
+            String reason;
+            if (!sameProject(asset, source, project)) {
+                reason = "市场绑定所属项目已变化，请显式重新接入";
+            } else {
+                List<ProjectExternalApiOperationEntity> selected = selectedByAsset.getOrDefault(asset.getId(), List.of());
+                if (selected.size() != 1) {
+                    reason = "所选市场 Operation 已移除或绑定不唯一，请显式重新选择";
+                } else {
+                    ProjectExternalApiEntity integration = integrationsById.get(selected.get(0).getIntegrationId());
+                    if (integration != null) {
+                        integrationByBinding.put(source.getId(), integration.getId());
+                        session.recordSelection(asset.getId(), integration.getId());
+                    }
+                    if (integration != null && invalidIntegrations.contains(integration.getId())) {
+                        reason = "市场接入已停用或项目/环境不一致，请核对接入选择";
+                    } else {
+                        reason = confirmCurrentSelection(asset, source, project, integration, () -> new SelectionFacts(
+                                entriesById.get(integration.getEntryId()), versionsById.get(integration.getVersionId()),
+                                operationsById.get(selected.get(0).getOperationId())));
+                        // CAS races may preserve newer DB state; this stale request still fails closed.
+                        if (reason != null && integration != null
+                                && Set.of("CONFIGURING", "READY").contains(integration.getStatus())) {
+                            session.rejectIntegration(integration.getId());
+                        }
+                    }
+                }
+            }
+            reasons.put(source.getId(), reason);
+        }
+        for (var entry : reasons.entrySet()) {
+            if (entry.getValue() == null && invalidIntegrations.contains(integrationByBinding.get(entry.getKey()))) {
+                entry.setValue("市场接入已停用或项目/环境不一致，请核对接入选择");
+            }
+        }
+        return Collections.unmodifiableMap(reasons);
+    }
+
+    public static final class ConfirmationSession {
+        private final Map<Long, ProjectExternalApiEntity> integrations = new LinkedHashMap<>();
+        private final Map<Long, ExternalApiEntryEntity> entries = new LinkedHashMap<>();
+        private final Map<Long, ExternalApiVersionEntity> versions = new LinkedHashMap<>();
+        private final Map<Long, ExternalApiOperationEntity> operations = new LinkedHashMap<>();
+        private final Set<Long> loadedIntegrations = new HashSet<>(), loadedEntries = new HashSet<>(),
+                loadedVersions = new HashSet<>(), loadedOperations = new HashSet<>(), invalidIntegrations = new HashSet<>();
+        private final Map<Long, Long> integrationByAsset = new LinkedHashMap<>();
+
+        public boolean invalidated(Long assetId) {
+            return invalidIntegrations.contains(integrationByAsset.get(assetId));
+        }
+
+        public void recordSelection(Long assetId, Long integrationId) {
+            integrationByAsset.put(assetId, integrationId);
+        }
+
+        public void rejectIntegration(Long integrationId) {
+            invalidIntegrations.add(integrationId);
+        }
+    }
+
+    private boolean sameProject(HttpApiAssetEntity asset, HttpApiSourceBindingEntity source, ScanProjectEntity project) {
+        return asset != null && source != null && project != null
+                && Objects.equals(project.getId(), asset.getProjectId())
+                && Objects.equals(project.getProjectCode(), asset.getProjectCode());
+    }
+
+    private String confirmCurrentSelection(HttpApiAssetEntity asset, HttpApiSourceBindingEntity source,
+                                          ScanProjectEntity project, ProjectExternalApiEntity integration,
+                                          Supplier<SelectionFacts> ownerLookup) {
         if (integration == null || !Set.of("CONFIGURING", "READY").contains(integration.getStatus())
                 || !Objects.equals(integration.getProjectId(), asset.getProjectId())
                 || !Objects.equals(integration.getProjectCode(), asset.getProjectCode())
@@ -157,10 +301,9 @@ public class ApiMarketHttpApiBindingService {
             return invalidate(integration, "市场接入已停用或项目/环境不一致，请核对接入选择");
         }
         try {
-            var entry = entries.selectById(integration.getEntryId());
-            var version = versions.selectById(integration.getVersionId());
-            var operation = operations.selectById(selected.get(0).getOperationId());
-            var expected = prepare(project, entry, version, operation, integration.getSelectionRevision() == null ? 0 : integration.getSelectionRevision());
+            SelectionFacts facts = ownerLookup.get();
+            var expected = prepare(project, facts.entry(), facts.version(), facts.operation(),
+                    integration.getSelectionRevision() == null ? 0 : integration.getSelectionRevision());
             var canonical = canonicalizer.canonicalize(expected.scope(), expected.contract());
             if (!Objects.equals(expected.sourceKey(), source.getSourceKey())
                     || !Objects.equals(expected.sourceRevision(), source.getSourceRevision())
@@ -174,6 +317,15 @@ public class ApiMarketHttpApiBindingService {
             return invalidate(integration, "固定市场版本或 Operation 当前不可用，请核对目录并显式重新接入");
         }
     }
+
+    private <T> Map<Long, T> byId(List<T> rows, Function<T, Long> id) {
+        Map<Long, T> result = new LinkedHashMap<>();
+        for (T row : rows) result.put(id.apply(row), row);
+        return result;
+    }
+
+    private record SelectionFacts(ExternalApiEntryEntity entry, ExternalApiVersionEntity version,
+                                  ExternalApiOperationEntity operation) { }
 
     /** Latch a detected invalid selection. Catalog reappearance alone must not reactivate old proof/pins. */
     private String invalidate(ProjectExternalApiEntity integration, String reason) {

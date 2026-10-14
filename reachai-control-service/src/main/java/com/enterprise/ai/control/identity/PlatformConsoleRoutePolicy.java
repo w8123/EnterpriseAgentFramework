@@ -62,15 +62,13 @@ public final class PlatformConsoleRoutePolicy {
             "/api/api-market/**",
             "/api/tools/**",
             "/api/business-methods/**",
+            "/api/business-capabilities/**",
             "/api/business-method-invocations/**",
             "/api/apis/**",
             "/api/api-invocations/**",
             "/api/api-graph/**",
             "/api/tool-retrieval/**",
-            "/api/scan-projects/**",
-            "/api/scan-modules/**",
-            "/api/semantic-docs/**",
-            "/api/domains/**");
+            "/api/scan-projects/**");
 
     public static final List<String> EXCLUDED_PATH_PATTERNS = List.of(
             "/api/platform/auth/login");

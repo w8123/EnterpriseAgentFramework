@@ -35,6 +35,19 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ReachSpringMvcEndpointScannerTest {
 
+    @org.springframework.web.bind.annotation.RestController
+    @io.swagger.v3.oas.annotations.tags.Tag(name="字典查询与统计")
+    static class BusinessLabelController {
+        @org.springframework.web.bind.annotation.GetMapping("/dictionary") public int count() { return 1; }
+        @io.swagger.v3.oas.annotations.tags.Tag(name="字典导出")
+        @org.springframework.web.bind.annotation.GetMapping("/dictionary/export") public int export() { return 1; }
+    }
+    @Test void optionalSwaggerLabelsUseMethodOverrideAndClassFallback() {
+        List<ReachHttpApiDescriptor> operations = ReachSpringMvcEndpointScanner.scanClass(BusinessLabelController.class);
+        assertEquals(java.util.Collections.singletonList("字典查询与统计"), operation(operations, "/dictionary").getBusinessGroups());
+        assertEquals(java.util.Collections.singletonList("字典导出"), operation(operations, "/dictionary/export").getBusinessGroups());
+    }
+
     @Test
     void ignoresNullAndNonControllerTypes() {
         assertTrue(ReachSpringMvcEndpointScanner.scanClass(null).isEmpty());

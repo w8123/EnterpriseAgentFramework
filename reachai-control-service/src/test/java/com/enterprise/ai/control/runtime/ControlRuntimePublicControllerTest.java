@@ -554,7 +554,10 @@ class ControlRuntimePublicControllerTest {
 
         controller.executeAgentStream("Bearer tok", request).getBody().writeTo(output);
 
-        verify(gateway).streamTrusted(eq(request), eq("AGENT"), eq("42"), eq(output), any());
+        verify(gateway).streamTrusted(eq(Map.of("agentId", "a1", "message", "hello", "userId", "42",
+                "tenantId", "default", "roles", List.of(),
+                "metadata", Map.of("tenantId", "default", "roles", List.of(), "userId", "42"))),
+                eq("AGENT"), eq("42"), eq(output), any());
         verify(streamProxy, never()).stream(any(Map.class), any());
     }
 

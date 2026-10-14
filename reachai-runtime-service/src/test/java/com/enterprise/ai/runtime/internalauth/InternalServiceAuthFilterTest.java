@@ -22,6 +22,7 @@ class InternalServiceAuthFilterTest {
         byte[] body = "{\"baseRevision\":\"revision\"}".getBytes(StandardCharsets.UTF_8);
         for (String path : java.util.List.of("/api/workflows/wf-1/versions/publish",
                 "/api/workflows/wf-1/versions/7/rollback",
+                "/internal/runtime/runops/traces/trace-1/replay",
                 "/internal/runtime/workflows/studio/read-only-trials")) {
             var unsigned = new MockHttpServletResponse();
             filter.doFilter(new MockHttpServletRequest("POST", path), unsigned, new MockFilterChain());

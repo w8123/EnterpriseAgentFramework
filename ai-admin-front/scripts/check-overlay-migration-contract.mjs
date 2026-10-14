@@ -8,12 +8,6 @@ const srcRoot = resolve(projectRoot, 'src')
 const rawOverlayAllowlist = new Set([
   'src/components/common/AppDialog.vue',
   'src/components/common/AppDrawer.vue',
-  'src/views/scan/ApiGraphCanvas.vue',
-  'src/views/scan/components/scan-project/ScanProjectAddInterfaceDialog.vue',
-  'src/views/scan/components/scan-project/ScanProjectModelGenerateDrawer.vue',
-  'src/views/scan/components/scan-project/ScanProjectOpsDrawer.vue',
-  'src/views/scan/components/scan-project/ScanProjectSemanticDialogs.vue',
-  'src/views/scan/components/scan-project/ScanProjectToolDiffDialog.vue',
   'src/views/workflow/WorkflowStudio.vue',
   'src/views/workflow/studio-panels/ToolConfigPanel.vue',
 ])

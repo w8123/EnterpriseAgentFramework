@@ -82,7 +82,26 @@ public interface CapabilityScannerClient {
     record ToolSourceData(String scanner, String location) {
     }
 
-    record HttpApiData(String sourceKey,
+    record HttpApiData(
+String sourceKey,
+                       String sourceLocation,
+                       String sourceRevision,
+                       String httpMethod,
+                       String contextPath,
+                       String endpointPath,
+                       List<String> consumes,
+                       List<String> produces,
+                       List<HttpApiMappingConditionData> mappingConditions,
+                       List<HttpApiParameterData> parameters,
+                       HttpApiRequestBodyData requestBody,
+                       List<HttpApiResponseData> responses,
+                       String authenticationState,
+                       List<String> authenticationSchemes,
+                       List<String> requiredHeaderNames,
+                       String sideEffect,
+        List<String> businessGroups
+) {
+    public HttpApiData(String sourceKey,
                        String sourceLocation,
                        String sourceRevision,
                        String httpMethod,
@@ -98,6 +117,10 @@ public interface CapabilityScannerClient {
                        List<String> authenticationSchemes,
                        List<String> requiredHeaderNames,
                        String sideEffect) {
+        this(sourceKey, sourceLocation, sourceRevision, httpMethod, contextPath, endpointPath, consumes, produces, mappingConditions, parameters, requestBody, responses, authenticationState, authenticationSchemes, requiredHeaderNames, sideEffect, List.of());
+    }
+    public HttpApiData { businessGroups = businessGroups == null ? List.of() : List.copyOf(businessGroups); }
+
     }
 
     record HttpApiMappingConditionData(String kind, String name, String operator, String value) {

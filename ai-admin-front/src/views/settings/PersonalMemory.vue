@@ -320,19 +320,19 @@ onMounted(() => Promise.all([loadMemories(), loadCandidates()]))
 <style scoped lang="scss">
 .personal-memory-page { color: var(--text-primary); }
 .glass-surface-shell { border: 1px solid var(--border-divider); border-radius: var(--radius-lg); background: var(--bg-primary); }
-.page-hero { display: flex; justify-content: space-between; gap: 24px; align-items: center; padding: 28px 30px; }
+.page-hero { display: flex; justify-content: space-between; gap: var(--layout-panel-padding); align-items: center; padding: var(--layout-panel-padding); }
 .eyebrow { color: var(--brand-primary); font-size: 11px; font-weight: 800; letter-spacing: .16em; }
 h1 { margin: 7px 0 8px; font-size: 28px; }
 .page-hero p { margin: 0; color: var(--text-secondary); max-width: 720px; }
 .hero-actions { display: flex; gap: 10px; flex-shrink: 0; }
 .metrics-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
-.metric-card { padding: 18px 20px; display: flex; justify-content: space-between; align-items: baseline; color: var(--text-secondary); }
+.metric-card { padding: 12px var(--layout-panel-padding); display: flex; justify-content: space-between; align-items: baseline; color: var(--text-secondary); }
 .metric-card strong { color: var(--text-primary); font-size: 24px; }
 .metric-card .metric-text { font-size: 14px; }
-.workspace-card { padding: 8px 22px 22px; }
+.workspace-card { padding: 8px var(--layout-panel-padding) var(--layout-panel-padding); }
 .toolbar { display: grid; grid-template-columns: minmax(240px, 1fr) 180px auto; gap: 10px; margin: 8px 0 16px; }
 .memory-list { display: grid; gap: 10px; }
-.memory-row { display: flex; justify-content: space-between; gap: 24px; padding: 17px 18px; border: 1px solid var(--border-divider); border-radius: var(--radius-md); background: var(--bg-secondary); }
+.memory-row { display: flex; justify-content: space-between; gap: var(--layout-panel-padding); padding: 12px var(--layout-panel-padding); border: 1px solid var(--border-divider); border-radius: var(--radius-md); background: var(--bg-secondary); }
 .candidate-row { border-left: 3px solid var(--brand-primary); }
 .memory-main { min-width: 0; }
 .memory-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }

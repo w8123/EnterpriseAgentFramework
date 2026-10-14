@@ -44,14 +44,13 @@ function businessMethod(overrides: Partial<BusinessMethodInfo> = {}): BusinessMe
 }
 
 describe('Workflow Studio business-method mapping helpers', () => {
-  it('offers the existing scalar draft-trial data path without inventing business fields', () => {
+  it('uses the same scalar root for draft and published execution without inventing a data field', () => {
     const ports = businessMethodOutputPorts('scalar_result', [], 'java.lang.String')
-    expect(ports.find((port) => port.id === 'scalar_result.data')).toMatchObject({
-      name: 'scalar_result.data', source: '只读试运行返回值（标量）',
-    })
+    expect(ports).toEqual([{ id: 'scalar_result', name: 'scalar_result', type: 'any', required: false, source: '标量返回值' }])
     expect(businessMethodOutputFields([])).toEqual([])
     expect(businessMethodOutputCandidates('scalar', 'scalar_result', [], 'java.lang.String'))
-      .toContainEqual({ value: 'nodeOutput.scalar.data', label: '只读试运行 · 标量返回值', path: 'data' })
+      .toEqual([{ value: 'nodeOutput.scalar', label: '节点输出 · 标量返回值' },
+        { value: 'var.scalar_result', label: '业务别名 · scalar_result' }])
     expect(businessMethodOutputPorts('dto', [], 'example.OrderResponse').map((port) => port.id)).toEqual(['dto'])
     expect(businessMethodOutputPorts('unknown', [], null).map((port) => port.id)).toEqual(['unknown'])
     const analysis = useWorkflowStudioGraphAnalysis({
@@ -63,9 +62,16 @@ describe('Workflow Studio business-method mapping helpers', () => {
       markCanvasDirty: vi.fn(), syncJsonFromCanvas: vi.fn(),
       waitForNodeMeasurements: vi.fn(async () => undefined), getNodeMeasurement: () => undefined,
     })
-    expect(analysis.graphVariables.value.find((item) => item.name === 'nodeOutput.scalar.data')?.label)
-      .toBe('标量只读方法 · 只读试运行返回值（标量）')
+    expect(analysis.graphVariables.value.find((item) => item.name === 'nodeOutput.scalar')?.label)
+      .toBe('标量只读方法 · 标量返回值')
+    expect(analysis.graphVariables.value.map((item) => item.name)).not.toContain('nodeOutput.scalar.data')
     expect(analysis.graphVariables.value.map((item) => item.name)).not.toContain('var.scalar_result.data')
+  })
+
+  it.each(['java.lang.Integer', 'int', 'Boolean', 'double'])('keeps %s return candidates at the root', (responseType) => {
+    expect(businessMethodOutputPorts('scalar_result', [], responseType).map((port) => port.id)).toEqual(['scalar_result'])
+    expect(businessMethodOutputCandidates('scalar', 'scalar_result', [], responseType).map((candidate) => candidate.value))
+      .toEqual(['nodeOutput.scalar', 'var.scalar_result'])
   })
 
   it('maps only top-level input targets while retaining declared DTO, Map, array, and output shapes', () => {

@@ -17,6 +17,16 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 class CapabilityToolCatalogControllerTest {
+    @Test void identityDoesNotHydrateParametersSourceLinksOrAvailability() {
+        var service = mock(CapabilityToolCatalogService.class);
+        var guard = mock(com.enterprise.ai.capability.internal.CapabilitySourceContractGuard.class);
+        var entity = tool("orders_create"); entity.setProjectId(7L); entity.setProjectCode("orders"); entity.setQualifiedName("orders:create");
+        when(service.findIdentity("orders_create")).thenReturn(java.util.Optional.of(entity));
+        var result = new CapabilityToolCatalogController(service, guard).identity("orders_create");
+        assertEquals(HttpStatus.OK, result.getStatusCode()); assertEquals("orders:create", result.getBody().qualifiedName());
+        org.mockito.Mockito.verify(service).findIdentity("orders_create");
+        org.mockito.Mockito.verifyNoMoreInteractions(service); org.mockito.Mockito.verifyNoInteractions(guard);
+    }
 
     @Test
     void keepsToolCatalogRouteShapeOnCapabilityService() throws Exception {

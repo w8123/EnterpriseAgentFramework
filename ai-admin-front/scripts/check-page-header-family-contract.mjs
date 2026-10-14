@@ -42,9 +42,6 @@ const files = {
   platformUsers: 'src/views/settings/PlatformUserSettings.vue',
   businessUsers: 'src/views/settings/BusinessUserDirectory.vue',
   authProviders: 'src/views/settings/AuthProviderSettings.vue',
-  domainList: 'src/views/domain/DomainList.vue',
-  domainBoard: 'src/views/domain/DomainAssignmentBoard.vue',
-  domainClassifier: 'src/views/domain/DomainClassifierTest.vue',
   contextGovernance: 'src/views/context/ContextGovernance.vue',
   runOpsList: 'src/views/runops/RunOpsList.vue',
   runOpsDetail: 'src/views/runops/RunOpsDetail.vue',
@@ -339,10 +336,10 @@ function validateA2aHubOwners(failures, sources) {
 function validate(sources, { validateAssets = true } = {}) {
   const failures = []
   const requiredTokens = new Map([
-    ['--layout-page-header-height-compact', '76px'],
-    ['--layout-page-header-height-standard', '96px'],
-    ['--layout-page-header-height-emphasis', '112px'],
-    ['--layout-page-header-leading-size', '52px'],
+    ['--layout-page-header-height-compact', '60px'],
+    ['--layout-page-header-height-standard', '80px'],
+    ['--layout-page-header-height-emphasis', '88px'],
+    ['--layout-page-header-leading-size', '40px'],
     ['--layout-page-header-action-gap', '8px'],
     ['--layout-page-header-tag-gap', '8px'],
     ['--layout-page-header-art-opacity', '0.92'],
@@ -474,16 +471,12 @@ function validate(sources, { validateAssets = true } = {}) {
   expectPageHeader(failures, sources.platformUsers, 'overview', 'platform', 'PlatformUserSettings', { enriched: true })
   expectPageHeader(failures, sources.businessUsers, 'standard', 'platform', 'BusinessUserDirectory', { enriched: true, noActionControls: true })
   expectPageHeader(failures, sources.authProviders, 'standard', 'platform', 'AuthProviderSettings', { enriched: true, primaryLast: true })
-  expectPageHeader(failures, sources.domainList, 'standard', 'governance', 'DomainList', { enriched: true, primaryLast: true })
-  expectPageHeader(failures, sources.domainBoard, 'workbench', 'governance', 'DomainAssignmentBoard', { enriched: true })
-  expectPageHeader(failures, sources.domainClassifier, 'standard', 'governance', 'DomainClassifierTest', { compact: true })
   expectPageHeader(failures, sources.contextGovernance, 'workbench', 'governance', 'ContextGovernance', { enriched: true })
   expectPageHeader(failures, sources.runOpsList, 'overview', 'governance', 'RunOpsList', { enriched: true, noActionControls: true })
   expectPageHeader(failures, sources.runOpsDetail, 'entity', 'governance', 'RunOpsDetail', { primaryLast: true })
   expectIncludes(failures, sources.sdkWorkbench, '<HeaderModeSwitch', 'SdkAccessWizard mode control')
   expectIncludes(failures, actionSlot(sources.platformUsers), '@click="reload"', 'PlatformUserSettings reload action')
   expectIncludes(failures, actionSlot(sources.authProviders), '@click="reload"', 'AuthProviderSettings reload action')
-  expectIncludes(failures, actionSlot(sources.domainList), '@click="openCreate"', 'DomainList create action')
   expectIncludes(failures, actionSlot(sources.contextGovernance), '@click="reloadAll"', 'ContextGovernance reload action')
   expectIncludes(failures, actionSlot(sources.runOpsList), '@click="refreshAll"', 'RunOpsList refresh action')
   for (const [fragment, label] of [
@@ -546,7 +539,7 @@ if (process.argv.includes('--self-test')) {
       else console.log('HARNESS_PROOF header-family-no-op-rejected=1')
     }
     const mutations = [
-      ['height-token', 'layout', (value) => value.replace('--layout-page-header-height-compact: 76px;', '--layout-page-header-height-compact: 75px;'), 'layout token contract'],
+      ['height-token', 'layout', (value) => value.replace('--layout-page-header-height-compact: 60px;', '--layout-page-header-height-compact: 59px;'), 'layout token contract'],
       ['variant-union', 'header', (value) => value.replaceAll("'overview'", "'overview-disabled'"), 'PageHeader variant union'],
       ['page-class-override', 'projectList', (value) => value.replace('<PageHeader', '<PageHeader class="rogue-header"'), 'must not override PageHeader'],
       ['tool-retrieval-compact', 'toolRetrieval', (value) => value.replace('title="Tool 检索测试"', 'title="Tool 检索测试"\n      compact'), 'ToolRetrievalTest PageHeader must not declare compact'],
@@ -558,7 +551,6 @@ if (process.argv.includes('--self-test')) {
       ['context-wrong-variant', 'contextGovernance', (value) => value.replace('variant="workbench"', 'variant="standard"'), 'ContextGovernance PageHeader is missing variant="workbench"'],
       ['runops-control-in-dock', 'runOpsList', (value) => value.replace('<template #actions>', '<template #actions>\n        <el-input />'), 'RunOpsList action dock must not contain form controls'],
       ['auth-primary-order', 'authProviders', (value) => value.replace('<template #actions>', '<template #actions>\n        <el-button type="primary">非法前置主操作</el-button>'), 'AuthProviderSettings primary action must be the last button'],
-      ['classifier-compact', 'domainClassifier', (value) => value.replace(' compact>', '>'), 'DomainClassifierTest PageHeader must declare compact'],
       ['project-collapse-binding', 'projectList', (value) => value.replace(':collapsed="isProjectHeaderCollapsed"', ':collapsed="false"'), 'RegistryProjectList collapse region is missing <CollapsibleHeaderRegion :collapsed="isProjectHeaderCollapsed">'],
       ['workflow-page-collapse-binding', 'workflowList', (value) => value.replace(':collapsed="isWorkflowHeaderCollapsed"', ':collapsed="false"'), 'WorkflowList collapse region is missing <CollapsibleHeaderRegion :collapsed="isWorkflowHeaderCollapsed">'],
       ['agent-page-collapse-binding', 'agentList', (value) => value.replace(':collapsed="isAgentHeaderCollapsed"', ':collapsed="false"'), 'AgentList collapse region is missing <CollapsibleHeaderRegion :collapsed="isAgentHeaderCollapsed">'],

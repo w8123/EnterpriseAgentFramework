@@ -140,6 +140,32 @@ class RuntimeRunCompletionPersistenceTest {
         assertTrue(snapshot.path("skillBindings").isArray());
     }
 
+    @ParameterizedTest
+    @CsvSource({"true,COMPLETED", "false,FAILED"})
+    void workflowCompletionCountsPersistedAuditAndCannotRecountAfterTerminal(boolean success, String expectedStatus) {
+        seed("WORKFLOW", "RUNNING");
+        database.jdbc().update("INSERT INTO runtime_tool_call_log (trace_id, tool_name, success) VALUES ('trace-1', 'orders:count', ?)", success);
+        database.jdbc().update("INSERT INTO runtime_tool_call_log (trace_id, tool_name, success) VALUES ('unrelated-trace', 'other:count', TRUE)");
+        database.jdbc().update("INSERT INTO runtime_guard_decision_log (trace_id, decision_type, target_kind, target_name, decision) VALUES ('trace-1', 'ACL', 'TOOL', 'orders:count', 'DENY')");
+        database.jdbc().update("INSERT INTO runtime_guard_decision_log (trace_id, decision_type, target_kind, target_name, decision) VALUES ('trace-1', 'SIDE_EFFECT', 'TOOL', 'orders:count', 'REQUIRE_CONFIRMATION')");
+        lifecycle.finishWorkflow("trace-1", success, success ? "OK" : "BUSINESS_FAILURE", "private answer", 2, Map.of());
+        var current = mapper.selectById(1L);
+        assertEquals(expectedStatus, current.getStatus());
+        assertEquals(1, current.getToolCallCount());
+        assertEquals(1, current.getGuardDenyCount());
+        assertEquals(1, current.getApprovalCount());
+        assertFalse(current.getMetadataJson().contains("private answer"));
+        var ended = current.getEndedAt();
+        database.jdbc().update("INSERT INTO runtime_tool_call_log (trace_id, tool_name, success) VALUES ('trace-1', 'late:audit', TRUE)");
+        lifecycle.finishWorkflow("trace-1", !success, "LATE_OUTCOME", "late private answer", 4, Map.of());
+        current = mapper.selectById(1L);
+        assertEquals(expectedStatus, current.getStatus());
+        assertEquals(ended, current.getEndedAt());
+        assertEquals(1, current.getToolCallCount());
+        assertEquals(1, current.getGuardDenyCount());
+        assertEquals(1, current.getApprovalCount());
+    }
+
     private void finish(Path path, boolean success, String code) {
         switch (path) {
             case AGENT -> lifecycle.finishAgent("trace-1", success, code, "private answer", COUNTS,

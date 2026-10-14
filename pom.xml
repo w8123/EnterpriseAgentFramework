@@ -41,6 +41,8 @@
         <langgraph4j.version>1.8.16</langgraph4j.version>
 
         <!-- Data layer -->
+        <!-- Current shared database is MySQL 5.7; BOM Connector/J 9.1 requires MySQL 8+. -->
+        <mysql-connector-j.version>8.0.33</mysql-connector-j.version>
         <mybatis-plus.version>3.5.6</mybatis-plus.version>
         <milvus-sdk.version>2.4.1</milvus-sdk.version>
         <db-scheduler.version>16.11.0</db-scheduler.version>
@@ -55,6 +57,18 @@
 
     <dependencyManagement>
         <dependencies>
+            <dependency>
+                <groupId>com.mysql</groupId>
+                <artifactId>mysql-connector-j</artifactId>
+                <version>${mysql-connector-j.version}</version>
+                <exclusions>
+                    <!-- Classic JDBC does not use X DevAPI; retrieval owns its protobuf dependency. -->
+                    <exclusion>
+                        <groupId>com.google.protobuf</groupId>
+                        <artifactId>protobuf-java</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
             <!-- Spring Boot BOM -->
             <dependency>
                 <groupId>org.springframework.boot</groupId>
@@ -183,6 +197,15 @@
     <build>
         <pluginManagement>
             <plugins>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-jar-plugin</artifactId>
+                    <version>3.4.1</version>
+                    <configuration>
+                        <!-- Repackage must start from a fresh plain JAR after parent dependency changes. -->
+                        <forceCreation>true</forceCreation>
+                    </configuration>
+                </plugin>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-compiler-plugin</artifactId>

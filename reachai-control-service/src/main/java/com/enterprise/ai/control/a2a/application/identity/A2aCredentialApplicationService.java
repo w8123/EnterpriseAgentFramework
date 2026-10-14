@@ -153,7 +153,7 @@ public class A2aCredentialApplicationService {
         String raw = "ra2a_" + credentialKey + "." + versionNo + "." + secret;
         A2aCredential saved = repository.save(new A2aCredential(
                 null, credentialKey, name, A2aDirection.INBOUND, A2aCredentialType.API_KEY,
-                "HASHED", passwordEncoder.encode(raw), null, null, null, null,
+                "HASHED", A2aApiKeyHash.encode(passwordEncoder, raw), null, null, null, null,
                 sha256(raw), versionNo,
                 A2aCredentialStatus.ACTIVE, now, expiresAt, null, rotatedFromId,
                 actor, null, null));

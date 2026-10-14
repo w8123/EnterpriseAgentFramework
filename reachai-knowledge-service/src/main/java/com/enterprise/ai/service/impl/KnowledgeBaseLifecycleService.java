@@ -4,6 +4,8 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.enterprise.ai.domain.dto.KbConfigRequest;
 import com.enterprise.ai.domain.dto.KnowledgeBaseRequest;
+import com.enterprise.ai.embedding.EmbeddingService;
+import com.enterprise.ai.embedding.EmbeddingDimensions;
 import com.enterprise.ai.domain.entity.KnowledgeBase;
 import com.enterprise.ai.domain.entity.KnowledgeTag;
 import com.enterprise.ai.repository.KnowledgeBaseLookup;
@@ -33,10 +35,9 @@ public class KnowledgeBaseLifecycleService {
     private final KnowledgeFileDeletionService files;
     private final KnowledgeCollectionLifecycleStore collections;
     private final VectorService vectors;
+    private final EmbeddingService embeddings;
     private final TransactionTemplate suspended;
     private final TransactionTemplate metadata;
-    @Value("${milvus.dimension:1536}")
-    private int dimension = 1536;
     @Value("${rag.default-top-k:5}")
     private int defaultTopK = 5;
     @Value("${rag.score-threshold:0.5}")
@@ -48,6 +49,7 @@ public class KnowledgeBaseLifecycleService {
                                          KnowledgeFileDeletionService files,
                                          KnowledgeCollectionLifecycleStore collections,
                                          VectorService vectors,
+                                         EmbeddingService embeddings,
                                          PlatformTransactionManager manager) {
         this.knowledgeBaseRepository = bases;
         this.lookup = new KnowledgeBaseLookup(bases);
@@ -56,6 +58,7 @@ public class KnowledgeBaseLifecycleService {
         this.files = files;
         this.collections = collections;
         this.vectors = vectors;
+        this.embeddings = embeddings;
         suspended = new TransactionTemplate(manager);
         suspended.setPropagationBehavior(TransactionDefinition.PROPAGATION_NOT_SUPPORTED);
         metadata = new TransactionTemplate(manager);
@@ -80,7 +83,7 @@ public class KnowledgeBaseLifecycleService {
             kb.setWorkspaceId(defaultString(request.getWorkspaceId(), "default"));
             kb.setProjectCode(request.getProjectCode());
             kb.setScope(defaultString(request.getScope(), "WORKSPACE"));
-            kb.setDimension(request.getDimension() != null ? request.getDimension() : dimension);
+            kb.setDimension(EmbeddingDimensions.resolve(request.getDimension(), embeddingModelInstanceId, embeddings));
             kb.setChunkSize(500);
             kb.setChunkOverlap(50);
             kb.setSplitType("FIXED");

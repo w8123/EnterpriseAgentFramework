@@ -54,6 +54,7 @@ public class InternalServiceAuthFilter extends OncePerRequestFilter {
                 && !path.startsWith("/internal/runtime/mcp/tool-executions")
                 && !isConsoleCapabilityInvocationPath(path)
                 && !isHttpApiConsolePath(path)
+                && !isRunOpsReplayPath(path)
                 && !("DELETE".equalsIgnoreCase(request.getMethod())
                 && path.startsWith("/internal/runtime/agents/sessions/"));
     }
@@ -87,7 +88,7 @@ public class InternalServiceAuthFilter extends OncePerRequestFilter {
         if (verified.isEmpty() || (("/internal/runtime/capability-references".equals(path)
                 || "/internal/runtime/workflows/studio/read-only-trials".equals(path) || isWorkflowReleasePath(path)
                 || isDebugSessionPath(path) || isConsoleCapabilityInvocationPath(path)
-                || isHttpApiConsolePath(path))
+                || isHttpApiConsolePath(path) || isRunOpsReplayPath(path))
                 && !InternalServiceAuthHeaders.IDENTITY_SOURCE_PLATFORM_SESSION.equals(verified.get().identitySource()))) {
             writeUnauthorized(response);
             return;
@@ -103,6 +104,10 @@ public class InternalServiceAuthFilter extends OncePerRequestFilter {
         response.getWriter().write(
                 "{\"success\":false,\"code\":\"RUNTIME_INTERNAL_AUTH_REQUIRED\","
                         + "\"answer\":\"internal service authentication failed\"}");
+    }
+
+    private static boolean isRunOpsReplayPath(String path) {
+        return path.startsWith("/internal/runtime/runops/traces/") && path.endsWith("/replay");
     }
 
     private static boolean isWorkflowReleasePath(String path) {

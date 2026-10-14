@@ -45,6 +45,7 @@ public class ApiGraphEdgeEntity {
 
     private LocalDateTime confirmedAt;
 
+    @com.baomidou.mybatisplus.annotation.TableField(updateStrategy = com.baomidou.mybatisplus.annotation.FieldStrategy.ALWAYS)
     private String rejectReason;
 
     /** 推断依据 JSON：例如 {"by":"shared_type","type":"UserDTO"}。 */

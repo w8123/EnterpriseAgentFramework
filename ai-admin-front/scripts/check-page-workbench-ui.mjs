@@ -677,12 +677,12 @@ expectMatches(
 )
 expectMatches(
   styles,
-  /\.page-foundation-workspace\s*\{[\s\S]*?flex:\s*1;[\s\S]*?gap:\s*16px;[\s\S]*?padding:\s*20px\s+22px\s+32px;[\s\S]*?overflow-y:\s*auto;/,
+  /\.page-foundation-workspace\s*\{[\s\S]*?flex:\s*1;[\s\S]*?gap:\s*16px;[\s\S]*?padding:\s*var\(--layout-panel-padding\);[\s\S]*?overflow-y:\s*auto;/,
   'page foundation unified scrolling workspace',
 )
 expectMatches(
   styles,
-  /\.resource-action-pane\s*\{[\s\S]*?min-height:\s*0;[\s\S]*?flex:\s*1;[\s\S]*?padding:\s*20px\s+22px\s+24px;[\s\S]*?overflow-y:\s*auto;/,
+  /\.resource-action-pane\s*\{[\s\S]*?min-height:\s*0;[\s\S]*?flex:\s*1;[\s\S]*?padding:\s*var\(--layout-panel-padding\);[\s\S]*?overflow-y:\s*auto;/,
   'resource/action internal pane scrolling',
 )
 expectMatches(

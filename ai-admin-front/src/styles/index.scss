@@ -103,7 +103,7 @@ body * {
   border-radius: var(--radius-lg);
 
   .el-card__header {
-    padding: 16px 24px;
+    padding: var(--layout-section-gap) var(--layout-panel-padding);
     font-weight: 600;
     font-size: 15px;
     color: var(--text-primary);
@@ -112,7 +112,7 @@ body * {
   }
 
   .el-card__body {
-    padding: 20px 24px;
+    padding: var(--layout-panel-padding);
   }
 }
 
@@ -138,7 +138,7 @@ body * {
   border-radius: var(--radius-lg);
   backdrop-filter: blur(12px);
   transition: all var(--transition-normal);
-  padding: 20px;
+  padding: var(--layout-panel-padding);
 
   &:hover {
     background: var(--bg-card-hover);
@@ -586,7 +586,7 @@ pre {
 }
 
 .main-content > .page-container > :is(.page-header, .agent-header, .workbench-header, .compat-header, .model-hero) {
-  min-height: var(--reachai-workbench-title-height, 120px);
+  min-height: var(--layout-page-header-height-emphasis);
   border: 1px solid var(--border-glass);
   border-radius: var(--reachai-workbench-title-radius, 16px);
   background:
@@ -648,7 +648,7 @@ pre {
 
 .main-content > :not(.page-container) > :is(.page-header, .page-head, .page-hero, .runtime-hero, .asset-directory-bar, .agent-header, .workbench-header, .compat-header, .model-hero) {
   box-sizing: border-box;
-  min-height: var(--reachai-workbench-title-height, 120px);
+  min-height: var(--layout-page-header-height-emphasis);
   border-radius: var(--reachai-workbench-title-radius, 16px);
 }
 
@@ -662,8 +662,8 @@ pre {
   overflow: hidden;
 
   .el-card__header {
-    min-height: 52px;
-    padding: 15px 20px;
+    min-height: 44px;
+    padding: var(--layout-section-gap) var(--layout-panel-padding);
     border-bottom: 1px solid var(--border-glass);
     background:
       linear-gradient(90deg, rgb(var(--brand-primary-rgb) / 0.08), transparent 36%),
@@ -673,7 +673,7 @@ pre {
   }
 
   .el-card__body {
-    padding: 18px 20px;
+    padding: var(--layout-panel-padding);
   }
 }
 

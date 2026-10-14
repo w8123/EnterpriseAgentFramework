@@ -237,15 +237,6 @@ const migratedRuntimeMethods = new Map([
   ]]
 ])
 const migratedCapabilityRoutes = [
-  { method: 'GET', path: '/api/domains' },
-  { method: 'POST', path: '/api/domains' },
-  { method: 'PUT', path: '/api/domains/{id}' },
-  { method: 'DELETE', path: '/api/domains/{id}' },
-  { method: 'GET', path: '/api/domains/{code}/assignments' },
-  { method: 'POST', path: '/api/domains/{code}/assignments' },
-  { method: 'DELETE', path: '/api/domains/assignments/{id}' },
-  { method: 'POST', path: '/api/domains/classify' },
-  { method: 'GET', path: '/api/domains/coverage' },
   { method: 'POST', path: '/api/registry/projects/register' },
   { method: 'GET', path: '/api/registry/projects/{projectCode}/capability-description-settings' },
   { method: 'GET', path: '/api/registry/projects/{projectCode}/instances' },
@@ -263,19 +254,15 @@ const migratedCapabilityRoutes = [
   { method: 'GET', path: '/api/tools' },
   { method: 'GET', path: '/api/tools/{name}' },
   { method: 'POST', path: '/api/tool-retrieval/search' },
-  { method: 'POST', path: '/api/tool-retrieval/rebuild' },
-  { method: 'GET', path: '/api/tool-retrieval/rebuild/status' },
   { method: 'GET', path: '/api/tool-retrieval/health' },
   { method: 'GET', path: '/api/scan-projects' },
   { method: 'POST', path: '/api/scan-projects' },
   { method: 'GET', path: '/api/scan-projects/{id}' },
   { method: 'PUT', path: '/api/scan-projects/{id}' },
-  { method: 'PATCH', path: '/api/scan-projects/{id}/auth-settings' },
   { method: 'PATCH', path: '/api/scan-projects/{id}/registry-credential' },
   { method: 'POST', path: '/api/scan-projects/{id}/sdk-access-check' },
   { method: 'PATCH', path: '/api/scan-projects/{id}/scan-settings' },
   { method: 'DELETE', path: '/api/scan-projects/{id}' },
-  { method: 'POST', path: '/api/scan-projects/{id}/scan' },
   { method: 'POST', path: '/api/scan-projects/{id}/rescan' },
   { method: 'POST', path: '/api/scan-projects/{id}/sensitive-data/scan' },
   { method: 'GET', path: '/api/scan-projects/{id}/sensitive-data/status' },
@@ -283,32 +270,33 @@ const migratedCapabilityRoutes = [
   { method: 'POST', path: '/api/scan-projects/{projectId}/tools/reconcile' },
   { method: 'GET', path: '/api/scan-projects/{projectId}/scan-tools/{scanToolId}' },
   { method: 'POST', path: '/api/scan-projects/{projectId}/scan-tools/{scanToolId}/rescan-from-source' },
-  { method: 'GET', path: '/api/scan-projects/{id}/diff-summary' },
+  { method: 'GET', path: '/api/scan-projects/{id}/sources' },
   { method: 'GET', path: '/api/scan-projects/{id}/operation-blockers' },
-  { method: 'GET', path: '/api/semantic-docs' },
-  { method: 'PUT', path: '/api/semantic-docs/{id}' },
-  { method: 'GET', path: '/api/scan-projects/{id}/semantic-docs' },
-  { method: 'POST', path: '/api/scan-projects/{id}/semantic/generate' },
-  { method: 'GET', path: '/api/scan-projects/{id}/semantic/status' },
-  { method: 'POST', path: '/api/scan-projects/{id}/semantic/generate-project' },
-  { method: 'GET', path: '/api/scan-projects/{id}/modules' },
-  { method: 'PUT', path: '/api/scan-modules/{id}' },
-  { method: 'POST', path: '/api/scan-modules/{id}/semantic/generate' },
-  { method: 'POST', path: '/api/scan-modules/merge' },
-  { method: 'POST', path: '/api/tools/{name}/semantic/generate' },
-  { method: 'POST', path: '/api/scan-projects/{projectId}/scan-tools/{scanToolId}/semantic/generate' },
-  { method: 'GET', path: '/api/api-graph/projects/{projectId}/snapshot' },
-  { method: 'GET', path: '/api/api-graph/projects/{projectId}/candidates' },
-  { method: 'POST', path: '/api/api-graph/projects/{projectId}/candidates/{edgeId}/confirm' },
-  { method: 'POST', path: '/api/api-graph/projects/{projectId}/candidates/{edgeId}/reject' },
-  { method: 'GET', path: '/api/api-graph/projects/{projectId}/tools/{toolName}/param-hints' },
-  { method: 'POST', path: '/api/api-graph/projects/{projectId}/infer' },
-  { method: 'POST', path: '/api/api-graph/projects/{projectId}/infer/request-response' },
-  { method: 'POST', path: '/api/api-graph/projects/{projectId}/rebuild' },
-  { method: 'POST', path: '/api/api-graph/projects/{projectId}/regenerate' },
-  { method: 'POST', path: '/api/api-graph/projects/{projectId}/edges' },
-  { method: 'DELETE', path: '/api/api-graph/projects/{projectId}/edges/{edgeId}' },
-  { method: 'PUT', path: '/api/api-graph/projects/{projectId}/layout' }
+  { method: 'GET', path: '/internal/capability/business-capabilities/projects/{projectId}/subjects/{subjectType}/{subjectId}/enrichment' },
+  { method: 'GET', path: '/internal/capability/business-capabilities/projects/{projectId}/subjects/{subjectType}/{subjectId}/semantic' },
+  { method: 'GET', path: '/internal/capability/business-capabilities/projects/{projectId}/semantic-docs' },
+  { method: 'POST', path: '/internal/capability/business-capabilities/projects/{projectId}/semantic/generate' },
+  { method: 'GET', path: '/internal/capability/business-capabilities/projects/{projectId}/semantic/status' },
+  { method: 'POST', path: '/internal/capability/business-capabilities/projects/{projectId}/subjects/{subjectType}/{subjectId}/semantic/generate' },
+  { method: 'PUT', path: '/internal/capability/business-capabilities/projects/{projectId}/subjects/{subjectType}/{subjectId}/semantic' },
+  { method: 'GET', path: '/internal/capability/business-capabilities/projects/{projectId}/groups' },
+  { method: 'POST', path: '/internal/capability/business-capabilities/projects/{projectId}/groups' },
+  { method: 'PUT', path: '/internal/capability/business-capabilities/projects/{projectId}/groups/{groupId}' },
+  { method: 'GET', path: '/internal/capability/business-capabilities/projects/{projectId}/subjects/{subjectType}/{subjectId}/classification' },
+  { method: 'PUT', path: '/internal/capability/business-capabilities/projects/{projectId}/classification/{subjectType}' },
+  { method: 'GET', path: '/internal/capability/business-capabilities/projects/{projectId}/classification/{subjectType}/assignments' },
+  { method: 'GET', path: '/internal/capability/api-graph/projects/{projectId}/snapshot' },
+  { method: 'GET', path: '/internal/capability/api-graph/projects/{projectId}/candidates' },
+  { method: 'POST', path: '/internal/capability/api-graph/projects/{projectId}/candidates/{edgeId}/confirm' },
+  { method: 'POST', path: '/internal/capability/api-graph/projects/{projectId}/candidates/{edgeId}/reject' },
+  { method: 'GET', path: '/internal/capability/api-graph/projects/{projectId}/subjects/{subjectType}/{subjectId}/param-hints' },
+  { method: 'POST', path: '/internal/capability/api-graph/projects/{projectId}/infer' },
+  { method: 'POST', path: '/internal/capability/api-graph/projects/{projectId}/infer/request-response' },
+  { method: 'POST', path: '/internal/capability/api-graph/projects/{projectId}/rebuild' },
+  { method: 'POST', path: '/internal/capability/api-graph/projects/{projectId}/regenerate' },
+  { method: 'POST', path: '/internal/capability/api-graph/projects/{projectId}/edges' },
+  { method: 'DELETE', path: '/internal/capability/api-graph/projects/{projectId}/edges/{edgeId}' },
+  { method: 'PUT', path: '/internal/capability/api-graph/projects/{projectId}/layout' }
 ]
 
 function exists(rel) {
@@ -566,6 +554,8 @@ function isCapabilityOwnedPublicRoute(route) {
       path.startsWith('/api/compositions/') ||
       path === '/api/api-graph' ||
       path.startsWith('/api/api-graph/') ||
+      path === '/api/business-capabilities' ||
+      path.startsWith('/api/business-capabilities/') ||
       path === '/api/tool-retrieval' ||
       path.startsWith('/api/tool-retrieval/') ||
       path === '/api/skill-mining' ||
@@ -577,9 +567,7 @@ function isCapabilityOwnedPublicRoute(route) {
       path === '/api/scan-modules' ||
       path.startsWith('/api/scan-modules/') ||
       path === '/api/semantic-docs' ||
-      path.startsWith('/api/semantic-docs/') ||
-      path === '/api/domains' ||
-      path.startsWith('/api/domains/')
+      path.startsWith('/api/semantic-docs/')
 }
 
 function isPlatformControlOwnedPublicRoute(route) {
@@ -924,6 +912,56 @@ const migratedCapabilityIssues = migratedCapabilityRoutes
     targetRoot: 'migrated Capability route implementation'
   }))
 report('migrated Capability route must have a real implementation', migratedCapabilityIssues)
+const catalogPublicFacadeIssues = migratedCapabilityRoutes.filter(route => route.path.startsWith('/internal/capability/'))
+  .map(route => ({ ...route, path: route.path.replace('/internal/capability/', '/api/') }))
+  .filter(route => !routeCoveredByControl(controlPublicRoutes, route))
+  .map(route => ({ key: routeKey(route), targetRoot: 'project-authorized Control catalog facade' }))
+report('typed catalog public route must have a Control facade', catalogPublicFacadeIssues)
+const retiredToolRetrievalRebuildPaths = [
+  '/api/tool-retrieval/rebuild',
+  '/api/tool-retrieval/rebuild/status'
+]
+report('retired Tool retrieval rebuild routes must stay deleted', [...concreteCapabilityRoutes, ...controlPublicRoutes]
+  .filter(route => retiredToolRetrievalRebuildPaths.includes(route.path))
+  .map(route => ({ key: routeKey(route), sourceFile: route.file, targetRoot: 'Tool retrieval rebuild retirement' })))
+const retiredAdjunctRoutes = [
+  { method: 'GET', path: '/api/semantic-docs' },
+  { method: 'PUT', path: '/api/semantic-docs/{}' },
+  { method: 'GET', path: '/api/scan-projects/{}/semantic-docs' },
+  { method: 'POST', path: '/api/scan-projects/{}/semantic/generate' },
+  { method: 'POST', path: '/api/scan-projects/{}/semantic/generate-project' },
+  { method: 'GET', path: '/api/scan-projects/{}/semantic/status' },
+  { method: 'GET', path: '/api/scan-projects/{}/modules' },
+  { method: 'PUT', path: '/api/scan-modules/{}' },
+  { method: 'POST', path: '/api/scan-modules/merge' },
+  { method: 'POST', path: '/api/scan-modules/{}/semantic/generate' },
+  { method: 'POST', path: '/api/tools/{}/semantic/generate' },
+  { method: 'POST', path: '/api/scan-projects/{}/scan-tools/{}/semantic/generate' },
+  { method: 'GET', path: '/api/api-graph/projects/{}/tools/{}/param-hints' }
+]
+const retiredUnusedCatalogRoutes = [
+  { method: 'PATCH', path: '/api/scan-projects/{}/auth-settings' },
+  { method: 'POST', path: '/api/scan-projects/{}/scan' },
+  { method: 'GET', path: '/api/scan-projects/{}/diff-summary' },
+  { method: 'GET', path: '/api/business-methods/summary' },
+  { method: 'GET', path: '/internal/capability/business-methods/summary' }
+]
+report('retired unused catalog routes must stay deleted', [...concreteCapabilityRoutes, ...controlPublicRoutes]
+  .filter(route => retiredUnusedCatalogRoutes.some(retired => (route.method === 'ANY' || route.method === retired.method)
+    && route.path.replace(/\{[^/{}]+\}/g, '{}') === retired.path))
+  .map(route => ({ key: routeKey(route), sourceFile: route.file, targetRoot: 'unused catalog route retirement' })))
+const retiredClassificationMergePaths = [
+  '/internal/capability/business-capabilities/projects/{}/groups/merge',
+  '/api/business-capabilities/projects/{}/groups/merge'
+]
+report('retired business classification merge routes must stay deleted', [...concreteCapabilityRoutes, ...controlPublicRoutes]
+  .filter(route => (route.method === 'ANY' || route.method === 'POST')
+    && retiredClassificationMergePaths.includes(route.path.replace(/\{[^/{}]+\}/g, '{}')))
+  .map(route => ({ key: routeKey(route), sourceFile: route.file, targetRoot: 'classification merge retirement' })))
+report('retired duplicate semantic and group routes must stay deleted', concreteCapabilityRoutes
+  .filter(route => retiredAdjunctRoutes.some(retired => (route.method === 'ANY' || route.method === retired.method)
+    && route.path.replace(/\{[^/{}]+\}/g, '{}') === retired.path))
+  .map(route => ({ key: routeKey(route), sourceFile: route.file, targetRoot: 'typed owner-attached catalog resources' })))
 
 const retiredScanMaintenanceRoutes = [
   { method: 'PUT', path: '/api/scan-projects/{}/scan-tools/{}' },

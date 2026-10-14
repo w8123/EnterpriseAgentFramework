@@ -24,16 +24,22 @@ import com.enterprise.ai.control.a2a.domain.trust.A2aTrustProfile;
 import com.enterprise.ai.control.a2a.domain.trust.A2aTrustProfileStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import com.enterprise.ai.control.a2a.application.port.A2aCredentialCipher;
+import com.enterprise.ai.control.a2a.application.port.A2aRemoteAgentRepository;
 
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.security.SecureRandom;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -95,6 +101,59 @@ class A2aInboundAuthenticationServiceTest {
 
         assertEquals("A2A_AUTHENTICATION_FAILED", error.code());
         assertEquals("A2A authentication failed", error.getMessage());
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = { 26, 96 })
+    void issuesAndAuthenticatesEntireLongApiKeyAndRejectsChangedSecretSuffix(int keyLength) {
+        String key = "q" + "m".repeat(keyLength - 1);
+        Clock clock = Clock.fixed(Instant.parse("2026-08-23T12:00:00Z"), ZoneOffset.UTC);
+        var issuer = new A2aCredentialApplicationService(credentials, principals,
+                mock(A2aRemoteAgentRepository.class), mock(A2aCredentialCipher.class),
+                encoder, new SecureRandom(), clock);
+        AtomicReference<A2aCredential> persisted = new AtomicReference<>();
+        when(credentials.save(any(A2aCredential.class))).thenAnswer(invocation -> {
+            A2aCredential value = invocation.getArgument(0);
+            A2aCredential saved = new A2aCredential(20L, value.credentialKey(), value.name(), value.direction(),
+                    value.credentialType(), value.materialMode(), value.materialHash(),
+                    value.materialCiphertext(), value.encryptionKeyId(), value.encryptionNonce(),
+                    value.externalRef(), value.fingerprint(), value.versionNo(), value.status(),
+                    value.notBefore(), value.expiresAt(), value.lastUsedAt(), value.rotatedFromId(),
+                    value.createdBy(), value.createdAt(), value.updatedAt());
+            persisted.set(saved);
+            return saved;
+        });
+        var issued = issuer.createApiKey(new A2aCredentialContracts.CreateApiKeyRequest(
+                key, "Long-key read-only experiment", LocalDateTime.of(2026, 12, 1, 0, 0)), "test");
+        when(trusts.findActiveById(10L)).thenReturn(Optional.of(trust(false)));
+        when(credentials.findUsableByKeyAndVersion(eq(key), eq(1), any())).thenReturn(Optional.of(persisted.get()));
+        when(principals.findActiveByCredential(20L, 10L)).thenReturn(Optional.of(principal(20L)));
+
+        assertEquals(7L, service.authenticate("agent.example.com", issued.apiKeyOnce()).principal().principalId());
+        String raw = issued.apiKeyOnce();
+        String tampered = raw.substring(0, raw.length() - 1) + (raw.endsWith("A") ? "B" : "A");
+        A2aDomainException error = assertThrows(A2aDomainException.class,
+                () -> service.authenticate("agent.example.com", tampered));
+        assertEquals("A2A_AUTHENTICATION_FAILED", error.code());
+    }
+
+    @Test
+    void oversizedUnknownKeyReturnsGenericAuthenticationFailureWithoutBcryptException() {
+        when(trusts.findActiveById(10L)).thenReturn(Optional.of(trust(false)));
+        A2aDomainException error = assertThrows(A2aDomainException.class,
+                () -> service.authenticate("agent.example.com", "ra2a_" + "u".repeat(96) + ".1." + "s".repeat(128)));
+        assertEquals("A2A_AUTHENTICATION_FAILED", error.code());
+    }
+
+    @Test
+    void oversizedCandidateForExistingLegacyCredentialReturnsGenericFailure() {
+        String raw = "ra2a_partner-key.1.abcdefghijklmnopqrstuvwxyz0123456789";
+        when(trusts.findActiveById(10L)).thenReturn(Optional.of(trust(false)));
+        when(credentials.findUsableByKeyAndVersion(eq("partner-key"), eq(1), any()))
+                .thenReturn(Optional.of(credential(raw)));
+        A2aDomainException error = assertThrows(A2aDomainException.class,
+                () -> service.authenticate("agent.example.com", raw + "s".repeat(100)));
+        assertEquals("A2A_AUTHENTICATION_FAILED", error.code());
     }
 
     @Test

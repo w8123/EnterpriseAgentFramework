@@ -12,12 +12,13 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.ExceptionHandler;
 
 import java.util.List;
 
 @RestController
 @RequiredArgsConstructor
-@RequestMapping("/api/api-graph/projects/{projectId}")
+@RequestMapping("/internal/capability/api-graph/projects/{projectId}")
 public class CapabilityApiGraphSnapshotController {
 
     private final CapabilityApiGraphSnapshotService snapshotService;
@@ -37,11 +38,11 @@ public class CapabilityApiGraphSnapshotController {
         return ResponseEntity.ok(operationsService.listCandidates(projectId, status, minConfidence));
     }
 
-    @GetMapping("/tools/{toolName}/param-hints")
+    @GetMapping("/subjects/{subjectType}/{subjectId}/param-hints")
     public ResponseEntity<List<CapabilityApiGraphParamSourceHintView>> paramHints(
             @PathVariable Long projectId,
-            @PathVariable String toolName) {
-        return ResponseEntity.ok(operationsService.listParamHints(projectId, toolName));
+            @PathVariable String subjectType, @PathVariable Long subjectId) {
+        return ResponseEntity.ok(operationsService.listParamHints(projectId, subjectType, subjectId));
     }
 
     @PostMapping("/infer")
@@ -120,7 +121,7 @@ public class CapabilityApiGraphSnapshotController {
 
     @DeleteMapping("/edges/{edgeId}")
     public ResponseEntity<Void> deleteEdge(@PathVariable Long projectId, @PathVariable Long edgeId) {
-        return operationsService.deleteEdge(edgeId)
+        return operationsService.deleteEdge(projectId, edgeId)
                 ? ResponseEntity.noContent().build()
                 : ResponseEntity.notFound().build();
     }
@@ -133,7 +134,8 @@ public class CapabilityApiGraphSnapshotController {
         return ResponseEntity.status(HttpStatus.NO_CONTENT).build();
     }
 
-    private ResponseEntity<CapabilityApiGraphRequests.ApiErrorResponse> badRequest(IllegalArgumentException ex) {
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<CapabilityApiGraphRequests.ApiErrorResponse> badRequest(IllegalArgumentException ex) {
         return ResponseEntity.badRequest().body(new CapabilityApiGraphRequests.ApiErrorResponse(ex.getMessage()));
     }
 }

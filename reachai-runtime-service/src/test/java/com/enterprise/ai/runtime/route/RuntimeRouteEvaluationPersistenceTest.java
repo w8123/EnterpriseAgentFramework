@@ -61,7 +61,8 @@ class RuntimeRouteEvaluationPersistenceTest {
         assertEquals(1001, result.traceCount());
         assertEquals(500, result.retrievalTraceCount());
         assertTrue(result.intentClassifierReady());
-        assertTrue(result.domainClassifierReady());
+        assertEquals("意图标签样本已足够，可试点规则 + 小模型两阶段 IntentClassifier。",
+                result.recommendation());
         assertTrue(queries.queries().stream().allMatch(query -> query.rowCount() <= 500),
                 "No evidence SELECT may materialize more than 500 rows");
     }
@@ -102,7 +103,6 @@ class RuntimeRouteEvaluationPersistenceTest {
         assertEquals(0, result.logCount());
         assertEquals(0, result.traceCount());
         assertFalse(result.intentClassifierReady());
-        assertFalse(result.domainClassifierReady());
         assertThrows(UnsupportedOperationException.class, () -> result.intentCounts().put("new", 1L));
     }
 

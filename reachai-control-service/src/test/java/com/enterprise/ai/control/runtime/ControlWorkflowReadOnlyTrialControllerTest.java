@@ -3,6 +3,7 @@ package com.enterprise.ai.control.runtime;
 import com.enterprise.ai.common.capability.HttpApiDraftTrialPolicy;
 import com.enterprise.ai.common.capability.WorkflowReadOnlyTrialPolicy;
 import com.enterprise.ai.control.capability.CapabilityReviewGateway;
+import com.enterprise.ai.control.capability.CatalogReadAuthorization;
 import com.enterprise.ai.control.client.runtime.RuntimeProxyClient;
 import com.enterprise.ai.control.governance.ControlToolAclDecisionService;
 import com.enterprise.ai.control.identity.PlatformAuthenticatedSession;
@@ -26,6 +27,12 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 class ControlWorkflowReadOnlyTrialControllerTest {
+    @Test void httpOwnerReadUsesTheOriginalInvokeGrantWithoutIntroducingPlatformRead() {
+        assertEquals(HttpStatus.OK, controller.run(input()).getStatusCode());
+        verify(owner).getHttpApi(1L, "42", CatalogReadAuthorization.resourceBody(session, PlatformPermissions.CAPABILITY_INVOKE));
+        verify(access, never()).require(PlatformPermissions.PLATFORM_READ);
+        verify(access, never()).requireProject(session, PlatformPermissions.PLATFORM_READ, 41L, "orders");
+    }
     private final ObjectMapper json = new ObjectMapper();
     private final RuntimeProxyClient runtime = mock(RuntimeProxyClient.class);
     private final CapabilityReviewGateway owner = mock(CapabilityReviewGateway.class);
@@ -34,7 +41,8 @@ class ControlWorkflowReadOnlyTrialControllerTest {
     private final ControlWorkflowReadOnlyTrialGateway gateway = mock(ControlWorkflowReadOnlyTrialGateway.class);
     private final PlatformPrincipal user = mock(PlatformPrincipal.class);
     private final PlatformAuthenticatedSession session = new PlatformAuthenticatedSession(user, "isolated", null,
-            List.of("implementer"), List.of(), List.of());
+            List.of("implementer"), List.of(), List.of(new com.enterprise.ai.control.identity.PlatformPermissionGrant(
+                    PlatformPermissions.CAPABILITY_INVOKE, "PROJECT", "orders")));
     private ControlWorkflowReadOnlyTrialController controller;
     private Map<String, Object> summary;
     private Map<String, Object> contract;
@@ -61,7 +69,9 @@ class ControlWorkflowReadOnlyTrialControllerTest {
         contract.put("responses", List.of(Map.of("schema", Map.of("type", "object"),
                 "contentTypes", List.of("application/json"))));
         contract.put("authentication", Map.of("state", "UNKNOWN"));
-        when(owner.getHttpApi(1L, "42")).thenAnswer(call -> ResponseEntity.ok(Map.of("summary", summary,
+        when(owner.getHttpApi(org.mockito.ArgumentMatchers.eq(1L), org.mockito.ArgumentMatchers.eq("42"), org.mockito.ArgumentMatchers.anyMap())).thenAnswer(call -> ResponseEntity.ok()
+                .header(CatalogReadAuthorization.SCOPE, "PROJECT").header(CatalogReadAuthorization.PROJECT_ID, "41")
+                .header(CatalogReadAuthorization.PROJECT_CODE, "orders").body(Map.of("summary", summary,
                 "acceptedContract", contract)));
         when(acl.decide(session.roles(), 41L, "orders", "TOOL", "http-api:orders:dev:api")).thenReturn("ALLOW");
         when(gateway.run(any())).thenReturn(ResponseEntity.ok(Map.of("success", true)));
@@ -133,7 +143,7 @@ class ControlWorkflowReadOnlyTrialControllerTest {
         String graph = """
                 {"nodes":[{"id":"method","type":"TOOL","ref":{"kind":"TOOL","qualifiedName":"orders:normalize"},
                 "config":{"inputMapping":{"orderNo":"params.orderNo"}}},
-                {"id":"variable","type":"VARIABLE_ASSIGN","config":{"assignments":{"normalized":"nodeOutput.method.data"}}}],
+                {"id":"variable","type":"VARIABLE_ASSIGN","config":{"assignments":{"normalized":"nodeOutput.method"}}}],
                 "edges":[{"from":"method","to":"variable"}],"entryNodeId":"method","exitNodeIds":["variable"]}
                 """;
         when(runtime.workflowWorkingCopy("wf-api")).thenReturn(ResponseEntity.ok(Map.of("workflowId", "wf-api",

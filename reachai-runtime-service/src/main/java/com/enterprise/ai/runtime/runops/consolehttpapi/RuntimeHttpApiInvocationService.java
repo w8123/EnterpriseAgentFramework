@@ -117,8 +117,11 @@ public class RuntimeHttpApiInvocationService {
             return finish(claimed, "NOT_DISPATCHED", "NOT_DISPATCHED", "HTTP_API_PRE_DISPATCH_REJECTED",
                     null, response.durationMs(), null);
         }
+        String transportSummary = WorkflowHttpClient.safeTransportFailureSummary(response);
+        log.warn("HTTP API Console dispatch unconfirmed invocationId={} transportCause={}",
+                command.invocationId(), transportSummary == null ? "[unavailable]" : transportSummary);
         return finish(claimed, "UNKNOWN", "UNCONFIRMED", "HTTP_API_DISPATCH_UNKNOWN",
-                null, response.durationMs(), null);
+                null, response.durationMs(), null, transportSummary);
     }
 
     public HttpApiConsoleContracts.InvocationOutcome get(String invocationId, String actorId) {
@@ -312,10 +315,15 @@ public class RuntimeHttpApiInvocationService {
 
     private HttpApiConsoleContracts.InvocationOutcome finish(ConsoleCapabilityInvocationEntity row, String status,
             String stage, String code, Integer httpStatus, Long latencyMs, Object result) {
+        return finish(row, status, stage, code, httpStatus, latencyMs, result, null);
+    }
+
+    private HttpApiConsoleContracts.InvocationOutcome finish(ConsoleCapabilityInvocationEntity row, String status,
+            String stage, String code, Integer httpStatus, Long latencyMs, Object result, String transportSummary) {
         transaction().executeWithoutResult(tx -> {
             ConsoleCapabilityInvocationEntity locked = attempts.selectByInvocationIdForUpdate(row.getInvocationId());
             if (locked != null && Set.of("ACCEPTED", "DISPATCHING").contains(locked.getStatus())) {
-                terminal(locked, status, stage, code, httpStatus, latencyMs, result);
+                terminal(locked, status, stage, code, httpStatus, latencyMs, result, transportSummary);
             }
         });
         return outcome(require(row.getInvocationId()));
@@ -323,11 +331,20 @@ public class RuntimeHttpApiInvocationService {
 
     private void terminal(ConsoleCapabilityInvocationEntity row, String status, String stage, String code,
                           Integer httpStatus, Long latencyHint, Object result) {
+        terminal(row, status, stage, code, httpStatus, latencyHint, result, null);
+    }
+
+    private void terminal(ConsoleCapabilityInvocationEntity row, String status, String stage, String code,
+                          Integer httpStatus, Long latencyHint, Object result, String transportSummary) {
         LocalDateTime now = LocalDateTime.now();
         long latency = latencyHint == null ? Math.max(0, ChronoUnit.MILLIS.between(row.getStartedAt(), now))
                 : Math.max(0, latencyHint);
         String resultJson = result == null ? null : json(result);
         boolean truncated = false;
+        String errorSummary = code == null ? null : WorkflowTraceSanitizer.sanitizeRejectionSummary(code);
+        if ("HTTP_API_DISPATCH_UNKNOWN".equals(code) && transportSummary != null) {
+            errorSummary += " " + transportSummary;
+        }
         if (resultJson != null && resultJson.getBytes(StandardCharsets.UTF_8).length > RESULT_LIMIT) {
             resultJson = json(Map.of("truncated", true, "reason", "RESULT_MAX_BYTES"));
             truncated = true;
@@ -340,7 +357,7 @@ public class RuntimeHttpApiInvocationService {
                 .set(ConsoleCapabilityInvocationEntity::getHttpStatus, httpStatus)
                 .set(ConsoleCapabilityInvocationEntity::getErrorCode, code)
                 .set(ConsoleCapabilityInvocationEntity::getErrorMessage,
-                        code == null ? null : WorkflowTraceSanitizer.sanitizeRejectionSummary(code))
+                        errorSummary)
                 .set(ConsoleCapabilityInvocationEntity::getResultJson, resultJson)
                 .set(ConsoleCapabilityInvocationEntity::getResultTruncated, truncated)
                 .set(ConsoleCapabilityInvocationEntity::getResultExpiresAt,
@@ -366,7 +383,7 @@ public class RuntimeHttpApiInvocationService {
                 .set(RuntimeRunEntity::getStatus, success ? "COMPLETED" : "FAILED")
                 .set(RuntimeRunEntity::getOutputSummary, resultJson == null ? "" : "[omitted]")
                 .set(RuntimeRunEntity::getErrorCode, success ? null : code)
-                .set(RuntimeRunEntity::getErrorMessage, success ? null : WorkflowTraceSanitizer.sanitizeRejectionSummary(code))
+                .set(RuntimeRunEntity::getErrorMessage, success ? null : errorSummary)
                 .set(RuntimeRunEntity::getLatencyMs, Math.toIntExact(Math.min(Integer.MAX_VALUE, latency)))
                 .set(RuntimeRunEntity::getEndedAt, now).set(RuntimeRunEntity::getUpdatedAt, now)) != 1) {
             throw new IllegalStateException("HTTP API Run terminal update failed");

@@ -11,7 +11,7 @@ export default defineConfig({
   },
   test: {
     environment: 'happy-dom',
-    include: ['src/utils/apiMarketWorkflow.test.ts'],
+    include: ['src/views/api-market/**/*.test.ts'],
     css: false,
   },
 })

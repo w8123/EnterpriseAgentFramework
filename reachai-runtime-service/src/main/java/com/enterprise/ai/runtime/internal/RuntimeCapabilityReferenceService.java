@@ -42,7 +42,10 @@ public class RuntimeCapabilityReferenceService {
             if (key.storageName() != null && !key.storageName().isBlank()) alias(aliases, key.storageName(), key.qualifiedName());
         }
         var workflowEvidence = index.inspect(aliases.keySet());
-        var agentEvidence = agentUsage.publishedBindings(query.agentConfigVersionIds());
+        var matchingVersions = workflowEvidence.hits().stream().filter(hit -> hit.versionId() != null)
+                .collect(Collectors.toMap(RuntimeWorkflowReferenceIndex.Hit::versionId,
+                        RuntimeWorkflowReferenceIndex.Hit::workflowId, (first, duplicate) -> first));
+        var agentEvidence = agentUsage.publishedBindings(query.agentConfigVersionIds(), matchingVersions);
         var warnings = new LinkedHashSet<>(workflowEvidence.warnings());
         warnings.addAll(agentEvidence.warnings());
         Set<Usage> result = new LinkedHashSet<>();

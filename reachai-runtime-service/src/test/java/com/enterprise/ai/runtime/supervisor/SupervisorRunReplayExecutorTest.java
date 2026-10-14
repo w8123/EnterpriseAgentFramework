@@ -81,6 +81,19 @@ class SupervisorRunReplayExecutorTest {
     }
 
     @Test
+    void replayPortPreservesCurrentOperatorWhilePinningArchivedConfig() {
+        var identity = WorkflowExecutionIdentity.fromAgent("default", null, null, "platform:7:operator");
+        var result = app.getBean(RuntimeRunReplayExecutionPort.class).executePublishedAgent("agent-1", 11L,
+                Map.of("message", "替代输入", "replayOfTraceId", "original-trace"), identity);
+        assertTrue(Boolean.TRUE.equals(result.get("success")));
+        assertSame(identity, captured.get().identity());
+        assertEquals(11L, captured.get().config().getId());
+        assertEquals("ARCHIVED", captured.get().config().getStatus());
+        assertEquals("original-trace", captured.get().input().get("replayOfTraceId"));
+        verify(resolver, never()).resolve(anyString());
+    }
+
+    @Test
     void protocolPortPreservesTrustedIdentityCancellationAndStreamingEvents() {
         var execution = app.getBean(RuntimePublishedAgentExecutionPort.class);
         assertSame(app.getBean(RuntimeAgentExecutionService.class), execution);

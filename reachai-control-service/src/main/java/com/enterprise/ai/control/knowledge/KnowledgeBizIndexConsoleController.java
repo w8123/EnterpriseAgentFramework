@@ -63,7 +63,7 @@ public class KnowledgeBizIndexConsoleController {
     public ResponseEntity<byte[]> list(HttpServletRequest request) {
         PlatformAuthenticatedSession actor = require(request, READ_PERMISSION);
         audit(actor, "KNOWLEDGE_BIZ_INDEX_LIST_REQUESTED", "collection", Map.of());
-        return respond(gateway.exchange("GET", KnowledgeBizIndexGateway.INTERNAL_ROOT,
+        return respond(gateway.exchange("GET", KnowledgeBizIndexGateway.INTERNAL_ROOT + "/list",
                 consoleTenantId, actorId(actor), null, null));
     }
 

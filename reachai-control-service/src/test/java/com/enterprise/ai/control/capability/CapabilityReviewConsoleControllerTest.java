@@ -165,24 +165,26 @@ class CapabilityReviewConsoleControllerTest {
         var authorization = mock(PlatformAuthorizationService.class);
         var impacts = mock(CapabilityChangeImpactService.class);
         var controller = new CapabilityReviewConsoleController(gateway, new PlatformRequestAuthorization(authorization), impacts);
-        when(gateway.getCapability("orders_read", "7")).thenReturn(ResponseEntity.ok(Map.of(
-                "projectCode", "orders", "qualifiedName", "orders:read", "name", "orders_read")));
+        when(gateway.getCapabilityIdentity(org.mockito.ArgumentMatchers.eq("orders_read"), org.mockito.ArgumentMatchers.eq("7"), org.mockito.ArgumentMatchers.anyMap())).thenReturn(ResponseEntity.ok()
+                .header(CatalogReadAuthorization.SCOPE, "PROJECT").header(CatalogReadAuthorization.PROJECT_ID, "7")
+                .header(CatalogReadAuthorization.PROJECT_CODE, "orders").body(Map.of(
+                "projectId", 7L, "projectCode", "orders", "qualifiedName", "orders:read", "name", "orders_read")));
         when(impacts.references("orders", "orders:read", "orders_read", "7")).thenReturn(Map.of("runtimeEvidence", "UNKNOWN"));
         assertEquals("UNKNOWN", ((Map<?, ?>) controller.capabilityReferences(authenticatedRequest("alice"), "orders", "orders_read").getBody()).get("runtimeEvidence"));
         verify(authorization).requireResourcePermission(any(), eq(PlatformPermissions.PLATFORM_READ), eq("PROJECT"), isNull(), eq("orders"));
         verify(impacts).references("orders", "orders:read", "orders_read", "7");
         assertThrows(ResponseStatusException.class, () -> controller.capabilityReferences(new MockHttpServletRequest(), "orders", "orders_read"));
-        verify(gateway, times(1)).getCapability("orders_read", "7");
+        verify(gateway, times(1)).getCapabilityIdentity(org.mockito.ArgumentMatchers.eq("orders_read"), org.mockito.ArgumentMatchers.eq("7"), org.mockito.ArgumentMatchers.anyMap());
     }
 
     @Test void capabilityReferencesRejectCrossProjectAliasesAndPropagateLookupFailures() {
         var gateway = mock(CapabilityReviewGateway.class);
         var impacts = mock(CapabilityChangeImpactService.class);
         var controller = new CapabilityReviewConsoleController(gateway, new PlatformRequestAuthorization(mock(PlatformAuthorizationService.class)), impacts);
-        when(gateway.getCapability("foreign", "7")).thenReturn(ResponseEntity.ok(Map.of("projectCode", "other", "qualifiedName", "other:read", "name", "foreign")));
+        when(gateway.getCapabilityIdentity(org.mockito.ArgumentMatchers.eq("foreign"), org.mockito.ArgumentMatchers.eq("7"), org.mockito.ArgumentMatchers.anyMap())).thenReturn(ResponseEntity.ok(Map.of("projectCode", "other", "qualifiedName", "other:read", "name", "foreign")));
         var error = assertThrows(ResponseStatusException.class, () -> controller.capabilityReferences(authenticatedRequest("alice"), "orders", "foreign"));
         assertEquals(HttpStatus.NOT_FOUND, error.getStatusCode());
-        when(gateway.getCapability("foreign", "7")).thenReturn(ResponseEntity.status(503).build());
+        when(gateway.getCapabilityIdentity(org.mockito.ArgumentMatchers.eq("foreign"), org.mockito.ArgumentMatchers.eq("7"), org.mockito.ArgumentMatchers.anyMap())).thenReturn(ResponseEntity.status(503).build());
         assertEquals(HttpStatus.SERVICE_UNAVAILABLE, controller.capabilityReferences(authenticatedRequest("alice"), "orders", "foreign").getStatusCode());
         verifyNoInteractions(impacts);
     }
@@ -204,7 +206,7 @@ class CapabilityReviewConsoleControllerTest {
                 LocalDateTime.now().plusHours(1),
                 List.of("CAPABILITY_REVIEWER"),
                 List.of(),
-                List.of());
+                List.of(new com.enterprise.ai.control.identity.PlatformPermissionGrant(PlatformPermissions.PLATFORM_READ, "PROJECT", "orders")));
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.setAttribute(PlatformConsoleAuthInterceptor.SESSION_REQUEST_ATTRIBUTE, session);
         return request;

@@ -27,6 +27,26 @@ class OpenApiToolManifestScannerTest {
 
     private final OpenApiToolManifestScanner scanner = new OpenApiToolManifestScanner();
 
+    @Test void operationTagsAreClassificationMetadataAndDoNotChangeHttpSourceRevision(@TempDir Path directory) throws Exception {
+        Path source = directory.resolve("dictionary.yaml");
+        String spec = """
+                openapi: 3.0.3
+                info: {title: Dictionary, version: '1'}
+                paths:
+                  /dictionary:
+                    get:
+                      tags: [字典查询, 基础数据]
+                      responses: {'200': {description: OK}}
+                """;
+        Files.writeString(source, spec);
+        var first = scanner.scan(source, new ProjectMetadata("dictionary", "http://localhost", "")).httpApis().get(0);
+        assertEquals(List.of("字典查询", "基础数据"), first.businessGroups());
+        Files.writeString(source, spec.replace("字典查询", "字典统计"));
+        var changed = scanner.scan(source, new ProjectMetadata("dictionary", "http://localhost", "")).httpApis().get(0);
+        assertEquals(List.of("字典统计", "基础数据"), changed.businessGroups());
+        assertEquals(first.sourceKey(), changed.sourceKey()); assertEquals(first.sourceRevision(), changed.sourceRevision());
+    }
+
     @Test
     void scansQueryAndBodyParametersIntoToolManifest() {
         ToolManifest manifest = scanner.scan(

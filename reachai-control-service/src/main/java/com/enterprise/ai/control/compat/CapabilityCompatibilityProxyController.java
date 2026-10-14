@@ -78,18 +78,10 @@ public class CapabilityCompatibilityProxyController {
      * PlatformConsoleAuthInterceptor before this proxy is entered.
      */
     @RequestMapping(path = {
-            "/api/api-graph",
-            "/api/api-graph/{*path}",
             "/api/tool-retrieval",
             "/api/tool-retrieval/{*path}",
             "/api/scan-projects",
-            "/api/scan-projects/{*path}",
-            "/api/scan-modules",
-            "/api/scan-modules/{*path}",
-            "/api/semantic-docs",
-            "/api/semantic-docs/{*path}",
-            "/api/domains",
-            "/api/domains/{*path}"
+            "/api/scan-projects/{*path}"
     })
     public ResponseEntity<byte[]> proxy(RequestEntity<byte[]> requestEntity, HttpServletRequest request) {
         return proxyRequest(requestEntity, request);

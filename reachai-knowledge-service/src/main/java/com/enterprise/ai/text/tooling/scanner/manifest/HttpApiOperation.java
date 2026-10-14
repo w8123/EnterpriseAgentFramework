@@ -12,7 +12,7 @@ import java.util.List;
  * predicates without using a Tool name as identity.</p>
  */
 public record HttpApiOperation(
-        String sourceKey,
+String sourceKey,
         String sourceLocation,
         String sourceRevision,
         String httpMethod,
@@ -27,9 +27,30 @@ public record HttpApiOperation(
         String authenticationState,
         List<String> authenticationSchemes,
         List<String> requiredHeaderNames,
-        String sideEffect
+        String sideEffect,
+        List<String> businessGroups
 ) {
+    public HttpApiOperation(String sourceKey,
+        String sourceLocation,
+        String sourceRevision,
+        String httpMethod,
+        String contextPath,
+        String endpointPath,
+        List<String> consumes,
+        List<String> produces,
+        List<MappingCondition> mappingConditions,
+        List<Parameter> parameters,
+        RequestBody requestBody,
+        List<Response> responses,
+        String authenticationState,
+        List<String> authenticationSchemes,
+        List<String> requiredHeaderNames,
+        String sideEffect) {
+        this(sourceKey, sourceLocation, sourceRevision, httpMethod, contextPath, endpointPath, consumes, produces, mappingConditions, parameters, requestBody, responses, authenticationState, authenticationSchemes, requiredHeaderNames, sideEffect, List.of());
+    }
+
     public HttpApiOperation {
+        businessGroups = immutableList(businessGroups);
         consumes = immutableList(consumes);
         produces = immutableList(produces);
         mappingConditions = immutableList(mappingConditions);

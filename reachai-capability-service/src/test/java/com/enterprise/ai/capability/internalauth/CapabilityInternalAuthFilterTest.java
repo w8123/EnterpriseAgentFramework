@@ -26,6 +26,42 @@ class CapabilityInternalAuthFilterTest {
 
     private static final String SECRET = "filter-contract-secret-32bytes!!";
 
+    @Test void httpApiIdentityReadRequiresExactControlSignatureIncludingNormalizedIdentityPath() throws Exception {
+        String canonical = "/internal/capability/http-apis/21/identity";
+        for (String uri : List.of(canonical, "/internal/capability//http-apis/21/./identity;ignored=x")) {
+            var unsigned = new MockHttpServletRequest("GET", uri);
+            var denied = new MockHttpServletResponse(); var deniedChain = mock(FilterChain.class);
+            filter().doFilter(unsigned, denied, deniedChain);
+            assertEquals(401, denied.getStatus()); verifyNoInteractions(deniedChain);
+            var signed = new MockHttpServletRequest("GET", uri);
+            signedControlHeaders("GET", canonical, new byte[0]).forEach(signed::addHeader);
+            var accepted = new MockHttpServletResponse(); var acceptedChain = mock(FilterChain.class);
+            filter().doFilter(signed, accepted, acceptedChain);
+            assertEquals(200, accepted.getStatus()); verify(acceptedChain).doFilter(any(), same(accepted));
+        }
+        var wrongPath = new MockHttpServletRequest("GET", canonical);
+        signedControlHeaders("GET", "/internal/capability/http-apis/21", new byte[0]).forEach(wrongPath::addHeader);
+        var denied = new MockHttpServletResponse(); var chain = mock(FilterChain.class);
+        filter().doFilter(wrongPath, denied, chain);
+        assertEquals(401, denied.getStatus()); verifyNoInteractions(chain);
+    }
+
+    @Test void typedCatalogAndGraphRequireControlSignatureEvenForNormalizedPaths() throws Exception {
+        for (var route : List.of(
+                new RequestCase("GET", "/internal/capability/business-capabilities/projects/7/subjects/HTTP_API/21/enrichment", "/internal/capability/business-capabilities/projects/7/subjects/HTTP_API/21/enrichment"),
+                new RequestCase("PUT", "/internal/capability/business-capabilities/projects/7/subjects/BUSINESS_METHOD/11/semantic", "/internal/capability/business-capabilities/projects/7/subjects/BUSINESS_METHOD/11/semantic"),
+                new RequestCase("POST", "/internal/capability//api-graph/projects/7/./rebuild;ignored=x", "/internal/capability/api-graph/projects/7/rebuild"))) {
+            byte[] body = "GET".equals(route.method()) ? new byte[0] : "{}".getBytes(StandardCharsets.UTF_8);
+            var unsigned = new MockHttpServletRequest(route.method(), route.uri()); unsigned.setContent(body);
+            var rejected = new MockHttpServletResponse(); var rejectedChain = mock(FilterChain.class); filter().doFilter(unsigned, rejected, rejectedChain);
+            assertEquals(401, rejected.getStatus()); verifyNoInteractions(rejectedChain);
+            var signed = new MockHttpServletRequest(route.method(), route.uri()); signed.setContent(body);
+            signedControlHeaders(route.method(), route.canonicalPath(), body).forEach(signed::addHeader);
+            var accepted = new MockHttpServletResponse(); var acceptedChain = mock(FilterChain.class); filter().doFilter(signed, accepted, acceptedChain);
+            assertEquals(200, accepted.getStatus()); verify(acceptedChain).doFilter(any(), same(accepted));
+        }
+    }
+
     @Test
     void toolExecutionRouteIncludingEncodedQualifiedNameIsProtected() {
         CapabilityInternalAuthFilter filter = filter();

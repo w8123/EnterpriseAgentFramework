@@ -1,6 +1,7 @@
-import { computed, type Ref } from 'vue'
+import { computed, watch, type Ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { ScanProject } from '@/types/scanProject'
+import { BUSINESS_METHOD_CATALOG_PATH, projectCapabilityWorkspaceLocation } from '@/views/capability/businessCapabilityRoutes'
 
 export interface UseRegistryProjectDetailNavigationDeps {
   project: Ref<ScanProject | null>
@@ -12,10 +13,16 @@ export function useRegistryProjectDetailNavigation(deps: UseRegistryProjectDetai
   const router = useRouter()
   const projectCode = deps.projectCode ?? computed(() => String(route.params.projectCode || ''))
 
-  const projectSection = computed(() => route.query.section === 'source-changes' ? 'source-changes' : 'overview')
+  const projectSection = computed(() => 'overview')
   function selectProjectSection(section: string | number) {
-    void router.replace({ query: { ...route.query, section: section === 'source-changes' ? 'source-changes' : undefined } })
+    if (section === 'source-changes') goCapabilitySync()
   }
+  watch([() => route.query.section, () => deps.project.value?.id, projectCode], () => {
+    const project = deps.project.value
+    if (route.query.section !== 'source-changes' || !project?.id || project.projectCode !== projectCode.value) return
+    void router.replace({ ...projectCapabilityWorkspaceLocation(project), query: { ...route.query,
+      ...projectCapabilityWorkspaceLocation(project).query, section: undefined, sourceSection: 'changes' } })
+  }, { immediate: true })
 
   function goBack() {
     router.back()
@@ -27,14 +34,18 @@ export function useRegistryProjectDetailNavigation(deps: UseRegistryProjectDetai
     }
   }
 
-  function goScanProjectDetail() {
+  function goCapabilitySources() {
     if (!deps.project.value?.id) return
-    router.push({ name: 'ScanProjectDetail', params: { id: String(deps.project.value.id) } })
+    router.push({ path: BUSINESS_METHOD_CATALOG_PATH, query: {
+      projectId: String(deps.project.value.id), projectCode: deps.project.value.projectCode || undefined,
+    } })
   }
 
   function goCapabilitySync() {
     if (!deps.project.value?.id) return
-    router.push({ name: 'RegistryProjectDetail', params: { projectCode: deps.project.value.projectCode }, query: { section: 'source-changes' } })
+    router.push({ ...projectCapabilityWorkspaceLocation(deps.project.value), query: {
+      ...projectCapabilityWorkspaceLocation(deps.project.value).query, sourceSection: 'changes',
+    } })
   }
 
   function goWorkflowList() {
@@ -90,7 +101,7 @@ export function useRegistryProjectDetailNavigation(deps: UseRegistryProjectDetai
     selectProjectSection,
     goBack,
     goCapability,
-    goScanProjectDetail,
+    goCapabilitySources,
     goCapabilitySync,
     goWorkflowList,
     goPageActionGovernance,

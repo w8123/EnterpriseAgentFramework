@@ -1,147 +1,67 @@
 package com.enterprise.ai.capability.catalog.graph;
 
-import com.baomidou.mybatisplus.core.conditions.Wrapper;
-import com.enterprise.ai.agent.capability.catalog.graph.ApiGraphEdgeEntity;
-import com.enterprise.ai.agent.capability.catalog.graph.ApiGraphEdgeMapper;
-import com.enterprise.ai.agent.capability.catalog.graph.ApiGraphLayoutMapper;
-import com.enterprise.ai.agent.capability.catalog.graph.ApiGraphNodeEntity;
-import com.enterprise.ai.agent.capability.catalog.graph.ApiGraphNodeMapper;
+import com.enterprise.ai.agent.capability.catalog.graph.*;
 import com.enterprise.ai.agent.capability.catalog.scan.ScanModuleEntity;
-import com.enterprise.ai.agent.capability.catalog.scan.ScanModuleMapper;
-import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectToolEntity;
-import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectToolMapper;
-import com.enterprise.ai.agent.capability.catalog.semantic.SemanticDocMapper;
+import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectMapper;
+import com.enterprise.ai.capability.catalog.semantic.CapabilitySemanticDocumentStore;
+import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionParameter;
+import com.enterprise.ai.capability.catalog.enrichment.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 class CapabilityApiGraphRegenerateServiceTest {
+    final ApiGraphNodeMapper nodes = mock(ApiGraphNodeMapper.class);
+    final ApiGraphEdgeMapper edges = mock(ApiGraphEdgeMapper.class);
+    final ApiGraphLayoutMapper layouts = mock(ApiGraphLayoutMapper.class);
+    final CatalogSubjectResolver subjects = mock(CatalogSubjectResolver.class);
+    final CapabilityCatalogGroupingService grouping = mock(CapabilityCatalogGroupingService.class);
+    final CapabilityApiGraphOperationsService operations = mock(CapabilityApiGraphOperationsService.class);
+    final CapabilityApiGraphSnapshotService snapshots = mock(CapabilityApiGraphSnapshotService.class);
+    final CapabilityApiGraphRegenerateService service = new CapabilityApiGraphRegenerateService(nodes, edges, layouts, subjects, grouping,
+            mock(CapabilitySemanticDocumentStore.class), mock(ScanProjectMapper.class), operations, snapshots, new ObjectMapper());
 
-    @Test
-    void regeneratesGraphFromScanModulesAndTools() throws Exception {
-        ApiGraphNodeMapper nodeMapper = mock(ApiGraphNodeMapper.class);
-        ApiGraphEdgeMapper edgeMapper = mock(ApiGraphEdgeMapper.class);
-        ApiGraphLayoutMapper layoutMapper = mock(ApiGraphLayoutMapper.class);
-        ScanModuleMapper moduleMapper = mock(ScanModuleMapper.class);
-        ScanProjectToolMapper toolMapper = mock(ScanProjectToolMapper.class);
-        SemanticDocMapper semanticDocMapper = mock(SemanticDocMapper.class);
-        CapabilityApiGraphOperationsService operations = mock(CapabilityApiGraphOperationsService.class);
-        CapabilityApiGraphSnapshotService snapshots = mock(CapabilityApiGraphSnapshotService.class);
-        when(snapshots.loadSnapshot(7L)).thenReturn(new CapabilityApiGraphSnapshotView(List.of(), List.of(), List.of()));
-        AtomicLong ids = new AtomicLong(100);
-        doAnswer(invocation -> {
-            ApiGraphNodeEntity node = invocation.getArgument(0);
-            node.setId(ids.incrementAndGet());
-            return 1;
-        }).when(nodeMapper).insert(any(ApiGraphNodeEntity.class));
-        when(moduleMapper.selectList(any(Wrapper.class))).thenReturn(List.of(module()));
-        when(toolMapper.selectList(any(Wrapper.class))).thenReturn(List.of(tool()));
-        ObjectMapper objectMapper = new ObjectMapper();
-        CapabilityApiGraphRegenerateService service = new CapabilityApiGraphRegenerateService(
-                nodeMapper, edgeMapper, layoutMapper, moduleMapper, toolMapper, semanticDocMapper,
-                operations, snapshots, objectMapper);
-
-        CapabilityApiGraphSnapshotView snapshot = service.regenerate(7L);
-
-        verify(edgeMapper).delete(any(Wrapper.class));
-        verify(layoutMapper).delete(any(Wrapper.class));
-        verify(nodeMapper).delete(any(Wrapper.class));
+    @Test void buildsTypedMethodApiAndCandidateWithDeclaredFieldsDtoAndAutomaticInference() {
+        when(subjects.operations(7L)).thenReturn(List.of(subject("BUSINESS_METHOD", 1L), subject("HTTP_API", 2L), subject("SOURCE_OBSERVATION", 3L)));
+        AtomicLong ids = new AtomicLong(); doAnswer(call -> { ((ApiGraphNodeEntity)call.getArgument(0)).setId(ids.incrementAndGet()); return 1; }).when(nodes).insert(any(ApiGraphNodeEntity.class));
+        service.regenerate(7L);
+        ArgumentCaptor<ApiGraphNodeEntity> saved = ArgumentCaptor.forClass(ApiGraphNodeEntity.class); verify(nodes, atLeastOnce()).insert(saved.capture());
+        assertEquals(3, saved.getAllValues().stream().filter(node -> "API".equals(node.getKind())).count());
+        assertTrue(saved.getAllValues().stream().anyMatch(node -> "FIELD_IN".equals(node.getKind())));
+        assertTrue(saved.getAllValues().stream().anyMatch(node -> "FIELD_OUT".equals(node.getKind())));
+        assertTrue(saved.getAllValues().stream().anyMatch(node -> "DTO".equals(node.getKind())));
+        assertTrue(saved.getAllValues().stream().allMatch(node -> node.getNodeKey() != null && node.getNodeKey().length() == 64));
         verify(operations).inferModelRefEdges(7L);
-        ArgumentCaptor<ApiGraphNodeEntity> nodes = ArgumentCaptor.forClass(ApiGraphNodeEntity.class);
-        verify(nodeMapper, org.mockito.Mockito.atLeast(4)).insert(nodes.capture());
-        assertTrue(nodes.getAllValues().stream().anyMatch(node -> "MODULE".equals(node.getKind())));
-        assertTrue(nodes.getAllValues().stream().anyMatch(node -> "API".equals(node.getKind())));
-        assertTrue(nodes.getAllValues().stream().anyMatch(node -> "FIELD_IN".equals(node.getKind())));
-        assertTrue(nodes.getAllValues().stream().anyMatch(node -> "DTO".equals(node.getKind())));
-        ArgumentCaptor<ApiGraphEdgeEntity> edges = ArgumentCaptor.forClass(ApiGraphEdgeEntity.class);
-        verify(edgeMapper, org.mockito.Mockito.atLeastOnce()).insert(edges.capture());
-        assertTrue(edges.getAllValues().stream().anyMatch(edge -> "BELONGS_TO".equals(edge.getKind())));
-        assertEquals(List.of(), snapshot.edges());
     }
 
-    @Test
-    void rebuildUpsertsGraphWithoutDeletingLayout() throws Exception {
-        ApiGraphNodeMapper nodeMapper = mock(ApiGraphNodeMapper.class);
-        ApiGraphEdgeMapper edgeMapper = mock(ApiGraphEdgeMapper.class);
-        ApiGraphLayoutMapper layoutMapper = mock(ApiGraphLayoutMapper.class);
-        ScanModuleMapper moduleMapper = mock(ScanModuleMapper.class);
-        ScanProjectToolMapper toolMapper = mock(ScanProjectToolMapper.class);
-        SemanticDocMapper semanticDocMapper = mock(SemanticDocMapper.class);
-        CapabilityApiGraphOperationsService operations = mock(CapabilityApiGraphOperationsService.class);
-        CapabilityApiGraphSnapshotService snapshots = mock(CapabilityApiGraphSnapshotService.class);
-        when(snapshots.loadSnapshot(7L)).thenReturn(new CapabilityApiGraphSnapshotView(List.of(), List.of(), List.of()));
-        ApiGraphNodeEntity existingModule = new ApiGraphNodeEntity();
-        existingModule.setId(31L);
-        existingModule.setProjectId(7L);
-        existingModule.setKind("MODULE");
-        existingModule.setRefId(9L);
-        existingModule.setLabel("Order");
-        existingModule.setPropsJson("{\"name\":\"old\"}");
-        ApiGraphNodeEntity orphan = new ApiGraphNodeEntity();
-        orphan.setId(99L);
-        orphan.setProjectId(7L);
-        orphan.setKind("API");
-        orphan.setRefId(404L);
-        orphan.setLabel("removed");
-        when(nodeMapper.selectList(any(Wrapper.class))).thenReturn(List.of(existingModule, orphan));
-        when(edgeMapper.selectList(any(Wrapper.class))).thenReturn(List.of());
-        when(moduleMapper.selectList(any(Wrapper.class))).thenReturn(List.of(module()));
-        when(toolMapper.selectList(any(Wrapper.class))).thenReturn(List.of(tool()));
-        AtomicLong ids = new AtomicLong(200);
-        doAnswer(invocation -> {
-            ApiGraphNodeEntity node = invocation.getArgument(0);
-            node.setId(ids.incrementAndGet());
-            return 1;
-        }).when(nodeMapper).insert(any(ApiGraphNodeEntity.class));
-        CapabilityApiGraphRegenerateService service = new CapabilityApiGraphRegenerateService(
-                nodeMapper, edgeMapper, layoutMapper, moduleMapper, toolMapper, semanticDocMapper,
-                operations, snapshots, new ObjectMapper());
-
+    @Test void renamingAndMovingGroupKeepOperationIdentityAndManualEdgesAndLayouts() {
+        CatalogSubject subject = subject("BUSINESS_METHOD", 1L); when(subjects.operations(7L)).thenReturn(List.of(subject));
+        ApiGraphNodeEntity existing = new ApiGraphNodeEntity(); existing.setId(31L); existing.setProjectId(7L); existing.setKind("API");
+        existing.setNodeKey(CatalogSubjectResolver.digest("operation:BUSINESS_METHOD:" + subject.subjectKey())); existing.setLabel("old name"); existing.setActive(true);
+        when(nodes.selectList(any())).thenReturn(List.of(existing));
+        AtomicLong ids = new AtomicLong(100); doAnswer(call -> { ((ApiGraphNodeEntity)call.getArgument(0)).setId(ids.incrementAndGet()); return 1; }).when(nodes).insert(any(ApiGraphNodeEntity.class));
         service.rebuild(7L);
-
-        verify(layoutMapper, never()).delete(any(Wrapper.class));
-        verify(nodeMapper).updateById(existingModule);
-        verify(edgeMapper).delete(any(Wrapper.class));
-        verify(nodeMapper).delete(any(Wrapper.class));
-        verify(operations).inferModelRefEdges(7L);
+        assertEquals(31L, existing.getId()); assertEquals(subject.title(), existing.getLabel()); verify(nodes).updateById(existing);
+        verify(edges, never()).delete(any()); verify(layouts, never()).delete(any());
     }
 
-    private ScanModuleEntity module() {
-        ScanModuleEntity entity = new ScanModuleEntity();
-        entity.setId(9L);
-        entity.setProjectId(7L);
-        entity.setName("OrderController");
-        entity.setDisplayName("Order");
-        return entity;
+    @Test void missingFieldsDisableRelationsAndRetainEvidenceAndLayout() {
+        ApiGraphNodeEntity removed = new ApiGraphNodeEntity(); removed.setId(99L); removed.setProjectId(7L); removed.setNodeKey("removed"); removed.setActive(true);
+        ApiGraphEdgeEntity manual = new ApiGraphEdgeEntity(); manual.setId(5L); manual.setProjectId(7L); manual.setSourceNodeId(99L); manual.setTargetNodeId(100L); manual.setSource("manual"); manual.setEnabled(true);
+        when(nodes.selectList(any())).thenReturn(List.of(removed)); when(edges.selectList(any())).thenReturn(List.of(manual));
+        service.rebuild(7L);
+        assertFalse(removed.getActive()); assertFalse(manual.getEnabled()); assertNotNull(manual.getRejectReason());
+        verify(nodes, never()).delete(any()); verify(edges, never()).delete(any()); verify(layouts, never()).delete(any());
     }
 
-    private ScanProjectToolEntity tool() throws Exception {
-        ScanProjectToolEntity entity = new ScanProjectToolEntity();
-        entity.setId(11L);
-        entity.setProjectId(7L);
-        entity.setModuleId(9L);
-        entity.setName("createOrder");
-        entity.setHttpMethod("POST");
-        entity.setEndpointPath("/orders");
-        entity.setParametersJson(new ObjectMapper().writeValueAsString(List.of(
-                new com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionParameter(
-                        "body", "CreateOrderRequest", "request", true, "BODY", List.of(
-                        new com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionParameter(
-                                "buyerId", "Long", "buyer", true, "BODY"))))));
-        entity.setResponseType("OrderDTO");
-        entity.setGlobalToolDefinitionId(99L);
-        return entity;
+    private CatalogSubject subject(String type, Long id) {
+        return new CatalogSubject(type, id, 7L, "orders:" + type + ":" + id, "Orders", "", "hash", !"SOURCE_OBSERVATION".equals(type), "GET", "/orders", List.of(
+                new ToolDefinitionParameter("buyer", "BuyerDto", "", true, "BODY", List.of(new ToolDefinitionParameter("id", "Long", "", true, "BODY"))),
+                new ToolDefinitionParameter("response", "OrderDto", "", false, "RESPONSE")), List.of());
     }
 }

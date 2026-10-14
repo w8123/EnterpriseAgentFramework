@@ -38,6 +38,8 @@ export interface ProjectScopeRouteConfig {
   permission: string
   resourceLabel: string
   requiresProjectCode?: boolean
+  /** Clear contextual selection only when the user explicitly chooses a different scope. */
+  resetQueryKeysOnScopeChange?: string[]
 }
 
 declare module 'vue-router' {
@@ -423,12 +425,16 @@ export function createPageProjectScope(): PageProjectScopeController {
 
     const revision = routeRevision.value
     const currentPath = route.path
+    const nextQuery = toScopeQuery(route.query)
+    if (!isSameResolvedScope(resolution.value, resolvedScope)) {
+      for (const key of routeConfig.value?.resetQueryKeysOnScopeChange ?? []) delete nextQuery[key]
+    }
     navigationPending.value = true
     navigationError.value = null
     try {
       const navigationResult = await router.push({
         path: currentPath,
-        query: toLocationQueryRaw(withProjectScopeQuery(toScopeQuery(route.query), resolvedScope)),
+        query: toLocationQueryRaw(withProjectScopeQuery(nextQuery, resolvedScope)),
         hash: route.hash,
       })
       if (navigationResult && routeRevision.value === revision) {

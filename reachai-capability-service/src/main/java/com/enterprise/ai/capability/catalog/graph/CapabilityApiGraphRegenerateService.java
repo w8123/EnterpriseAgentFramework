@@ -8,13 +8,14 @@ import com.enterprise.ai.agent.capability.catalog.graph.ApiGraphLayoutMapper;
 import com.enterprise.ai.agent.capability.catalog.graph.ApiGraphNodeEntity;
 import com.enterprise.ai.agent.capability.catalog.graph.ApiGraphNodeMapper;
 import com.enterprise.ai.agent.capability.catalog.scan.ScanModuleEntity;
-import com.enterprise.ai.agent.capability.catalog.scan.ScanModuleMapper;
 import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectToolEntity;
-import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectToolMapper;
+import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectMapper;
 import com.enterprise.ai.agent.capability.catalog.semantic.SemanticDocEntity;
-import com.enterprise.ai.agent.capability.catalog.semantic.SemanticDocMapper;
+import com.enterprise.ai.capability.catalog.semantic.CapabilitySemanticDocumentStore;
 import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionParameter;
-import com.fasterxml.jackson.core.type.TypeReference;
+import com.enterprise.ai.capability.catalog.enrichment.CatalogSubject;
+import com.enterprise.ai.capability.catalog.enrichment.CatalogSubjectResolver;
+import com.enterprise.ai.capability.catalog.enrichment.CapabilityCatalogGroupingService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -33,9 +34,9 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class CapabilityApiGraphRegenerateService {
 
-    private record NodeKey(Long projectId, String kind, Long refId, Long parentId, String label) {
+    private record NodeKey(String nodeKey) {
         static NodeKey from(ApiGraphNodeEntity node) {
-            return new NodeKey(node.getProjectId(), node.getKind(), node.getRefId(), node.getParentId(), node.getLabel());
+            return new NodeKey(node.getNodeKey());
         }
     }
 
@@ -64,21 +65,22 @@ public class CapabilityApiGraphRegenerateService {
     private static final String FIELD_OUT = "FIELD_OUT";
     private static final String BELONGS_TO = "BELONGS_TO";
     private static final String SOURCE_AUTO = "auto";
-    private static final TypeReference<List<ToolDefinitionParameter>> PARAM_LIST_TYPE = new TypeReference<>() {
-    };
 
     private final ApiGraphNodeMapper nodeMapper;
     private final ApiGraphEdgeMapper edgeMapper;
     private final ApiGraphLayoutMapper layoutMapper;
-    private final ScanModuleMapper moduleMapper;
-    private final ScanProjectToolMapper toolMapper;
-    private final SemanticDocMapper semanticDocMapper;
+    private final CatalogSubjectResolver subjects;
+    private final CapabilityCatalogGroupingService grouping;
+    private final CapabilitySemanticDocumentStore semanticDocuments;
+    private final ScanProjectMapper projects;
     private final CapabilityApiGraphOperationsService operationsService;
     private final CapabilityApiGraphSnapshotService snapshotService;
     private final ObjectMapper objectMapper;
 
     @Transactional
     public CapabilityApiGraphSnapshotView regenerate(Long projectId) {
+        subjects.requireProject(projectId);
+        projects.lockCapabilityChanges(projectId);
         edgeMapper.delete(new LambdaQueryWrapper<ApiGraphEdgeEntity>().eq(ApiGraphEdgeEntity::getProjectId, projectId));
         layoutMapper.delete(new LambdaQueryWrapper<ApiGraphLayoutEntity>().eq(ApiGraphLayoutEntity::getProjectId, projectId));
         nodeMapper.delete(new LambdaQueryWrapper<ApiGraphNodeEntity>().eq(ApiGraphNodeEntity::getProjectId, projectId));
@@ -89,6 +91,8 @@ public class CapabilityApiGraphRegenerateService {
 
     @Transactional
     public CapabilityApiGraphSnapshotView rebuild(Long projectId) {
+        subjects.requireProject(projectId);
+        projects.lockCapabilityChanges(projectId);
         ProjectionContext context = loadProjectionContext(projectId);
         projectGraph(projectId, context);
         deleteNodesNotIn(projectId, context.keepNodeIds);
@@ -110,10 +114,11 @@ public class CapabilityApiGraphRegenerateService {
 
     private void projectGraph(Long projectId, ProjectionContext context) {
         Map<Long, Long> moduleNodeIds = new LinkedHashMap<>();
-        for (ScanModuleEntity module : listModules(projectId)) {
+        for (ScanModuleEntity module : grouping.list(projectId)) {
             ApiGraphNodeEntity node = new ApiGraphNodeEntity();
             node.setProjectId(projectId);
             node.setKind(MODULE);
+            node.setNodeKey(CatalogSubjectResolver.digest("group:" + module.getId()));
             node.setRefId(module.getId());
             node.setLabel(firstNonBlank(module.getDisplayName(), module.getName(), "module-" + module.getId()));
             node.setPropsJson(writeJsonOrNull(Map.of(
@@ -124,30 +129,17 @@ public class CapabilityApiGraphRegenerateService {
         }
 
         Map<String, ApiGraphNodeEntity> dtoNodeByType = new LinkedHashMap<>();
-        for (ScanProjectToolEntity tool : listTools(projectId)) {
-            ApiGraphNodeEntity apiNode = saveApiNode(context, projectId, tool, moduleNodeIds.get(tool.getModuleId()));
-            ToolDefinitionParameter responseRoot = null;
-            for (ToolDefinitionParameter parameter : parseParameters(tool.getParametersJson())) {
+        for (CatalogSubject subject : subjects.operations(projectId)) {
+            Long groupId = grouping.groups(subject).stream().map(ScanModuleEntity::getId).findFirst().orElse(null);
+            ApiGraphNodeEntity apiNode = saveApiNode(context, projectId, subject, moduleNodeIds.get(groupId));
+            for (ToolDefinitionParameter parameter : subject.parameters()) {
                 if (isResponseParameter(parameter)) {
-                    responseRoot = parameter;
+                    // Keep distinct HTTP response schemas and all declared method return roots.
+                    walkField(context, projectId, apiNode.getId(), apiNode.getId(),
+                            parameter, "", FIELD_OUT, dtoNodeByType, subject);
                 } else {
                     walkField(context, projectId, apiNode.getId(), apiNode.getId(),
-                            parameter, "", FIELD_IN, dtoNodeByType);
-                }
-            }
-            if (responseRoot == null) {
-                responseRoot = syntheticResponseFromTool(tool);
-            }
-            if (responseRoot == null) {
-                continue;
-            }
-            if (responseRoot.children() == null || responseRoot.children().isEmpty()) {
-                walkField(context, projectId, apiNode.getId(), apiNode.getId(),
-                        responseRoot, "", FIELD_OUT, dtoNodeByType);
-            } else {
-                for (ToolDefinitionParameter child : responseRoot.children()) {
-                    walkField(context, projectId, apiNode.getId(), apiNode.getId(),
-                            child, "", FIELD_OUT, dtoNodeByType);
+                            parameter, "", FIELD_IN, dtoNodeByType, subject);
                 }
             }
         }
@@ -156,26 +148,27 @@ public class CapabilityApiGraphRegenerateService {
     private ApiGraphNodeEntity saveApiNode(
             ProjectionContext context,
             Long projectId,
-            ScanProjectToolEntity tool,
+            CatalogSubject subject,
             Long moduleNodeId) {
         ApiGraphNodeEntity node = new ApiGraphNodeEntity();
         node.setProjectId(projectId);
         node.setKind(API);
-        node.setRefId(tool.getId());
+        node.setRefId(subject.subjectId());
+        node.setNodeKey(CatalogSubjectResolver.digest("operation:" + subject.subjectType() + ":" + subject.subjectKey()));
+        adoptCandidateNode(context, node, subject, null);
         node.setParentId(moduleNodeId);
-        node.setLabel(firstNonBlank(tool.getTitle(), tool.getName(), "api-" + tool.getId()));
+        node.setLabel(firstNonBlank(subject.title(), subject.subjectKey()));
         Map<String, Object> props = new LinkedHashMap<>();
-        props.put("scanToolId", tool.getId());
-        props.put("title", nullToEmpty(tool.getTitle()));
-        props.put("name", nullToEmpty(tool.getName()));
-        props.put("httpMethod", nullToEmpty(tool.getHttpMethod()));
-        props.put("endpointPath", nullToEmpty(tool.getEndpointPath()));
-        props.put("contextPath", nullToEmpty(tool.getContextPath()));
-        props.put("description", nullToEmpty(tool.getDescription()));
-        props.put("aiDescription", nullToEmpty(tool.getAiDescription()));
-        props.put("moduleId", tool.getModuleId());
-        props.put("globalToolDefinitionId", tool.getGlobalToolDefinitionId());
-        findSemanticDoc(tool).ifPresent(doc -> props.put("semanticDocId", doc.getId()));
+        props.put("assetType", subject.subjectType()); props.put("assetId", subject.subjectId());
+        props.put("subjectType", subject.subjectType()); props.put("subjectId", subject.subjectId());
+        props.put("qualifiedName", subject.subjectKey()); props.put("name", subject.subjectKey());
+        props.put("title", nullToEmpty(subject.title())); props.put("contractHash", nullToEmpty(subject.contractHash()));
+        props.put("accepted", subject.accepted()); props.put("httpMethod", nullToEmpty(subject.httpMethod()));
+        props.put("endpointPath", nullToEmpty(subject.endpointPath())); props.put("contextPath", "");
+        props.put("description", nullToEmpty(subject.description()));
+        props.put("sourceObservationId", subject.observations().isEmpty() ? null : subject.observations().get(0).getId());
+        props.put("sourceObservationIds", subject.observations().stream().map(ScanProjectToolEntity::getId).toList());
+        findSemanticDoc(subject).ifPresent(doc -> { props.put("semanticDocId", doc.getId()); props.put("aiDescription", doc.getContentMd()); });
         node.setPropsJson(writeJsonOrNull(props));
         return saveNode(context, node);
     }
@@ -187,13 +180,14 @@ public class CapabilityApiGraphRegenerateService {
                            ToolDefinitionParameter parameter,
                            String pathPrefix,
                            String fieldKind,
-                           Map<String, ApiGraphNodeEntity> dtoNodeByType) {
+                           Map<String, ApiGraphNodeEntity> dtoNodeByType,
+                           CatalogSubject subject) {
         if (parameter == null) {
             return;
         }
         if (isTransparentBodyWrapper(parameter)) {
             for (ToolDefinitionParameter child : parameter.children()) {
-                walkField(context, projectId, apiNodeId, parentNodeId, child, pathPrefix, fieldKind, dtoNodeByType);
+                walkField(context, projectId, apiNodeId, parentNodeId, child, pathPrefix, fieldKind, dtoNodeByType, subject);
             }
             return;
         }
@@ -202,33 +196,42 @@ public class CapabilityApiGraphRegenerateService {
         ApiGraphNodeEntity field = new ApiGraphNodeEntity();
         field.setProjectId(projectId);
         field.setKind(fieldKind);
+        field.setNodeKey(CatalogSubjectResolver.digest("field:" + subject.subjectType() + ":" + subject.subjectKey()
+                + ":" + fieldKind + ":" + nullToEmpty(parameter.location()) + ":" + fieldPath));
+        adoptCandidateNode(context, field, subject, fieldKind + ":" + nullToEmpty(parameter.location()) + ":" + fieldPath);
         field.setRefId(apiNodeId);
         field.setParentId(parentNodeId);
         field.setLabel(name);
         field.setTypeName(nullToEmpty(parameter.type()));
-        field.setPropsJson(writeJsonOrNull(Map.of(
+        Map<String, Object> fieldProps = new LinkedHashMap<>(Map.of(
                 "required", parameter.required(),
                 "location", nullToEmpty(parameter.location()),
                 "paramPath", fieldPath,
-                "description", nullToEmpty(parameter.description()))));
+                "description", nullToEmpty(parameter.description()),
+                "contractHash", nullToEmpty(subject.contractHash()), "accepted", subject.accepted(),
+                "subjectType", subject.subjectType(), "subjectId", subject.subjectId()));
+        if (parameter.metadata() instanceof Map<?, ?> metadata) fieldProps.put("schemaHash", metadata.getOrDefault("schemaHash", null));
+        fieldProps.put("composite", isCompositeType(simpleTypeName(parameter.type()), parameter.children()));
+        field.setPropsJson(writeJsonOrNull(fieldProps));
         ApiGraphNodeEntity savedField = saveNode(context, field);
 
         String simpleType = simpleTypeName(parameter.type());
         if (isCompositeType(simpleType, parameter.children())) {
-            ApiGraphNodeEntity dto = dtoNodeByType.computeIfAbsent(
-                    simpleType,
-                    type -> saveDtoNode(context, projectId, type, parameter.type()));
+            String identity = nullToEmpty(parameter.type()) + ":" + writeJsonOrNull(Map.of("metadata", parameter.metadata() == null ? "" : parameter.metadata()));
+            ApiGraphNodeEntity dto = dtoNodeByType.computeIfAbsent(identity,
+                    type -> saveDtoNode(context, projectId, isPrimitive(simpleType) ? name + " schema" : simpleType, parameter.type(), identity));
             saveBelongsTo(context, projectId, savedField.getId(), dto.getId());
         }
         for (ToolDefinitionParameter child : parameter.children()) {
-            walkField(context, projectId, apiNodeId, savedField.getId(), child, fieldPath, fieldKind, dtoNodeByType);
+            walkField(context, projectId, apiNodeId, savedField.getId(), child, fieldPath, fieldKind, dtoNodeByType, subject);
         }
     }
 
-    private ApiGraphNodeEntity saveDtoNode(ProjectionContext context, Long projectId, String label, String rawType) {
+    private ApiGraphNodeEntity saveDtoNode(ProjectionContext context, Long projectId, String label, String rawType, String identity) {
         ApiGraphNodeEntity dto = new ApiGraphNodeEntity();
         dto.setProjectId(projectId);
         dto.setKind(DTO);
+        dto.setNodeKey(CatalogSubjectResolver.digest("dto:" + identity));
         dto.setLabel(label);
         dto.setTypeName(nullToEmpty(rawType));
         dto.setPropsJson(writeJsonOrNull(Map.of("rawType", nullToEmpty(rawType))));
@@ -236,14 +239,18 @@ public class CapabilityApiGraphRegenerateService {
     }
 
     private ApiGraphNodeEntity saveNode(ProjectionContext context, ApiGraphNodeEntity node) {
+        node.setActive(Boolean.TRUE);
         NodeKey key = NodeKey.from(node);
         ApiGraphNodeEntity existing = context.nodes.get(key);
         if (existing != null) {
             boolean changed = !Objects.equals(existing.getTypeName(), node.getTypeName()) ||
-                    !Objects.equals(existing.getPropsJson(), node.getPropsJson());
+                    !Objects.equals(existing.getPropsJson(), node.getPropsJson()) || !Objects.equals(existing.getLabel(), node.getLabel())
+                    || !Objects.equals(existing.getParentId(), node.getParentId()) || !Boolean.TRUE.equals(existing.getActive());
             if (changed) {
                 existing.setTypeName(node.getTypeName());
                 existing.setPropsJson(node.getPropsJson());
+                existing.setLabel(node.getLabel()); existing.setParentId(node.getParentId()); existing.setActive(Boolean.TRUE);
+                existing.setNodeKey(node.getNodeKey()); existing.setRefId(node.getRefId());
                 nodeMapper.updateById(existing);
             }
             context.keepNodeIds.add(existing.getId());
@@ -268,6 +275,17 @@ public class CapabilityApiGraphRegenerateService {
         saveEdge(context, edge);
     }
 
+    private void adoptCandidateNode(ProjectionContext context, ApiGraphNodeEntity target, CatalogSubject subject, String fieldPath) {
+        NodeKey targetKey = NodeKey.from(target);
+        if (context.nodes.containsKey(targetKey) || CatalogSubject.SOURCE_OBSERVATION.equals(subject.subjectType())) return;
+        for (ScanProjectToolEntity observation : subject.observations()) {
+            String oldIdentity = fieldPath == null ? "operation:SOURCE_OBSERVATION:source-observation:" + observation.getId()
+                    : "field:SOURCE_OBSERVATION:source-observation:" + observation.getId() + ":" + fieldPath;
+            ApiGraphNodeEntity candidate = context.nodes.remove(new NodeKey(CatalogSubjectResolver.digest(oldIdentity)));
+            if (candidate != null) { context.nodes.put(targetKey, candidate); return; }
+        }
+    }
+
     private void saveEdge(ProjectionContext context, ApiGraphEdgeEntity edge) {
         EdgeKey key = EdgeKey.from(edge);
         ApiGraphEdgeEntity existing = context.edges.get(key);
@@ -290,16 +308,12 @@ public class CapabilityApiGraphRegenerateService {
             return;
         }
         List<Long> orphanIds = orphans.stream().map(ApiGraphNodeEntity::getId).toList();
-        edgeMapper.delete(new LambdaQueryWrapper<ApiGraphEdgeEntity>()
-                .in(ApiGraphEdgeEntity::getSourceNodeId, orphanIds)
-                .or()
-                .in(ApiGraphEdgeEntity::getTargetNodeId, orphanIds));
-        LambdaQueryWrapper<ApiGraphNodeEntity> delete = new LambdaQueryWrapper<ApiGraphNodeEntity>()
-                .eq(ApiGraphNodeEntity::getProjectId, projectId);
-        if (!keepIds.isEmpty()) {
-            delete.notIn(ApiGraphNodeEntity::getId, keepIds);
+        for (ApiGraphEdgeEntity edge : listExistingEdges(projectId)) {
+            if (orphanIds.contains(edge.getSourceNodeId()) || orphanIds.contains(edge.getTargetNodeId())) {
+                edge.setEnabled(Boolean.FALSE); edge.setRejectReason("所属字段或分组已变化，关系保留为失效证据"); edgeMapper.updateById(edge);
+            }
         }
-        nodeMapper.delete(delete);
+        for (ApiGraphNodeEntity orphan : orphans) { orphan.setActive(Boolean.FALSE); nodeMapper.updateById(orphan); }
     }
 
     private List<ApiGraphNodeEntity> listExistingNodes(Long projectId) {
@@ -316,38 +330,8 @@ public class CapabilityApiGraphRegenerateService {
         return edges == null ? List.of() : edges;
     }
 
-    private List<ScanModuleEntity> listModules(Long projectId) {
-        List<ScanModuleEntity> modules = moduleMapper.selectList(new LambdaQueryWrapper<ScanModuleEntity>()
-                .eq(ScanModuleEntity::getProjectId, projectId)
-                .orderByAsc(ScanModuleEntity::getName));
-        return modules == null ? List.of() : modules;
-    }
-
-    private List<ScanProjectToolEntity> listTools(Long projectId) {
-        List<ScanProjectToolEntity> tools = toolMapper.selectList(new LambdaQueryWrapper<ScanProjectToolEntity>()
-                .eq(ScanProjectToolEntity::getProjectId, projectId)
-                .orderByAsc(ScanProjectToolEntity::getId));
-        return tools == null ? List.of() : tools;
-    }
-
-    private java.util.Optional<SemanticDocEntity> findSemanticDoc(ScanProjectToolEntity tool) {
-        return java.util.Optional.ofNullable(semanticDocMapper.selectOne(new LambdaQueryWrapper<SemanticDocEntity>()
-                .eq(SemanticDocEntity::getLevel, SemanticDocEntity.LEVEL_SCAN_TOOL)
-                .eq(SemanticDocEntity::getProjectId, tool.getProjectId())
-                .isNull(SemanticDocEntity::getModuleId)
-                .eq(SemanticDocEntity::getToolId, tool.getId())
-                .last("limit 1")));
-    }
-
-    private List<ToolDefinitionParameter> parseParameters(String json) {
-        if (json == null || json.isBlank()) {
-            return List.of();
-        }
-        try {
-            return objectMapper.readValue(json, PARAM_LIST_TYPE);
-        } catch (Exception ex) {
-            return List.of();
-        }
+    private java.util.Optional<SemanticDocEntity> findSemanticDoc(CatalogSubject subject) {
+        return semanticDocuments.findInLockedProject(subject);
     }
 
     private String writeJsonOrNull(Map<String, ?> map) {
@@ -359,37 +343,6 @@ public class CapabilityApiGraphRegenerateService {
         } catch (Exception ex) {
             return null;
         }
-    }
-
-    private static ToolDefinitionParameter syntheticResponseFromTool(ScanProjectToolEntity tool) {
-        if (tool == null || tool.getResponseType() == null || tool.getResponseType().isBlank()) {
-            return null;
-        }
-        String type = unwrapResponseType(tool.getResponseType().trim());
-        if ("void".equalsIgnoreCase(simpleTypeName(type))) {
-            return null;
-        }
-        return new ToolDefinitionParameter(
-                "返回值",
-                type,
-                "由扫描结果的 responseType 生成，用于接口图谱出参与数据来源选择",
-                false,
-                "RESPONSE");
-    }
-
-    private static String unwrapResponseType(String rawType) {
-        int lt = rawType.indexOf('<');
-        int gt = rawType.lastIndexOf('>');
-        if (lt <= 0 || gt <= lt) {
-            return rawType;
-        }
-        String wrapper = rawType.substring(0, lt).trim().toLowerCase(java.util.Locale.ROOT);
-        if (List.of("apiresult", "webapiresult", "apiresponse", "result", "responseentity",
-                "response", "basresult", "commonresult", "restult", "ajaxresult", "jsonresult",
-                "httpentity").contains(wrapper)) {
-            return rawType.substring(lt + 1, gt).trim();
-        }
-        return rawType;
     }
 
     private static boolean isResponseParameter(ToolDefinitionParameter parameter) {
@@ -409,7 +362,7 @@ public class CapabilityApiGraphRegenerateService {
     }
 
     private static boolean isCompositeType(String simpleType, List<ToolDefinitionParameter> children) {
-        return !isPrimitive(simpleType) && ((children != null && !children.isEmpty()) || looksLikeCompositeName(simpleType));
+        return (children != null && !children.isEmpty()) || (!isPrimitive(simpleType) && looksLikeCompositeName(simpleType));
     }
 
     private static String simpleTypeName(String rawType) {

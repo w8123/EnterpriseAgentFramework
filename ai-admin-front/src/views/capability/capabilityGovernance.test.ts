@@ -4,7 +4,6 @@ import {
   capabilityDescription,
   capabilityDescriptionHasEncodingIssue,
   capabilityEndpoint,
-  capabilityReviewAttention,
   capabilitySideEffectLabel,
   capabilitySideEffectTone,
   capabilitySourceLabel,
@@ -64,13 +63,11 @@ describe('capability governance model', () => {
     expect(capabilityDescription({ aiDescription: '可读的 AI 说明', ...damaged })).toBe('可读的 AI 说明')
   })
 
-  it('classifies contract changes and source removal without trusting placeholder impact data', () => {
+  it('parses current field differences without trusting placeholder impact data', () => {
     const contract = reviewItem({
       fieldDiffJson: JSON.stringify([{ field: 'parameters', oldValue: '[]', newValue: '[{"name":"id"}]' }]),
       impactJson: JSON.stringify({ agents: [], aclRuleIds: [] }),
     })
     expect(parseCapabilityFieldDiffs(contract)).toHaveLength(1)
-    expect(capabilityReviewAttention(contract)).toMatchObject({ label: '调用契约变化', tone: 'warning' })
-    expect(capabilityReviewAttention(reviewItem({ changeType: 'DELETED' }))).toMatchObject({ label: '目录移除', tone: 'danger' })
   })
 })

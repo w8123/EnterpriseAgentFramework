@@ -26,12 +26,12 @@
     <div v-else-if="method" class="inspector-workspace">
       <main class="inspector-main">
         <section class="inspector-description">
-          <div class="description-label">{{ assetLabel }}说明</div>
+          <div class="description-label">来源说明</div>
           <p>{{ capabilityDescription(method) }}</p>
           <el-alert v-if="capabilityDescriptionHasEncodingIssue(method)" title="来源说明存在编码异常，请在来源项目修复后重新同步。" type="warning" :closable="false" show-icon />
         </section>
 
-        <el-tabs v-model="tab" class="inspector-tabs">
+        <el-tabs v-model="tab" class="inspector-tabs" :before-leave="() => !descriptionBusy">
           <el-tab-pane label="输入与返回" name="contract">
             <section class="inspector-section">
               <header class="section-heading"><h3>输入参数 <span>{{ capabilityParameterCount(parameters.inputs) }}</span></h3><el-button v-if="parameters.inputs.length" text :icon="CopyDocument" @click="copyText(businessMethodInputContract(method), '输入契约')">复制输入契约</el-button></header>
@@ -43,6 +43,13 @@
               <CapabilityParameterTable v-if="parameters.outputs.length" :parameters="parameters.outputs" output />
               <div v-else class="response-definition"><code>{{ method.responseType || '未声明返回类型' }}</code><p>来源尚未提供返回字段说明。</p></div>
             </section>
+          </el-tab-pane>
+
+          <el-tab-pane label="业务说明" name="description" lazy>
+            <CapabilityEnrichmentPanel v-if="method.projectId && method.assetId" :project-id="method.projectId" :project-code="method.projectCode"
+              subject-type="BUSINESS_METHOD" :subject-id="method.assetId" :subject-key="method.qualifiedName" :navigate="navigate"
+              @busy-change="descriptionBusy = $event" @dirty-change="descriptionDirty = $event" />
+            <p v-else class="section-hint">尚未取得方法所属项目，无法读取补充说明。</p>
           </el-tab-pane>
 
           <el-tab-pane label="试调用" name="invocation">
@@ -77,7 +84,7 @@
             </section>
           </el-tab-pane>
 
-          <el-tab-pane label="技术信息" name="technical">
+          <el-tab-pane label="接入信息" name="technical">
             <section class="inspector-section">
               <header class="section-heading"><h3>{{ technicalEndpointLabel }}</h3><el-button v-if="capabilityEndpoint(method) !== '-'" text :icon="CopyDocument" @click="copyText(capabilityEndpoint(method), technicalEndpointLabel)">复制地址</el-button></header>
               <div class="endpoint-definition"><span v-if="method.httpMethod">{{ method.httpMethod.toUpperCase() }}</span><code>{{ capabilityEndpoint(method) }}</code></div>
@@ -90,7 +97,7 @@
 
       <aside class="inspector-aside" aria-label="调用条件与来源">
         <section class="readiness-panel" :class="`is-${readiness.tone}`">
-          <div class="aside-label">调用状态 <el-button text :icon="Refresh" :aria-label="`重新读取${assetLabel}状态`" @click="loadDetail" /></div>
+          <div class="aside-label">调用状态 <el-button text :icon="Refresh" :disabled="descriptionBusy" :aria-label="`重新读取${assetLabel}状态`" @click="loadDetail" /></div>
           <div class="readiness-title"><el-icon><component :is="readiness.tone === 'success' ? CircleCheck : Warning" /></el-icon><strong>{{ readiness.title }}</strong></div>
           <p>{{ readiness.description }}</p>
           <el-button v-if="method.projectCode && readiness.tone !== 'success' && method.enabled" text type="primary" :icon="ArrowRight" @click="openChanges">检查当前{{ assetLabel }}变化</el-button>
@@ -104,7 +111,7 @@
         <section class="aside-section source-section">
           <h3>来源项目</h3><strong>{{ method.sourceProjectName || method.projectCode || '项目未提供' }}</strong>
           <p>{{ capabilitySourceLabel(method.source, method.sourceLocation) }}<template v-if="metadata.domain"> · {{ metadata.domain }}</template></p>
-          <el-button v-if="method.projectCode" :icon="FolderOpened" @click="navigate({ name: 'RegistryProjectDetail', params: { projectCode: method.projectCode } })">查看来源项目</el-button>
+          <el-button v-if="method.projectCode" :icon="FolderOpened" @click="openSourceProject()">查看来源项目</el-button>
         </section>
       </aside>
     </div>
@@ -119,7 +126,7 @@
     :close-on-click-modal="false"
     @update:model-value="closeDiscardConfirmation"
   >
-    <p class="discard-copy">当前试调用输入尚未提交。放弃后会从页面内存中清除；最近调用记录只保留调用 ID 和时间。</p>
+    <p class="discard-copy">当前试调用或业务说明输入尚未提交。放弃后会从页面内存中清除；最近调用记录只保留调用 ID 和时间。</p>
     <template #footer>
       <el-button ref="discardCancel" native-type="button" @click="cancelDiscard">继续编辑</el-button>
       <el-button native-type="button" type="danger" @click="confirmDiscard">放弃输入</el-button>
@@ -129,7 +136,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
-import { useRouter, type RouteLocationRaw } from 'vue-router'
+import { useRoute, useRouter, type LocationQueryRaw, type RouteLocationRaw } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { ArrowRight, CircleCheck, Connection, CopyDocument, FolderOpened, Loading, Refresh, Share, User, Warning } from '@element-plus/icons-vue'
 import AppDialog from '@/components/common/AppDialog.vue'
@@ -138,8 +145,10 @@ import { getBusinessMethod, getBusinessMethodReferences } from '@/api/businessMe
 import type { AssetReferences } from '@/types/assetReferences'
 import { isBusinessMethodInfo, type BusinessMethodInfo } from '@/types/businessMethod'
 import { copyAiCodingText } from '@/utils/aiCodingClipboard'
+import { withProjectScopeQuery } from '@/utils/projectScope'
 import { capabilityDescription, capabilityDescriptionHasEncodingIssue, capabilityDisplayName, capabilityEndpoint, capabilityParameterCount, capabilitySideEffectLabel, capabilitySideEffectTone, capabilitySourceLabel, capabilityStableName } from '../capabilityGovernance'
 import { capabilityExecutionFacts, businessMethodInputContract, businessMethodReadiness, splitAssetParameters } from '../businessMethodDetail'
+import CapabilityEnrichmentPanel from './CapabilityEnrichmentPanel.vue'
 import { referenceKindLabel, referenceStage, usageRoute } from '../referenceUsage'
 import CapabilityParameterTable from './CapabilityParameterTable.vue'
 import BusinessMethodInvocationPanel from './BusinessMethodInvocationPanel.vue'
@@ -148,11 +157,14 @@ const props = withDefaults(defineProps<{
   modelValue: boolean
   method: BusinessMethodInfo | null
   contextKey?: string
+  freshDetail?: boolean
 }>(), {
   contextKey: '',
+  freshDetail: false,
 })
 const emit = defineEmits<{ 'update:modelValue': [value: boolean]; refreshed: [method: BusinessMethodInfo] }>()
 const router = useRouter()
+const route = useRoute()
 const method = ref<BusinessMethodInfo | null>(null)
 const loading = ref(false)
 const loadError = ref('')
@@ -161,6 +173,8 @@ const references = ref<AssetReferences | null>(null)
 const referencesLoading = ref(false)
 const referencesError = ref('')
 const invocationDirty = ref(false)
+const descriptionDirty = ref(false)
+const descriptionBusy = ref(false)
 const discardConfirmation = ref(false)
 const discardCancel = ref<{ $el?: HTMLElement } | null>(null)
 const pendingNavigation = ref<RouteLocationRaw | null>(null)
@@ -197,6 +211,7 @@ function errorText(error: unknown) {
   return status === 404 ? `这项${assetLabel}已不存在或不在当前项目中，请刷新${catalogLabel}。` : status === 403 ? `当前账号无权读取这项${assetLabel}，请联系项目管理员。` : '服务暂时未能返回详情，请稍后重试。'
 }
 async function loadDetail() {
+  if (descriptionBusy.value) return
   const name = props.method?.name
   if (!props.modelValue || !name) return
   const current = ++sequence
@@ -233,13 +248,14 @@ async function copyText(value: string, label: string) {
   else ElMessage.warning('复制未成功，请选择内容后手动复制。')
 }
 function shouldConfirmDiscard() {
-  return invocationDirty.value
+  return invocationDirty.value || descriptionDirty.value
 }
 function openDiscardConfirmation() {
   discardConfirmation.value = true
   nextTick(() => discardCancel.value?.$el?.focus?.())
 }
 function requestDialogModelValue(value: boolean) {
+  if (!value && descriptionBusy.value) return
   if (!value && shouldConfirmDiscard()) {
     openDiscardConfirmation()
     return
@@ -247,6 +263,7 @@ function requestDialogModelValue(value: boolean) {
   emit('update:modelValue', value)
 }
 function handleDetailBeforeClose(done: () => void) {
+  if (descriptionBusy.value) return
   if (shouldConfirmDiscard()) {
     openDiscardConfirmation()
     return
@@ -260,12 +277,14 @@ function cancelDiscard() { discardConfirmation.value = false; pendingNavigation.
 function confirmDiscard() {
   discardConfirmation.value = false
   invocationDirty.value = false
+  descriptionDirty.value = false
   const target = pendingNavigation.value
   pendingNavigation.value = null
   emit('update:modelValue', false)
   if (target) void router.push(target)
 }
 function navigate(target: RouteLocationRaw) {
+  if (descriptionBusy.value) return
   if (shouldConfirmDiscard()) {
     pendingNavigation.value = target
     openDiscardConfirmation()
@@ -274,14 +293,29 @@ function navigate(target: RouteLocationRaw) {
   emit('update:modelValue', false)
   void router.push(target)
 }
-function openChanges() { if (method.value?.projectCode) navigate({ name: 'RegistryProjectDetail', params: { projectCode: method.value.projectCode }, query: { section: 'source-changes', changeSearch: capabilityStableName(method.value) } }) }
-watch([() => props.modelValue, () => props.method?.name, () => props.contextKey], () => {
+function openSourceProject(showChanges = false) {
+  const owner = method.value
+  if (!owner?.projectCode) return
+  const query = withProjectScopeQuery(route.query, { kind: 'project', project: {
+    id: owner.projectId, projectCode: owner.projectCode, name: owner.sourceProjectName || owner.projectCode,
+  } }) as LocationQueryRaw
+  navigate({ name: 'RegistryProjectDetail', params: { projectCode: owner.projectCode }, query: { ...query,
+    subjectType: 'BUSINESS_METHOD', subjectId: String(owner.assetId), subjectKey: owner.qualifiedName,
+    ...(showChanges ? { section: 'source-changes', changeSearch: capabilityStableName(owner) } : {}),
+  } })
+}
+function openChanges() { openSourceProject(true) }
+watch([() => props.modelValue, () => props.method?.name, () => props.contextKey], (_next, previous) => {
   ++sequence; ++referenceSequence
   invocationDirty.value = false
+  descriptionDirty.value = false; descriptionBusy.value = false
   discardConfirmation.value = false
   pendingNavigation.value = null
   if (!props.modelValue) return
-  method.value = props.method; tab.value = 'contract'; void loadDetail()
+  method.value = props.method; tab.value = 'contract'
+  if (props.freshDetail && isBusinessMethodInfo(props.method) && (!previous || !previous[0] || previous[1] !== props.method.name)) {
+    loading.value = false; loadError.value = ''; references.value = null; referencesError.value = ''; referencesLoading.value = false
+  } else void loadDetail()
 }, { immediate: true })
 watch(tab, value => { if (value === 'references' && !references.value && !referencesLoading.value) void loadReferences() })
 onBeforeUnmount(() => { ++sequence; ++referenceSequence })
@@ -289,22 +323,22 @@ onBeforeUnmount(() => { ++sequence; ++referenceSequence })
 
 <style scoped lang="scss">
 :global(.app-dialog.capability-inspector.el-dialog) { height: min(820px, calc(100dvh - 56px)); padding: 0; background: var(--surface-fallback-overlay); border-radius: var(--radius-xl); }
-:global(.app-dialog.capability-inspector .el-dialog__header) { padding: 24px 28px 20px; background: var(--surface-solid-panel); }
+:global(.app-dialog.capability-inspector .el-dialog__header) { padding: 18px 24px 14px; background: var(--surface-solid-panel); }
 :global(.app-dialog.capability-inspector .el-dialog__body) { display: flex; padding: 0; overflow: hidden; max-block-size: none; }
 .inspector-heading { padding-right: 28px; }
 .inspector-eyebrow { display: flex; gap: 8px; color: var(--text-secondary); font-size: 12px; }
 .inspector-eyebrow span { color: var(--text-muted); }
-.inspector-heading h2 { margin: 10px 0 4px; color: var(--text-primary); font-size: 22px; line-height: 1.4; overflow-wrap: anywhere; }
+.inspector-heading h2 { margin: 6px 0 4px; color: var(--text-primary); font-size: 20px; line-height: 1.4; overflow-wrap: anywhere; }
 .inspector-identifier { display: flex; align-items: center; gap: 8px; }
 .inspector-identifier code { min-width: 0; overflow-wrap: anywhere; padding: 0; color: var(--text-secondary); background: transparent; font: 12px/1.5 ui-monospace, Consolas, monospace; }
 .inspector-identifier .el-button { height: 26px; flex-shrink: 0; padding: 4px; }
-.inspector-workspace { display: grid; grid-template-columns: minmax(0, 1fr) 280px; width: 100%; min-height: 0; }
-.inspector-main { min-width: 0; overflow: auto; overscroll-behavior: contain; padding: 24px 28px; scrollbar-gutter: stable; }
-.inspector-description { margin-bottom: 22px; }
+.inspector-workspace { display: grid; grid-template-columns: minmax(0, 1fr) 256px; width: 100%; min-height: 0; }
+.inspector-main { min-width: 0; overflow: auto; overscroll-behavior: contain; padding: 20px 24px; scrollbar-gutter: stable; }
+.inspector-description { margin-bottom: 16px; }
 .description-label { font-size: 12px; color: var(--text-secondary); }
-.inspector-description > p { margin: 8px 0 0; font-size: 14px; line-height: 1.85; color: var(--text-primary); overflow-wrap: anywhere; }
+.inspector-description > p { margin: 6px 0 0; font-size: 13px; line-height: 1.75; color: var(--text-primary); overflow-wrap: anywhere; }
 .inspector-description .el-alert { margin-top: 12px; }
-.inspector-tabs :deep(.el-tabs__header) { margin: 0; }
+.inspector-tabs :deep(.el-tabs__header) { position: sticky; top: 0; z-index: 2; margin: 0; padding-top: 8px; background: var(--surface-fallback-overlay); }
 .inspector-tabs :deep(.el-tabs__item) { height: 44px; font-size: 13px; }
 .tab-count { margin-left: 6px; font-size: 11px; }
 .inspector-section { padding: 20px 0 4px; }
@@ -318,7 +352,7 @@ onBeforeUnmount(() => { ++sequence; ++referenceSequence })
 .response-definition p { margin: 6px 0 0; font-size: 12px; color: var(--text-secondary); }
 .endpoint-definition { display: flex; align-items: flex-start; gap: 12px; }
 .endpoint-definition > span { font: 600 11px/2 ui-monospace, Consolas, monospace; color: var(--brand-primary); }
-.inspector-aside { padding: 20px 24px; border-left: 1px solid var(--border-divider); background: var(--surface-solid-page); min-height: 0; overflow: auto; overscroll-behavior: contain; }
+.inspector-aside { padding: 20px; border-left: 1px solid var(--border-divider); background: var(--surface-solid-page); min-height: 0; overflow: auto; overscroll-behavior: contain; }
 .aside-label { display: flex; align-items: center; justify-content: space-between; color: var(--text-secondary); font-size: 12px; margin-bottom: 10px; }
 .aside-label .el-button { height: 24px; padding: 4px; }
 .readiness-title { display: flex; gap: 8px; align-items: flex-start; font-size: 14px; line-height: 1.6; color: var(--text-primary); }

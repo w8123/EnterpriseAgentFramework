@@ -60,10 +60,6 @@ public class CapabilityChangeImpactService {
         var publishedA2a = new A2aPublishedReferenceQuery.Evidence(false, List.of());
         String publicationState = "COMPLETE";
         try {
-            publishedMcp = mcp.inspect();
-            if (!publishedMcp.complete()) publicationState = "PARTIAL";
-        } catch (Exception unavailable) { publicationState = "UNKNOWN"; }
-        try {
             publishedA2a = a2a.inspect();
             if (!publishedA2a.complete() && !"UNKNOWN".equals(publicationState)) publicationState = "PARTIAL";
         } catch (Exception unavailable) { publicationState = "UNKNOWN"; }
@@ -87,11 +83,40 @@ public class CapabilityChangeImpactService {
 
         var byCapability = maps(runtimeEvidence.get("usages")).stream()
                 .collect(Collectors.groupingBy(usage -> String.valueOf(usage.get("qualifiedName"))));
-        var directMcp = publishedMcp.bindings().stream().filter(binding -> "CAPABILITY".equals(binding.sourceKind()))
+        var requestedAliases = keys.stream().flatMap(key -> java.util.stream.Stream.of(
+                String.valueOf(key.get("qualifiedName")), Objects.toString(key.get("storageName"), "")))
+                .collect(Collectors.toSet());
+        var workflowVersions = byCapability.values().stream().flatMap(List::stream)
+                .filter(usage -> "WORKFLOW".equals(usage.get("kind")))
+                .map(usage -> String.valueOf(usage.get("versionId"))).collect(Collectors.toSet());
+        Map<Long, String> workflowPins = new LinkedHashMap<>();
+        for (var usages : byCapability.values()) {
+            for (var usage : usages) {
+                if (!"WORKFLOW".equals(usage.get("kind")) || usage.get("versionId") == null) continue;
+                try {
+                    long version = Long.parseLong(String.valueOf(usage.get("versionId")));
+                    if (version > 0) workflowPins.put(version, String.valueOf(usage.get("id")));
+                } catch (NumberFormatException ignored) {
+                    // Runtime evidence remains visible; malformed version identity cannot gain a publication match.
+                }
+            }
+        }
+        try {
+            publishedMcp = mcp.inspect(requestedAliases, workflowPins);
+            if (!publishedMcp.complete() && !"UNKNOWN".equals(publicationState)) publicationState = "PARTIAL";
+        } catch (Exception unavailable) { publicationState = "UNKNOWN"; }
+        var agentConfigs = byCapability.values().stream().flatMap(List::stream)
+                .filter(usage -> "AGENT".equals(usage.get("kind")))
+                .map(usage -> usage.get("id") + "#" + usage.get("agentConfigVersionId")).collect(Collectors.toSet());
+        var directMcp = publishedMcp.bindings().stream().filter(binding -> "CAPABILITY".equals(binding.sourceKind())
+                        && requestedAliases.contains(binding.sourceRef()))
                 .collect(Collectors.groupingBy(McpPublishedReferenceQuery.Binding::sourceRef));
-        var workflowMcp = publishedMcp.bindings().stream().filter(binding -> "WORKFLOW".equals(binding.sourceKind()))
+        var workflowMcp = publishedMcp.bindings().stream().filter(binding -> "WORKFLOW".equals(binding.sourceKind())
+                        && workflowVersions.contains(String.valueOf(binding.workflowVersionId()))
+                        && Objects.equals(workflowPins.get(binding.workflowVersionId()), binding.sourceRef()))
                 .collect(Collectors.groupingBy(binding -> String.valueOf(binding.workflowVersionId())));
-        var pinnedA2a = publishedA2a.bindings().stream().collect(Collectors.groupingBy(binding ->
+        var pinnedA2a = publishedA2a.bindings().stream().filter(binding -> agentConfigs.contains(binding.agentId() + "#" + binding.agentConfigVersionId()))
+                .collect(Collectors.groupingBy(binding ->
                 binding.agentId() + "#" + binding.agentConfigVersionId()));
         Map<String, Map<String, Object>> result = new LinkedHashMap<>();
         for (Map<String, Object> record : keys) {

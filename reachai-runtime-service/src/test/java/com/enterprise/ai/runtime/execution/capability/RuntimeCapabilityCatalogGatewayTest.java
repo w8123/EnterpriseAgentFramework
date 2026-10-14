@@ -185,7 +185,7 @@ class RuntimeCapabilityCatalogGatewayTest {
         var gateway = new RuntimeCapabilityCatalogGateway(transport, new RuntimeCapabilityInternalAuthSigner(SECRET), objectMapper);
         gateway.withBusinessMethodDraftScope(methodPin(), () -> true, () -> {
             var response = gateway.invokeTool("orders:normalize", methodRequest());
-            assertEquals(Map.of("data", Map.of("ok", true)), response.data()); assertFalse(response.retryable());
+            assertEquals(Map.of("ok", true), response.data()); assertFalse(response.retryable());
             assertThrows(IllegalStateException.class, () -> gateway.invokeTool("orders:normalize", methodRequest()));
             return null;
         });

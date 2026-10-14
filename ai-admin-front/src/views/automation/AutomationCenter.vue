@@ -1301,8 +1301,8 @@ function messageOf(error: unknown, fallback: string) {
 .automation-metric-strip {
   display: flex;
   min-width: 0;
-  min-height: 104px;
-  max-height: 104px;
+  height: auto;
+  min-height: var(--layout-metric-strip-min-height);
   align-items: stretch;
   overflow: hidden;
   border: 1px solid rgb(var(--brand-primary-rgb) / 0.16);
@@ -1314,7 +1314,7 @@ function messageOf(error: unknown, fallback: string) {
 
 .automation-metric-divider {
   width: 1px;
-  height: 68px;
+  height: 52px;
   flex: 0 0 1px;
   align-self: center;
   border-radius: 1px;
@@ -1324,15 +1324,16 @@ function messageOf(error: unknown, fallback: string) {
 .automation-metric-segment {
   display: flex;
   min-width: 0;
-  min-height: 104px;
+  min-height: var(--layout-metric-strip-min-height);
   flex: 1 1 0;
   align-items: center;
-  gap: 18px;
-  padding: 18px 20px;
+  gap: var(--layout-section-gap);
+  padding: var(--layout-metric-padding-block) var(--layout-metric-padding-inline);
 }
 
 .automation-metric-icon {
-  --metric-icon-glyph-size: 24px;
+  --metric-icon-bg-size: var(--layout-metric-icon-size);
+  --metric-icon-glyph-size: 20px;
   flex-shrink: 0;
 }
 
@@ -1398,7 +1399,7 @@ function messageOf(error: unknown, fallback: string) {
   display: block;
   margin: 4px 0 2px;
   color: #0f172a;
-  font-size: 25px;
+  font-size: var(--layout-metric-value-size);
   font-weight: 700;
   line-height: 30px;
 }
@@ -1431,8 +1432,8 @@ function messageOf(error: unknown, fallback: string) {
   grid-template-columns: minmax(340px, 2.4fr) minmax(220px, 1.2fr) minmax(150px, 1fr) 74px 88px;
   align-items: center;
   gap: 12px;
-  margin: 28px 28px 0;
-  padding: 9px 14px;
+  margin: var(--layout-panel-padding) var(--layout-panel-padding) 0;
+  padding: var(--layout-filter-padding-block) var(--layout-filter-padding-inline);
   border: 1px solid rgb(var(--brand-primary-rgb) / 0.11);
   border-radius: 12px;
   background: var(--brand-soft-bg, rgb(238 242 255 / 0.76));
@@ -1486,7 +1487,7 @@ function messageOf(error: unknown, fallback: string) {
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: 12px;
-  margin: 14px 28px 0;
+  margin: var(--layout-section-gap) var(--layout-panel-padding) 0;
   padding: 10px 14px;
   border: 1px solid color-mix(in srgb, var(--status-warning) 24%, transparent);
   border-radius: 10px;
@@ -1525,7 +1526,7 @@ function messageOf(error: unknown, fallback: string) {
   min-height: 0;
   flex: 1;
   flex-direction: column;
-  margin: 22px 28px 0;
+  margin: var(--layout-section-gap) var(--layout-panel-padding) 0;
   overflow: hidden;
   border: 1px solid rgb(var(--brand-primary-rgb) / 0.12);
   border-radius: 13px;
@@ -1533,7 +1534,7 @@ function messageOf(error: unknown, fallback: string) {
 }
 
 .readiness-inline + .automation-table-shell {
-  margin-top: 14px;
+  margin-top: var(--layout-section-gap);
 }
 
 .automation-table {
@@ -1605,9 +1606,9 @@ function messageOf(error: unknown, fallback: string) {
   min-height: 220px;
   flex: 1;
   align-items: center;
-  gap: 24px;
-  margin: 20px;
-  padding: 28px 32px;
+  gap: var(--layout-panel-padding);
+  margin: var(--layout-panel-padding);
+  padding: var(--layout-panel-padding);
   border: 1px dashed rgb(var(--brand-primary-rgb) / 0.28);
   border-radius: 18px;
   background: linear-gradient(135deg, rgb(var(--brand-selected-rgb) / 0.55), rgb(255 255 255 / 0.62));
@@ -1658,7 +1659,7 @@ function messageOf(error: unknown, fallback: string) {
   justify-content: space-between;
   gap: 16px;
   margin-top: auto;
-  padding: 14px 28px 16px;
+  padding: var(--layout-pagination-padding-block) var(--layout-panel-padding);
   border-top: 1px solid rgb(var(--brand-primary-rgb) / 0.1);
   color: #667085;
   font-size: 13px;
@@ -1916,7 +1917,7 @@ function messageOf(error: unknown, fallback: string) {
   }
 
   .automation-metric-segment {
-    min-height: 92px;
+    min-height: var(--layout-metric-strip-min-height);
     background: var(--surface-glass-panel);
   }
 
@@ -1968,15 +1969,15 @@ function messageOf(error: unknown, fallback: string) {
   }
 
   .automation-metric-segment {
-    min-height: 84px;
-    padding: 14px 16px;
+    min-height: var(--layout-metric-strip-min-height);
+    padding: var(--layout-metric-padding-block) var(--layout-metric-padding-inline);
   }
 
   .filter-row,
   .readiness-inline,
   .automation-table-shell {
-    margin-right: 16px;
-    margin-left: 16px;
+    margin-right: var(--layout-panel-padding);
+    margin-left: var(--layout-panel-padding);
   }
 
   .keyword-filter {
@@ -1986,8 +1987,8 @@ function messageOf(error: unknown, fallback: string) {
   .automation-empty-state {
     grid-template-columns: 1fr;
     justify-items: start;
-    margin: 14px;
-    padding: 24px;
+    margin: var(--layout-panel-padding);
+    padding: var(--layout-panel-padding);
   }
 
   .automation-empty-action {
@@ -1995,8 +1996,8 @@ function messageOf(error: unknown, fallback: string) {
   }
 
   .automation-table-footer {
-    padding-right: 16px;
-    padding-left: 16px;
+    padding-right: var(--layout-panel-padding);
+    padding-left: var(--layout-panel-padding);
   }
 
   .form-grid--2,

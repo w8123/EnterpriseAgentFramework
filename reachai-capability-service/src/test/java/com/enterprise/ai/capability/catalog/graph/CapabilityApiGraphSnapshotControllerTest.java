@@ -38,14 +38,14 @@ class CapabilityApiGraphSnapshotControllerTest {
         Method saveLayout = CapabilityApiGraphSnapshotController.class.getDeclaredMethod(
                 "saveLayout", Long.class, CapabilityApiGraphRequests.LayoutSaveRequest.class);
         Method paramHints = CapabilityApiGraphSnapshotController.class.getDeclaredMethod(
-                "paramHints", Long.class, String.class);
+                "paramHints", Long.class, String.class, Long.class);
         Method infer = CapabilityApiGraphSnapshotController.class.getDeclaredMethod("infer", Long.class);
         Method inferRequestResponse = CapabilityApiGraphSnapshotController.class.getDeclaredMethod(
                 "inferRequestResponse", Long.class);
         Method regenerate = CapabilityApiGraphSnapshotController.class.getDeclaredMethod("regenerate", Long.class);
         Method rebuild = CapabilityApiGraphSnapshotController.class.getDeclaredMethod("rebuild", Long.class);
 
-        assertArrayEquals(new String[] {"/api/api-graph/projects/{projectId}"}, controllerMapping.value());
+        assertArrayEquals(new String[] {"/internal/capability/api-graph/projects/{projectId}"}, controllerMapping.value());
         assertArrayEquals(new String[] {"/snapshot"}, snapshot.getAnnotation(GetMapping.class).value());
         assertArrayEquals(new String[] {"/candidates"}, candidates.getAnnotation(GetMapping.class).value());
         assertArrayEquals(new String[] {"/candidates/{edgeId}/confirm"}, confirm.getAnnotation(PostMapping.class).value());
@@ -53,7 +53,7 @@ class CapabilityApiGraphSnapshotControllerTest {
         assertArrayEquals(new String[] {"/edges"}, upsertEdge.getAnnotation(PostMapping.class).value());
         assertArrayEquals(new String[] {"/edges/{edgeId}"}, deleteEdge.getAnnotation(DeleteMapping.class).value());
         assertArrayEquals(new String[] {"/layout"}, saveLayout.getAnnotation(PutMapping.class).value());
-        assertArrayEquals(new String[] {"/tools/{toolName}/param-hints"}, paramHints.getAnnotation(GetMapping.class).value());
+        assertArrayEquals(new String[] {"/subjects/{subjectType}/{subjectId}/param-hints"}, paramHints.getAnnotation(GetMapping.class).value());
         assertArrayEquals(new String[] {"/infer"}, infer.getAnnotation(PostMapping.class).value());
         assertArrayEquals(new String[] {"/infer/request-response"},
                 inferRequestResponse.getAnnotation(PostMapping.class).value());
@@ -96,7 +96,7 @@ class CapabilityApiGraphSnapshotControllerTest {
         CapabilityApiGraphParamSourceHintView hint = new CapabilityApiGraphParamSourceHintView(
                 "request.buyerId", "buyerId", "createOrder",
                 "result.userId", "userId", "queryUser", 0.9);
-        when(operations.listParamHints(7L, "createOrder")).thenReturn(List.of(hint));
+        when(operations.listParamHints(7L, "BUSINESS_METHOD", 21L)).thenReturn(List.of(hint));
         when(operations.inferModelRefEdges(7L)).thenReturn(new CapabilityApiGraphRequests.InferResultDTO(2));
         when(operations.inferRequestResponseEdges(7L)).thenReturn(new CapabilityApiGraphRequests.InferResultDTO(3));
         CapabilityApiGraphSnapshotView regenerated = new CapabilityApiGraphSnapshotView(List.of(), List.of(), List.of());
@@ -106,7 +106,7 @@ class CapabilityApiGraphSnapshotControllerTest {
         ResponseEntity<List<CapabilityApiGraphSnapshotView.EdgeView>> candidates =
                 controller.candidates(7L, "CANDIDATE", 0.5);
         ResponseEntity<Void> layout = controller.saveLayout(7L, new CapabilityApiGraphRequests.LayoutSaveRequest(List.of()));
-        ResponseEntity<List<CapabilityApiGraphParamSourceHintView>> hints = controller.paramHints(7L, "createOrder");
+        ResponseEntity<List<CapabilityApiGraphParamSourceHintView>> hints = controller.paramHints(7L, "BUSINESS_METHOD", 21L);
         ResponseEntity<CapabilityApiGraphRequests.InferResultDTO> modelRef = controller.infer(7L);
         ResponseEntity<CapabilityApiGraphRequests.InferResultDTO> requestResponse = controller.inferRequestResponse(7L);
         ResponseEntity<?> regenerateResponse = controller.regenerate(7L);

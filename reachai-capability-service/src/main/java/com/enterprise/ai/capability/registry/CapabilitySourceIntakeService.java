@@ -326,11 +326,8 @@ public class CapabilitySourceIntakeService {
     }
 
     private HttpApiSyncSummary observeHttpApis(String intakeMode, StarterMvcHttpApiIntakeService.Plan httpApis) {
-        if (!httpApis.supported()) {
-            return new HttpApiSyncSummary(false, 0, 0, 0);
-        }
         if (!"SOURCE".equals(intakeMode)) {
-            return new HttpApiSyncSummary(true, httpApis.operations().size(), 0, 0);
+            return new HttpApiSyncSummary(httpApis.supported(), httpApis.operations().size(), 0, 0);
         }
         return httpApiIntake.observe(httpApis);
     }

@@ -19,9 +19,11 @@ import {
 } from '@/auth/platformAccess'
 import { useProjectStore } from '@/store/project'
 import type { ScanProject } from '@/types/scanProject'
+import { BUSINESS_CAPABILITY_SCOPE_QUERY_KEYS } from '@/views/capability/businessCapabilityRoutes'
 import {
   providePageProjectScope,
   type PageProjectScopeController,
+  type ProjectScopeRouteConfig,
 } from './usePageProjectScope'
 
 const mocks = vi.hoisted(() => ({
@@ -77,7 +79,7 @@ function globalGrant() {
   }
 }
 
-function createScopeRouter(): ReturnType<typeof createRouter> {
+function createScopeRouter(config: Partial<ProjectScopeRouteConfig> = {}): ReturnType<typeof createRouter> {
   const Probe = defineComponent({
     name: 'ProjectScopeProbe',
     setup: () => () => h('div', 'scope probe'),
@@ -92,6 +94,7 @@ function createScopeRouter(): ReturnType<typeof createRouter> {
           permission: PLATFORM_PERMISSION_AGENT_READ,
           resourceLabel: 'Agent',
           requiresProjectCode: false,
+          ...config,
         },
       },
     },
@@ -284,6 +287,115 @@ describe('page project scope controller', () => {
     })
     expect(projectStore.currentProjectId).toBe(2)
     expect(mounted.controller.currentScopeLabel.value).toBe('项目 2')
+  })
+
+  it('clears only opted-in document selection keys when actively changing projects', async () => {
+    authenticate([projectGrant('project-a'), projectGrant('project-b')])
+    mocks.getScanProjects.mockResolvedValue({ data: [createProject(36, 'project-a'), createProject(37, 'project-b')] })
+    const router = createScopeRouter({ resetQueryKeysOnScopeChange: BUSINESS_CAPABILITY_SCOPE_QUERY_KEYS })
+    await router.push('/agent?projectId=36&projectCode=project-a&subjectType=BUSINESS_METHOD&subjectId=102&subjectKey=read&methodGroupId=71&apiGroupId=71&methodPage=2&apiPage=3&methodDetail=read&methodAssetId=102&methodKeyword=kept&reviewState=PROCESSED#document')
+    await router.isReady()
+    const mounted = mountScopeHost(router)
+    wrapper = mounted.wrapper
+    await settleVueAndRouter()
+    expect(router.currentRoute.value.query.subjectId).toBe('102')
+
+    await expect(mounted.controller.selectScope(37)).resolves.toBe(true)
+    await settleVueAndRouter()
+
+    expect(router.currentRoute.value.path).toBe('/agent')
+    expect(router.currentRoute.value.query).toEqual({ projectId: '37', projectCode: 'project-b', methodKeyword: 'kept', reviewState: 'PROCESSED' })
+    expect(router.currentRoute.value.hash).toBe('#document')
+    expect(mounted.controller.selection.value).toBe(37)
+    expect(useProjectStore().currentProjectId).toBe(37)
+  })
+
+  it('preserves document selection on other routes that do not opt into scope resets', async () => {
+    authenticate([projectGrant('project-a'), projectGrant('project-b')])
+    mocks.getScanProjects.mockResolvedValue({ data: [createProject(36, 'project-a'), createProject(37, 'project-b')] })
+    const router = createScopeRouter()
+    await router.push('/agent?projectId=36&subjectType=BUSINESS_METHOD&subjectId=102')
+    await router.isReady()
+    const mounted = mountScopeHost(router)
+    wrapper = mounted.wrapper
+    await settleVueAndRouter()
+
+    await expect(mounted.controller.selectScope(37)).resolves.toBe(true)
+    await settleVueAndRouter()
+
+    expect(router.currentRoute.value.query).toEqual({ projectId: '37', projectCode: 'project-b', subjectType: 'BUSINESS_METHOD', subjectId: '102' })
+  })
+
+  it.each(['102', 'invalid'])('preserves cold bookmarks and same-project selection, including subject ID %s', async subjectId => {
+    authenticate([projectGrant('project-a')])
+    mocks.getScanProjects.mockResolvedValue({ data: [createProject(36, 'project-a')] })
+    const router = createScopeRouter({ resetQueryKeysOnScopeChange: ['subjectType', 'subjectId'] })
+    await router.push(`/agent?projectId=36&subjectType=BUSINESS_METHOD&subjectId=${subjectId}#document`)
+    await router.isReady()
+    const mounted = mountScopeHost(router)
+    wrapper = mounted.wrapper
+    await settleVueAndRouter()
+    const coldAddress = router.currentRoute.value.fullPath
+    expect(router.currentRoute.value.query.subjectId).toBe(subjectId)
+
+    await expect(mounted.controller.selectScope(36)).resolves.toBe(true)
+    await settleVueAndRouter()
+
+    expect(router.currentRoute.value.fullPath).toBe(coldAddress)
+  })
+
+  it('keeps document bookmarks through default scope normalization', async () => {
+    authenticate([projectGrant('project-a')])
+    mocks.getScanProjects.mockResolvedValue({ data: [createProject(36, 'project-a')] })
+    useProjectStore().selectCurrentProject(36)
+    const router = createScopeRouter({ resetQueryKeysOnScopeChange: ['subjectType', 'subjectId'] })
+    await router.push('/agent?subjectType=BUSINESS_METHOD&subjectId=102#document')
+    await router.isReady()
+    const mounted = mountScopeHost(router)
+    wrapper = mounted.wrapper
+    await settleVueAndRouter()
+
+    expect(router.currentRoute.value.query).toEqual({ projectId: '36', projectCode: 'project-a', subjectType: 'BUSINESS_METHOD', subjectId: '102' })
+    expect(router.currentRoute.value.hash).toBe('#document')
+    expect(mounted.controller.selection.value).toBe(36)
+  })
+
+  it('keeps the previous bookmark when an opted-in scope navigation is cancelled', async () => {
+    authenticate([projectGrant('project-a'), projectGrant('project-b')])
+    mocks.getScanProjects.mockResolvedValue({ data: [createProject(36, 'project-a'), createProject(37, 'project-b')] })
+    const router = createScopeRouter({ resetQueryKeysOnScopeChange: ['subjectType', 'subjectId'] })
+    router.beforeEach(to => to.query.projectId === '37' ? false : true)
+    await router.push('/agent?projectId=36&subjectType=BUSINESS_METHOD&subjectId=102#document')
+    await router.isReady()
+    const mounted = mountScopeHost(router)
+    wrapper = mounted.wrapper
+    await settleVueAndRouter()
+    const address = router.currentRoute.value.fullPath
+
+    await expect(mounted.controller.selectScope(37)).resolves.toBe(false)
+    await settleVueAndRouter()
+
+    expect(router.currentRoute.value.fullPath).toBe(address)
+    expect(useProjectStore().currentProjectId).toBe(36)
+  })
+
+  it.each([
+    { address: '/agent?projectId=36', selection: 'all' as const, expectedQuery: { scope: 'all' } },
+    { address: '/agent?scope=all', selection: 37, expectedQuery: { projectId: '37', projectCode: 'project-b' } },
+  ])('clears opted-in document selection between project and all scopes: $address', async ({ address, selection, expectedQuery }) => {
+    authenticate([globalGrant()])
+    mocks.getScanProjects.mockResolvedValue({ data: [createProject(36, 'project-a'), createProject(37, 'project-b')] })
+    const router = createScopeRouter({ resetQueryKeysOnScopeChange: ['subjectType', 'subjectId'] })
+    await router.push(`${address}&subjectType=BUSINESS_METHOD&subjectId=102`)
+    await router.isReady()
+    const mounted = mountScopeHost(router)
+    wrapper = mounted.wrapper
+    await settleVueAndRouter()
+
+    await expect(mounted.controller.selectScope(selection)).resolves.toBe(true)
+    await settleVueAndRouter()
+
+    expect(router.currentRoute.value.query).toEqual(expectedQuery)
   })
 
   it('serializes an authorized global scope as scope=all', async () => {

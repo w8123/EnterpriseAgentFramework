@@ -181,8 +181,19 @@ final class OpenApiHttpApiInventoryExtractor {
                 authentication.value().state(),
                 authentication.value().schemes(),
                 authentication.value().requiredHeaderNames(),
-                readOnly(method) ? "READ_ONLY" : "WRITE");
+                readOnly(method) ? "READ_ONLY" : "WRITE", businessGroups(operation));
         return Outcome.supported(withRevision(provisional));
+    }
+
+
+    private List<String> businessGroups(JsonNode operation) {
+        List<String> names = new ArrayList<>();
+        if (operation.path("tags").isArray()) for (JsonNode tag : operation.path("tags")) {
+            if (!tag.isTextual()) continue;
+            String text = tag.asText().trim();
+            if (names.size() < 30 && !text.isEmpty() && text.length() <= 128 && !text.chars().anyMatch(Character::isISOControl) && !names.contains(text)) names.add(text);
+        }
+        return names;
     }
 
     private Outcome<List<HttpApiOperation.Parameter>> parseParameters(JsonNode root,
@@ -733,7 +744,7 @@ final class OpenApiHttpApiInventoryExtractor {
                 "scan:" + sha256(canonicalJson(evidence)), operation.httpMethod(), operation.contextPath(),
                 operation.endpointPath(), operation.consumes(), operation.produces(), operation.mappingConditions(),
                 operation.parameters(), operation.requestBody(), operation.responses(), operation.authenticationState(),
-                operation.authenticationSchemes(), operation.requiredHeaderNames(), operation.sideEffect());
+                operation.authenticationSchemes(), operation.requiredHeaderNames(), operation.sideEffect(), operation.businessGroups());
     }
 
     private ArrayNode strings(List<String> values) {

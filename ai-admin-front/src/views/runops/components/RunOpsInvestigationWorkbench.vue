@@ -25,7 +25,8 @@
       </nav>
       <div class="workbench-summary" aria-label="执行摘要">
         <span>{{ executionRows.length }} 个阶段</span>
-        <span>{{ summary.workflowCallCount ?? 0 }} Workflow · {{ summary.toolCallCount ?? 0 }} Tool</span>
+        <span v-if="summary.runType === 'CONSOLE_HTTP_API'">{{ consoleHttpApiAuditLabel(detail) }}</span>
+        <span v-else>{{ summary.workflowCallCount ?? 0 }} Workflow · {{ summary.toolCallCount ?? 0 }} Tool</span>
         <strong :class="{ clear: issueCount === 0 }">
           {{ issueCount ? `${issueCount} 个异常` : '全链正常' }}
         </strong>
@@ -192,8 +193,14 @@
           </el-table>
           <div v-else class="workbench-empty">
             <span>…</span>
-            <strong>{{ summary.status === 'RUNNING' || summary.status === 'SUSPENDED' ? '还没有工具调用结果' : '该运行未调用工具' }}</strong>
-            <p>{{ summary.status === 'RUNNING' || summary.status === 'SUSPENDED' ? '运行继续后，工具状态、耗时和错误会显示在这里。' : '当前轨迹没有产生 Tool 调用记录。' }}</p>
+            <template v-if="summary.runType === 'CONSOLE_HTTP_API'">
+              <strong>没有工具调用审计记录</strong>
+              <p>本次 API 试调用已记录在 Console 根运行中。缺少 Tool 审计不能证明请求未派发，请核对原运行的派发与结果状态。</p>
+            </template>
+            <template v-else>
+              <strong>{{ summary.status === 'RUNNING' || summary.status === 'SUSPENDED' ? '还没有工具调用结果' : '该运行未调用工具' }}</strong>
+              <p>{{ summary.status === 'RUNNING' || summary.status === 'SUSPENDED' ? '运行继续后，工具状态、耗时和错误会显示在这里。' : '当前轨迹没有产生 Tool 调用记录。' }}</p>
+            </template>
           </div>
         </section>
 
@@ -346,7 +353,7 @@
                 <li v-for="step in selectedSteps" :key="step">{{ step }}</li>
               </ol>
               <div class="inspector-actions">
-                <el-button v-if="selectedSpan?.toolName || selectedRow.item.toolName" @click="activeTab = 'tools'">查看工具调用</el-button>
+                <el-button v-if="selectedHasToolCall" @click="activeTab = 'tools'">查看工具调用</el-button>
                 <el-button @click="inspectorTab = 'evidence'">查看节点证据</el-button>
               </div>
               <div class="inspector-footnote">
@@ -396,6 +403,7 @@ import { formatRuntimeTypeLabel } from '@/utils/registryLabels'
 import DiffTable from './RunOpsDiffTable.vue'
 import { toolCallStatusLabel, toolCallStatusTone } from '../toolCallOutcome'
 import { HTTP_API_WRITE_UNCONFIRMED_GUIDANCE, isHttpApiWriteResultUnconfirmed } from '../httpApiWriteOutcome'
+import { consoleHttpApiAuditLabel, consoleHttpApiTransportMessage, isConsoleHttpApiRoot } from '../consoleHttpApiDiagnostics'
 import type {
   RunComparison,
   RunDetail,
@@ -503,6 +511,13 @@ const visibleExecutionRows = computed(() => executionFilter.value === 'all'
 
 const selectedRow = computed(() => executionRows.value.find((row) => row.key === selectedExecutionKey.value))
 const selectedSpan = computed(() => selectedRow.value?.span)
+const selectedHasToolCall = computed(() => {
+  const span = selectedSpan.value
+  if (isConsoleHttpApiRoot(props.summary, span)) {
+    return Boolean(span?.spanId && props.detail.toolCalls.some(call => call.statusSourceSpanId === span.spanId))
+  }
+  return Boolean(span?.toolName || selectedRow.value?.item.toolName)
+})
 const selectedTone = computed(() => statusTone(selectedRow.value?.item.status))
 const selectedAttemptLabel = computed(() => attemptLabel(selectedSpan.value))
 const issueCount = computed(() => executionRows.value.filter((row) => !isHealthyStatus(row.item.status)).length)
@@ -550,7 +565,8 @@ const selectedDiagnostic = computed(() => {
     return {
       title: span?.errorCode ? '节点执行失败' : '阶段未成功完成',
       code: span?.errorCode || executionStatusLabel(row.item.status),
-      description: compactMessage(span?.errorMessage || span?.outputSummary, `${row.title} 未成功完成，请核对输入、输出和直接证据。`),
+      description: compactMessage(consoleHttpApiTransportMessage(props.summary, span) || span?.errorMessage || span?.outputSummary,
+        `${row.title} 未成功完成，请核对输入、输出和直接证据。`),
     }
   }
   if (tone === 'warning') {
@@ -575,6 +591,11 @@ const selectedDiagnostic = computed(() => {
 })
 
 const selectedSteps = computed(() => {
+  if (isConsoleHttpApiRoot(props.summary, selectedSpan.value)) return [
+    '查询同一调用 ID 的原运行记录并核对目标状态；结果未确认时不要自动重发。',
+    '核对当前 API 连接与调用契约，并查看 RunOps 为原调用保存的传输原因。',
+    '仅按原调用实际记录的传输分类排查 TLS、连接或超时；没有相应证据时，不猜测证书或其他根因。',
+  ]
   if (selectedRow.value?.item.status === 'UNKNOWN') return ['先核对原运行和目标业务状态，勿自动重试。', '显式新运行是一次新的调用，不是原记录查询。']
   if (selectedTone.value === 'danger' && props.detail.repairHints.length) return props.detail.repairHints
   if (selectedTone.value === 'warning') return ['完成当前审批或用户交互。', '恢复后刷新运行详情，确认后续执行链。']
@@ -1261,7 +1282,7 @@ function guardDigest(guard?: RunGuardDecision) {
 }
 .node-inspector__header { padding: 12px 14px 9px; border-bottom: 1px solid var(--border-divider); }
 .node-inspector__header > div { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--text-muted); font-size: 11px; }
-.node-inspector__header h2 { margin: 6px 0 2px; color: var(--text-primary); font-size: 17px; line-height: 1.3; }
+.node-inspector__header h2 { margin: 6px 0 2px; color: var(--text-primary); font-size: 17px; line-height: 1.3; overflow-wrap: anywhere; }
 .node-inspector__header > code { color: var(--text-muted); font-size: 10px; overflow-wrap: anywhere; }
 
 .node-metrics {

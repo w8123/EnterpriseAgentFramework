@@ -41,7 +41,7 @@ public class ExternalApiCatalogService {
     };
     private static final TypeReference<Map<String, Object>> OBJECT_MAP = new TypeReference<>() {
     };
-    private static final Map<String, String> CATEGORY_NAMES = Map.ofEntries(
+    static final Map<String, String> CATEGORY_NAMES = Map.ofEntries(
             Map.entry("AI", "AI 与智能服务"),
             Map.entry("BUSINESS", "商业服务"),
             Map.entry("DATA", "公共数据"),

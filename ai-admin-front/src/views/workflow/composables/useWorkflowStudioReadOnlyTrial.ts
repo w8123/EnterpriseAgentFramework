@@ -38,8 +38,9 @@ export function savedReadOnlyTrialTarget(graphJson: string): TrialTarget | null 
       && (!method || !Object.keys(api.config?.args || {}).length)
       && Object.keys(variable.config?.assignments || {}).length > 0
       && Object.entries(variable.config.assignments).every(([key, value]) => /^[A-Za-z][A-Za-z0-9_-]{0,127}$/.test(key)
-        && typeof value === 'string' && value.startsWith(`nodeOutput.${api.id}.`)
-        && (method ? /^data$/ : /^[A-Za-z][A-Za-z0-9_.-]{0,127}$/).test(value.slice(`nodeOutput.${api.id}.`.length)))
+        && typeof value === 'string' && (method ? value === `nodeOutput.${api.id}`
+          : value.startsWith(`nodeOutput.${api.id}.`)
+            && /^[A-Za-z][A-Za-z0-9_.-]{0,127}$/.test(value.slice(`nodeOutput.${api.id}.`.length))))
     return { nodeId: api.id, apiId: Number(api.config.httpApiAssetId || 0), assetType,
       qualifiedName: api.ref?.qualifiedName || '', mapping, supported: Boolean(supported) }
   } catch { return null }

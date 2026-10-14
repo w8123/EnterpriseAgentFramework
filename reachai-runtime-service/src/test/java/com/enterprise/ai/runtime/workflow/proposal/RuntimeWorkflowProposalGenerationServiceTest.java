@@ -31,6 +31,27 @@ import static org.mockito.Mockito.when;
 class RuntimeWorkflowProposalGenerationServiceTest {
 
     @Test
+    void malformedArrayConfigReturnsFieldValidationInsteadOfLeakingJacksonConversionFailure() {
+        for (String field : List.of("assignments", "inputMapping", "outputSchema")) {
+            CapturingModelClient modelClient = new CapturingModelClient("""
+                    {"entryNodeId":"result","exitNodeIds":["result"],"nodes":[{"id":"result","type":"VARIABLE_ASSIGN","label":"Count","config":{"%s":[{"count":"nodeOutput.dictionary_count"}]}}],"edges":[]}
+                    """.formatted(field));
+            ObjectMapper mapper = new ObjectMapper();
+            RuntimeWorkflowProposalValidationService validation = validationService();
+            var service = new RuntimeWorkflowProposalGenerationService(mapper, modelClient,
+                    new RuntimeWorkflowCanvasLayoutService(mapper), validation,
+                    new RuntimeWorkflowProposalRepairService(mapper, modelClient,
+                            new RuntimeWorkflowGraphMutationService(mapper), validation));
+            var result = service.generate(new RuntimeWorkflowProposalGenerationRequest(
+                    "workflow-1", "Count", "Generate count", "orders", "model-1", "GENERAL",
+                    List.of(), List.of(), List.of(), List.of()));
+            assertTrue(result.validationErrors().stream().anyMatch(error -> error.contains(".config." + field + " must be a JSON object")));
+            assertTrue(result.graphSpec().getNodes().isEmpty());
+            assertFalse(result.validationErrors().toString().contains("LinkedHashMap"));
+        }
+    }
+
+    @Test
     void generatesCanvasAndGraphSpecFromModelProposal() {
         CapturingModelClient modelClient = new CapturingModelClient("""
                 {"entryNodeId":"collect_order","exitNodeIds":["answer"],"nodes":[{"id":"collect_order","type":"USER_INPUT","label":"Collect order","config":{"fields":[{"name":"orderNo","type":"string"}]}},{"id":"answer","type":"ANSWER","label":"Answer","config":{"template":"Order {{collect_order.orderNo}} received"}}],"edges":[{"from":"collect_order","to":"answer"}]}

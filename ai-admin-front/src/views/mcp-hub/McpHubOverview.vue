@@ -329,8 +329,8 @@ onMounted(reload)
 .metric-card {
   position: relative;
   min-width: 0;
-  min-height: 128px;
-  padding: 18px;
+  min-height: var(--layout-metric-strip-min-height);
+  padding: var(--layout-metric-padding-block) var(--layout-metric-padding-inline);
   overflow: hidden;
   border: 1px solid var(--border-divider);
   border-radius: var(--radius-lg);
@@ -374,8 +374,8 @@ onMounted(reload)
 
 .metric-card strong {
   display: block;
-  margin: 12px 0 8px;
-  font-size: 28px;
+  margin: 8px 0 4px;
+  font-size: var(--layout-metric-value-size);
   line-height: 1;
 }
 

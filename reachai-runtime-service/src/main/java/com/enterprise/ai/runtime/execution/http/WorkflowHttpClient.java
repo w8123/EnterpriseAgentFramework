@@ -49,6 +49,13 @@ public class WorkflowHttpClient {
     public static final int MAX_RESPONSE_BYTES = 1_048_576;
 
     private static final Set<Integer> RETRYABLE_STATUS = Set.of(408, 429, 500, 502, 503, 504);
+    private static final Set<String> TRANSPORT_FAILURE_CODES = Set.of(
+            "RUNTIME_HTTP_TIMEOUT", "RUNTIME_HTTP_CONNECT_FAILED", "RUNTIME_HTTP_TLS_FAILED", "RUNTIME_HTTP_FAILED");
+    private static final Set<String> TRANSPORT_EXCEPTION_CLASSES = Set.of(
+            "SocketTimeoutException", "ConnectTimeoutException", "ConnectionRequestTimeoutException",
+            "ConnectException", "HttpHostConnectException", "SSLHandshakeException",
+            "SSLPeerUnverifiedException", "SSLProtocolException", "SSLException", "NoHttpResponseException",
+            "ConnectionClosedException", "SocketException", "IOException", "RuntimeException", "Exception");
     private static final Set<String> PROTECTED_HEADERS = Set.of(
             "host",
             "content-length",
@@ -181,16 +188,20 @@ public class WorkflowHttpClient {
             return failure(ex.code(), ex.getMessage(), started, request == null ? null : request.url(), retryable);
         } catch (java.net.SocketTimeoutException ex) {
             return failure("RUNTIME_HTTP_TIMEOUT", "HTTP request timed out", started,
-                    request == null ? null : request.url(), request != null && request.followRedirects());
+                    request == null ? null : request.url(), request != null && request.followRedirects(),
+                    transportExceptionClass(ex));
         } catch (java.net.ConnectException ex) {
             return failure("RUNTIME_HTTP_CONNECT_FAILED", "HTTP connection failed", started,
-                    request == null ? null : request.url(), request != null && request.followRedirects());
+                    request == null ? null : request.url(), request != null && request.followRedirects(),
+                    transportExceptionClass(ex));
+        } catch (javax.net.ssl.SSLException ex) {
+            return failure("RUNTIME_HTTP_TLS_FAILED", "HTTP TLS connection failed", started,
+                    request == null ? null : request.url(), false, transportExceptionClass(ex));
         } catch (Exception ex) {
-            return failure("RUNTIME_HTTP_FAILED",
-                    "HTTP request failed: " + safeMessage(ex),
+            return failure("RUNTIME_HTTP_FAILED", "HTTP request failed",
                     started,
                     request == null ? null : request.url(),
-                    false);
+                    false, transportExceptionClass(ex));
         }
     }
 
@@ -458,6 +469,11 @@ public class WorkflowHttpClient {
     }
 
     private HttpExecutionResult failure(String code, String message, long started, String url, boolean retryable) {
+        return failure(code, message, started, url, retryable, null);
+    }
+
+    private HttpExecutionResult failure(String code, String message, long started, String url,
+                                        boolean retryable, String exceptionClass) {
         return new HttpExecutionResult(
                 false,
                 code,
@@ -470,7 +486,31 @@ public class WorkflowHttpClient {
                 0,
                 0,
                 safeUrlSummary(url),
-                retryable);
+                retryable,
+                exceptionClass);
+    }
+
+    /** Only fixed transport facts may cross into Console RunOps; never copy exception text or URL. */
+    public static String safeTransportFailureSummary(HttpExecutionResult response) {
+        if (response == null || response.statusCode() != 0
+                || response.code() == null || response.transportExceptionClass() == null
+                || !TRANSPORT_FAILURE_CODES.contains(response.code())
+                || !TRANSPORT_EXCEPTION_CLASSES.contains(response.transportExceptionClass())) {
+            return null;
+        }
+        return "[transport:code=" + response.code() + ";exceptionClass=" + response.transportExceptionClass()
+                + ";elapsedMs=" + Math.min(Integer.MAX_VALUE, Math.max(0, response.durationMs())) + "]";
+    }
+
+    private static String transportExceptionClass(Exception exception) {
+        String name = exception.getClass().getSimpleName();
+        if (TRANSPORT_EXCEPTION_CLASSES.contains(name)) return name;
+        if (exception instanceof javax.net.ssl.SSLException) return "SSLException";
+        if (exception instanceof java.net.SocketTimeoutException) return "SocketTimeoutException";
+        if (exception instanceof java.net.ConnectException) return "ConnectException";
+        if (exception instanceof IOException) return "IOException";
+        if (exception instanceof RuntimeException) return "RuntimeException";
+        return "Exception";
     }
 
     private static boolean isRedirect(int status) {
@@ -564,19 +604,6 @@ public class WorkflowHttpClient {
         }
     }
 
-    private static String safeMessage(Exception ex) {
-        String message = ex.getMessage();
-        if (!StringUtils.hasText(message)) {
-            return ex.getClass().getSimpleName();
-        }
-        String lower = message.toLowerCase(Locale.ROOT);
-        if (lower.contains("authorization") || lower.contains("cookie") || lower.contains("api-key")
-                || lower.contains("apikey") || lower.contains("token=")) {
-            return ex.getClass().getSimpleName();
-        }
-        return message.length() > 240 ? message.substring(0, 240) : message;
-    }
-
     private static String safeUrlSummary(String url) {
         if (!StringUtils.hasText(url)) {
             return "";
@@ -647,8 +674,17 @@ public class WorkflowHttpClient {
             int bodyBytes,
             int redirectCount,
             String urlSummary,
-            boolean retryableFailure
+            boolean retryableFailure,
+            String transportExceptionClass
     ) {
+        public HttpExecutionResult(boolean success, String code, int statusCode,
+                                   Map<String, List<String>> headers, String body, Object parsedBody,
+                                   String contentType, long durationMs, int bodyBytes, int redirectCount,
+                                   String urlSummary, boolean retryableFailure) {
+            this(success, code, statusCode, headers, body, parsedBody, contentType, durationMs,
+                    bodyBytes, redirectCount, urlSummary, retryableFailure, null);
+        }
+
         public HttpExecutionResult(boolean success,
                                    String code,
                                    int statusCode,

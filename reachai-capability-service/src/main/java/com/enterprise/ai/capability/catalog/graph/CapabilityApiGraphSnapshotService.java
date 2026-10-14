@@ -22,6 +22,7 @@ public class CapabilityApiGraphSnapshotService {
         return new CapabilityApiGraphSnapshotView(
                 nodeMapper.selectList(new LambdaQueryWrapper<ApiGraphNodeEntity>()
                                 .eq(ApiGraphNodeEntity::getProjectId, projectId)
+                                .eq(ApiGraphNodeEntity::getActive, true)
                                 .orderByAsc(ApiGraphNodeEntity::getId))
                         .stream()
                         .map(CapabilityApiGraphSnapshotService::toNodeView)

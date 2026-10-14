@@ -60,10 +60,6 @@ export function createApiMarketIntegration(
   )
 }
 
-export function getApiMarketIntegration(id: number) {
-  return controlRequest.get<ApiMarketIntegration>(`/api/api-market/integrations/${id}`)
-}
-
 export function updateApiMarketIntegrationStatus(
   integrationId: number,
   data: { status: string; note?: string },

@@ -31,8 +31,27 @@ import com.enterprise.ai.capability.catalog.httpapi.HttpApiInventoryMemberMapper
 import com.enterprise.ai.capability.catalog.httpapi.HttpApiInventoryStateMapper;
 import com.enterprise.ai.capability.catalog.httpapi.HttpApiInventoryStateService;
 import com.enterprise.ai.capability.catalog.httpapi.HttpApiSourceBindingMapper;
-import com.enterprise.ai.capability.catalog.scan.ControllerScanHttpApiIntakeService;
-import com.enterprise.ai.capability.catalog.scan.OpenApiScanHttpApiIntakeService;
+import com.enterprise.ai.capability.catalog.scan.ScannerHttpApiIntakeService;
+import com.enterprise.ai.capability.catalog.scan.ScannerHttpApiSingleSourceIntakeService;
+import com.enterprise.ai.capability.catalog.scan.ScannerHttpApiContractAdapter;
+import com.enterprise.ai.capability.catalog.httpapi.HttpApiInventoryIntakeService;
+import com.enterprise.ai.capability.catalog.httpapi.HttpApiSourceKind;
+import com.enterprise.ai.capability.catalog.scan.CapabilityScanProjectReadinessService;
+import com.enterprise.ai.capability.catalog.enrichment.CatalogSubjectResolver;
+import com.enterprise.ai.capability.catalog.enrichment.CatalogOwnerFingerprintReader;
+import com.enterprise.ai.capability.catalog.enrichment.CatalogGroupMemberMapper;
+import com.enterprise.ai.capability.catalog.enrichment.CatalogClassificationStateMapper;
+import com.enterprise.ai.capability.catalog.enrichment.CatalogClassificationEditorService;
+import com.enterprise.ai.capability.catalog.enrichment.CatalogClassificationService;
+import com.enterprise.ai.capability.catalog.enrichment.CatalogGroupSelection;
+import com.enterprise.ai.capability.catalog.enrichment.CapabilityCatalogGroupingService;
+import com.enterprise.ai.capability.catalog.enrichment.CapabilityCatalogEnrichmentController;
+import com.enterprise.ai.capability.catalog.graph.CapabilityApiGraphGroupingService;
+import com.enterprise.ai.capability.catalog.graph.CapabilityApiGraphOperationsService;
+import com.enterprise.ai.capability.catalog.semantic.CapabilitySemanticDocumentStore;
+import com.enterprise.ai.agent.capability.catalog.graph.ApiGraphNodeMapper;
+import com.enterprise.ai.agent.capability.catalog.graph.ApiGraphEdgeMapper;
+import com.enterprise.ai.agent.capability.catalog.graph.ApiGraphLayoutMapper;
 import com.enterprise.ai.capability.catalog.scan.CapabilityScanProjectBlockerService;
 import com.enterprise.ai.capability.catalog.scan.CapabilityScanProjectCatalogController;
 import com.enterprise.ai.capability.catalog.scan.CapabilityScanProjectCatalogService;
@@ -40,6 +59,7 @@ import com.enterprise.ai.capability.catalog.scan.CapabilityScannerClient;
 import com.enterprise.ai.capability.catalog.tool.CapabilityToolCatalogService;
 import com.enterprise.ai.capability.catalog.tool.CapabilityToolCatalogController;
 import com.enterprise.ai.capability.internalauth.CapabilityInternalAuthFilter;
+import com.enterprise.ai.capability.internalauth.CapabilityCatalogReadAuthorizationInterceptor;
 import com.enterprise.ai.capability.internalauth.CapabilityInternalAuthProperties;
 import com.enterprise.ai.capability.internalauth.CapabilityInternalAuthVerifier;
 import com.enterprise.ai.capability.internalauth.JdbcCapabilityInternalAuthNonceStore;
@@ -556,9 +576,10 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
     @Test
     void normalMultiSourceScansConsoleGetAndConflictBlockNewCallsAndPublication() throws Exception {
         fixture.prepareMultiSourceBrowserSurface();
-        for (String path : List.of("modules", "semantic/status", "sensitive-data/status")) {
-            assertEquals(200, fixture.multiSourcePublicRequest("GET", "/api/scan-projects/41/" + path, null).statusCode(),
-                    "the normal scanning page must read its real auxiliary owner services: " + path);
+        for (String path : List.of("/api/business-capabilities/projects/41/groups",
+                "/api/business-capabilities/projects/41/semantic/status", "/api/scan-projects/41/sensitive-data/status")) {
+            assertEquals(200, fixture.multiSourcePublicRequest("GET", path, null).statusCode(),
+                    "the normal scanning page must read its current auxiliary owner services: " + path);
         }
         assertEquals(200, fixture.multiSourcePublicRequest("POST", "/api/scan-projects/41/rescan", Map.of()).statusCode());
         fixture.selectMultiSourceOpenApi();
@@ -898,7 +919,7 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
         assertEquals(200, result.statusCode(), fixture.controlBridge.lastResponseSummary());
         var body = fixture.responseMap(result);
         assertEquals(Boolean.TRUE, body.get("success"), body.toString());
-        assertEquals("N-A-1024", fixture.map(body.get("methodOutput"), "method result").get("data"));
+        assertEquals("N-A-1024", body.get("methodOutput"), "declared String return remains the scalar root");
         assertEquals("N-A-1024", fixture.map(body.get("variables"), "trial variables").get("normalized_order_no"));
         fixture.completeMethodBrowserTrial(surface);
         fixture.revokeMethodTrialAcl();
@@ -1017,12 +1038,18 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
         assertEquals(1, fixture.sdkBridge.requestCount()); assertEquals(1, fixture.capabilityHits.get());
     }
 
+    private static ScannerHttpApiIntakeService scannerIntake(HttpApiAssetService assets,
+            HttpApiSourceBindingMapper bindings, HttpApiInventoryStateService inventories) {
+        return new ScannerHttpApiIntakeService(new HttpApiInventoryIntakeService(assets, bindings, inventories),
+                new ScannerHttpApiContractAdapter());
+    }
+
     private static String methodTrialGraph() {
         return """
                 {"schemaVersion":2,"nodes":[
                  {"id":"method","name":"Normalize order number","type":"TOOL","ref":{"kind":"TOOL","name":"bmapi2d_normalizeOrderNo","qualifiedName":"bmapi2d:normalizeOrderNo","projectCode":"bmapi2d"},
                   "config":{"inputMapping":{"orderNo":"params.orderNo"},"outputAlias":"method_result"}},
-                 {"id":"variable","name":"Normalized order number","type":"VARIABLE_ASSIGN","config":{"assignments":{"normalized_order_no":"nodeOutput.method.data"}}}],
+                 {"id":"variable","name":"Normalized order number","type":"VARIABLE_ASSIGN","config":{"assignments":{"normalized_order_no":"nodeOutput.method"}}}],
                  "edges":[{"id":"method-variable","from":"method","to":"variable","condition":"always"}],
                  "entryNodeId":"method","exitNodeIds":["variable"]}
                 """;
@@ -1163,6 +1190,8 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
 
         private void start(boolean writeFixture) throws Exception {
             database = new RuntimeQueryTestDatabase(tables(), mapperTypes());
+            database.jdbc().execute("CREATE ALIAS SHA2 FOR '"
+                    + RuntimeQueryTestDatabase.class.getName() + ".sha2'");
             if (writeFixture) database.addInterceptor(new com.enterprise.ai.capability.config.CapabilityMybatisPlusConfiguration()
                     .capabilityMybatisPlusInterceptor());
             normalizeH2JsonTextColumns();
@@ -1179,7 +1208,8 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
                     "capability_http_api_source_binding", "capability_http_api_inventory_state",
                     "capability_http_api_inventory_member", "capability_http_api_acceptance",
                     "runtime_http_api_connection", "runtime_workflow_http_api_pin", "runtime_console_capability_invocation",
-                    "capability_scan_module", "capability_semantic_doc",
+                    "capability_scan_module", "capability_semantic_doc", "capability_catalog_group_member", "capability_catalog_classification_state",
+                    "capability_api_graph_node", "capability_api_graph_edge", "capability_api_graph_layout",
                     "capability_external_api_source", "capability_external_api_provider", "capability_external_api_entry",
                     "capability_external_api_version", "capability_external_api_operation", "capability_external_api_verification",
                     "capability_project_external_api", "capability_project_external_api_operation")) {
@@ -1211,16 +1241,35 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
             transactions.registerBean(BusinessMethodAssetStore.class, () -> new BusinessMethodAssetStore(
                     session.getMapper(BusinessMethodAssetMapper.class), session.getMapper(BusinessMethodRevisionMapper.class),
                     snapshots, differences, policy, json));
+            var grouping = transactional(new CapabilityCatalogGroupingService(session.getMapper(ScanModuleMapper.class),
+                    projects, session.getMapper(ScanProjectToolMapper.class), session.getMapper(CatalogGroupMemberMapper.class), session.getMapper(CatalogClassificationStateMapper.class),
+                    transactional(new CapabilityApiGraphGroupingService(session.getMapper(ApiGraphNodeMapper.class))), json));
             transactions.registerBean(CapabilityCatalogProjectionStore.class, () -> new CapabilityCatalogProjectionStore(
                     session.getMapper(ScanProjectToolMapper.class), session.getMapper(ToolDefinitionMapper.class), json, policy,
-                    transactions.getBean(BusinessMethodAssetStore.class)));
+                    transactions.getBean(BusinessMethodAssetStore.class), grouping,
+                    transactions.getBeanProvider(CapabilitySemanticDocumentStore.class)));
             transactions.registerBean(RegistryInstanceLifecycleService.class, () -> new RegistryInstanceLifecycleService(
                     session.getMapper(ProjectInstanceMapper.class), json));
             transactions.registerBean(CapabilityReviewEvidenceStore.class, () -> new CapabilityReviewEvidenceStore(
                     snapshots, differences, session.getMapper(CapabilityApplyRecordMapper.class)));
+            HttpApiSourceBindingMapper apiBindings = session.getMapper(HttpApiSourceBindingMapper.class);
+            HttpApiAssetService apiAssets = transactional(new HttpApiAssetService(session.getMapper(HttpApiAssetMapper.class),
+                    apiBindings, new HttpApiContractCanonicalizer(json), grouping));
+            var apiInventory = new HttpApiInventoryStateService(session.getMapper(HttpApiInventoryStateMapper.class),
+                    session.getMapper(HttpApiInventoryMemberMapper.class));
             transactions.registerBean(StarterMvcHttpApiIntakeService.class, () -> new StarterMvcHttpApiIntakeService(
-                    org.mockito.Mockito.mock(com.enterprise.ai.capability.catalog.httpapi.HttpApiAssetService.class),
-                    org.mockito.Mockito.mock(com.enterprise.ai.capability.catalog.httpapi.HttpApiSourceBindingMapper.class), json));
+                    new HttpApiInventoryIntakeService(apiAssets, apiBindings, apiInventory), json));
+            httpApiCatalog = transactional(new HttpApiCatalogService(session.getMapper(HttpApiAssetMapper.class),
+                    apiBindings, session.getMapper(HttpApiInventoryStateMapper.class),
+                    session.getMapper(HttpApiInventoryMemberMapper.class),
+                    session.getMapper(HttpApiAcceptanceMapper.class), projects, json, new HttpApiContractCanonicalizer(json)));
+            transactions.registerBean(CatalogSubjectResolver.class, () -> new CatalogSubjectResolver(
+                    projects, session.getMapper(ScanProjectToolMapper.class), session.getMapper(BusinessMethodAssetMapper.class),
+                    transactions.getBean(BusinessMethodAssetStore.class), session.getMapper(HttpApiAssetMapper.class),
+                    apiBindings, httpApiCatalog, grouping, json));
+            transactions.registerBean(CapabilitySemanticDocumentStore.class, () -> new CapabilitySemanticDocumentStore(
+                    session.getMapper(SemanticDocMapper.class), projects,
+                    transactions.getBean(CatalogSubjectResolver.class), grouping));
             transactions.registerBean(CapabilitySourceIntakeService.class, () -> new CapabilitySourceIntakeService(
                     projects, session.getMapper(ScanProjectToolMapper.class), session.getMapper(ToolDefinitionMapper.class),
                     session.getMapper(CapabilitySyncLogMapper.class), snapshots, differences, json, policy, lifecycle,
@@ -1238,20 +1287,23 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
             registry = transactions.getBean(CapabilityRegistryService.class);
             catalog = new CapabilityToolCatalogService(session.getMapper(ToolDefinitionMapper.class), projects,
                     session.getMapper(ScanProjectToolMapper.class), json);
-            HttpApiSourceBindingMapper apiBindings = session.getMapper(HttpApiSourceBindingMapper.class);
-            httpApiCatalog = transactional(new HttpApiCatalogService(session.getMapper(HttpApiAssetMapper.class),
-                    apiBindings, session.getMapper(HttpApiInventoryStateMapper.class),
-                    session.getMapper(HttpApiInventoryMemberMapper.class),
-                    session.getMapper(HttpApiAcceptanceMapper.class), projects, json));
-            HttpApiAssetService apiAssets = transactional(new HttpApiAssetService(session.getMapper(HttpApiAssetMapper.class),
-                    apiBindings, new HttpApiContractCanonicalizer(json)));
-            var apiInventory = new HttpApiInventoryStateService(session.getMapper(HttpApiInventoryStateMapper.class),
-                    session.getMapper(HttpApiInventoryMemberMapper.class));
+            httpApiCatalog.setAdoption(transactions.getBeanProvider(CapabilitySemanticDocumentStore.class));
             CapabilityScannerClient scanner = org.mockito.Mockito.mock(CapabilityScannerClient.class);
             org.mockito.Mockito.when(scanner.scanController(org.mockito.ArgumentMatchers.any())).thenAnswer(call ->
                     actualScannerManifest(call.getArgument(0), true));
             org.mockito.Mockito.when(scanner.scanOpenApi(org.mockito.ArgumentMatchers.any())).thenAnswer(call ->
                     actualScannerManifest(call.getArgument(0), false));
+            var apiScannerIntake = transactional(scannerIntake(apiAssets, apiBindings, apiInventory));
+            var subjects = transactions.getBean(CatalogSubjectResolver.class);
+            var classification = transactional(new CatalogClassificationService(subjects, grouping, session.getMapper(CatalogGroupMemberMapper.class)));
+            var groupSelection = new CatalogGroupSelection(grouping, classification);
+            var semanticDocuments = transactions.getBean(CapabilitySemanticDocumentStore.class);
+            var graphOperations = transactional(new CapabilityApiGraphOperationsService(
+                    session.getMapper(ApiGraphEdgeMapper.class), session.getMapper(ApiGraphLayoutMapper.class),
+                    session.getMapper(ApiGraphNodeMapper.class), subjects, json,
+                    new CatalogOwnerFingerprintReader(session.getMapper(BusinessMethodAssetMapper.class),
+                            session.getMapper(BusinessMethodRevisionMapper.class), session.getMapper(HttpApiAssetMapper.class),
+                            new HttpApiContractCanonicalizer(json))));
             CapabilityScanProjectCatalogService scanProjects = transactional(new CapabilityScanProjectCatalogService(
                     projects,
                     session.getMapper(ScanProjectToolMapper.class),
@@ -1262,15 +1314,18 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
                     org.mockito.Mockito.mock(CapabilityScanProjectBlockerService.class),
                     session.getMapper(ToolDefinitionMapper.class),
                     scanner,
-                    session.getMapper(ProjectInstanceMapper.class),
-                    snapshots,
                     json,
-                    transactional(new ControllerScanHttpApiIntakeService(apiAssets, apiBindings, apiInventory)),
-                    transactional(new OpenApiScanHttpApiIntakeService(apiAssets, apiBindings, apiInventory))));
+                    apiScannerIntake,
+                    transactional(new ScannerHttpApiSingleSourceIntakeService(apiScannerIntake, apiBindings,
+                            session.getMapper(HttpApiAssetMapper.class))),
+                    new CapabilityScanProjectReadinessService(session.getMapper(ProjectInstanceMapper.class), snapshots,
+                            registrySecurity, json), grouping));
+            scanProjects.setScanTransactions(manager, new com.enterprise.ai.capability.catalog.scan.CapabilityScanRevisionService(
+                    session.getMapper(ScanProjectToolMapper.class), session.getMapper(HttpApiInventoryStateMapper.class),
+                    session.getMapper(HttpApiInventoryMemberMapper.class), apiBindings));
             var unusedModel = org.mockito.Mockito.mock(com.enterprise.ai.capability.catalog.scan.CapabilityModelClient.class);
             var semanticCatalog = new com.enterprise.ai.capability.catalog.semantic.CapabilitySemanticCatalogService(
-                    session.getMapper(SemanticDocMapper.class), projects, session.getMapper(ScanModuleMapper.class),
-                    session.getMapper(ScanProjectToolMapper.class), session.getMapper(ToolDefinitionMapper.class), unusedModel, json);
+                    semanticDocuments, subjects, grouping, unusedModel, json);
             var sensitiveTasks = new com.enterprise.ai.capability.catalog.scan.CapabilitySensitiveDataScanOrchestrator(
                     scanProjects, new com.enterprise.ai.capability.catalog.scan.CapabilitySensitiveDataScanService(
                     json, unusedModel, session.getMapper(ScanProjectToolMapper.class)));
@@ -1347,20 +1402,23 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
             MockMvc capabilityMvc = MockMvcBuilders.standaloneSetup(
                     new CapabilityRegistryCompatibilityController(registry),
                     new CapabilityRegistryOperationsCompatibilityController(registry),
-                    new BusinessMethodCatalogInternalController(businessMethods),
+                    new BusinessMethodCatalogInternalController(businessMethods, groupSelection),
                     new com.enterprise.ai.capability.catalog.businessmethod.BusinessMethodInvocationContextInternalController(
                             new com.enterprise.ai.capability.catalog.businessmethod.BusinessMethodInvocationContextService(
                                     businessMethods, lifecycle, registrySecurity, json)),
-                    new HttpApiCatalogInternalController(httpApiCatalog),
+                    new HttpApiCatalogInternalController(httpApiCatalog, groupSelection),
                     new com.enterprise.ai.capability.externalapi.ExternalApiCatalogController(market),
                     new CapabilityToolCatalogController(catalog, guard),
                     new CapabilityScanProjectCatalogController(scanProjects, sensitiveTasks),
-                    new com.enterprise.ai.capability.catalog.semantic.CapabilitySemanticCatalogController(semanticCatalog),
+                    new CapabilityCatalogEnrichmentController(subjects, grouping, semanticCatalog, graphOperations, json, classification, transactional(new CatalogClassificationEditorService(subjects, grouping, projects))),
                     new CapabilityProjectInternalController(new CapabilityProjectLookupService(projects)),
                     new CapabilityToolInternalController(
                             new CapabilityToolLookupService(businessMethods, registrySecurity),
                             capabilityExecution, invocationApplication))
                     .addFilters(capabilityFilter)
+                    .addInterceptors(new CapabilityCatalogReadAuthorizationInterceptor(projects,
+                            session.getMapper(ToolDefinitionMapper.class), session.getMapper(BusinessMethodAssetMapper.class),
+                            session.getMapper(HttpApiAssetMapper.class), json))
                     .setMessageConverters(new MappingJackson2HttpMessageConverter(json))
                     .setControllerAdvice(new com.enterprise.ai.capability.externalapi.ExternalApiCatalogExceptionHandler()).build();
             capabilityBridge = LoopbackBridge.start(capabilityMvc);
@@ -2362,9 +2420,11 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
             var manifest = new ControllerAnnotationToolManifestScanner().scan(multiSourceRoot,
                     new ProjectMetadata("orders", project.getBaseUrl(), ""));
             var assets = new HttpApiAssetService(sessionUnchecked().getMapper(HttpApiAssetMapper.class),
-                    sessionUnchecked().getMapper(HttpApiSourceBindingMapper.class), new HttpApiContractCanonicalizer(json));
-            var plan = new ControllerScanHttpApiIntakeService(assets,
-                    sessionUnchecked().getMapper(HttpApiSourceBindingMapper.class)).prepare(project,
+                    sessionUnchecked().getMapper(HttpApiSourceBindingMapper.class), new HttpApiContractCanonicalizer(json), org.mockito.Mockito.mock(com.enterprise.ai.capability.catalog.enrichment.CapabilityCatalogGroupingService.class));
+            var plan = scannerIntake(assets,
+                    sessionUnchecked().getMapper(HttpApiSourceBindingMapper.class),
+                    new HttpApiInventoryStateService(sessionUnchecked().getMapper(HttpApiInventoryStateMapper.class),
+                            sessionUnchecked().getMapper(HttpApiInventoryMemberMapper.class))).prepare(HttpApiSourceKind.CONTROLLER_SCAN, project,
                     manifest.httpApis().stream().map(Fixture::scannerData).toList(), manifest.httpApiInventoryComplete());
             String target = assets.validate(plan.operations().get(0).request()).qualifiedName();
             var allow = new ControlToolAclEntity(); allow.setRoleCode("bmapi-fixture-role"); allow.setProjectId(41L);
@@ -2693,14 +2753,14 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
             SqlSessionTemplate session = session(database);
             HttpApiSourceBindingMapper bindings = session.getMapper(HttpApiSourceBindingMapper.class);
             HttpApiAssetService assets = new HttpApiAssetService(session.getMapper(HttpApiAssetMapper.class),
-                    bindings, new HttpApiContractCanonicalizer(json));
-            ControllerScanHttpApiIntakeService intake = new ControllerScanHttpApiIntakeService(assets, bindings,
+                    bindings, new HttpApiContractCanonicalizer(json), org.mockito.Mockito.mock(com.enterprise.ai.capability.catalog.enrichment.CapabilityCatalogGroupingService.class));
+            ScannerHttpApiIntakeService intake = scannerIntake(assets, bindings,
                     new HttpApiInventoryStateService(session.getMapper(HttpApiInventoryStateMapper.class),
                             session.getMapper(HttpApiInventoryMemberMapper.class)));
             var project = new com.enterprise.ai.agent.capability.catalog.scan.ScanProjectEntity();
             project.setId(41L); project.setProjectCode("orders"); project.setEnvironment("dev");
             project.setContextPath("");
-            var plan = intake.prepare(project, List.of(scannerData(operation)), true);
+            var plan = intake.prepare(HttpApiSourceKind.CONTROLLER_SCAN, project, List.of(scannerData(operation)), true);
             var observed = tx.execute(status -> intake.observe(plan));
             assertNotNull(observed);
             assertTrue(observed.supported() && observed.inventoryComplete());
@@ -3920,6 +3980,7 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
             var audit = new PlatformAuthAuditService(session.getMapper(PlatformAuthAuditEventMapper.class), json);
             return MockMvcBuilders.standaloneSetup(identity, controller, review, runtime, readOnlyTrials,
                             capabilityProxy, httpApis,
+                            new com.enterprise.ai.control.capability.CatalogResourcesConsoleController(reviewGateway, requestAuthorization),
                             new com.enterprise.ai.control.capability.ApiMarketConsoleController(reviewGateway, requestAuthorization),
                             new McpPublicationController(publications, managementAccess, audit),
                             new McpClientController(clients, managementAccess, audit),
@@ -4097,6 +4158,7 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
         private static Class<?>[] mapperTypes() {
             return new Class<?>[] {
                     ScanProjectMapper.class, ScanProjectToolMapper.class, ScanModuleMapper.class, SemanticDocMapper.class, ToolDefinitionMapper.class,
+                    CatalogGroupMemberMapper.class, CatalogClassificationStateMapper.class, ApiGraphNodeMapper.class, ApiGraphEdgeMapper.class, ApiGraphLayoutMapper.class,
                     ProjectInstanceMapper.class, CapabilitySyncLogMapper.class, CapabilitySnapshotMapper.class,
                     CapabilityDiffItemMapper.class, CapabilityApplyRecordMapper.class, CapabilitySourceStateMapper.class,
                     BusinessMethodAssetMapper.class, BusinessMethodRevisionMapper.class,
@@ -4297,7 +4359,16 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
                 StackTraceElement at = root.getStackTrace().length == 0 ? null : root.getStackTrace()[0];
                 lastResponse.set("bridgeException=" + root.getClass().getSimpleName()
                         + ",at=" + (at == null ? "unknown" : at.getClassName() + ":" + at.getLineNumber()));
-                byte[] body = "{\"code\":\"BMAPI_TEST_BRIDGE_FAILURE\"}".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                // Surface only diagnostic identifiers, never exception prose, SQL parameters, or signed headers.
+                Map<String, Object> diagnostic = new LinkedHashMap<>();
+                diagnostic.put("code", "BMAPI_TEST_BRIDGE_FAILURE");
+                diagnostic.put("causeType", root.getClass().getSimpleName());
+                diagnostic.put("causeFrame", at == null ? "unknown" : at.getClassName() + ":" + at.getLineNumber());
+                if (root instanceof java.sql.SQLException sql) diagnostic.put("sqlState", sql.getSQLState());
+                var missing = java.util.regex.Pattern.compile("(?i)(?:Table|Column)\\s+\"?([A-Za-z0-9_.]+)\"?\\s+not found")
+                        .matcher(String.valueOf(root.getMessage()));
+                if (missing.find()) diagnostic.put("missingSchemaObject", missing.group(1));
+                byte[] body = new ObjectMapper().writeValueAsBytes(diagnostic);
                 exchange.getResponseHeaders().set("Content-Type", "application/json");
                 exchange.sendResponseHeaders(500, body.length);
                 exchange.getResponseBody().write(body);

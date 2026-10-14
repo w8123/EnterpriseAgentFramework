@@ -7,6 +7,7 @@ import com.enterprise.ai.reach.sdk.capability.ReachHttpApiRequestBody;
 import com.enterprise.ai.reach.sdk.capability.ReachHttpApiResponse;
 import org.springframework.http.HttpEntity;
 import org.springframework.core.annotation.AnnotatedElementUtils;
+import org.springframework.core.ResolvableType;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.CookieValue;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -106,6 +107,7 @@ final class ReachSpringMvcEndpointScanner {
                                                        ParameterFacts parameterFacts) {
         ReachHttpApiDescriptor descriptor = new ReachHttpApiDescriptor();
         descriptor.setHttpMethod(httpMethod);
+        descriptor.setBusinessGroups(businessGroups(type, method));
         descriptor.setEndpointPath(endpointPath);
         descriptor.setConsumes(consumes);
         descriptor.setProduces(produces);
@@ -125,6 +127,37 @@ final class ReachSpringMvcEndpointScanner {
         descriptor.setSourceKey("mvc:" + sha256(sourceLocation + "|" + httpMethod + "|" + endpointPath + "|"
                 + conditionKey(conditions) + "|" + mediaKey(consumes) + "|" + mediaKey(produces)));
         return descriptor;
+    }
+
+
+    /** Documentation labels are adjunct metadata and never participate in route identity. */
+    private static List<String> businessGroups(Class<?> type, Method method) {
+        Set<String> names = new LinkedHashSet<String>();
+        for (Annotation annotation : method.getAnnotations()) collectBusinessGroups(annotation, names);
+        if (names.isEmpty()) for (Annotation annotation : type.getAnnotations()) collectBusinessGroups(annotation, names);
+        return new ArrayList<String>(names);
+    }
+
+    private static void collectBusinessGroups(Annotation annotation, Set<String> names) {
+        String name = annotation.annotationType().getName();
+        try {
+            if ("io.swagger.v3.oas.annotations.tags.Tags".equals(name)) {
+                for (Annotation nested : (Annotation[]) annotation.annotationType().getMethod("value").invoke(annotation)) collectBusinessGroups(nested, names);
+            } else if ("io.swagger.v3.oas.annotations.tags.Tag".equals(name)) {
+                businessGroup(annotation.annotationType().getMethod("name").invoke(annotation), names);
+            } else if ("io.swagger.annotations.Api".equals(name) || "io.swagger.v3.oas.annotations.Operation".equals(name)) {
+                for (String value : (String[]) annotation.annotationType().getMethod("tags").invoke(annotation)) businessGroup(value, names);
+                if (names.isEmpty() && "io.swagger.annotations.Api".equals(name)) businessGroup(annotation.annotationType().getMethod("value").invoke(annotation), names);
+            }
+        } catch (ReflectiveOperationException ignored) {
+            // Optional documentation must not make a callable endpoint disappear.
+        }
+    }
+
+    private static void businessGroup(Object value, Set<String> names) {
+        if (!(value instanceof String) || names.size() >= 30) return;
+        String text = ((String) value).trim();
+        if (!text.isEmpty() && text.length() <= 128 && !text.chars().anyMatch(Character::isISOControl)) names.add(text);
     }
 
     private static ParameterFacts parameters(Method method, List<String> consumes) {
@@ -338,14 +371,25 @@ final class ReachSpringMvcEndpointScanner {
      * without discarding DTO field facts from either source.
      */
     private static Map<String, Object> schema(Type type) {
+        return schema(ResolvableType.forType(type));
+    }
+
+    private static Map<String, Object> schema(ResolvableType type) {
         return schema(type, new LinkedHashSet<String>(), 0);
     }
 
-    private static Map<String, Object> schema(Type type, Set<String> visiting, int depth) {
-        Type schemaType = unwrapOptional(type);
-        Class<?> raw = rawType(schemaType);
+    private static Map<String, Object> schema(ResolvableType type, Set<String> visiting, int depth) {
+        ResolvableType schemaType = type;
+        while (Optional.class.equals(schemaType.resolve())) {
+            schemaType = schemaType.getGeneric(0);
+        }
+        Class<?> raw = schemaType.resolve();
         if (raw == null || Void.TYPE.equals(raw) || Void.class.equals(raw)) {
-            return null;
+            return raw == null ? Collections.<String, Object>emptyMap() : null;
+        }
+        if (Object.class.equals(raw)) {
+            // Object/unresolved T can also be a JSON scalar or array. Do not invent an object shape.
+            return Collections.emptyMap();
         }
         Map<String, Object> result = new LinkedHashMap<String, Object>();
         if (stringType(raw) || raw.isEnum()) {
@@ -358,14 +402,15 @@ final class ReachSpringMvcEndpointScanner {
             result.put("type", "number");
         } else if (raw.isArray() || Iterable.class.isAssignableFrom(raw)) {
             result.put("type", "array");
-            Type itemType = componentType(schemaType, raw);
+            ResolvableType itemType = raw.isArray() ? schemaType.getComponentType()
+                    : schemaType.as(Iterable.class).getGeneric(0);
             result.put("items", nonNullSchema(schema(itemType, visiting, depth + 1)));
         } else if (Map.class.isAssignableFrom(raw)) {
             result.put("type", "object");
-            result.put("additionalProperties", nonNullSchema(schema(mapValueType(schemaType), visiting, depth + 1)));
+            result.put("additionalProperties", nonNullSchema(schema(schemaType.as(Map.class).getGeneric(1), visiting, depth + 1)));
         } else {
             result.put("type", "object");
-            addObjectProperties(result, raw, visiting, depth);
+            addObjectProperties(result, schemaType, visiting, depth);
         }
         return result;
     }
@@ -386,28 +431,34 @@ final class ReachSpringMvcEndpointScanner {
     }
 
     private static void addObjectProperties(Map<String, Object> target,
-                                            Class<?> raw,
+                                            ResolvableType type,
                                             Set<String> visiting,
                                             int depth) {
+        Class<?> raw = type.resolve();
         if (depth >= 6 || !projectObjectType(raw)) {
             return;
         }
-        String key = raw.getName();
+        String key = type.toString();
         if (!visiting.add(key)) {
             return;
         }
         try {
             Map<String, Object> properties = new TreeMap<String, Object>();
             Set<String> required = new TreeSet<String>();
-            for (Field field : raw.getDeclaredFields()) {
-                if (java.lang.reflect.Modifier.isStatic(field.getModifiers()) || field.isSynthetic()
-                        || hasAnnotation(field, "JsonIgnore")) {
-                    continue;
-                }
-                String property = jsonName(field, field.getName());
-                properties.put(property, nonNullSchema(schema(field.getGenericType(), visiting, depth + 1)));
-                if (required(field)) {
-                    required.add(property);
+            for (ResolvableType owner = type; owner.resolve() != null && projectObjectType(owner.resolve());
+                 owner = owner.getSuperType()) {
+                for (Field field : owner.resolve().getDeclaredFields()) {
+                    if (java.lang.reflect.Modifier.isStatic(field.getModifiers()) || field.isSynthetic()
+                            || hasAnnotation(field, "JsonIgnore")) {
+                        continue;
+                    }
+                    String property = jsonName(field, field.getName());
+                    if (!properties.containsKey(property)) {
+                        properties.put(property, nonNullSchema(schema(ResolvableType.forField(field, owner), visiting, depth + 1)));
+                        if (required(field)) {
+                            required.add(property);
+                        }
+                    }
                 }
             }
             if (!properties.isEmpty()) {
@@ -496,10 +547,17 @@ final class ReachSpringMvcEndpointScanner {
         return Optional.class.equals(rawType(type));
     }
 
-    private static Type responseBodyType(Type type) {
-        Type result = type;
-        while (responseWrapper(rawType(result))) {
-            result = genericTypeArgument(result);
+    private static Type unwrapOptional(Type type) {
+        ResolvableType resolved = ResolvableType.forType(type);
+        while (Optional.class.equals(resolved.resolve())) resolved = resolved.getGeneric(0);
+        return resolved.getType();
+    }
+
+    private static ResolvableType responseBodyType(Type type) {
+        ResolvableType result = ResolvableType.forType(type);
+        while (responseWrapper(result.resolve())) {
+            result = HttpEntity.class.isAssignableFrom(result.resolve())
+                    ? result.as(HttpEntity.class).getGeneric(0) : result.getGeneric(0);
         }
         return result;
     }
@@ -511,29 +569,7 @@ final class ReachSpringMvcEndpointScanner {
         if (Optional.class.equals(raw) || HttpEntity.class.isAssignableFrom(raw)) {
             return true;
         }
-        String name = raw.getSimpleName().toLowerCase(Locale.ROOT);
-        return "apiresult".equals(name) || "webapiresult".equals(name) || "apiresponse".equals(name)
-                || "result".equals(name) || "responseentity".equals(name) || "response".equals(name)
-                || "basresult".equals(name) || "commonresult".equals(name) || "restult".equals(name)
-                || "ajaxresult".equals(name) || "jsonresult".equals(name) || "httpentity".equals(name);
-    }
-
-    private static Type unwrapOptional(Type type) {
-        Type result = type;
-        while (Optional.class.equals(rawType(result))) {
-            result = genericTypeArgument(result);
-        }
-        return result;
-    }
-
-    private static Type genericTypeArgument(Type type) {
-        if (type instanceof ParameterizedType) {
-            Type[] arguments = ((ParameterizedType) type).getActualTypeArguments();
-            if (arguments.length == 1) {
-                return arguments[0];
-            }
-        }
-        return Object.class;
+        return false;
     }
 
     private static Class<?> rawType(Type type) {
@@ -545,32 +581,6 @@ final class ReachSpringMvcEndpointScanner {
         }
         if (type instanceof GenericArrayType) {
             return Object[].class;
-        }
-        return Object.class;
-    }
-
-    private static Type componentType(Type type, Class<?> raw) {
-        if (raw.isArray()) {
-            if (type instanceof GenericArrayType) {
-                return ((GenericArrayType) type).getGenericComponentType();
-            }
-            return raw.getComponentType();
-        }
-        if (type instanceof ParameterizedType) {
-            Type[] arguments = ((ParameterizedType) type).getActualTypeArguments();
-            if (arguments.length == 1) {
-                return arguments[0];
-            }
-        }
-        return Object.class;
-    }
-
-    private static Type mapValueType(Type type) {
-        if (type instanceof ParameterizedType) {
-            Type[] arguments = ((ParameterizedType) type).getActualTypeArguments();
-            if (arguments.length >= 2) {
-                return arguments[1];
-            }
         }
         return Object.class;
     }

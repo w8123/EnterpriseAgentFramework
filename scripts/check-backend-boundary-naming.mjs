@@ -633,7 +633,7 @@ assertNotMatches('.run/00-reachai-five-services.run.xml', /(^|[^a-z-])ai-skills-
 assertNotMatches('.run/00-reachai-five-services.run.xml', /(^|[^a-z-])ai-model-service([^a-z-]|$)/, 'standalone ai-model-service')
 assertMatches('ai-admin-front/vite.config.ts', /['"]\/ai['"]:\s*\{[\s\S]*?target:\s*['"]http:\/\/localhost:18602['"]/, '/ai proxy -> 18602')
 assertMatches('ai-admin-front/vite.config.ts', /['"]\/api['"]:\s*\{[\s\S]*?target:\s*(?:process\.env\.VITE_CONTROL_API_TARGET\s*\|\|\s*)?['"]http:\/\/localhost:18603['"]/, '/api proxy -> 18603')
-assertMatches('ai-admin-front/vite.config.ts', /\^\/model\/\(templates\|instances\|chat\)[\s\S]*?target:\s*['"]http:\/\/localhost:18601['"]/, '/model proxy -> 18601')
+assertMatches('ai-admin-front/vite.config.ts', /\^\/model\/\(templates\|instances\|chat\|catalog\)[\s\S]*?target:\s*['"]http:\/\/localhost:18601['"]/, '/model proxy -> 18601')
 assertPackagePrefixUnder('reachai-control-service/src/main/java/com/enterprise/ai/control', 'com.enterprise.ai.control')
 assertPackagePrefixUnder('reachai-runtime-service/src/main/java/com/enterprise/ai/runtime', 'com.enterprise.ai.runtime')
 assertPackagePrefixUnder('reachai-capability-service/src/main/java/com/enterprise/ai/capability', 'com.enterprise.ai.capability')
@@ -651,7 +651,8 @@ const keyApiPaths = [
   ['reachai-knowledge-service/src/main/java/com/enterprise/ai/bizindex/controller/BizIndexController.java', '@RequestMapping("/internal/knowledge/console/biz-index")'],
   ['reachai-capability-service/src/main/java/com/enterprise/ai/capability/registry/CapabilityRegistryOperationsCompatibilityController.java', '@RequestMapping("/api/registry")'],
   ['reachai-capability-service/src/main/java/com/enterprise/ai/capability/registry/CapabilityRegistryCompatibilityController.java', '@RequestMapping("/api/registry/projects")'],
-  ['reachai-capability-service/src/main/java/com/enterprise/ai/capability/catalog/graph/CapabilityApiGraphSnapshotController.java', '@RequestMapping("/api/api-graph/projects/{projectId}")'],
+  ['reachai-capability-service/src/main/java/com/enterprise/ai/capability/catalog/graph/CapabilityApiGraphSnapshotController.java', '@RequestMapping("/internal/capability/api-graph/projects/{projectId}")'],
+  ['reachai-capability-service/src/main/java/com/enterprise/ai/capability/catalog/enrichment/CapabilityCatalogEnrichmentController.java', '@RequestMapping("/internal/capability/business-capabilities/projects/{projectId}")'],
   ['reachai-capability-service/src/main/java/com/enterprise/ai/capability/catalog/scan/CapabilityScanProjectCatalogController.java', '@RequestMapping("/api/scan-projects")'],
   ['reachai-capability-service/src/main/java/com/enterprise/ai/capability/catalog/tool/CapabilityToolCatalogController.java', '@RequestMapping("/api/tools")'],
   ['reachai-capability-service/src/main/java/com/enterprise/ai/capability/catalog/retrieval/CapabilityToolRetrievalController.java', '@RequestMapping("/api/tool-retrieval")'],

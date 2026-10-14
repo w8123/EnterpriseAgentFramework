@@ -14,6 +14,7 @@ public class DocumentImportPublicationGuard {
     private final DocumentImportJobRepository jobs;
     private final DocumentIndexExecutionStore executions;
     private final com.enterprise.ai.service.impl.KnowledgeFileDeletionService fileDeletion;
+    private final com.enterprise.ai.service.impl.KnowledgeFileReadAccessService readAccess;
 
     public void lockOwnedExecution(PipelineContext context, Long knowledgeBaseId) {
         if (!TransactionSynchronizationManager.isActualTransactionActive()) {
@@ -35,6 +36,7 @@ public class DocumentImportPublicationGuard {
             var job = jobs.lockValidIndexing(context.getImportJobId(), context.getImportLeaseOwner());
             if (job == null) throw denied(context);
             fileDeletion.retireReplacement(job);
+            readAccess.grantPublishedImporter(job);
             if (jobs.finalizeIndexing(context.getImportJobId(), context.getImportLeaseOwner(),
                     java.time.LocalDateTime.now()) != 1) throw denied(context);
         }

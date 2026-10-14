@@ -127,6 +127,8 @@ html[data-theme='dark'] {
 }
 
 .el-pagination {
+  flex-wrap: wrap;
+  row-gap: var(--layout-control-gap);
   --el-fill-color-blank: var(--surface-solid-control);
   --el-pagination-button-color: var(--text-secondary);
   --el-pagination-button-disabled-color: var(--text-disabled);
@@ -143,6 +145,7 @@ html[data-theme='dark'] {
 }
 
 .el-card {
+  --el-card-padding: var(--layout-panel-padding);
   --el-card-bg-color: var(--surface-solid-panel);
   --el-card-border-color: var(--border-subtle);
 }

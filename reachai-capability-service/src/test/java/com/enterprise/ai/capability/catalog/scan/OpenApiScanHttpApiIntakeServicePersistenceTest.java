@@ -4,9 +4,16 @@ import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.spring.MybatisSqlSessionFactoryBean;
 import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectEntity;
+import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectToolEntity;
 import com.enterprise.ai.capability.catalog.httpapi.HttpApiAssetEntity;
 import com.enterprise.ai.capability.catalog.httpapi.HttpApiAssetMapper;
 import com.enterprise.ai.capability.catalog.httpapi.HttpApiAssetService;
+import com.enterprise.ai.capability.catalog.httpapi.HttpApiInventoryIntakeService;
+import com.enterprise.ai.capability.catalog.httpapi.HttpApiInventoryStateEntity;
+import com.enterprise.ai.capability.catalog.httpapi.HttpApiInventoryStateMapper;
+import com.enterprise.ai.capability.catalog.httpapi.HttpApiInventoryStateService;
+import com.enterprise.ai.capability.catalog.httpapi.HttpApiInventoryMemberEntity;
+import com.enterprise.ai.capability.catalog.httpapi.HttpApiInventoryMemberMapper;
 import com.enterprise.ai.capability.catalog.httpapi.HttpApiAssetStatus;
 import com.enterprise.ai.capability.catalog.httpapi.HttpApiContractCanonicalizer;
 import com.enterprise.ai.capability.catalog.httpapi.HttpApiServiceScope;
@@ -55,9 +62,12 @@ class OpenApiScanHttpApiIntakeServicePersistenceTest {
     private JdbcTemplate jdbc;
     private HttpApiAssetMapper assets;
     private HttpApiSourceBindingMapper bindings;
+    private HttpApiInventoryStateMapper inventories;
+    private HttpApiInventoryMemberMapper members;
     private HttpApiAssetService assetService;
-    private ControllerScanHttpApiIntakeService controllerIntake;
-    private OpenApiScanHttpApiIntakeService openApiIntake;
+    private ScannerHttpApiIntakeService controllerIntake;
+    private ScannerHttpApiIntakeService openApiIntake;
+    private ScannerHttpApiSingleSourceIntakeService single;
     private TransactionTemplate tx;
 
     @BeforeEach
@@ -69,36 +79,86 @@ class OpenApiScanHttpApiIntakeServicePersistenceTest {
         jdbc = new JdbcTemplate(dataSource);
         createTable("capability_http_api_asset");
         createTable("capability_http_api_source_binding");
+        createTable("capability_http_api_inventory_state");
+        createTable("capability_http_api_inventory_member");
         createTable("capability_scan_project_tool");
 
         MybatisConfiguration configuration = new MybatisConfiguration();
         configuration.setMapUnderscoreToCamelCase(true);
         configuration.addMapper(HttpApiAssetMapper.class);
         configuration.addMapper(HttpApiSourceBindingMapper.class);
+        configuration.addMapper(HttpApiInventoryStateMapper.class);
+        configuration.addMapper(HttpApiInventoryMemberMapper.class);
         var factory = new MybatisSqlSessionFactoryBean();
         factory.setDataSource(dataSource);
         factory.setConfiguration(configuration);
         SqlSessionTemplate session = new SqlSessionTemplate(factory.getObject());
         assets = session.getMapper(HttpApiAssetMapper.class);
         bindings = session.getMapper(HttpApiSourceBindingMapper.class);
-        assetService = new HttpApiAssetService(assets, bindings, new HttpApiContractCanonicalizer(json));
-        controllerIntake = new ControllerScanHttpApiIntakeService(assetService, bindings);
-        openApiIntake = new OpenApiScanHttpApiIntakeService(assetService, bindings);
+        inventories = session.getMapper(HttpApiInventoryStateMapper.class);
+        members = session.getMapper(HttpApiInventoryMemberMapper.class);
+        assetService = new HttpApiAssetService(assets, bindings, new HttpApiContractCanonicalizer(json), org.mockito.Mockito.mock(com.enterprise.ai.capability.catalog.enrichment.CapabilityCatalogGroupingService.class));
+        var inventoryIntake = new HttpApiInventoryIntakeService(assetService, bindings,
+                new HttpApiInventoryStateService(inventories, members));
+        controllerIntake = new ScannerHttpApiIntakeService(inventoryIntake,
+                new ScannerHttpApiContractAdapter());
+        openApiIntake = new ScannerHttpApiIntakeService(inventoryIntake,
+                new ScannerHttpApiContractAdapter());
+        single = new ScannerHttpApiSingleSourceIntakeService(openApiIntake, bindings, assets);
         tx = new TransactionTemplate(new DataSourceTransactionManager(dataSource));
         tx.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
     }
 
     @Test
+    void actualNestedOpenApiSingleRefreshUpdatesFormalContractButNeverCreatesGuessedBinding(@TempDir Path root)
+            throws Exception {
+        ScanProjectEntity project = project(41L, "orders", "prod", "/saved-context");
+        var initialManifest = scanOpenApiParity(root, "integer");
+        var initial = scannerData(initialManifest.httpApis().get(0));
+        var full = openApiIntake.prepare(HttpApiSourceKind.OPENAPI_SCAN, project, List.of(initial), true);
+        tx.execute(status -> openApiIntake.observe(full));
+        var before = binding(full.scope(), HttpApiSourceKind.OPENAPI_SCAN, initial.sourceKey());
+        var tool = initialManifest.tools().get(0);
+        var observation = new ScanProjectToolEntity();
+        observation.setProjectId(project.getId()); observation.setSource("scanner"); observation.setAssetType("HTTP_API");
+        observation.setContextPath(project.getContextPath()); observation.setHttpMethod(tool.method());
+        observation.setEndpointPath(tool.path()); observation.setSourceLocation(tool.source().location());
+        assertNotEquals(observation.getSourceLocation(), initial.sourceLocation());
+        assertTrue(initial.sourceLocation().startsWith("contracts/openapi.yaml#"));
+        assertTrue(ScannerHttpApiSourceIdentity.matches(HttpApiSourceKind.OPENAPI_SCAN,
+                observation.getSourceLocation(), initial.sourceLocation()));
+        var drift = scannerData(scanOpenApiParity(root, "string").httpApis().get(0));
+        var summary = tx.execute(status -> single.observe(single.prepare(HttpApiSourceKind.OPENAPI_SCAN,
+                project, observation, List.of(drift))));
+        assertEquals(1, summary.observed());
+        assertEquals(0, summary.removed());
+        assertNotEquals(before.getSourceContractHash(), bindings.selectById(before.getId()).getSourceContractHash());
+        assertEquals(before.getAssetId(), bindings.selectById(before.getId()).getAssetId());
+
+        // A same-basename spec in another directory is a second candidate, even for the same route.
+        var collision = new CapabilityScannerClient.HttpApiData("openapi:other-spec", "other/openapi.yaml#"
+                + initial.sourceLocation().split("#", 2)[1], "other-r1", drift.httpMethod(), drift.contextPath(),
+                drift.endpointPath(), drift.consumes(), drift.produces(), drift.mappingConditions(), drift.parameters(),
+                drift.requestBody(), drift.responses(), drift.authenticationState(), drift.authenticationSchemes(),
+                drift.requiredHeaderNames(), drift.sideEffect());
+        var ambiguous = single.prepare(HttpApiSourceKind.OPENAPI_SCAN, project, observation, List.of(drift, collision));
+        assertEquals(0, tx.execute(status -> single.observe(ambiguous)).observed());
+        assertEquals(1L, bindings.selectCount(null), "ambiguous display evidence cannot invent a new source identity");
+        assertNotEquals(inventory(full.scope()).getInventoryToken(), member(before.getId()).getInventoryToken());
+    }
+
+    @Test
     void declaresMandatoryObservationBoundaryAndCompleteInventoryRemovesOnlyOpenApiBindings() throws Exception {
-        Transactional annotation = OpenApiScanHttpApiIntakeService.class
-                .getMethod("observe", OpenApiScanHttpApiIntakeService.Plan.class)
+        Transactional annotation = ScannerHttpApiIntakeService.class
+                .getMethod("observe", ScannerHttpApiIntakeService.Plan.class)
                 .getAnnotation(Transactional.class);
         assertNotNull(annotation);
         assertEquals(Propagation.MANDATORY, annotation.propagation());
         assertEquals(TransactionDefinition.ISOLATION_READ_COMMITTED, tx.getIsolationLevel());
+        assertThrows(NullPointerException.class, () -> openApiIntake.observe(null));
 
         ScanProjectEntity project = project(41L, "orders", "prod", "/saved-context");
-        OpenApiScanHttpApiIntakeService.Plan first = openApiIntake.prepare(project,
+        ScannerHttpApiIntakeService.Plan first = openApiIntake.prepare(HttpApiSourceKind.OPENAPI_SCAN, project,
                 List.of(operation("openapi:orders.yaml:get")), true);
         HttpApiAssetService.ObserveRequest source = first.operations().get(0).request();
         tx.execute(status -> {
@@ -109,8 +169,11 @@ class OpenApiScanHttpApiIntakeServicePersistenceTest {
         });
         assertEquals(HttpApiSourceBindingStatus.EQUIVALENT.name(),
                 binding(first.scope(), HttpApiSourceKind.OPENAPI_SCAN, "openapi:orders.yaml:get").getStatus());
+        String firstToken = inventory(first.scope()).getInventoryToken();
+        Long sourceBindingId = binding(first.scope(), HttpApiSourceKind.OPENAPI_SCAN, "openapi:orders.yaml:get").getId();
+        assertEquals(firstToken, member(sourceBindingId).getInventoryToken());
 
-        OpenApiScanHttpApiIntakeService.Plan replay = openApiIntake.prepare(project,
+        ScannerHttpApiIntakeService.Plan replay = openApiIntake.prepare(HttpApiSourceKind.OPENAPI_SCAN, project,
                 List.of(operation("openapi:orders.yaml:get", "scan-r2", "/orders/{id}")), true);
         tx.execute(status -> openApiIntake.observe(replay));
         assertEquals("scan-r2", binding(first.scope(), HttpApiSourceKind.OPENAPI_SCAN,
@@ -119,9 +182,12 @@ class OpenApiScanHttpApiIntakeServicePersistenceTest {
                 .eq(HttpApiSourceBindingEntity::getProjectId, project.getId())
                 .eq(HttpApiSourceBindingEntity::getSourceKind, HttpApiSourceKind.OPENAPI_SCAN.name())));
 
-        OpenApiScanHttpApiIntakeService.Summary removed = tx.execute(status -> openApiIntake.observe(
-                openApiIntake.prepare(project, List.of(), true)));
+        ScannerHttpApiIntakeService.Summary removed = tx.execute(status -> openApiIntake.observe(
+                openApiIntake.prepare(HttpApiSourceKind.OPENAPI_SCAN, project, List.of(), true)));
         assertEquals(1, removed.removed());
+        assertTrue(inventory(first.scope()).getComplete());
+        assertNotEquals(inventory(first.scope()).getInventoryToken(), member(sourceBindingId).getInventoryToken(),
+                "complete empty inventory removes the source without refreshing its old confirmation");
         assertEquals(HttpApiSourceBindingStatus.REMOVED.name(),
                 binding(first.scope(), HttpApiSourceKind.OPENAPI_SCAN, "openapi:orders.yaml:get").getStatus());
         assertEquals(HttpApiSourceBindingStatus.DISCOVERED.name(),
@@ -134,9 +200,9 @@ class OpenApiScanHttpApiIntakeServicePersistenceTest {
         ScanProjectEntity project = project(41L, "orders", "prod", "/saved-context");
         HttpApiOperation controllerOperation = scanControllerParity(tempDir).httpApis().get(0);
         HttpApiOperation openApiOperation = scanOpenApiParity(tempDir, "integer").httpApis().get(0);
-        ControllerScanHttpApiIntakeService.Plan controller = controllerIntake.prepare(project,
+        ScannerHttpApiIntakeService.Plan controller = controllerIntake.prepare(HttpApiSourceKind.CONTROLLER_SCAN, project,
                 List.of(scannerData(controllerOperation)), true);
-        OpenApiScanHttpApiIntakeService.Plan openApi = openApiIntake.prepare(project,
+        ScannerHttpApiIntakeService.Plan openApi = openApiIntake.prepare(HttpApiSourceKind.OPENAPI_SCAN, project,
                 List.of(scannerData(openApiOperation)), true);
         HttpApiContractCanonicalizer canonicalizer = new HttpApiContractCanonicalizer(json);
 
@@ -159,7 +225,7 @@ class OpenApiScanHttpApiIntakeServicePersistenceTest {
         HttpApiOperation drifted = scanOpenApiParity(tempDir, "string").httpApis().get(0);
         assertEquals(openApiOperation.sourceKey(), drifted.sourceKey());
         assertNotEquals(openApiOperation.sourceRevision(), drifted.sourceRevision());
-        tx.execute(status -> openApiIntake.observe(openApiIntake.prepare(project, List.of(scannerData(drifted)), true)));
+        tx.execute(status -> openApiIntake.observe(openApiIntake.prepare(HttpApiSourceKind.OPENAPI_SCAN, project, List.of(scannerData(drifted)), true)));
 
         HttpApiAssetEntity asset = assets.selectOne(Wrappers.<HttpApiAssetEntity>lambdaQuery()
                 .eq(HttpApiAssetEntity::getProjectId, project.getId()));
@@ -174,32 +240,50 @@ class OpenApiScanHttpApiIntakeServicePersistenceTest {
     void oldWireAndPartialInventoriesDoNotRemoveAndScopeIsolatedFullRemovalDoes() {
         ScanProjectEntity prod = project(41L, "orders", "prod", "/saved-context");
         ScanProjectEntity test = project(42L, "orders", "test", "/saved-context");
-        OpenApiScanHttpApiIntakeService.Plan prodPlan = openApiIntake.prepare(prod,
+        ScannerHttpApiIntakeService.Plan prodPlan = openApiIntake.prepare(HttpApiSourceKind.OPENAPI_SCAN, prod,
                 List.of(operation("openapi:orders.yaml:get")), true);
-        OpenApiScanHttpApiIntakeService.Plan testPlan = openApiIntake.prepare(test,
+        ScannerHttpApiIntakeService.Plan testPlan = openApiIntake.prepare(HttpApiSourceKind.OPENAPI_SCAN, test,
                 List.of(operation("openapi:orders.yaml:get")), true);
         tx.execute(status -> {
             openApiIntake.observe(prodPlan);
             openApiIntake.observe(testPlan);
             return null;
         });
+        String prodToken = inventory(prodPlan.scope()).getInventoryToken();
+        String testToken = inventory(testPlan.scope()).getInventoryToken();
+        Long prodBindingId = binding(prodPlan.scope(), HttpApiSourceKind.OPENAPI_SCAN, "openapi:orders.yaml:get").getId();
+        assertEquals(prodToken, member(prodBindingId).getInventoryToken());
 
-        OpenApiScanHttpApiIntakeService.Summary partial = tx.execute(status -> openApiIntake.observe(
-                openApiIntake.prepare(prod, List.of(), false)));
-        OpenApiScanHttpApiIntakeService.Summary legacy = tx.execute(status -> openApiIntake.observe(
-                openApiIntake.prepare(prod, null, null)));
+        ScannerHttpApiIntakeService.Summary partial = tx.execute(status -> openApiIntake.observe(
+                openApiIntake.prepare(HttpApiSourceKind.OPENAPI_SCAN, prod, List.of(), false)));
+        HttpApiInventoryStateEntity partialState = inventory(prodPlan.scope());
+        assertTrue(partialState.getSupported());
+        assertFalse(partialState.getComplete());
+        assertTrue(partialState.getReason().contains("清单不完整"), "Chinese diagnostic must survive the persistence round trip");
+        assertNotEquals(prodToken, partialState.getInventoryToken());
+        assertEquals(prodToken, member(prodBindingId).getInventoryToken());
+        ScannerHttpApiIntakeService.Summary legacy = tx.execute(status -> openApiIntake.observe(
+                openApiIntake.prepare(HttpApiSourceKind.OPENAPI_SCAN, prod, null, null)));
         assertTrue(partial.supported());
         assertFalse(partial.inventoryComplete());
         assertEquals(0, partial.removed());
         assertFalse(legacy.supported());
+        HttpApiInventoryStateEntity unsupportedState = inventory(prodPlan.scope());
+        assertFalse(unsupportedState.getSupported());
+        assertFalse(unsupportedState.getComplete());
+        assertTrue(unsupportedState.getReason().contains("未返回 HTTP API 清单"));
+        assertEquals(prodToken, member(prodBindingId).getInventoryToken());
+        assertEquals(testToken, inventory(testPlan.scope()).getInventoryToken(), "another scope's confirmation stays unchanged");
         assertEquals(HttpApiSourceBindingStatus.DISCOVERED.name(),
                 binding(prodPlan.scope(), HttpApiSourceKind.OPENAPI_SCAN, "openapi:orders.yaml:get").getStatus());
 
-        tx.execute(status -> openApiIntake.observe(openApiIntake.prepare(test, List.of(), true)));
+        tx.execute(status -> openApiIntake.observe(openApiIntake.prepare(HttpApiSourceKind.OPENAPI_SCAN, test, List.of(), true)));
         assertEquals(HttpApiSourceBindingStatus.DISCOVERED.name(),
                 binding(prodPlan.scope(), HttpApiSourceKind.OPENAPI_SCAN, "openapi:orders.yaml:get").getStatus());
         assertEquals(HttpApiSourceBindingStatus.REMOVED.name(),
                 binding(testPlan.scope(), HttpApiSourceKind.OPENAPI_SCAN, "openapi:orders.yaml:get").getStatus());
+        assertEquals(unsupportedState.getInventoryToken(), inventory(prodPlan.scope()).getInventoryToken());
+        assertTrue(inventory(testPlan.scope()).getComplete());
     }
 
     @Test
@@ -232,7 +316,7 @@ class OpenApiScanHttpApiIntakeServicePersistenceTest {
         assertEquals(2, complete.httpApis().size());
         HttpApiOperation original = complete.httpApis().stream()
                 .filter(item -> "/protected".equals(item.endpointPath())).findFirst().orElseThrow();
-        OpenApiScanHttpApiIntakeService.Plan initial = openApiIntake.prepare(project,
+        ScannerHttpApiIntakeService.Plan initial = openApiIntake.prepare(HttpApiSourceKind.OPENAPI_SCAN, project,
                 complete.httpApis().stream().map(this::scannerData).toList(), complete.httpApiInventoryComplete());
         tx.execute(status -> openApiIntake.observe(initial));
         assertEquals(HttpApiSourceBindingStatus.DISCOVERED.name(),
@@ -243,9 +327,9 @@ class OpenApiScanHttpApiIntakeServicePersistenceTest {
         ToolManifest partial = scanner.scan(tempDir, spec, metadata, null, null);
         assertFalse(partial.httpApiInventoryComplete());
         assertEquals(List.of("/safe"), partial.httpApis().stream().map(HttpApiOperation::endpointPath).toList());
-        OpenApiScanHttpApiIntakeService.Plan update = openApiIntake.prepare(project,
+        ScannerHttpApiIntakeService.Plan update = openApiIntake.prepare(HttpApiSourceKind.OPENAPI_SCAN, project,
                 partial.httpApis().stream().map(this::scannerData).toList(), partial.httpApiInventoryComplete());
-        OpenApiScanHttpApiIntakeService.Summary result = tx.execute(status -> openApiIntake.observe(update));
+        ScannerHttpApiIntakeService.Summary result = tx.execute(status -> openApiIntake.observe(update));
         assertEquals(0, result.removed());
         HttpApiSourceBindingEntity retained = binding(initial.scope(), HttpApiSourceKind.OPENAPI_SCAN,
                 original.sourceKey());
@@ -262,7 +346,7 @@ class OpenApiScanHttpApiIntakeServicePersistenceTest {
                 "HEADER", "Authorization", "EQUALS", "Bearer should-not-be-a-contract-value")), List.of(), null,
                 List.of(), "UNKNOWN", List.of(), List.of(), "READ_ONLY");
 
-        assertThrows(IllegalArgumentException.class, () -> openApiIntake.prepare(project, List.of(invalid), true));
+        assertThrows(IllegalArgumentException.class, () -> openApiIntake.prepare(HttpApiSourceKind.OPENAPI_SCAN, project, List.of(invalid), true));
         assertEquals(0L, assets.selectCount(null));
         assertEquals(0L, bindings.selectCount(null));
     }
@@ -270,10 +354,10 @@ class OpenApiScanHttpApiIntakeServicePersistenceTest {
     @Test
     void routeChangeRemovesOnlyPriorOpenApiSourceAndPersistenceFailureRollsBackLegacyRows() {
         ScanProjectEntity project = project(41L, "orders", "prod", "/saved-context");
-        OpenApiScanHttpApiIntakeService.Plan initial = openApiIntake.prepare(project,
+        ScannerHttpApiIntakeService.Plan initial = openApiIntake.prepare(HttpApiSourceKind.OPENAPI_SCAN, project,
                 List.of(operation("openapi:orders.yaml:old", "scan-r1", "/orders/{id}")), true);
         tx.execute(status -> openApiIntake.observe(initial));
-        OpenApiScanHttpApiIntakeService.Plan changed = openApiIntake.prepare(project,
+        ScannerHttpApiIntakeService.Plan changed = openApiIntake.prepare(HttpApiSourceKind.OPENAPI_SCAN, project,
                 List.of(operation("openapi:orders.yaml:new", "scan-r2", "/orders-v2/{id}")), true);
         tx.execute(status -> openApiIntake.observe(changed));
         assertEquals(HttpApiSourceBindingStatus.REMOVED.name(),
@@ -282,7 +366,7 @@ class OpenApiScanHttpApiIntakeServicePersistenceTest {
                 binding(initial.scope(), HttpApiSourceKind.OPENAPI_SCAN, "openapi:orders.yaml:new").getStatus());
 
         ScanProjectEntity rollbackProject = project(43L, "payments", "test", "/payments");
-        OpenApiScanHttpApiIntakeService.Plan failing = openApiIntake.prepare(rollbackProject, List.of(
+        ScannerHttpApiIntakeService.Plan failing = openApiIntake.prepare(HttpApiSourceKind.OPENAPI_SCAN, rollbackProject, List.of(
                 operation("openapi:payments.yaml:first", "scan-r1", "/payments/{id}"),
                 operation("openapi:payments.yaml:second", "scan-r1", "/payments/{id}/detail")), true);
         jdbc.execute("""
@@ -425,6 +509,23 @@ class OpenApiScanHttpApiIntakeServicePersistenceTest {
                 .last("LIMIT 1"));
         assertNotNull(binding);
         return binding;
+    }
+
+    private HttpApiInventoryStateEntity inventory(HttpApiServiceScope scope) {
+        HttpApiInventoryStateEntity state = inventories.selectOne(Wrappers.<HttpApiInventoryStateEntity>lambdaQuery()
+                .eq(HttpApiInventoryStateEntity::getProjectId, scope.projectId())
+                .eq(HttpApiInventoryStateEntity::getProjectCode, scope.projectCode())
+                .eq(HttpApiInventoryStateEntity::getEnvironment, scope.environment())
+                .eq(HttpApiInventoryStateEntity::getSourceKind, HttpApiSourceKind.OPENAPI_SCAN.name()));
+        assertNotNull(state);
+        return state;
+    }
+
+    private HttpApiInventoryMemberEntity member(Long bindingId) {
+        HttpApiInventoryMemberEntity member = members.selectOne(Wrappers.<HttpApiInventoryMemberEntity>lambdaQuery()
+                .eq(HttpApiInventoryMemberEntity::getBindingId, bindingId));
+        assertNotNull(member);
+        return member;
     }
 
     private void createTable(String table) throws Exception {

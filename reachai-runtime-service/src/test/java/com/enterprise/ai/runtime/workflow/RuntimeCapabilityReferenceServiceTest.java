@@ -26,9 +26,16 @@ class RuntimeCapabilityReferenceServiceTest {
     @BeforeEach void completeEmptyIndex() {
         when(index.versionOwners(any())).thenAnswer(call ->
                 new RuntimeWorkflowReferenceIndex(null, null, versions, null).versionOwners(call.getArgument(0)));
-        TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), "reference-test"),
-                RuntimeWorkflowVersionEntity.class);
+        for (Class<?> type : List.of(RuntimeWorkflowVersionEntity.class, RuntimeAgentEntity.class,
+                RuntimeAgentWorkflowToolEntity.class, RuntimeAgentConfigVersionEntity.class)) {
+            TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), "reference-test"), type);
+        }
         when(index.inspect(any())).thenReturn(new RuntimeWorkflowReferenceIndex.Evidence(List.of(), Set.of()));
+        when(configs.inspectPinnedCoverage(any())).thenAnswer(call -> {
+            var coverage = new RuntimeAgentConfigVersionMapper.PinCoverage();
+            coverage.setExistingCount(((java.util.Collection<?>) call.getArgument(0)).size());
+            return coverage;
+        });
     }
 
     @Test void resolvesDraftRetiredReleaseAndExternallyPinnedAgent() {
@@ -41,9 +48,9 @@ class RuntimeCapabilityReferenceServiceTest {
                 new RuntimeWorkflowReferenceIndex.Hit("orders_read", "w1", "查询", null, null, null, "read"),
                 new RuntimeWorkflowReferenceIndex.Hit("orders_read", "w1", "查询", 9L, "v1", "RETIRED", "read")), Set.of()));
         when(versions.selectList(any())).thenReturn(List.of(version));
-        when(agents.selectList(any())).thenReturn(List.of(agent));
-        when(configs.selectBatchIds(any())).thenReturn(List.of(oldConfig, currentConfig));
-        when(bindings.selectList(any())).thenReturn(List.of(binding));
+        when(agents.selectList(any())).thenReturn(List.of(), List.of(agent));
+        when(configs.selectList(any())).thenReturn(List.of(oldConfig, currentConfig));
+        when(bindings.selectList(any())).thenReturn(List.of(), List.of(binding));
         var evidence = service.inspect(new RuntimeCapabilityReferenceService.Query("orders", List.of(key), List.of(2L)));
         assertEquals("COMPLETE", evidence.state()); assertEquals(3, evidence.usages().size());
         assertTrue(evidence.usages().stream().anyMatch(usage -> "AGENT".equals(usage.kind())
@@ -51,6 +58,7 @@ class RuntimeCapabilityReferenceServiceTest {
     }
 
     @Test void missingExternalConfigIsExplicitAndScopeCannotBeForged() {
+        doReturn(new RuntimeAgentConfigVersionMapper.PinCoverage()).when(configs).inspectPinnedCoverage(any());
         var evidence = service.inspect(new RuntimeCapabilityReferenceService.Query("orders", List.of(key), List.of(18L)));
         assertEquals("PARTIAL", evidence.state()); assertTrue(evidence.warnings().contains("AGENT_CONFIG_VERSION_MISSING"));
         assertThrows(IllegalArgumentException.class, () -> service.inspect(new RuntimeCapabilityReferenceService.Query("other", List.of(key), List.of())));
@@ -71,7 +79,7 @@ class RuntimeCapabilityReferenceServiceTest {
         when(index.inspect(any())).thenReturn(new RuntimeWorkflowReferenceIndex.Evidence(List.of(
                 new RuntimeWorkflowReferenceIndex.Hit("orders_read", "w1", "Query", 9L, "v1", "RETIRED", "read")), Set.of()));
         var agentUsage = mock(RuntimeAgentWorkflowUsageQuery.class);
-        when(agentUsage.publishedBindings(any())).thenReturn(new RuntimeAgentWorkflowUsageQuery.Evidence(
+        when(agentUsage.publishedBindings(any(), any())).thenReturn(new RuntimeAgentWorkflowUsageQuery.Evidence(
                 List.of(new RuntimeAgentWorkflowUsageQuery.Binding("a1", "Agent", 2L, "w1", 9L, false)), Set.of()));
         var evidence = new RuntimeCapabilityReferenceService(index, agentUsage)
                 .inspect(new RuntimeCapabilityReferenceService.Query("orders", List.of(key), List.of(2L)));
@@ -102,7 +110,7 @@ class RuntimeCapabilityReferenceServiceTest {
         var version = new RuntimeWorkflowVersionEntity(); version.setId(9L); version.setWorkflowId("w1");
         when(versions.selectList(any())).thenReturn(List.of(version));
         var agentUsage = mock(RuntimeAgentWorkflowUsageQuery.class);
-        when(agentUsage.publishedBindings(any())).thenReturn(new RuntimeAgentWorkflowUsageQuery.Evidence(
+        when(agentUsage.publishedBindings(any(), any())).thenReturn(new RuntimeAgentWorkflowUsageQuery.Evidence(
                 List.of(new RuntimeAgentWorkflowUsageQuery.Binding("a1", "客服", 3L, "w1", 9L, true)), Set.of()));
         var bounded = new RuntimeCapabilityReferenceService(index, agentUsage);
         var evidence = bounded.inspect(new RuntimeCapabilityReferenceService.Query("orders", List.of(key), List.of()));

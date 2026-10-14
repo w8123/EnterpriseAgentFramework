@@ -29,7 +29,8 @@ class RuntimeRouteEvaluationServiceTest {
         assertEquals(Map.of("GENERAL_CHAT", 2L, "ORDER_QA", 1L), view.intentCounts());
         assertEquals(Map.of("Agent A", 2L, "Agent B", 1L), view.agentCounts());
         assertFalse(view.intentClassifierReady());
-        assertFalse(view.domainClassifierReady());
+        assertEquals("样本仍偏少，建议继续使用现有 LLM 意图识别与 RetrievalScope，优先积累 trace。",
+                view.recommendation());
     }
 
 }

@@ -30,16 +30,17 @@ public class HttpApiReferenceController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "API 标识或登录身份无效");
         }
         String actorId = String.valueOf(session.user().getId());
-        ResponseEntity<Object> response = capability.getHttpApi(id, actorId);
+        ResponseEntity<Object> response = capability.getHttpApiIdentity(id, actorId,
+                CatalogReadAuthorization.resourceBody(session, PlatformPermissions.PLATFORM_READ));
         if (response == null) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "API owner 暂不可用");
-        if (!response.getStatusCode().is2xxSuccessful()) return response;
-        if (!(response.getBody() instanceof Map<?, ?> detail)
-                || !(detail.get("summary") instanceof Map<?, ?> summary)
+        if (!response.getStatusCode().is2xxSuccessful()) return ResponseEntity.status(response.getStatusCode()).body(response.getBody());
+        if (!(response.getBody() instanceof Map<?, ?> summary)
                 || !(summary.get("id") instanceof Number ownerId) || ownerId.longValue() != id
                 || !(summary.get("projectCode") instanceof String projectCode) || projectCode.isBlank()
                 || !(summary.get("qualifiedName") instanceof String qualifiedName)
                 || !qualifiedName.startsWith("http-api:" + projectCode + ":")
-                || !(summary.get("projectId") instanceof Number projectId) || projectId.longValue() <= 0) {
+                || !(summary.get("projectId") instanceof Number projectId) || projectId.longValue() <= 0
+                || !CatalogReadAuthorization.matchesOwner(response, projectId.longValue(), projectCode)) {
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "API owner 返回无效身份");
         }
         authorization.requireResourcePermission(request, PlatformPermissions.PLATFORM_READ,

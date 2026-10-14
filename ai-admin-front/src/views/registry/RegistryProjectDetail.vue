@@ -77,12 +77,6 @@
     />
 
     <template v-else>
-      <el-tabs :model-value="projectSection" class="project-section-tabs" @tab-change="selectProjectSection">
-        <el-tab-pane label="项目工作台" name="overview" />
-        <el-tab-pane label="来源变化" name="source-changes" />
-      </el-tabs>
-      <ProjectSourceChanges v-if="projectSection === 'source-changes' && project?.projectCode === projectCode" :project="project" />
-
       <el-alert
         v-if="projectSection === 'overview' && projectDetailLoadError"
         class="page-alert"
@@ -724,7 +718,6 @@ import { useRegistryProjectDetailData } from '@/views/registry/composables/useRe
 import { useRegistryProjectDetailNavigation } from '@/views/registry/composables/useRegistryProjectDetailNavigation'
 import { useRegistryProjectDetailUiState } from '@/views/registry/composables/useRegistryProjectDetailUiState'
 import { useRegistryProjectWorkbench } from '@/views/registry/composables/useRegistryProjectWorkbench'
-import ProjectSourceChanges from '@/views/registry/components/ProjectSourceChanges.vue'
 import ProjectRouteMissingState from '@/views/registry/components/ProjectRouteMissingState.vue'
 import ProjectWorkbenchLoadErrorState from '@/views/registry/components/ProjectWorkbenchLoadErrorState.vue'
 
@@ -815,10 +808,9 @@ function aiCodingInfoIcon(label: string) {
 
 const {
   projectSection,
-  selectProjectSection,
   goCapabilitySync,
   goCapability,
-  goScanProjectDetail,
+  goCapabilitySources,
   goWorkflowList,
   goPageActionGovernance,
   goPageAssistantWizard,
@@ -856,7 +848,7 @@ const { workbenchGroups } = useRegistryProjectWorkbench({
   isSdkBackedProject,
   goCapabilitySync,
   goCapability,
-  goScanProjectDetail,
+  goCapabilitySources,
   goWorkflowList,
   goPageActionGovernance,
   goPageAssistantWizard,

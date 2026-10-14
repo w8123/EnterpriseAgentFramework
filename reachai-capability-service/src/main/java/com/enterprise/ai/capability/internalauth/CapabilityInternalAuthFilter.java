@@ -58,6 +58,7 @@ public class CapabilityInternalAuthFilter extends OncePerRequestFilter {
                 && !isBusinessMethodExecutionPath(path)
                 && !isHttpApiAcceptancePath(path)
                 && !isApiMarketPath(path)
+                && !isCatalogResourcePath(path)
                 && !isCapabilityReviewManagementPath(path);
     }
 
@@ -76,15 +77,9 @@ public class CapabilityInternalAuthFilter extends OncePerRequestFilter {
         CapabilityVerifiedInternalServiceAuth verified;
         if (ENROLLMENT_PATH.equals(path) || isCapabilityReviewManagementPath(path)
                 || isHttpApiAcceptancePath(path) || isApiMarketPath(path)) {
-            verified = verifier.verify(cached.getMethod(), path,
-                    cached.getHeader(InternalServiceAuthHeaders.CALLER),
-                    cached.getHeader(InternalServiceAuthHeaders.IDENTITY_SOURCE),
-                    cached.getHeader(InternalServiceAuthHeaders.IDENTITY_USER_ID),
-                    cached.getHeader(InternalServiceAuthHeaders.TIMESTAMP),
-                    cached.getHeader(InternalServiceAuthHeaders.NONCE),
-                    cached.getHeader(InternalServiceAuthHeaders.BODY_SHA256),
-                    cached.getHeader(InternalServiceAuthHeaders.SIGNATURE), body,
-                    System.currentTimeMillis()).orElse(null);
+            verified = verifyControl(cached, path, body);
+        } else if (isCatalogResourcePath(path)) {
+            verified = verifyControl(cached, path, body);
         } else if (isCapabilityCatalogReadPath(path) || isCapabilityProjectLookupPath(path)) {
             verified = verifier.verifyCatalogRead(cached.getMethod(), path,
                     cached.getHeader(InternalServiceAuthHeaders.CALLER),
@@ -119,11 +114,27 @@ public class CapabilityInternalAuthFilter extends OncePerRequestFilter {
                     System.currentTimeMillis()).orElse(null);
         }
         if (verified == null) {
-            unauthorized(response);
-            return;
+            unauthorized(response); return;
         }
         cached.setAttribute(CapabilityVerifiedInternalServiceAuth.REQUEST_ATTR, verified);
         filterChain.doFilter(cached, response);
+    }
+
+    private CapabilityVerifiedInternalServiceAuth verifyControl(CapabilityCachedBodyHttpServletRequest cached, String path, byte[] body) {
+        return verifier.verify(cached.getMethod(), path,
+                cached.getHeader(InternalServiceAuthHeaders.CALLER),
+                cached.getHeader(InternalServiceAuthHeaders.IDENTITY_SOURCE),
+                cached.getHeader(InternalServiceAuthHeaders.IDENTITY_USER_ID),
+                cached.getHeader(InternalServiceAuthHeaders.TIMESTAMP),
+                cached.getHeader(InternalServiceAuthHeaders.NONCE),
+                cached.getHeader(InternalServiceAuthHeaders.BODY_SHA256),
+                cached.getHeader(InternalServiceAuthHeaders.SIGNATURE), body,
+                System.currentTimeMillis()).orElse(null);
+    }
+
+    static boolean isCatalogResourcePath(String path) {
+        return path != null && (path.startsWith("/internal/capability/business-capabilities/projects/")
+                || path.startsWith("/internal/capability/api-graph/projects/"));
     }
 
     static String normalizePath(HttpServletRequest request) {
@@ -205,7 +216,7 @@ public class CapabilityInternalAuthFilter extends OncePerRequestFilter {
         if (path == null) {
             return false;
         }
-        if (path.matches("^/internal/capability/http-apis/[0-9]+$")) return true;
+        if (path.matches("^/internal/capability/http-apis/[^/]+(/identity)?$")) return true;
         String prefix = path.startsWith(CAPABILITY_CATALOG_ITEM_PREFIX)
                 ? CAPABILITY_CATALOG_ITEM_PREFIX
                 : path.startsWith(BUSINESS_METHOD_CATALOG_ITEM_PREFIX)
@@ -218,6 +229,7 @@ public class CapabilityInternalAuthFilter extends OncePerRequestFilter {
         if (!name.isBlank() && name.indexOf('/') < 0) {
             return true;
         }
+        if (path.startsWith(CAPABILITY_CATALOG_ITEM_PREFIX) && name.matches("[^/]+/identity")) return true;
         return path.startsWith(BUSINESS_METHOD_CATALOG_ITEM_PREFIX)
                 && name.matches("[^/]+/invocation-context");
     }

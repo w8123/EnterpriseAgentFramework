@@ -40,6 +40,7 @@
             <groupId>com.enterprise.ai</groupId>
             <artifactId>reachai-knowledge-service</artifactId>
             <version>${project.version}</version>
+            <classifier>plain</classifier>
             <scope>test</scope>
         </dependency>
         <dependency>
@@ -76,6 +77,20 @@
 
     <build>
         <plugins>
+            <!-- Runtime fixture parity needs a normal classpath artifact before testCompile. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>3.4.1</version>
+                <executions>
+                    <execution>
+                        <id>test-parity-classes</id>
+                        <phase>process-classes</phase>
+                        <goals><goal>jar</goal></goals>
+                        <configuration><classifier>plain</classifier></configuration>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>

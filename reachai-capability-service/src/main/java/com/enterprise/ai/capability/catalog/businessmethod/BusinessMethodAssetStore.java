@@ -21,8 +21,12 @@ import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /** Maintains accepted method facts inside the project-locked Registry transaction, before Tool projection. */
 @Component
@@ -149,12 +153,61 @@ public class BusinessMethodAssetStore {
     public CapabilityRegistration acceptedDeclaration(BusinessMethodAssetEntity asset) {
         BusinessMethodRevisionEntity revision = acceptedRevision(asset);
         CapabilitySnapshotEntity snapshot = snapshots.selectById(revision.getSnapshotId());
+        CapabilityDiffItemEntity decision = differences.selectById(revision.getDiffItemId());
+        validateSourceReferences(asset, revision, snapshot, decision);
+        CapabilityRegistration declaration = declaration(snapshot, asset.getMethodCode());
+        validateDeclaration(revision, declaration);
+        return declaration;
+    }
+
+    /** Request-local bulk owner read. The same source and digest checks apply to every record. */
+    public Map<Long, AcceptedSource> acceptedSources(List<BusinessMethodAssetEntity> methodAssets) {
+        if (methodAssets.isEmpty()) return Map.of();
+        for (BusinessMethodAssetEntity asset : methodAssets) {
+            if (asset == null || asset.getId() == null || asset.getAcceptedRevisionId() == null) {
+                throw new IllegalStateException("业务方法缺少属于该资产的接纳修订");
+            }
+        }
+        Map<Long, BusinessMethodRevisionEntity> revisionById = revisions.selectBatchIds(methodAssets.stream()
+                        .map(BusinessMethodAssetEntity::getAcceptedRevisionId).distinct().toList()).stream()
+                .collect(Collectors.toMap(BusinessMethodRevisionEntity::getId, Function.identity()));
+        Map<Long, CapabilitySnapshotEntity> snapshotById = revisionById.isEmpty() ? Map.of()
+                : snapshots.selectBatchIds(revisionById.values().stream()
+                        .map(BusinessMethodRevisionEntity::getSnapshotId).distinct().toList()).stream()
+                .collect(Collectors.toMap(CapabilitySnapshotEntity::getId, Function.identity()));
+        Map<Long, CapabilityDiffItemEntity> decisionById = revisionById.isEmpty() ? Map.of()
+                : differences.selectBatchIds(revisionById.values().stream()
+                        .map(BusinessMethodRevisionEntity::getDiffItemId).distinct().toList()).stream()
+                .collect(Collectors.toMap(CapabilityDiffItemEntity::getId, Function.identity()));
+        Map<Long, List<CapabilityRegistration>> declarationsBySnapshot = new LinkedHashMap<>();
+        Map<Long, AcceptedSource> result = new LinkedHashMap<>();
+        for (BusinessMethodAssetEntity asset : methodAssets) {
+            BusinessMethodRevisionEntity revision = revisionById.get(asset.getAcceptedRevisionId());
+            CapabilitySnapshotEntity snapshot = revision == null ? null : snapshotById.get(revision.getSnapshotId());
+            CapabilityDiffItemEntity decision = revision == null ? null : decisionById.get(revision.getDiffItemId());
+            validateSourceReferences(asset, revision, snapshot, decision);
+            List<CapabilityRegistration> registrations = declarationsBySnapshot.computeIfAbsent(snapshot.getId(),
+                    ignored -> declarations(snapshot));
+            CapabilityRegistration declaration = declaration(registrations, asset.getMethodCode());
+            validateDeclaration(revision, declaration);
+            result.put(asset.getId(), new AcceptedSource(revision, declaration));
+        }
+        return Map.copyOf(result);
+    }
+
+    public record AcceptedSource(BusinessMethodRevisionEntity revision, CapabilityRegistration declaration) { }
+
+    private void validateSourceReferences(BusinessMethodAssetEntity asset, BusinessMethodRevisionEntity revision,
+                                          CapabilitySnapshotEntity snapshot, CapabilityDiffItemEntity decision) {
+        if (revision == null || !Objects.equals(asset.getId(), revision.getAssetId())
+                || !Objects.equals(asset.getAcceptedRevisionId(), revision.getId())) {
+            throw new IllegalStateException("业务方法缺少属于该资产的接纳修订");
+        }
         if (snapshot == null || !Objects.equals(asset.getProjectId(), snapshot.getProjectId())
                 || !Objects.equals(asset.getProjectCode(), snapshot.getProjectCode())
                 || !"SOURCE".equals(snapshot.getIntakeMode())) {
             throw new IllegalStateException("业务方法接纳快照缺失或项目来源不一致");
         }
-        CapabilityDiffItemEntity decision = differences.selectById(revision.getDiffItemId());
         if (decision == null || !Objects.equals(revision.getSnapshotId(), decision.getSnapshotId())
                 || !Objects.equals(asset.getProjectId(), decision.getProjectId())
                 || !Objects.equals(asset.getProjectCode(), decision.getProjectCode())
@@ -162,14 +215,15 @@ public class BusinessMethodAssetStore {
                 || !"SOURCE".equals(decision.getIntakeMode())) {
             throw new IllegalStateException("业务方法接纳修订缺少属于该资产的来源决定");
         }
-        CapabilityRegistration declaration = declaration(snapshot, asset.getMethodCode());
+    }
+
+    private void validateDeclaration(BusinessMethodRevisionEntity revision, CapabilityRegistration declaration) {
         if (policy.assetType(declaration) != CapabilityAssetType.BUSINESS_METHOD
                 || !Objects.equals(revision.getContractHash(), businessContractHash(declaration))
                 || !Objects.equals(revision.getInvocationHash(), policy.contractHash(declaration))
                 || !Objects.equals(revision.getBindingHash(), bindingHash(declaration))) {
             throw new IllegalStateException("业务方法不可变接纳修订与来源内容不一致");
         }
-        return declaration;
     }
 
     public String businessContractHash(CapabilityRegistration declaration) {
@@ -240,13 +294,20 @@ public class BusinessMethodAssetStore {
     }
 
     private CapabilityRegistration declaration(CapabilitySnapshotEntity snapshot, String methodCode) {
+        return declaration(declarations(snapshot), methodCode);
+    }
+
+    private CapabilityRegistration declaration(List<CapabilityRegistration> registrations, String methodCode) {
+        List<CapabilityRegistration> matches = registrations.stream().filter(item -> item != null
+                && Objects.equals(methodCode, item.name())).toList();
+        if (matches.size() != 1) throw new IllegalStateException("快照中的业务方法必须唯一存在");
+        return matches.get(0);
+    }
+
+    private List<CapabilityRegistration> declarations(CapabilitySnapshotEntity snapshot) {
         try {
             CapabilitySyncRequest request = json.readValue(snapshot.getPayloadJson(), CapabilitySyncRequest.class);
-            List<CapabilityRegistration> matches = request.capabilities() == null ? List.of()
-                    : request.capabilities().stream().filter(item -> item != null
-                            && Objects.equals(methodCode, item.name())).toList();
-            if (matches.size() != 1) throw new IllegalStateException("快照中的业务方法必须唯一存在");
-            return matches.get(0);
+            return request.capabilities() == null ? List.of() : request.capabilities();
         } catch (IllegalStateException invalid) {
             throw invalid;
         } catch (Exception invalid) {

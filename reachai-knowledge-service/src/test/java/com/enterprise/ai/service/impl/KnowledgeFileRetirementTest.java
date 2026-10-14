@@ -311,7 +311,7 @@ class KnowledgeFileRetirementTest {
     private void publish(PipelineContext context) {
         var metadata = new com.enterprise.ai.pipeline.step.MetadataPersistStep(db.mapper(KnowledgeBaseRepository.class), db.mapper(FileInfoRepository.class),
                 db.mapper(ChunkRepository.class), new com.fasterxml.jackson.databind.ObjectMapper(),
-                new DocumentImportPublicationGuard(db.mapper(DocumentImportJobRepository.class), executions, deletion), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeTagService.class), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeQuestionService.class));
+                new DocumentImportPublicationGuard(db.mapper(DocumentImportJobRepository.class), executions, deletion, org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeFileReadAccessService.class)), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeTagService.class), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeQuestionService.class));
         tx.executeWithoutResult(status -> metadata.process(context));
     }
 

@@ -195,6 +195,7 @@ public class ReachAiRegistryClient {
             Map<String, Object> item = new LinkedHashMap<String, Object>();
             item.put("sourceKey", descriptor.getSourceKey());
             item.put("sourceLocation", descriptor.getSourceLocation());
+            item.put("businessGroups", descriptor.getBusinessGroups());
             item.put("httpMethod", descriptor.getHttpMethod());
             item.put("contextPath", defaultString(properties.getProject().getContextPath(), ""));
             item.put("endpointPath", descriptor.getEndpointPath());

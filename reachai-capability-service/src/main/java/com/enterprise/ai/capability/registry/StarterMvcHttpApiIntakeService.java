@@ -1,6 +1,5 @@
 package com.enterprise.ai.capability.registry;
 
-import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectEntity;
 import com.enterprise.ai.agent.registry.RegistryContracts.HttpApiMappingConditionRegistration;
 import com.enterprise.ai.agent.registry.RegistryContracts.HttpApiParameterRegistration;
@@ -15,11 +14,8 @@ import com.enterprise.ai.capability.catalog.httpapi.HttpApiMappingConditionOpera
 import com.enterprise.ai.capability.catalog.httpapi.HttpApiOperationContract;
 import com.enterprise.ai.capability.catalog.httpapi.HttpApiParameterLocation;
 import com.enterprise.ai.capability.catalog.httpapi.HttpApiServiceScope;
-import com.enterprise.ai.capability.catalog.httpapi.HttpApiSourceBindingEntity;
-import com.enterprise.ai.capability.catalog.httpapi.HttpApiSourceBindingMapper;
-import com.enterprise.ai.capability.catalog.httpapi.HttpApiSourceBindingStatus;
 import com.enterprise.ai.capability.catalog.httpapi.HttpApiSourceKind;
-import com.enterprise.ai.capability.catalog.httpapi.HttpApiInventoryStateService;
+import com.enterprise.ai.capability.catalog.httpapi.HttpApiInventoryIntakeService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -30,11 +26,9 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Set;
+import java.util.Objects;
 
 /**
  * Adapts the Starter's complete MVC inventory to the HTTP API source-binding foundation.
@@ -46,113 +40,40 @@ import java.util.Set;
 @Service
 public class StarterMvcHttpApiIntakeService {
 
-    private static final int MAX_HTTP_APIS = 5000;
-
-    private final HttpApiAssetService assetService;
-    private final HttpApiSourceBindingMapper bindingMapper;
+    private final HttpApiInventoryIntakeService inventories;
     private final ObjectMapper objectMapper;
-    private final HttpApiInventoryStateService inventoryState;
 
     @Autowired
-    public StarterMvcHttpApiIntakeService(HttpApiAssetService assetService,
-                                         HttpApiSourceBindingMapper bindingMapper,
-                                         ObjectMapper objectMapper,
-                                         HttpApiInventoryStateService inventoryState) {
-        this.assetService = assetService;
-        this.bindingMapper = bindingMapper;
+    public StarterMvcHttpApiIntakeService(HttpApiInventoryIntakeService inventories, ObjectMapper objectMapper) {
+        this.inventories = inventories;
         this.objectMapper = objectMapper;
-        this.inventoryState = inventoryState;
-    }
-
-    public StarterMvcHttpApiIntakeService(HttpApiAssetService assetService,
-                                         HttpApiSourceBindingMapper bindingMapper,
-                                         ObjectMapper objectMapper) {
-        this(assetService, bindingMapper, objectMapper, null);
     }
 
     /**
-     * A null list is the old wire protocol: it deliberately carries no removal instruction.
-     * A present empty list is a supported full inventory and can remove prior STARTER_MVC facts.
+     * A missing inventory carries no removal instruction; a present empty Starter inventory is complete.
+     * Safe snapshot receipts remain the Registry adapter's responsibility.
      */
     public Plan prepare(ScanProjectEntity project, String syncId, List<HttpApiRegistration> registrations) {
         HttpApiServiceScope scope = new HttpApiServiceScope(project.getId(), project.getProjectCode(),
                 defaultString(project.getEnvironment(), "default"));
-        if (registrations == null) return Plan.legacy(scope);
-        if (registrations.size() > MAX_HTTP_APIS) {
-            throw new IllegalArgumentException("HTTP API 同步清单不能超过 " + MAX_HTTP_APIS + " 项");
-        }
-        Set<String> sourceKeys = new HashSet<String>();
-        List<PreparedOperation> operations = new ArrayList<PreparedOperation>();
-        for (HttpApiRegistration registration : registrations) {
-            if (registration == null) {
-                throw new IllegalArgumentException("HTTP API 同步清单不能包含空项");
-            }
-            HttpApiOperationContract contract = contract(registration);
-            HttpApiAssetService.ObserveRequest request = new HttpApiAssetService.ObserveRequest(scope,
-                    HttpApiSourceKind.STARTER_MVC, registration.sourceKey(), registration.sourceLocation(), syncId, contract);
-            HttpApiContractCanonicalizer.CanonicalHttpApiContract canonical = assetService.validate(request);
-            String key = registration.sourceKey().trim().toLowerCase(Locale.ROOT);
-            if (!sourceKeys.add(key)) {
-                throw new IllegalArgumentException("HTTP API 同步清单包含重复来源标识");
-            }
-            operations.add(new PreparedOperation(request, safeSnapshotRegistration(registration, canonical)));
-        }
-        operations.sort(Comparator.comparing(item -> item.request().sourceKey()));
+        if (registrations == null) return Plan.unsupported(scope);
+        var prepared = inventories.prepare(scope, HttpApiSourceKind.STARTER_MVC, registrations,
+                "HTTP API 同步清单", registration -> new HttpApiAssetService.ObserveRequest(scope,
+                        HttpApiSourceKind.STARTER_MVC, registration.sourceKey(), registration.sourceLocation(),
+                        syncId, contract(registration), registration.businessGroups()));
+        List<PreparedOperation> operations = prepared.stream().map(item -> new PreparedOperation(
+                item.request(), safeSnapshotRegistration(item.request(), item.canonical()))).toList();
         return new Plan(true, scope, operations);
     }
 
     @Transactional(propagation = Propagation.MANDATORY)
     public HttpApiSyncSummary observe(Plan plan) {
-        if (plan == null) {
-            return new HttpApiSyncSummary(false, 0, 0, 0);
-        }
-        if (!plan.supported()) {
-            recordInventory(plan, List.of());
-            return new HttpApiSyncSummary(false, 0, 0, 0);
-        }
-        Set<String> reportedKeys = new HashSet<String>();
-        List<Long> observedBindings = new ArrayList<>();
-        for (PreparedOperation operation : plan.operations()) {
-            observedBindings.add(assetService.observe(operation.request()).binding().getId());
-            reportedKeys.add(operation.request().sourceKey());
-        }
-        int removed = 0;
-        if (!plan.operations().isEmpty()) {
-            HttpApiServiceScope scope = plan.operations().get(0).request().scope();
-            removed = removeAbsentBindings(scope, reportedKeys);
-        } else if (plan.scope() != null) {
-            removed = removeAbsentBindings(plan.scope(), reportedKeys);
-        }
-        recordInventory(plan, observedBindings);
-        return new HttpApiSyncSummary(true, plan.operations().size(), plan.operations().size(), removed);
-    }
-
-    private void recordInventory(Plan plan, List<Long> bindingIds) {
-        if (inventoryState == null) return;
-        inventoryState.record(plan.scope(), HttpApiSourceKind.STARTER_MVC, plan.supported(), plan.supported(),
-                plan.supported() ? null : "本次 Starter 同步未包含 HTTP API 清单，旧来源尚未重新确认", bindingIds);
-    }
-
-    private int removeAbsentBindings(HttpApiServiceScope scope, Set<String> reportedKeys) {
-        int removed = 0;
-        List<HttpApiSourceBindingEntity> active = bindingMapper.selectList(
-                Wrappers.<HttpApiSourceBindingEntity>lambdaQuery()
-                        .eq(HttpApiSourceBindingEntity::getProjectId, scope.projectId())
-                        .eq(HttpApiSourceBindingEntity::getProjectCode, scope.projectCode())
-                        .eq(HttpApiSourceBindingEntity::getEnvironment, scope.environment())
-                        .eq(HttpApiSourceBindingEntity::getSourceKind, HttpApiSourceKind.STARTER_MVC.name())
-                        .ne(HttpApiSourceBindingEntity::getStatus, HttpApiSourceBindingStatus.REMOVED.name())
-                        .orderByAsc(HttpApiSourceBindingEntity::getId));
-        for (HttpApiSourceBindingEntity binding : active) {
-            if (!reportedKeys.contains(binding.getSourceKey())) {
-                HttpApiAssetService.Removal removal = assetService.remove(new HttpApiAssetService.RemoveRequest(
-                        scope, HttpApiSourceKind.STARTER_MVC, binding.getSourceKey()));
-                if (removal.changed()) {
-                    removed++;
-                }
-            }
-        }
-        return removed;
+        Objects.requireNonNull(plan, "Prepared Starter HTTP API inventory is required");
+        var summary = inventories.observe(plan.scope(), HttpApiSourceKind.STARTER_MVC,
+                plan.supported(), plan.supported(),
+                plan.operations().stream().map(PreparedOperation::request).toList(),
+                plan.supported() ? null : "本次 Starter 同步未包含 HTTP API 清单，旧来源尚未重新确认");
+        return new HttpApiSyncSummary(summary.supported(), summary.observed(), summary.observed(), summary.removed());
     }
 
     private HttpApiOperationContract contract(HttpApiRegistration registration) {
@@ -206,7 +127,7 @@ public class StarterMvcHttpApiIntakeService {
     }
 
     /** Stores canonical, sample-free facts rather than the raw external JSON in a Registry snapshot. */
-    private HttpApiRegistration safeSnapshotRegistration(HttpApiRegistration original,
+    private HttpApiRegistration safeSnapshotRegistration(HttpApiAssetService.ObserveRequest original,
                                                           HttpApiContractCanonicalizer.CanonicalHttpApiContract canonical) {
         try {
             JsonNode root = objectMapper.readTree(canonical.contractJson());
@@ -223,7 +144,7 @@ public class StarterMvcHttpApiIntakeService {
                     root.path("authentication").path("state").asText(),
                     list(root.path("authentication").path("schemes"), new TypeReference<List<String>>() { }),
                     list(root.path("authentication").path("requiredHeaderNames"), new TypeReference<List<String>>() { }),
-                    root.path("sideEffect").asText());
+                    root.path("sideEffect").asText(), original.businessGroups());
         } catch (Exception failure) {
             throw new IllegalArgumentException("HTTP API contract cannot be persisted as a safe snapshot", failure);
         }
@@ -273,7 +194,9 @@ public class StarterMvcHttpApiIntakeService {
     }
 
     public record Plan(boolean supported, HttpApiServiceScope scope, List<PreparedOperation> operations) {
-        static Plan legacy(HttpApiServiceScope scope) {
+        public Plan { operations = List.copyOf(operations); }
+
+        static Plan unsupported(HttpApiServiceScope scope) {
             return new Plan(false, scope, List.of());
         }
 

@@ -49,7 +49,7 @@ export default defineConfig({
           })
         },
       },
-      '^/model/(templates|instances|chat)(/.*)?(\\?.*)?$': {
+      '^/model/(templates|instances|chat|catalog)(/.*)?(\\?.*)?$': {
         target: 'http://localhost:18601',
         changeOrigin: true,
         bypass(req) {

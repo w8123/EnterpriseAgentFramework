@@ -205,7 +205,7 @@ public class RuntimeCapabilityCatalogGateway implements RuntimeCapabilityCatalog
             // No transport headers, credentials or arbitrary error strings enter the draft result/state.
             return new CapabilityInvocationResponse(response.contractVersion(), response.invocationId(),
                     response.qualifiedName(), response.toolName(), response.toolTitle(), response.status(), response.success(),
-                    studioOutput(response.data()), response.code(), response.success() ? null : "业务方法试运行未确认，请查看 Run/Trace",
+                    redact(response.data(), null), response.code(), response.success() ? null : "业务方法试运行未确认，请查看 Run/Trace",
                     response.failureCategory(), false, response.latencyMs(), response.attempt(),
                     response.businessCode(), Map.of());
         }
@@ -249,12 +249,6 @@ public class RuntimeCapabilityCatalogGateway implements RuntimeCapabilityCatalog
         }
         if (value instanceof List<?> items) return items.stream().map(item -> redact(item, key)).toList();
         return value;
-    }
-
-    private Map<String, Object> studioOutput(Object value) {
-        Map<String, Object> normalized = new LinkedHashMap<>();
-        normalized.put("data", redact(value, null));
-        return normalized;
     }
 
     @Override

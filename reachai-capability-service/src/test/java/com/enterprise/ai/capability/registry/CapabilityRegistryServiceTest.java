@@ -22,6 +22,7 @@ import com.enterprise.ai.agent.registry.RegistryContracts.CapabilityReviewReques
 import com.enterprise.ai.agent.registry.RegistryContracts.CapabilitySnapshotDTO;
 import com.enterprise.ai.agent.registry.RegistryContracts.CapabilitySyncRequest;
 import com.enterprise.ai.agent.registry.RegistryContracts.CapabilitySyncResponse;
+import com.enterprise.ai.agent.registry.RegistryContracts.HttpApiSyncSummary;
 import com.enterprise.ai.agent.registry.RegistryContracts.InstanceHeartbeatRequest;
 import com.enterprise.ai.agent.registry.RegistryContracts.InstanceHeartbeatResponse;
 import com.enterprise.ai.agent.registry.RegistryContracts.ProjectRegisterRequest;
@@ -78,9 +79,16 @@ class CapabilityRegistryServiceTest {
     private final java.util.Map<String, com.enterprise.ai.capability.catalog.businessmethod.BusinessMethodAssetEntity> methodOwners =
             new java.util.LinkedHashMap<>();
     private final java.util.Map<String, CapabilityRegistration> methodDeclarations = new java.util.LinkedHashMap<>();
+    private final com.enterprise.ai.capability.catalog.enrichment.CapabilityCatalogGroupingService grouping =
+            mock(com.enterprise.ai.capability.catalog.enrichment.CapabilityCatalogGroupingService.class);
+    private static org.springframework.beans.factory.ObjectProvider<com.enterprise.ai.capability.catalog.semantic.CapabilitySemanticDocumentStore> documentProvider() {
+        var factory = new org.springframework.beans.factory.support.DefaultListableBeanFactory();
+        factory.registerSingleton("documents", mock(com.enterprise.ai.capability.catalog.semantic.CapabilitySemanticDocumentStore.class));
+        return factory.getBeanProvider(com.enterprise.ai.capability.catalog.semantic.CapabilitySemanticDocumentStore.class);
+    }
     private final CapabilityCatalogProjectionStore projections = new CapabilityCatalogProjectionStore(
             scanProjectToolMapper, toolDefinitionMapper, registryJson, policy,
-            methodAssets);
+            methodAssets, grouping, documentProvider());
     private final CapabilityReviewEvidenceStore evidence = new CapabilityReviewEvidenceStore(
             snapshotMapper, diffItemMapper, applyRecordMapper);
     private final StarterMvcHttpApiIntakeService httpApiIntake = mock(StarterMvcHttpApiIntakeService.class);
@@ -95,8 +103,15 @@ class CapabilityRegistryServiceTest {
 
     @org.junit.jupiter.api.BeforeEach
     void defaultHttpApiInventoryPlanAndExplicitMethodOwner() {
+        org.mockito.Mockito.doAnswer(invocation -> {
+            for (ScanProjectToolEntity row : invocation.<List<ScanProjectToolEntity>>getArgument(1)) {
+                if (row.getModuleId() == null) row.setModuleId(71L);
+            }
+            return null;
+        }).when(grouping).bootstrap(any(), any());
         when(httpApiIntake.prepare(any(), any(), any())).thenReturn(
                 new StarterMvcHttpApiIntakeService.Plan(false, null, List.of()));
+        when(httpApiIntake.observe(any())).thenReturn(new HttpApiSyncSummary(false, 0, 0, 0));
         when(methodAssets.find(any())).thenAnswer(invocation -> java.util.Optional.ofNullable(
                 methodOwners.get(invocation.<String>getArgument(0))));
         when(methodAssets.inventory(any())).thenAnswer(invocation -> methodOwners.values().stream()

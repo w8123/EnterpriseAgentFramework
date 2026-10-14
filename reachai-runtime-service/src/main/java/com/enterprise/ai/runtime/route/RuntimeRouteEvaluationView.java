@@ -10,7 +10,6 @@ public record RuntimeRouteEvaluationView(
         Map<String, Long> intentCounts,
         Map<String, Long> agentCounts,
         boolean intentClassifierReady,
-        boolean domainClassifierReady,
         String recommendation) {
 
     public RuntimeRouteEvaluationView {

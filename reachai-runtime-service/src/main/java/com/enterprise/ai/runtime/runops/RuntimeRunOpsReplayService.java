@@ -2,6 +2,7 @@ package com.enterprise.ai.runtime.runops;
 
 import com.enterprise.ai.runtime.runops.RuntimeRunOpsViews.RuntimeRunOpsDetailView;
 import com.enterprise.ai.runtime.runops.RuntimeRunOpsViews.RuntimeRunOpsSummaryView;
+import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -18,6 +19,11 @@ public class RuntimeRunOpsReplayService {
     private final RuntimeRunReplayExecutionPort agentExecutionService;
 
     public ReplayResult replay(String traceId, ReplayRequest request) {
+        return replay(traceId, request, null);
+    }
+
+    /** Identity comes only from the verified internal entry; source users never grant replay authority. */
+    public ReplayResult replay(String traceId, ReplayRequest request, WorkflowExecutionIdentity identity) {
         String originalTraceId = requiredText(traceId, "traceId is required");
         RuntimeRunOpsDetailView detail = runOpsQueryService.detail(originalTraceId);
         RuntimeRunOpsSummaryView source = detail == null ? null : detail.summary();
@@ -42,14 +48,17 @@ public class RuntimeRunOpsReplayService {
                     "Replay input is not persisted; provide messageOverride to replay this run");
         }
         String sessionId = firstText(request == null ? null : request.sessionId(), replaySessionId());
-        String userId = firstText(request == null ? null : request.userId(), source.userId(), "runops-replay");
+        String userId = identity == null
+                ? firstText(request == null ? null : request.userId(), source.userId(), "runops-replay")
+                : identity.userId();
+        String tenantId = identity == null ? source.tenantId() : identity.tenantId();
 
         Map<String, Object> metadata = new LinkedHashMap<>();
         metadata.put("replay", true);
         metadata.put("entryType", "REPLAY");
         metadata.put("replayOfTraceId", originalTraceId);
         putIfText(metadata, "projectCode", source.projectCode());
-        putIfText(metadata, "tenantId", source.tenantId());
+        putIfText(metadata, "tenantId", tenantId);
 
         Map<String, Object> executionRequest = new LinkedHashMap<>();
         executionRequest.put("agentId", source.agentId());
@@ -61,13 +70,14 @@ public class RuntimeRunOpsReplayService {
         executionRequest.put("replayOfTraceId", originalTraceId);
         executionRequest.put("metadata", metadata);
         putIfText(executionRequest, "projectCode", source.projectCode());
-        putIfText(executionRequest, "tenantId", source.tenantId());
+        putIfText(executionRequest, "tenantId", tenantId);
         if (request != null && request.roles() != null && !request.roles().isEmpty()) {
             executionRequest.put("roles", List.copyOf(request.roles()));
         }
 
-        Map<String, Object> execution = agentExecutionService.executePublishedAgent(
-                source.agentId(), source.agentConfigVersionId(), executionRequest);
+        Map<String, Object> execution = identity == null
+                ? agentExecutionService.executePublishedAgent(source.agentId(), source.agentConfigVersionId(), executionRequest)
+                : agentExecutionService.executePublishedAgent(source.agentId(), source.agentConfigVersionId(), executionRequest, identity);
         Map<String, Object> resultMetadata = mapValue(execution == null ? null : execution.get("metadata"));
         return new ReplayResult(
                 originalTraceId,

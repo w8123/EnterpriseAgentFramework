@@ -31,14 +31,14 @@ export interface BusinessMethodOutputCandidate {
 }
 
 const OUTPUT_LOCATIONS = new Set(['OUTPUT', 'RETURN', 'RESPONSE'])
-export const BUSINESS_METHOD_SCALAR_TRIAL_OUTPUT = '只读试运行返回值（标量）'
+export const BUSINESS_METHOD_SCALAR_OUTPUT = '标量返回值'
 const SCALAR_RETURN_TYPES = new Set([
   'string', 'char', 'character', 'boolean', 'bool', 'byte', 'short', 'int',
   'integer', 'long', 'number', 'float', 'double', 'java.math.bigdecimal',
 ])
 
-/** The draft gateway wraps a supported scalar in data; published execution keeps the root value. */
-export function businessMethodHasScalarTrialReturn(responseType: string | null | undefined) {
+/** Scalar business methods return the node root in both draft and published execution. */
+export function businessMethodHasScalarReturn(responseType: string | null | undefined) {
   return SCALAR_RETURN_TYPES.has(String(responseType || '').replace('java.lang.', '').toLowerCase())
 }
 const BUSINESS_METHOD_CATALOG_PROJECTION_FIELDS = new Set([
@@ -133,7 +133,9 @@ export function businessMethodOutputPorts(
   responseType?: string | null,
 ): StudioPort[] {
   const alias = outputAlias.trim() || 'tool_output'
-  const ports: StudioPort[] = [{ id: alias, name: alias, type: 'any', required: false }]
+  const ports: StudioPort[] = [{ id: alias, name: alias, type: 'any', required: false,
+    ...(businessMethodHasScalarReturn(responseType) ? { source: BUSINESS_METHOD_SCALAR_OUTPUT } : {}),
+  }]
   for (const field of businessMethodOutputFields(parameters)) {
     ports.push({
       id: `${alias}.${field.path}`,
@@ -141,12 +143,6 @@ export function businessMethodOutputPorts(
       type: 'any',
       required: false,
       source: field.description || '来源声明返回字段',
-    })
-  }
-  if (businessMethodHasScalarTrialReturn(responseType) && !ports.some((port) => port.id === `${alias}.data`)) {
-    ports.push({
-      id: `${alias}.data`, name: `${alias}.data`, type: 'any', required: false,
-      source: BUSINESS_METHOD_SCALAR_TRIAL_OUTPUT,
     })
   }
   return ports
@@ -162,7 +158,8 @@ export function businessMethodOutputCandidates(
   const variableAlias = alias.startsWith('var.') ? alias : `var.${alias}`
   const variableDisplayAlias = variableAlias.slice('var.'.length)
   const candidates: BusinessMethodOutputCandidate[] = [
-    { value: `nodeOutput.${nodeId}`, label: '节点输出 · 根对象' },
+    { value: `nodeOutput.${nodeId}`, label: businessMethodHasScalarReturn(responseType)
+      ? `节点输出 · ${BUSINESS_METHOD_SCALAR_OUTPUT}` : '节点输出 · 根对象' },
     { value: variableAlias, label: `业务别名 · ${variableDisplayAlias}` },
   ]
   for (const field of businessMethodOutputFields(parameters)) {
@@ -170,9 +167,6 @@ export function businessMethodOutputCandidates(
       { value: `nodeOutput.${nodeId}.${field.path}`, label: `节点输出 · ${field.path}`, path: field.path },
       { value: `${variableAlias}.${field.path}`, label: `业务别名 · ${variableDisplayAlias}.${field.path}`, path: field.path },
     )
-  }
-  if (businessMethodHasScalarTrialReturn(responseType) && !candidates.some((item) => item.value === `nodeOutput.${nodeId}.data`)) {
-    candidates.push({ value: `nodeOutput.${nodeId}.data`, label: '只读试运行 · 标量返回值', path: 'data' })
   }
   return candidates
 }

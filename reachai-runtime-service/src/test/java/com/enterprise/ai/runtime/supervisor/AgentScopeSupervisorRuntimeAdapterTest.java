@@ -985,6 +985,13 @@ class AgentScopeSupervisorRuntimeAdapterTest {
         List<Map<String, Object>> steps = (List<Map<String, Object>>) result.metadata().get("steps");
         assertTrue(steps.stream().anyMatch(s ->
                 "workflow".equals(s.get("name")) && "completed".equals(s.get("state"))));
+        assertEquals(java.util.Set.of("query_team", "query_owner"), steps.stream()
+                .filter(s -> "workflow".equals(s.get("name"))).map(s -> s.get("toolName"))
+                .collect(java.util.stream.Collectors.toSet()));
+        assertTrue(steps.stream().filter(s -> "workflow".equals(s.get("name")))
+                .allMatch(s -> s.get("detail") instanceof String));
+        assertEquals(2, steps.stream().filter(s -> "policy".equals(s.get("name"))
+                && "ALLOW".equals(s.get("decision"))).count());
     }
 
     @Test

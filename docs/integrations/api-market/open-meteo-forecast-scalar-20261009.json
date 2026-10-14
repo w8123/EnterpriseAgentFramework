@@ -1,0 +1,92 @@
+{
+  "info": {
+    "title": "Open-Meteo forecast scalar-query profile",
+    "version": "official-930063f12047-scalar-query-20261009"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/v1/forecast": {
+      "get": {
+        "operationId": "getForecastCoordinates",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "latitude",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "longitude",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "properties": {
+                    "elevation": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "generationtime_ms": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "latitude": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "longitude": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "timezone": {
+                      "type": "string"
+                    },
+                    "timezone_abbreviation": {
+                      "type": "string"
+                    },
+                    "utc_offset_seconds": {
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": []
+      }
+    }
+  },
+  "servers": [
+    {
+      "url": "https://api.open-meteo.com"
+    }
+  ],
+  "x-reachai-profile": {
+    "omittedOptionalParameters": [
+      "current",
+      "hourly",
+      "daily",
+      "minutely_15"
+    ],
+    "reason": "Current first-call policy accepts explicit scalar query parameters. This profile requests no optional weather-variable arrays; documented root metadata remains an object."
+  },
+  "x-reachai-source": {
+    "byteSha256": "512e29bca2afb06a088cc27fae5c6793a05e272c6404a67e3632cecb87f8516f",
+    "revision": "930063f12047363861f775c685c16a98b52dbfe4",
+    "url": "https://raw.githubusercontent.com/open-meteo/open-meteo/930063f12047363861f775c685c16a98b52dbfe4/openapi/forecast.yml"
+  }
+}

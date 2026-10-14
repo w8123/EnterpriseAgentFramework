@@ -5,6 +5,7 @@ import com.enterprise.ai.common.capability.WorkflowReadOnlyTrialPolicy;
 import com.enterprise.ai.common.capability.ConsoleCapabilityInvocationContracts;
 import com.enterprise.ai.common.capability.HttpApiFirstCallPolicy;
 import com.enterprise.ai.control.capability.CapabilityReviewGateway;
+import com.enterprise.ai.control.capability.CatalogReadAuthorization;
 import com.enterprise.ai.control.client.runtime.RuntimeProxyClient;
 import com.enterprise.ai.control.governance.ControlToolAclDecisionService;
 import com.enterprise.ai.control.identity.PlatformAuthenticatedSession;
@@ -86,7 +87,8 @@ public class ControlWorkflowReadOnlyTrialController {
             return runBusinessMethod(session, workflowId, revision, graph, projectId, projectCode, actor, target, input);
         }
         ResponseEntity<Object> ownerResponse;
-        try { ownerResponse = capability.getHttpApi(target.apiId(), actor); }
+        try { ownerResponse = capability.getHttpApi(target.apiId(), actor,
+                CatalogReadAuthorization.resourceBody(session, PlatformPermissions.CAPABILITY_INVOKE)); }
         catch (RuntimeException unavailable) {
             return error(HttpStatus.SERVICE_UNAVAILABLE, "HTTP_API_TRIAL_OWNER_UNAVAILABLE", "API 来源暂不可读取");
         }
@@ -104,7 +106,8 @@ public class ControlWorkflowReadOnlyTrialController {
         if (summary.path("id").asLong() != target.apiId()
                 || summary.path("projectId").asLong() != projectId
                 || !projectCode.equals(summary.path("projectCode").asText())
-                || !target.qualifiedName().equals(qualifiedName) || environment.isBlank()) {
+                || !target.qualifiedName().equals(qualifiedName) || environment.isBlank()
+                || !CatalogReadAuthorization.matchesOwner(ownerResponse, projectId, projectCode)) {
             return error(HttpStatus.CONFLICT, "HTTP_API_TRIAL_OWNER_CHANGED", "API 所属项目或身份已变化");
         }
         if (!summary.path("sourceConfirmed").asBoolean(false)

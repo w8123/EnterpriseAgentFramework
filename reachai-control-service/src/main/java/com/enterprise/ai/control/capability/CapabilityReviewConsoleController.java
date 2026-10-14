@@ -42,13 +42,18 @@ public class CapabilityReviewConsoleController {
         PlatformAuthenticatedSession session = requestAuthorization.requireResourcePermission(
                 request, PlatformPermissions.PLATFORM_READ, "PROJECT", null, projectCode);
         String actor = actorId(session);
-        ResponseEntity<Object> response = capabilityReviewGateway.getCapability(name, actor);
-        if (!response.getStatusCode().is2xxSuccessful()) return response;
+        ResponseEntity<Object> response = capabilityReviewGateway.getCapabilityIdentity(name, actor,
+                CatalogReadAuthorization.resourceBody(session, PlatformPermissions.PLATFORM_READ));
+        if (response == null) return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
+        if (!response.getStatusCode().is2xxSuccessful()) return ResponseEntity.status(response.getStatusCode()).body(response.getBody());
         if (!(response.getBody() instanceof Map<?, ?> tool)
                 || !projectCode.equals(tool.get("projectCode"))
                 || !(tool.get("qualifiedName") instanceof String qualifiedName)
                 || !qualifiedName.startsWith(projectCode + ":")
-                || !(tool.get("name") instanceof String storageName)) {
+                || !(tool.get("name") instanceof String storageName)
+                || (!name.equals(storageName) && !name.equals(qualifiedName))
+                || !(tool.get("projectId") instanceof Number projectId) || projectId.longValue() <= 0
+                || !CatalogReadAuthorization.matchesOwner(response, projectId.longValue(), projectCode)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "当前项目下未找到该能力");
         }
         // Resolve both aliases from the owner, never from browser-supplied reference keys.

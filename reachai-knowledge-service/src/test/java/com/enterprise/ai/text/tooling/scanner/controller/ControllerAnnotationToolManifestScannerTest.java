@@ -33,6 +33,26 @@ class ControllerAnnotationToolManifestScannerTest {
 
     private final ControllerAnnotationToolManifestScanner scanner = new ControllerAnnotationToolManifestScanner();
 
+    @Test void capturesBusinessLabelsWithoutChangingHttpIdentityOrRevision(@TempDir Path directory) throws Exception {
+        Path source = directory.resolve("DictionaryController.java");
+        String code = """
+                import org.springframework.web.bind.annotation.*;
+                import io.swagger.v3.oas.annotations.tags.Tag;
+                /** 字典业务说明 */
+                @RestController @Tag(name="字典查询与统计")
+                class DictionaryController { @GetMapping("/dictionary/count") public int count() { return 1; } }
+                """;
+        Files.writeString(source, code);
+        var first = scanner.scan(source, new ProjectMetadata("dictionary", "http://localhost", "")).httpApis().get(0);
+        assertEquals(List.of("字典查询与统计"), first.businessGroups());
+        Files.writeString(source, code.replace("字典查询与统计", "基础数据"));
+        var changed = scanner.scan(source, new ProjectMetadata("dictionary", "http://localhost", "")).httpApis().get(0);
+        assertEquals(List.of("基础数据"), changed.businessGroups());
+        assertEquals(first.sourceKey(), changed.sourceKey()); assertEquals(first.sourceRevision(), changed.sourceRevision());
+        Files.writeString(source, code.replace("@Tag(name=\"字典查询与统计\")", ""));
+        assertEquals(List.of("字典业务说明"), scanner.scan(source, new ProjectMetadata("dictionary", "http://localhost", "")).httpApis().get(0).businessGroups());
+    }
+
     @Test
     void scansSpringMvcControllerIntoManifest() {
         ToolManifest manifest = scanner.scan(

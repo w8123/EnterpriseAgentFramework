@@ -394,8 +394,8 @@ function formatTime(value?: string | null) {
 <style scoped lang="scss">
 .memory-erasure-page { color: var(--text-primary); }
 .glass-surface-shell { border: 1px solid var(--border-divider); border-radius: var(--radius-lg); background: var(--bg-primary); }
-.page-hero, .result-header { display: flex; justify-content: space-between; align-items: center; gap: 24px; }
-.page-hero { padding: 28px 30px; }
+.page-hero, .result-header { display: flex; justify-content: space-between; align-items: center; gap: var(--layout-panel-padding); }
+.page-hero { padding: var(--layout-panel-padding); }
 .eyebrow { color: var(--brand-primary); font-size: 11px; font-weight: 800; letter-spacing: .14em; }
 h1 { margin: 7px 0 8px; font-size: 28px; }
 h2 { margin: 6px 0; font-size: 20px; overflow-wrap: anywhere; }
@@ -405,7 +405,7 @@ h2 { margin: 6px 0; font-size: 20px; overflow-wrap: anywhere; }
 .card-description { margin-bottom: 16px; font-size: 13px; line-height: 1.7; }
 .current-summary { display: grid; gap: 9px; margin-top: 22px; padding: 14px; border-radius: var(--radius-md); background: var(--bg-secondary); }
 .current-summary code { overflow-wrap: anywhere; color: var(--text-primary); }
-.result-card { padding: 24px; }
+.result-card { padding: var(--layout-panel-padding); }
 .result-actions { display: flex; align-items: center; gap: 10px; }
 .request-metadata { margin: 18px 0; }
 .domain-table { margin-bottom: 16px; }

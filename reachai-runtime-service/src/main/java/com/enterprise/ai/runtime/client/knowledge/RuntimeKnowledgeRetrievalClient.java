@@ -21,7 +21,8 @@ import java.util.Map;
 )
 public interface RuntimeKnowledgeRetrievalClient {
 
-    @PostMapping("/internal/knowledge/retrieval/query")
+    // The configured service URL is the origin; Knowledge owns servlet context /ai.
+    @PostMapping("/ai/internal/knowledge/retrieval/query")
     KnowledgeRetrievalResult retrieve(@RequestBody KnowledgeRetrievalRequest request);
 
     @Data

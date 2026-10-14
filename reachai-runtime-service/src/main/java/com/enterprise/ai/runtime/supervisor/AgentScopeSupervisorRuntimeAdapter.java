@@ -1713,14 +1713,16 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                     pendingReason = decision.reason();
                     pendingUiRequest = decision.uiRequest();
                     phases.emit("policy-" + toolName, "policy", "waiting", "runtime_lifecycle",
-                            "等待人工确认", firstText(decision.reason(), decision.decision()));
+                            "等待人工确认", firstText(decision.reason(), decision.decision()),
+                            Map.of("toolName", toolName, "decision", decision.decision()));
                     return Mono.just(ToolResultBlock.error(
                             "A2A delegation policy is waiting for user confirmation. Stop and return the confirmation request."));
                 }
                 guardDenyCount.incrementAndGet();
                 executionPlan.fail(toolName);
                 phases.emit("policy-" + toolName, "policy", "failed", "runtime_lifecycle",
-                        "策略拒绝", firstText(decision.reason(), decision.decision()));
+                        "策略拒绝", firstText(decision.reason(), decision.decision()),
+                        Map.of("toolName", toolName, "decision", decision.decision()));
                 return Mono.just(ToolResultBlock.error(
                         "A2A delegation policy denied: " + decision.reason()
                                 + ". Record a revised plan before calling another execution tool."));
@@ -1906,7 +1908,8 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                 String policyState = decision.confirmationRequired() ? "waiting" : "failed";
                 phases.emit("policy-" + tool.getToolName(), "policy", policyState, "runtime_lifecycle",
                         decision.confirmationRequired() ? "等待人工确认" : "策略拒绝",
-                        StringUtils.hasText(reason) && reason.length() <= 120 ? reason : decision.decision());
+                        StringUtils.hasText(reason) && reason.length() <= 120 ? reason : decision.decision(),
+                        Map.of("toolName", tool.getToolName(), "decision", decision.decision()));
                 if (decision.confirmationRequired()) {
                     pendingInteractionId = decision.interactionId();
                     pendingInteractionKind = "APPROVAL";
@@ -1935,6 +1938,8 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                 releasePlannedWorkflow(toolName);
                 return Mono.just(ToolResultBlock.error("Supervisor planned tool call limit exceeded"));
             }
+            phases.emit("policy-" + toolName, "policy", "completed", "runtime_lifecycle",
+                    "策略通过", decision.decision(), Map.of("toolName", toolName, "decision", decision.decision()));
             SupervisorWorkflowExecutionScope scope = new SupervisorWorkflowExecutionScope(
                     request.cancellation(), () -> releasePlannedWorkflow(toolName));
             Lock lock = Boolean.TRUE.equals(tool.getReadOnly())
@@ -2018,7 +2023,7 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                 String workflowStepId = "workflow-" + callNo;
                 decisionMode = "WORKFLOW";
                 phases.emit(workflowStepId, "workflow", "started", "workflow_runtime",
-                        "调用 Workflow", "正在执行：" + tool.getToolName());
+                        "调用 Workflow", "正在执行：" + tool.getToolName(), Map.of("toolName", tool.getToolName()));
                 RuntimeGraphSpecExecutionResult result = graphSpecExecutor.execute(
                         published.graphSpecJson(),
                         workflowInput,
@@ -2030,7 +2035,7 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                 scope.throwIfCancelled();
                 if ("RUNTIME_GRAPH_CANCELLED".equals(result.code()) || workflowCancel.isCancelled()) {
                     phases.emit(workflowStepId, "workflow", "cancelled", "workflow_runtime",
-                            "调用 Workflow", "Workflow 已取消");
+                            "调用 Workflow", "Workflow 已取消", Map.of("toolName", tool.getToolName()));
                     throw new RuntimeAgentExecutionCancellation.CancellationSignal();
                 }
                 long elapsed = (System.nanoTime() - started) / 1_000_000L;
@@ -2050,7 +2055,7 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                             target.workflow().getId(), target.version().getId(), target.version().getVersion(), args,
                             false, result.code(), result.answer(), elapsed, payload, identity);
                     phases.emit(workflowStepId, "workflow", "waiting", "workflow_runtime",
-                            "等待用户交互", "等待交互：" + tool.getToolName());
+                            "等待用户交互", "等待交互：" + tool.getToolName(), Map.of("toolName", tool.getToolName()));
                     // 不将计划标记为失败，避免 Supervisor 把等待当成 Workflow 失败并重规划
                     return ToolResultBlock.text(
                             "Workflow is waiting for user interaction. Stop and return the uiRequest. interactionId="
@@ -2073,7 +2078,7 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                         "调用 Workflow",
                         result.success()
                                 ? ("已完成：" + tool.getToolName())
-                                : ("失败：" + firstText(result.code(), tool.getToolName())));
+                                : ("失败：" + firstText(result.code(), tool.getToolName())), Map.of("toolName", tool.getToolName()));
                 if (!result.success()) {
                     executionPlan.fail(Boolean.TRUE.equals(tool.getReadOnly()) ? null : tool.getToolName());
                 } else if (StringUtils.hasText(tool.getToolName())) {
@@ -2220,7 +2225,7 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                     target.workflow().getId(), target.version().getId(), target.version().getVersion(), args,
                     false, code, message, elapsed, payload, resolveTrustedIdentity(request));
             phases.emit("workflow-" + callNo, "workflow", "failed", "workflow_runtime",
-                    "调用 Workflow", "失败：" + firstText(code, tool.getToolName()));
+                    "调用 Workflow", "失败：" + firstText(code, tool.getToolName()), Map.of("toolName", tool.getToolName()));
             executionPlan.fail(Boolean.TRUE.equals(tool.getReadOnly()) ? null : tool.getToolName());
             return ToolResultBlock.error(json(payload));
         }

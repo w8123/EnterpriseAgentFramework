@@ -2,6 +2,7 @@ package com.enterprise.ai.runtime.runops;
 
 import com.enterprise.ai.runtime.runops.RuntimeRunOpsViews.RuntimeRunOpsDetailView;
 import com.enterprise.ai.runtime.runops.RuntimeRunOpsViews.RuntimeRunOpsSummaryView;
+import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import java.time.LocalDateTime;
@@ -61,6 +62,23 @@ class RuntimeRunOpsReplayServiceTest {
         assertEquals("trace-1", metadata.get("replayOfTraceId"));
         assertFalse(metadata.containsKey("useSnapshot"));
         assertFalse(metadata.containsKey("replayUseSnapshot"));
+    }
+
+    @Test
+    void trustedReplayUsesCurrentOperatorInsteadOfOriginalBusinessUserOrSuppliedUser() {
+        when(queryService.detail("trace-1")).thenReturn(detail("[omitted]", 11L));
+        var identity = WorkflowExecutionIdentity.fromAgent("operator-tenant", null, null, "platform:7:operator");
+        when(executionService.executePublishedAgent(eq("agent-1"), eq(11L), any(), eq(identity)))
+                .thenReturn(Map.of("success", true, "answer", "2", "metadata", Map.of("traceId", "replay-2")));
+        var result = service.replay("trace-1", new RuntimeRunOpsReplayService.ReplayRequest(
+                "只读查询", "replay-session", "forged-business-user", List.of("PROJECT_OWNER")), identity);
+        assertEquals("platform:7:operator", result.userId());
+        assertEquals(11L, result.agentConfigVersionId());
+        ArgumentCaptor<Map<String, Object>> body = ArgumentCaptor.forClass(Map.class);
+        verify(executionService).executePublishedAgent(eq("agent-1"), eq(11L), body.capture(), eq(identity));
+        assertEquals("platform:7:operator", body.getValue().get("userId"));
+        assertEquals("operator-tenant", body.getValue().get("tenantId"));
+        assertEquals("trace-1", body.getValue().get("replayOfTraceId"));
     }
 
     @Test

@@ -51,6 +51,16 @@ public class CapabilityToolCatalogController {
                 .orElse(ResponseEntity.notFound().build());
     }
 
+    @GetMapping("/{name}/identity")
+    public ResponseEntity<ToolIdentity> identity(@PathVariable String name) {
+        return toolCatalogService.findIdentity(name)
+                .map(entity -> ResponseEntity.ok(new ToolIdentity(entity.getId(), entity.getName(), entity.getQualifiedName(),
+                        entity.getProjectId(), entity.getProjectCode(), entity.getAssetType())))
+                .orElse(ResponseEntity.notFound().build());
+    }
+
+    public record ToolIdentity(Long id, String name, String qualifiedName, Long projectId, String projectCode, String assetType) { }
+
     private ToolInfoDTO toDto(ToolDefinitionEntity entity) {
         List<ToolParameterDTO> params = toolCatalogService.parseParameters(entity.getParametersJson()).stream()
                 .map(ToolParameterDTO::from)

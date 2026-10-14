@@ -11,24 +11,19 @@ import java.time.LocalDateTime;
 @TableName("capability_semantic_doc")
 public class SemanticDocEntity {
 
-    public static final String LEVEL_PROJECT = "project";
-    public static final String LEVEL_MODULE = "module";
-    public static final String LEVEL_TOOL = "tool";
-    public static final String LEVEL_SCAN_TOOL = "scan_tool";
-
     public static final String STATUS_GENERATED = "generated";
     public static final String STATUS_EDITED = "edited";
 
     @TableId(type = IdType.AUTO)
     private Long id;
 
-    private String level;
-
     private Long projectId;
-
-    private Long moduleId;
-
-    private Long toolId;
+    private String subjectType;
+    private Long subjectId;
+    private String subjectKey;
+    @com.baomidou.mybatisplus.annotation.TableField(updateStrategy = com.baomidou.mybatisplus.annotation.FieldStrategy.ALWAYS)
+    private String basisContractHash;
+    private Boolean basisAccepted;
 
     private String contentMd;
 

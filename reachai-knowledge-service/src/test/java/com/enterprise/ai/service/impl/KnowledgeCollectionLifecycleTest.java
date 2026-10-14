@@ -111,6 +111,34 @@ class KnowledgeCollectionLifecycleTest {
     }
 
     @Test
+    void reusedDatabaseIdKeepsHistoricalOwnershipWithoutBlockingANewPhysicalCollection() {
+        create();
+        String retiredCollection = physical();
+        long retiredId = db.jdbc().queryForObject("SELECT id FROM knowledge_base", Long.class);
+        service.deleteByCode("kb");
+        reclaimer().reclaimPending();
+        assertEquals("RECLAIMED", state(retiredCollection));
+
+        // MySQL 5.7 may reuse an empty table's deleted AUTO_INCREMENT value after restart.
+        db.jdbc().execute("ALTER TABLE knowledge_base ALTER COLUMN id RESTART WITH " + retiredId);
+        create();
+        String currentCollection = physical();
+
+        assertEquals(retiredId, db.jdbc().queryForObject("SELECT id FROM knowledge_base", Long.class));
+        assertNotEquals(retiredCollection, currentCollection);
+        assertEquals(2, db.jdbc().queryForObject(
+                "SELECT COUNT(*) FROM knowledge_collection_lifecycle WHERE knowledge_base_id=?",
+                Integer.class, retiredId));
+        assertEquals("READY", state(currentCollection));
+
+        db.jdbc().update("UPDATE knowledge_collection_lifecycle SET state='RECLAIMING', next_cleanup_at='2000-01-01 00:00:00' WHERE collection_name=?", retiredCollection);
+        reclaimer().reclaimPending();
+        assertEquals("RECLAIMED", state(retiredCollection));
+        assertEquals(Set.of(currentCollection), remote);
+        assertEquals("READY", state(currentCollection));
+    }
+
+    @Test
     void unknownCreationKeepsSweepingAfterAnEmptyDropAndALateRemoteCreate() {
         doAnswer(call->{remote.add(call.getArgument(0));throw new IllegalStateException("unknown creation");}).when(vectors).ensureCollection(anyString(),anyInt());
         assertThrows(IllegalStateException.class,this::create);String collection=remote.iterator().next();

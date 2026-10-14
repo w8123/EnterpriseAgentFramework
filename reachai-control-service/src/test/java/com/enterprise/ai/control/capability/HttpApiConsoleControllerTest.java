@@ -5,6 +5,7 @@ import com.enterprise.ai.control.governance.ControlToolAclDecisionService;
 import com.enterprise.ai.control.identity.PlatformAuthenticatedSession;
 import com.enterprise.ai.control.identity.PlatformConsoleRoutePolicy;
 import com.enterprise.ai.control.identity.PlatformPermissions;
+import com.enterprise.ai.control.identity.PlatformPermissionGrant;
 import com.enterprise.ai.control.identity.PlatformPrincipal;
 import com.enterprise.ai.control.identity.PlatformRequestAuthorization;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -27,9 +28,66 @@ import static org.mockito.Mockito.*;
 
 /** Public API requests carry no target, credential, role or actor authority. */
 class HttpApiConsoleControllerTest {
+    @Test void fullDetailUsesOneAttestedOwnerReadAndNeverReloadsItsProject() {
+        var fixture = fixture(ControlToolAclDecisionService.DECISION_ALLOW, HASH, true);
+        var response = fixture.controller.detail(fixture.request, 9L);
+        assertEquals(HttpStatus.OK, response.getStatusCode()); assertTrue(response.getHeaders().isEmpty());
+        verify(fixture.capability).getHttpApi(eq(9L), eq("42"), anyMap());
+        verify(fixture.capability, never()).getProjectById(anyLong(), anyString());
+        when(fixture.capability.getHttpApi(eq(9L), eq("42"), anyMap())).thenReturn(ResponseEntity.ok(Map.of("summary", Map.of(
+                "id", 9L, "projectId", 7L, "projectCode", "orders", "qualifiedName", REF, "environment", "dev"))));
+        assertEquals(HttpStatus.BAD_GATEWAY, fixture.controller.detail(fixture.request, 9L).getStatusCode());
+        verifyNoInteractions(fixture.runtime);
+    }
+
+    @Test void connectionWriteClaimsItsOriginalWriteGrantWithoutAddingAReadRequirement() {
+        var fixture = fixture(ControlToolAclDecisionService.DECISION_ALLOW, HASH, true);
+        var session = new PlatformAuthenticatedSession(new PlatformPrincipal(42L, "ops", "Ops"), "session", LocalDateTime.now().plusMinutes(5),
+                List.of("OPERATOR"), List.of(PlatformPermissions.PLATFORM_WRITE),
+                List.of(new PlatformPermissionGrant(PlatformPermissions.PLATFORM_WRITE, "PROJECT", "orders")));
+        when(fixture.authorization.requirePermission(fixture.request, PlatformPermissions.PLATFORM_WRITE)).thenReturn(session);
+        when(fixture.runtime.saveConnection(any(), eq("42"))).thenReturn(ResponseEntity.ok(Map.of("status", "CONFIGURED")));
+        var response = fixture.controller.saveConnection(fixture.request, 9L,
+                Map.of("origin", "https://orders.example.test", "authMode", "NONE", "expectedRevision", 1L));
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        verify(fixture.capability).getHttpApiIdentity(9L, "42", CatalogReadAuthorization.resourceBody(session, PlatformPermissions.PLATFORM_WRITE));
+        verify(fixture.authorization, never()).requirePermission(fixture.request, PlatformPermissions.PLATFORM_READ);
+        verify(fixture.capability, never()).getProjectById(anyLong(), anyString());
+    }
+    @Test void ungroupedApiQueryIsForwardedAfterTheProjectReadGrantAndMixedSelectionIsRejected() {
+        Fixture fixture = fixture(ControlToolAclDecisionService.DECISION_ALLOW, HASH, true);
+        fixture.request.setParameter("ungrouped", "true");
+        when(fixture.capability.listHttpApis(7L, null, null, null, null, 2, 5, "42", null, true, grant()))
+                .thenReturn(ownerPage(Map.of("records", List.of(), "total", 0)));
+        assertEquals(HttpStatus.OK, fixture.controller.list(fixture.request, 7L, null, null, null, null, 2, 5).getStatusCode());
+        verify(fixture.authorization).requireResourcePermission(fixture.request, PlatformPermissions.PLATFORM_READ, "PROJECT", null, "orders");
+        verify(fixture.capability).listHttpApis(7L, null, null, null, null, 2, 5, "42", null, true, grant());
+        verify(fixture.capability, never()).getProjectById(anyLong(), anyString());
+        fixture.request.setParameter("groupId", "4");
+        assertThrows(org.springframework.web.server.ResponseStatusException.class,
+                () -> fixture.controller.list(fixture.request, 7L, null, null, null, null, 1, 20));
+        verify(fixture.capability, never()).listHttpApis(7L, null, null, null, null, 1, 20, "42", 4L, true, grant());
+    }
     private static final String HASH = "a".repeat(64);
     private static final String SOURCE = "b".repeat(64);
     private static final String REF = "orders.dev.GET./orders/{orderId}";
+
+    @Test
+    void forwardsValidatedGroupSelectionWithoutTurningAnEmptyOwnerResultIntoAnUnfilteredPage() {
+        Fixture fixture = fixture(ControlToolAclDecisionService.DECISION_ALLOW, HASH, true);
+        fixture.request.addParameter("groupId", "71");
+        when(fixture.capability.listHttpApis(7L, "dev", "order", "GET", null, 2, 10, "42", 71L, false, grant()))
+                .thenReturn(ownerPage(Map.of("records", List.of(), "total", 0)));
+        ResponseEntity<Object> result = fixture.controller.list(fixture.request, 7L, "dev", "order", "GET", null, 2, 10);
+        assertEquals(HttpStatus.OK, result.getStatusCode());
+        assertEquals(0, ((Map<?, ?>) result.getBody()).get("total"));
+        verify(fixture.capability).listHttpApis(7L, "dev", "order", "GET", null, 2, 10, "42", 71L, false, grant());
+        verify(fixture.capability, never()).listHttpApis(7L, "dev", "order", "GET", null, 2, 10, "42", null, false, grant());
+        verifyNoInteractions(fixture.runtime);
+        fixture.request.setParameter("groupId", "invalid");
+        assertEquals(HttpStatus.BAD_REQUEST, assertThrows(ResponseStatusException.class,
+                () -> fixture.controller.list(fixture.request, 7L, null, null, null, null, 1, 20)).getStatusCode());
+    }
 
     @Test
     void apiRoutesRequirePlatformSessionDomain() {
@@ -124,8 +182,8 @@ class HttpApiConsoleControllerTest {
     void writeNeedsCurrentSourceAndExplicitConfirmationThenBindsBodyWithoutCallerAuthority() {
         Fixture fixture = fixture(ControlToolAclDecisionService.DECISION_ALLOW, HASH, true);
         @SuppressWarnings("unchecked")
-        Map<String, Object> summary = new LinkedHashMap<>((Map<String, Object>) ((Map<?, ?>) fixture.capability.getHttpApi(9L, "42").getBody()).get("summary"));
-        when(fixture.capability.getHttpApi(9L, "42")).thenReturn(ResponseEntity.ok(Map.of("summary", summary,
+        Map<String, Object> summary = new LinkedHashMap<>((Map<String, Object>) ((Map<?, ?>) fixture.capability.getHttpApi(9L, "42", CatalogReadAuthorization.resourceBody(fixture.authorization.requirePermission(fixture.request, PlatformPermissions.PLATFORM_READ), PlatformPermissions.PLATFORM_READ)).getBody()).get("summary"));
+        when(fixture.capability.getHttpApi(org.mockito.ArgumentMatchers.eq(9L), org.mockito.ArgumentMatchers.eq("42"), org.mockito.ArgumentMatchers.anyMap())).thenReturn(ownerPage(Map.of("summary", summary,
                 "acceptedContract", Map.of("sideEffect", "WRITE"))));
         var body = new LinkedHashMap<>(input()); body.put("body", Map.of("note", "one"));
         assertEquals(HttpStatus.CONFLICT, fixture.controller.invoke(fixture.request, 9L, body).getStatusCode());
@@ -149,8 +207,8 @@ class HttpApiConsoleControllerTest {
         Fixture fixture = fixture(ControlToolAclDecisionService.DECISION_ALLOW, HASH, true);
         Map<String, Object> row = Map.of("id", 9L, "projectId", 7L, "projectCode", "orders",
                 "qualifiedName", REF, "sourceStatus", "ACCEPTED");
-        when(fixture.capability.listHttpApis(7L, null, null, null, null, 1, 20, "42"))
-                .thenReturn(ResponseEntity.ok(Map.of("records", List.of(row), "total", 1)));
+        when(fixture.capability.listHttpApis(7L, null, null, null, null, 1, 20, "42", null, false, grant()))
+                .thenReturn(ownerPage(Map.of("records", List.of(row), "total", 1)));
         when(fixture.runtime.catalogStates(any(), eq("42"))).thenReturn(ResponseEntity.ok(List.of(
                 new HttpApiConsoleContracts.CatalogState(REF, "SAVED", "HTTP_FAILED", 401,
                         "2026-09-23T12:00:00"))));
@@ -176,8 +234,8 @@ class HttpApiConsoleControllerTest {
     @Test
     void catalogRejectsAnOwnerPageContainingAnotherProjectBeforeRuntime() {
         Fixture fixture = fixture(ControlToolAclDecisionService.DECISION_ALLOW, HASH, true);
-        when(fixture.capability.listHttpApis(7L, null, null, null, null, 1, 20, "42"))
-                .thenReturn(ResponseEntity.ok(Map.of("records", List.of(Map.of("id", 9L,
+        when(fixture.capability.listHttpApis(7L, null, null, null, null, 1, 20, "42", null, false, grant()))
+                .thenReturn(ownerPage(Map.of("records", List.of(Map.of("id", 9L,
                         "projectId", 7L, "projectCode", "other", "qualifiedName", REF)), "total", 1)));
 
         assertEquals(HttpStatus.BAD_GATEWAY, fixture.controller.list(fixture.request, 7L,
@@ -216,7 +274,10 @@ class HttpApiConsoleControllerTest {
         PlatformAuthenticatedSession session = new PlatformAuthenticatedSession(
                 new PlatformPrincipal(42L, "ops", "Ops"), "session", LocalDateTime.now().plusMinutes(5),
                 List.of("OPERATOR"), List.of(PlatformPermissions.PLATFORM_READ,
-                PlatformPermissions.PLATFORM_WRITE, PlatformPermissions.CAPABILITY_INVOKE), List.of());
+                PlatformPermissions.PLATFORM_WRITE, PlatformPermissions.CAPABILITY_INVOKE),
+                List.of(new PlatformPermissionGrant(PlatformPermissions.PLATFORM_READ, "GLOBAL", "*"),
+                        new PlatformPermissionGrant(PlatformPermissions.PLATFORM_WRITE, "GLOBAL", "*"),
+                        new PlatformPermissionGrant(PlatformPermissions.CAPABILITY_INVOKE, "GLOBAL", "*")));
         when(authorization.requirePermission(eq(request), anyString())).thenReturn(session);
         Map<String, Object> summary = new LinkedHashMap<>();
         summary.put("id", 9L); summary.put("projectId", 7L); summary.put("projectCode", "orders");
@@ -224,7 +285,8 @@ class HttpApiConsoleControllerTest {
         summary.put("sourceConfirmed", confirmed); summary.put("sourceStatus", "ACCEPTED");
         summary.put("candidateContractHash", candidateHash); summary.put("acceptedContractHash", HASH);
         summary.put("sourceSetRevision", SOURCE);
-        when(capability.getHttpApi(9L, "42")).thenReturn(ResponseEntity.ok(Map.of("summary", summary)));
+        when(capability.getHttpApi(org.mockito.ArgumentMatchers.eq(9L), org.mockito.ArgumentMatchers.eq("42"), org.mockito.ArgumentMatchers.anyMap())).thenReturn(ownerPage(Map.of("summary", summary)));
+        when(capability.getHttpApiIdentity(org.mockito.ArgumentMatchers.eq(9L), org.mockito.ArgumentMatchers.eq("42"), org.mockito.ArgumentMatchers.anyMap())).thenReturn(ownerPage(summary));
         when(capability.getProjectById(7L, "42"))
                 .thenReturn(ResponseEntity.ok(Map.of("projectId", 7L, "projectCode", "orders")));
         when(acl.decide(eq(session.roles()), eq(7L), eq("orders"), eq("TOOL"), eq(REF))).thenReturn(decision);
@@ -235,4 +297,32 @@ class HttpApiConsoleControllerTest {
     private record Fixture(HttpApiConsoleController controller, MockHttpServletRequest request,
                            CapabilityReviewGateway capability, RuntimeHttpApiConsoleGateway runtime,
                            PlatformRequestAuthorization authorization) { }
+
+    private Map<String, Object> grant() {
+        return Map.of("catalogReadGrant", Map.of("global", true, "projects", List.of(), "requestedProjectId", 7L));
+    }
+
+    private ResponseEntity<Object> ownerPage(Object body) {
+        return ResponseEntity.ok().header(CatalogReadAuthorization.SCOPE, "PROJECT")
+                .header(CatalogReadAuthorization.PROJECT_ID, "7")
+                .header(CatalogReadAuthorization.PROJECT_CODE, "orders").body(body);
+    }
+
+    @Test void connectionsUseCanonicalIdentityWithoutLoadingContractOrAnotherProjectRoundTrip() {
+        var fixture = fixture(ControlToolAclDecisionService.DECISION_ALLOW, HASH, true);
+        when(fixture.runtime.readConnection(any(), eq("42"))).thenReturn(ResponseEntity.ok(Map.of("status", "NONE")));
+        assertEquals(HttpStatus.OK, fixture.controller.connection(fixture.request, 9L).getStatusCode());
+        verify(fixture.capability).getHttpApiIdentity(org.mockito.ArgumentMatchers.eq(9L), org.mockito.ArgumentMatchers.eq("42"), org.mockito.ArgumentMatchers.anyMap());
+        verify(fixture.capability, never()).getHttpApi(anyLong(), anyString(), org.mockito.ArgumentMatchers.anyMap());
+        verify(fixture.capability, never()).getProjectById(anyLong(), anyString());
+        verify(fixture.authorization).requireResourcePermission(fixture.request, PlatformPermissions.PLATFORM_READ, "PROJECT", null, "orders");
+    }
+
+    @Test void listWithMissingAttestedOwnerHeadersFailsClosedBeforeRuntime() {
+        var fixture = fixture(ControlToolAclDecisionService.DECISION_ALLOW, HASH, true);
+        when(fixture.capability.listHttpApis(7L, null, null, null, null, 1, 20, "42", null, false, grant()))
+                .thenReturn(ResponseEntity.ok(Map.of("records", List.of(), "total", 0)));
+        assertEquals(HttpStatus.BAD_GATEWAY, fixture.controller.list(fixture.request, 7L, null, null, null, null, 1, 20).getStatusCode());
+        verifyNoInteractions(fixture.runtime);
+    }
 }

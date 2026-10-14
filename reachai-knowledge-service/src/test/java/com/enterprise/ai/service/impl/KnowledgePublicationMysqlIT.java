@@ -98,7 +98,7 @@ class KnowledgePublicationMysqlIT {
             var jobs = session.getMapper(DocumentImportJobRepository.class);
             var transactionManager = new DataSourceTransactionManager(source);
             var executions = KnowledgeIndexTestSupport.executions(session, transactionManager);
-            var guard = new DocumentImportPublicationGuard(jobs, executions, org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeFileDeletionService.class));
+            var guard = new DocumentImportPublicationGuard(jobs, executions, org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeFileDeletionService.class), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeFileReadAccessService.class));
             var step = new com.enterprise.ai.pipeline.step.MetadataPersistStep(
                     session.getMapper(com.enterprise.ai.repository.KnowledgeBaseRepository.class),
                     session.getMapper(com.enterprise.ai.repository.FileInfoRepository.class),

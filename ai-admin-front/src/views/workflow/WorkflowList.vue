@@ -1344,8 +1344,8 @@ function workflowStatusClass(status?: string | null) {
   min-width: 0;
   margin: 0;
   flex-shrink: 0;
-  min-height: 104px;
-  max-height: 104px;
+  min-height: var(--layout-metric-strip-min-height);
+  max-height: none;
   padding: 0;
   gap: 0;
   overflow: hidden;
@@ -1360,7 +1360,7 @@ function workflowStatusClass(status?: string | null) {
   flex: 0 0 1px;
   align-self: center;
   width: 1px;
-  height: 68px;
+  height: var(--layout-metric-icon-size);
   background: rgb(var(--brand-primary-rgb) / 0.18);
   border-radius: 1px;
 }
@@ -1369,11 +1369,11 @@ function workflowStatusClass(status?: string | null) {
   position: relative;
   display: flex;
   flex: 1 1 0;
-  gap: 18px;
+  gap: var(--layout-metric-gap);
   align-items: center;
   min-width: 0;
-  min-height: 104px;
-  padding: 18px 22px;
+  min-height: 0;
+  padding: var(--layout-metric-padding-block) var(--layout-metric-padding-inline);
 
   .metric-label,
   small {
@@ -1392,11 +1392,11 @@ function workflowStatusClass(status?: string | null) {
 
   strong {
     display: block;
-    margin: 4px 0 2px;
+    margin: 2px 0 0;
     color: #0f172a;
-    font-size: 25px;
+    font-size: var(--layout-metric-value-size);
     font-weight: 700;
-    line-height: 30px;
+    line-height: 1.2;
   }
 
   small {
@@ -1407,9 +1407,9 @@ function workflowStatusClass(status?: string | null) {
 
 .metric-segment-icon {
   flex-shrink: 0;
-  --metric-icon-bg-size: 54px;
-  --metric-icon-bg-radius: 16px;
-  --metric-icon-glyph-size: 30px;
+  --metric-icon-bg-size: var(--layout-metric-icon-size);
+  --metric-icon-bg-radius: 12px;
+  --metric-icon-glyph-size: calc(var(--layout-metric-icon-size) * 0.55);
   --metric-icon-stroke-width: 1.75;
 }
 
@@ -1422,7 +1422,7 @@ function workflowStatusClass(status?: string | null) {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--layout-control-gap);
   min-width: 0;
 }
 
@@ -1431,9 +1431,9 @@ function workflowStatusClass(status?: string | null) {
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  min-width: 72px;
-  height: 24px;
-  padding: 0 12px;
+  min-width: 60px;
+  height: 20px;
+  padding: 0 var(--layout-control-gap);
   border-radius: 12px;
   font-size: 12px;
   font-style: normal;
@@ -1481,9 +1481,9 @@ function workflowStatusClass(status?: string | null) {
   display: grid;
   grid-template-columns: minmax(340px, 2.4fr) repeat(2, minmax(170px, 1fr)) minmax(96px, auto);
   align-items: center;
-  gap: 12px;
-  margin: 28px 28px 0;
-  padding: 9px 14px;
+  gap: var(--layout-control-gap);
+  margin: var(--layout-panel-padding) var(--layout-panel-padding) 0;
+  padding: var(--layout-filter-padding-block) var(--layout-filter-padding-inline);
   border: 1px solid rgb(var(--brand-primary-rgb) / 0.11);
   border-radius: 12px;
   background: var(--brand-soft-bg, rgba(238, 242, 255, 0.76));
@@ -1559,8 +1559,8 @@ function workflowStatusClass(status?: string | null) {
   place-items: center;
   align-content: center;
   gap: 8px;
-  margin: 22px 28px 0;
-  padding: 26px;
+  margin: var(--layout-section-gap) var(--layout-panel-padding) 0;
+  padding: var(--layout-panel-padding);
   border: 1px dashed color-mix(in srgb, var(--el-color-danger) 28%, var(--border-readable));
   border-radius: var(--radius-lg);
   text-align: center;
@@ -1588,7 +1588,7 @@ function workflowStatusClass(status?: string | null) {
   flex: 1;
   flex-direction: column;
   min-height: 0;
-  margin: 22px 28px 0;
+  margin: var(--layout-section-gap) var(--layout-panel-padding) 0;
   overflow: hidden;
   border: 1px solid rgb(var(--brand-primary-rgb) / 0.12);
   border-radius: 13px;
@@ -1862,8 +1862,8 @@ function workflowStatusClass(status?: string | null) {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  padding: 14px 22px 16px;
+  gap: var(--layout-section-gap);
+  padding: var(--layout-pagination-padding-block) var(--layout-panel-padding);
   border-top: 1px solid #eef1f7;
   color: #667085;
   font-size: 13px;
@@ -2163,12 +2163,6 @@ function workflowStatusClass(status?: string | null) {
     display: none;
   }
 
-  .metric-segment {
-    min-height: 92px;
-    padding: 14px 16px;
-    gap: 12px;
-  }
-
   .toolbar {
     grid-template-columns: minmax(0, 2fr) repeat(2, minmax(0, 1fr));
   }
@@ -2221,10 +2215,6 @@ function workflowStatusClass(status?: string | null) {
 }
 
 @media (max-width: 760px) {
-  .metric-segment {
-    min-height: 84px;
-  }
-
   .toolbar,
   .create-form-grid {
     grid-template-columns: 1fr;
@@ -2238,6 +2228,12 @@ function workflowStatusClass(status?: string | null) {
   .table-footer {
     align-items: flex-start;
     flex-direction: column;
+  }
+}
+
+@media (max-width: 480px) {
+  .metric-strip {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

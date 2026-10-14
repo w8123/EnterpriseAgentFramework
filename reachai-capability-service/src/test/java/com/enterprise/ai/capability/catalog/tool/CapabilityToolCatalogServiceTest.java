@@ -28,6 +28,17 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class CapabilityToolCatalogServiceTest {
+    @Test void identitySqlSelectsOnlyOwnerAndStableNamesWithoutProjectOrScanHydration() {
+        var entity = tool("orders_create", "Create order");
+        AtomicReference<com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<ToolDefinitionEntity>> captured = new AtomicReference<>();
+        when(toolMapper.selectOne(any())).thenAnswer(call -> { captured.set(call.getArgument(0)); return entity; });
+        assertEquals(entity, service.findIdentity("orders_create").orElseThrow());
+        var selected = captured.get().getSqlSelect();
+        assertTrue(selected.contains("project_id")); assertTrue(selected.contains("qualified_name"));
+        org.junit.jupiter.api.Assertions.assertFalse(selected.contains("parameters_json"));
+        org.junit.jupiter.api.Assertions.assertFalse(selected.contains("capability_metadata_json"));
+        org.mockito.Mockito.verifyNoInteractions(projectMapper, scanToolMapper);
+    }
 
     @BeforeAll
     static void initMybatisPlusLambdaCache() {

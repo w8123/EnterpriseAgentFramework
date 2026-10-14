@@ -14,7 +14,7 @@ export interface UseRegistryProjectWorkbenchDeps {
   isSdkBackedProject: Readonly<Ref<boolean>>
   goCapability: (path: string) => void
   goCapabilitySync: () => void
-  goScanProjectDetail: () => void
+  goCapabilitySources: () => void
   goWorkflowList: () => void
   goPageActionGovernance: () => void
   goPageAssistantWizard: () => void
@@ -50,17 +50,17 @@ export function useRegistryProjectWorkbench(deps: UseRegistryProjectWorkbenchDep
       title: '项目资源',
       items: [
         {
-          title: '来源变化与同步记录',
+          title: '接入与变更',
           desc: 'SDK 按策略自动接纳声明；在这里处理例外变化并查看同步记录。',
           icon: Grid, tone: 'blue', disabled: !deps.project.value?.id, action: deps.goCapabilitySync,
         },
         {
-          title: '后端接口管理',
-          desc: '查看来源接口、模块与语义证据；到业务方法/API 目录接纳契约并受控调用。',
+          title: '业务能力',
+          desc: '查找业务方法和 HTTP API，查看参数、试调用及使用位置。',
           icon: Grid,
           tone: 'blue',
           disabled: !deps.project.value?.id,
-          action: deps.goScanProjectDetail,
+          action: deps.goCapabilitySources,
         },
         {
           title: '前端页面管理',

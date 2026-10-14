@@ -103,13 +103,12 @@ public final class WorkflowReadOnlyTrialPolicy {
                     || !entry.getValue().isTextual()
                     || !entry.getValue().asText().matches("params\\.[A-Za-z][A-Za-z0-9_-]{0,127}")) throw unsupported();
         }
-        String prefix = "nodeOutput." + nodeId + ".";
+        String outputRoot = "nodeOutput." + nodeId;
         var assignments = variable.path("config").path("assignments").fields();
         while (assignments.hasNext()) {
             var entry = assignments.next();
             if (!entry.getKey().matches("[A-Za-z][A-Za-z0-9_-]{0,127}") || !entry.getValue().isTextual()
-                    || !entry.getValue().asText().startsWith(prefix)
-                    || !"data".equals(entry.getValue().asText().substring(prefix.length()))) {
+                    || !outputRoot.equals(entry.getValue().asText())) {
                 throw unsupported();
             }
         }
@@ -134,7 +133,7 @@ public final class WorkflowReadOnlyTrialPolicy {
         return owner.executable() ? null : "BUSINESS_METHOD_TRIAL_UNAVAILABLE";
     }
 
-    /** Initial bounded shape: scalar declared inputs, exact params mapping and SDK data return paths. */
+    /** Initial bounded shape: scalar declared inputs, exact params mapping and the declared scalar output root. */
     public static Map<String, Object> businessInput(ObjectMapper json, String graph, Target target,
             ConsoleCapabilityInvocationContracts.InvocationContext owner, Map<String, Object> params) {
         try {

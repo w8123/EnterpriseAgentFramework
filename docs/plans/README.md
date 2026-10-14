@@ -15,6 +15,8 @@
 | [BMAPI-2D-业务方法Workflow接入规格.md](./BMAPI-2D-业务方法Workflow接入规格.md) | Workflow Studio 的业务方法选择、输入/输出映射、保存回读，以及后续发布、受控执行、Trace 与引用验收 |
 | [BMAPI-3-API接入与使用规格.md](./BMAPI-3-API接入与使用规格.md) | HTTP API 一等资产、操作身份、规范化契约、多来源关系，以及目录、验证、Workflow 和 API 市场受控绑定的分批边界 |
 | [BMAPI-6-资产体系收口方案与验收.md](./BMAPI-6-资产体系收口方案与验收.md) | 本会话系统性收口方法/API owner、派生调用、固定引用、旧资产退场、SQL 与 C01–C12 当前验收；不考虑历史兼容 |
+| [BMAPI-8-业务能力链路整合与功能承接.md](./BMAPI-8-业务能力链路整合与功能承接.md) | 当前工作台、来源接入、目录批量读取、分组、语义和图谱整合的范围与 F1–F9 功能承接要求；新库直接演进，不保留历史数据兼容 |
+| [BMAPI-11-业务分类融入能力目录.md](./BMAPI-11-业务分类融入能力目录.md) | 当前业务分类呈现与全量归属契约，接替独立分组管理及目录下拉，分类说明和整理就地完成 |
 | [architecture-cleanup-closeout-20260912.md](./architecture-cleanup-closeout-20260912.md) | 本轮架构整理交付、必要回归结果，以及按用户要求转入后续的扩展验收清单 |
 | [knowledge-index-execution-reclamation.md](./knowledge-index-execution-reclamation.md) | 索引执行、文件/集合及原件/解析工件生命周期已接入；检索与重解析已校验不可变记录身份；解析临时文件中断与同版本真实 MinIO 回收已验证；开发库历史登记为空；继续部署态与完整服务验收 |
 | [architecture-cleanup-audit-20260905.md](./architecture-cleanup-audit-20260905.md) | 系统整理首轮体检、行为复现、架构债务、实施批次与验证边界 |

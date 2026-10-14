@@ -6,7 +6,7 @@ import HttpApiDetail from './HttpApiDetail.vue'
 import BusinessMethodInvocationInputEditor from '@/views/capability/components/BusinessMethodInvocationInputEditor.vue'
 
 const mocks = vi.hoisted(() => ({ detail: vi.fn(), connection: vi.fn(), references: vi.fn(), credentials: vi.fn(),
-  invoke: vi.fn(), query: vi.fn(), session: null as Ref<string> | null, user: null as Ref<any> | null,
+  invoke: vi.fn(), query: vi.fn(), push: vi.fn(), leaveGuard: null as null | (() => boolean | Promise<boolean>), session: null as Ref<string> | null, user: null as Ref<any> | null,
   route: null as { params: { id: string }; query: object } | null,
   scope: null as { requestKey: Ref<string>; requestParams: Ref<{ projectId: number }> } | null }))
 vi.mock('@/api/httpApi', () => ({ getHttpApi: mocks.detail, getHttpApiConnection: mocks.connection, getHttpApiReferences: mocks.references,
@@ -23,7 +23,7 @@ vi.mock('@/composables/usePageProjectScope', async () => {
 })
 vi.mock('vue-router', async () => {
   const { reactive } = await import('vue'); mocks.route = reactive({ params: { id: '1' }, query: {} })
-  return { useRoute: () => mocks.route, useRouter: () => ({ push: vi.fn() }) }
+  return { useRoute: () => mocks.route, useRouter: () => ({ push: mocks.push }), onBeforeRouteLeave: (guard: () => boolean | Promise<boolean>) => { mocks.leaveGuard = guard } }
 })
 
 const hash = 'a'.repeat(64), source = 'b'.repeat(64), credentialRevision = 'c'.repeat(64)
@@ -45,7 +45,7 @@ function result(id = firstId, status = 'UNKNOWN') { return { contractVersion: 1,
   projectId: 41, projectCode: 'orders', environment: 'dev', runId: 7, traceId: 'trace-7', status, dispatchStage: 'UNCONFIRMED', terminal: true } }
 let wrapper: ReturnType<typeof mount> | null = null
 function start() { wrapper = mount(HttpApiDetail, { attachTo: document.body, global: { plugins: [ElementPlus],
-  stubs: { RouterLink: { props: ['to'], template: '<a><slot /></a>' } } } }) }
+  stubs: { CapabilityEnrichmentPanel: true, RouterLink: { props: ['to'], template: '<a><slot /></a>' } } } }) }
 async function click(text: string) {
   const button = Array.from(document.querySelectorAll('button')).find(item => item.textContent?.trim() === text)
   if (!button) throw new Error(`Missing action: ${text}`)
@@ -71,6 +71,66 @@ beforeEach(() => {
 afterEach(() => { wrapper?.unmount(); wrapper = null; document.body.innerHTML = ''; vi.unstubAllGlobals() })
 
 describe('write HTTP API confirmation and query-only recovery', () => {
+  it('protects unsent Console input when returning to the catalog or leaving through navigation', async () => {
+    start(); await flushPromises(); await input()
+    expect(document.body.textContent).not.toContain('用于 Workflow')
+    wrapper!.findComponent({ name: 'PageHeader' }).vm.$emit('back')
+    await flushPromises(); expect(mocks.push).not.toHaveBeenCalled()
+    await click('继续编辑'); expect(mocks.push).not.toHaveBeenCalled()
+    expect(wrapper!.find<HTMLInputElement>('input[aria-label="orderId"]').element.value).toBe('ORD-3B4')
+    const leaving = mocks.leaveGuard!()
+    await flushPromises(); await click('继续编辑'); expect(await leaving).toBe(false)
+    wrapper!.findComponent({ name: 'PageHeader' }).vm.$emit('back')
+    await flushPromises(); await click('放弃输入并离开')
+    expect(mocks.push).toHaveBeenCalledWith({ path: '/business-capabilities/http-apis', query: {} })
+    expect(mocks.invoke).not.toHaveBeenCalled()
+  })
+  it('locks navigation and section changes while the business explanation is being saved', async () => {
+    start(); await flushPromises()
+    await wrapper!.find('#tab-description').trigger('click'); await flushPromises()
+    wrapper!.findComponent({ name: 'CapabilityEnrichmentPanel' }).vm.$emit('busy-change', true); await flushPromises()
+    expect(mocks.leaveGuard!()).toBe(false)
+    await wrapper!.find('#tab-contract').trigger('click'); await flushPromises()
+    expect(wrapper!.find('#tab-description').attributes('aria-selected')).toBe('true')
+    wrapper!.findComponent({ name: 'CapabilityEnrichmentPanel' }).vm.$emit('busy-change', false); await flushPromises()
+    expect(mocks.leaveGuard!()).toBe(true)
+  })
+  it('blocks connection saves for unsupported contracts while allowing ordinary unconfigured connections', async () => {
+    mocks.connection.mockResolvedValue({ data: { status: 'BLOCKED', revision: null, origin: null, authMode: null,
+      blockingReason: '首批仅支持 JSON 对象响应' } })
+    start(); await flushPromises()
+    const save = () => Array.from(document.querySelectorAll('button')).find(button => button.textContent?.trim() === '保存连接')!
+    expect(save().disabled).toBe(true)
+    expect(document.body.textContent).toContain('首批仅支持 JSON 对象响应')
+    save().click(); await flushPromises()
+    const { saveHttpApiConnection } = await import('@/api/httpApi')
+    expect(saveHttpApiConnection).not.toHaveBeenCalled()
+    mocks.connection.mockResolvedValue({ data: { status: 'UNCONFIGURED', revision: null, origin: null, authMode: null } })
+    await click('刷新当前状态')
+    expect(save().disabled).toBe(false)
+  })
+  it('explains missing JSON media declarations on accepted object responses without enabling a call', async () => {
+    const declaration = owner()
+    Object.assign(declaration.acceptedContract, { responses: [{ status: '200', schema: { type: 'object' }, contentTypes: [] }] })
+    mocks.detail.mockResolvedValue({ data: declaration })
+    mocks.connection.mockResolvedValue({ data: { status: 'BLOCKED', blockingReason: '首批仅支持 JSON 对象响应' } })
+    start(); await flushPromises()
+    expect(document.body.textContent).toContain('produces=application/json')
+    expect(document.body.textContent).toContain('重新同步并接纳契约')
+    const save = Array.from(document.querySelectorAll('button')).find(button => button.textContent?.trim() === '保存连接')!
+    expect(save.disabled).toBe(true)
+    expect(mocks.invoke).not.toHaveBeenCalled()
+  })
+  it('retains the server blocker for declared JSON arrays instead of suggesting a media change', async () => {
+    const declaration = owner()
+    Object.assign(declaration.acceptedContract, { responses: [{ status: '200', schema: { type: 'array' }, contentTypes: ['application/json'] }] })
+    mocks.detail.mockResolvedValue({ data: declaration })
+    mocks.connection.mockResolvedValue({ data: { status: 'BLOCKED', blockingReason: '首批仅支持 JSON 对象响应' } })
+    start(); await flushPromises()
+    expect(document.body.textContent).toContain('首批仅支持 JSON 对象响应')
+    expect(document.body.textContent).not.toContain('produces=application/json')
+    expect(mocks.invoke).not.toHaveBeenCalled()
+  })
   it('blocks explicit optional null before opening a write confirmation or submitting', async () => {
     start(); await flushPromises(); await input()
     const editor = wrapper!.findComponent(BusinessMethodInvocationInputEditor)

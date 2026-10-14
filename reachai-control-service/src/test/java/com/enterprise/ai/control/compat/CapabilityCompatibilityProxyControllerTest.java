@@ -33,18 +33,10 @@ class CapabilityCompatibilityProxyControllerTest {
                 .getDeclaredMethod("proxyRegistry", RequestEntity.class, HttpServletRequest.class);
 
         assertArrayEquals(new String[] {
-                "/api/api-graph",
-                "/api/api-graph/{*path}",
                 "/api/tool-retrieval",
                 "/api/tool-retrieval/{*path}",
                 "/api/scan-projects",
-                "/api/scan-projects/{*path}",
-                "/api/scan-modules",
-                "/api/scan-modules/{*path}",
-                "/api/semantic-docs",
-                "/api/semantic-docs/{*path}",
-                "/api/domains",
-                "/api/domains/{*path}"
+                "/api/scan-projects/{*path}"
         }, method.getAnnotation(org.springframework.web.bind.annotation.RequestMapping.class).path());
         assertArrayEquals(new String[] {
                 "/api/capabilities",
@@ -80,14 +72,14 @@ class CapabilityCompatibilityProxyControllerTest {
         byte[] requestBody = "{\"enabled\":true}".getBytes(StandardCharsets.UTF_8);
         byte[] responseBody = "{\"items\":[]}".getBytes(StandardCharsets.UTF_8);
         RequestEntity<byte[]> requestEntity = RequestEntity
-                .method(HttpMethod.PUT, URI.create("/api/api-graph/order.query?dryRun=true"))
+                .method(HttpMethod.PUT, URI.create("/api/scan-projects/7?dryRun=true"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .header("X-Request-Id", "req-cap-1")
                 .body(requestBody);
-        MockHttpServletRequest servletRequest = new MockHttpServletRequest("PUT", "/api/api-graph/order.query");
+        MockHttpServletRequest servletRequest = new MockHttpServletRequest("PUT", "/api/scan-projects/7");
         servletRequest.setQueryString("dryRun=true");
 
-        server.expect(requestTo("http://capability:18605/api/api-graph/order.query?dryRun=true"))
+        server.expect(requestTo("http://capability:18605/api/scan-projects/7?dryRun=true"))
                 .andExpect(method(HttpMethod.PUT))
                 .andExpect(header("X-Request-Id", "req-cap-1"))
                 .andExpect(header("X-ReachAI-Control-Capability-Proxy", "true"))

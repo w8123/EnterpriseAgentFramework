@@ -17,11 +17,13 @@ import com.enterprise.ai.capability.catalog.httpapi.HttpApiSourceBindingEntity;
 import com.enterprise.ai.capability.catalog.httpapi.HttpApiSourceBindingMapper;
 import com.enterprise.ai.capability.catalog.httpapi.HttpApiSourceKind;
 import com.enterprise.ai.capability.catalog.scan.CapabilityScannerClient;
-import com.enterprise.ai.capability.catalog.scan.ControllerScanHttpApiIntakeService;
-import com.enterprise.ai.capability.catalog.scan.OpenApiScanHttpApiIntakeService;
+import com.enterprise.ai.capability.catalog.scan.ScannerHttpApiIntakeService;
+import com.enterprise.ai.capability.catalog.scan.ScannerHttpApiContractAdapter;
+import com.enterprise.ai.capability.catalog.httpapi.HttpApiInventoryIntakeService;
 import com.enterprise.ai.common.capability.HttpApiConsoleContracts;
 import com.enterprise.ai.common.capability.HttpApiFirstCallPolicy;
 import com.enterprise.ai.control.capability.CapabilityReviewGateway;
+import com.enterprise.ai.control.capability.CatalogReadAuthorization;
 import com.enterprise.ai.control.capability.HttpApiConsoleController;
 import com.enterprise.ai.control.capability.RuntimeHttpApiConsoleGateway;
 import com.enterprise.ai.control.governance.ControlToolAclDecisionService;
@@ -138,13 +140,26 @@ public final class HttpApiBrowserFixtureHost {
             this.controllerSource = controllerSource;
             sourceController = controllerSource ? new ControllerOrderFixtureController() : null;
             sourceMvc = controllerSource ? MockMvcBuilders.standaloneSetup(sourceController).build() : null;
-            db = new RuntimeQueryTestDatabase(List.of("capability_scan_project", "capability_http_api_asset",
+            db = new RuntimeQueryTestDatabase(List.of("capability_scan_project", "capability_scan_module", "capability_catalog_group_member", "capability_http_api_asset",
+                    "capability_scan_project_tool", "capability_catalog_classification_state", "capability_semantic_doc",
+                    "capability_business_method_asset", "capability_business_method_revision", "capability_snapshot",
+                    "capability_diff_item", "capability_api_graph_node",
                     "capability_http_api_source_binding", "capability_http_api_inventory_state",
                     "capability_http_api_inventory_member", "capability_http_api_acceptance",
                     "runtime_agent_workflow_credential", "runtime_http_api_connection", "runtime_run",
                     "runtime_trace_span", "runtime_tool_call_log", "runtime_guard_decision_log",
                     "runtime_console_capability_invocation"),
                     ScanProjectMapper.class, HttpApiAssetMapper.class, HttpApiSourceBindingMapper.class,
+                    com.enterprise.ai.agent.capability.catalog.scan.ScanModuleMapper.class,
+                    com.enterprise.ai.agent.capability.catalog.scan.ScanProjectToolMapper.class,
+                    com.enterprise.ai.capability.catalog.enrichment.CatalogGroupMemberMapper.class,
+                    com.enterprise.ai.capability.catalog.enrichment.CatalogClassificationStateMapper.class,
+                    com.enterprise.ai.agent.capability.catalog.semantic.SemanticDocMapper.class,
+                    com.enterprise.ai.capability.catalog.businessmethod.BusinessMethodAssetMapper.class,
+                    com.enterprise.ai.capability.catalog.businessmethod.BusinessMethodRevisionMapper.class,
+                    com.enterprise.ai.agent.registry.CapabilitySnapshotMapper.class,
+                    com.enterprise.ai.agent.registry.CapabilityDiffItemMapper.class,
+                    com.enterprise.ai.agent.capability.catalog.graph.ApiGraphNodeMapper.class,
                     HttpApiInventoryStateMapper.class, HttpApiInventoryMemberMapper.class,
                     HttpApiAcceptanceMapper.class, RuntimeWorkflowCredentialMapper.class,
                     RuntimeHttpApiConnectionMapper.class, RuntimeRunMapper.class,
@@ -157,12 +172,35 @@ public final class HttpApiBrowserFixtureHost {
                     controllerSource ? "controller" : "openapi");
             HttpApiAssetMapper assets = db.mapper(HttpApiAssetMapper.class);
             HttpApiSourceBindingMapper bindings = db.mapper(HttpApiSourceBindingMapper.class);
+            var grouping = transactional(new com.enterprise.ai.capability.catalog.enrichment.CapabilityCatalogGroupingService(
+                    db.mapper(com.enterprise.ai.agent.capability.catalog.scan.ScanModuleMapper.class), db.mapper(ScanProjectMapper.class),
+                    db.mapper(com.enterprise.ai.agent.capability.catalog.scan.ScanProjectToolMapper.class),
+                    db.mapper(com.enterprise.ai.capability.catalog.enrichment.CatalogGroupMemberMapper.class),
+                    db.mapper(com.enterprise.ai.capability.catalog.enrichment.CatalogClassificationStateMapper.class),
+                    new com.enterprise.ai.capability.catalog.graph.CapabilityApiGraphGroupingService(
+                            db.mapper(com.enterprise.ai.agent.capability.catalog.graph.ApiGraphNodeMapper.class)), JSON));
             assetService = new HttpApiAssetService(assets, bindings,
-                    new HttpApiContractCanonicalizer(JSON));
+                    new HttpApiContractCanonicalizer(JSON), grouping);
             sourceBindings = bindings;
             catalog = new HttpApiCatalogService(assets, bindings, db.mapper(HttpApiInventoryStateMapper.class),
                     db.mapper(HttpApiInventoryMemberMapper.class), db.mapper(HttpApiAcceptanceMapper.class),
-                    db.mapper(ScanProjectMapper.class), JSON);
+                    db.mapper(ScanProjectMapper.class), JSON, new HttpApiContractCanonicalizer(JSON));
+            var methodStore = new com.enterprise.ai.capability.catalog.businessmethod.BusinessMethodAssetStore(
+                    db.mapper(com.enterprise.ai.capability.catalog.businessmethod.BusinessMethodAssetMapper.class),
+                    db.mapper(com.enterprise.ai.capability.catalog.businessmethod.BusinessMethodRevisionMapper.class),
+                    db.mapper(com.enterprise.ai.agent.registry.CapabilitySnapshotMapper.class),
+                    db.mapper(com.enterprise.ai.agent.registry.CapabilityDiffItemMapper.class),
+                    new com.enterprise.ai.capability.registry.CapabilityChangePolicy(JSON), JSON);
+            var subjects = new com.enterprise.ai.capability.catalog.enrichment.CatalogSubjectResolver(
+                    db.mapper(ScanProjectMapper.class), db.mapper(com.enterprise.ai.agent.capability.catalog.scan.ScanProjectToolMapper.class),
+                    db.mapper(com.enterprise.ai.capability.catalog.businessmethod.BusinessMethodAssetMapper.class), methodStore,
+                    assets, bindings, catalog, grouping, JSON);
+            var documents = transactional(new com.enterprise.ai.capability.catalog.semantic.CapabilitySemanticDocumentStore(
+                    db.mapper(com.enterprise.ai.agent.capability.catalog.semantic.SemanticDocMapper.class),
+                    db.mapper(ScanProjectMapper.class), subjects, grouping));
+            var beans = new org.springframework.beans.factory.support.DefaultListableBeanFactory();
+            beans.registerSingleton("semanticDocuments", documents);
+            catalog.setAdoption(beans.getBeanProvider(com.enterprise.ai.capability.catalog.semantic.CapabilitySemanticDocumentStore.class));
             apiId = controllerSource ? importController(assetService, bindings)
                     : importOpenApi(assetService, bindings);
             credentials = new RuntimeWorkflowCredentialService(db.mapper(RuntimeWorkflowCredentialMapper.class),
@@ -190,6 +228,16 @@ public final class HttpApiBrowserFixtureHost {
             publicServer.createContext("/api", this::handlePublic);
         }
 
+        @SuppressWarnings("unchecked")
+        private <T> T transactional(T target) {
+            var proxy = new org.springframework.aop.framework.ProxyFactory(target);
+            proxy.setProxyTargetClass(true);
+            proxy.addAdvice(new org.springframework.transaction.interceptor.TransactionInterceptor(
+                    new DataSourceTransactionManager(db.jdbc().getDataSource()),
+                    new org.springframework.transaction.annotation.AnnotationTransactionAttributeSource()));
+            return (T) proxy.getProxy();
+        }
+
         private long importOpenApi(HttpApiAssetService assetService, HttpApiSourceBindingMapper bindings) {
             Path root = Path.of("src/test/resources/bmapi3b1");
             var manifest = new OpenApiToolManifestScanner().scan(root, root.resolve("orders.yaml"),
@@ -202,10 +250,10 @@ public final class HttpApiBrowserFixtureHost {
             ScanProjectEntity project = new ScanProjectEntity();
             project.setId(PROJECT_ID); project.setProjectCode(PROJECT_CODE);
             project.setEnvironment("dev"); project.setContextPath("");
-            var intake = new OpenApiScanHttpApiIntakeService(assetService, bindings,
+            var intake = scannerIntake(assetService, bindings,
                     new HttpApiInventoryStateService(db.mapper(HttpApiInventoryStateMapper.class),
                             db.mapper(HttpApiInventoryMemberMapper.class)));
-            var plan = intake.prepare(project, List.of(scannerData(operation)), true);
+            var plan = intake.prepare(HttpApiSourceKind.OPENAPI_SCAN, project, List.of(scannerData(operation)), true);
             var observed = tx.execute(status -> intake.observe(plan));
             if (observed == null || !observed.supported() || !observed.inventoryComplete()
                     || observed.observed() != 1) {
@@ -229,10 +277,10 @@ public final class HttpApiBrowserFixtureHost {
             ScanProjectEntity project = new ScanProjectEntity();
             project.setId(PROJECT_ID); project.setProjectCode(PROJECT_CODE);
             project.setEnvironment("dev"); project.setContextPath("");
-            var intake = new ControllerScanHttpApiIntakeService(assetService, bindings,
+            var intake = scannerIntake(assetService, bindings,
                     new HttpApiInventoryStateService(db.mapper(HttpApiInventoryStateMapper.class),
                             db.mapper(HttpApiInventoryMemberMapper.class)));
-            var plan = intake.prepare(project, List.of(scannerData(operation)), true);
+            var plan = intake.prepare(HttpApiSourceKind.CONTROLLER_SCAN, project, List.of(scannerData(operation)), true);
             var observed = tx.execute(status -> intake.observe(plan));
             if (observed == null || !observed.supported() || !observed.inventoryComplete()
                     || observed.observed() != 1) {
@@ -284,11 +332,33 @@ public final class HttpApiBrowserFixtureHost {
             CapabilityReviewGateway capability = mock(CapabilityReviewGateway.class);
             when(capability.getProjectById(eq(PROJECT_ID), anyString())).thenReturn(ResponseEntity.ok(
                     Map.of("projectId", PROJECT_ID, "projectCode", PROJECT_CODE)));
-            when(capability.listHttpApis(eq(PROJECT_ID), any(), any(), any(), any(), anyInt(), anyInt(), anyString()))
-                    .thenAnswer(call -> ResponseEntity.ok((Object) catalog.list(PROJECT_ID, call.getArgument(1),
-                            call.getArgument(2), call.getArgument(3), call.getArgument(4),
-                            call.getArgument(5), call.getArgument(6))));
-            when(capability.getHttpApi(eq(apiId), anyString())).thenAnswer(call -> detailResponse());
+            when(capability.listHttpApis(eq(PROJECT_ID), any(), any(), any(), any(), anyInt(), anyInt(), anyString(),
+                    nullable(Long.class), anyBoolean(), anyMap())).thenAnswer(call -> {
+                Map<?, ?> body = call.getArgument(10);
+                if (!(body.get("catalogReadGrant") instanceof Map<?, ?> grant)
+                        || !Objects.equals(grant.get("requestedProjectId"), PROJECT_ID)
+                        || !(Boolean.TRUE.equals(grant.get("global"))
+                        || grant.get("projects") instanceof List<?> projects && projects.contains(PROJECT_CODE))) {
+                    return ResponseEntity.status(403).body((Object) Map.of("code", "CAPABILITY_PROJECT_READ_DENIED"));
+                }
+                Long groupId = call.getArgument(8); boolean ungrouped = call.getArgument(9);
+                if (ungrouped && groupId != null || groupId != null && db.jdbc().queryForObject(
+                        "SELECT COUNT(*) FROM capability_scan_module WHERE id=? AND project_id=?", Integer.class, groupId, PROJECT_ID) == 0) {
+                    return ResponseEntity.badRequest().body((Object) Map.of("code", "CATALOG_GROUP_INVALID"));
+                }
+                var filter = groupId == null && !ungrouped ? null
+                        : new com.enterprise.ai.capability.catalog.enrichment.CatalogGroupSelection.Filter(PROJECT_ID, groupId, ungrouped);
+                return ResponseEntity.ok().header(CatalogReadAuthorization.SCOPE, "PROJECT")
+                        .header(CatalogReadAuthorization.PROJECT_ID, String.valueOf(PROJECT_ID))
+                        .header(CatalogReadAuthorization.PROJECT_CODE, PROJECT_CODE)
+                        .body((Object) catalog.listFiltered(PROJECT_ID, call.getArgument(1), call.getArgument(2),
+                                call.getArgument(3), call.getArgument(4), call.getArgument(5), call.getArgument(6), filter));
+            });
+            when(capability.getHttpApi(eq(apiId), anyString(), org.mockito.ArgumentMatchers.anyMap())).thenAnswer(call -> detailResponse());
+            when(capability.getHttpApiIdentity(eq(apiId), anyString(), org.mockito.ArgumentMatchers.anyMap())).thenAnswer(call -> {
+                var owner = catalog.identity(apiId);
+                return owner == null ? ResponseEntity.notFound().build() : ownerResponse(wire(owner));
+            });
             when(capability.acceptHttpApi(eq(apiId), anyString(), anyString())).thenAnswer(call -> {
                 var detail = tx.execute(status -> catalog.accept(apiId, call.getArgument(1), call.getArgument(2)));
                 return ResponseEntity.ok((Object) wire(detail));
@@ -349,7 +419,13 @@ public final class HttpApiBrowserFixtureHost {
 
         private ResponseEntity<Object> detailResponse() {
             var detail = catalog.detail(apiId);
-            return detail == null ? ResponseEntity.notFound().build() : ResponseEntity.ok((Object) wire(detail));
+            return detail == null ? ResponseEntity.notFound().build() : ownerResponse(wire(detail));
+        }
+
+        private ResponseEntity<Object> ownerResponse(Object body) {
+            return ResponseEntity.ok().header(CatalogReadAuthorization.SCOPE, "PROJECT")
+                    .header(CatalogReadAuthorization.PROJECT_ID, String.valueOf(PROJECT_ID))
+                    .header(CatalogReadAuthorization.PROJECT_CODE, PROJECT_CODE).body(body);
         }
 
         private Map<String, Object> wire(Object value) {
@@ -634,18 +710,24 @@ public final class HttpApiBrowserFixtureHost {
             throw new IllegalArgumentException("Unknown fixture source state");
         }
 
-        private ControllerScanHttpApiIntakeService.Summary observeController(
+        private ScannerHttpApiIntakeService.Summary observeController(
                 List<CapabilityScannerClient.HttpApiData> data, boolean complete) {
             ScanProjectEntity project = new ScanProjectEntity();
             project.setId(PROJECT_ID); project.setProjectCode(PROJECT_CODE);
             project.setEnvironment("dev"); project.setContextPath("");
-            var intake = new ControllerScanHttpApiIntakeService(assetService, sourceBindings,
+            var intake = scannerIntake(assetService, sourceBindings,
                     new HttpApiInventoryStateService(db.mapper(HttpApiInventoryStateMapper.class),
                             db.mapper(HttpApiInventoryMemberMapper.class)));
-            return tx.execute(status -> intake.observe(intake.prepare(project, data, complete)));
+            return tx.execute(status -> intake.observe(intake.prepare(HttpApiSourceKind.CONTROLLER_SCAN, project, data, complete)));
         }
 
-        private Map<String, Object> observationView(ControllerScanHttpApiIntakeService.Summary summary) {
+        private ScannerHttpApiIntakeService scannerIntake(HttpApiAssetService assets,
+                HttpApiSourceBindingMapper bindings, HttpApiInventoryStateService inventories) {
+            return new ScannerHttpApiIntakeService(new HttpApiInventoryIntakeService(assets, bindings, inventories),
+                    new ScannerHttpApiContractAdapter());
+        }
+
+        private Map<String, Object> observationView(ScannerHttpApiIntakeService.Summary summary) {
             return Map.of("supported", summary != null && summary.supported(),
                     "inventoryComplete", summary != null && summary.inventoryComplete(),
                     "observed", summary == null ? 0 : summary.observed(),

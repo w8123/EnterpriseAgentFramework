@@ -75,7 +75,7 @@ class RuntimeWorkflowReadOnlyTrialServiceTest {
     private static final String METHOD_GRAPH = """
             {"nodes":[{"id":"method","type":"TOOL","ref":{"kind":"TOOL","qualifiedName":"orders:normalize"},
             "config":{"inputMapping":{"orderNo":"params.orderNo"}}},
-            {"id":"variable","type":"VARIABLE_ASSIGN","config":{"assignments":{"normalized":"nodeOutput.method.data"}}}],
+            {"id":"variable","type":"VARIABLE_ASSIGN","config":{"assignments":{"normalized":"nodeOutput.method"}}}],
             "edges":[{"from":"method","to":"variable"}],"entryNodeId":"method","exitNodeIds":["variable"]}
             """;
     private ConsoleCapabilityInvocationContracts.InvocationContext methodOwner() {
@@ -113,7 +113,7 @@ class RuntimeWorkflowReadOnlyTrialServiceTest {
         }
         saved.setGraphSpecJson(METHOD_GRAPH.replace("\"orderNo\":\"params.orderNo\"", "\"unknown\":\"params.orderNo\""));
         assertThrows(RuntimeWorkflowReadOnlyTrialService.Conflict.class, () -> service.run(methodCommand(saved, Map.of("orderNo", "A"))));
-        saved.setGraphSpecJson(METHOD_GRAPH.replace("nodeOutput.method.data", "nodeOutput.method.data.unverified"));
+        saved.setGraphSpecJson(METHOD_GRAPH.replace("nodeOutput.method\"", "nodeOutput.method.data.unverified\""));
         assertThrows(IllegalArgumentException.class, () -> service.run(methodCommand(saved, Map.of("orderNo", "A"))));
         verify(capabilities, never()).withBusinessMethodDraftScope(any(), any(), any()); verifyNoInteractions(http, debug);
     }

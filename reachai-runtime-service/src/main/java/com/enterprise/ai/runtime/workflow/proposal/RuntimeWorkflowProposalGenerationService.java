@@ -41,6 +41,9 @@ public class RuntimeWorkflowProposalGenerationService {
             "id", "from", "to", "condition", "sourceHandle", "targetHandle");
     private static final Set<String> PROPOSAL_PORT_FIELDS = Set.of(
             "id", "name", "type", "required", "schema", "source");
+    private static final Set<String> OBJECT_CONFIG_FIELDS = Set.of(
+            "inputSchema", "outputSchema", "inputMapping", "assignments", "args", "metadata",
+            "modelParams", "queryParams", "headers", "behavior", "presentation", "renderSchema");
 
     private final ObjectMapper objectMapper;
     private final RuntimeModelServiceClient modelServiceClient;
@@ -1729,6 +1732,8 @@ public class RuntimeWorkflowProposalGenerationService {
                 Required JSON shape:
                 {"summary":"short summary","entryNodeId":"real node id","exitNodeIds":["real node id"],"nodes":[{"id":"stable_snake_case","type":"canonical node type","label":"display name","description":"what it does","config":{},"inputs":[],"outputs":[]}],"edges":[{"id":"optional","from":"real node id","to":"real node id","condition":"always|approved|rejected|route:key|success|error","sourceHandle":"optional","targetHandle":"optional"}],"warnings":[]}
                 inputs and outputs must be arrays of port objects like {"id":"portId","name":"portName","type":"any"}, never bare strings.
+                Config inputMapping, assignments, args, inputSchema and outputSchema must be JSON objects, never arrays.
+                VARIABLE_ASSIGN example: config.assignments={"count":"nodeOutput.dictionary_count"}. An integer tool return is the producer root value; never append .data unless its declared response schema contains that property.
                 """.formatted(authorableTypes, closedTypes));
         prompt.append("""
 
@@ -2104,6 +2109,15 @@ public class RuntimeWorkflowProposalGenerationService {
             requireTextField(node, "type", context + ".type");
             if (node.has("config") && !node.get("config").isObject()) {
                 throw new IllegalArgumentException(context + ".config must be an object");
+            }
+            JsonNode config = node.get("config");
+            if (config != null) {
+                for (String field : OBJECT_CONFIG_FIELDS) {
+                    JsonNode value = config.get(field);
+                    if (value != null && !value.isNull() && !value.isObject()) {
+                        throw new IllegalArgumentException(context + ".config." + field + " must be a JSON object");
+                    }
+                }
             }
             validatePorts(node, "inputs", context);
             validatePorts(node, "outputs", context);

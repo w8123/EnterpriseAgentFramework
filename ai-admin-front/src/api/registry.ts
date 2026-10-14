@@ -1,7 +1,5 @@
 ﻿import { controlRequest } from './request'
 import type {
-  CapabilitySyncRequest,
-  CapabilitySyncResponse,
   CapabilityDiffReviewItem,
   CapabilityChangePage,
   CapabilitySnapshot,
@@ -31,20 +29,6 @@ export function purgeRegistryProjectOfflineInstances(projectCode: string, minIdl
   return controlRequest.post<{ removed: number }>(
     `/api/registry/projects/${projectCode}/instances/purge-offline`,
     { minIdleMinutes },
-  )
-}
-
-export function diffRegistryCapabilities(projectCode: string, data: CapabilitySyncRequest) {
-  return controlRequest.post<CapabilitySyncResponse>(
-    `/api/capability-review/projects/${projectCode}/capabilities/diff`,
-    data,
-  )
-}
-
-export function syncRegistryCapabilities(projectCode: string, data: CapabilitySyncRequest) {
-  return controlRequest.post<CapabilitySyncResponse>(
-    `/api/capability-review/projects/${projectCode}/capabilities/sync`,
-    data,
   )
 }
 

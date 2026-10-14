@@ -13,6 +13,10 @@ import org.springframework.util.StringUtils;
 
 import java.util.Objects;
 import java.util.Optional;
+import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -22,15 +26,27 @@ public class BusinessMethodCatalogService {
     private final ScanProjectMapper projects;
     private final CapabilityChangeLifecycle lifecycle;
 
-    public BusinessMethodCatalogSummary summary(Long projectId) {
-        return assets.summarize(projectId);
+    public IPage<BusinessMethodDefinition> page(int current, int size, String keyword, Boolean enabled, Long projectId) {
+        return page(current, size, keyword, enabled, projectId, null);
     }
 
-    public IPage<BusinessMethodDefinition> page(int current, int size, String keyword, Boolean enabled, Long projectId) {
+    public IPage<BusinessMethodDefinition> page(int current, int size, String keyword, Boolean enabled, Long projectId, List<Long> selectedIds) {
+        return page(current, size, keyword, enabled, projectId, selectedIds, null);
+    }
+
+    public IPage<BusinessMethodDefinition> pageFiltered(int current, int size, String keyword, Boolean enabled, Long projectId,
+            com.enterprise.ai.capability.catalog.enrichment.CatalogGroupSelection.Filter filter) {
+        return page(current, size, keyword, enabled, projectId, null, filter);
+    }
+
+    private IPage<BusinessMethodDefinition> page(int current, int size, String keyword, Boolean enabled, Long projectId, List<Long> selectedIds,
+            com.enterprise.ai.capability.catalog.enrichment.CatalogGroupSelection.Filter filter) {
         var query = Wrappers.<BusinessMethodAssetEntity>lambdaQuery()
                 .isNotNull(BusinessMethodAssetEntity::getAcceptedRevisionId)
                 .ne(BusinessMethodAssetEntity::getStatus, "UNACCEPTED");
         if (projectId != null) query.eq(BusinessMethodAssetEntity::getProjectId, projectId);
+        if (selectedIds != null) query.in(BusinessMethodAssetEntity::getId, selectedIds.isEmpty() ? List.of(-1L) : selectedIds);
+        if (filter != null) filter.apply(query, "capability_business_method_asset", "BUSINESS_METHOD");
         if (enabled != null) query.eq(BusinessMethodAssetEntity::getEnabled, enabled);
         if (StringUtils.hasText(keyword)) {
             String term = keyword.trim();
@@ -40,8 +56,17 @@ public class BusinessMethodCatalogService {
                     .or().like(BusinessMethodAssetEntity::getDescription, term));
         }
         query.orderByAsc(BusinessMethodAssetEntity::getTitle).orderByAsc(BusinessMethodAssetEntity::getQualifiedName);
-        return assets.selectPage(new Page<>(Math.max(1, current), Math.min(100, Math.max(1, size)), true), query)
-                .convert(this::definition);
+        IPage<BusinessMethodAssetEntity> result = assets.selectPage(
+                new Page<>(Math.max(1, current), Math.min(100, Math.max(1, size)), true), query);
+        List<BusinessMethodAssetEntity> rows = result.getRecords();
+        Map<Long, BusinessMethodAssetStore.AcceptedSource> accepted = store.acceptedSources(rows);
+        Map<Long, ScanProjectEntity> projectById = rows.isEmpty() ? Map.of()
+                : projects.selectBatchIds(rows.stream().map(BusinessMethodAssetEntity::getProjectId).distinct().toList())
+                .stream().collect(Collectors.toMap(ScanProjectEntity::getId, Function.identity()));
+        Map<String, CapabilitySourceStateEntity> sources = lifecycle.sourceStates(rows.stream()
+                .map(BusinessMethodAssetEntity::getQualifiedName).distinct().toList());
+        return result.convert(asset -> definition(asset, accepted.get(asset.getId()), projectById.get(asset.getProjectId()),
+                sources.get(asset.getQualifiedName())));
     }
 
     public Optional<BusinessMethodDefinition> find(String reference) {
@@ -56,10 +81,15 @@ public class BusinessMethodCatalogService {
     }
 
     private BusinessMethodDefinition definition(BusinessMethodAssetEntity asset) {
-        var revision = store.acceptedRevision(asset);
-        var declaration = store.acceptedDeclaration(asset);
+        var accepted = store.acceptedSources(List.of(asset)).get(asset.getId());
         ScanProjectEntity project = projects.selectById(asset.getProjectId());
         CapabilitySourceStateEntity source = lifecycle.sourceState(asset.getQualifiedName());
+        return definition(asset, accepted, project, source);
+    }
+
+    private BusinessMethodDefinition definition(BusinessMethodAssetEntity asset, BusinessMethodAssetStore.AcceptedSource accepted,
+                                                 ScanProjectEntity project, CapabilitySourceStateEntity source) {
+        var revision = accepted.revision();
         String availability;
         if (source == null || project == null) availability = "SOURCE_UNKNOWN";
         else if (!Objects.equals(project.getProjectCode(), asset.getProjectCode())
@@ -70,6 +100,6 @@ public class BusinessMethodCatalogService {
                 || !Objects.equals(revision.getInvocationHash(), source.getAcceptedContractHash())
                 || !"READY".equals(source.getAvailability())) availability = "CONTRACT_DRIFT";
         else availability = "READY";
-        return new BusinessMethodDefinition(asset, revision, declaration, project == null ? null : project.getName(), availability);
+        return new BusinessMethodDefinition(asset, revision, accepted.declaration(), project == null ? null : project.getName(), availability);
     }
 }

@@ -14,6 +14,14 @@
 
 > **Codex for Open Source application verification:** I am the owner and core maintainer of this repository. The OpenAI/ChatGPT account used for the application is associated with the masked email address `jonellmednick****@outlook.jp`. This notice is published solely to help OpenAI reviewers verify that the applicant controls this repository.
 
+<p align="center">
+  <strong>ReachAI 学习交流群</strong><br />
+  扫码加入，交流接入、使用与实践经验<br />
+  <a href="docs/系统截图/ReachAI学习交流群.png">
+    <img src="docs/系统截图/ReachAI学习交流群.png" alt="ReachAI 学习交流群二维码" width="240" />
+  </a>
+</p>
+
 ## 改造完成后，业务系统能做什么
 
 ReachAI 将 AI 助手嵌入 OA、eHR、采购、CRM 等现有业务页面。员工无需切换系统，即可通过自然语言查询数据、填写表单、办理业务：
@@ -458,7 +466,3 @@ Codex、Trae、Cursor、Claude Code 等工具进入仓库后，请按以下顺�
 ## License
 
 [MIT License](LICENSE)
-
-<p align="center">
-  <img src="docs/系统截图/ReachAI学习交流群.jpg" alt="ReachAI 学习交流群" width="240" />
-</p>

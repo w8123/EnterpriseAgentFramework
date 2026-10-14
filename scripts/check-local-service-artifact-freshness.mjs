@@ -110,7 +110,7 @@ async function latestServiceJar(targetRoot, serviceName) {
     if (!entry.isFile()
         || !entry.name.startsWith(`${serviceName}-`)
         || !entry.name.endsWith('.jar')
-        || /(?:sources|javadoc|tests)\.jar$/i.test(entry.name)) {
+        || /(?:plain|sources|javadoc|tests)\.jar$/i.test(entry.name)) {
       continue
     }
     const filePath = path.join(targetRoot, entry.name)

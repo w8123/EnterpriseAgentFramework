@@ -17,6 +17,18 @@ import javax.sql.DataSource;
 /** 从基线中加载指定表和补列语句的 H2 查询夹具，不代表执行了完整 MySQL 迁移。 */
 public final class RuntimeQueryTestDatabase implements AutoCloseable {
 
+    /** MySQL SHA2(text,256) semantics for explicit H2 catalog/publication read fixtures. */
+    public static String sha2(String value, Integer bits) {
+        if (value == null || bits == null) return null;
+        if (bits != 256) throw new IllegalArgumentException("Unsupported fixture digest size");
+        try {
+            return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(value.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        } catch (java.security.NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException("SHA-256 unavailable", impossible);
+        }
+    }
+
     private final JdbcTemplate jdbc;
     private final SqlSessionTemplate session;
     private final boolean ownsH2;

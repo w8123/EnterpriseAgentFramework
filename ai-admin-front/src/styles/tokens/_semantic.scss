@@ -148,6 +148,6 @@
   --transition-fast: var(--motion-duration-fast) ease;
   --transition-normal: var(--motion-duration-normal) ease;
   --transition-slow: var(--motion-duration-slow) var(--motion-easing-standard);
-  --reachai-workbench-title-height: 120px;
+  --reachai-workbench-title-height: var(--layout-page-header-height-emphasis);
   --reachai-workbench-title-radius: var(--radius-lg);
 }

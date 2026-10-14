@@ -619,12 +619,16 @@ public class RuntimeRunLifecycleService implements RuntimeAgentRunLifecyclePort 
             Map<String, Object> meta = new LinkedHashMap<>(
                     WorkflowTraceSanitizer.sanitizeRunMetadata(metadata));
             meta.putIfAbsent("nodeCount", nodeCount);
+            RuntimeRunFinishCounts counts = resolveFinishCounts(traceId, metadata);
             runMapper.update(null, completionUpdate(traceId, resolvedStatus, code,
                     safeAnswer, safeAnswer, ended, elapsed(run, ended))
                     .eq(RuntimeRunEntity::getId, run.getId())
                     .eq(RuntimeRunEntity::getRunType, "WORKFLOW")
                     .eq(RuntimeRunEntity::getStatus, run.getStatus())
                     .set(RuntimeRunEntity::getTokenCost, resolveTokenCost(metadata))
+                    .set(RuntimeRunEntity::getToolCallCount, counts.toolCallCountInt())
+                    .set(RuntimeRunEntity::getGuardDenyCount, counts.guardDenyCountInt())
+                    .set(RuntimeRunEntity::getApprovalCount, counts.approvalCountInt())
                     .set(RuntimeRunEntity::getMetadataJson, json(meta)));
         }, "finish Workflow run");
     }

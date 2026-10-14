@@ -70,6 +70,16 @@ public class CapabilityToolCatalogService {
                 .last("limit 1")));
     }
 
+    public Optional<ToolDefinitionEntity> findIdentity(String name) {
+        if (!StringUtils.hasText(name)) return Optional.empty();
+        return Optional.ofNullable(toolMapper.selectOne(new LambdaQueryWrapper<ToolDefinitionEntity>()
+                .select(ToolDefinitionEntity::getId, ToolDefinitionEntity::getName, ToolDefinitionEntity::getQualifiedName,
+                        ToolDefinitionEntity::getProjectId, ToolDefinitionEntity::getProjectCode, ToolDefinitionEntity::getAssetType)
+                .eq(ToolDefinitionEntity::getName, name.trim())
+                .in(ToolDefinitionEntity::getAssetType, List.of("BUSINESS_METHOD", "HTTP_API"))
+                .last("limit 1")));
+    }
+
     public List<ToolDefinitionParameter> parseParameters(String parametersJson) {
         return CapabilityParameterContractCodec.parse(objectMapper, parametersJson);
     }

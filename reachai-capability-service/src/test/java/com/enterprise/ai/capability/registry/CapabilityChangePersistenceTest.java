@@ -13,9 +13,18 @@ import com.enterprise.ai.capability.internal.CapabilitySourceContractGuard;
 import com.enterprise.ai.capability.internal.CapabilityToolExecutionService;
 import com.enterprise.ai.capability.catalog.httpapi.HttpApiAssetMapper;
 import com.enterprise.ai.capability.catalog.httpapi.HttpApiAssetService;
+import com.enterprise.ai.capability.catalog.httpapi.HttpApiInventoryIntakeService;
+import com.enterprise.ai.capability.catalog.httpapi.HttpApiInventoryStateMapper;
+import com.enterprise.ai.capability.catalog.httpapi.HttpApiInventoryStateService;
+import com.enterprise.ai.capability.catalog.httpapi.HttpApiInventoryMemberMapper;
+import com.enterprise.ai.capability.catalog.httpapi.HttpApiAcceptanceMapper;
+import com.enterprise.ai.capability.catalog.httpapi.HttpApiCatalogService;
 import com.enterprise.ai.capability.catalog.httpapi.HttpApiContractCanonicalizer;
 import com.enterprise.ai.capability.catalog.httpapi.HttpApiSourceBindingMapper;
 import com.enterprise.ai.capability.catalog.businessmethod.*;
+import com.enterprise.ai.capability.catalog.enrichment.CapabilityCatalogGroupingService;
+import com.enterprise.ai.capability.catalog.enrichment.CatalogGroupMemberMapper;
+import com.enterprise.ai.capability.catalog.graph.CapabilityApiGraphGroupingService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -71,6 +80,8 @@ class CapabilityChangePersistenceTest {
     CapabilitySourceStateMapper sources;
     BusinessMethodAssetStore methodAssets;
     BusinessMethodAssetMapper methodAssetMapper;
+    CapabilityCatalogGroupingService grouping;
+    HttpApiCatalogService httpApiCatalog;
     RegistryCredentialMapper credentials;
     TransactionTemplate tx;
     JdbcTemplate jdbc;
@@ -79,10 +90,11 @@ class CapabilityChangePersistenceTest {
         var datasource = new DriverManagerDataSource("jdbc:h2:mem:changes_" + UUID.randomUUID() + ";MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1", "sa", "");
         jdbc = new JdbcTemplate(datasource);
         String baseline = Files.readString(Path.of("../sql/initV2.sql"));
-        for (String table : List.of("capability_scan_project", "capability_scan_project_tool", "capability_tool_definition",
+        for (String table : List.of("capability_scan_project", "capability_scan_module", "capability_scan_project_tool", "capability_tool_definition",
                 "capability_project_instance", "capability_sync_log", "capability_snapshot", "capability_sync_receipt", "capability_diff_item", "capability_apply_record", "capability_source_state",
-                "capability_http_api_asset", "capability_http_api_source_binding",
-                "capability_business_method_asset", "capability_business_method_revision", "capability_registry_project_credential")) {
+                "capability_http_api_asset", "capability_http_api_source_binding", "capability_http_api_inventory_state", "capability_http_api_inventory_member", "capability_http_api_acceptance",
+                "capability_business_method_asset", "capability_business_method_revision", "capability_registry_project_credential",
+                "capability_semantic_doc", "capability_catalog_group_member", "capability_catalog_classification_state")) {
             var match = Pattern.compile("(?is)CREATE TABLE(?: IF NOT EXISTS)? `?" + table + "`?\\s*\\(.*?;", Pattern.DOTALL).matcher(baseline);
             assertTrue(match.find(), "baseline missing " + table);
             String sql = match.group().replaceAll("(?is)\\) ENGINE=.*?;", ");")
@@ -99,11 +111,13 @@ class CapabilityChangePersistenceTest {
         }
         MybatisConfiguration configuration = new MybatisConfiguration();
         configuration.setMapUnderscoreToCamelCase(true);
-        for (Class<?> type : List.of(ScanProjectMapper.class, ScanProjectToolMapper.class, ToolDefinitionMapper.class,
+        for (Class<?> type : List.of(ScanProjectMapper.class, ScanModuleMapper.class, ScanProjectToolMapper.class, ToolDefinitionMapper.class,
                 ProjectInstanceMapper.class, CapabilitySyncLogMapper.class, CapabilitySnapshotMapper.class,
                 CapabilityDiffItemMapper.class, CapabilityApplyRecordMapper.class, CapabilitySourceStateMapper.class, CapabilitySyncReceiptMapper.class,
-                HttpApiAssetMapper.class, HttpApiSourceBindingMapper.class,
-                BusinessMethodAssetMapper.class, BusinessMethodRevisionMapper.class, RegistryCredentialMapper.class)) configuration.addMapper(type);
+                HttpApiAssetMapper.class, HttpApiSourceBindingMapper.class, HttpApiInventoryStateMapper.class, HttpApiInventoryMemberMapper.class, HttpApiAcceptanceMapper.class,
+                BusinessMethodAssetMapper.class, BusinessMethodRevisionMapper.class, RegistryCredentialMapper.class,
+                com.enterprise.ai.agent.capability.catalog.semantic.SemanticDocMapper.class, CatalogGroupMemberMapper.class,
+                com.enterprise.ai.capability.catalog.enrichment.CatalogClassificationStateMapper.class)) configuration.addMapper(type);
         var factory = new MybatisSqlSessionFactoryBean(); factory.setDataSource(datasource); factory.setConfiguration(configuration);
         var session = new SqlSessionTemplate(factory.getObject());
         methodAssetMapper = session.getMapper(BusinessMethodAssetMapper.class);
@@ -112,6 +126,10 @@ class CapabilityChangePersistenceTest {
         differences = session.getMapper(CapabilityDiffItemMapper.class); snapshots = session.getMapper(CapabilitySnapshotMapper.class);
         sources = session.getMapper(CapabilitySourceStateMapper.class);
         ObjectMapper json = new ObjectMapper().findAndRegisterModules(); policy = new CapabilityChangePolicy(json);
+        httpApiCatalog = new HttpApiCatalogService(session.getMapper(HttpApiAssetMapper.class),
+                session.getMapper(HttpApiSourceBindingMapper.class), session.getMapper(HttpApiInventoryStateMapper.class),
+                session.getMapper(HttpApiInventoryMemberMapper.class), session.getMapper(HttpApiAcceptanceMapper.class), projects, json,
+                new com.enterprise.ai.capability.catalog.httpapi.HttpApiContractCanonicalizer(json));
         lifecycle = new CapabilityChangeLifecycle(snapshots, differences, sources, policy, session.getMapper(CapabilitySyncReceiptMapper.class)); guard = new CapabilitySourceContractGuard(lifecycle, policy);
         var transactionManager = new DataSourceTransactionManager(datasource);
         context = new AnnotationConfigApplicationContext();
@@ -120,9 +138,23 @@ class CapabilityChangePersistenceTest {
         context.registerBean(BusinessMethodAssetStore.class, () -> new BusinessMethodAssetStore(
                 session.getMapper(BusinessMethodAssetMapper.class), session.getMapper(BusinessMethodRevisionMapper.class),
                 snapshots, differences, policy, json));
+        context.registerBean(CapabilityCatalogGroupingService.class, () -> new CapabilityCatalogGroupingService(
+                session.getMapper(ScanModuleMapper.class), projects, session.getMapper(ScanProjectToolMapper.class),
+                session.getMapper(CatalogGroupMemberMapper.class), session.getMapper(com.enterprise.ai.capability.catalog.enrichment.CatalogClassificationStateMapper.class), mock(CapabilityApiGraphGroupingService.class), json));
+        context.registerBean(com.enterprise.ai.capability.catalog.enrichment.CatalogSubjectResolver.class, () ->
+                new com.enterprise.ai.capability.catalog.enrichment.CatalogSubjectResolver(projects,
+                        session.getMapper(ScanProjectToolMapper.class), methodAssetMapper, context.getBean(BusinessMethodAssetStore.class),
+                        session.getMapper(HttpApiAssetMapper.class), session.getMapper(HttpApiSourceBindingMapper.class), httpApiCatalog,
+                        context.getBean(CapabilityCatalogGroupingService.class), json));
+        context.registerBean(com.enterprise.ai.capability.catalog.semantic.CapabilitySemanticDocumentStore.class, () ->
+                new com.enterprise.ai.capability.catalog.semantic.CapabilitySemanticDocumentStore(
+                        session.getMapper(com.enterprise.ai.agent.capability.catalog.semantic.SemanticDocMapper.class), projects,
+                        context.getBean(com.enterprise.ai.capability.catalog.enrichment.CatalogSubjectResolver.class),
+                        context.getBean(CapabilityCatalogGroupingService.class)));
         context.registerBean(CapabilityCatalogProjectionStore.class, () -> new CapabilityCatalogProjectionStore(
                 session.getMapper(ScanProjectToolMapper.class), tools, json, policy,
-                context.getBean(BusinessMethodAssetStore.class)));
+                context.getBean(BusinessMethodAssetStore.class), context.getBean(CapabilityCatalogGroupingService.class),
+                context.getBeanProvider(com.enterprise.ai.capability.catalog.semantic.CapabilitySemanticDocumentStore.class)));
         context.registerBean(RegistryInstanceLifecycleService.class, () -> new RegistryInstanceLifecycleService(
                 session.getMapper(ProjectInstanceMapper.class), json));
         context.registerBean(CapabilityReviewEvidenceStore.class, () -> new CapabilityReviewEvidenceStore(
@@ -130,9 +162,14 @@ class CapabilityChangePersistenceTest {
         context.registerBean(HttpApiContractCanonicalizer.class, () -> new HttpApiContractCanonicalizer(json));
         context.registerBean(HttpApiAssetService.class, () -> new HttpApiAssetService(
                 session.getMapper(HttpApiAssetMapper.class), session.getMapper(HttpApiSourceBindingMapper.class),
-                context.getBean(HttpApiContractCanonicalizer.class)));
+                context.getBean(HttpApiContractCanonicalizer.class), org.mockito.Mockito.mock(com.enterprise.ai.capability.catalog.enrichment.CapabilityCatalogGroupingService.class)));
+        context.registerBean(HttpApiInventoryStateService.class, () -> new HttpApiInventoryStateService(
+                session.getMapper(HttpApiInventoryStateMapper.class), session.getMapper(HttpApiInventoryMemberMapper.class)));
+        context.registerBean(HttpApiInventoryIntakeService.class, () -> new HttpApiInventoryIntakeService(
+                context.getBean(HttpApiAssetService.class), session.getMapper(HttpApiSourceBindingMapper.class),
+                context.getBean(HttpApiInventoryStateService.class)));
         context.registerBean(StarterMvcHttpApiIntakeService.class, () -> new StarterMvcHttpApiIntakeService(
-                context.getBean(HttpApiAssetService.class), session.getMapper(HttpApiSourceBindingMapper.class), json));
+                context.getBean(HttpApiInventoryIntakeService.class), json));
         context.registerBean(CapabilitySourceIntakeService.class, () -> new CapabilitySourceIntakeService(
                 projects, session.getMapper(ScanProjectToolMapper.class), tools, session.getMapper(CapabilitySyncLogMapper.class),
                 snapshots, differences, json, policy, lifecycle, context.getBean(CapabilityCatalogProjectionStore.class),
@@ -141,6 +178,7 @@ class CapabilityChangePersistenceTest {
         context.refresh();
         projections = context.getBean(CapabilityCatalogProjectionStore.class);
         methodAssets = context.getBean(BusinessMethodAssetStore.class);
+        grouping = context.getBean(CapabilityCatalogGroupingService.class);
         assertTrue(AopUtils.isAopProxy(projections));
         instanceLifecycle = context.getBean(RegistryInstanceLifecycleService.class);
         assertTrue(AopUtils.isAopProxy(instanceLifecycle));
@@ -154,6 +192,61 @@ class CapabilityChangePersistenceTest {
         tx.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
         var project = new ScanProjectEntity(); project.setName("订单系统"); project.setProjectCode("orders");
         project.setBaseUrl("http://orders.local"); project.setScanPath("sdk:orders"); project.setScanType("auto"); projects.insert(project);
+    }
+
+    @Test void officialSdkAdmissionAdoptsCandidateProseAndManualMembershipInsideItsOwnerTransaction() {
+        Long projectId = projects.selectOne(null).getId();
+        jdbc.update("INSERT INTO capability_scan_project_tool(project_id,name,title,description,source,source_location,source_qualified_name,asset_type) VALUES(?,?,?,?,?,?,?,?)",
+                projectId, "candidate-read", "候选说明", "待接纳的候选说明", "scanner", "sdk:orders:read", "orders:read", "BUSINESS_METHOD");
+        Long observationId = jdbc.queryForObject("SELECT id FROM capability_scan_project_tool WHERE name='candidate-read'", Long.class);
+        var manual = grouping.create(projectId, "人工分类");
+        jdbc.update("INSERT INTO capability_catalog_group_member(project_id,group_id,subject_type,subject_id) VALUES(?,?,?,?)",
+                projectId, manual.getId(), "SOURCE_OBSERVATION", observationId);
+        jdbc.update("INSERT INTO capability_semantic_doc(project_id,subject_type,subject_id,subject_key,basis_contract_hash,basis_accepted,content_md,status) VALUES(?,?,?,?,?,?,?,?)",
+                projectId, "SOURCE_OBSERVATION", observationId, "source-observation:" + observationId, "a".repeat(64), false, "候选人工说明", "edited");
+        sync("sdk-adopt-candidate", sdkMethod("read", "/orders", "common", "fixture.OrdersService"));
+        var asset = methodAssets.find("orders:read").orElseThrow();
+        assertEquals("候选人工说明", jdbc.queryForObject("SELECT content_md FROM capability_semantic_doc WHERE subject_type='BUSINESS_METHOD' AND subject_id=?", String.class, asset.getId()));
+        assertEquals("orders:read", jdbc.queryForObject("SELECT subject_key FROM capability_semantic_doc WHERE subject_type='BUSINESS_METHOD'", String.class));
+        assertEquals("a".repeat(64), jdbc.queryForObject("SELECT basis_contract_hash FROM capability_semantic_doc", String.class));
+        assertEquals(0L, jdbc.queryForObject("SELECT count(*) FROM capability_semantic_doc WHERE subject_type='SOURCE_OBSERVATION'", Long.class));
+        assertTrue(grouping.ownerGroupIds(projectId, "BUSINESS_METHOD", asset.getId()).contains(manual.getId()));
+        assertEquals(0L, jdbc.queryForObject("SELECT count(*) FROM capability_catalog_group_member WHERE subject_type='SOURCE_OBSERVATION'", Long.class));
+        assertTrue(AopUtils.isAopProxy(context.getBean(com.enterprise.ai.capability.catalog.semantic.CapabilitySemanticDocumentStore.class)));
+        assertThrows(IllegalTransactionStateException.class, () -> context.getBean(com.enterprise.ai.capability.catalog.semantic.CapabilitySemanticDocumentStore.class)
+                .adoptAcceptedOwner(projectId, "BUSINESS_METHOD", asset.getId()));
+    }
+
+    @Test void sdkAdmissionCreatesDeclaredModuleAndRepairKeepsUserRenamedGroupAndInvocationMembership() {
+        var first = sdkMethod("read", "/orders", "common", "fixture.OrdersService");
+        var second = sdkMethod("count", "/orders/count", "common", "fixture.StatisticsService");
+        sync("sdk-group-first", first, second);
+        Long projectId = projects.selectOne(null).getId();
+        var group = grouping.list(projectId).get(0);
+        assertEquals(1, grouping.list(projectId).size());
+        assertEquals("common", group.getName());
+        assertEquals("common", group.getDisplayName());
+        assertEquals(2, jdbc.queryForObject("SELECT count(*) FROM capability_scan_project_tool WHERE module_id=?", Integer.class, group.getId()));
+        assertEquals(2, jdbc.queryForObject("SELECT count(*) FROM capability_tool_definition WHERE module_id=?", Integer.class, group.getId()));
+
+        grouping.rename(projectId, group.getId(), "订单业务实验");
+        jdbc.update("UPDATE capability_scan_project_tool SET module_id=NULL");
+        jdbc.update("UPDATE capability_tool_definition SET module_id=NULL");
+        Long revisionCount = jdbc.queryForObject("SELECT count(*) FROM capability_business_method_revision", Long.class);
+        sync("sdk-group-repeat", first, second);
+
+        assertEquals(1, grouping.list(projectId).size());
+        assertEquals(group.getId(), grouping.list(projectId).get(0).getId());
+        assertEquals("订单业务实验", grouping.list(projectId).get(0).getDisplayName());
+        assertEquals(2, jdbc.queryForObject("SELECT count(*) FROM capability_scan_project_tool WHERE module_id=?", Integer.class, group.getId()));
+        assertEquals(2, jdbc.queryForObject("SELECT count(*) FROM capability_tool_definition WHERE module_id=?", Integer.class, group.getId()));
+        assertEquals(revisionCount, jdbc.queryForObject("SELECT count(*) FROM capability_business_method_revision", Long.class));
+    }
+
+    private CapabilityRegistration sdkMethod(String name, String path, String module, String className) {
+        return new CapabilityRegistration(name, "公开实验方法", "分组接入回归", "GET", "http://orders.local", null,
+                path, null, null, "READ_ONLY", true, List.of(),
+                Map.of("assetType", "BUSINESS_METHOD", "module", module, "className", className));
     }
 
     @Test void credentialRotationChangesExecutionBindingWithoutChangingTheMethodAndRejectsOldPins() {
@@ -1044,14 +1137,37 @@ class CapabilityChangePersistenceTest {
     @Test void starterMvcFullInventoryDifferentiatesMissingAndEmptyAndRemovesOnlyAfterValidObservation() {
         HttpApiRegistration first = mvcApi("mvc:orders#first", "/mvc/orders/first");
         syncHttp("mvc-initial", List.of(first));
+        Long apiId = jdbc.queryForObject("SELECT id FROM capability_http_api_asset", Long.class);
+        String initialToken = jdbc.queryForObject("SELECT inventory_token FROM capability_http_api_inventory_state", String.class);
+        assertEquals("DISCOVERED", httpApiCatalog.detail(apiId).summary().sourceStatus());
+        assertEquals(initialToken, jdbc.queryForObject("SELECT inventory_token FROM capability_http_api_inventory_member", String.class));
+        tx.execute(status -> registry.diff("orders", request("diagnostic-without-mvc-inventory")));
+        CapabilitySyncResponse diagnostic = tx.execute(status -> registry.diff("orders",
+                new CapabilitySyncRequest("diagnostic-with-mvc-inventory", "starter", false, List.of(), List.of(first))));
+        assertTrue(diagnostic.httpApis().supported());
+        assertEquals(0, diagnostic.httpApis().observed());
+        assertEquals(initialToken, jdbc.queryForObject("SELECT inventory_token FROM capability_http_api_inventory_state", String.class),
+                "DIAGNOSTIC requests may parse missing or present inventories but never update SOURCE confirmation");
+        assertEquals("mvc-initial", jdbc.queryForObject("SELECT source_revision FROM capability_http_api_source_binding", String.class));
 
         sync("legacy-without-http-apis");
         assertEquals("DISCOVERED", jdbc.queryForObject("SELECT status FROM capability_http_api_source_binding", String.class));
+        assertFalse(jdbc.queryForObject("SELECT supported FROM capability_http_api_inventory_state", Boolean.class));
+        assertFalse(jdbc.queryForObject("SELECT complete FROM capability_http_api_inventory_state", Boolean.class));
+        assertNotEquals(initialToken, jdbc.queryForObject("SELECT inventory_token FROM capability_http_api_inventory_state", String.class));
+        assertEquals(initialToken, jdbc.queryForObject("SELECT inventory_token FROM capability_http_api_inventory_member", String.class));
+        assertTrue(jdbc.queryForObject("SELECT reason FROM capability_http_api_inventory_state", String.class).contains("未包含 HTTP API 清单"));
+        assertEquals("SOURCE_UNCONFIRMED", httpApiCatalog.detail(apiId).summary().sourceStatus(),
+                "a SOURCE sync without MVC inventory keeps the source fact but cannot confirm it anew");
+        assertFalse(httpApiCatalog.detail(apiId).summary().sourceConfirmed());
 
         CapabilitySyncResponse empty = syncHttp("mvc-empty", List.of());
         assertEquals(1, empty.httpApis().removed());
         assertEquals("REMOVED", jdbc.queryForObject("SELECT status FROM capability_http_api_source_binding", String.class));
         assertEquals("SOURCE_MISSING", jdbc.queryForObject("SELECT status FROM capability_http_api_asset", String.class));
+        assertTrue(jdbc.queryForObject("SELECT supported FROM capability_http_api_inventory_state", Boolean.class));
+        assertTrue(jdbc.queryForObject("SELECT complete FROM capability_http_api_inventory_state", Boolean.class));
+        assertEquals("SOURCE_MISSING", httpApiCatalog.detail(apiId).summary().sourceStatus());
 
         assertThrows(IllegalArgumentException.class, () -> syncHttp("mvc-invalid", List.of(
                 mvcApi("mvc:orders#valid", "/mvc/orders/valid"),

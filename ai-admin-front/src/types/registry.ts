@@ -1,5 +1,3 @@
-import type { ToolParameter } from './tool'
-
 export type ProjectVisibility = 'PRIVATE' | 'PROJECT' | 'SHARED' | 'PUBLIC'
 export type ProjectKind = 'SCAN' | 'REGISTERED' | 'HYBRID'
 
@@ -49,51 +47,6 @@ export interface RegistryEnrollmentToken {
 
 export interface InstanceHeartbeatResponse {
   instance: ProjectInstance
-}
-
-export interface CapabilityRegistration {
-  name: string
-  title?: string
-  description?: string
-  httpMethod?: string
-  baseUrl?: string
-  contextPath?: string
-  endpointPath?: string
-  requestBodyType?: string
-  responseType?: string
-  sideEffect?: string
-  enabled?: boolean
-  parameters?: ToolParameter[]
-  metadata?: Record<string, unknown>
-}
-
-export interface CapabilitySyncRequest {
-  syncId?: string
-  source?: string
-  apply?: boolean
-  capabilities: CapabilityRegistration[]
-}
-
-export interface CapabilityDiffItem {
-  qualifiedName: string
-  name: string
-  changeType: 'ADDED' | 'CHANGED' | 'UNCHANGED' | 'DELETED'
-  existingToolId?: number | null
-  storageName: string
-  fieldDiffs?: Array<{ field: string; oldValue: unknown; newValue: unknown }>
-  impact?: Record<string, unknown>
-}
-
-export interface CapabilitySyncResponse {
-  syncId: string
-  projectId: number
-  projectCode: string
-  received: number
-  added: number
-  changed: number
-  unchanged: number
-  applied: number
-  items: CapabilityDiffItem[]
 }
 
 export interface CapabilitySnapshot {

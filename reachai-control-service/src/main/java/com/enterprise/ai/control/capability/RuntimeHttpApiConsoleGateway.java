@@ -66,8 +66,14 @@ public class RuntimeHttpApiConsoleGateway {
                     String candidate = body.path("code").asText();
                     if (candidate.matches("[A-Z0-9_]{1,96}")) code = candidate;
                 } catch (Exception ignored) { /* no upstream body is forwarded */ }
+                String message = status == 409 ? "当前条件已变化，请刷新后重试" : "请求参数无效";
+                if (status == 409 && java.util.Set.of("RUNTIME_HTTP_EGRESS_SCHEME_DENIED",
+                        "RUNTIME_HTTP_EGRESS_HOST_DENIED", "RUNTIME_HTTP_EGRESS_DNS_DENIED",
+                        "RUNTIME_HTTP_EGRESS_REDIRECT_DENIED").contains(code)) {
+                    message = "服务地址被 HTTP 出站策略拒绝，请由管理员核对目标主机白名单；连接未保存";
+                }
                 return ResponseEntity.status(status).body(Map.of("success", false, "code", code,
-                        "message", status == 409 ? "当前条件已变化，请刷新后重试" : "请求参数无效"));
+                        "message", message));
             }
             throw failure;
         }

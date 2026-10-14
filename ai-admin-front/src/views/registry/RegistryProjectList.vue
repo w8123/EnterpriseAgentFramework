@@ -162,10 +162,13 @@
       description="选择 SDK 接入或扫描接入，完成项目身份、连接信息与能力发现配置。"
       width="760px"
       destroy-on-close
+      :close-on-click-modal="!saving"
+      :close-on-press-escape="!saving"
+      :show-close="!saving"
     >
       <el-tabs v-model="accessDialogTab" class="access-dialog-tabs">
         <el-tab-pane label="SDK 接入" name="sdk">
-          <el-form :model="sdkForm" label-width="120px">
+          <el-form :model="sdkForm" label-width="120px" :disabled="saving" novalidate>
             <el-form-item label="项目名称" required>
               <el-input v-model="sdkForm.name" placeholder="如：智能客服平台" />
             </el-form-item>
@@ -197,8 +200,9 @@
               type="success"
               :closable="false"
               show-icon
-              description="提交后会生成一个仅限当前项目、有效期 72 小时的一次性 Enrollment Token。将它配置到业务系统的 Starter；首次成功注册后，Starter 会自动保存长期凭据。"
+              description="提交后会生成仅限当前项目、有效期 72 小时的一次性接入令牌和完整 Starter 配置。此时项目尚未注册；业务系统首次启动并注册成功后，项目才会出现在列表中，Starter 会自动保存长期凭据。"
             />
+            <el-alert v-if="enrollmentError" :title="enrollmentError" type="error" :closable="false" show-icon />
           </el-form>
         </el-tab-pane>
 
@@ -264,7 +268,7 @@
         </el-tab-pane>
       </el-tabs>
       <template #footer>
-        <el-button @click="accessDialogVisible = false">取消</el-button>
+        <el-button :disabled="saving" @click="accessDialogVisible = false">取消</el-button>
         <el-button
           v-if="accessDialogTab === 'sdk'"
           type="primary"
@@ -287,12 +291,12 @@
     <AppDialog
       v-model="enrollmentDialogVisible"
       title="一次性 SDK 接入令牌"
-      description="该令牌只显示这一次，72 小时内只能成功使用一次。请通过受控密钥渠道交给业务系统，不要提交到代码仓库。"
+      description="请将完整配置交给业务系统，添加 Starter 依赖并启动。首次注册成功后项目才会出现在列表中。令牌仅在本弹窗保留，72 小时内只能成功使用一次；请通过受控密钥渠道传递，不要提交到代码仓库。"
       width="720px"
       destroy-on-close
-      @closed="issuedEnrollment = null"
+      @close="clearEnrollment"
     >
-      <el-form label-width="120px">
+      <el-form label-width="120px" novalidate>
         <el-form-item label="项目编码">
           <el-input :model-value="issuedEnrollment?.projectCode" readonly />
         </el-form-item>
@@ -300,9 +304,16 @@
           <el-input :model-value="issuedEnrollment?.expiresAt" readonly />
         </el-form-item>
         <el-form-item label="Starter 配置">
-          <el-input type="textarea" :rows="5" :model-value="enrollmentSnippet" readonly />
+          <el-input type="textarea" :rows="12" resize="none" :model-value="visibleEnrollmentSnippet" readonly />
         </el-form-item>
       </el-form>
+      <template #footer>
+        <el-button @click="enrollmentTokenVisible = !enrollmentTokenVisible">
+          {{ enrollmentTokenVisible ? '隐藏接入令牌' : '显示接入令牌' }}
+        </el-button>
+        <el-button type="primary" @click="copyEnrollmentSnippet">复制完整 Starter 配置</el-button>
+        <el-button @click="enrollmentDialogVisible = false">关闭</el-button>
+      </template>
     </AppDialog>
   </div>
 </template>
@@ -319,6 +330,7 @@ import {
 import CollapsibleHeaderRegion from '@/components/common/CollapsibleHeaderRegion.vue'
 import MetricIconBg from '@/components/common/MetricIconBg.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
+import { projectCapabilityWorkspaceLocation } from '@/views/capability/businessCapabilityRoutes'
 import { useCollapsiblePageHeader } from '@/composables/useCollapsiblePageHeader'
 import {
   createScanProject,
@@ -351,6 +363,9 @@ const accessDialogVisible = ref(false)
 const accessDialogTab = ref<'sdk' | 'scan'>('sdk')
 const enrollmentDialogVisible = ref(false)
 const issuedEnrollment = ref<RegistryEnrollmentToken | null>(null)
+const issuedProject = ref<RegistryProjectRegisterRequest | null>(null)
+const enrollmentTokenVisible = ref(false)
+const enrollmentError = ref('')
 
 /** 限制表格主体高度，使横向滚动条落在视口内（靠近浏览器窗口底部），无需先滚到卡片最底 */
 const projectTableMaxHeight = ref(480)
@@ -422,16 +437,53 @@ const scanForm = reactive<ScanProjectUpsertRequest>(createEmptyScanForm())
 const filteredProjects = computed(() => projects.value)
 
 const enrollmentSnippet = computed(() => {
-  if (!issuedEnrollment.value) return ''
+  if (!issuedEnrollment.value || !issuedProject.value) return ''
+  const project = issuedProject.value
   return [
     'reachai:',
     '  registry:',
-    '    url: <ReachAI Control URL>',
-    `    enrollment-token: ${issuedEnrollment.value.enrollmentToken}`,
+    '    enabled: true',
+    '    url: ${REACHAI_REGISTRY_URL:http://localhost:18603}',
+    `    enrollment-token: ${JSON.stringify(issuedEnrollment.value.enrollmentToken)}`,
     '  project:',
-    `    code: ${issuedEnrollment.value.projectCode}`,
+    `    code: ${JSON.stringify(issuedEnrollment.value.projectCode)}`,
+    `    name: ${JSON.stringify(project.name)}`,
+    `    environment: ${JSON.stringify(project.environment)}`,
+    `    owner: ${JSON.stringify(project.owner)}`,
+    `    visibility: ${JSON.stringify(project.visibility)}`,
+    `    base-url: ${JSON.stringify(project.baseUrl)}`,
+    '    # 填写 ReachAI 服务端可访问的业务地址；localhost 仅适用于同机联调。',
+    `    context-path: ${JSON.stringify(project.contextPath)}`,
+    '  capability:',
+    '    scan-beans: true',
+    '    scan-mode: ANNOTATED_ONLY',
+    '    # 启动先注册项目与实例；业务方法和 HTTP API 在项目内手动同步。',
   ].join('\n')
 })
+
+const visibleEnrollmentSnippet = computed(() => {
+  if (enrollmentTokenVisible.value || !issuedEnrollment.value) return enrollmentSnippet.value
+  return enrollmentSnippet.value.replace(
+    `enrollment-token: ${JSON.stringify(issuedEnrollment.value.enrollmentToken)}`,
+    'enrollment-token: "******"',
+  )
+})
+
+function clearEnrollment() {
+  issuedEnrollment.value = null
+  issuedProject.value = null
+  enrollmentTokenVisible.value = false
+}
+
+async function copyEnrollmentSnippet() {
+  if (!enrollmentSnippet.value) return
+  try {
+    await navigator.clipboard.writeText(enrollmentSnippet.value)
+    ElMessage.success('完整 Starter 配置已复制，请通过受控渠道传递')
+  } catch {
+    ElMessage.warning('复制失败，请显示接入令牌后手动复制配置')
+  }
+}
 
 const pagedProjects = computed(() => {
   const start = (currentPage.value - 1) * pageSize.value
@@ -558,6 +610,7 @@ function handleSearch() {
 }
 
 function openAccessDialog(tab: 'sdk' | 'scan' = 'sdk') {
+  enrollmentError.value = ''
   resetSdkForm()
   applyScanForm(createEmptyScanForm())
   accessDialogTab.value = tab
@@ -565,17 +618,32 @@ function openAccessDialog(tab: 'sdk' | 'scan' = 'sdk') {
 }
 
 async function saveSdkProject() {
+  if (saving.value) return
   if (!sdkForm.name.trim() || !sdkForm.projectCode.trim() || !sdkForm.baseUrl.trim()) {
     ElMessage.warning('请填写项目名称、项目编码和 Base URL')
     return
   }
+  const project: RegistryProjectRegisterRequest = {
+    projectCode: sdkForm.projectCode.trim(),
+    name: sdkForm.name.trim(),
+    environment: sdkForm.environment?.trim() || 'dev',
+    owner: sdkForm.owner?.trim() || '',
+    visibility: sdkForm.visibility || 'PRIVATE',
+    baseUrl: sdkForm.baseUrl.trim(),
+    contextPath: sdkForm.contextPath?.trim() || '',
+  }
+  enrollmentError.value = ''
   saving.value = true
   try {
-    const { data } = await issueRegistryEnrollment(sdkForm.projectCode.trim())
+    const { data } = await issueRegistryEnrollment(project.projectCode)
+    issuedProject.value = project
     issuedEnrollment.value = data
+    enrollmentTokenVisible.value = false
     ElMessage.success('已生成 72 小时一次性接入令牌')
     accessDialogVisible.value = false
     enrollmentDialogVisible.value = true
+  } catch {
+    enrollmentError.value = '接入令牌生成失败，填写的信息已保留，请重试。'
   } finally {
     saving.value = false
   }
@@ -684,7 +752,7 @@ function goDetail(project: ScanProject) {
     router.push(`/registry/projects/${encodeURIComponent(project.projectCode)}`)
     return
   }
-  router.push(`/scan-project/${project.id}`)
+  router.push(projectCapabilityWorkspaceLocation(project))
 }
 </script>
 
@@ -765,7 +833,7 @@ function goDetail(project: ScanProject) {
   flex: 0 0 1px;
   align-self: center;
   width: 1px;
-  height: 68px;
+  height: var(--layout-metric-icon-size);
   background: rgb(var(--brand-primary-rgb) / 0.18);
   border-radius: 1px;
 }
@@ -773,11 +841,11 @@ function goDetail(project: ScanProject) {
 .metric-segment {
   display: flex;
   flex: 1 1 0;
-  gap: 18px;
+  gap: var(--layout-metric-gap);
   align-items: center;
   min-width: 0;
-  min-height: 104px;
-  padding: 18px 22px;
+  min-height: 0;
+  padding: var(--layout-metric-padding-block) var(--layout-metric-padding-inline);
 
   .metric-label,
   small {
@@ -795,9 +863,9 @@ function goDetail(project: ScanProject) {
     display: block;
     margin: 4px 0 2px;
     color: #0f172a;
-    font-size: 25px;
+    font-size: var(--layout-metric-value-size);
     font-weight: 700;
-    line-height: 30px;
+    line-height: 1.2;
   }
 
   small {
@@ -831,8 +899,8 @@ function goDetail(project: ScanProject) {
   display: grid;
   grid-template-columns: minmax(260px, 2fr) repeat(2, minmax(150px, 1fr)) 74px 74px;
   align-items: center;
-  gap: 10px;
-  padding: 14px 22px 16px;
+  gap: var(--layout-control-gap);
+  padding: var(--layout-filter-padding-block) var(--layout-filter-padding-inline);
   border-bottom: 1px solid #eef1f7;
   background: #fff;
   flex-shrink: 0;
@@ -1083,8 +1151,8 @@ function goDetail(project: ScanProject) {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  padding: 14px 22px 16px;
+  gap: var(--layout-section-gap);
+  padding: var(--layout-pagination-padding-block) var(--layout-panel-padding);
   border-top: 1px solid #eef1f7;
   color: #667085;
   font-size: 13px;
@@ -1099,8 +1167,8 @@ function goDetail(project: ScanProject) {
 
 .metric-strip {
   align-items: stretch;
-  min-height: 104px;
-  max-height: 104px;
+  min-height: var(--layout-metric-strip-min-height);
+  max-height: none;
   padding: 0;
   gap: 0;
   border: 1px solid rgb(var(--brand-primary-rgb) / 0.16);
@@ -1119,9 +1187,9 @@ function goDetail(project: ScanProject) {
 
 .metric-segment {
   position: relative;
-  min-height: 104px;
-  padding: 18px 22px;
-  gap: 18px;
+  min-height: 0;
+  padding: var(--layout-metric-padding-block) var(--layout-metric-padding-inline);
+  gap: var(--layout-metric-gap);
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -1136,7 +1204,9 @@ function goDetail(project: ScanProject) {
 
 .metric-segment-icon {
   flex-shrink: 0;
-  --metric-icon-glyph-size: 24px;
+  --metric-icon-bg-size: var(--layout-metric-icon-size);
+  --metric-icon-bg-radius: 12px;
+  --metric-icon-glyph-size: calc(var(--layout-metric-icon-size) * 0.55);
 }
 
 .metric-content {
@@ -1148,7 +1218,7 @@ function goDetail(project: ScanProject) {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--layout-control-gap);
   min-width: 0;
 }
 
@@ -1167,9 +1237,9 @@ function goDetail(project: ScanProject) {
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  min-width: 72px;
-  height: 24px;
-  padding: 0 12px;
+  min-width: 60px;
+  height: 20px;
+  padding: 0 var(--layout-control-gap);
   font-size: 12px;
   font-style: normal;
   font-weight: 500;
@@ -1193,11 +1263,11 @@ function goDetail(project: ScanProject) {
 }
 
 .metric-segment strong {
-  margin: 4px 0 2px;
+  margin: 2px 0 0;
   color: #0f172a;
-  font-size: 25px;
+  font-size: var(--layout-metric-value-size);
   font-weight: 700;
-  line-height: 30px;
+  line-height: 1.2;
 }
 
 .metric-segment small {
@@ -1237,9 +1307,9 @@ function goDetail(project: ScanProject) {
 
 .toolbar {
   grid-template-columns: minmax(340px, 2.4fr) repeat(2, minmax(170px, 1fr)) 74px 88px;
-  gap: 12px;
-  margin: 28px 28px 0;
-  padding: 9px 14px;
+  gap: var(--layout-control-gap);
+  margin: var(--layout-panel-padding) var(--layout-panel-padding) 0;
+  padding: var(--layout-filter-padding-block) var(--layout-filter-padding-inline);
   border: 1px solid rgb(var(--brand-primary-rgb) / 0.11);
   border-radius: 12px;
   background: var(--brand-soft-bg, rgba(238, 242, 255, 0.76));
@@ -1315,7 +1385,7 @@ function goDetail(project: ScanProject) {
   flex: 1;
   flex-direction: column;
   min-height: 0;
-  margin: 22px 28px 0;
+  margin: var(--layout-section-gap) var(--layout-panel-padding) 0;
   overflow: hidden;
   border: 1px solid rgb(var(--brand-primary-rgb) / 0.12);
   border-radius: 13px;
@@ -1414,8 +1484,8 @@ function goDetail(project: ScanProject) {
 }
 
 .table-footer {
-  min-height: 64px;
-  padding: 14px 28px 16px;
+  min-height: 0;
+  padding: var(--layout-pagination-padding-block) var(--layout-panel-padding);
   border-top: 1px solid rgb(var(--brand-primary-rgb) / 0.12);
   color: #64748b;
   background: rgba(255, 255, 255, 0.34);
@@ -1863,19 +1933,13 @@ function goDetail(project: ScanProject) {
 
 @media (max-width: 1200px) {
   .metric-strip {
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     max-height: none;
   }
 
   .metric-divider {
-    width: auto;
-    height: 1px;
-    align-self: stretch;
-    margin: 0 22px;
-  }
-
-  .metric-segment {
-    min-height: 92px;
+    display: none;
   }
 
   .empty-main {
@@ -1916,8 +1980,13 @@ function goDetail(project: ScanProject) {
 }
 
 @media (max-width: 760px) {
-  .metric-segment {
-    min-height: 84px;
+  .metric-line {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .metric-segment .metric-label {
+    white-space: normal;
   }
 
   .toolbar {
@@ -1932,6 +2001,12 @@ function goDetail(project: ScanProject) {
   .table-footer {
     align-items: flex-start;
     flex-direction: column;
+  }
+}
+
+@media (max-width: 480px) {
+  .metric-strip {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 </style>

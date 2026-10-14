@@ -26,13 +26,26 @@ class CapabilityChangeImpactServiceTest {
     final CapabilityChangeImpactService service = new CapabilityChangeImpactService(runtime, signer, json,
             new McpPublishedReferenceReader(mcp, revisions, json), new A2aPublishedReferenceReader(a2a, a2aRevisions));
 
+    @org.junit.jupiter.api.BeforeEach void entityMetadata() {
+        for (Class<?> type : List.of(McpPublicationEntity.class, McpPublicationRevisionEntity.class,
+                A2aPublicationEntity.class, A2aPublicationRevisionEntity.class))
+            com.baomidou.mybatisplus.core.metadata.TableInfoHelper.initTableInfo(new org.apache.ibatis.builder.MapperBuilderAssistant(
+                    new com.baomidou.mybatisplus.core.MybatisConfiguration(), "impact-reference"), type);
+    }
+
     @Test void combinesRealRuntimeAndFrozenMcpEvidenceEvenWhenOriginalImpactIsNull() throws Exception {
         when(runtime.capabilityReferences(any(), any())).thenReturn(Map.of("state", "COMPLETE", "usages", List.of(
                 Map.of("qualifiedName", "orders:read", "kind", "WORKFLOW", "id", "w1", "name", "查询", "versionId", 9L))));
         var publication = new McpPublicationEntity(); publication.setId(4L); publication.setName("开放查询"); publication.setCurrentRevisionId(7L);
         var revision = new McpPublicationRevisionEntity(); revision.setId(7L); revision.setPublicationId(4L); revision.setRevisionNo(1);
         revision.setToolsSnapshotJson("[{\"sourceKind\":\"WORKFLOW\",\"sourceRef\":\"w1\",\"workflowVersionId\":9}]");
-        when(mcp.selectList(any())).thenReturn(List.of(publication)); when(revisions.selectList(any())).thenReturn(List.of(revision));
+        var metadata = new McpPublicationRevisionMapper.ReferenceMetadata();
+        metadata.setId(7L); metadata.setPublicationId(4L); metadata.setRevisionNo(1);
+        metadata.setSnapshotFingerprint(java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                .digest(revision.getToolsSnapshotJson().getBytes(java.nio.charset.StandardCharsets.UTF_8))));
+        when(mcp.selectList(any())).thenReturn(List.of(publication));
+        when(revisions.referenceMetadata(any(), anyInt())).thenReturn(List.of(metadata));
+        when(revisions.referenceBodies(any())).thenReturn(List.of(revision));
         var impact = impact(); assertEquals("COMPLETE", impact.path("runtimeEvidence").asText()); assertEquals("COMPLETE", impact.path("publicationEvidence").asText());
         assertEquals(2, impact.path("references").size());
         var mcpUsage = impact.path("references").get(1);
@@ -80,5 +93,32 @@ class CapabilityChangeImpactServiceTest {
         var impact = json.readTree((String) ((Map<?, ?>) records.get(0)).get("impactJson"));
         assertEquals("contract changed", impact.path("reason").asText());
         assertTrue(impact.path("currentCandidate").asBoolean());
+    }
+
+    @Test void suppliesOnlyRequestedAliasesAndObservedWorkflowOwnerVersionPairsToMcp() {
+        var scopedMcp = mock(McpPublishedReferenceQuery.class);
+        var publishedA2a = mock(A2aPublishedReferenceQuery.class);
+        when(publishedA2a.inspect()).thenReturn(new A2aPublishedReferenceQuery.Evidence(true, List.of()));
+        when(runtime.capabilityReferences(any(), any())).thenReturn(Map.of("state", "COMPLETE", "usages", List.of(
+                Map.of("qualifiedName", "orders:read", "kind", "WORKFLOW", "id", "w1", "versionId", 9))));
+        when(scopedMcp.inspect(anySet(), anyMap())).thenReturn(new McpPublishedReferenceQuery.Evidence(true, List.of()));
+        var current = new CapabilityChangeImpactService(runtime, signer, json, scopedMcp, publishedA2a);
+        var result = current.references("orders", "orders:read", "orders_read", "actor");
+        assertEquals("COMPLETE", result.get("publicationEvidence"));
+        verify(scopedMcp).inspect(eq(java.util.Set.of("orders:read", "orders_read")), eq(Map.of(9L, "w1")));
+        verify(scopedMcp, never()).inspect();
+    }
+
+    @Test void mcpBindingForAnotherWorkflowCannotBeAttributedOnlyByVersionNumber() {
+        var scopedMcp = mock(McpPublishedReferenceQuery.class);
+        var publishedA2a = mock(A2aPublishedReferenceQuery.class);
+        when(publishedA2a.inspect()).thenReturn(new A2aPublishedReferenceQuery.Evidence(true, List.of()));
+        when(runtime.capabilityReferences(any(), any())).thenReturn(Map.of("state", "COMPLETE", "usages", List.of(
+                Map.of("qualifiedName", "orders:read", "kind", "WORKFLOW", "id", "w1", "versionId", 9))));
+        when(scopedMcp.inspect(anySet(), anyMap())).thenReturn(new McpPublishedReferenceQuery.Evidence(true, List.of(
+                new McpPublishedReferenceQuery.Binding(4L, "Other publication", 1, "WORKFLOW", "w2", 9L))));
+        var current = new CapabilityChangeImpactService(runtime, signer, json, scopedMcp, publishedA2a);
+        var result = current.references("orders", "orders:read", "orders_read", "actor");
+        assertEquals(1, ((List<?>) result.get("references")).size());
     }
 }

@@ -249,7 +249,7 @@ onMounted(reload)
 
 .identity-workbench {
   min-width: 0;
-  padding: 0 18px 18px;
+  padding: 0 var(--layout-panel-padding) var(--layout-panel-padding);
   border: 1px solid var(--border-divider);
   border-radius: var(--radius-xl);
   background: var(--surface-glass-panel);
@@ -257,12 +257,12 @@ onMounted(reload)
 }
 
 .identity-tabs :deep(.el-tabs__header) {
-  margin-bottom: 18px;
+  margin-bottom: var(--layout-section-gap);
 }
 
 .identity-tabs :deep(.el-tabs__item) {
-  height: 54px;
-  padding: 0 22px;
+  height: 44px;
+  padding: 0 var(--layout-panel-padding);
 }
 
 .tab-label {

@@ -88,10 +88,10 @@ class ControlGovernanceRoutesTest {
                 "ops",
                 "ALLOW",
                 List.of(new ControlToolAclController.ToolAclTargetRef("TOOL", "orders.search")),
-                "unit"));
+                "unit", null, null));
         ResponseEntity<Map<String, String>> explain = controller.explain(new ControlToolAclController.ExplainRequest(
                 List.of("admin"),
-                List.of(new ControlToolAclController.ToolAclTargetRef("TOOL", "orders.search"))));
+                List.of(new ControlToolAclController.ToolAclTargetRef("TOOL", "orders.search")), null, null));
         ResponseEntity<Map<String, Object>> deleted = controller.delete(1L);
 
         assertEquals(HttpStatus.OK, listed.getStatusCode());

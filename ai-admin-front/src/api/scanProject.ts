@@ -1,10 +1,10 @@
 ﻿import { controlRequest } from './request'
 import type { AxiosRequestConfig } from 'axios'
 import type {
-  AiCodingGatewayManifest,
   ProjectToolInfo,
+  SourcePage, SourcePageQuery,
+  SourceObservationRescanResult,
   ScanProject,
-  ScanProjectAuthSaveRequest,
   AiOnboardingManifest,
   AiCodingAccessResponse,
   AiCodingAccessUpdateRequest,
@@ -20,19 +20,6 @@ import type {
   ToolReconcileSummary,
 } from '@/types/scanProject'
 import type { SemanticLlmParams } from '@/api/semanticDoc'
-
-export interface ScanDiffSummary {
-  projectId: number
-  toolCount: number
-  promotedCount: number
-  missingDescriptionCount: number
-  missingAiDescriptionCount: number
-  duplicateStableKeyCount: number
-  duplicates: Array<{
-    stableKey: string
-    scanToolIds: number[]
-  }>
-}
 
 export interface ScanProjectListQuery {
   keyword?: string
@@ -69,10 +56,6 @@ export function updateScanProject(id: number, data: ScanProjectUpsertRequest) {
   return controlRequest.put<ScanProject>(`/api/scan-projects/${id}`, data)
 }
 
-export function updateScanProjectAuthSettings(id: number, data: ScanProjectAuthSaveRequest) {
-  return controlRequest.patch<ScanProject>(`/api/scan-projects/${id}/auth-settings`, data)
-}
-
 export function updateScanProjectRegistryCredential(id: number, data: ScanProjectRegistryCredentialSaveRequest) {
   return controlRequest.patch<ScanProject>(`/api/scan-projects/${id}/registry-credential`, data)
 }
@@ -92,10 +75,6 @@ export function provisionProjectAgent(id: number, requestedBy: string) {
   )
 }
 
-export function getAiCodingGatewayManifest(id: number) {
-  return controlRequest.get<AiCodingGatewayManifest>(`/api/ai-coding/projects/${id}/manifest`)
-}
-
 export function updateAiCodingAccess(id: number, data: AiCodingAccessUpdateRequest) {
   return controlRequest.patch<AiCodingAccessResponse>(`/api/ai-assist/projects/${id}/ai-coding-access`, data)
 }
@@ -108,10 +87,6 @@ export function deleteScanProject(id: number) {
   return controlRequest.delete(`/api/scan-projects/${id}`)
 }
 
-export function triggerScan(id: number) {
-  return controlRequest.post<ScanProjectScanResult>(`/api/scan-projects/${id}/scan`)
-}
-
 export function triggerRescan(id: number) {
   return controlRequest.post<ScanProjectScanResult>(`/api/scan-projects/${id}/rescan`)
 }
@@ -120,9 +95,9 @@ export function triggerSdkCapabilityScan(projectId: number) {
   return controlRequest.post<SdkCapabilityScanResult>(`/api/scan-projects/${projectId}/sdk-sync/scan`)
 }
 
-/** 单条接口：从源码 / OpenAPI 重新解析并更新该扫描项。 */
+/** 单条来源刷新；返回所属 HTTP API 是否已唯一确认，不等同于接纳契约。 */
 export function rescanScanToolFromSource(projectId: number, scanToolId: number) {
-  return controlRequest.post<ProjectToolInfo>(
+  return controlRequest.post<SourceObservationRescanResult>(
     `/api/scan-projects/${projectId}/scan-tools/${scanToolId}/rescan-from-source`,
   )
 }
@@ -134,16 +109,19 @@ export function getScanProjectTools(id: number, view?: 'summary' | 'full') {
 }
 
 export function getScanProjectTool(projectId: number, scanToolId: number) {
-  return controlRequest.get<ProjectToolInfo>(`/api/scan-projects/${projectId}/scan-tools/${scanToolId}`)
+  return controlRequest.get<ProjectToolInfo>(`/api/scan-projects/${projectId}/scan-tools/${scanToolId}`, { errorFeedback: 'local' })
+}
+
+export function getScanProjectSources(id: number, query: SourcePageQuery) {
+  const { defer: _defer, observationIds, ...params } = query
+  return controlRequest.get<SourcePage>(`/api/scan-projects/${id}/sources`, {
+    params: { ...params, observationIds: observationIds?.join(',') }, errorFeedback: 'local',
+  })
 }
 
 /** 只读核对来源与历史投影关联，不创建或修改执行定义。 */
 export function reconcileScanProjectTools(projectId: number) {
   return controlRequest.post<ToolReconcileSummary>(`/api/scan-projects/${projectId}/tools/reconcile`)
-}
-
-export function getScanProjectDiffSummary(id: number) {
-  return controlRequest.get<ScanDiffSummary>(`/api/scan-projects/${id}/diff-summary`)
 }
 
 

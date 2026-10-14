@@ -34,6 +34,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -42,187 +43,103 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 class CapabilityCatalogConsoleControllerTest {
-
-    @Test
-    void exposesOnlyTheTwoReadOnlyCatalogRoutes() throws Exception {
-        var list = CapabilityCatalogConsoleController.class.getDeclaredMethod(
-                "list", HttpServletRequest.class, int.class, int.class,
-                String.class, String.class, Boolean.class, Long.class);
-        var get = CapabilityCatalogConsoleController.class.getDeclaredMethod(
-                "get", HttpServletRequest.class, String.class);
-
-        assertArrayEquals(new String[] {"/api/tools"}, list.getAnnotation(GetMapping.class).value());
-        assertArrayEquals(new String[] {"/api/tools/{name}"}, get.getAnnotation(GetMapping.class).value());
+    @Test void projectListsSendSignedSessionScopeAndRecheckOwnerWithoutAnIdentityHop() {
+        var gateway = mock(CapabilityReviewGateway.class); var controller = controller(gateway, globalSession());
+        var session = projectSession("orders", PlatformPermissions.PLATFORM_READ);
+        var body = Map.<String, Object>of("records", List.of("orders.read"));
+        var grant = CatalogReadAuthorization.body(session, 7L);
+        when(gateway.listCapabilities(1, 100, null, null, true, 7L, "7", grant))
+                .thenReturn(ownerPage(7L, "orders", body));
+        var response = controller.list(request(session), 1, 100, null, null, true, 7L);
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(body, response.getBody());
+        assertEquals(null, response.getHeaders().getFirst(CatalogReadAuthorization.PROJECT_CODE));
+        verify(gateway, never()).getProjectById(any(), any());
+        verify(gateway).listCapabilities(1, 100, null, null, true, 7L, "7", grant);
     }
 
-    @Test
-    void mvcRoutesEnterTheAuthorizationFacadeWithoutLegacyToolsFallback() throws Exception {
-        CapabilityReviewGateway gateway = mock(CapabilityReviewGateway.class);
-        CapabilityCatalogConsoleController catalog = controller(gateway, globalSession());
-        CapabilityCompatibilityProxyController legacyProxy = new CapabilityCompatibilityProxyController(
-                new RestTemplateBuilder(), "http://capability:18605");
-        MockMvc mvc = MockMvcBuilders.standaloneSetup(catalog, legacyProxy).build();
+    @Test void ungroupedMethodsUseTheSameSignedProjectScopeAndOwnerResponse() {
+        var gateway = mock(CapabilityReviewGateway.class); var controller = controller(gateway, globalSession());
+        var session = projectSession("orders", PlatformPermissions.PLATFORM_READ);
+        var request = request(session); request.setParameter("ungrouped", "true");
+        when(gateway.listBusinessMethods(2, 5, "query", true, 7L, "7", null, true, CatalogReadAuthorization.body(session, 7L)))
+                .thenReturn(ownerPage(7L, "orders", Map.of("records", List.of(), "total", 0)));
+        assertEquals(HttpStatus.OK, controller.listBusinessMethods(request, 2, 5, "query", true, 7L).getStatusCode());
+        verify(gateway, never()).getProjectById(any(), any());
+        var unscoped = request(globalSession()); unscoped.setParameter("ungrouped", "true");
+        assertEquals(HttpStatus.BAD_REQUEST, assertThrows(ResponseStatusException.class,
+                () -> controller.listBusinessMethods(unscoped, 1, 20, null, null, null)).getStatusCode());
+    }
 
+    @Test void globalReadDeclaresGlobalScopeAndPreservesExplicitFalse() {
+        var gateway = mock(CapabilityReviewGateway.class); var controller = controller(gateway, globalSession());
+        var body = Map.<String, Object>of("records", List.of());
+        when(gateway.listCapabilities(2, 500, "订单 & status=ALL#+/", "code+/source", false, null, "7",
+                CatalogReadAuthorization.body(globalSession(), null))).thenReturn(ownerPage(null, null, body));
+        var response = controller.list(request(globalSession()), 2, 500, "订单 & status=ALL#+/", "code+/source", false, null);
+        assertEquals(HttpStatus.OK, response.getStatusCode()); assertEquals(body, response.getBody());
+    }
+
+    @Test void noSessionWriteOnlyInvalidIdAndUnscopedProjectGrantFailBeforeOwnerIo() {
+        var gateway = mock(CapabilityReviewGateway.class); var controller = controller(gateway, globalSession());
+        assertEquals(HttpStatus.UNAUTHORIZED, assertThrows(ResponseStatusException.class,
+                () -> controller.list(new MockHttpServletRequest(), 1, 20, null, null, null, null)).getStatusCode());
+        assertEquals(HttpStatus.FORBIDDEN, assertThrows(ResponseStatusException.class,
+                () -> controller.list(request(projectSession("orders", PlatformPermissions.PLATFORM_WRITE)), 1, 20, null, null, null, 7L)).getStatusCode());
+        assertEquals(HttpStatus.FORBIDDEN, assertThrows(ResponseStatusException.class,
+                () -> controller.list(request(projectSession("orders", PlatformPermissions.PLATFORM_READ)), 1, 20, null, null, null, null)).getStatusCode());
+        assertEquals(HttpStatus.BAD_REQUEST, controller.list(request(globalSession()), 1, 20, null, null, null, 0L).getStatusCode());
+        verifyNoInteractions(gateway);
+    }
+
+    @Test void ownerDeniedScopeCannotReturnCatalogDataAndUnexpectedOwnerCannotPassControlRecheck() {
+        var gateway = mock(CapabilityReviewGateway.class); var controller = controller(gateway, globalSession());
+        var session = projectSession("orders", PlatformPermissions.PLATFORM_READ);
+        var grant = CatalogReadAuthorization.body(session, 8L);
+        when(gateway.listCapabilities(1, 20, null, null, null, 8L, "7", grant))
+                .thenReturn(ResponseEntity.status(403).body(Map.of("code", "CATALOG_READ_SCOPE_DENIED")));
+        assertEquals(HttpStatus.FORBIDDEN, controller.list(request(session), 1, 20, null, null, null, 8L).getStatusCode());
+        when(gateway.listCapabilities(1, 20, null, null, null, 8L, "7", grant))
+                .thenReturn(ownerPage(8L, "billing", Map.of("records", List.of("secret"))));
+        assertEquals(HttpStatus.FORBIDDEN, assertThrows(ResponseStatusException.class,
+                () -> controller.list(request(session), 1, 20, null, null, null, 8L)).getStatusCode());
+        verify(gateway, never()).getProjectById(any(), any());
+    }
+
+    @Test void missingOrMismatchedOwnerHeadersFailClosedAndOwnerFailuresAreSanitized() {
+        for (var malformed : List.of(ResponseEntity.<Object>ok(Map.of("records", List.of())),
+                ownerPage(8L, "orders", Map.of("records", List.of())))) {
+            var gateway = mock(CapabilityReviewGateway.class); var controller = controller(gateway, globalSession());
+            when(gateway.listCapabilities(1, 20, null, null, null, 7L, "7", CatalogReadAuthorization.body(globalSession(), 7L)))
+                    .thenReturn(malformed);
+            assertEquals(HttpStatus.BAD_GATEWAY, controller.list(request(globalSession()), 1, 20, null, null, null, 7L).getStatusCode());
+        }
+        var gateway = mock(CapabilityReviewGateway.class); var controller = controller(gateway, globalSession());
+        when(gateway.listCapabilities(1, 20, null, null, null, 7L, "7", CatalogReadAuthorization.body(globalSession(), 7L)))
+                .thenReturn(ResponseEntity.status(503).body(Map.of("internalUrl", "private")));
+        var failure = controller.list(request(globalSession()), 1, 20, null, null, null, 7L);
+        assertEquals(HttpStatus.SERVICE_UNAVAILABLE, failure.getStatusCode());
+        assertEquals(Map.of("code", "CAPABILITY_SERVICE_UNAVAILABLE"), failure.getBody());
+    }
+
+    @Test void legacyProxyCannotBypassTheCatalogFacadeAndRemovedSummaryMethodIsAbsent() throws Exception {
+        var gateway = mock(CapabilityReviewGateway.class); var catalog = controller(gateway, globalSession());
+        var legacy = new CapabilityCompatibilityProxyController(new RestTemplateBuilder(), "http://capability:18605");
+        var mvc = MockMvcBuilders.standaloneSetup(catalog, legacy).build();
         mvc.perform(get("/api/tools")).andExpect(status().isUnauthorized());
         mvc.perform(get("/api/tools/orders_read")).andExpect(status().isUnauthorized());
         mvc.perform(post("/api/tools")).andExpect(status().is4xxClientError());
         mvc.perform(get("/api/tools/orders_read/extra")).andExpect(status().isNotFound());
-
+        assertEquals(false, java.util.Arrays.stream(CapabilityCatalogConsoleController.class.getDeclaredMethods())
+                .anyMatch(method -> "businessMethodSummary".equals(method.getName())));
         verifyNoInteractions(gateway);
     }
 
-    @Test
-    void rejectsAnUnauthenticatedListBeforeOwnerIo() {
-        CapabilityReviewGateway gateway = mock(CapabilityReviewGateway.class);
-        CapabilityCatalogConsoleController controller = controller(gateway, globalSession());
-
-        ResponseStatusException error = assertThrows(ResponseStatusException.class,
-                () -> controller.list(new MockHttpServletRequest(), 1, 20,
-                        null, null, null, null));
-
-        assertEquals(HttpStatus.UNAUTHORIZED, error.getStatusCode());
-        verifyNoInteractions(gateway);
-    }
-
-    @Test
-    void requiresGlobalReadForAnUnfilteredList() {
-        CapabilityReviewGateway gateway = mock(CapabilityReviewGateway.class);
-        CapabilityCatalogConsoleController controller = controller(gateway,
-                projectSession("orders", PlatformPermissions.PLATFORM_READ));
-
-        ResponseStatusException error = assertThrows(ResponseStatusException.class,
-                () -> controller.list(request(projectSession("orders", PlatformPermissions.PLATFORM_READ)),
-                        1, 20, null, null, null, null));
-
-        assertEquals(HttpStatus.FORBIDDEN, error.getStatusCode());
-        verifyNoInteractions(gateway);
-    }
-
-    @Test
-    void usesGlobalReadForAnUnfilteredListAndPreservesExplicitFalse() {
-        CapabilityReviewGateway gateway = mock(CapabilityReviewGateway.class);
-        CapabilityCatalogConsoleController controller = controller(gateway, globalSession());
-        ResponseEntity<Object> page = ResponseEntity.ok(Map.of("records", List.of()));
-        when(gateway.listCapabilities(2, 500, "订单 & status=ALL#+/", "code+/source",
-                false, null, "7")).thenReturn(page);
-
-        assertEquals(page, controller.list(request(globalSession()), 2, 500,
-                "订单 & status=ALL#+/", "code+/source", false, null));
-        verify(gateway).listCapabilities(2, 500, "订单 & status=ALL#+/", "code+/source",
-                false, null, "7");
-    }
-
-    @Test
-    void resolvesTheOwnerProjectBeforeAuthorizingAFilteredList() {
-        CapabilityReviewGateway gateway = mock(CapabilityReviewGateway.class);
-        CapabilityCatalogConsoleController controller = controller(gateway,
-                projectSession("orders", PlatformPermissions.PLATFORM_READ));
-        ResponseEntity<Object> page = ResponseEntity.ok(Map.of("records", List.of("order.read")));
-        when(gateway.getProjectById(7L, "7")).thenReturn(ResponseEntity.ok(
-                Map.of("projectId", 7L, "projectCode", "orders")));
-        when(gateway.listCapabilities(1, 20, null, null, null, 7L, "7")).thenReturn(page);
-
-        assertEquals(page, controller.list(request(projectSession("orders", PlatformPermissions.PLATFORM_READ)),
-                1, 20, null, null, null, 7L));
-        verify(gateway).getProjectById(7L, "7");
-        verify(gateway).listCapabilities(1, 20, null, null, null, 7L, "7");
-    }
-
-    @Test
-    void permitsTheEnabledStudioCatalogSelectorWithinProjectScopeWithoutAGlobalGrant() {
-        CapabilityReviewGateway gateway = mock(CapabilityReviewGateway.class);
-        CapabilityCatalogConsoleController controller = controller(gateway,
-                projectSession("orders", PlatformPermissions.PLATFORM_READ));
-        ResponseEntity<Object> page = ResponseEntity.ok(Map.of("records", List.of("orders.read")));
-        when(gateway.getProjectById(7L, "7")).thenReturn(ResponseEntity.ok(
-                Map.of("projectId", 7L, "projectCode", "orders")));
-        when(gateway.listCapabilities(1, 100, null, null, true, 7L, "7")).thenReturn(page);
-
-        assertEquals(page, controller.list(request(projectSession("orders", PlatformPermissions.PLATFORM_READ)),
-                1, 100, null, null, true, 7L));
-        verify(gateway).getProjectById(7L, "7");
-        verify(gateway).listCapabilities(1, 100, null, null, true, 7L, "7");
-    }
-
-    @Test
-    void deniesAProjectGrantForAnotherResolvedProjectWithoutListing() {
-        CapabilityReviewGateway gateway = mock(CapabilityReviewGateway.class);
-        CapabilityCatalogConsoleController controller = controller(gateway,
-                projectSession("orders", PlatformPermissions.PLATFORM_READ));
-        when(gateway.getProjectById(8L, "7")).thenReturn(ResponseEntity.ok(
-                Map.of("projectId", 8L, "projectCode", "billing")));
-
-        ResponseStatusException error = assertThrows(ResponseStatusException.class,
-                () -> controller.list(request(projectSession("orders", PlatformPermissions.PLATFORM_READ)),
-                        1, 20, null, null, null, 8L));
-
-        assertEquals(HttpStatus.FORBIDDEN, error.getStatusCode());
-        verify(gateway).getProjectById(8L, "7");
-        verify(gateway, org.mockito.Mockito.never()).listCapabilities(
-                any(Integer.class), any(Integer.class), any(), any(), any(), any(), any());
-    }
-
-    @Test
-    void rejectsWriteOnlyProjectGrantBeforeOwnerLookup() {
-        CapabilityReviewGateway gateway = mock(CapabilityReviewGateway.class);
-        CapabilityCatalogConsoleController controller = controller(gateway,
-                projectSession("orders", PlatformPermissions.PLATFORM_WRITE));
-
-        ResponseStatusException error = assertThrows(ResponseStatusException.class,
-                () -> controller.list(request(projectSession("orders", PlatformPermissions.PLATFORM_WRITE)),
-                        1, 20, null, null, null, 7L));
-
-        assertEquals(HttpStatus.FORBIDDEN, error.getStatusCode());
-        verifyNoInteractions(gateway);
-    }
-
-    @Test
-    void rejectsInvalidProjectIdsBeforeOwnerLookup() {
-        CapabilityReviewGateway gateway = mock(CapabilityReviewGateway.class);
-        CapabilityCatalogConsoleController controller = controller(gateway, globalSession());
-
-        ResponseEntity<Object> response = controller.list(request(globalSession()), 1, 20,
-                null, null, null, 0L);
-
-        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
-        assertEquals("CAPABILITY_PROJECT_ID_INVALID", ((Map<?, ?>) response.getBody()).get("code"));
-        verifyNoInteractions(gateway);
-    }
-
-    @Test
-    void failsClosedForMissingMismatchedAndUnavailableProjectOwnerResponses() {
-        for (ResponseEntity<Object> ownerResponse : List.of(
-                ResponseEntity.<Object>ok(Map.of("projectCode", "orders")),
-                ResponseEntity.<Object>ok(Map.of("projectId", 8L, "projectCode", "orders")),
-                ResponseEntity.<Object>ok(Map.of("projectId", 7L, "projectCode", 7)),
-                ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).<Object>build())) {
-            CapabilityReviewGateway gateway = mock(CapabilityReviewGateway.class);
-            CapabilityCatalogConsoleController controller = controller(gateway, globalSession());
-            when(gateway.getProjectById(7L, "7")).thenReturn(ownerResponse);
-
-            ResponseEntity<Object> response = controller.list(request(globalSession()), 1, 20,
-                    null, null, null, 7L);
-
-            assertEquals(ownerResponse.getStatusCode().value() >= 500
-                            ? HttpStatus.SERVICE_UNAVAILABLE : HttpStatus.BAD_GATEWAY,
-                    response.getStatusCode(), ownerResponse.toString());
-            verify(gateway, org.mockito.Mockito.never()).listCapabilities(
-                    any(Integer.class), any(Integer.class), any(), any(), any(), any(), any());
-        }
-    }
-
-    @Test
-    void mapsAnOwnerNotFoundToNotFoundWithoutAUnboundedFallback() {
-        CapabilityReviewGateway gateway = mock(CapabilityReviewGateway.class);
-        CapabilityCatalogConsoleController controller = controller(gateway, globalSession());
-        when(gateway.getProjectById(7L, "7")).thenReturn(ResponseEntity.notFound().build());
-
-        ResponseEntity<Object> response = controller.list(request(globalSession()), 1, 20,
-                null, null, null, 7L);
-
-        assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode());
-        verify(gateway, org.mockito.Mockito.never()).listCapabilities(
-                any(Integer.class), any(Integer.class), any(), any(), any(), any(), any());
+    private static ResponseEntity<Object> ownerPage(Long id, String code, Map<String, Object> body) {
+        var response = ResponseEntity.ok().header(CatalogReadAuthorization.SCOPE, id == null ? "GLOBAL" : "PROJECT");
+        if (id != null) response.header(CatalogReadAuthorization.PROJECT_ID, String.valueOf(id))
+                .header(CatalogReadAuthorization.PROJECT_CODE, java.net.URLEncoder.encode(code, java.nio.charset.StandardCharsets.UTF_8));
+        return response.body(body);
     }
 
     @Test
@@ -230,31 +147,32 @@ class CapabilityCatalogConsoleControllerTest {
         CapabilityReviewGateway gateway = mock(CapabilityReviewGateway.class);
         CapabilityCatalogConsoleController controller = controller(gateway,
                 projectSession("orders", PlatformPermissions.PLATFORM_READ));
-        ResponseEntity<Object> definition = ResponseEntity.ok(Map.of(
+        ResponseEntity<Object> definition = ownerPage(7L, "orders", Map.of(
                 "name", "orders_read", "projectId", 7L, "projectCode", "orders"));
-        when(gateway.getCapability("orders_read", "7")).thenReturn(definition);
+        when(gateway.getCapability(org.mockito.ArgumentMatchers.eq("orders_read"), org.mockito.ArgumentMatchers.eq("7"), org.mockito.ArgumentMatchers.anyMap())).thenReturn(definition);
         when(gateway.getProjectById(7L, "7")).thenReturn(ResponseEntity.ok(
                 Map.of("projectId", 7L, "projectCode", "orders")));
 
-        assertEquals(definition, controller.get(request(projectSession("orders", PlatformPermissions.PLATFORM_READ)),
-                "orders_read"));
-        verify(gateway).getProjectById(7L, "7");
+        assertEquals(definition.getBody(), controller.get(request(projectSession("orders", PlatformPermissions.PLATFORM_READ)),
+                "orders_read").getBody());
+        verify(gateway, never()).getProjectById(any(), any());
     }
 
     @Test
     void globalReadCanReadProjectAndPlatformDefinitions() {
         CapabilityReviewGateway gateway = mock(CapabilityReviewGateway.class);
         CapabilityCatalogConsoleController controller = controller(gateway, globalSession());
-        ResponseEntity<Object> projectDefinition = ResponseEntity.ok(Map.of(
-                "name", "orders_read", "projectId", 7L));
-        ResponseEntity<Object> platformDefinition = ResponseEntity.ok(Map.of("name", "platform_read"));
-        when(gateway.getCapability("orders_read", "7")).thenReturn(projectDefinition);
-        when(gateway.getCapability("platform_read", "7")).thenReturn(platformDefinition);
+        ResponseEntity<Object> projectDefinition = ownerPage(7L, "orders", Map.of(
+                "name", "orders_read", "projectId", 7L, "projectCode", "orders"));
+        ResponseEntity<Object> platformDefinition = ownerPage(null, null, Map.of("name", "platform_read"));
+        when(gateway.getCapability(org.mockito.ArgumentMatchers.eq("orders_read"), org.mockito.ArgumentMatchers.eq("7"), org.mockito.ArgumentMatchers.anyMap())).thenReturn(projectDefinition);
+        when(gateway.getCapability(org.mockito.ArgumentMatchers.eq("platform_read"), org.mockito.ArgumentMatchers.eq("7"), org.mockito.ArgumentMatchers.anyMap())).thenReturn(platformDefinition);
         when(gateway.getProjectById(7L, "7")).thenReturn(ResponseEntity.ok(
                 Map.of("projectId", 7L, "projectCode", "orders")));
 
-        assertEquals(projectDefinition, controller.get(request(globalSession()), "orders_read"));
-        assertEquals(platformDefinition, controller.get(request(globalSession()), "platform_read"));
+        assertEquals(projectDefinition.getBody(), controller.get(request(globalSession()), "orders_read").getBody());
+        assertEquals(platformDefinition.getBody(), controller.get(request(globalSession()), "platform_read").getBody());
+        verify(gateway, never()).getProjectById(any(), any());
     }
 
     @Test
@@ -262,10 +180,10 @@ class CapabilityCatalogConsoleControllerTest {
         CapabilityReviewGateway gateway = mock(CapabilityReviewGateway.class);
         CapabilityCatalogConsoleController controller = controller(gateway,
                 projectSession("orders", PlatformPermissions.PLATFORM_READ));
-        when(gateway.getCapability("platform_read", "7")).thenReturn(
-                ResponseEntity.ok(Map.of("name", "platform_read")));
-        when(gateway.getCapability("billing_read", "7")).thenReturn(ResponseEntity.ok(Map.of(
-                "name", "billing_read", "projectId", 8L)));
+        when(gateway.getCapability(org.mockito.ArgumentMatchers.eq("platform_read"), org.mockito.ArgumentMatchers.eq("7"), org.mockito.ArgumentMatchers.anyMap())).thenReturn(
+                ownerPage(null, null, Map.of("name", "platform_read")));
+        when(gateway.getCapability(org.mockito.ArgumentMatchers.eq("billing_read"), org.mockito.ArgumentMatchers.eq("7"), org.mockito.ArgumentMatchers.anyMap())).thenReturn(ownerPage(8L, "billing", Map.of(
+                "name", "billing_read", "projectId", 8L, "projectCode", "billing")));
         when(gateway.getProjectById(8L, "7")).thenReturn(ResponseEntity.ok(
                 Map.of("projectId", 8L, "projectCode", "billing")));
 
@@ -283,9 +201,9 @@ class CapabilityCatalogConsoleControllerTest {
     void rejectsUnconfirmedAndMismatchedCapabilityProjectIdentityWithCodes() {
         CapabilityReviewGateway gateway = mock(CapabilityReviewGateway.class);
         CapabilityCatalogConsoleController controller = controller(gateway, globalSession());
-        when(gateway.getCapability("orphan", "7")).thenReturn(ResponseEntity.ok(Map.of(
+        when(gateway.getCapability(org.mockito.ArgumentMatchers.eq("orphan"), org.mockito.ArgumentMatchers.eq("7"), org.mockito.ArgumentMatchers.anyMap())).thenReturn(ResponseEntity.ok(Map.of(
                 "name", "orphan", "projectCode", "orders")));
-        when(gateway.getCapability("conflict", "7")).thenReturn(ResponseEntity.ok(Map.of(
+        when(gateway.getCapability(org.mockito.ArgumentMatchers.eq("conflict"), org.mockito.ArgumentMatchers.eq("7"), org.mockito.ArgumentMatchers.anyMap())).thenReturn(ownerPage(7L, "orders", Map.of(
                 "name", "conflict", "projectId", 7L, "projectCode", "billing")));
         when(gateway.getProjectById(7L, "7")).thenReturn(ResponseEntity.ok(
                 Map.of("projectId", 7L, "projectCode", "orders")));
@@ -303,9 +221,9 @@ class CapabilityCatalogConsoleControllerTest {
     void rejectsMalformedCapabilityIdentityAndNameWithoutReturningDefinition() {
         CapabilityReviewGateway gateway = mock(CapabilityReviewGateway.class);
         CapabilityCatalogConsoleController controller = controller(gateway, globalSession());
-        when(gateway.getCapability("bad_id", "7")).thenReturn(ResponseEntity.ok(Map.of(
+        when(gateway.getCapability(org.mockito.ArgumentMatchers.eq("bad_id"), org.mockito.ArgumentMatchers.eq("7"), org.mockito.ArgumentMatchers.anyMap())).thenReturn(ResponseEntity.ok(Map.of(
                 "name", "bad_id", "projectId", "7")));
-        when(gateway.getCapability("wrong_name", "7")).thenReturn(ResponseEntity.ok(Map.of(
+        when(gateway.getCapability(org.mockito.ArgumentMatchers.eq("wrong_name"), org.mockito.ArgumentMatchers.eq("7"), org.mockito.ArgumentMatchers.anyMap())).thenReturn(ResponseEntity.ok(Map.of(
                 "name", "other")));
 
         ResponseEntity<Object> invalidId = controller.get(request(globalSession()), "bad_id");
@@ -321,8 +239,8 @@ class CapabilityCatalogConsoleControllerTest {
     void preservesOwnerNotFoundAndSanitizesOwnerFailuresForSingleReads() {
         CapabilityReviewGateway gateway = mock(CapabilityReviewGateway.class);
         CapabilityCatalogConsoleController controller = controller(gateway, globalSession());
-        when(gateway.getCapability("missing", "7")).thenReturn(ResponseEntity.notFound().build());
-        when(gateway.getCapability("down", "7")).thenReturn(ResponseEntity.status(503)
+        when(gateway.getCapability(org.mockito.ArgumentMatchers.eq("missing"), org.mockito.ArgumentMatchers.eq("7"), org.mockito.ArgumentMatchers.anyMap())).thenReturn(ResponseEntity.notFound().build());
+        when(gateway.getCapability(org.mockito.ArgumentMatchers.eq("down"), org.mockito.ArgumentMatchers.eq("7"), org.mockito.ArgumentMatchers.anyMap())).thenReturn(ResponseEntity.status(503)
                 .body(Map.of("internalUrl", "http://capability:18605/internal")));
 
         assertEquals(HttpStatus.NOT_FOUND,

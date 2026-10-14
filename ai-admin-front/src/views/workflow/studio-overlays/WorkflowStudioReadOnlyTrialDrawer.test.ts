@@ -10,7 +10,7 @@ vi.mock('@/api/httpApi', () => ({ getHttpApi: vi.fn(), getHttpApiConnection: vi.
 let wrapper: VueWrapper | null = null
 const graph = JSON.stringify({ nodes: [
   { id: 'method', type: 'TOOL', ref: { kind: 'TOOL', qualifiedName: 'orders:normalize' }, config: { inputMapping: { orderNo: 'params.orderNo' } } },
-  { id: 'variable', type: 'VARIABLE_ASSIGN', config: { assignments: { normalized: 'nodeOutput.method.data' } } },
+  { id: 'variable', type: 'VARIABLE_ASSIGN', config: { assignments: { normalized: 'nodeOutput.method' } } },
 ], edges: [{ from: 'method', to: 'variable' }], entryNodeId: 'method', exitNodeIds: ['variable'] })
 async function drawer() {
   wrapper = mount(WorkflowStudioReadOnlyTrialDrawer, { attachTo: document.body, props: {
@@ -32,7 +32,7 @@ describe('read-only trial native form and IME behavior', () => {
       parameters: [{ name: 'orderNo', type: 'String', required: true }],
     } })
     api.run.mockResolvedValue({ data: { success: true, assetType: 'BUSINESS_METHOD', status: 'SUCCESS',
-      qualifiedName: 'orders:normalize', revision: 'saved-r1', elapsedMs: 1, variables: {}, methodOutput: { data: 'N-A' } } })
+      qualifiedName: 'orders:normalize', revision: 'saved-r1', elapsedMs: 1, variables: {}, methodOutput: 'N-A' } })
   })
   afterEach(() => { wrapper?.unmount(); wrapper = null; document.body.innerHTML = '' })
   it('has one native form, prevents navigation and submits one explicit keyboard operation', async () => {

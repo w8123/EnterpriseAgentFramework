@@ -16,7 +16,6 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigInteger;
 import java.util.Map;
-import java.util.function.Function;
 
 /**
  * Platform-session facade for the Capability catalog compatibility routes.
@@ -29,8 +28,6 @@ import java.util.function.Function;
 @RequiredArgsConstructor
 public class CapabilityCatalogConsoleController {
 
-    private static final String PROJECT_SCOPE = "PROJECT";
-    private static final String PROJECT_RESPONSE_INVALID = "CAPABILITY_PROJECT_RESPONSE_INVALID";
     private static final String CAPABILITY_RESPONSE_INVALID = "CAPABILITY_CATALOG_RESPONSE_INVALID";
     private static final String PROJECT_IDENTITY_MISMATCH = "CAPABILITY_PROJECT_IDENTITY_MISMATCH";
     private static final String PROJECT_IDENTITY_UNCONFIRMED = "CAPABILITY_PROJECT_IDENTITY_UNCONFIRMED";
@@ -48,9 +45,9 @@ public class CapabilityCatalogConsoleController {
             @RequestParam(required = false) Boolean enabled,
             @RequestParam(required = false) Long projectId) {
         return listCatalog(request, current, size, keyword, enabled, projectId,
-                (page, pageSize, term, enabledOnly, selectedProjectId, actor) ->
+                (page, pageSize, term, enabledOnly, selectedProjectId, actor, grant) ->
                         capabilityReviewGateway.listCapabilities(
-                                page, pageSize, term, source, enabledOnly, selectedProjectId, actor));
+                                page, pageSize, term, source, enabledOnly, selectedProjectId, actor, grant));
     }
 
     @GetMapping("/api/business-methods")
@@ -61,49 +58,25 @@ public class CapabilityCatalogConsoleController {
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) Boolean enabled,
             @RequestParam(required = false) Long projectId) {
+        Long groupId = CatalogGroupQuery.parse(request, projectId);
+        boolean ungrouped = CatalogGroupQuery.ungrouped(request, projectId);
         return listCatalog(request, current, size, keyword, enabled, projectId,
-                capabilityReviewGateway::listBusinessMethods);
+                (page, pageSize, term, enabledOnly, selectedProjectId, actor, grant) ->
+                        capabilityReviewGateway.listBusinessMethods(page, pageSize, term, enabledOnly,
+                                selectedProjectId, actor, groupId, ungrouped, grant));
     }
 
-    private ResponseEntity<Object> listCatalog(
-            HttpServletRequest request,
-            int current,
-            int size,
-            String keyword,
-            Boolean enabled,
-            Long projectId,
-            CatalogListReader reader) {
-        return readCatalog(request, projectId,
-                actor -> reader.read(current, size, keyword, enabled, projectId, actor));
-    }
-
-    @GetMapping("/api/business-methods/summary")
-    public ResponseEntity<Object> businessMethodSummary(HttpServletRequest request,
-                                                        @RequestParam(required = false) Long projectId) {
-        return readCatalog(request, projectId,
-                actor -> capabilityReviewGateway.getBusinessMethodSummary(projectId, actor));
-    }
-
-    private ResponseEntity<Object> readCatalog(HttpServletRequest request, Long projectId,
-                                                Function<String, ResponseEntity<Object>> reader) {
-        PlatformAuthenticatedSession authenticated = requestAuthorization.requireAuthenticated(request);
-        String actor = actorId(authenticated);
+    private ResponseEntity<Object> listCatalog(HttpServletRequest request, int current, int size,
+                                               String keyword, Boolean enabled, Long projectId,
+                                               CatalogListReader reader) {
+        PlatformAuthenticatedSession session = requestAuthorization.requirePermission(request, PlatformPermissions.PLATFORM_READ);
+        String actor = actorId(session);
         if (projectId != null && projectId <= 0) {
-            return error(HttpStatus.BAD_REQUEST, "CAPABILITY_PROJECT_ID_INVALID",
-                    "projectId must be positive");
+            return error(HttpStatus.BAD_REQUEST, "CAPABILITY_PROJECT_ID_INVALID", "projectId must be positive");
         }
-
-        if (projectId == null) {
-            requestAuthorization.requireGlobalPermission(request, PlatformPermissions.PLATFORM_READ);
-        } else {
-            requestAuthorization.requirePermission(request, PlatformPermissions.PLATFORM_READ);
-            ProjectResolution project = resolveProject(projectId, actor);
-            if (project.failure() != null) {
-                return project.failure();
-            }
-            requireProjectRead(request, project.summary());
-        }
-        return forwardCatalogResponse(reader.apply(actor));
+        Map<String, Object> grant = CatalogReadAuthorization.body(session, projectId);
+        ResponseEntity<Object> response = reader.read(current, size, keyword, enabled, projectId, actor, grant);
+        return CatalogReadAuthorization.verifyResponse(request, projectId, response, requestAuthorization);
     }
 
     @GetMapping("/api/tools/{name}")
@@ -129,7 +102,8 @@ public class CapabilityCatalogConsoleController {
                     "capability name is required");
         }
 
-        ResponseEntity<Object> response = reader.read(requestedName, actor);
+        ResponseEntity<Object> response = reader.read(requestedName, actor,
+                CatalogReadAuthorization.resourceBody(authenticated, PlatformPermissions.PLATFORM_READ));
         if (response == null || !response.getStatusCode().is2xxSuccessful()) {
             return forwardCatalogResponse(response);
         }
@@ -143,56 +117,14 @@ public class CapabilityCatalogConsoleController {
         }
 
         CatalogIdentity catalog = identity.identity();
-        if (catalog.projectId() == null) {
-            if (catalog.projectCode() != null) {
-                return conflict(PROJECT_IDENTITY_UNCONFIRMED,
-                        "Capability project identity is not confirmed by the owner");
-            }
-            requestAuthorization.requireGlobalPermission(request, PlatformPermissions.PLATFORM_READ);
-            return response;
+        if (catalog.projectId() == null && catalog.projectCode() != null) return conflict(PROJECT_IDENTITY_UNCONFIRMED,
+                "Capability project identity is not confirmed by the owner");
+        String attestedCode = CatalogReadAuthorization.projectCode(response);
+        if (catalog.projectCode() != null && attestedCode != null && !catalog.projectCode().equals(attestedCode)) {
+            return conflict(PROJECT_IDENTITY_MISMATCH, "Capability project identity does not match the owning project");
         }
-
-        ProjectResolution project = resolveProject(catalog.projectId(), actor);
-        if (project.failure() != null) {
-            return project.failure();
-        }
-        if (catalog.projectCode() != null) {
-            if (!StringUtils.hasText(project.summary().projectCode())) {
-                return error(HttpStatus.BAD_GATEWAY, PROJECT_RESPONSE_INVALID,
-                        "Capability Service returned an incomplete project response");
-            }
-            if (!catalog.projectCode().equals(project.summary().projectCode())) {
-                return conflict(PROJECT_IDENTITY_MISMATCH,
-                        "Capability project identity does not match the owning project");
-            }
-        }
-        requireProjectRead(request, project.summary());
-        return response;
-    }
-
-    private ProjectResolution resolveProject(Long projectId, String actor) {
-        ResponseEntity<Object> response = capabilityReviewGateway.getProjectById(projectId, actor);
-        if (response == null || !response.getStatusCode().is2xxSuccessful()) {
-            return new ProjectResolution(null, forwardCatalogResponse(response));
-        }
-        if (!(response.getBody() instanceof Map<?, ?> body)) {
-            return new ProjectResolution(null, error(HttpStatus.BAD_GATEWAY, PROJECT_RESPONSE_INVALID,
-                    "Capability Service returned an invalid project response"));
-        }
-        Long responseProjectId = positiveInteger(body.get("projectId"));
-        if (responseProjectId == null || !projectId.equals(responseProjectId)) {
-            return new ProjectResolution(null, error(HttpStatus.BAD_GATEWAY, PROJECT_RESPONSE_INVALID,
-                    "Capability Service returned an invalid project response"));
-        }
-        Object rawProjectCode = body.get("projectCode");
-        if (rawProjectCode != null && !(rawProjectCode instanceof String)) {
-            return new ProjectResolution(null, error(HttpStatus.BAD_GATEWAY, PROJECT_RESPONSE_INVALID,
-                    "Capability Service returned an invalid project response"));
-        }
-        String projectCode = rawProjectCode instanceof String text
-                ? trimToNull(text)
-                : null;
-        return new ProjectResolution(new ProjectSummary(responseProjectId, projectCode), null);
+        return CatalogReadAuthorization.verifyOwnerResponse(request, PlatformPermissions.PLATFORM_READ,
+                catalog.projectId(), catalog.projectCode(), response, requestAuthorization);
     }
 
     private IdentityResolution parseIdentity(Map<?, ?> body, String requestedName) {
@@ -228,21 +160,9 @@ public class CapabilityCatalogConsoleController {
         return new IdentityResolution(new CatalogIdentity(projectId, projectCode), null);
     }
 
-    private void requireProjectRead(HttpServletRequest request, ProjectSummary project) {
-        if (StringUtils.hasText(project.projectCode())) {
-            requestAuthorization.requireResourcePermission(
-                    request, PlatformPermissions.PLATFORM_READ, PROJECT_SCOPE, null, project.projectCode());
-        } else {
-            requestAuthorization.requireGlobalPermission(request, PlatformPermissions.PLATFORM_READ);
-        }
-    }
-
     private ResponseEntity<Object> forwardCatalogResponse(ResponseEntity<Object> response) {
-        if (response != null && response.getStatusCode().is2xxSuccessful()) {
-            return response;
-        }
-        if (response != null && response.getStatusCode().value() == HttpStatus.NOT_FOUND.value()) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+        if (response != null && (response.getStatusCode().value() == 404 || response.getStatusCode().value() == 403)) {
+            return ResponseEntity.status(response.getStatusCode()).body(response.getBody());
         }
         if (response != null && response.getStatusCode().value() >= 500) {
             return error(HttpStatus.SERVICE_UNAVAILABLE, "CAPABILITY_SERVICE_UNAVAILABLE",
@@ -299,12 +219,6 @@ public class CapabilityCatalogConsoleController {
     private record CatalogIdentity(Long projectId, String projectCode) {
     }
 
-    private record ProjectSummary(Long projectId, String projectCode) {
-    }
-
-    private record ProjectResolution(ProjectSummary summary, ResponseEntity<Object> failure) {
-    }
-
     private record IdentityResolution(CatalogIdentity identity, ResponseEntity<Object> failure) {
     }
 
@@ -316,11 +230,11 @@ public class CapabilityCatalogConsoleController {
                 String keyword,
                 Boolean enabled,
                 Long projectId,
-                String actorId);
+                String actorId, Map<String, Object> grantBody);
     }
 
     @FunctionalInterface
     private interface CatalogItemReader {
-        ResponseEntity<Object> read(String name, String actorId);
+        ResponseEntity<Object> read(String name, String actorId, Map<String, Object> grantBody);
     }
 }

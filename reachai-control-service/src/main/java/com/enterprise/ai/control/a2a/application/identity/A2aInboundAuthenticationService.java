@@ -45,7 +45,7 @@ public class A2aInboundAuthenticationService {
         this.principalRepository = principalRepository;
         this.passwordEncoder = passwordEncoder;
         this.clock = clock;
-        this.dummyHash = passwordEncoder.encode("reachai-a2a-invalid-api-key");
+        this.dummyHash = A2aApiKeyHash.encode(passwordEncoder, "reachai-a2a-invalid-api-key");
     }
 
     @Transactional
@@ -74,7 +74,7 @@ public class A2aInboundAuthenticationService {
                 : credentialRepository.findUsableByKeyAndVersion(
                         reference.credentialKey(), reference.versionNo(), now).orElse(null);
         String storedHash = credential == null ? dummyHash : credential.materialHash();
-        boolean matches = passwordEncoder.matches(rawApiKey == null ? "" : rawApiKey, storedHash);
+        boolean matches = A2aApiKeyHash.matches(passwordEncoder, rawApiKey, storedHash);
         if (!matches || credential == null) {
             throw authenticationFailed();
         }

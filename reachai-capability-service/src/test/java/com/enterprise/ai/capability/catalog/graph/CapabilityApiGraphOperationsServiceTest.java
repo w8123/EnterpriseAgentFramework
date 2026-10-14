@@ -1,234 +1,115 @@
 package com.enterprise.ai.capability.catalog.graph;
 
-import com.baomidou.mybatisplus.core.conditions.Wrapper;
-import com.enterprise.ai.agent.capability.catalog.graph.ApiGraphEdgeEntity;
-import com.enterprise.ai.agent.capability.catalog.graph.ApiGraphEdgeMapper;
-import com.enterprise.ai.agent.capability.catalog.graph.ApiGraphLayoutEntity;
-import com.enterprise.ai.agent.capability.catalog.graph.ApiGraphLayoutMapper;
-import com.enterprise.ai.agent.capability.catalog.graph.ApiGraphNodeEntity;
-import com.enterprise.ai.agent.capability.catalog.graph.ApiGraphNodeMapper;
-import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionEntity;
-import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionMapper;
+import com.enterprise.ai.agent.capability.catalog.graph.*;
+import com.enterprise.ai.capability.catalog.enrichment.CatalogSubject;
+import com.enterprise.ai.capability.catalog.enrichment.CatalogSubjectResolver;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-
 import java.util.List;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.atLeastOnce;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 class CapabilityApiGraphOperationsServiceTest {
+    final ApiGraphEdgeMapper edges = mock(ApiGraphEdgeMapper.class);
+    final ApiGraphLayoutMapper layouts = mock(ApiGraphLayoutMapper.class);
+    final ApiGraphNodeMapper nodes = mock(ApiGraphNodeMapper.class);
+    final CatalogSubjectResolver subjects = mock(CatalogSubjectResolver.class);
+    final com.enterprise.ai.capability.catalog.enrichment.CatalogOwnerFingerprintReader fingerprints = mock(com.enterprise.ai.capability.catalog.enrichment.CatalogOwnerFingerprintReader.class);
+    final CapabilityApiGraphOperationsService service = new CapabilityApiGraphOperationsService(edges, layouts, nodes, subjects, new ObjectMapper(), fingerprints);
 
-    @Test
-    void listsCandidatesWithLegacyFilteringAndSorting() {
-        ApiGraphEdgeMapper edgeMapper = mock(ApiGraphEdgeMapper.class);
-        ApiGraphLayoutMapper layoutMapper = mock(ApiGraphLayoutMapper.class);
-        when(edgeMapper.selectList(any(Wrapper.class))).thenReturn(List.of(
-                edge(1L, "REQUEST_REF", "CANDIDATE", 0.72),
-                edge(2L, "RESPONSE_REF", "CANDIDATE", 0.95),
-                edge(3L, "MODEL_REF", "CANDIDATE", 0.99),
-                edge(4L, "REQUEST_REF", "CONFIRMED", 0.96),
-                edge(5L, "REQUEST_REF", null, 0.85)));
-        CapabilityApiGraphOperationsService service = service(edgeMapper, layoutMapper);
-
-        List<CapabilityApiGraphSnapshotView.EdgeView> candidates = service.listCandidates(7L, "CANDIDATE", 0.8);
-
-        assertEquals(List.of(2L), candidates.stream().map(CapabilityApiGraphSnapshotView.EdgeView::id).toList());
+    @Test void filtersAndSortsCandidateRelationsOnly() {
+        when(edges.selectList(any())).thenReturn(List.of(edge(1L, "REQUEST_REF", "CANDIDATE", .72), edge(2L, "RESPONSE_REF", "CANDIDATE", .95), edge(3L, "MODEL_REF", "CANDIDATE", .99)));
+        assertEquals(List.of(2L), service.listCandidates(7L, "CANDIDATE", .8).stream().map(CapabilityApiGraphSnapshotView.EdgeView::id).toList());
     }
-
-    @Test
-    void confirmsCandidateForProject() {
-        ApiGraphEdgeMapper edgeMapper = mock(ApiGraphEdgeMapper.class);
-        ApiGraphLayoutMapper layoutMapper = mock(ApiGraphLayoutMapper.class);
-        ApiGraphEdgeEntity candidate = edge(2L, "REQUEST_REF", "CANDIDATE", 0.95);
-        when(edgeMapper.selectById(2L)).thenReturn(candidate);
-        CapabilityApiGraphOperationsService service = service(edgeMapper, layoutMapper);
-
-        CapabilityApiGraphSnapshotView.EdgeView confirmed = service.confirmCandidate(7L, 2L,
-                new CapabilityApiGraphRequests.CandidateConfirmRequest("alice"));
-
-        assertEquals("CONFIRMED", confirmed.status());
-        assertEquals("alice", confirmed.confirmedBy());
-        assertEquals(true, confirmed.enabled());
-        verify(edgeMapper).updateById(candidate);
+    @Test void confirmsAndRejectsWithProjectIsolation() {
+        ApiGraphEdgeEntity candidate = edge(2L, "REQUEST_REF", "CANDIDATE", .95); when(edges.selectById(2L)).thenReturn(candidate);
+        when(nodes.selectById(1L)).thenReturn(field(1L, 11L, "FIELD_OUT", "Long", "hash")); when(nodes.selectById(3L)).thenReturn(field(3L, 10L, "FIELD_IN", "Long", "hash"));
+        assertEquals("CONFIRMED", service.confirmCandidate(7L, 2L, new CapabilityApiGraphRequests.CandidateConfirmRequest("alice")).status());
+        assertEquals("REJECTED", service.rejectCandidate(7L, 2L, new CapabilityApiGraphRequests.CandidateRejectRequest("wrong")).status());
+        assertThrows(IllegalArgumentException.class, () -> service.rejectCandidate(8L, 2L, null));
     }
-
-    @Test
-    void rejectsCandidateOutsideProject() {
-        ApiGraphEdgeMapper edgeMapper = mock(ApiGraphEdgeMapper.class);
-        ApiGraphLayoutMapper layoutMapper = mock(ApiGraphLayoutMapper.class);
-        ApiGraphEdgeEntity candidate = edge(2L, "REQUEST_REF", "CANDIDATE", 0.95);
-        candidate.setProjectId(8L);
-        when(edgeMapper.selectById(2L)).thenReturn(candidate);
-        CapabilityApiGraphOperationsService service = service(edgeMapper, layoutMapper);
-
-        assertThrows(IllegalArgumentException.class, () -> service.rejectCandidate(7L, 2L,
-                new CapabilityApiGraphRequests.CandidateRejectRequest("no")));
+    @Test void manualEdgeAndLayoutWritesRequireCurrentProjectNodes() {
+        when(nodes.selectById(1L)).thenReturn(field(1L, 11L, "FIELD_OUT", "Long", "hash")); when(nodes.selectById(3L)).thenReturn(field(3L, 10L, "FIELD_IN", "Long", "hash"));
+        service.upsertEdge(7L, new CapabilityApiGraphRequests.EdgeUpsertRequest(1L, 3L, "REQUEST_REF", "manual"));
+        ArgumentCaptor<ApiGraphEdgeEntity> saved = ArgumentCaptor.forClass(ApiGraphEdgeEntity.class); verify(edges).insert(saved.capture());
+        assertEquals("manual", saved.getValue().getSource()); assertTrue(saved.getValue().getEvidenceJson().contains("targetContractHash"));
+        assertThrows(IllegalArgumentException.class, () -> service.upsertEdge(8L, new CapabilityApiGraphRequests.EdgeUpsertRequest(1L, 3L, "REQUEST_REF", null)));
+        assertThrows(IllegalArgumentException.class, () -> service.saveLayout(8L, new CapabilityApiGraphRequests.LayoutSaveRequest(List.of(new CapabilityApiGraphRequests.LayoutPositionDTO(1L, 0d, 0d, null)))));
+        service.saveLayout(7L, new CapabilityApiGraphRequests.LayoutSaveRequest(List.of(new CapabilityApiGraphRequests.LayoutPositionDTO(1L, 0d, 2d, null)))); verify(layouts).insert(any(ApiGraphLayoutEntity.class));
     }
-
-    @Test
-    void upsertsManualEdgeByLegacyIdentity() {
-        ApiGraphEdgeMapper edgeMapper = mock(ApiGraphEdgeMapper.class);
-        ApiGraphLayoutMapper layoutMapper = mock(ApiGraphLayoutMapper.class);
-        CapabilityApiGraphOperationsService service = service(edgeMapper, layoutMapper);
-
-        service.upsertEdge(7L, new CapabilityApiGraphRequests.EdgeUpsertRequest(1L, 3L, "request_ref", "manual"));
-
-        ArgumentCaptor<ApiGraphEdgeEntity> captor = ArgumentCaptor.forClass(ApiGraphEdgeEntity.class);
-        verify(edgeMapper).insert(captor.capture());
-        ApiGraphEdgeEntity saved = captor.getValue();
-        assertEquals("REQUEST_REF", saved.getKind());
-        assertEquals("manual", saved.getNote());
-        assertEquals("manual", saved.getSource());
-        assertEquals("CONFIRMED", saved.getStatus());
+    @Test void deletingAnotherProjectsEdgeIsRejected() {
+        when(edges.selectById(2L)).thenReturn(edge(2L, "REQUEST_REF", "CONFIRMED", 1d));
+        assertThrows(IllegalArgumentException.class, () -> service.deleteEdge(8L, 2L)); verify(edges, never()).deleteById(any(Long.class));
+        assertTrue(service.deleteEdge(7L, 2L) == false); verify(edges).deleteById(2L);
     }
-
-    @Test
-    void savesLayoutAsUpsert() {
-        ApiGraphEdgeMapper edgeMapper = mock(ApiGraphEdgeMapper.class);
-        ApiGraphLayoutMapper layoutMapper = mock(ApiGraphLayoutMapper.class);
-        ApiGraphLayoutEntity existing = new ApiGraphLayoutEntity();
-        existing.setId(9L);
-        when(layoutMapper.selectOne(any(Wrapper.class))).thenReturn(existing);
-        CapabilityApiGraphOperationsService service = service(edgeMapper, layoutMapper);
-
-        service.saveLayout(7L, new CapabilityApiGraphRequests.LayoutSaveRequest(List.of(
-                new CapabilityApiGraphRequests.LayoutPositionDTO(1L, null, 20.0, "{}"))));
-
-        verify(layoutMapper).updateById(existing);
+    @Test void modelReferencesUseFullTypeIdentityAndKeepSameNameDifferentPackagesSeparate() {
+        when(nodes.selectList(any())).thenReturn(List.of(field(1L, 10L, "FIELD_OUT", "a.UserDto", "hash"), field(3L, 11L, "FIELD_IN", "b.UserDto", "hash")));
+        assertEquals(0, service.inferModelRefEdges(7L).generated());
+        when(nodes.selectList(any())).thenReturn(List.of(field(1L, 10L, "FIELD_OUT", "a.UserDto", "hash"), field(3L, 11L, "FIELD_IN", "a.UserDto", "hash")));
+        assertEquals(1, service.inferModelRefEdges(7L).generated());
     }
-
-    @Test
-    void buildsParamHintsFromConfirmedRequestEdges() {
-        ApiGraphEdgeMapper edgeMapper = mock(ApiGraphEdgeMapper.class);
-        ApiGraphLayoutMapper layoutMapper = mock(ApiGraphLayoutMapper.class);
-        ApiGraphNodeMapper nodeMapper = mock(ApiGraphNodeMapper.class);
-        ToolDefinitionMapper toolDefinitionMapper = mock(ToolDefinitionMapper.class);
-        ToolDefinitionEntity tool = new ToolDefinitionEntity();
-        tool.setId(99L);
-        tool.setName("createOrder");
-        when(toolDefinitionMapper.selectOne(any(Wrapper.class))).thenReturn(tool);
-        when(nodeMapper.selectList(any(Wrapper.class))).thenReturn(List.of(
-                apiNode(10L, "createOrder", 99L),
-                apiNode(11L, "queryUser", 42L),
-                fieldNode(1L, 11L, "userId", "{\"paramPath\":\"result.userId\"}"),
-                fieldNode(2L, 10L, "buyerId", "{\"paramPath\":\"request.buyerId\"}")));
-        ApiGraphEdgeEntity hintEdge = edge(6L, "REQUEST_REF", "CONFIRMED", 0.8);
-        hintEdge.setTargetNodeId(2L);
-        when(edgeMapper.selectList(any(Wrapper.class))).thenReturn(List.of(hintEdge));
-        CapabilityApiGraphOperationsService service = new CapabilityApiGraphOperationsService(
-                edgeMapper, layoutMapper, nodeMapper, toolDefinitionMapper, new ObjectMapper());
-
-        List<CapabilityApiGraphParamSourceHintView> hints = service.listParamHints(7L, "createOrder");
-
-        assertEquals(1, hints.size());
-        assertEquals("request.buyerId", hints.get(0).targetPath());
-        assertEquals("createOrder", hints.get(0).targetApi());
-        assertEquals("result.userId", hints.get(0).sourcePath());
-        assertEquals("queryUser", hints.get(0).sourceApi());
+    @Test void repeatedInferenceDoesNotDowngradeConfirmedOrResurrectRejectedRelations() {
+        when(nodes.selectList(any())).thenReturn(List.of(field(1L, 10L, "FIELD_OUT", "UserDto", "hash"), field(3L, 11L, "FIELD_IN", "UserDto", "hash")));
+        ApiGraphEdgeEntity confirmed = edge(2L, "REQUEST_REF", "CONFIRMED", .9); when(edges.selectOne(any())).thenReturn(confirmed);
+        assertEquals(1, service.inferRequestResponseEdges(7L).generated()); assertEquals("CONFIRMED", confirmed.getStatus()); verify(edges, never()).updateById(any());
+        ApiGraphEdgeEntity rejected = edge(2L, "REQUEST_REF", "REJECTED", .9); when(edges.selectList(any())).thenReturn(List.of(rejected));
+        assertEquals(0, service.inferRequestResponseEdges(7L).generated());
     }
-
-    @Test
-    void infersModelRefEdgesFromSharedCompositeTypes() {
-        ApiGraphEdgeMapper edgeMapper = mock(ApiGraphEdgeMapper.class);
-        ApiGraphLayoutMapper layoutMapper = mock(ApiGraphLayoutMapper.class);
-        ApiGraphNodeMapper nodeMapper = mock(ApiGraphNodeMapper.class);
-        when(nodeMapper.selectList(any(Wrapper.class))).thenReturn(List.of(
-                fieldNode(1L, 10L, "result", "{\"paramPath\":\"response.result\"}", "FIELD_OUT", "UserDTO"),
-                fieldNode(2L, 11L, "user", "{\"paramPath\":\"request.user\"}", "FIELD_IN", "UserDTO")));
-        CapabilityApiGraphOperationsService service = new CapabilityApiGraphOperationsService(
-                edgeMapper, layoutMapper, nodeMapper, mock(ToolDefinitionMapper.class), new ObjectMapper());
-
-        CapabilityApiGraphRequests.InferResultDTO result = service.inferModelRefEdges(7L);
-
-        assertEquals(1, result.generated());
-        verify(edgeMapper).delete(any(Wrapper.class));
-        ArgumentCaptor<ApiGraphEdgeEntity> captor = ArgumentCaptor.forClass(ApiGraphEdgeEntity.class);
-        verify(edgeMapper).insert(captor.capture());
-        assertEquals("MODEL_REF", captor.getValue().getKind());
-        assertEquals("dto_match", captor.getValue().getInferStrategy());
+    @Test void typedHintsRequireConfirmedEdgesAndCurrentAcceptedOwnerContract() {
+        CatalogSubject subject = subject("hash"); when(subjects.resolve(7L, "BUSINESS_METHOD", 21L)).thenReturn(subject);
+        when(fingerprints.read(eq(7L), any())).thenReturn(java.util.Map.of("BUSINESS_METHOD:21", new com.enterprise.ai.capability.catalog.enrichment.CatalogOwnerFingerprintReader.Fingerprint("hash", true)));
+        ApiGraphNodeEntity targetApi = api(10L, "createOrder"), sourceApi = api(11L, "queryUser");
+        ApiGraphNodeEntity source = field(1L, 11L, "FIELD_OUT", "Long", "hash"), target = field(3L, 10L, "FIELD_IN", "Long", "hash");
+        when(nodes.selectList(any())).thenReturn(List.of(targetApi, sourceApi, source, target));
+        ApiGraphEdgeEntity edge = edge(6L, "REQUEST_REF", "CONFIRMED", .8); edge.setEvidenceJson("{\"sourceContractHash\":\"hash\",\"targetContractHash\":\"hash\"}"); when(edges.selectList(any())).thenReturn(List.of(edge));
+        assertEquals(1, service.listParamHints(7L, "BUSINESS_METHOD", 21L).size());
+        verify(subjects, never()).operations(any());
+        when(subjects.resolve(7L, "BUSINESS_METHOD", 21L)).thenReturn(subject("changed"));
+        when(fingerprints.read(eq(7L), any())).thenReturn(java.util.Map.of("BUSINESS_METHOD:21", new com.enterprise.ai.capability.catalog.enrichment.CatalogOwnerFingerprintReader.Fingerprint("changed", true)));
+        assertTrue(service.listParamHints(7L, "BUSINESS_METHOD", 21L).isEmpty());
     }
-
-    @Test
-    void infersRequestResponseCandidateEdgesFromFieldSchema() {
-        ApiGraphEdgeMapper edgeMapper = mock(ApiGraphEdgeMapper.class);
-        ApiGraphLayoutMapper layoutMapper = mock(ApiGraphLayoutMapper.class);
-        ApiGraphNodeMapper nodeMapper = mock(ApiGraphNodeMapper.class);
-        when(nodeMapper.selectList(any(Wrapper.class))).thenReturn(List.of(
-                fieldNode(1L, 10L, "customerId", "{\"paramPath\":\"response.customerId\"}", "FIELD_OUT", "CustomerDTO"),
-                fieldNode(2L, 11L, "customerId", "{\"paramPath\":\"request.customerId\"}", "FIELD_IN", "CustomerDTO")));
-        CapabilityApiGraphOperationsService service = new CapabilityApiGraphOperationsService(
-                edgeMapper, layoutMapper, nodeMapper, mock(ToolDefinitionMapper.class), new ObjectMapper());
-
-        CapabilityApiGraphRequests.InferResultDTO result = service.inferRequestResponseEdges(7L);
-
-        assertEquals(1, result.generated());
-        ArgumentCaptor<ApiGraphEdgeEntity> captor = ArgumentCaptor.forClass(ApiGraphEdgeEntity.class);
-        verify(edgeMapper).insert(captor.capture());
-        assertEquals("REQUEST_REF", captor.getValue().getKind());
-        assertEquals("CANDIDATE", captor.getValue().getStatus());
-        assertEquals("schema_match", captor.getValue().getInferStrategy());
-        verify(edgeMapper, atLeastOnce()).selectList(any(Wrapper.class));
+    @Test void hintStateDistinguishesMissingGraphAndContractChangeFromCurrentEmptyHints() {
+        var subject = subject("hash");
+        assertEquals("NOT_BUILT", service.paramHintState(subject));
+        var operation = api(10L, "createOrder"); operation.setPropsJson("{\"subjectType\":\"BUSINESS_METHOD\",\"subjectId\":21,\"contractHash\":\"hash\"}");
+        when(nodes.selectList(any())).thenReturn(List.of(operation)); assertEquals("CURRENT", service.paramHintState(subject));
+        assertEquals("STALE", service.paramHintState(subject("changed")));
     }
-
-    private ApiGraphEdgeEntity edge(Long id, String kind, String status, Double confidence) {
-        ApiGraphEdgeEntity entity = new ApiGraphEdgeEntity();
-        entity.setId(id);
-        entity.setProjectId(7L);
-        entity.setSourceNodeId(1L);
-        entity.setTargetNodeId(3L);
-        entity.setKind(kind);
-        entity.setSource("auto");
-        entity.setConfidence(confidence);
-        entity.setStatus(status);
-        entity.setEnabled(true);
-        return entity;
+    @Test void disabledCurrentSubjectRelationIsStaleAndRelatedOwnerChecksNeverHydrateTheProject() {
+        var subject = subject("hash");
+        var targetApi = api(10L, "createOrder"); targetApi.setPropsJson("{\"subjectType\":\"BUSINESS_METHOD\",\"subjectId\":21,\"contractHash\":\"hash\"}");
+        var sourceApi = api(11L, "queryUser"); sourceApi.setPropsJson("{\"subjectType\":\"HTTP_API\",\"subjectId\":92,\"contractHash\":\"source-hash\"}");
+        var source = field(1L, 11L, "FIELD_OUT", "Long", "source-hash");
+        source.setPropsJson("{\"paramPath\":\"customerId\",\"subjectType\":\"HTTP_API\",\"subjectId\":92,\"accepted\":true,\"contractHash\":\"source-hash\"}");
+        var target = field(3L, 10L, "FIELD_IN", "Long", "hash");
+        when(nodes.selectList(any())).thenReturn(List.of(targetApi, sourceApi, source, target));
+        var edge = edge(6L, "REQUEST_REF", "CONFIRMED", .8); edge.setEnabled(false);
+        edge.setEvidenceJson("{\"sourceContractHash\":\"source-hash\",\"targetContractHash\":\"hash\"}");
+        when(edges.selectList(any())).thenReturn(List.of(edge));
+        when(fingerprints.read(eq(7L), any())).thenReturn(java.util.Map.of(
+                "BUSINESS_METHOD:21", new com.enterprise.ai.capability.catalog.enrichment.CatalogOwnerFingerprintReader.Fingerprint("hash", true),
+                "HTTP_API:92", new com.enterprise.ai.capability.catalog.enrichment.CatalogOwnerFingerprintReader.Fingerprint("source-hash", true)));
+        var result = service.paramHints(subject);
+        assertEquals("STALE", result.state()); assertTrue(result.hints().isEmpty());
+        verify(fingerprints).read(eq(7L), argThat(ids -> ids.size() == 2 && ids.contains(
+                new com.enterprise.ai.capability.catalog.enrichment.CatalogOwnerFingerprintReader.Identity("HTTP_API", 92L))));
+        verifyNoInteractions(subjects);
     }
-
-    private CapabilityApiGraphOperationsService service(ApiGraphEdgeMapper edgeMapper, ApiGraphLayoutMapper layoutMapper) {
-        return new CapabilityApiGraphOperationsService(
-                edgeMapper,
-                layoutMapper,
-                mock(ApiGraphNodeMapper.class),
-                mock(ToolDefinitionMapper.class),
-                new ObjectMapper());
+    @Test void anonymousHttpObjectSchemasInferModelReferencesOnlyForExactStructuralHash() {
+        var source = field(1L, 10L, "FIELD_OUT", "object", "owner-a"); var target = field(3L, 11L, "FIELD_IN", "object", "owner-b");
+        source.setPropsJson("{\"schemaHash\":\"same-shape\",\"composite\":true}"); target.setPropsJson("{\"schemaHash\":\"different-shape\",\"composite\":true}");
+        when(nodes.selectList(any())).thenReturn(List.of(source, target)); assertEquals(0, service.inferModelRefEdges(7L).generated());
+        target.setPropsJson("{\"schemaHash\":\"same-shape\",\"composite\":true}"); assertEquals(1, service.inferModelRefEdges(7L).generated());
     }
-
-    private ApiGraphNodeEntity apiNode(Long id, String label, Long toolDefinitionId) {
-        ApiGraphNodeEntity entity = new ApiGraphNodeEntity();
-        entity.setId(id);
-        entity.setProjectId(7L);
-        entity.setKind("API");
-        entity.setLabel(label);
-        entity.setPropsJson("{\"globalToolDefinitionId\":" + toolDefinitionId + "}");
-        return entity;
+    private CatalogSubject subject(String hash) { return new CatalogSubject("BUSINESS_METHOD", 21L, 7L, "orders:query", "Orders", "", hash, true, "GET", "/orders", List.of(), List.of()); }
+    private ApiGraphNodeEntity field(Long id, Long operationId, String kind, String type, String hash) {
+        ApiGraphNodeEntity node = new ApiGraphNodeEntity(); node.setId(id); node.setProjectId(7L); node.setActive(true); node.setKind(kind); node.setRefId(operationId); node.setLabel("customerId"); node.setTypeName(type);
+        node.setPropsJson("{\"paramPath\":\"customerId\",\"subjectType\":\"BUSINESS_METHOD\",\"subjectId\":21,\"accepted\":true,\"contractHash\":\"" + hash + "\"}"); return node;
     }
-
-    private ApiGraphNodeEntity fieldNode(Long id, Long apiNodeId, String label, String propsJson) {
-        return fieldNode(id, apiNodeId, label, propsJson, "FIELD_IN", null);
-    }
-
-    private ApiGraphNodeEntity fieldNode(
-            Long id,
-            Long apiNodeId,
-            String label,
-            String propsJson,
-            String kind,
-            String typeName) {
-        ApiGraphNodeEntity entity = new ApiGraphNodeEntity();
-        entity.setId(id);
-        entity.setProjectId(7L);
-        entity.setKind(kind);
-        entity.setRefId(apiNodeId);
-        entity.setLabel(label);
-        entity.setTypeName(typeName);
-        entity.setPropsJson(propsJson);
-        return entity;
+    private ApiGraphNodeEntity api(Long id, String label) { ApiGraphNodeEntity node = new ApiGraphNodeEntity(); node.setId(id); node.setProjectId(7L); node.setActive(true); node.setKind("API"); node.setLabel(label); node.setPropsJson("{\"subjectType\":\"BUSINESS_METHOD\",\"subjectId\":21}"); return node; }
+    private ApiGraphEdgeEntity edge(Long id, String kind, String status, Double score) {
+        ApiGraphEdgeEntity edge = new ApiGraphEdgeEntity(); edge.setId(id); edge.setProjectId(7L); edge.setSourceNodeId(1L); edge.setTargetNodeId(3L); edge.setKind(kind); edge.setSource("auto"); edge.setStatus(status); edge.setConfidence(score); edge.setEnabled(true); return edge;
     }
 }

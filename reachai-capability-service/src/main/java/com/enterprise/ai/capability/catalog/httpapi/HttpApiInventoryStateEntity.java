@@ -3,6 +3,8 @@ package com.enterprise.ai.capability.catalog.httpapi;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.baomidou.mybatisplus.annotation.TableField;
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
 import lombok.Data;
 
 import java.time.LocalDateTime;
@@ -20,6 +22,7 @@ public class HttpApiInventoryStateEntity {
     private String inventoryToken;
     private Boolean supported;
     private Boolean complete;
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private String reason;
     private LocalDateTime observedAt;
 }

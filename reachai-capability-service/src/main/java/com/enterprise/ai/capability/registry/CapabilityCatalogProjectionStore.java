@@ -9,6 +9,9 @@ import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinition
 import com.enterprise.ai.agent.registry.CapabilityDiffItemEntity;
 import com.enterprise.ai.agent.registry.RegistryContracts.CapabilityRegistration;
 import com.enterprise.ai.capability.catalog.businessmethod.BusinessMethodAssetStore;
+import com.enterprise.ai.capability.catalog.enrichment.CapabilityCatalogGroupingService;
+import com.enterprise.ai.capability.catalog.semantic.CapabilitySemanticDocumentStore;
+import org.springframework.beans.factory.ObjectProvider;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -19,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Objects;
 
 /** Persists the scan catalog and invocation definition within the Registry decision transaction. */
@@ -30,6 +34,8 @@ public class CapabilityCatalogProjectionStore {
     private final ObjectMapper objectMapper;
     private final CapabilityChangePolicy changePolicy;
     private final BusinessMethodAssetStore businessMethods;
+    private final CapabilityCatalogGroupingService grouping;
+    private final ObjectProvider<CapabilitySemanticDocumentStore> semanticDocuments;
 
     public String captureState(String qualifiedName, ScanProjectToolEntity scan, ToolDefinitionEntity invocation) {
         try {
@@ -53,10 +59,11 @@ public class CapabilityCatalogProjectionStore {
         if (!Objects.equals(qualifiedName, project.getProjectCode() + ":" + registration.name())) {
             throw new IllegalArgumentException("调用投影必须属于本次接纳的方法资产");
         }
-        writeAcceptedBusinessMethodProjection(project, qualifiedName, null, null);
+        Long acceptedId = writeAcceptedBusinessMethodProjection(project, qualifiedName, null, null);
+        semanticDocuments.getObject().adoptAcceptedOwner(project.getId(), "BUSINESS_METHOD", acceptedId);
     }
 
-    private void writeAcceptedBusinessMethodProjection(ScanProjectEntity project, String qualifiedName,
+    private Long writeAcceptedBusinessMethodProjection(ScanProjectEntity project, String qualifiedName,
                                                        Long recoveredScanId, Long recoveredInvocationId) {
         var method = businessMethods.find(qualifiedName)
                 .filter(asset -> "ACCEPTED".equals(asset.getStatus()) && asset.getAcceptedRevisionId() != null
@@ -111,7 +118,10 @@ public class CapabilityCatalogProjectionStore {
             scanProjectToolMapper.updateById(row);
             clearSdkNullableFields(row);
         }
+        grouping.bootstrap(project.getId(), List.of(row));
+        grouping.seedOwner(project.getId(), "BUSINESS_METHOD", method.getId(), List.of(row.getModuleId()));
         ensureSdkCapabilityGlobalTool(project, row, registration, qualifiedName, recoveredInvocationId);
+        return method.getId();
     }
 
     @Transactional(propagation = Propagation.MANDATORY)

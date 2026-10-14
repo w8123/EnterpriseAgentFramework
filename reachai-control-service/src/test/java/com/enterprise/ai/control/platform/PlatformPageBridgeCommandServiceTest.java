@@ -13,8 +13,37 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 class PlatformPageBridgeCommandServiceTest {
+
+    @Test
+    void pureChatSessionRejectsPageExecutionWithoutEnqueuingUnreachableNavigation() {
+        PlatformEmbedSessionMapper sessions = mock(PlatformEmbedSessionMapper.class);
+        PlatformPageActionEventMapper events = mock(PlatformPageActionEventMapper.class);
+        PlatformEmbedSessionEntity session = new PlatformEmbedSessionEntity();
+        session.setSessionId("embed-global");
+        session.setProjectCode("qmssmp");
+        session.setAgentId("team-agent");
+        session.setPageInstanceId("chat-only");
+        session.setRoute("/");
+        session.setStatus("ACTIVE");
+        when(sessions.selectOne(any())).thenReturn(session);
+        var service = new PlatformPageBridgeCommandService(sessions,
+                mock(PlatformEmbedSessionService.class), events, new ObjectMapper());
+        for (String pageKey : new String[]{null, "", "  "}) {
+            session.setPageKey(pageKey);
+            var result = service.execute(new PlatformPageBridgeCommandService.PageBridgeExecutionRequest(
+                    "embed-global", "qmssmp", "team-agent", null, "teamArchive.list",
+                    "/team-build/depart-management", "dictionary.showChildren", Map.of("parentId", "DT0000000008"),
+                    false, 2_000, 30_000));
+            assertTrue(!result.success());
+            assertEquals("PAGE_BRIDGE_PAGE_NOT_BOUND", result.code());
+            assertTrue(result.status().contains("打开目标业务页面"));
+            assertTrue(result.phases().isEmpty());
+        }
+        verifyNoInteractions(events);
+    }
 
     @Test
     void resolvesOnlyTheTrustedActiveEmbedContextForMatchingWorkflowProject() {

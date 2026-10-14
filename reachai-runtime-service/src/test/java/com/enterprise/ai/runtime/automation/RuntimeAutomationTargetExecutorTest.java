@@ -38,6 +38,7 @@ class RuntimeAutomationTargetExecutorTest {
     private final RuntimeAgentMapper agents = mock(RuntimeAgentMapper.class);
     private final RuntimeAgentConfigVersionMapper agentVersions = mock(RuntimeAgentConfigVersionMapper.class);
     private final RuntimeAgentExecutionService agentExecution = mock(RuntimeAgentExecutionService.class);
+    private final com.enterprise.ai.runtime.trace.RuntimeTraceEvidenceWriter traceEvidence = mock(com.enterprise.ai.runtime.trace.RuntimeTraceEvidenceWriter.class);
     private final RuntimeWorkflowVersionEntity published = new RuntimeWorkflowVersionEntity();
     private final RuntimeWorkflowDefinitionEntity workflow = new RuntimeWorkflowDefinitionEntity();
     private final RuntimeAutomationEntity automation = new RuntimeAutomationEntity();
@@ -87,6 +88,7 @@ class RuntimeAutomationTargetExecutorTest {
                 engine,
                 runLifecycle,
                 new com.enterprise.ai.runtime.trace.RuntimeTraceRootService(mock(RuntimeTraceSpanMapper.class), new com.fasterxml.jackson.databind.ObjectMapper()),
+                traceEvidence,
                 mock(RuntimeAutomationInteractionTerminationService.class),
                 new RuntimeAutomationJsonSupport(json),
                 scheduler);

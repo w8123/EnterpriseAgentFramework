@@ -683,7 +683,7 @@ CREATE TABLE IF NOT EXISTS `knowledge_collection_lifecycle` (
   `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`collection_name`),
-  UNIQUE KEY `uk_knowledge_collection_owner` (`knowledge_base_id`),
+  KEY `idx_knowledge_collection_owner` (`knowledge_base_id`),
   KEY `idx_knowledge_collection_cleanup` (`state`,`next_cleanup_at`,`cleanup_lease_until`),
   KEY `idx_knowledge_collection_deadline` (`state`,`create_deadline`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='知识库物理集合创建发布与持久化退场';
@@ -963,7 +963,7 @@ CREATE TABLE IF NOT EXISTS `capability_scan_module` (
     `project_id`      BIGINT       NOT NULL                COMMENT '所属扫描项目',
     `name`            VARCHAR(128) NOT NULL                COMMENT '模块唯一名，默认=Controller 类名',
     `display_name`    VARCHAR(256) DEFAULT NULL            COMMENT '用户可编辑显示名',
-    `source_classes`  TEXT         DEFAULT NULL            COMMENT '合并后聚合的 Controller 类名 JSON 数组',
+    `source_classes`  TEXT         DEFAULT NULL            COMMENT '业务分类关联的来源类名 JSON 数组',
     `create_time`     DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `update_time`     DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     PRIMARY KEY (`id`),
@@ -1016,23 +1016,47 @@ CALL add_idx_if_absent('capability_scan_project_tool', 'idx_scan_project_asset_t
 
 CREATE TABLE IF NOT EXISTS `capability_semantic_doc` (
     `id`              BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
-    `level`           VARCHAR(16)  NOT NULL                COMMENT '层级: project / module / tool',
-    `project_id`      BIGINT       DEFAULT NULL            COMMENT '归属项目 ID',
-    `module_id`       BIGINT       DEFAULT NULL            COMMENT '归属模块 ID（level=module/tool 时有值）',
-    `tool_id`         BIGINT       DEFAULT NULL            COMMENT '归属工具 ID（level=tool 时有值）',
+    `project_id`      BIGINT       NOT NULL                COMMENT '归属项目 ID',
+    `subject_type`    VARCHAR(32)  NOT NULL                COMMENT 'PROJECT / GROUP / BUSINESS_METHOD / HTTP_API / SOURCE_OBSERVATION，仅为附属主体引用',
+    `subject_id`      BIGINT       NOT NULL                COMMENT '所属对象 ID；不构成第三套能力资产',
+    `subject_key`     VARCHAR(320) NOT NULL                COMMENT '所属对象稳定身份',
+    `basis_contract_hash` CHAR(64) DEFAULT NULL            COMMENT '生成或人工确认依据的契约指纹；说明无执行权力',
+    `basis_accepted`  TINYINT(1) NOT NULL DEFAULT 0        COMMENT '生成或确认时是否已接纳；同hash接纳后候选说明仍需复核',
     `content_md`      MEDIUMTEXT   DEFAULT NULL            COMMENT 'LLM 生成/人工编辑后的 Markdown 文档',
     `prompt_version`  VARCHAR(32)  DEFAULT NULL            COMMENT '生成使用的 prompt 版本',
     `model_name`      VARCHAR(64)  DEFAULT NULL            COMMENT '生成使用的模型名',
     `token_usage`     INT          NOT NULL DEFAULT 0      COMMENT '单次生成消耗的 total_tokens',
     `status`          VARCHAR(16)  NOT NULL DEFAULT 'draft' COMMENT '状态: draft / generated / edited',
     `create_time`     DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-    `update_time`     DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `update_time`     DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6) COMMENT '更新时间与微秒文档版本',
     PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_semantic_doc_ref`      (`level`, `project_id`, `module_id`, `tool_id`),
+    UNIQUE KEY `uk_semantic_doc_subject`  (`project_id`, `subject_type`, `subject_id`),
     KEY        `idx_semantic_doc_project` (`project_id`),
-    KEY        `idx_semantic_doc_module`  (`module_id`),
-    KEY        `idx_semantic_doc_tool`    (`tool_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='三层语义文档表';
+    KEY        `idx_semantic_doc_subject_key` (`subject_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='所属项目、分组、业务方法/API或来源候选的独立语义补充';
+
+CREATE TABLE IF NOT EXISTS `capability_catalog_group_member` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `project_id` BIGINT NOT NULL,
+    `group_id` BIGINT NOT NULL COMMENT 'capability_scan_module.id，分组附属资源',
+    `subject_type` VARCHAR(32) NOT NULL COMMENT 'BUSINESS_METHOD / HTTP_API / SOURCE_OBSERVATION',
+    `subject_id` BIGINT NOT NULL,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_catalog_group_subject` (`project_id`, `group_id`, `subject_type`, `subject_id`),
+    KEY `idx_catalog_subject_group` (`project_id`, `subject_type`, `subject_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='正式资产的持久分类及来源候选的人工分类，不拥有资产契约';
+
+CREATE TABLE IF NOT EXISTS `capability_catalog_classification_state` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `project_id` BIGINT NOT NULL,
+    `subject_type` VARCHAR(32) NOT NULL COMMENT 'BUSINESS_METHOD / HTTP_API',
+    `subject_id` BIGINT NOT NULL,
+    `manual` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '人工选择含显式清空，后续同步不覆盖',
+    `revision` BIGINT NOT NULL DEFAULT 1 COMMENT '成员编辑乐观锁，项目行锁内递增',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_classification_owner` (`project_id`, `subject_type`, `subject_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='正式资产的分类选择状态，不拥有资产契约';
+
 
 
 -- ============================================================================
@@ -2109,21 +2133,6 @@ CREATE TABLE IF NOT EXISTS `runtime_agent_eval_case_result` (
 
 
 -- ============================================================================
--- 七.六、Tool 语义检索：持久化「重建向量索引」选用的 Embedding 模型实例
--- （与历史 capability_tool_retrieval_setting 补丁一致）
--- ============================================================================
-
-CREATE TABLE IF NOT EXISTS `capability_tool_retrieval_setting` (
-    `id`                            CHAR(1)      NOT NULL DEFAULT '1' COMMENT '固定单例行',
-    `embedding_model_instance_id`   VARCHAR(64)  DEFAULT NULL COMMENT '上次重建 Tool 向量索引选用的模型实例；对话侧语义召回与用户问题向量化共用',
-    `updated_at`                    DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Tool 语义检索全局运行时设置（单例）';
-
-INSERT IGNORE INTO `capability_tool_retrieval_setting` (`id`, `embedding_model_instance_id`) VALUES ('1', NULL);
-
-
--- ============================================================================
 -- 九、Phase 3.1 Tool ACL（角色 × 能力 黑白名单）
 -- ----------------------------------------------------------------------------
 -- 与历史 tool_acl_phase3_1 补丁保持一致（幂等）。
@@ -2158,47 +2167,6 @@ SELECT * FROM (
     SELECT 'public',               'TOOL',                 '*',                 'DENY',             '内建：匿名身份默认拒绝所有 TOOL'
 ) AS seed
 WHERE NOT EXISTS (SELECT 1 FROM `control_tool_acl` LIMIT 1);
-
-
--- ============================================================================
--- 七.c、Phase P1 —— DomainClassifier（领域定义 + 归属挂接）
--- ============================================================================
-
-CREATE TABLE IF NOT EXISTS `capability_domain_def` (
-    `id`             BIGINT        NOT NULL AUTO_INCREMENT,
-    `code`           VARCHAR(64)   NOT NULL,
-    `name`           VARCHAR(128)  NOT NULL,
-    `description`    VARCHAR(512)  DEFAULT NULL,
-    `keywords_json`  VARCHAR(2000) DEFAULT NULL,
-    `parent_code`    VARCHAR(64)   DEFAULT NULL,
-    `enabled`        TINYINT(1)    NOT NULL DEFAULT 1,
-    `created_at`     DATETIME      DEFAULT CURRENT_TIMESTAMP,
-    `updated_at`     DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_code` (`code`),
-    KEY `idx_parent` (`parent_code`),
-    KEY `idx_parent_code` (`parent_code`),
-    KEY `idx_enabled`     (`enabled`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='领域定义 (Phase P1)';
-
-CALL add_idx_if_absent('capability_domain_def', 'idx_parent', '`parent_code`');
-
-CREATE TABLE IF NOT EXISTS `capability_domain_assignment` (
-    `id`            BIGINT       NOT NULL AUTO_INCREMENT,
-    `target_kind`   VARCHAR(16)  NOT NULL                COMMENT 'PROJECT / TOOL / AGENT',
-    `target_name`   VARCHAR(192) NOT NULL,
-    `domain_code`   VARCHAR(64)  NOT NULL,
-    `weight`        DECIMAL(5,3) NOT NULL DEFAULT 1.000,
-    `source`        VARCHAR(32)  NOT NULL DEFAULT 'MANUAL' COMMENT 'MANUAL / AUTO_FROM_PROJECT',
-    `created_at`    DATETIME     DEFAULT CURRENT_TIMESTAMP,
-    `updated_at`    DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_kind_name_domain` (`target_kind`, `target_name`, `domain_code`),
-    KEY `idx_domain` (`domain_code`),
-    KEY `idx_target` (`target_kind`, `target_name`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Tool/Agent 领域挂接 (Phase P1)';
-
-CALL add_col_if_absent('capability_scan_project', 'default_domain_code', 'VARCHAR(64) DEFAULT NULL COMMENT ''扫描项目默认领域 (Phase P1)''');
 
 
 -- ============================================================================
@@ -2931,16 +2899,18 @@ CREATE TABLE IF NOT EXISTS `runtime_agent_remote_agent_binding` (
 CREATE TABLE IF NOT EXISTS `capability_api_graph_node` (
     `id`            BIGINT       NOT NULL AUTO_INCREMENT,
     `project_id`    BIGINT       NOT NULL,
+    `node_key`      CHAR(64)     NOT NULL COMMENT 'typed主体及结构路径SHA256；名称/分组不参与身份',
+    `active`        TINYINT(1)   NOT NULL DEFAULT 1 COMMENT '0=当前投影已失效，保留关系与布局证据',
     `kind`          VARCHAR(16)  NOT NULL                       COMMENT 'API / FIELD_IN / FIELD_OUT / DTO / MODULE',
     `ref_id`        BIGINT       DEFAULT NULL,
     `parent_id`     BIGINT       DEFAULT NULL,
-    `label`         VARCHAR(255) NOT NULL,
+    `label`         TEXT         NOT NULL COMMENT '完整展示正式资产名称或分组名，不参与节点身份',
     `type_name`     VARCHAR(255) DEFAULT NULL,
     `props_json`    TEXT         DEFAULT NULL,
     `created_at`    DATETIME     DEFAULT CURRENT_TIMESTAMP,
     `updated_at`    DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_node_identity` (`project_id`, `kind`, `ref_id`, `parent_id`, `label`),
+    UNIQUE KEY `uk_node_identity` (`project_id`, `node_key`),
     KEY `idx_project_kind` (`project_id`, `kind`),
     KEY `idx_parent`       (`parent_id`),
     KEY `idx_type`         (`project_id`, `type_name`)
@@ -5218,3 +5188,27 @@ DROP PROCEDURE IF EXISTS add_idx_if_absent;
 DROP PROCEDURE IF EXISTS add_unique_idx_if_absent;
 
 -- END OF initV2.sql
+
+-- 2026-10-09 Open-Meteo immutable official scalar-query version
+-- Capability owner only. Add one immutable official profile; retain v1 and every existing binding/provider/credential.
+-- Source: https://raw.githubusercontent.com/open-meteo/open-meteo/930063f12047363861f775c685c16a98b52dbfe4/openapi/forecast.yml
+-- Raw official bytes SHA256: 512e29bca2afb06a088cc27fae5c6793a05e272c6404a67e3632cecb87f8516f
+-- Normalized curated OpenAPI snapshot SHA256: 570d8f8258ee4b9d187cb9d2f3416ef098f75c2320c1406f0eee1600781f51fc
+-- No schema changes, no outbound HTTP, no historical success proof or implicit project selection.
+INSERT INTO capability_external_api_version
+  (entry_id, version_key, base_url, openapi_url, spec_hash, raw_metadata_json, publication_status, published_at)
+SELECT e.id, 'official-930063f12047-scalar-query-20261009', 'https://api.open-meteo.com', 'https://raw.githubusercontent.com/open-meteo/open-meteo/930063f12047363861f775c685c16a98b52dbfe4/openapi/forecast.yml', '570d8f8258ee4b9d187cb9d2f3416ef098f75c2320c1406f0eee1600781f51fc', '{"sourceType":"OFFICIAL_OPENAPI_CURATED_PROFILE","sourceUrl":"https://raw.githubusercontent.com/open-meteo/open-meteo/930063f12047363861f775c685c16a98b52dbfe4/openapi/forecast.yml","sourceRevision":"930063f12047363861f775c685c16a98b52dbfe4","officialSpecByteSHA256":"512e29bca2afb06a088cc27fae5c6793a05e272c6404a67e3632cecb87f8516f","sourceSnapshotPath":"docs/integrations/api-market/open-meteo-forecast-scalar-20261009.json","specHash":"570d8f8258ee4b9d187cb9d2f3416ef098f75c2320c1406f0eee1600781f51fc","profile":"SCALAR_COORDINATES_ONLY","requestParameterSubset":["latitude","longitude"],"responseProjection":"Documented root metadata; additional properties allowed","oldVersionRetained":"v1","oldBindingsChanged":false}', 'PUBLISHED', '2026-10-09 12:04:03'
+FROM capability_external_api_entry e
+WHERE e.entry_key='open-meteo' AND e.auth_type='NONE' AND e.publication_status='PUBLISHED'
+  AND NOT EXISTS (SELECT 1 FROM capability_external_api_version v WHERE v.entry_id=e.id AND v.version_key='official-930063f12047-scalar-query-20261009');
+
+INSERT INTO capability_external_api_operation
+  (version_id, operation_key, operation_id, title, description, http_method, path, side_effect, auth_required,
+   request_schema_json, response_schema_json, response_content_type, response_status, example_params_json, status)
+SELECT v.id, 'forecast-coordinates', 'getForecastCoordinates', '官方天气位置元数据查询（标量参数）',
+  '官方 Forecast GET 的明确标量子集；仅 latitude/longitude，不请求数组天气变量，不含凭据。',
+  'GET', '/v1/forecast', 'READ_ONLY', 0, '{"type":"object","properties":{"latitude":{"type":"string","location":"query"},"longitude":{"type":"string","location":"query"}},"required":["latitude","longitude"],"additionalProperties":false}', '{"type":"object","properties":{"latitude":{"type":"number","format":"float"},"longitude":{"type":"number","format":"float"},"elevation":{"type":"number","format":"float"},"generationtime_ms":{"type":"number","format":"float"},"utc_offset_seconds":{"type":"integer"},"timezone":{"type":"string"},"timezone_abbreviation":{"type":"string"}},"additionalProperties":true}',
+  'application/json', 200, '{"latitude":"52.52","longitude":"13.41"}', 'ACTIVE'
+FROM capability_external_api_version v JOIN capability_external_api_entry e ON e.id=v.entry_id
+WHERE e.entry_key='open-meteo' AND v.version_key='official-930063f12047-scalar-query-20261009' AND v.spec_hash='570d8f8258ee4b9d187cb9d2f3416ef098f75c2320c1406f0eee1600781f51fc'
+  AND NOT EXISTS (SELECT 1 FROM capability_external_api_operation o WHERE o.version_id=v.id AND o.operation_key='forecast-coordinates');

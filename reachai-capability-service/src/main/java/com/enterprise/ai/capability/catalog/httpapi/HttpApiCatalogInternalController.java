@@ -25,6 +25,11 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class HttpApiCatalogInternalController {
     private final HttpApiCatalogService catalog;
+    private final com.enterprise.ai.capability.catalog.enrichment.CatalogGroupSelection groups;
+
+    public ResponseEntity<?> list(long projectId, String environment, String keyword, String method, String sourceStatus, int current, int size, Long groupId) {
+        return list(projectId, environment, keyword, method, sourceStatus, current, size, groupId, false);
+    }
 
     @GetMapping
     public ResponseEntity<?> list(@RequestParam long projectId,
@@ -33,14 +38,26 @@ public class HttpApiCatalogInternalController {
                                   @RequestParam(required = false) String method,
                                   @RequestParam(required = false) String sourceStatus,
                                   @RequestParam(defaultValue = "1") int current,
-                                  @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(catalog.list(projectId, environment, keyword, method, sourceStatus, current, size));
+                                  @RequestParam(defaultValue = "20") int size,
+                                  @RequestParam(required = false) Long groupId,
+                                  @RequestParam(defaultValue = "false") boolean ungrouped) {
+        try {
+            if (ungrouped && (groupId != null || projectId <= 0)) throw new IllegalArgumentException("未分类筛选条件无效");
+            return ResponseEntity.ok(catalog.listFiltered(projectId, environment, keyword, method, sourceStatus,
+                    current, size, groups.filter(projectId, groupId, ungrouped)));
+        } catch (IllegalArgumentException invalid) { return ResponseEntity.badRequest().body(error("CATALOG_GROUP_INVALID", invalid.getMessage())); }
     }
 
     @GetMapping("/{id}")
     public ResponseEntity<?> detail(@PathVariable long id) {
         HttpApiCatalogService.ApiDetail detail = catalog.detail(id);
         return detail == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(detail);
+    }
+
+    @GetMapping("/{id}/identity")
+    public ResponseEntity<?> identity(@PathVariable long id) {
+        var identity = catalog.identity(id);
+        return identity == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(identity);
     }
 
     @PostMapping("/{id}/accept")
