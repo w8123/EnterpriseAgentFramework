@@ -92,7 +92,8 @@ export function triggerRescan(id: number) {
 }
 
 export function triggerSdkCapabilityScan(projectId: number) {
-  return controlRequest.post<SdkCapabilityScanResult>(`/api/scan-projects/${projectId}/sdk-sync/scan`)
+  // Keep this full-inventory request outside the SDK 120s / callback 125s / proxy 135s leases.
+  return controlRequest.post<SdkCapabilityScanResult>(`/api/scan-projects/${projectId}/sdk-sync/scan`, undefined, { timeout: 150000 })
 }
 
 /** 单条来源刷新；返回所属 HTTP API 是否已唯一确认，不等同于接纳契约。 */

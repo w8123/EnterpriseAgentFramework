@@ -21,6 +21,7 @@ import org.springframework.web.client.RestTemplate;
 
 import java.time.LocalDateTime;
 import java.util.Map;
+import java.util.LinkedHashMap;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -32,6 +33,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.RETURNS_SELF;
 
 class CapabilitySdkSyncTriggerServiceTest {
 
@@ -40,7 +42,7 @@ class CapabilitySdkSyncTriggerServiceTest {
         ScanProjectMapper scanProjectMapper = mock(ScanProjectMapper.class);
         ProjectInstanceMapper instanceMapper = mock(ProjectInstanceMapper.class);
         RegistrySecurityService registrySecurityService = mock(RegistrySecurityService.class);
-        RestTemplateBuilder restTemplateBuilder = mock(RestTemplateBuilder.class);
+        RestTemplateBuilder restTemplateBuilder = mock(RestTemplateBuilder.class, RETURNS_SELF);
         RestTemplate restTemplate = mock(RestTemplate.class);
         CapabilitySdkSyncTriggerService service = new CapabilitySdkSyncTriggerService(
                 scanProjectMapper,
@@ -75,7 +77,7 @@ class CapabilitySdkSyncTriggerServiceTest {
                 eq(HttpMethod.POST),
                 any(HttpEntity.class),
                 eq(Map.class)))
-                .thenReturn(ResponseEntity.ok(Map.of("capabilityCount", 3, "registryResponse", "{}")));
+                .thenReturn(ResponseEntity.ok(nativeResponse(3, 0)));
 
         CapabilitySdkSyncTriggerService.SdkSyncTriggerResponse response = service.triggerScan(7L);
 
@@ -84,7 +86,8 @@ class CapabilitySdkSyncTriggerServiceTest {
         assertEquals("dev-1", response.instanceId());
         assertEquals("https://orders.example.com/orders-api/reachai/registry/capabilities/sync", response.targetUrl());
         assertEquals(3, response.capabilityCount());
-        assertEquals("{}", response.businessResponse().get("registryResponse"));
+        verify(restTemplateBuilder).readTimeout(java.time.Duration.ofSeconds(125));
+        assertTrue(response.businessResponse().get("registryResponse").toString().contains("\"received\":3"));
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<HttpEntity<Map<String, Object>>> requestCaptor = ArgumentCaptor.forClass(HttpEntity.class);
@@ -134,11 +137,78 @@ class CapabilitySdkSyncTriggerServiceTest {
         assertTrue(error.getMessage().contains("不要使用 localhost"));
     }
 
+    @Test
+    void acceptsNativeHttpOnlyReceiptWithoutRequiringAnyJavaMethods() {
+        var response = serviceRespondingWith(nativeResponse(0, 50)).triggerScan(7L);
+        assertEquals(0, response.capabilityCount());
+        assertEquals(50, response.businessResponse().get("httpApiCount"));
+    }
+
+    @Test
+    void acceptsAConfirmedEmptyInventoryInsteadOfTreatingZeroAsFailure() {
+        assertEquals(0, serviceRespondingWith(nativeResponse(0, 0)).triggerScan(7L).capabilityCount());
+    }
+
+    @Test
+    void rejectsAnExplicitBusinessFailureEvenWhenHttpStatusIs200WithoutEchoingItsBody() {
+        Map<String, Object> failure = new LinkedHashMap<>();
+        failure.put("success", false); failure.put("data", null); failure.put("code", "500");
+        failure.put("message", "secret-signature-value");
+        var error = assertThrows(CapabilitySdkSyncTriggerService.SdkSyncRequestException.class,
+                () -> serviceRespondingWith(failure).triggerScan(7L));
+        assertEquals("SDK_SYNC_BUSINESS_FAILED", error.code());
+        assertTrue(!error.getMessage().contains("secret-signature-value"));
+    }
+
+    @Test
+    void rejectsEmptyUnknownAndMalformedResponsesInsteadOfManufacturingZeroSuccess() {
+        for (Map<String, Object> body : java.util.List.of(Map.<String, Object>of(),
+                Map.<String, Object>of("capabilityCount", 0),
+                Map.<String, Object>of("instanceId", "dev-1", "capabilityCount", -1, "httpApiCount", 0, "registryResponse", "{}"),
+                Map.<String, Object>of("instanceId", "dev-1", "capabilityCount", 0, "httpApiCount", 50, "registryResponse", "not-json"))) {
+            var error = assertThrows(CapabilitySdkSyncTriggerService.SdkSyncRequestException.class,
+                    () -> serviceRespondingWith(body).triggerScan(7L));
+            assertEquals("SDK_SYNC_RESPONSE_INVALID", error.code());
+        }
+    }
+
+    @Test
+    void rejectsAReceiptFromAnotherProjectOrInstanceAndMismatchedOperationCounts() {
+        for (String field : java.util.List.of("project", "instance", "count")) {
+            Map<String, Object> body = new LinkedHashMap<>(nativeResponse(0, 50));
+            if ("project".equals(field)) body.put("registryResponse", body.get("registryResponse").toString().replace("\"orders\"", "\"other-project\""));
+            if ("instance".equals(field)) body.put("instanceId", "other-instance");
+            if ("count".equals(field)) body.put("httpApiCount", 49);
+            assertEquals("SDK_SYNC_RESPONSE_INVALID", assertThrows(CapabilitySdkSyncTriggerService.SdkSyncRequestException.class,
+                    () -> serviceRespondingWith(body).triggerScan(7L)).code());
+        }
+    }
+
+    @Test
+    void acceptsAnExplicitSuccessWrapperOnlyWhenItsDataContainsAValidNativeReceipt() {
+        var response = serviceRespondingWith(Map.of("success", true, "code", "200", "data", nativeResponse(0, 50))).triggerScan(7L);
+        assertEquals(0, response.capabilityCount());
+    }
+
+    private static Map<String, Object> nativeResponse(int methods, int httpApis) {
+        String receipt = "{\"syncId\":\"test-sync\",\"projectId\":7,\"projectCode\":\"orders\",\"received\":" + methods
+                + ",\"httpApis\":{\"supported\":true,\"received\":" + httpApis + ",\"observed\":" + httpApis + ",\"removed\":0}}";
+        return Map.of("instanceId", "dev-1", "capabilityCount", methods, "httpApiCount", httpApis, "registryResponse", receipt);
+    }
+
+    private CapabilitySdkSyncTriggerService serviceRespondingWith(Map<String, Object> body) {
+        return serviceWithOutcome(body, null);
+    }
+
     private CapabilitySdkSyncTriggerService serviceFailingWith(RestClientException failure) {
+        return serviceWithOutcome(null, failure);
+    }
+
+    private CapabilitySdkSyncTriggerService serviceWithOutcome(Map<String, Object> body, RestClientException failure) {
         ScanProjectMapper scanProjectMapper = mock(ScanProjectMapper.class);
         ProjectInstanceMapper instanceMapper = mock(ProjectInstanceMapper.class);
         RegistrySecurityService registrySecurityService = mock(RegistrySecurityService.class);
-        RestTemplateBuilder restTemplateBuilder = mock(RestTemplateBuilder.class);
+        RestTemplateBuilder restTemplateBuilder = mock(RestTemplateBuilder.class, RETURNS_SELF);
         RestTemplate restTemplate = mock(RestTemplate.class);
 
         ScanProjectEntity project = new ScanProjectEntity();
@@ -163,12 +233,12 @@ class CapabilitySdkSyncTriggerServiceTest {
         when(instanceMapper.selectOne(any())).thenReturn(instance);
         when(registrySecurityService.findPrimaryActiveCredential("orders")).thenReturn(Optional.of(credential));
         when(restTemplateBuilder.build()).thenReturn(restTemplate);
-        when(restTemplate.exchange(
+        var exchange = when(restTemplate.exchange(
                 eq("https://orders.example.com/orders-api/reachai/registry/capabilities/sync"),
                 eq(HttpMethod.POST),
                 any(HttpEntity.class),
-                eq(Map.class)))
-                .thenThrow(failure);
+                eq(Map.class)));
+        if (failure != null) exchange.thenThrow(failure); else exchange.thenReturn(ResponseEntity.ok(body));
 
         return new CapabilitySdkSyncTriggerService(
                 scanProjectMapper,

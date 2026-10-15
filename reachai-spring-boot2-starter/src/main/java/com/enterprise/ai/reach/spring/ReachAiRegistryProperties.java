@@ -42,6 +42,13 @@ public class ReachAiRegistryProperties {
         private String enrollmentToken;
         private String credentialStorePath;
         private long heartbeatIntervalMs = 180000L;
+        private int connectTimeoutMs = 5000;
+        private int readTimeoutMs = 60000;
+
+        public int getConnectTimeoutMs() { return connectTimeoutMs; }
+        public void setConnectTimeoutMs(int value) { connectTimeoutMs = value; }
+        public int getReadTimeoutMs() { return readTimeoutMs; }
+        public void setReadTimeoutMs(int value) { readTimeoutMs = value; }
 
         public boolean isEnabled() {
             return enabled;

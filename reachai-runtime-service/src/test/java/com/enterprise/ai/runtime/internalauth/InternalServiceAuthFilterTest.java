@@ -188,24 +188,24 @@ class InternalServiceAuthFilterTest {
     }
 
     @Test
-    void httpApiCatalogStateRouteRequiresPlatformHmac() throws Exception {
-        String secret = "runtime-http-api-catalog-filter-secret-32bytes";
+    void httpApiConnectionRouteRequiresPlatformHmac() throws Exception {
+        String secret = "runtime-http-api-connection-filter-secret-32bytes";
         var properties = new InternalServiceAuthProperties(secret, "", 300, 600, 1000, 1024 * 1024);
         var filter = new InternalServiceAuthFilter(new InternalServiceAuthVerifier(properties,
                 new InMemoryInternalAuthNonceStore()), properties);
-        String path = "/internal/runtime/http-api-catalog-states";
+        String path = "/internal/runtime/http-api-connections";
         byte[] body = "{\"projectCode\":\"orders\"}".getBytes(StandardCharsets.UTF_8);
 
         var unsigned = new MockHttpServletResponse();
         filter.doFilter(new MockHttpServletRequest("POST", path), unsigned, new MockFilterChain());
         assertEquals(401, unsigned.getStatus());
         var accepted = new MockHttpServletResponse();
-        filter.doFilter(signedRequest(secret, path, body, "api-catalog-valid", "POST",
+        filter.doFilter(signedRequest(secret, path, body, "api-connection-valid", "POST",
                 InternalServiceAuthHeaders.IDENTITY_SOURCE_PLATFORM_SESSION, "orders", "42"),
                 accepted, new MockFilterChain());
         assertEquals(200, accepted.getStatus());
         var remote = new MockHttpServletResponse();
-        filter.doFilter(signedRequest(secret, path, body, "api-catalog-remote", "POST",
+        filter.doFilter(signedRequest(secret, path, body, "api-connection-remote", "POST",
                 InternalServiceAuthHeaders.IDENTITY_SOURCE_A2A_REMOTE_AGENT, "orders", "remote"),
                 remote, new MockFilterChain());
         assertEquals(401, remote.getStatus());

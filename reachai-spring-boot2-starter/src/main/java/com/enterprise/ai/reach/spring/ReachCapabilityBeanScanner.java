@@ -5,6 +5,8 @@ import com.enterprise.ai.reach.sdk.capability.ReachHttpApiDescriptor;
 import com.enterprise.ai.reach.sdk.capability.ReachCapabilityScanner;
 import org.springframework.aop.support.AopUtils;
 import org.springframework.context.ApplicationContext;
+import org.springframework.http.converter.HttpMessageConverter;
+import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerAdapter;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -62,6 +64,10 @@ public class ReachCapabilityBeanScanner {
             }
             return new ScanResult(descriptors, httpApis);
         }
+        List<HttpMessageConverter<?>> converters = new ArrayList<HttpMessageConverter<?>>();
+        for (RequestMappingHandlerAdapter adapter : applicationContext.getBeansOfType(RequestMappingHandlerAdapter.class).values()) {
+            converters.addAll(adapter.getMessageConverters());
+        }
         Map<String, Object> beans = applicationContext.getBeansOfType(Object.class);
         for (Object bean : beans.values()) {
             if (bean == null || isInfrastructureBean(bean)) {
@@ -70,7 +76,7 @@ public class ReachCapabilityBeanScanner {
             Class<?> userClass = AopUtils.getTargetClass(bean);
             descriptors.addAll(ReachCapabilityScanner.scanClasses(userClass));
             if (shouldScanSpringMvcEndpoints(userClass)) {
-                httpApis.addAll(ReachSpringMvcEndpointScanner.scanClass(userClass));
+                httpApis.addAll(ReachSpringMvcEndpointScanner.scanClass(userClass, converters));
             }
         }
         return new ScanResult(descriptors, httpApis);

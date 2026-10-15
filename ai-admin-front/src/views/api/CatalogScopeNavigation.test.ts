@@ -53,7 +53,7 @@ async function setup(category: 'HTTP_API' | 'BUSINESS_METHOD' = 'HTTP_API', addr
     const records = category === 'HTTP_API' ? [{ id: 4, projectId, projectCode, environment: 'dev',
       qualifiedName: `${projectCode}:GET:/v1/forecast`, httpMethod: 'GET', routeTemplate: '/v1/forecast',
       sourceStatus: 'ACCEPTED', sourceConfirmed: true, sourceKinds: ['OPENAPI_SCAN'], activeSourceCount: 1,
-      connectionStatus: 'UNCONFIGURED' }] : [businessMethodFixture({ projectId: projectId ?? 36, projectCode })]
+    }] : [businessMethodFixture({ projectId: projectId ?? 36, projectCode })]
     return Promise.resolve({ data: { records, total: 1 } })
   })
   await router.push({ path: addressPath || path, query: addressQuery })

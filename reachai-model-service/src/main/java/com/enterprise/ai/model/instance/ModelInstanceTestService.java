@@ -11,10 +11,18 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.net.URI;
+import java.time.Duration;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
 public class ModelInstanceTestService {
+
+    private static final Duration LLM_TEST_TIMEOUT = Duration.ofSeconds(30);
+    private static final int LLM_TEST_OUTPUT_TOKENS = 128;
 
     private final ModelInstanceService modelInstanceService;
     private final OpenAiCompatibleRuntimeClient openAiCompatibleRuntimeClient;
@@ -63,9 +71,10 @@ public class ModelInstanceTestService {
                     ChatResponse response = openAiCompatibleRuntimeClient.chat(runtime, ChatRequest.builder()
                             .messages(List.of(ChatRequest.ChatMessage.builder()
                                     .role("user")
-                                    .content("hello")
+                                    .content("Reply with exactly OK. Do not explain.")
                                     .build()))
-                            .build());
+                            .options(llmTestOptions(runtime))
+                            .build(), LLM_TEST_TIMEOUT);
                     if (response.getContent() == null || response.getContent().isBlank()) {
                         throw new IllegalStateException("empty model response");
                     }
@@ -103,6 +112,40 @@ public class ModelInstanceTestService {
                     .modelType(runtime.getModelType())
                     .lastTestStatus(persistResult ? ModelTestStatus.FAILED.name() : null)
                     .build();
+        }
+    }
+
+    private Map<String, Object> llmTestOptions(ModelInstanceRuntime runtime) {
+        Map<String, Object> options = new LinkedHashMap<>();
+        String tokenOption = runtime.getDefaultOptions() != null
+                && runtime.getDefaultOptions().containsKey("max_completion_tokens")
+                ? "max_completion_tokens" : "max_tokens";
+        options.put(tokenOption, LLM_TEST_OUTPUT_TOKENS);
+        if (usesOfficialDeepSeekThinkingToggle(runtime)) {
+            // Official Chat Completions thinking mode contract; test-only, never persist these overrides.
+            // https://api-docs.deepseek.com/guides/thinking_mode/
+            options.put("thinking", Map.of("type", "disabled"));
+        }
+        return options;
+    }
+
+    private boolean usesOfficialDeepSeekThinkingToggle(ModelInstanceRuntime runtime) {
+        if (!"deepseek".equalsIgnoreCase(runtime.getProvider())
+                || runtime.getModelName() == null
+                || !Set.of("deepseek-v4-flash", "deepseek-flash", "deepseek-v4-pro").contains(runtime.getModelName())
+                || runtime.getConnectionConfig() == null) {
+            return false;
+        }
+        Object baseUrl = runtime.getConnectionConfig().get("baseUrl");
+        if (!(baseUrl instanceof String value)) {
+            return false;
+        }
+        try {
+            URI uri = URI.create(value);
+            return "https".equalsIgnoreCase(uri.getScheme()) && "api.deepseek.com".equalsIgnoreCase(uri.getHost())
+                    && (uri.getPort() == -1 || uri.getPort() == 443) && uri.getUserInfo() == null;
+        } catch (IllegalArgumentException invalidUrl) {
+            return false;
         }
     }
 

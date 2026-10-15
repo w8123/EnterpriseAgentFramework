@@ -364,11 +364,6 @@ public final class HttpApiBrowserFixtureHost {
                 return ResponseEntity.ok((Object) wire(detail));
             });
             RuntimeHttpApiConsoleGateway runtime = mock(RuntimeHttpApiConsoleGateway.class);
-            RuntimeHttpApiCatalogStateService catalogStates = new RuntimeHttpApiCatalogStateService(
-                    db.mapper(RuntimeHttpApiConnectionMapper.class),
-                    db.mapper(ConsoleCapabilityInvocationMapper.class));
-            when(runtime.catalogStates(any(), anyString())).thenAnswer(call ->
-                    ResponseEntity.ok((Object) catalogStates.read(call.getArgument(0), call.getArgument(1))));
             when(runtime.readConnection(any(), anyString())).thenAnswer(call ->
                     ResponseEntity.ok((Object) connections.read(call.getArgument(0))));
             when(runtime.saveConnection(any(), anyString())).thenAnswer(call -> {

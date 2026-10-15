@@ -1,21 +1,35 @@
 package com.enterprise.ai.reach.spring;
 
+import com.enterprise.ai.reach.sdk.annotation.ReachHttpOperation;
+import com.enterprise.ai.reach.sdk.annotation.ReachSideEffectLevel;
 import com.enterprise.ai.reach.sdk.capability.ReachHttpApiDescriptor;
 import com.enterprise.ai.reach.sdk.capability.ReachHttpApiMappingCondition;
 import com.enterprise.ai.reach.sdk.capability.ReachHttpApiParameter;
 import com.enterprise.ai.reach.sdk.capability.ReachHttpApiRequestBody;
 import com.enterprise.ai.reach.sdk.capability.ReachHttpApiResponse;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.HttpEntity;
+import org.springframework.http.MediaType;
+import org.springframework.http.converter.GenericHttpMessageConverter;
+import org.springframework.http.converter.HttpMessageConverter;
+import org.springframework.http.converter.StringHttpMessageConverter;
+import org.springframework.http.converter.json.AbstractJackson2HttpMessageConverter;
+import org.springframework.beans.BeanUtils;
+import org.springframework.core.DefaultParameterNameDiscoverer;
+import org.springframework.core.MethodParameter;
 import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.core.ResolvableType;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.CookieValue;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.bind.annotation.ValueConstants;
@@ -24,6 +38,7 @@ import org.springframework.web.servlet.mvc.condition.NameValueExpression;
 import org.springframework.web.servlet.mvc.method.RequestMappingInfo;
 
 import java.lang.annotation.Annotation;
+import java.beans.PropertyDescriptor;
 import java.lang.reflect.Field;
 import java.lang.reflect.GenericArrayType;
 import java.lang.reflect.Method;
@@ -57,6 +72,10 @@ final class ReachSpringMvcEndpointScanner {
     }
 
     static List<ReachHttpApiDescriptor> scanClass(Class<?> type) {
+        return scanClass(type, Collections.<HttpMessageConverter<?>>emptyList());
+    }
+
+    static List<ReachHttpApiDescriptor> scanClass(Class<?> type, List<HttpMessageConverter<?>> converters) {
         if (type == null || !AnnotatedElementUtils.hasAnnotation(type, RestController.class)) {
             return Collections.emptyList();
         }
@@ -78,12 +97,14 @@ final class ReachSpringMvcEndpointScanner {
             List<String> produces = mediaTypes(mapping.getProducesCondition().getExpressions());
             List<ReachHttpApiMappingCondition> conditions = mappingConditions(mapping);
             ParameterFacts parameterFacts = parameters(method, consumes);
+            inferRequestMedia(method, parameterFacts, converters);
+            inferJsonRequestSchema(method, parameterFacts, converters);
             for (String classPath : classPaths) {
                 for (String methodPath : methodPaths) {
                     String endpointPath = combinePath(classPath, methodPath);
                     for (RequestMethod httpMethod : methods) {
                         descriptors.add(descriptor(type, method, httpMethod.name(), endpointPath, consumes, produces,
-                                conditions, parameterFacts));
+                                conditions, parameterFacts, converters));
                     }
                 }
             }
@@ -104,7 +125,8 @@ final class ReachSpringMvcEndpointScanner {
                                                        List<String> consumes,
                                                        List<String> produces,
                                                        List<ReachHttpApiMappingCondition> conditions,
-                                                       ParameterFacts parameterFacts) {
+                                                       ParameterFacts parameterFacts,
+                                                       List<HttpMessageConverter<?>> converters) {
         ReachHttpApiDescriptor descriptor = new ReachHttpApiDescriptor();
         descriptor.setHttpMethod(httpMethod);
         descriptor.setBusinessGroups(businessGroups(type, method));
@@ -118,15 +140,157 @@ final class ReachSpringMvcEndpointScanner {
         // DEFAULT means unknown/dynamic, not an invented 200. Explicit Spring status stays factual.
         response.setStatus(responseStatus(type, method));
         response.setSchema(schema(responseBodyType(method.getGenericReturnType())));
-        response.setContentTypes(produces);
+        ResolvableType responseType = responseBodyType(method.getGenericReturnType());
+        response.setContentTypes(produces.isEmpty() && (jsonObjectType(responseType) || jsonArrayType(responseType))
+                && supportsJsonWrite(converters, responseType)
+                ? Collections.singletonList("application/json") : produces);
+        MediaType jsonResponseMedia = jsonMedia(response.getContentTypes());
+        if (jsonResponseMedia != null) {
+            response.setSchema(jsonSchema(responseType, jsonMapper(converters, responseType,
+                    method.getDeclaringClass(), jsonResponseMedia, false)));
+        }
         descriptor.setResponses(Collections.singletonList(response));
         descriptor.setAuthenticationState("UNKNOWN");
-        descriptor.setSideEffect(readOnlyMethod(httpMethod) ? "READ_ONLY" : "WRITE");
+        ReachHttpOperation effect = AnnotatedElementUtils.findMergedAnnotation(method, ReachHttpOperation.class);
+        if (effect == null) effect = AnnotatedElementUtils.findMergedAnnotation(type, ReachHttpOperation.class);
+        descriptor.setSideEffect(effect == null ? readOnlyMethod(httpMethod) ? "READ_ONLY" : "WRITE"
+                : effect.sideEffect() == ReachSideEffectLevel.READ ? "READ_ONLY" : effect.sideEffect().name());
         String sourceLocation = sourceLocation(type, method);
         descriptor.setSourceLocation(sourceLocation);
         descriptor.setSourceKey("mvc:" + sha256(sourceLocation + "|" + httpMethod + "|" + endpointPath + "|"
                 + conditionKey(conditions) + "|" + mediaKey(consumes) + "|" + mediaKey(produces)));
         return descriptor;
+    }
+
+    /** Actual adapter converters are evidence of a supported media type, not a mapping restriction. */
+    private static void inferRequestMedia(Method method, ParameterFacts facts, List<HttpMessageConverter<?>> converters) {
+        if (facts.requestBody == null || !facts.requestBody.getContentTypes().isEmpty()) return;
+        for (Parameter parameter : method.getParameters()) {
+            ResolvableType type = ResolvableType.forType(parameter.getParameterizedType());
+            if (parameter.getAnnotation(RequestBody.class) != null || HttpEntity.class.isAssignableFrom(parameter.getType())) {
+                if (HttpEntity.class.isAssignableFrom(parameter.getType())) type = type.as(HttpEntity.class).getGeneric(0);
+                while (Optional.class.equals(type.resolve())) type = type.getGeneric(0);
+                if (String.class.equals(type.resolve())) {
+                    inferStringRequestMedia(method, type, facts.requestBody, converters);
+                } else if (jsonObjectType(type) || jsonArrayType(type)) {
+                    for (HttpMessageConverter<?> converter : converters) {
+                        // Lists must retain their actual element Type. A raw List.class check can
+                        // claim support even when a generic converter rejects the declared DTOs.
+                        if (!(converter instanceof GenericHttpMessageConverter) && jsonArrayType(type)) continue;
+                        if (canRead(converter, type, method.getDeclaringClass(), MediaType.APPLICATION_JSON)) {
+                            facts.requestBody.setContentTypes(Collections.singletonList("application/json"));
+                            break;
+                        }
+                    }
+                }
+                return;
+            }
+        }
+    }
+
+    private static void inferStringRequestMedia(Method method, ResolvableType type, ReachHttpApiRequestBody body,
+                                                List<HttpMessageConverter<?>> converters) {
+        for (HttpMessageConverter<?> converter : converters) {
+            boolean plain = canRead(converter, type, method.getDeclaringClass(), MediaType.TEXT_PLAIN);
+            boolean json = canRead(converter, type, method.getDeclaringClass(), MediaType.APPLICATION_JSON);
+            if (!plain && !json) continue;
+            if (plain && converter instanceof StringHttpMessageConverter) {
+                body.setContentTypes(Collections.singletonList("text/plain"));
+            } else if (json && converter instanceof GenericHttpMessageConverter) {
+                body.setContentTypes(Collections.singletonList("application/json"));
+            }
+            // Preserve actual converter ordering. An unknown/custom reader is not evidence
+            // that a later familiar converter will receive this string with the same semantics.
+            return;
+        }
+    }
+
+    private static boolean canRead(HttpMessageConverter<?> converter, ResolvableType type,
+                                   Class<?> contextClass, MediaType mediaType) {
+        if (converter instanceof GenericHttpMessageConverter) {
+            return ((GenericHttpMessageConverter<?>) converter).canRead(type.getType(), contextClass, mediaType);
+        }
+        Class<?> raw = type.resolve();
+        return raw != null && converter.canRead(raw, mediaType);
+    }
+
+    private static boolean jsonArrayType(ResolvableType type) {
+        Class<?> raw = type.resolve();
+        return raw != null && (Iterable.class.isAssignableFrom(raw)
+                || raw.isArray() && !byte[].class.equals(raw) && !char[].class.equals(raw));
+    }
+
+    private static void inferJsonRequestSchema(Method method, ParameterFacts facts, List<HttpMessageConverter<?>> converters) {
+        if (facts.requestBody == null) return;
+        MediaType media = jsonMedia(facts.requestBody.getContentTypes());
+        if (media == null) return;
+        for (Parameter parameter : method.getParameters()) {
+            if (parameter.getAnnotation(RequestBody.class) == null && !HttpEntity.class.isAssignableFrom(parameter.getType())) continue;
+            ResolvableType type = ResolvableType.forType(parameter.getParameterizedType());
+            if (HttpEntity.class.isAssignableFrom(parameter.getType())) type = type.as(HttpEntity.class).getGeneric(0);
+            while (Optional.class.equals(type.resolve())) type = type.getGeneric(0);
+            facts.requestBody.setSchema(jsonSchema(type, jsonMapper(converters, type, method.getDeclaringClass(), media, true)));
+            return;
+        }
+    }
+
+    private static MediaType jsonMedia(List<String> contentTypes) {
+        for (String value : contentTypes) {
+            if (value == null || value.startsWith("!")) continue;
+            try {
+                MediaType media = MediaType.parseMediaType(value);
+                if ("json".equalsIgnoreCase(media.getSubtype()) || media.getSubtype().toLowerCase(Locale.ROOT).endsWith("+json")) return media;
+            } catch (IllegalArgumentException ignored) { /* An unknown media is not JSON evidence. */ }
+        }
+        return null;
+    }
+
+    private static ObjectMapper jsonMapper(List<HttpMessageConverter<?>> converters, ResolvableType type,
+                                           Class<?> contextClass, MediaType media, boolean reading) {
+        Class<?> raw = type.resolve();
+        if (raw == null) return null;
+        for (HttpMessageConverter<?> converter : converters) {
+            boolean supported = reading ? canRead(converter, type, contextClass, media)
+                    : converter instanceof GenericHttpMessageConverter
+                    ? ((GenericHttpMessageConverter<?>) converter).canWrite(type.getType(), raw, media)
+                    : converter.canWrite(raw, media);
+            if (!supported) continue;
+            if (!(converter instanceof AbstractJackson2HttpMessageConverter)) return null;
+            AbstractJackson2HttpMessageConverter jackson = (AbstractJackson2HttpMessageConverter) converter;
+            Map<MediaType, ObjectMapper> mappings = jackson.getObjectMappersForType(raw);
+            if (mappings != null && !mappings.isEmpty()) {
+                for (Map.Entry<MediaType, ObjectMapper> mapping : mappings.entrySet()) {
+                    if (mapping.getKey().includes(media)) return mapping.getValue();
+                }
+                return null;
+            }
+            return jackson.getObjectMapper();
+        }
+        return null;
+    }
+
+    private static boolean jsonObjectType(ResolvableType type) {
+        while (Optional.class.equals(type.resolve())) type = type.getGeneric(0);
+        Class<?> raw = type.resolve();
+        return raw != null && !Object.class.equals(raw) && !Void.class.equals(raw) && !Void.TYPE.equals(raw)
+                && !BeanUtils.isSimpleProperty(raw) && !raw.isArray()
+                && !Iterable.class.isAssignableFrom(raw) && !assignableTo(raw, "org.springframework.core.io.Resource")
+                && !assignableTo(raw, "java.io.InputStream") && !assignableTo(raw, "java.io.Reader")
+                && !assignableTo(raw, "org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody")
+                && !assignableTo(raw, "org.springframework.web.servlet.mvc.method.annotation.ResponseBodyEmitter");
+    }
+
+    private static boolean supportsJsonWrite(List<HttpMessageConverter<?>> converters, ResolvableType type) {
+        Class<?> raw = type.resolve();
+        if (raw == null) return false;
+        for (HttpMessageConverter<?> converter : converters) {
+            if (converter instanceof GenericHttpMessageConverter) {
+                if (((GenericHttpMessageConverter<?>) converter).canWrite(type.getType(), raw, MediaType.APPLICATION_JSON)) return true;
+            } else if (!jsonArrayType(type) && converter.canWrite(raw, MediaType.APPLICATION_JSON)) {
+                return true;
+            }
+        }
+        return false;
     }
 
 
@@ -163,6 +327,8 @@ final class ReachSpringMvcEndpointScanner {
     private static ParameterFacts parameters(Method method, List<String> consumes) {
         List<ReachHttpApiParameter> parameters = new ArrayList<ReachHttpApiParameter>();
         ReachHttpApiRequestBody requestBody = null;
+        Map<String, Object> multipartProperties = new TreeMap<String, Object>();
+        List<String> multipartRequired = new ArrayList<String>();
         Parameter[] declared = method.getParameters();
         for (int index = 0; index < declared.length; index++) {
             Parameter parameter = declared[index];
@@ -171,10 +337,25 @@ final class ReachSpringMvcEndpointScanner {
             RequestHeader header = parameter.getAnnotation(RequestHeader.class);
             CookieValue cookie = parameter.getAnnotation(CookieValue.class);
             RequestBody body = parameter.getAnnotation(RequestBody.class);
-            int annotations = count(path, query, header, cookie, body);
+            ModelAttribute model = parameter.getAnnotation(ModelAttribute.class);
+            RequestPart part = parameter.getAnnotation(RequestPart.class);
+            int annotations = count(path, query, header, cookie, body, model, part);
             if (annotations == 0) {
-                throw new IllegalArgumentException("Cannot determine Spring MVC parameter binding location for "
-                        + method.toGenericString() + " parameter " + index);
+                if (frameworkArgument(parameter.getType())) continue;
+                if (HttpEntity.class.isAssignableFrom(parameter.getType())) {
+                    if (requestBody != null) throw new IllegalArgumentException("Spring MVC operation has multiple request bodies: " + method.toGenericString());
+                    requestBody = new ReachHttpApiRequestBody();
+                    requestBody.setRequired(false);
+                    requestBody.setSchema(schema(ResolvableType.forType(parameter.getParameterizedType()).as(HttpEntity.class).getGeneric(0)));
+                    requestBody.setContentTypes(consumes);
+                    continue;
+                }
+                if (!BeanUtils.isSimpleProperty(rawType(unwrapOptional(parameter.getParameterizedType())))
+                        && !multipartType(ResolvableType.forType(parameter.getParameterizedType()))) {
+                    modelParameters(parameters, ResolvableType.forType(parameter.getParameterizedType()), "",
+                            new LinkedHashSet<String>(), method, index);
+                    continue;
+                }
             }
             if (annotations > 1) {
                 throw new IllegalArgumentException("Spring MVC parameter has multiple binding annotations: "
@@ -191,6 +372,22 @@ final class ReachSpringMvcEndpointScanner {
                 requestBody.setContentTypes(consumes);
                 continue;
             }
+            if (model != null) {
+                modelParameters(parameters, ResolvableType.forType(parameter.getParameterizedType()), "",
+                        new LinkedHashSet<String>(), method, index);
+                continue;
+            }
+            if (part != null || multipartType(ResolvableType.forType(parameter.getParameterizedType()))) {
+                String name = part == null ? annotationName(query == null ? null : query.name(),
+                        query == null ? null : query.value(), parameter, index)
+                        : annotationName(part.name(), part.value(), parameter, index);
+                multipartProperties.put(name, multipartSchema(ResolvableType.forType(parameter.getParameterizedType())));
+                if (part != null ? required(part.required(), null, parameter.getParameterizedType())
+                        : query == null || required(query.required(), query.defaultValue(), parameter.getParameterizedType())) {
+                    multipartRequired.add(name);
+                }
+                continue;
+            }
             ReachHttpApiParameter item = new ReachHttpApiParameter();
             item.setSchema(schema(parameter.getParameterizedType()));
             if (path != null) {
@@ -205,14 +402,118 @@ final class ReachSpringMvcEndpointScanner {
                 item.setLocation("HEADER");
                 item.setName(annotationName(header.name(), header.value(), parameter, index));
                 item.setRequired(required(header.required(), header.defaultValue(), parameter.getParameterizedType()));
-            } else {
+            } else if (cookie != null) {
                 item.setLocation("COOKIE");
                 item.setName(annotationName(cookie.name(), cookie.value(), parameter, index));
                 item.setRequired(required(cookie.required(), cookie.defaultValue(), parameter.getParameterizedType()));
+            } else {
+                // RequestParamMethodArgumentResolver(useDefaultResolution=true) resolves simple
+                // unannotated arguments as optional request parameters, never as a JSON body.
+                item.setLocation("QUERY");
+                item.setName(annotationName(null, null, parameter, index));
+                item.setRequired(false);
             }
             parameters.add(item);
         }
+        if (!multipartProperties.isEmpty()) {
+            if (requestBody != null) throw new IllegalArgumentException("Cannot combine multipart and another request body: " + method.toGenericString());
+            Map<String, Object> bodySchema = new LinkedHashMap<String, Object>();
+            bodySchema.put("type", "object");
+            bodySchema.put("properties", multipartProperties);
+            if (!multipartRequired.isEmpty()) bodySchema.put("required", multipartRequired);
+            requestBody = new ReachHttpApiRequestBody();
+            requestBody.setRequired(!multipartRequired.isEmpty());
+            requestBody.setSchema(bodySchema);
+            requestBody.setContentTypes(consumes.isEmpty() ? Collections.singletonList("multipart/form-data") : consumes);
+        }
         return new ParameterFacts(parameters, requestBody);
+    }
+
+    /** Spring's default ModelAttribute binder writes JavaBean properties, not Jackson fields. */
+    private static void modelParameters(List<ReachHttpApiParameter> parameters, ResolvableType type,
+                                        String prefix, Set<String> visiting, Method method, int index) {
+        Class<?> raw = type.resolve();
+        if (raw == null || !projectObjectType(raw) || Map.class.isAssignableFrom(raw)
+                || Iterable.class.isAssignableFrom(raw) || raw.isArray() || visiting.size() >= 6
+                || !visiting.add(type.toString())) {
+            throw new IllegalArgumentException("Cannot represent recursive or dynamic Spring MVC ModelAttribute binding for "
+                    + method.toGenericString() + " parameter " + index + " property " + prefix);
+        }
+        try {
+            int before = parameters.size();
+            for (PropertyDescriptor property : BeanUtils.getPropertyDescriptors(raw)) {
+                Method setter = property.getWriteMethod();
+                if (setter == null) continue;
+                String name = prefix + property.getName();
+                ResolvableType value = ResolvableType.forMethodParameter(new MethodParameter(setter, 0), type);
+                Class<?> valueClass = value.resolve(Object.class);
+                if (BeanUtils.isSimpleProperty(valueClass)) {
+                    ReachHttpApiParameter item = new ReachHttpApiParameter();
+                    item.setLocation("QUERY");
+                    item.setName(name);
+                    // Bean construction/default values and optional validation are not an HTTP
+                    // required=true declaration. Preserve optional binding without inventing one.
+                    item.setRequired(false);
+                    item.setSchema(nonNullSchema(schema(value)));
+                    parameters.add(item);
+                } else {
+                    modelParameters(parameters, value, name + ".", visiting, method, index);
+                }
+            }
+            if (parameters.size() == before) {
+                throw new IllegalArgumentException("Cannot represent Spring MVC ModelAttribute with no writable properties for "
+                        + method.toGenericString() + " parameter " + index);
+            }
+        } finally {
+            visiting.remove(type.toString());
+        }
+    }
+
+    private static boolean frameworkArgument(Class<?> raw) {
+        for (String name : new String[]{"javax.servlet.ServletRequest", "javax.servlet.ServletResponse",
+                "javax.servlet.http.HttpSession", "javax.servlet.http.PushBuilder", "jakarta.servlet.ServletRequest",
+                "jakarta.servlet.ServletResponse", "jakarta.servlet.http.HttpSession", "jakarta.servlet.http.PushBuilder",
+                "org.springframework.web.context.request.WebRequest", "org.springframework.ui.Model",
+                "org.springframework.ui.ModelMap", "org.springframework.validation.Errors",
+                "org.springframework.web.bind.support.SessionStatus", "org.springframework.web.servlet.mvc.support.RedirectAttributes",
+                "org.springframework.web.util.UriComponentsBuilder", "java.security.Principal", "java.util.Locale",
+                "java.util.TimeZone", "java.time.ZoneId", "java.io.InputStream", "java.io.Reader",
+                "java.io.OutputStream", "java.io.Writer", "org.springframework.http.HttpMethod"}) {
+            if (assignableTo(raw, name)) return true;
+        }
+        return false;
+    }
+
+    private static boolean assignableTo(Class<?> raw, String name) {
+        if (raw == null) return false;
+        if (name.equals(raw.getName()) || assignableTo(raw.getSuperclass(), name)) return true;
+        for (Class<?> implemented : raw.getInterfaces()) if (assignableTo(implemented, name)) return true;
+        return false;
+    }
+
+    private static boolean multipartType(ResolvableType type) {
+        Class<?> raw = type.resolve(Object.class);
+        if (Optional.class.equals(raw)) return multipartType(type.getGeneric(0));
+        if (raw.isArray()) return multipartType(type.getComponentType());
+        if (Iterable.class.isAssignableFrom(raw)) return multipartType(type.as(Iterable.class).getGeneric(0));
+        return assignableTo(raw, "org.springframework.web.multipart.MultipartFile")
+                || assignableTo(raw, "javax.servlet.http.Part") || assignableTo(raw, "jakarta.servlet.http.Part");
+    }
+
+    private static Map<String, Object> multipartSchema(ResolvableType type) {
+        Class<?> raw = type.resolve(Object.class);
+        if (Optional.class.equals(raw)) return multipartSchema(type.getGeneric(0));
+        if (raw.isArray() || Iterable.class.isAssignableFrom(raw)) {
+            Map<String, Object> schema = new LinkedHashMap<String, Object>();
+            schema.put("type", "array");
+            schema.put("items", multipartSchema(raw.isArray() ? type.getComponentType() : type.as(Iterable.class).getGeneric(0)));
+            return schema;
+        }
+        if (!multipartType(type)) return nonNullSchema(schema(type));
+        Map<String, Object> schema = new LinkedHashMap<String, Object>();
+        schema.put("type", "string");
+        schema.put("format", "binary");
+        return schema;
     }
 
     private static int count(Object... values) {
@@ -335,7 +636,15 @@ final class ReachSpringMvcEndpointScanner {
             throw new IllegalArgumentException("Cannot represent unnamed Spring MVC map capture for "
                     + parameter.getDeclaringExecutable().toGenericString() + " parameter " + index);
         }
-        return firstText(name, value, parameter.isNamePresent() ? parameter.getName() : null, "arg" + index);
+        String actualName = parameter.isNamePresent() ? parameter.getName() : null;
+        if (actualName == null && parameter.getDeclaringExecutable() instanceof Method) {
+            String[] discovered = new DefaultParameterNameDiscoverer().getParameterNames((Method) parameter.getDeclaringExecutable());
+            if (discovered != null && index < discovered.length) actualName = discovered[index];
+        }
+        String resolved = firstText(name, value, actualName);
+        if (resolved == null) throw new IllegalArgumentException("Cannot determine Spring MVC parameter name; compile with -parameters or retain debug names for "
+                + parameter.getDeclaringExecutable().toGenericString() + " parameter " + index);
+        return resolved;
     }
 
     private static String combinePath(String left, String right) {
@@ -375,10 +684,15 @@ final class ReachSpringMvcEndpointScanner {
     }
 
     private static Map<String, Object> schema(ResolvableType type) {
-        return schema(type, new LinkedHashSet<String>(), 0);
+        return schema(type, new LinkedHashSet<String>(), 0, null, false);
     }
 
-    private static Map<String, Object> schema(ResolvableType type, Set<String> visiting, int depth) {
+    private static Map<String, Object> jsonSchema(ResolvableType type, ObjectMapper mapper) {
+        return schema(type, new LinkedHashSet<String>(), 0, mapper, true);
+    }
+
+    private static Map<String, Object> schema(ResolvableType type, Set<String> visiting, int depth,
+                                              ObjectMapper mapper, boolean json) {
         ResolvableType schemaType = type;
         while (Optional.class.equals(schemaType.resolve())) {
             schemaType = schemaType.getGeneric(0);
@@ -392,7 +706,9 @@ final class ReachSpringMvcEndpointScanner {
             return Collections.emptyMap();
         }
         Map<String, Object> result = new LinkedHashMap<String, Object>();
-        if (stringType(raw) || raw.isEnum()) {
+        if (raw.isEnum() && json) {
+            return jsonEnumSchema(raw, mapper);
+        } else if (stringType(raw) || raw.isEnum()) {
             result.put("type", "string");
         } else if (integerType(raw)) {
             result.put("type", "integer");
@@ -404,15 +720,36 @@ final class ReachSpringMvcEndpointScanner {
             result.put("type", "array");
             ResolvableType itemType = raw.isArray() ? schemaType.getComponentType()
                     : schemaType.as(Iterable.class).getGeneric(0);
-            result.put("items", nonNullSchema(schema(itemType, visiting, depth + 1)));
+            result.put("items", nonNullSchema(schema(itemType, visiting, depth + 1, mapper, json)));
         } else if (Map.class.isAssignableFrom(raw)) {
             result.put("type", "object");
-            result.put("additionalProperties", nonNullSchema(schema(schemaType.as(Map.class).getGeneric(1), visiting, depth + 1)));
+            result.put("additionalProperties", nonNullSchema(schema(schemaType.as(Map.class).getGeneric(1), visiting, depth + 1, mapper, json)));
         } else {
             result.put("type", "object");
-            addObjectProperties(result, schemaType, visiting, depth);
+            addObjectProperties(result, schemaType, visiting, depth, mapper, json);
         }
         return result;
+    }
+
+    /** JSON enum facts use the selected mapper; Spring path/query binding remains a string. */
+    private static Map<String, Object> jsonEnumSchema(Class<?> raw, ObjectMapper mapper) {
+        if (mapper == null) return Collections.emptyMap();
+        String shape = null;
+        try {
+            Object[] constants = raw.getEnumConstants();
+            if (constants == null || constants.length == 0 || constants.length > 256) return Collections.emptyMap();
+            for (Object constant : constants) {
+                JsonNode value = mapper.valueToTree(constant);
+                String kind = value.isBoolean() ? "boolean" : value.isTextual() ? "string"
+                        : value.isIntegralNumber() ? "integer" : value.isFloatingPointNumber() ? "number" : null;
+                if (kind == null || shape != null && !shape.equals(kind)) return Collections.emptyMap();
+                shape = kind;
+            }
+        } catch (RuntimeException unsupported) {
+            // Mixed, custom structured, failed or unknown encodings must not invent a scalar.
+            return Collections.emptyMap();
+        }
+        return Collections.<String, Object>singletonMap("type", shape);
     }
 
     private static boolean stringType(Class<?> raw) {
@@ -433,7 +770,7 @@ final class ReachSpringMvcEndpointScanner {
     private static void addObjectProperties(Map<String, Object> target,
                                             ResolvableType type,
                                             Set<String> visiting,
-                                            int depth) {
+                                            int depth, ObjectMapper mapper, boolean json) {
         Class<?> raw = type.resolve();
         if (depth >= 6 || !projectObjectType(raw)) {
             return;
@@ -454,7 +791,10 @@ final class ReachSpringMvcEndpointScanner {
                     }
                     String property = jsonName(field, field.getName());
                     if (!properties.containsKey(property)) {
-                        properties.put(property, nonNullSchema(schema(ResolvableType.forField(field, owner), visiting, depth + 1)));
+                        boolean customEnumField = json && field.getType().isEnum()
+                                && (hasAnnotation(field, "JsonSerialize") || hasAnnotation(field, "JsonFormat"));
+                        properties.put(property, customEnumField ? Collections.<String, Object>emptyMap()
+                                : nonNullSchema(schema(ResolvableType.forField(field, owner), visiting, depth + 1, mapper, json)));
                         if (required(field)) {
                             required.add(property);
                         }

@@ -657,6 +657,103 @@ class HttpApiCatalogAcceptancePersistenceTest {
                 operation.authenticationSchemes(), operation.requiredHeaderNames(), operation.sideEffect());
     }
 
+    @Test
+    void repeatedStarterInventoryChangesObservationIdsWithoutInvalidatingAcceptedSourceFacts() throws Exception {
+        var scope = new HttpApiServiceScope(41L, "orders", "dev");
+        var intake = revisionIntake();
+        var first = revisionObservation(scope, HttpApiSourceKind.STARTER_MVC, "mvc:Orders#read", "Orders#read", "sync-first", contract("READ_ONLY"));
+        tx.execute(status -> intake.observe(scope, HttpApiSourceKind.STARTER_MVC, true, true, List.of(first), null));
+        long id = assets.selectList(null).get(0).getId();
+        var before = catalog.detail(id);
+        String token = inventories.selectList(null).get(0).getInventoryToken();
+        tx.execute(status -> catalog.accept(id, before.summary().sourceSetRevision(), "actor-1"));
+        var replay = revisionObservation(scope, HttpApiSourceKind.STARTER_MVC, "mvc:Orders#read", "Orders#read", "sync-second", contract("READ_ONLY"));
+        tx.execute(status -> intake.observe(scope, HttpApiSourceKind.STARTER_MVC, true, true, List.of(replay), null));
+        var after = catalog.detail(id);
+        assertNotEquals(token, inventories.selectList(null).get(0).getInventoryToken(), "actual inventory UUID must rotate");
+        assertEquals("sync-second", bindings.selectList(null).get(0).getSourceRevision(), "observation receipt remains traceable");
+        assertEquals(before.summary().candidateContractHash(), after.summary().candidateContractHash());
+        assertEquals(before.summary().sourceSetRevision(), after.summary().sourceSetRevision(), "same source facts must survive a fresh SDK sync ID/token");
+        assertTrue(after.summary().sourceConfirmed());
+        assertEquals("ACCEPTED", after.summary().sourceStatus());
+        tx.execute(status -> catalog.accept(id, before.summary().sourceSetRevision(), "actor-1"));
+        assertEquals(1, count("capability_http_api_acceptance"), "observational replay cannot create duplicate acceptance");
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(value = HttpApiSourceKind.class, names = {"OPENAPI_SCAN", "CONTROLLER_SCAN"})
+    void unchangedScannerRevisionSurvivesInventoryRefreshButRealSourceRevisionStillInvalidates(HttpApiSourceKind kind) throws Exception {
+        var scope = new HttpApiServiceScope(41L, "orders", "dev");
+        var intake = revisionIntake();
+        var first = revisionObservation(scope, kind, "source:read", "contracts/read", "content-r1", contract("READ_ONLY"));
+        tx.execute(status -> intake.observe(scope, kind, true, true, List.of(first), null));
+        long id = assets.selectList(null).get(0).getId();
+        String before = catalog.detail(id).summary().sourceSetRevision();
+        tx.execute(status -> intake.observe(scope, kind, true, true, List.of(first), null));
+        assertEquals(before, catalog.detail(id).summary().sourceSetRevision());
+        var changed = revisionObservation(scope, kind, "source:read", "contracts/read", "content-r2", contract("READ_ONLY"));
+        tx.execute(status -> intake.observe(scope, kind, true, true, List.of(changed), null));
+        assertNotEquals(before, catalog.detail(id).summary().sourceSetRevision());
+        assertEquals("HTTP_API_SOURCE_REVISION_CHANGED", assertThrows(HttpApiCatalogService.Conflict.class,
+                () -> tx.execute(status -> catalog.accept(id, before, "actor-1"))).code());
+    }
+
+    @Test
+    void sameContractSourceIdentityAndMembershipChangesInvalidateTheOldPin() throws Exception {
+        var scope = new HttpApiServiceScope(41L, "orders", "dev");
+        var intake = revisionIntake();
+        var first = revisionObservation(scope, HttpApiSourceKind.STARTER_MVC, "mvc:read", "Orders#read", "sync-1", contract("READ_ONLY"));
+        tx.execute(status -> intake.observe(scope, HttpApiSourceKind.STARTER_MVC, true, true, List.of(first), null));
+        long id = assets.selectList(null).get(0).getId();
+        String before = catalog.detail(id).summary().sourceSetRevision();
+        var moved = revisionObservation(scope, HttpApiSourceKind.STARTER_MVC, "mvc:read", "OtherController#read", "sync-2", contract("READ_ONLY"));
+        tx.execute(status -> intake.observe(scope, HttpApiSourceKind.STARTER_MVC, true, true, List.of(moved), null));
+        String movedRevision = catalog.detail(id).summary().sourceSetRevision();
+        assertNotEquals(before, movedRevision, "source location is an identity fact even with the same contract");
+        var extra = revisionObservation(scope, HttpApiSourceKind.STARTER_MVC, "mvc:alias", "Alias#read", "sync-3", contract("READ_ONLY"));
+        tx.execute(status -> intake.observe(scope, HttpApiSourceKind.STARTER_MVC, true, true, List.of(moved, extra), null));
+        String added = catalog.detail(id).summary().sourceSetRevision();
+        assertNotEquals(movedRevision, added);
+        assertEquals(2, catalog.detail(id).summary().activeSourceCount());
+        assertEquals("HTTP_API_SOURCE_REVISION_CHANGED", assertThrows(HttpApiCatalogService.Conflict.class,
+                () -> tx.execute(status -> catalog.accept(id, movedRevision, "actor-1"))).code());
+        tx.execute(status -> intake.observe(scope, HttpApiSourceKind.STARTER_MVC, true, true, List.of(moved), null));
+        assertNotEquals(added, catalog.detail(id).summary().sourceSetRevision());
+        assertEquals(movedRevision, catalog.detail(id).summary().sourceSetRevision(), "restoring identical current semantic membership restores its fingerprint");
+    }
+
+    @Test
+    void confirmationTransitionsInvalidatePinsWhilePureFailureReceiptsDoNot() throws Exception {
+        var scope = new HttpApiServiceScope(41L, "orders", "dev");
+        var intake = revisionIntake();
+        var first = revisionObservation(scope, HttpApiSourceKind.STARTER_MVC, "mvc:read", "Orders#read", "sync-1", contract("READ_ONLY"));
+        tx.execute(status -> intake.observe(scope, HttpApiSourceKind.STARTER_MVC, true, true, List.of(first), null));
+        long id = assets.selectList(null).get(0).getId();
+        String confirmed = catalog.detail(id).summary().sourceSetRevision();
+        tx.execute(status -> intake.observe(scope, HttpApiSourceKind.STARTER_MVC, false, false, List.of(), "unavailable-first"));
+        var unconfirmed = catalog.detail(id);
+        assertFalse(unconfirmed.summary().sourceConfirmed());
+        assertNotEquals(confirmed, unconfirmed.summary().sourceSetRevision());
+        assertEquals("HTTP_API_SOURCE_REVISION_CHANGED", assertThrows(HttpApiCatalogService.Conflict.class,
+                () -> tx.execute(status -> catalog.accept(id, confirmed, "actor-1"))).code());
+        String failure = unconfirmed.summary().sourceSetRevision();
+        tx.execute(status -> intake.observe(scope, HttpApiSourceKind.STARTER_MVC, false, false, List.of(), "unavailable-second"));
+        assertEquals(failure, catalog.detail(id).summary().sourceSetRevision(), "another unknown receipt is not a semantic source change");
+        tx.execute(status -> intake.observe(scope, HttpApiSourceKind.STARTER_MVC, true, true, List.of(first), null));
+        assertTrue(catalog.detail(id).summary().sourceConfirmed());
+        assertNotEquals(failure, catalog.detail(id).summary().sourceSetRevision());
+        assertEquals(confirmed, catalog.detail(id).summary().sourceSetRevision(), "reconfirmation restores the same current facts, never bypasses failed membership");
+    }
+
+    private HttpApiInventoryIntakeService revisionIntake() {
+        return new HttpApiInventoryIntakeService(assetService, bindings, new HttpApiInventoryStateService(inventories, members));
+    }
+
+    private HttpApiAssetService.ObserveRequest revisionObservation(HttpApiServiceScope scope, HttpApiSourceKind kind,
+            String key, String location, String revision, HttpApiOperationContract contract) {
+        return new HttpApiAssetService.ObserveRequest(scope, kind, key, location, revision, contract);
+    }
+
     private HttpApiAssetService.Observation observe(HttpApiOperationContract contract, String revision) {
         return tx.execute(status -> assetService.observe(new HttpApiAssetService.ObserveRequest(
                 new HttpApiServiceScope(41L, "orders", "dev"), HttpApiSourceKind.OPENAPI_SCAN,

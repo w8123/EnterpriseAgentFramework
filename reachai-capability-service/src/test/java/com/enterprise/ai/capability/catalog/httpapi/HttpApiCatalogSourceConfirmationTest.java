@@ -36,6 +36,25 @@ class HttpApiCatalogSourceConfirmationTest {
         assertFalse(detail.sources().get(0).confirmedInLatestInventory());
     }
 
+    @Test
+    void semanticMarketRevisionAndOwnerFactsRemainPinnedWithoutHashingObservationTimes() throws Exception {
+        Fixture fixture = fixture(HttpApiSourceKind.STARTER_MVC.name(), "inventory-1", "inventory-1");
+        String before = fixture.catalog.detail(9L).summary().sourceSetRevision();
+        fixture.binding.setObservedAt(LocalDateTime.of(2030, 1, 1, 0, 0));
+        fixture.binding.setUpdatedAt(LocalDateTime.of(2030, 1, 1, 0, 0));
+        fixture.inventory.setObservedAt(LocalDateTime.of(2030, 1, 1, 0, 0));
+        fixture.member.setObservedAt(LocalDateTime.of(2030, 1, 1, 0, 0));
+        assertEquals(before, fixture.catalog.detail(9L).summary().sourceSetRevision());
+        fixture.asset.setProjectCode("other-owner");
+        assertNotEquals(before, fixture.catalog.detail(9L).summary().sourceSetRevision());
+        fixture.asset.setProjectCode("orders");
+        fixture.binding.setSourceKind(HttpApiSourceKind.API_MARKET_OPERATION.name());
+        fixture.binding.setSourceRevision("fixed-version-operation-selection-1");
+        String market = fixture.catalog.detail(9L).summary().sourceSetRevision();
+        fixture.binding.setSourceRevision("fixed-version-operation-selection-2");
+        assertNotEquals(market, fixture.catalog.detail(9L).summary().sourceSetRevision(), "market selection revision must remain a pin even before confirmation");
+    }
+
     private Fixture fixture(String kind, String inventoryToken, String memberToken) throws Exception {
         HttpApiAssetMapper assets = mock(HttpApiAssetMapper.class);
         HttpApiSourceBindingMapper bindings = mock(HttpApiSourceBindingMapper.class);
@@ -68,8 +87,10 @@ class HttpApiCatalogSourceConfirmationTest {
         when(members.selectList(any())).thenReturn(List.of(member));
         HttpApiCatalogService catalog = new HttpApiCatalogService(assets, bindings, inventories, members,
                 acceptances, projects, new ObjectMapper(), new HttpApiContractCanonicalizer(new ObjectMapper()));
-        return new Fixture(catalog);
+        return new Fixture(catalog, asset, binding, inventory, member);
     }
 
-    private record Fixture(HttpApiCatalogService catalog) { }
+    private record Fixture(HttpApiCatalogService catalog, HttpApiAssetEntity asset,
+                           HttpApiSourceBindingEntity binding, HttpApiInventoryStateEntity inventory,
+                           HttpApiInventoryMemberEntity member) { }
 }

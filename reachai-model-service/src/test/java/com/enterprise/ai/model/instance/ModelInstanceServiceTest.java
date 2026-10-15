@@ -2,6 +2,7 @@ package com.enterprise.ai.model.instance;
 
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
+import com.baomidou.mybatisplus.core.conditions.AbstractWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.enterprise.ai.common.exception.BizException;
 import com.enterprise.ai.model.security.CredentialCipher;
@@ -24,6 +25,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -52,6 +54,49 @@ class ModelInstanceServiceTest {
         service = new ModelInstanceService(mapper, templateService, objectMapper, cipher,
                 new ModelInstanceRuntimeCache(ModelInstanceRuntimeCache.DEFAULT_TTL_MS));
         when(mapper.selectCount(any())).thenReturn(0L);
+    }
+
+    @Test
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    void successfulRetestExplicitlyWritesNullErrorInOneScopedUpdate() {
+        ModelInstanceEntity entity = savedLlm("retest-1", "Retest");
+        entity.setLastTestStatus(ModelTestStatus.FAILED.name());
+        entity.setLastTestError("previous TLS failure");
+        when(mapper.selectById("retest-1")).thenReturn(entity);
+
+        service.updateTestResult("retest-1", true, 42, null);
+
+        ArgumentCaptor<Wrapper<ModelInstanceEntity>> update = ArgumentCaptor.forClass((Class) Wrapper.class);
+        verify(mapper).update(isNull(), update.capture());
+        AbstractWrapper<?, ?, ?> sql = (AbstractWrapper<?, ?, ?>) update.getValue();
+        assertTrue(sql.getSqlSet().contains("last_test_error="));
+        assertTrue(sql.getParamNameValuePairs().containsValue(null), "SQL must bind an explicit null, not omit the error field");
+        assertTrue(sql.getSqlSegment().contains("id ="));
+        assertTrue(sql.getParamNameValuePairs().containsValue("retest-1"));
+        assertTrue(sql.getParamNameValuePairs().containsValue(ModelTestStatus.SUCCESS.name()));
+        assertFalse(sql.getSqlSet().contains("default_options"));
+        assertNull(entity.getLastTestError());
+        verify(mapper, never()).updateById(any());
+    }
+
+    @Test
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    void failedRetestReplacesOldErrorWithSanitizedNewError() {
+        ModelInstanceEntity entity = savedLlm("retest-2", "Retest");
+        entity.setLastTestError("old failure");
+        when(mapper.selectById("retest-2")).thenReturn(entity);
+
+        service.updateTestResult("retest-2", false, 250, "new provider failure sk-abcdefgh123456");
+
+        ArgumentCaptor<Wrapper<ModelInstanceEntity>> update = ArgumentCaptor.forClass((Class) Wrapper.class);
+        verify(mapper).update(isNull(), update.capture());
+        AbstractWrapper<?, ?, ?> sql = (AbstractWrapper<?, ?, ?>) update.getValue();
+        assertTrue(sql.getSqlSet().contains("last_test_error="));
+        assertTrue(sql.getParamNameValuePairs().containsValue(entity.getLastTestError()));
+        assertTrue(entity.getLastTestError().contains("new provider failure"));
+        assertFalse(entity.getLastTestError().contains("sk-abcdefgh123456"));
+        assertTrue(sql.getParamNameValuePairs().containsValue(ModelTestStatus.FAILED.name()));
+        verify(mapper, never()).updateById(any());
     }
 
     @Test

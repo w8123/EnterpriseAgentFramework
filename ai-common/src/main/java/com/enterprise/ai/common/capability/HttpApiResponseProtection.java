@@ -17,12 +17,12 @@ public final class HttpApiResponseProtection {
     private HttpApiResponseProtection(List<String> secrets) { this.secrets = List.copyOf(secrets); }
 
     public static HttpApiResponseProtection prepare(JsonNode contract, Map<String, Object> path,
-                                                    Map<String, Object> query, Map<String, Object> body,
+                                                    Map<String, Object> query, Object body,
                                                     Map<String, Object> credential) {
         List<String> secrets = new ArrayList<>();
         collectInputSecrets(path, secrets, null);
         collectInputSecrets(query, secrets, null);
-        collectInputSecrets(body, secrets, contract.path("requestBody").path("schema").path("properties"));
+        collectBodySecrets(body, secrets, contract.path("requestBody").path("schema"));
         if (credential != null) for (String key : List.of("token", "apiKey", "password")) {
             Object value = credential.get(key);
             if (value instanceof String text && !text.isBlank()) secrets.add(text);
@@ -42,6 +42,27 @@ public final class HttpApiResponseProtection {
                 secrets.add(String.valueOf(value));
             }
         });
+    }
+
+    /** Capture nested and root-array input secrets under the accepted schema before dispatch. */
+    public static void collectBodySecrets(Object input, List<String> secrets, JsonNode schema) {
+        collectBodySecrets(input, secrets, schema, false);
+    }
+
+    private static void collectBodySecrets(Object input, List<String> secrets, JsonNode schema, boolean inherited) {
+        boolean declared = inherited || schema != null && ("password".equals(schema.path("format").asText())
+                || schema.path("writeOnly").asBoolean(false));
+        if (input instanceof Map<?, ?> map) {
+            map.forEach((key, value) -> {
+                String name = String.valueOf(key);
+                JsonNode field = schema == null ? null : schema.path("properties").get(name);
+                if (field == null && schema != null && schema.path("additionalProperties").isObject())
+                    field = schema.path("additionalProperties");
+                collectBodySecrets(value, secrets, field, declared || sensitive(name));
+            });
+        } else if (input instanceof Iterable<?> items) {
+            for (Object item : items) collectBodySecrets(item, secrets, schema == null ? null : schema.get("items"), declared);
+        } else if (declared && input != null && !String.valueOf(input).isBlank()) secrets.add(String.valueOf(input));
     }
 
     public static Object redact(Object value, List<String> secrets, String name) {

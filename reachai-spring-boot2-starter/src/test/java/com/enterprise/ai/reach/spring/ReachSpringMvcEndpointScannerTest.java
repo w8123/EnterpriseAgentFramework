@@ -182,11 +182,10 @@ class ReachSpringMvcEndpointScannerTest {
     }
 
     @Test
-    void rejectsUnannotatedParametersRatherThanGuessingBody() {
-        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
-                () -> ReachSpringMvcEndpointScanner.scanClass(AmbiguousController.class));
-
-        assertTrue(error.getMessage().contains("Cannot determine Spring MVC parameter binding location"));
+    void unannotatedSimpleParameterUsesSpringOptionalQueryBindingRatherThanGuessingBody() {
+        ReachHttpApiDescriptor operation = ReachSpringMvcEndpointScanner.scanClass(AmbiguousController.class).get(0);
+        assertParameter(operation.getParameters(), "unsafeGuess", "QUERY", false, "string");
+        assertEquals(null, operation.getRequestBody());
     }
 
     @Test

@@ -55,10 +55,16 @@ public class ReachAiHttpRegistryTransport implements ReachAiRegistryTransport {
     }
 
     public void setConnectTimeoutMs(int connectTimeoutMs) {
+        if (connectTimeoutMs < 1 || connectTimeoutMs > 30000) {
+            throw new IllegalArgumentException("ReachAI registry connect-timeout-ms must be between 1 and 30000");
+        }
         this.connectTimeoutMs = connectTimeoutMs;
     }
 
     public void setReadTimeoutMs(int readTimeoutMs) {
+        if (readTimeoutMs < 1 || readTimeoutMs > 240000) {
+            throw new IllegalArgumentException("ReachAI registry read-timeout-ms must be between 1 and 240000");
+        }
         this.readTimeoutMs = readTimeoutMs;
     }
 

@@ -123,7 +123,8 @@ public class RuntimeWorkflowHttpApiService implements RuntimeHttpApiToolExecutio
             if (key.startsWith("queryParams.")) query.put(key.substring(12), value);
             if (key.startsWith("body.")) body.put(key.substring(5), value);
         });
-        return HttpApiResponseProtection.prepare(current.owner().acceptedContract(), path, query, body,
+        Object completeBody = input != null && input.containsKey("body") ? input.get("body") : body;
+        return HttpApiResponseProtection.prepare(current.owner().acceptedContract(), path, query, completeBody,
                 current.credential() == null ? null : current.credential().secret());
     }
 
@@ -138,7 +139,7 @@ public class RuntimeWorkflowHttpApiService implements RuntimeHttpApiToolExecutio
             throw invalid("HTTP_API_PUBLISHED_PIN_INVALID");
         }
         Current current = checkedCurrent(row);
-        return "WRITE".equals(current.owner().acceptedContract().path("sideEffect").asText()) ? "WRITE" : null;
+        return HttpApiRequestPolicy.requiresWriteConfirmation(current.owner().acceptedContract().path("sideEffect").asText()) ? "WRITE" : null;
     }
 
     private Current checkedCurrent(RuntimeWorkflowHttpApiPinEntity row) {
@@ -214,19 +215,22 @@ public class RuntimeWorkflowHttpApiService implements RuntimeHttpApiToolExecutio
     private Invocation dispatch(Map<String, Object> input, WorkflowExecutionIdentity identity,
                                 Current current, String credentialRevision) {
         String sideEffect = current.owner().acceptedContract().path("sideEffect").asText();
-        boolean write = "WRITE".equals(sideEffect);
+        boolean write = HttpApiRequestPolicy.requiresWriteConfirmation(sideEffect);
         boolean attempted = false;
         try {
             Map<String, Object> path = new LinkedHashMap<>();
             Map<String, Object> query = new LinkedHashMap<>();
             Map<String, Object> body = new LinkedHashMap<>();
+            boolean wholeBody = input != null && input.containsKey("body");
             if (input != null) for (Map.Entry<String, Object> entry : input.entrySet()) {
                 String key = entry.getKey();
                 if (key != null && key.startsWith("pathParams.") && key.length() > "pathParams.".length()) {
                     path.put(key.substring("pathParams.".length()), entry.getValue());
                 } else if (key != null && key.startsWith("queryParams.") && key.length() > "queryParams.".length()) {
                     query.put(key.substring("queryParams.".length()), entry.getValue());
-                } else if (key != null && key.startsWith("body.") && key.length() > "body.".length()) {
+                } else if ("body".equals(key)) {
+                    // Complete JSON values preserve root arrays, scalars and nested DTOs.
+                } else if (key != null && key.startsWith("body.") && key.length() > "body.".length() && !wholeBody) {
                     body.put(key.substring("body.".length()), entry.getValue());
                 } else return new Invocation(false, "HTTP_API_WORKFLOW_INPUT_INVALID", null, null, key,
                         sideEffect, "NOT_DISPATCHED");
@@ -236,10 +240,10 @@ public class RuntimeWorkflowHttpApiService implements RuntimeHttpApiToolExecutio
                 var contract = current.owner().acceptedContract();
                 // A required object with no present optional fields is {}, not an absent body.
                 // Optional absence stays null; mapped nulls and required fields are still validated by bind.
-                boolean requiredObjectBody = "POST".equals(contract.path("identity").path("method").asText())
+                boolean requiredObjectBody = "object".equals(contract.path("requestBody").path("schema").path("type").asText())
                         && contract.path("requestBody").path("required").asBoolean(false);
                 bound = HttpApiRequestPolicy.bind(contract, path, query,
-                        body.isEmpty() && !requiredObjectBody ? null : body, json);
+                        wholeBody ? input.get("body") : body.isEmpty() && !requiredObjectBody ? null : body, json);
             } catch (RuntimeException invalidInput) {
                 return new Invocation(false, "HTTP_API_WORKFLOW_INPUT_INVALID", null, null,
                         invalidInputField(current.owner().acceptedContract(), invalidInput.getMessage()),
@@ -248,13 +252,14 @@ public class RuntimeWorkflowHttpApiService implements RuntimeHttpApiToolExecutio
             // This immutable value set survives a source/schema change while the response is in flight.
             var protection = HttpApiResponseProtection.prepare(current.owner().acceptedContract(), path, query,
                     bound.jsonBody(), current.credential() == null ? null : current.credential().secret());
-            String requestBody = encodeBody(bound.jsonBody());
+            String requestBody = encodeBody(bound.jsonBody(), bound.bodyContentType());
             attempted = true;
             WorkflowHttpClient.HttpExecutionResult response = http.execute(new WorkflowHttpClient.HttpExecutionRequest(
                     bound.method(), current.connection().origin() + bound.encodedRoute(), bound.queryParams(),
                     bound.jsonBody() == null ? Map.of("Accept", "application/json")
-                            : Map.of("Accept", "application/json", "Content-Type", "application/json"),
-                    bound.jsonBody() == null ? "NONE" : "JSON", requestBody,
+                            : Map.of("Accept", "application/json", "Content-Type", "text/plain".equals(bound.bodyContentType())
+                                    ? "text/plain;charset=UTF-8" : bound.bodyContentType()),
+                    bound.jsonBody() == null ? "NONE" : "text/plain".equals(bound.bodyContentType()) ? "TEXT" : "JSON", requestBody,
                     WorkflowHttpClient.DEFAULT_TIMEOUT_MS, current.connection().credentialRef(), identity,
                     credentialRevision, !write));
             Integer status = response.statusCode() > 0 ? response.statusCode() : null;
@@ -267,7 +272,7 @@ public class RuntimeWorkflowHttpApiService implements RuntimeHttpApiToolExecutio
                 return new Invocation(false, response.code(), null, status, null, sideEffect,
                         preDispatch ? "NOT_DISPATCHED" : "CONFIRMED");
             }
-            if (write && !(response.parsedBody() instanceof Map<?, ?>)) {
+            if (write && !HttpApiRequestPolicy.confirmsResponse(current.owner().acceptedContract(), response.parsedBody())) {
                 return new Invocation(false, "HTTP_API_WORKFLOW_RESULT_UNCONFIRMED", null, status, null,
                         sideEffect, "UNCONFIRMED");
             }
@@ -288,8 +293,9 @@ public class RuntimeWorkflowHttpApiService implements RuntimeHttpApiToolExecutio
                 "RUNTIME_HTTP_CREDENTIAL_TYPE_UNSUPPORTED").contains(code));
     }
 
-    private String encodeBody(Map<String, Object> body) {
+    private String encodeBody(Object body, String contentType) {
         if (body == null) return null;
+        if ("text/plain".equals(contentType)) return (String) body;
         try { return json.writeValueAsString(body); }
         catch (Exception invalid) { throw new IllegalArgumentException("HTTP_API_WORKFLOW_INPUT_INVALID", invalid); }
     }

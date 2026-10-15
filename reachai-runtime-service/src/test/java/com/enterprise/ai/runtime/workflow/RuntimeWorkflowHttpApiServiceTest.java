@@ -311,7 +311,7 @@ class RuntimeWorkflowHttpApiServiceTest {
         var pin = draftPin();
         var identity = WorkflowExecutionIdentity.fromAttestedStudioProjectTest(41L, "orders", "42");
         var input = Map.<String, Object>of("params", Map.of("orderId", "O-321"));
-        for (String declaration : List.of("WRITE", "UNKNOWN", "")) {
+        for (String declaration : List.of("WRITE", "IDEMPOTENT_WRITE", "IRREVERSIBLE", "UNKNOWN", "")) {
             sideEffect.set(declaration);
             assertThrows(IllegalArgumentException.class, this::draftPin);
             assertFalse(projection.withDraftScope(pin, () -> true, () -> executor.execute(graph, input, identity)).success());

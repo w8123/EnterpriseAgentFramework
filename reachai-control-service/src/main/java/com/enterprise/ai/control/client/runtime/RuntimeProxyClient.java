@@ -20,10 +20,6 @@ public interface RuntimeProxyClient {
     ResponseEntity<Object> runReadOnlyApiDraftTrial(@RequestHeader Map<String, String> headers,
                                                     @RequestBody byte[] exactBody);
 
-    @RequestMapping(method = RequestMethod.POST, path = "/internal/runtime/http-api-catalog-states", consumes = "application/json")
-    ResponseEntity<Object> readHttpApiCatalogStates(@RequestHeader Map<String, String> headers,
-                                                    @RequestBody byte[] exactBody);
-
     @RequestMapping(method = RequestMethod.POST, path = "/internal/runtime/http-api-connections", consumes = "application/json")
     ResponseEntity<Object> readHttpApiConnection(@RequestHeader Map<String, String> headers,
                                                  @RequestBody byte[] exactBody);

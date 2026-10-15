@@ -25,6 +25,7 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.URI;
 import java.net.http.HttpClient;
+import java.net.http.HttpTimeoutException;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
@@ -33,6 +34,11 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 @Slf4j
 @Component
@@ -47,12 +53,25 @@ public class OpenAiCompatibleRuntimeClient {
             .build();
 
     public ChatResponse chat(ModelInstanceRuntime runtime, ChatRequest request) {
+        return chat(runtime, request, REQUEST_TIMEOUT);
+    }
+
+    /** Complete non-streaming response budget, including body consumption on JDK 17. */
+    public ChatResponse chat(ModelInstanceRuntime runtime, ChatRequest request, Duration timeout) {
+        if (timeout == null || timeout.isZero() || timeout.isNegative() || timeout.compareTo(REQUEST_TIMEOUT) > 0) {
+            throw new IllegalArgumentException("Chat timeout must be positive and at most eight minutes");
+        }
         ObjectNode body = buildChatBody(runtime, request, false);
         HttpRequest httpRequest = requestBuilder(runtime, resolvePath(runtime, "chatPath", ModelApiUrl.DEFAULT_CHAT_PATH))
+                .timeout(timeout)
                 .POST(HttpRequest.BodyPublishers.ofString(toJson(body), StandardCharsets.UTF_8))
                 .build();
+        CompletableFuture<HttpResponse<String>> responseFuture = null;
         try {
-            HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            long deadlineNanos = System.nanoTime() + timeout.toNanos();
+            responseFuture = httpClient.sendAsync(httpRequest, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            // Keep the original cancellable exchange: orTimeout would complete it before cancel can act.
+            HttpResponse<String> response = responseFuture.get(Math.max(1L, deadlineNanos - System.nanoTime()), TimeUnit.NANOSECONDS);
             ensureSuccess(response.statusCode(), response.body(), runtime);
             JsonNode root = objectMapper.readTree(response.body());
             JsonNode choice = firstChoice(root);
@@ -66,11 +85,40 @@ public class OpenAiCompatibleRuntimeClient {
                     .toolCalls(message.get("tool_calls"))
                     .finishReason(choice.hasNonNull("finish_reason") ? choice.get("finish_reason").asText() : null)
                     .build();
+        } catch (TimeoutException e) {
+            responseFuture.cancel(true);
+            throw chatTimeout(timeout);
+        } catch (InterruptedException e) {
+            responseFuture.cancel(true);
+            Thread.currentThread().interrupt();
+            throw new BizException(502, "OpenAI-compatible model call interrupted");
+        } catch (ExecutionException e) {
+            responseFuture.cancel(true);
+            Throwable cause = e.getCause();
+            for (int depth = 0; depth < 8 && (cause instanceof CompletionException || cause instanceof ExecutionException)
+                    && cause.getCause() != null; depth++) {
+                cause = cause.getCause();
+            }
+            if (cause instanceof HttpTimeoutException) {
+                throw chatTimeout(timeout);
+            }
+            if (cause instanceof BizException failure) {
+                throw failure;
+            }
+            throw new BizException(502, "OpenAI-compatible model call failed: "
+                    + (cause == null ? "provider transport failure" : cause.getClass().getSimpleName()));
         } catch (BizException e) {
             throw e;
         } catch (Exception e) {
+            if (responseFuture != null) {
+                responseFuture.cancel(true);
+            }
             throw new BizException(502, "OpenAI-compatible model call failed: " + e.getMessage());
         }
+    }
+
+    private BizException chatTimeout(Duration timeout) {
+        return new BizException(504, "OpenAI-compatible model call timed out after " + timeout.toMillis() + " ms");
     }
 
     /**

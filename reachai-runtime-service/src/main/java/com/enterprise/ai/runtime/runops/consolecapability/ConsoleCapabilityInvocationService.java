@@ -21,6 +21,7 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
 
@@ -182,7 +183,7 @@ public class ConsoleCapabilityInvocationService {
 
     private Claim claim(ConsoleCapabilityInvocationContracts.InvocationCommand command) {
         try {
-            Claim result = transaction().execute(status -> claimInTransaction(command));
+            Claim result = claimTransaction().execute(status -> claimInTransaction(command));
             if (result == null) throw new IllegalStateException("Console invocation claim did not complete");
             return result;
         } catch (DuplicateKeyException duplicate) {
@@ -596,6 +597,12 @@ public class ConsoleCapabilityInvocationService {
     }
 
     private TransactionTemplate transaction() { return new TransactionTemplate(transactionManager); }
+    private TransactionTemplate claimTransaction() {
+        TransactionTemplate claim = transaction();
+        // Avoid RR next-key locks for an absent invocation UUID; uniqueness decides the winner.
+        claim.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+        return claim;
+    }
 
     private long elapsed(LocalDateTime start, LocalDateTime end) {
         return Math.max(0, ChronoUnit.MILLIS.between(start == null ? end : start, end));

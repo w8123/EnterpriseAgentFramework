@@ -217,7 +217,8 @@ final class RuntimeActionNodeHandlers {
         metadata.put("retryableFailure", false);
         if (invocation.sideEffect() != null) metadata.put("sideEffect", invocation.sideEffect());
         if (invocation.dispatchStage() != null) metadata.put("dispatchStage", invocation.dispatchStage());
-        if ("WRITE".equals(invocation.sideEffect())) metadata.put("nonRecoverableWrite", true);
+        if (com.enterprise.ai.common.capability.HttpApiRequestPolicy.requiresWriteConfirmation(invocation.sideEffect()))
+            metadata.put("nonRecoverableWrite", true);
         if ("UNCONFIRMED".equals(invocation.dispatchStage())) {
             metadata.put("outcomeClass", "UNKNOWN");
             metadata.put("businessOutcome", "UNCONFIRMED");

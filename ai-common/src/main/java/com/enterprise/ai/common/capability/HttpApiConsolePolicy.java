@@ -17,12 +17,12 @@ public final class HttpApiConsolePolicy {
     }
 
     public static BoundRequest bind(JsonNode contract, Map<String, Object> path, Map<String, Object> query,
-                                    Map<String, Object> body, ObjectMapper mapper) {
+                                    Object body, ObjectMapper mapper) {
         var request = HttpApiRequestPolicy.bind(contract, path, query, body, mapper);
         return new BoundRequest(request.method(), request.sideEffect(), request.encodedRoute(),
-                request.queryParams(), request.jsonBody());
+                request.queryParams(), request.jsonBody(), request.bodyContentType());
     }
 
     public record BoundRequest(String method, String sideEffect, String encodedRoute,
-                               Map<String, String> queryParams, Map<String, Object> jsonBody) { }
+                               Map<String, String> queryParams, Object jsonBody, String bodyContentType) { }
 }

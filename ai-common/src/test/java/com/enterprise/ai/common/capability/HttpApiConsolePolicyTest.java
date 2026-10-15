@@ -78,10 +78,10 @@ class HttpApiConsolePolicyTest {
     @Test void unsupportedDeclarationsAreNotSilentlyDropped() throws Exception {
         for (String method : java.util.List.of("PUT", "PATCH", "DELETE")) {
             var contract = contract(); ((ObjectNode) contract.path("identity")).put("method", method);
-            assertNotNull(HttpApiConsolePolicy.unsupportedReason(contract));
+            assertNull(HttpApiConsolePolicy.unsupportedReason(contract));
         }
         var contract = contract(); contract.put("sideEffect", "IRREVERSIBLE");
-        assertNotNull(HttpApiConsolePolicy.unsupportedReason(contract));
+        assertNull(HttpApiConsolePolicy.unsupportedReason(contract));
         for (String key : java.util.List.of("pattern", "allOf", "items")) {
             contract = contract(); ((ObjectNode) contract.at("/requestBody/schema/properties/note")).put(key, "unsupported");
             assertNotNull(HttpApiConsolePolicy.unsupportedReason(contract));
@@ -89,6 +89,8 @@ class HttpApiConsolePolicyTest {
         contract = contract(); ((ObjectNode) contract.at("/requestBody/schema/properties/note")).put("type", "object");
         assertNotNull(HttpApiConsolePolicy.unsupportedReason(contract));
         contract = contract(); ((ObjectNode) contract.at("/requestBody/schema/properties")).putObject("nested.name").put("type", "string");
-        assertNotNull(HttpApiRequestPolicy.unsupportedReason(contract), "body mapping has exactly one flat field segment");
+        assertNull(HttpApiRequestPolicy.unsupportedReason(contract), "JSON property names are literal; dots never expand into guessed nested fields");
+        assertEquals(Map.of("note", "one", "nested.name", "literal"), HttpApiConsolePolicy.bind(contract,
+                Map.of("id", "1"), Map.of(), Map.of("note", "one", "nested.name", "literal"), json).jsonBody());
     }
 }

@@ -42,9 +42,11 @@ class ConsoleCapabilityInvocationPersistenceTest {
     private RuntimeCapabilityCatalogClient capabilities;
     private ConsoleCapabilityInvocationService service;
     private ConsoleCapabilityInvocationMapper invocations;
+    private final List<Integer> transactionIsolation = new java.util.concurrent.CopyOnWriteArrayList<>();
 
     @BeforeEach
     void setUp() throws Exception {
+        transactionIsolation.clear();
         database = new RuntimeQueryTestDatabase(List.of(
                 "runtime_run", "runtime_trace_span", "runtime_console_capability_invocation"),
                 RuntimeRunMapper.class, RuntimeTraceSpanMapper.class, ConsoleCapabilityInvocationMapper.class);
@@ -56,12 +58,52 @@ class ConsoleCapabilityInvocationPersistenceTest {
                 new RuntimeTraceRootService(database.mapper(RuntimeTraceSpanMapper.class), json),
                 capabilities,
                 json,
-                new DataSourceTransactionManager(database.jdbc().getDataSource()));
+                new DataSourceTransactionManager(database.jdbc().getDataSource()) {
+                    @Override protected void doBegin(Object transaction, org.springframework.transaction.TransactionDefinition definition) {
+                        transactionIsolation.add(definition.getIsolationLevel()); super.doBegin(transaction, definition);
+                    }
+                });
     }
 
     @AfterEach
     void close() {
         if (database != null) database.close();
+    }
+
+    @Test
+    void onlyTheNewInvocationClaimSelectsReadCommittedInsteadOfDatabaseDefault() {
+        String id = UUID.randomUUID().toString();
+        when(capabilities.invokeTool(any(), anyMap())).thenReturn(success(id, Map.of("ok", true)));
+        assertEquals("SUCCEEDED", service.invoke(command(id, Map.of())).status());
+        assertEquals(org.springframework.transaction.TransactionDefinition.ISOLATION_READ_COMMITTED, transactionIsolation.get(0));
+        assertTrue(transactionIsolation.size() >= 3);
+        assertTrue(transactionIsolation.subList(1, transactionIsolation.size()).stream().allMatch(level ->
+                level == org.springframework.transaction.TransactionDefinition.ISOLATION_DEFAULT));
+    }
+
+    @Test
+    void simultaneousDifferentIdsEachKeepOneDispatchAndCompleteRunTraceRoots() throws Exception {
+        var reachedDispatch = new CountDownLatch(2);
+        var calls = new AtomicInteger();
+        when(capabilities.invokeTool(any(), anyMap())).thenAnswer(call -> {
+            calls.incrementAndGet(); reachedDispatch.countDown(); assertTrue(reachedDispatch.await(5, TimeUnit.SECONDS));
+            return success(((Map<?, ?>) call.getArgument(1)).get("invocationId").toString(), Map.of("ok", true));
+        });
+        var first = command(UUID.randomUUID().toString(), Map.of("fixture", "one"));
+        var second = command(UUID.randomUUID().toString(), Map.of("fixture", "two"));
+        var pool = Executors.newFixedThreadPool(2);
+        try {
+            var one = pool.submit(() -> service.invoke(first)); var two = pool.submit(() -> service.invoke(second));
+            assertEquals("SUCCEEDED", one.get(10, TimeUnit.SECONDS).status());
+            assertEquals("SUCCEEDED", two.get(10, TimeUnit.SECONDS).status());
+        } finally { pool.shutdownNow(); }
+        assertEquals(2, calls.get());
+        assertEquals(2, transactionIsolation.stream().filter(level -> level == org.springframework.transaction.TransactionDefinition.ISOLATION_READ_COMMITTED).count());
+        assertEquals("SUCCEEDED", service.invoke(first).status()); assertEquals("SUCCEEDED", service.invoke(second).status());
+        assertEquals(2, calls.get());
+        assertEquals(2, database.jdbc().queryForObject("SELECT COUNT(*) FROM runtime_console_capability_invocation", Integer.class));
+        assertEquals(2, database.jdbc().queryForObject("SELECT COUNT(*) FROM runtime_run WHERE status='COMPLETED'", Integer.class));
+        assertEquals(2, database.jdbc().queryForObject("SELECT COUNT(*) FROM runtime_trace_span WHERE status='SUCCESS'", Integer.class));
     }
 
     @Test

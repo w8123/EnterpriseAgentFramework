@@ -1,6 +1,9 @@
 export type HttpApiSourceStatus = 'DISCOVERED' | 'ACCEPTED' | 'CONTRACT_DRIFT'
   | 'CONFLICT' | 'SOURCE_MISSING' | 'SOURCE_UNCONFIRMED'
 
+export type HttpApiJsonValue = null | string | number | boolean | HttpApiJsonValue[]
+  | { [key: string]: HttpApiJsonValue }
+
 export interface HttpApiSummary {
   id: number
   qualifiedName: string
@@ -19,11 +22,6 @@ export interface HttpApiSummary {
   sourceKinds: string[]
   acceptedBy: string | null
   acceptedAt: string | null
-  /** Runtime-owned display hints; never a grant to invoke this API. */
-  connectionStatus?: 'SAVED' | 'UNCONFIGURED' | 'UNAVAILABLE'
-  latestInvocationStatus?: string | null
-  latestHttpStatus?: number | null
-  latestInvocationAt?: string | null
 }
 
 export interface HttpApiParameter {
@@ -89,6 +87,8 @@ export interface HttpApiConnection {
   credentialRevision: string | null
   revision: number | null
   status: 'UNCONFIGURED' | 'CONFIGURED' | 'BLOCKED'
+  /** Runtime owner fact: an invalid saved origin/credential may be corrected without permitting invocation. */
+  configurationAllowed?: boolean
   blockingReason: string | null
   previewUrl: string | null
   verification?: HttpApiMarketVerification | null

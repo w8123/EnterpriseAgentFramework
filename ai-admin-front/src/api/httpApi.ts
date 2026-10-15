@@ -1,7 +1,7 @@
 import { controlRequest } from './request'
 import type { AssetReferences } from '@/types/assetReferences'
 import type { HttpApiConnection, HttpApiDetail, HttpApiInvocationOutcome,
-  HttpApiInvocationUnconfirmed, HttpApiPage } from '@/types/httpApi'
+  HttpApiInvocationUnconfirmed, HttpApiJsonValue, HttpApiPage } from '@/types/httpApi'
 
 export function listHttpApis(params: { projectId: number; environment?: string; keyword?: string;
   method?: string; sourceStatus?: string; groupId?: number; ungrouped?: boolean; current: number; size: number }) {
@@ -31,7 +31,7 @@ export function saveHttpApiConnection(id: number, body: { origin: string; authMo
 
 export function invokeHttpApi(id: number, body: { invocationId: string; expectedContractHash: string;
   connectionRevision: number; pathParams: Record<string, unknown>; queryParams: Record<string, unknown>;
-  body?: Record<string, unknown>; confirmedSideEffect?: boolean; expectedSourceSetRevision?: string;
+  body?: HttpApiJsonValue; confirmedSideEffect?: boolean; expectedSourceSetRevision?: string;
   expectedCredentialRevision?: string | null }) {
   return controlRequest.post<HttpApiInvocationOutcome | HttpApiInvocationUnconfirmed>(
     `/api/apis/${id}/invocations`, body, { errorFeedback: 'local' })

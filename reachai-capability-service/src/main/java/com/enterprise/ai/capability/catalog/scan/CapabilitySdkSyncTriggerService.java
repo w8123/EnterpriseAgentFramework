@@ -10,6 +10,8 @@ import com.enterprise.ai.agent.registry.RegistrySecurityService;
 import com.enterprise.ai.reach.sdk.auth.ReachAiSignatureHeaders;
 import com.enterprise.ai.reach.sdk.auth.ReachAiSigner;
 import com.enterprise.ai.reach.sdk.client.ReachAiClientConfig;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.http.HttpEntity;
@@ -26,10 +28,12 @@ import org.springframework.web.client.ResourceAccessException;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.time.Duration;
 
 @Service
 @RequiredArgsConstructor
 public class CapabilitySdkSyncTriggerService {
+    private static final ObjectMapper RESPONSE_JSON = new ObjectMapper();
 
     private final ScanProjectMapper scanProjectMapper;
     private final ProjectInstanceMapper instanceMapper;
@@ -57,18 +61,22 @@ public class CapabilitySdkSyncTriggerService {
         HttpEntity<Map<String, Object>> request = new HttpEntity<>(requestBody,
                 signedHeaders(project, credential, targetUrl));
         try {
-            RestTemplate restTemplate = restTemplateBuilder.build();
+            // SDK intake can commit a large inventory after its original 60 second lease expires.
+            // This callback lease encloses the documented 120s SDK lease; Control retains 135s.
+            RestTemplate restTemplate = restTemplateBuilder.connectTimeout(Duration.ofSeconds(5))
+                    .readTimeout(Duration.ofSeconds(125)).build();
             @SuppressWarnings("unchecked")
             ResponseEntity<Map> response = restTemplate.exchange(targetUrl, HttpMethod.POST, request, Map.class);
             Map<String, Object> body = response.getBody() == null
                     ? Map.of()
                     : new LinkedHashMap<>((Map<String, Object>) response.getBody());
+            Map<String, Object> verified = verifiedResponse(body, project, instance, targetUrl);
             return new SdkSyncTriggerResponse(
                     project.getId(),
                     project.getProjectCode(),
                     instance.getInstanceId(),
                     targetUrl,
-                    intValue(body.get("capabilityCount")),
+                    intValue(verified.get("capabilityCount")),
                     body);
         } catch (RestClientResponseException ex) {
             throw downstreamHttpFailure(targetUrl, ex);
@@ -87,6 +95,65 @@ public class CapabilitySdkSyncTriggerService {
                     "ReachAI 调用业务系统同步接口失败 " + targetUrl + "：" + ex.getMessage(),
                     ex);
         }
+    }
+
+    /** HTTP 200 alone cannot prove that the business callback reached the Starter and Registry. */
+    private Map<String, Object> verifiedResponse(Map<String, Object> body, ScanProjectEntity project,
+                                                  ProjectInstanceEntity instance, String targetUrl) {
+        JsonNode root = RESPONSE_JSON.valueToTree(body);
+        if (explicitFailure(root)) {
+            throw syncRequestFailure("SDK_SYNC_BUSINESS_FAILED", targetUrl,
+                    "业务系统返回同步失败；尚不能确认本次同步回执。请核对业务服务日志与来源记录，超时不代表平台已回滚。", null);
+        }
+        JsonNode nativeResponse = root.path("success").asBoolean(false) && root.path("data").isObject()
+                ? root.path("data") : root;
+        if (!nativeResponse.isObject() || explicitFailure(nativeResponse)
+                || !instance.getInstanceId().equals(nativeResponse.path("instanceId").asText())
+                || !nonNegativeCount(nativeResponse.get("capabilityCount"))
+                || nativeResponse.has("httpApiCount") && !nonNegativeCount(nativeResponse.get("httpApiCount"))
+                || !nativeResponse.path("registryResponse").isTextual()) throw invalidResponse(targetUrl);
+        JsonNode receipt;
+        try {
+            receipt = RESPONSE_JSON.readTree(nativeResponse.path("registryResponse").asText());
+        } catch (Exception invalidJson) {
+            // Do not retain the parser exception: its source excerpt could contain business data.
+            throw invalidResponse(targetUrl);
+        }
+        int methods = nativeResponse.path("capabilityCount").intValue();
+        int httpApis = nativeResponse.path("httpApiCount").asInt(0);
+        if (receipt == null || !receipt.isObject() || explicitFailure(receipt)
+                || !StringUtils.hasText(receipt.path("syncId").asText())
+                || !receipt.path("projectId").isIntegralNumber()
+                || receipt.path("projectId").longValue() != project.getId()
+                || !project.getProjectCode().equals(receipt.path("projectCode").asText())
+                || !nonNegativeCount(receipt.get("received")) || receipt.path("received").intValue() != methods) {
+            throw invalidResponse(targetUrl);
+        }
+        if (httpApis > 0 && (!receipt.path("httpApis").path("supported").asBoolean(false)
+                || !nonNegativeCount(receipt.path("httpApis").get("received"))
+                || !nonNegativeCount(receipt.path("httpApis").get("observed"))
+                || receipt.path("httpApis").path("received").intValue() != httpApis
+                || receipt.path("httpApis").path("observed").intValue() != httpApis)) throw invalidResponse(targetUrl);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> verified = RESPONSE_JSON.convertValue(nativeResponse, Map.class);
+        return verified;
+    }
+
+    private boolean nonNegativeCount(JsonNode value) {
+        return value != null && value.isIntegralNumber() && value.canConvertToInt() && value.intValue() >= 0;
+    }
+
+    private boolean explicitFailure(JsonNode value) {
+        if (value.path("success").isBoolean() && !value.path("success").booleanValue()) return true;
+        if (value.hasNonNull("errorCode") && !"0".equals(value.path("errorCode").asText())) return true;
+        if (!value.hasNonNull("code")) return false;
+        String code = value.path("code").asText();
+        return !"0".equals(code) && !"200".equals(code);
+    }
+
+    private SdkSyncRequestException invalidResponse(String targetUrl) {
+        return syncRequestFailure("SDK_SYNC_RESPONSE_INVALID", targetUrl,
+                "业务系统未返回可验证的 Starter 同步回执，或项目、实例、接口数量不一致；请检查业务服务日志与来源记录。", null);
     }
 
     private SdkSyncRequestException downstreamHttpFailure(String targetUrl,

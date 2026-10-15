@@ -35,7 +35,7 @@ const api = (projectId = 7, routeTemplate = '/orders'): HttpApiSummary => ({ id:
   projectCode: `project-${projectId}`, environment: 'dev', qualifiedName: `project-${projectId}:GET:${routeTemplate}`,
   httpMethod: 'GET', routeTemplate, sourceStatus: 'ACCEPTED', sourceConfirmed: true, sourceReason: null,
   candidateContractHash: null, acceptedContractHash: 'accepted', sourceSetRevision: 'source', activeSourceCount: 1,
-  sourceKinds: ['OPENAPI_SCAN'], acceptedBy: 'reader', acceptedAt: null, connectionStatus: 'UNCONFIGURED' })
+  sourceKinds: ['OPENAPI_SCAN'], acceptedBy: 'reader', acceptedAt: null })
 const page = (records: HttpApiSummary[] = []) => ({ data: { records, total: records.length, current: 1, size: 20, pages: 1 } })
 const group = (id: number, displayName: string, memberCount: number) => ({
   id, projectId: 7, name: `group-${id}`, displayName, sourceClasses: [], memberCount,
@@ -150,6 +150,8 @@ describe('HTTP API catalog ownership and URL state', () => {
     }
     assertFlat()
     expect(wrapper.findAll('.api-table .el-table__header th').map(item => item.text())).toContain('业务分类')
+    expect(wrapper.findAll('.api-table .el-table__header th').map(item => item.text())).not.toContain('连接 / 试调用')
+    expect(wrapper.get('.api-compact-summary').findAll('dt').map(item => item.text())).toEqual(['来源'])
     expect(wrapper.findAllComponents(ElSelect).filter(select => select.element.closest('.business-capability-filter')).map(select => select.props('ariaLabel')))
       .toEqual(['业务分类筛选，数量为项目全量', '环境筛选', 'HTTP 方法筛选', '来源状态筛选'])
     expect(filterSelect(wrapper, '业务分类筛选').findAllComponents({ name: 'ElOption' }).map(option => option.props('label')))
@@ -210,7 +212,9 @@ describe('HTTP API catalog ownership and URL state', () => {
     mocks.auth.principal.permissionGrants = []; await flushPromises()
     expect(wrapper.find('button[aria-label="归类/orders"]').exists()).toBe(false)
     const restoredHeaders = wrapper.findAll('.api-table .el-table__header th').map(item => item.text())
-    for (const label of ['环境', '来源与接纳', '连接 / 试调用', '下一步']) expect(restoredHeaders).toContain(label)
+    for (const label of ['环境', '来源与接纳']) expect(restoredHeaders).toContain(label)
+    expect(restoredHeaders).not.toContain('连接 / 试调用')
+    expect(restoredHeaders).not.toContain('下一步')
     expect(wrapper.find('a.api-identity').exists()).toBe(true)
   })
 

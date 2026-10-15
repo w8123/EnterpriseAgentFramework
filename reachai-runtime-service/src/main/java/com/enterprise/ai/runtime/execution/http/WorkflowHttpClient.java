@@ -396,7 +396,7 @@ public class WorkflowHttpClient {
 
     private byte[] encodeBody(String bodyType, String body) {
         String type = bodyType == null ? "none" : bodyType.trim().toLowerCase(Locale.ROOT);
-        if ("none".equals(type) || !StringUtils.hasText(body)) {
+        if ("none".equals(type) || body == null) {
             return null;
         }
         return body.getBytes(StandardCharsets.UTF_8);

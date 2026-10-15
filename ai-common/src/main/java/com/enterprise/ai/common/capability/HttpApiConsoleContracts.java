@@ -3,7 +3,6 @@ package com.enterprise.ai.common.capability;
 import com.fasterxml.jackson.databind.JsonNode;
 
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -50,7 +49,16 @@ public final class HttpApiConsoleContracts {
                                  String environment, String origin, String authMode,
                                  String credentialRef, String credentialName, String credentialRevision, Long revision,
                                  String status, String blockingReason, String previewUrl,
-                                 MarketVerificationView verification) {
+                                 MarketVerificationView verification, boolean configurationAllowed) {
+        /** Source-compatible constructor for existing integrations; Runtime returns explicit owner facts. */
+        public ConnectionView(String qualifiedName, Long projectId, String projectCode, String environment,
+                              String origin, String authMode, String credentialRef, String credentialName,
+                              String credentialRevision, Long revision, String status, String blockingReason,
+                              String previewUrl, MarketVerificationView verification) {
+            this(qualifiedName, projectId, projectCode, environment, origin, authMode, credentialRef,
+                    credentialName, credentialRevision, revision, status, blockingReason, previewUrl, verification,
+                    "CONFIGURED".equals(status) || "UNCONFIGURED".equals(status));
+        }
         public ConnectionView(String qualifiedName, Long projectId, String projectCode, String environment,
                               String origin, String authMode, String credentialRef, String credentialName,
                               String credentialRevision, Long revision, String status, String blockingReason,
@@ -69,17 +77,9 @@ public final class HttpApiConsoleContracts {
                                     Long projectId, String projectCode, String environment,
                                     ConnectionSaveRequest save) { }
 
-    /** Actor-scoped, display-only state for one already authorized catalog page. */
-    public record CatalogStatesRequest(int contractVersion, Long projectId, String projectCode,
-                                       List<String> qualifiedNames) { }
-
-    public record CatalogState(String qualifiedName, String connectionStatus,
-                               String latestInvocationStatus, Integer latestHttpStatus,
-                               String latestInvocationAt) { }
-
     public record PublicInvocationRequest(String invocationId, String expectedContractHash,
                                           Long connectionRevision, Map<String, Object> pathParams,
-                                          Map<String, Object> queryParams, Map<String, Object> body,
+                                          Map<String, Object> queryParams, Object body,
                                           boolean confirmedSideEffect, String expectedSourceSetRevision,
                                           String expectedCredentialRevision) {
         public static PublicInvocationRequest fromWire(Map<String, Object> wire) {
@@ -109,7 +109,7 @@ public final class HttpApiConsoleContracts {
             if (wire.get("expectedCredentialRevision") != null && (credentialRevision == null
                     || !credentialRevision.matches("[a-f0-9]{64}"))) throw new IllegalArgumentException("invalid credential revision");
             return new PublicInvocationRequest(id, hash, number.longValue(), values(wire.get("pathParams")),
-                    values(wire.get("queryParams")), wire.get("body") == null ? null : values(wire.get("body")),
+                    values(wire.get("queryParams")), wire.get("body") == null ? null : HttpApiJsonBinding.copyWire(wire.get("body"), new com.fasterxml.jackson.databind.ObjectMapper()),
                     Boolean.TRUE.equals(wire.get("confirmedSideEffect")), sourceRevision, credentialRevision);
         }
     }
@@ -119,7 +119,7 @@ public final class HttpApiConsoleContracts {
                                     String environment, String expectedContractHash,
                                     String expectedSourceSetRevision, Long connectionRevision,
                                     Map<String, Object> pathParams, Map<String, Object> queryParams,
-                                    long deadlineEpochMs, Map<String, Object> body, boolean confirmedSideEffect,
+                                    long deadlineEpochMs, Object body, boolean confirmedSideEffect,
                                     String expectedCredentialRevision) {
         public InvocationCommand(int contractVersion, String invocationId, String platformActorId,
                                  Long apiId, String qualifiedName, Long projectId, String projectCode,

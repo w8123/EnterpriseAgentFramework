@@ -26,8 +26,11 @@ public class ReachAiRegistryAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public ReachAiRegistryTransport reachAiRegistryTransport() {
-        return new ReachAiHttpRegistryTransport();
+    public ReachAiRegistryTransport reachAiRegistryTransport(ReachAiRegistryProperties properties) {
+        ReachAiHttpRegistryTransport transport = new ReachAiHttpRegistryTransport();
+        transport.setConnectTimeoutMs(properties.getRegistry().getConnectTimeoutMs());
+        transport.setReadTimeoutMs(properties.getRegistry().getReadTimeoutMs());
+        return transport;
     }
 
     @Bean

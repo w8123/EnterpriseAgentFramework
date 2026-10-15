@@ -300,7 +300,14 @@ public class HttpApiCatalogService {
         List<SourceView> sources = new ArrayList<>();
         List<HttpApiSourceBindingEntity> active = new ArrayList<>();
         Set<String> hashes = new LinkedHashSet<>();
-        StringBuilder revisionMaterial = new StringBuilder(asset.getQualifiedName());
+        // A source pin describes current semantic facts, not the UUID of the latest observation.
+        // Structured hash material also avoids ambiguity in source keys containing ':' or '|'.
+        var revisionMaterial = json.createObjectNode().put("format", "http-source-facts-v2")
+                .put("assetId", asset.getId()).put("projectId", asset.getProjectId())
+                .put("projectCode", asset.getProjectCode()).put("environment", asset.getEnvironment())
+                .put("qualifiedName", asset.getQualifiedName()).put("identityHash", asset.getIdentityHash())
+                .put("httpMethod", asset.getHttpMethod()).put("routeTemplate", asset.getRouteTemplate());
+        var revisionSources = revisionMaterial.putArray("activeSources");
         String reason = null;
         for (HttpApiSourceBindingEntity binding : sourceRows) {
             if (HttpApiSourceBindingStatus.REMOVED.name().equals(binding.getStatus())) {
@@ -330,11 +337,14 @@ public class HttpApiCatalogService {
             }
             if (reason == null && sourceReason != null) reason = sourceReason;
             sources.add(source(binding, confirmed, sourceReason, inventory, member));
-            revisionMaterial.append('|').append(binding.getId()).append(':').append(binding.getSourceKind())
-                    .append(':').append(binding.getSourceKey()).append(':').append(binding.getSourceContractHash())
-                    .append(':').append(binding.getSourceRevision()).append(':')
-                    .append(inventory == null ? "" : inventory.getInventoryToken()).append(':')
-                    .append(member == null ? "" : member.getInventoryToken());
+            revisionSources.addObject().put("bindingId", binding.getId()).put("assetId", binding.getAssetId())
+                    .put("projectId", binding.getProjectId()).put("projectCode", binding.getProjectCode())
+                    .put("environment", binding.getEnvironment()).put("sourceKind", binding.getSourceKind())
+                    .put("sourceKey", binding.getSourceKey()).put("sourceLocation", binding.getSourceLocation())
+                    .put("contractHash", binding.getSourceContractHash()).put("confirmed", confirmed)
+                    // Starter's revision is syncId. Market/scanner revisions protect real owner content/selection.
+                    .put("sourceRevision", HttpApiSourceKind.STARTER_MVC.name().equals(binding.getSourceKind())
+                            ? null : binding.getSourceRevision());
         }
         boolean comparable = !active.isEmpty() && hashes.size() == 1;
         if (active.isEmpty()) reason = "当前没有活动来源，请重新扫描或同步";

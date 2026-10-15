@@ -37,6 +37,10 @@ public final class HttpApiFirstCallPolicy {
 
     // Shared bounded route/parameter/response/auth validation, without an execution-scope grant.
     static String requestShapeReason(JsonNode contract) {
+        return requestShapeReason(contract, false);
+    }
+
+    static String requestShapeReason(JsonNode contract, boolean allowArrayResponse) {
         JsonNode identity = contract.path("identity");
         String route = identity.path("routeTemplate").asText();
         if (!route.startsWith("/") || route.startsWith("//") || route.contains("?") || route.contains("#")
@@ -76,12 +80,14 @@ public final class HttpApiFirstCallPolicy {
         }
         boolean jsonObject = false;
         for (JsonNode response : contract.path("responses")) {
-            if (!"object".equals(response.path("schema").path("type").asText())) continue;
+            String responseType = response.path("schema").path("type").asText();
+            if (!"object".equals(responseType) && !(allowArrayResponse && "array".equals(responseType)
+                    && response.path("schema").path("items").isObject())) continue;
             for (JsonNode media : response.path("contentTypes")) {
                 if (media.asText().toLowerCase(Locale.ROOT).contains("json")) jsonObject = true;
             }
         }
-        if (!jsonObject) return "首批仅支持 JSON 对象响应";
+        if (!jsonObject) return allowArrayResponse ? "当前 Console 需要已声明的 JSON 对象或数组响应" : "首批仅支持 JSON 对象响应";
         JsonNode auth = contract.path("authentication");
         String state = auth.path("state").asText();
         if ("REQUIRED".equals(state)) {

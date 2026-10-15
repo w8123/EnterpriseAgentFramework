@@ -61,7 +61,7 @@
         <p v-else class="api-muted">{{ displayContract ? '所展示契约未声明请求参数。' : '当前请求参数无法比较。' }}</p>
         <div v-if="displayContract?.requestBody" class="api-response-contract">
           <h3>请求体 · {{ displayContract.requestBody.contentTypes.join('、') }}</h3>
-          <p class="api-muted">{{ displayContract.requestBody.required ? '必须提供' : '可选' }} JSON 对象；字段与约束来自来源声明。</p>
+          <p class="api-muted">{{ displayContract.requestBody.required ? '必须提供' : '可选' }}请求体；类型、字段与约束来自来源声明。</p>
           <pre>{{ pretty(displayContract.requestBody.schema) }}</pre>
         </div>
         <h3>响应契约</h3>
@@ -85,7 +85,7 @@
         <el-tab-pane label="试调用" name="invocation">
       <section class="api-card" aria-labelledby="api-call-heading">
         <div class="api-section-head"><div><p class="api-eyebrow">一次受控请求</p><h2 id="api-call-heading">试调用</h2></div></div>
-        <p class="api-muted">仅提交当前契约声明的参数与受支持的 POST JSON 请求体；HTTP 2xx 不代表业务成功。内部 POST + WRITE 平铺 JSON 可通过已发布 Workflow 执行；Studio 两种调试入口仍不执行写 API。Agent 使用既有写操作确认，MCP 由已授权客户端显式发起新运行。</p>
+        <p class="api-muted">仅提交已接纳契约声明的参数与请求体；有副作用的操作须逐次确认。平台不会自动重发，HTTP 2xx 不代表业务成功。Studio 两种调试入口仍不执行写 API。内部 POST + WRITE 平铺 JSON 可通过已发布 Workflow 执行；Agent 使用既有写操作确认。</p>
         <p v-if="callBlocker" class="api-warning" role="status">{{ callBlocker }}</p>
         <el-button v-if="callBlocker && (!sourceAccepted || connection?.status !== 'CONFIGURED')" link type="primary" @click="tab = 'technical'">检查接入信息</el-button>
         <el-form novalidate label-position="top" class="api-form" @submit.prevent="invoke">
@@ -102,7 +102,10 @@
                 :disabled="invoking || !!invocationId" :aria-label="parameter.name" />
             </el-form-item>
           </div>
-          <BusinessMethodInvocationInputEditor v-if="isWrite" v-model="bodyDraft" title="JSON 请求体"
+          <BusinessMethodInvocationInputEditor v-if="hasBody" :model-value="bodyDraft" title="请求体"
+            @http-body-change="updateBodyDraft"
+            http-json-body :http-body-schema="detail.acceptedContract?.requestBody?.schema" :json-only="bodyJsonOnly"
+            :json-value-validator="validateBodyDraft"
             :parameters="bodyParameters" :disabled="invoking || !!invocationId"
             @draft-change="bodyDraftChanged" />
           <p v-if="bodyError" class="api-warning" role="alert">{{ bodyError }}</p>
@@ -292,7 +295,7 @@
             <p v-else-if="credentialsLoaded && !eligibleCredentials.length" class="api-muted">没有匹配的活动项目凭据；{{ canManageCredential ? '可在这里新建。' : '请联系有凭据管理权限的同事。' }}</p>
           </el-form-item>
           <div class="api-form-actions"><el-button type="primary" native-type="submit" :loading="saving"
-            :disabled="!canWrite || !sourceAccepted || !connection || connection.status === 'BLOCKED' || saving || (authModeDraft !== 'NONE' && (credentialsLoading || !!credentialsError || !credentialsLoaded))">保存连接</el-button>
+            :disabled="!canWrite || !sourceAccepted || !connectionConfigurationAllowed || saving || (authModeDraft !== 'NONE' && (credentialsLoading || !!credentialsError || !credentialsLoaded))">保存连接</el-button>
             <span v-if="!canWrite">当前账号缺少项目写入权限。</span>
             <span v-else-if="!sourceAccepted">请先接纳当前来源契约。</span>
           </div>
@@ -332,7 +335,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter, type RouteLocationRaw } from 'vue-router'
 import { HTTP_API_CATALOG_PATH } from '@/views/capability/businessCapabilityRoutes'
 import { apiMarketLocation } from '@/views/api-market/apiMarketRoutes'
@@ -355,11 +358,11 @@ import { acceptHttpApi, getHttpApi, getHttpApiConnection, getHttpApiInvocation,
   getHttpApiReferences, invokeHttpApi, saveHttpApiConnection } from '@/api/httpApi'
 import type { AssetReferences } from '@/types/assetReferences'
 import { referenceKindLabel, referenceStage, usageRoute } from '@/views/capability/referenceUsage'
-import { buildHttpApiTrialParameters, canStartNewHttpApiAttempt, httpApiBodyParameters, httpApiTrialFailure, validateHttpApiBody, isCurrentHttpApiEvidence } from './httpApiTrial'
+import { buildHttpApiTrialParameters, canStartNewHttpApiAttempt, httpApiBodyParameters, httpApiSideEffectState, httpApiTrialFailure, validateHttpApiBody, isCurrentHttpApiEvidence } from './httpApiTrial'
 import { compareHttpApiContracts, compareHttpApiSources } from './httpApiSourceComparison'
 import type { WorkflowCredential } from '@/types/workflowCredential'
 import type { HttpApiConnection, HttpApiDetail, HttpApiInvocationOutcome,
-  HttpApiSourceStatus } from '@/types/httpApi'
+  HttpApiJsonValue, HttpApiSourceStatus } from '@/types/httpApi'
 
 const route = useRoute()
 const router = useRouter()
@@ -409,14 +412,15 @@ const authModeDraft = ref('')
 const credentialDraft = ref('')
 const parameterDraft = reactive<Record<string, string>>({})
 const parameterErrors = reactive<Record<string, string>>({})
-const bodyDraft = ref<Record<string, unknown>>({})
+const bodyDraft = shallowRef<HttpApiJsonValue | undefined>(undefined)
 const bodyDraftValid = ref(false)
+const bodyDraftIssue = ref('')
 const bodyRevision = ref(0)
 const bodyError = ref('')
 const confirmationOpen = ref(false)
 const newAttemptOpen = ref(false)
 const cancelButton = ref<{ $el?: HTMLElement } | null>(null)
-const confirmationSnapshot = ref<{ signature: string; parameters: ReturnType<typeof buildHttpApiTrialParameters>; body: Record<string, unknown> } | null>(null)
+const confirmationSnapshot = shallowRef<{ signature: string; parameters: ReturnType<typeof buildHttpApiTrialParameters>; body: HttpApiJsonValue | undefined } | null>(null)
 let epoch = 0
 let referenceSequence = 0
 let credentialSequence = 0
@@ -479,8 +483,17 @@ const eligibleCredentials = computed(() => credentials.value.filter((item) => it
   && item.projectCode === detail.value?.summary.projectCode && item.type === authModeDraft.value))
 const trialParameters = computed(() => detail.value?.acceptedContract?.parameters?.filter(
   (parameter) => parameter.location === 'PATH' || parameter.location === 'QUERY') || [])
-const isWrite = computed(() => detail.value?.acceptedContract?.sideEffect === 'WRITE')
+const effectState = computed(() => httpApiSideEffectState(detail.value))
+const isWrite = computed(() => effectState.value === 'write')
+const hasBody = computed(() => !!detail.value?.acceptedContract?.requestBody)
+const bodyJsonOnly = computed(() => {
+  const schema = detail.value?.acceptedContract?.requestBody?.schema
+  return !!schema && ((!!schema.type && schema.type !== 'object') || schema.format === 'password' || schema.writeOnly === true)
+})
 const bodyParameters = computed(() => httpApiBodyParameters(detail.value))
+const connectionConfigurationAllowed = computed(() => !!connection.value
+  && (connection.value.configurationAllowed === true || (connection.value.configurationAllowed == null
+    && ['CONFIGURED', 'UNCONFIGURED'].includes(connection.value.status))))
 const connectionBlockingReason = computed(() => {
   const reason = connection.value?.blockingReason || ''
   if (reason !== '首批仅支持 JSON 对象响应') return reason
@@ -495,6 +508,7 @@ const connectionBlockingReason = computed(() => {
 const callBlocker = computed(() => {
   if (detail.value?.summary.sourceStatus === 'CONFLICT') return '来源契约冲突；请先修正来源并重新扫描，当前不能发起新试调用。'
   if (!sourceAccepted.value) return '请先确认来源并接纳当前契约。'
+  if (effectState.value === 'blocked') return '当前操作性质尚未确认，不能发起新试调用。'
   if (!connection.value) return '正在读取连接状态。'
   if (connection.value.status !== 'CONFIGURED') return connectionBlockingReason.value || '请先保存可用连接。'
   if (!hasInvokeGrant.value) return '当前账号缺少此项目的试调用权限。'
@@ -517,10 +531,14 @@ function matchesAttempt(data: HttpApiInvocationOutcome, id: string) {
 }
 function confirmationSignature() { return JSON.stringify([epoch, platformSessionId.value, apiId.value,
   detail.value?.summary, connection.value, parameterDraft, bodyDraft.value, bodyRevision.value, hasInvokeGrant.value]) }
-function bodyDraftChanged(state: { valid: boolean; revision: number }) { bodyDraftValid.value = state.valid; bodyRevision.value = state.revision }
+function bodyDraftChanged(state: { valid: boolean; revision: number; error?: string }) {
+  bodyDraftValid.value = state.valid; bodyRevision.value = state.revision; bodyDraftIssue.value = state.error || ''
+}
+function updateBodyDraft(value: unknown) { bodyDraft.value = value as HttpApiJsonValue | undefined }
+function validateBodyDraft(value: unknown) { return validateHttpApiBody(detail.value, value) }
 async function focusCancel(event?: Event) { event?.preventDefault(); await nextTick(); cancelButton.value?.$el?.focus() }
 const invocationDirty = computed(() => !invocationId.value && (Object.values(parameterDraft).some(value => value !== '')
-  || Object.keys(bodyDraft.value).length > 0 || bodyRevision.value > 0))
+  || bodyDraft.value !== undefined || bodyRevision.value > 0))
 function beforeTabLeave() { return !descriptionBusy.value }
 function navigate(target: RouteLocationRaw) {
   if (descriptionBusy.value) return
@@ -578,7 +596,7 @@ function resetView() {
   discardOpen.value = false; pendingNavigation.value = null
   bodyRevision.value = 0
   confirmationOpen.value = false; confirmationSnapshot.value = null; newAttemptOpen.value = false
-  bodyDraft.value = {}; bodyDraftValid.value = false; bodyError.value = ''
+  bodyDraft.value = undefined; bodyDraftValid.value = false; bodyDraftIssue.value = ''; bodyError.value = ''
   invoking.value = false; accepting.value = false; saving.value = false
   ++referenceSequence
   ++credentialSequence
@@ -671,7 +689,7 @@ async function credentialCreated(item: WorkflowCredential) {
   credentialDraft.value = item.credentialRef
 }
 async function saveConnection() {
-  if (!detail.value || !canWrite.value || !sourceAccepted.value || !connection.value || connection.value.status === 'BLOCKED' || saving.value) return
+  if (!detail.value || !canWrite.value || !sourceAccepted.value || !connection.value || !connectionConfigurationAllowed.value || saving.value) return
   connectionError.value = ''; connectionFieldError.value = ''
   if (!/^https?:\/\/[^/?#]+\/?$/i.test(originDraft.value.trim())) {
     connectionFieldError.value = '只填写 HTTP(S) 协议、主机和端口，不包含路径或查询'; return
@@ -710,15 +728,20 @@ async function invoke() {
   if (!detail.value || !connection.value?.revision || callBlocker.value || invocationId.value || invoking.value) return
   const parameters = buildParameters()
   if (!parameters) return
+  if (hasBody.value) {
+    bodyError.value = bodyDraftValid.value ? validateHttpApiBody(detail.value, bodyDraft.value) : bodyDraftIssue.value || '请先完成有效的 JSON 请求体。'
+    if (bodyError.value) {
+      document.querySelector<HTMLElement>('.invocation-input-editor textarea, .invocation-input-editor .is-error input, .invocation-input-editor input')?.focus()
+      return
+    }
+  }
   if (isWrite.value) {
-    bodyError.value = bodyDraftValid.value ? validateHttpApiBody(detail.value, bodyDraft.value) : '请先完成有效的 JSON 请求体。'
-    if (bodyError.value) return
     confirmationSnapshot.value = { signature: confirmationSignature(),
-      parameters: { ...parameters, errors: {} }, body: JSON.parse(JSON.stringify(bodyDraft.value)) }
+      parameters: { ...parameters, errors: {} }, body: bodyDraft.value === undefined ? undefined : JSON.parse(JSON.stringify(bodyDraft.value)) }
     confirmationOpen.value = true
     return
   }
-  await dispatch(parameters, undefined, false)
+  await dispatch(parameters, bodyDraft.value, false)
 }
 async function confirmInvocation() {
   const snapshot = confirmationSnapshot.value
@@ -729,7 +752,7 @@ async function confirmInvocation() {
   await dispatch(snapshot.parameters, snapshot.body, true)
 }
 async function dispatch(parameters: { pathParams: Record<string, unknown>; queryParams: Record<string, unknown> },
-  body: Record<string, unknown> | undefined, confirmedSideEffect: boolean) {
+  body: HttpApiJsonValue | undefined, confirmedSideEffect: boolean) {
   if (!detail.value || !connection.value?.revision || invoking.value || invocationId.value || callBlocker.value) return
   const id = crypto.randomUUID()
   const current = epoch
@@ -801,7 +824,7 @@ watch(confirmationSignature, () => {
 watch(confirmationOpen, open => { if (!open) confirmationSnapshot.value = null }, { flush: 'sync' })
 watch(grants, () => {
   if (detail.value && !hasInvokeGrant.value) {
-    ++epoch; bodyDraft.value = {}; bodyDraftValid.value = false; outcome.value = null
+    ++epoch; bodyDraft.value = undefined; bodyDraftValid.value = false; bodyDraftIssue.value = ''; outcome.value = null
     Object.keys(parameterDraft).forEach(key => delete parameterDraft[key])
     confirmationSnapshot.value = null; confirmationOpen.value = false; newAttemptOpen.value = false
     invoking.value = false; querying.value = false

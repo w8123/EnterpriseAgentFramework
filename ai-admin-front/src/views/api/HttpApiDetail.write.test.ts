@@ -5,12 +5,12 @@ import ElementPlus from 'element-plus'
 import HttpApiDetail from './HttpApiDetail.vue'
 import BusinessMethodInvocationInputEditor from '@/views/capability/components/BusinessMethodInvocationInputEditor.vue'
 
-const mocks = vi.hoisted(() => ({ detail: vi.fn(), connection: vi.fn(), references: vi.fn(), credentials: vi.fn(),
+const mocks = vi.hoisted(() => ({ detail: vi.fn(), connection: vi.fn(), references: vi.fn(), credentials: vi.fn(), save: vi.fn(),
   invoke: vi.fn(), query: vi.fn(), push: vi.fn(), leaveGuard: null as null | (() => boolean | Promise<boolean>), session: null as Ref<string> | null, user: null as Ref<any> | null,
   route: null as { params: { id: string }; query: object } | null,
   scope: null as { requestKey: Ref<string>; requestParams: Ref<{ projectId: number }> } | null }))
 vi.mock('@/api/httpApi', () => ({ getHttpApi: mocks.detail, getHttpApiConnection: mocks.connection, getHttpApiReferences: mocks.references,
-  invokeHttpApi: mocks.invoke, getHttpApiInvocation: mocks.query, acceptHttpApi: vi.fn(), saveHttpApiConnection: vi.fn() }))
+  invokeHttpApi: mocks.invoke, getHttpApiInvocation: mocks.query, acceptHttpApi: vi.fn(), saveHttpApiConnection: mocks.save }))
 vi.mock('@/api/workflowCredential', () => ({ listWorkflowCredentials: mocks.credentials }))
 vi.mock('@/auth/platformSession', async () => {
   const { ref } = await import('vue'); mocks.session = ref('session-a'); mocks.user = ref({ userId: 7, permissionGrants: [] })
@@ -54,12 +54,13 @@ async function click(text: string) {
 async function input(note = 'isolated-note') {
   await wrapper!.find('input[aria-label="orderId"]').setValue('ORD-3B4')
   const editor = wrapper!.findComponent(BusinessMethodInvocationInputEditor)
-  editor.vm.$emit('update:modelValue', { note, apiKey: 'SENSITIVE_BODY_SENTINEL', notify: false })
+  editor.vm.$emit('http-body-change', { note, apiKey: 'SENSITIVE_BODY_SENTINEL', notify: false })
   editor.vm.$emit('draft-change', { valid: true, revision: 1 }); await flushPromises()
 }
 async function submitted() { await input(); await click('确认写入试调用'); await click('确认并写入一次') }
 beforeEach(() => {
   vi.clearAllMocks(); localStorage.clear(); mocks.session!.value = 'session-a'
+  mocks.save.mockReset()
   mocks.user!.value = { userId: 7, permissionGrants: grants.map(item => ({ ...item })) }
   mocks.route!.params.id = '1'; mocks.scope!.requestKey.value = 'orders:41'; mocks.scope!.requestParams.value = { projectId: 41 }
   mocks.detail.mockResolvedValue({ data: owner() })
@@ -71,6 +72,148 @@ beforeEach(() => {
 afterEach(() => { wrapper?.unmount(); wrapper = null; document.body.innerHTML = ''; vi.unstubAllGlobals() })
 
 describe('write HTTP API confirmation and query-only recovery', () => {
+  it('allows correcting an owner-approved blocked connection without enabling invocation before save', async () => {
+    mocks.connection.mockResolvedValue({ data: { status: 'BLOCKED', configurationAllowed: true,
+      revision: 4, credentialRevision, origin: 'http://old.invalid', authMode: 'NONE',
+      blockingReason: '服务地址当前不可用，请检查连接配置' } })
+    const { saveHttpApiConnection } = await import('@/api/httpApi')
+    vi.mocked(saveHttpApiConnection).mockResolvedValueOnce({ data: { status: 'CONFIGURED', configurationAllowed: true,
+      revision: 5, credentialRevision, origin: 'http://127.0.0.1:8080', authMode: 'NONE' } } as never)
+    start(); await flushPromises()
+    expect(Array.from(document.querySelectorAll('button')).find(button => button.textContent?.trim() === '确认写入试调用')?.disabled).toBe(true)
+    const save = Array.from(document.querySelectorAll('button')).find(button => button.textContent?.trim() === '保存连接')!
+    expect(save.disabled).toBe(false)
+    await wrapper!.find('input[placeholder="https://orders.example.com:8443"]').setValue('http://127.0.0.1:8080')
+    await click('保存连接')
+    expect(saveHttpApiConnection).toHaveBeenCalledWith(1, { origin: 'http://127.0.0.1:8080', authMode: 'NONE', credentialRef: null, expectedRevision: 4 })
+  })
+  it('keeps explicit owner refusal and unconfirmed sources blocked even through form submission', async () => {
+    const { saveHttpApiConnection } = await import('@/api/httpApi')
+    mocks.connection.mockResolvedValue({ data: { status: 'CONFIGURED', configurationAllowed: false,
+      revision: 1, origin: 'http://127.0.0.1:8080', authMode: 'NONE' } })
+    start(); await flushPromises()
+    const save = () => Array.from(document.querySelectorAll('button')).find(button => button.textContent?.trim() === '保存连接')!
+    expect(save().disabled).toBe(true)
+    await wrapper!.findAll('form')[1]!.trigger('submit'); await flushPromises()
+    expect(saveHttpApiConnection).not.toHaveBeenCalled()
+    mocks.connection.mockResolvedValue({ data: { status: 'UNKNOWN', revision: 1,
+      origin: 'http://127.0.0.1:8080', authMode: 'NONE' } })
+    await click('刷新当前状态')
+    expect(save().disabled).toBe(true)
+    const unconfirmed = owner(); unconfirmed.summary.sourceConfirmed = false
+    mocks.detail.mockResolvedValue({ data: unconfirmed })
+    mocks.connection.mockResolvedValue({ data: { status: 'BLOCKED', configurationAllowed: true,
+      revision: 1, origin: 'http://127.0.0.1:8080', authMode: 'NONE' } })
+    await click('刷新当前状态')
+    expect(save().disabled).toBe(true)
+    await wrapper!.findAll('form')[1]!.trigger('submit'); await flushPromises()
+    expect(saveHttpApiConnection).not.toHaveBeenCalled()
+  })
+  it('replaces an inactive credential only after the current project list is loaded', async () => {
+    const declaration = owner(); declaration.acceptedContract.authentication.state = 'UNKNOWN'
+    mocks.detail.mockResolvedValue({ data: declaration })
+    mocks.connection.mockResolvedValue({ data: { status: 'BLOCKED', configurationAllowed: true, revision: 4,
+      origin: 'http://127.0.0.1:8080', authMode: 'BEARER', credentialRef: 'disabled', credentialRevision: null } })
+    mocks.credentials.mockResolvedValue({ data: [{ id: 8, credentialRef: 'active', name: 'Active fixture', type: 'BEARER',
+      scope: 'PROJECT', status: 'ACTIVE', projectId: 41, projectCode: 'orders' }] })
+    const { saveHttpApiConnection } = await import('@/api/httpApi')
+    vi.mocked(saveHttpApiConnection).mockResolvedValueOnce({ data: { status: 'CONFIGURED', configurationAllowed: true,
+      revision: 5, credentialRevision: 'd'.repeat(64), origin: 'http://127.0.0.1:8080', authMode: 'BEARER', credentialRef: 'active' } } as never)
+    start(); await flushPromises()
+    const save = () => Array.from(document.querySelectorAll('button')).find(button => button.textContent?.trim() === '保存连接')!
+    expect(save().disabled).toBe(true)
+    await wrapper!.findAll('[role="tab"]').find(tab => tab.text() === '接入信息')!.trigger('click'); await flushPromises()
+    const selector = wrapper!.findAllComponents({ name: 'ElSelect' }).find(component => component.props('placeholder') === '选择当前项目的活动凭据')!
+    selector.vm.$emit('update:modelValue', 'active'); await flushPromises()
+    await click('保存连接')
+    expect(saveHttpApiConnection).toHaveBeenCalledWith(1, { origin: 'http://127.0.0.1:8080', authMode: 'BEARER', credentialRef: 'active', expectedRevision: 4 })
+    await input(); await click('确认写入试调用'); await click('确认并写入一次')
+    expect(mocks.invoke.mock.calls[0][1]).toMatchObject({ connectionRevision: 5, expectedCredentialRevision: 'd'.repeat(64) })
+  })
+  it('invalidates an open write confirmation after a repaired connection revision is saved', async () => {
+    const { saveHttpApiConnection } = await import('@/api/httpApi')
+    vi.mocked(saveHttpApiConnection).mockResolvedValueOnce({ data: { status: 'CONFIGURED', configurationAllowed: true,
+      revision: 2, credentialRevision: 'd'.repeat(64), origin: 'http://127.0.0.1:8080', authMode: 'NONE' } } as never)
+    start(); await flushPromises(); await input(); await click('确认写入试调用')
+    await wrapper!.find('input[placeholder="https://orders.example.com:8443"]').setValue('http://127.0.0.1:8080')
+    await click('保存连接')
+    expect(wrapper!.findAllComponents({ name: 'AppDialog' })[0].props('modelValue')).toBe(false)
+    expect(mocks.invoke).not.toHaveBeenCalled()
+    await click('确认写入试调用'); await click('确认并写入一次')
+    expect(mocks.invoke.mock.calls[0][1]).toMatchObject({ connectionRevision: 2, expectedCredentialRevision: 'd'.repeat(64) })
+  })
+  it.each(['IDEMPOTENT_WRITE', 'IRREVERSIBLE'])('requires explicit confirmation for %s operations even without a JSON body', async effect => {
+    const declaration = owner()
+    Object.assign(declaration.acceptedContract, { sideEffect: effect, requestBody: null,
+      identity: { method: 'DELETE', routeTemplate: '/orders/{orderId}/notes' } })
+    Object.assign(declaration.summary, { httpMethod: 'DELETE' })
+    mocks.detail.mockResolvedValue({ data: declaration }); start(); await flushPromises()
+    await wrapper!.find('input[aria-label="orderId"]').setValue('ORD-3B4')
+    await click('确认写入试调用')
+    expect(mocks.invoke).not.toHaveBeenCalled()
+    await click('确认并写入一次')
+    expect(mocks.invoke).toHaveBeenCalledTimes(1)
+    expect(mocks.invoke.mock.calls[0][1].confirmedSideEffect).toBe(true)
+    expect(mocks.invoke.mock.calls[0][1].body).toBeUndefined()
+  })
+
+  it('sends a declared root-array body as the array after confirmation and rejects malformed drafts', async () => {
+    const declaration = owner()
+    Object.assign(declaration.acceptedContract, { requestBody: { required: true, contentTypes: ['application/json'],
+      schema: { type: 'array', items: { type: 'object', required: ['moduleId'], properties: {
+        moduleId: { type: 'string' }, directors: { type: 'array', items: { type: 'string' } },
+      } } } } })
+    mocks.detail.mockResolvedValue({ data: declaration }); start(); await flushPromises()
+    await wrapper!.find('input[aria-label="orderId"]').setValue('ORD-3B4')
+    const editor = wrapper!.findComponent(BusinessMethodInvocationInputEditor)
+    if (editor.find('input[value="json"]').exists()) await editor.find('input[value="json"]').setValue()
+    await editor.find('textarea').setValue('[{"moduleId":"LM-test",')
+    await click('确认写入试调用'); expect(mocks.invoke).not.toHaveBeenCalled()
+    expect(editor.find('textarea').element.value).toBe('[{"moduleId":"LM-test",')
+    await editor.find('textarea').setValue('[{"moduleId":"LM-test","directors":[]}]')
+    await click('确认写入试调用'); expect(mocks.invoke).not.toHaveBeenCalled()
+    await click('确认并写入一次')
+    expect(mocks.invoke.mock.calls[0][1].body).toEqual([{ moduleId: 'LM-test', directors: [] }])
+  })
+
+  it('submits a reviewed read-only POST query body without a write confirmation', async () => {
+    const declaration = owner()
+    Object.assign(declaration.acceptedContract, { sideEffect: 'READ_ONLY' })
+    mocks.detail.mockResolvedValue({ data: declaration }); start(); await flushPromises(); await input()
+    await click('试调用')
+    expect(mocks.invoke).toHaveBeenCalledTimes(1)
+    expect(mocks.invoke.mock.calls[0][1].confirmedSideEffect).toBe(false)
+    expect(mocks.invoke.mock.calls[0][1].body).toEqual({ note: 'isolated-note', apiKey: 'SENSITIVE_BODY_SENTINEL', notify: false })
+  })
+
+  it('keeps a text/plain request body as the logical string without wrapping or trimming it', async () => {
+    const declaration = owner()
+    Object.assign(declaration.acceptedContract, { requestBody: { required: true, contentTypes: ['text/plain'], schema: { type: 'string' } } })
+    mocks.detail.mockResolvedValue({ data: declaration }); start(); await flushPromises()
+    await wrapper!.find('input[aria-label="orderId"]').setValue('ORD-3B4')
+    const editor = wrapper!.findComponent(BusinessMethodInvocationInputEditor)
+    await editor.find('textarea').setValue(JSON.stringify('  exact text\n'))
+    await click('确认写入试调用'); await click('确认并写入一次')
+    expect(mocks.invoke.mock.calls[0][1].body).toBe('  exact text\n')
+  })
+
+  it('blocks an unknown operation effect', async () => {
+    const declaration = owner()
+    Object.assign(declaration.acceptedContract, { sideEffect: 'UNKNOWN' })
+    mocks.detail.mockResolvedValue({ data: declaration }); start(); await flushPromises()
+    expect(Array.from(document.querySelectorAll('button')).find(item => item.textContent?.trim() === '试调用')?.disabled).toBe(true)
+    expect(mocks.invoke).not.toHaveBeenCalled()
+  })
+
+  it('keeps multipart blocked instead of inferring JSON from the editable body', async () => {
+    const declaration = owner()
+    declaration.acceptedContract.requestBody.contentTypes = ['multipart/form-data']
+    mocks.detail.mockResolvedValue({ data: declaration })
+    mocks.connection.mockResolvedValue({ data: { status: 'BLOCKED', blockingReason: '暂不支持 multipart 请求体', revision: null } })
+    start(); await flushPromises(); await input(); await click('确认写入试调用')
+    expect(document.body.textContent).toContain('暂不支持 multipart 请求体')
+    expect(mocks.invoke).not.toHaveBeenCalled()
+  })
   it('protects unsent Console input when returning to the catalog or leaving through navigation', async () => {
     start(); await flushPromises(); await input()
     expect(document.body.textContent).not.toContain('用于 Workflow')
@@ -143,7 +286,7 @@ describe('write HTTP API confirmation and query-only recovery', () => {
     expect(wrapper!.find('.api-warning[role="alert"]').exists()).toBe(true)
     expect(wrapper!.find('.api-warning[role="alert"]').text()).toContain('null')
     expect(mocks.invoke).not.toHaveBeenCalled(); expect(localStorage.length).toBe(0)
-    expect(editor.props('modelValue').priority).toBeNull()
+    expect(JSON.parse((editor.find('textarea').element as HTMLTextAreaElement).value).priority).toBeNull()
   })
 
   it('masks ordinary-named source-declared sensitive fields in the real shared editor and JSON preview', async () => {
@@ -155,7 +298,7 @@ describe('write HTTP API confirmation and query-only recovery', () => {
     const editor = wrapper!.findComponent(BusinessMethodInvocationInputEditor)
     const privateA = Math.random().toString(36) + Math.random().toString(36)
     const privateB = Math.random().toString(36) + Math.random().toString(36)
-    editor.vm.$emit('update:modelValue', { note: 'one', apiKey: 'test-input', accessCode: privateA, deliveryMark: privateB })
+    editor.vm.$emit('http-body-change', { note: 'one', apiKey: 'test-input', accessCode: privateA, deliveryMark: privateB })
     editor.vm.$emit('draft-change', { valid: true, revision: 2 }); await flushPromises()
     expect(editor.find('button[aria-label="显示并编辑 accessCode 的敏感值"]').exists()).toBe(true)
     expect(editor.find('button[aria-label="显示并编辑 deliveryMark 的敏感值"]').exists()).toBe(true)
@@ -241,7 +384,7 @@ describe('write HTTP API confirmation and query-only recovery', () => {
     settle({ data: { ...result(firstId, 'SUCCEEDED'), result: 'LATE_PRIVATE_SENTINEL' } }); await flushPromises()
     expect(document.body.textContent).not.toContain('LATE_PRIVATE_SENTINEL'); expect(document.body.textContent).not.toContain(firstId)
     await input(); mocks.user!.value.permissionGrants = []; await flushPromises()
-    expect(wrapper!.findComponent(BusinessMethodInvocationInputEditor).props('modelValue')).toEqual({})
+    expect(wrapper!.findComponent(BusinessMethodInvocationInputEditor).props('modelValue')).toBeUndefined()
     expect(document.body.textContent).toContain('缺少此项目的试调用权限')
   })
 

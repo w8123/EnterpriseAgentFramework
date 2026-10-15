@@ -1,6 +1,7 @@
 package com.enterprise.ai.control.capability;
 
 import com.enterprise.ai.common.capability.HttpApiConsoleContracts;
+import com.enterprise.ai.common.capability.HttpApiRequestPolicy;
 import com.enterprise.ai.control.governance.ControlToolAclDecisionService;
 import com.enterprise.ai.control.identity.PlatformAuthenticatedSession;
 import com.enterprise.ai.control.identity.PlatformPermissions;
@@ -21,8 +22,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -60,7 +59,7 @@ public class HttpApiConsoleController {
                 current, size, actor(session), groupId, ungrouped, CatalogReadAuthorization.body(session, projectId));
         ResponseEntity<Object> page = CatalogReadAuthorization.verifyResponse(request, projectId, raw, authorization);
         if (!page.getStatusCode().is2xxSuccessful()) return page;
-        return catalogWithRuntimeState(page, projectId, CatalogReadAuthorization.projectCode(raw), actor(session));
+        return validatedCatalog(page, projectId, CatalogReadAuthorization.projectCode(raw));
     }
 
     @GetMapping("/api/apis/{id}")
@@ -142,7 +141,7 @@ public class HttpApiConsoleController {
                     && !Objects.equals(owner.sourceSetRevision(), input.expectedSourceSetRevision()))) {
             return error(HttpStatus.CONFLICT, "HTTP_API_CONTRACT_CHANGED", "API 来源或契约已变化，请刷新后重试");
         }
-        if ("WRITE".equals(owner.sideEffect()) && (!input.confirmedSideEffect()
+        if (HttpApiRequestPolicy.requiresWriteConfirmation(owner.sideEffect()) && (!input.confirmedSideEffect()
                 || !Objects.equals(owner.sourceSetRevision(), input.expectedSourceSetRevision()))) {
             return error(HttpStatus.CONFLICT, "HTTP_API_CONFIRMATION_REQUIRED", "写 API 需要确认当前来源、连接与输入后提交");
         }
@@ -237,8 +236,8 @@ public class HttpApiConsoleController {
         return new OwnerResolution(owner, ResponseEntity.status(response.getStatusCode()).body(response.getBody()), null);
     }
 
-    private ResponseEntity<Object> catalogWithRuntimeState(ResponseEntity<Object> response, long projectId,
-                                                             String projectCode, String actor) {
+    private ResponseEntity<Object> validatedCatalog(ResponseEntity<Object> response, long projectId,
+                                                    String projectCode) {
         Map<String, Object> page;
         try { page = json.convertValue(response.getBody(), new TypeReference<LinkedHashMap<String, Object>>() { }); }
         catch (IllegalArgumentException invalid) {
@@ -247,8 +246,7 @@ public class HttpApiConsoleController {
         if (page == null || !(page.get("records") instanceof List<?> records) || records.size() > 100) {
             return error(HttpStatus.BAD_GATEWAY, "HTTP_API_CATALOG_INVALID", "API 目录返回格式无效");
         }
-        List<Map<String, Object>> rows = new ArrayList<>();
-        List<String> names = new ArrayList<>();
+        Set<String> names = new HashSet<>();
         for (Object raw : records) {
             if (!(raw instanceof Map<?, ?> item) || !Objects.equals(positive(item.get("projectId")), projectId)
                     || !Objects.equals(text(item.get("projectCode")), projectCode)
@@ -258,40 +256,10 @@ public class HttpApiConsoleController {
             String name = text(item.get("qualifiedName"));
             if (name.length() > 200) return error(HttpStatus.BAD_GATEWAY,
                     "HTTP_API_CATALOG_INVALID", "API 目录身份无效");
-            names.add(name);
-            rows.add(json.convertValue(item, new TypeReference<LinkedHashMap<String, Object>>() { }));
+            if (!names.add(name)) return error(HttpStatus.BAD_GATEWAY,
+                    "HTTP_API_CATALOG_INVALID", "API 目录身份重复");
         }
-        if (names.isEmpty()) return response;
-        if (new HashSet<>(names).size() != names.size()) return error(HttpStatus.BAD_GATEWAY,
-                "HTTP_API_CATALOG_INVALID", "API 目录身份重复");
-        Map<String, Map<String, Object>> stateByName = new HashMap<>();
-        try {
-            ResponseEntity<Object> states = runtime.catalogStates(new HttpApiConsoleContracts.CatalogStatesRequest(
-                    HttpApiConsoleContracts.VERSION, projectId, projectCode, names), actor);
-            if (states != null && states.getStatusCode().is2xxSuccessful()
-                    && states.getBody() instanceof List<?> entries) {
-                for (Object raw : entries) {
-                    Map<String, Object> entry = json.convertValue(raw,
-                            new TypeReference<LinkedHashMap<String, Object>>() { });
-                    String name = text(entry.get("qualifiedName"));
-                    if (name == null || !names.contains(name) || stateByName.putIfAbsent(name, entry) != null) {
-                        throw new IllegalArgumentException("Runtime returned an invalid catalog identity");
-                    }
-                }
-                if (stateByName.size() != names.size()) stateByName.clear();
-            }
-        } catch (RuntimeException unavailable) {
-            stateByName.clear();
-        }
-        for (Map<String, Object> row : rows) {
-            Map<String, Object> state = stateByName.get(text(row.get("qualifiedName")));
-            row.put("connectionStatus", state == null ? "UNAVAILABLE" : state.get("connectionStatus"));
-            row.put("latestInvocationStatus", state == null ? null : state.get("latestInvocationStatus"));
-            row.put("latestHttpStatus", state == null ? null : state.get("latestHttpStatus"));
-            row.put("latestInvocationAt", state == null ? null : state.get("latestInvocationAt"));
-        }
-        page.put("records", rows);
-        return ResponseEntity.ok(page);
+        return response;
     }
 
     private void authorizeProject(HttpServletRequest request, String permission, Owner owner) {

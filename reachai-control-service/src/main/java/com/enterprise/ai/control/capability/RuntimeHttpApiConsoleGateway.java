@@ -18,18 +18,11 @@ import java.util.function.Supplier;
 @Service
 @RequiredArgsConstructor
 public class RuntimeHttpApiConsoleGateway {
-    private static final String CATALOG_STATES = "/internal/runtime/http-api-catalog-states";
     private static final String CONNECTION = "/internal/runtime/http-api-connections";
     private static final String INVOCATION = "/internal/runtime/http-api-invocations";
     private final RuntimeProxyClient runtime;
     private final InternalServiceAuthSigner signer;
     private final ObjectMapper json;
-
-    public ResponseEntity<Object> catalogStates(HttpApiConsoleContracts.CatalogStatesRequest command, String actor) {
-        byte[] body = encode(command);
-        return call(() -> runtime.readHttpApiCatalogStates(
-                headers("POST", CATALOG_STATES, command.projectCode(), actor, body), body));
-    }
 
     public ResponseEntity<Object> readConnection(HttpApiConsoleContracts.ConnectionCommand command, String actor) {
         byte[] body = encode(command);

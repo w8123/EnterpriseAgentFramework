@@ -3,11 +3,11 @@
     <header class="input-editor-header">
       <div>
         <h3 id="invocation-input-title">{{ title }}</h3>
-        <p>只会提交当前可确定有效的 JSON 对象；完整 JSON 与表单会保留同一份输入语义。</p>
+        <p>{{ props.httpJsonBody ? '按请求体契约填写对象、数组或标量；完整 JSON 保留原值，留空表示不提供请求体。' : '只会提交当前可确定有效的 JSON 对象；完整 JSON 与表单会保留同一份输入语义。' }}</p>
       </div>
       <div class="input-editor-actions">
         <el-button v-if="sampleInput" text size="small" :disabled="props.disabled" @click="fillSample">填入来源样例</el-button>
-        <el-radio-group v-model="mode" size="small" :disabled="props.disabled" aria-label="输入方式" @change="changeMode">
+        <el-radio-group v-if="!props.jsonOnly" v-model="mode" size="small" :disabled="props.disabled" aria-label="输入方式" @change="changeMode">
           <el-radio-button value="form">表单</el-radio-button>
           <el-radio-button value="json">JSON</el-radio-button>
         </el-radio-group>
@@ -35,7 +35,7 @@
     />
 
     <template v-if="mode === 'form'">
-      <div v-if="!parameters.length" class="input-editor-empty">该业务方法无需输入参数。</div>
+      <div v-if="!parameters.length" class="input-editor-empty">{{ props.httpJsonBody ? '此请求体没有可填写字段；可在 JSON 模式输入对象。' : '该业务方法无需输入参数。' }}</div>
       <div v-else class="input-form" role="group" aria-label="调用输入字段">
         <el-form-item
           v-for="parameter in parameters"
@@ -150,16 +150,18 @@
         :disabled="props.disabled || (hasSensitiveParameters && !jsonSensitiveRevealed)"
         spellcheck="false"
         aria-label="JSON 调用输入"
+        :aria-invalid="!!jsonError"
+        :aria-describedby="jsonFeedbackId"
         @input="onJsonInput"
       />
-      <p v-if="jsonError" class="json-error" role="alert">{{ jsonError }}</p>
-      <p v-else class="json-hint">JSON 顶层必须是对象；数字、布尔、数组、null 和对象会按当前原值提交。</p>
+      <p v-if="jsonError" :id="jsonFeedbackId" class="json-error" role="alert">{{ jsonError }}</p>
+      <p v-else :id="jsonFeedbackId" class="json-hint">{{ props.httpJsonBody ? '对象、数组、字符串、数字和布尔按原值提交。文本请求体也用带引号的 JSON 字符串填写。' : 'JSON 顶层必须是对象；数字、布尔、数组、null 和对象会按当前原值提交。' }}</p>
     </template>
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, ref, useId, watch } from 'vue'
 import type { ToolParameter } from '@/types/tool'
 import {
   containsSensitiveParameter,
@@ -186,6 +188,7 @@ interface BusinessMethodInvocationDraftState {
   valid: boolean
   revision: number
   mode: EditorMode
+  error?: string
 }
 
 const props = withDefaults(defineProps<{
@@ -194,7 +197,12 @@ const props = withDefaults(defineProps<{
   title?: string
   /** Full owner declaration tree used only for safe display masking. */
   sourceParameters?: ToolParameter[]
-  modelValue: Record<string, unknown>
+  modelValue: unknown
+  /** HTTP Console variant; business-method inputs retain their object-only contract. */
+  httpJsonBody?: boolean
+  httpBodySchema?: Record<string, unknown>
+  jsonValueValidator?: (value: unknown) => string
+  jsonOnly?: boolean
   singleDtoRootName?: string | null
   disabled?: boolean
 }>(), {
@@ -202,16 +210,19 @@ const props = withDefaults(defineProps<{
   title: '调用输入',
   sourceParameters: () => [],
   disabled: false,
+  httpJsonBody: false,
+  jsonOnly: false,
 })
 const emit = defineEmits<{
   'update:modelValue': [value: Record<string, unknown>]
+  'http-body-change': [value: unknown]
   'dirty-change': [value: boolean]
   'draft-change': [state: BusinessMethodInvocationDraftState]
 }>()
 
-const mode = ref<EditorMode>('form')
+const mode = ref<EditorMode>(props.jsonOnly ? 'json' : 'form')
 const fields = ref<Record<string, FormField>>({})
-const draftValue = ref<Record<string, unknown>>({})
+const draftValue = ref<unknown>({})
 const jsonText = ref('{}')
 const jsonError = ref('')
 const formModeNotice = ref('')
@@ -220,6 +231,7 @@ const jsonSensitiveRevealed = ref(false)
 const hiddenSensitiveJsonDraft = ref<string | null>(null)
 const sensitiveVisibleFields = ref<Record<string, boolean>>({})
 const revision = ref(0)
+const jsonFeedbackId = useId()
 const isValidDraft = ref(false)
 const hasInvalidFormDraft = ref(false)
 let appliedInputSignature = ''
@@ -230,7 +242,27 @@ const singleDtoRootSensitive = computed(() => Boolean(
   props.singleDtoRootName
   && maskingParameters.value.some((parameter) => parameter.name === props.singleDtoRootName && isSensitiveParameter(parameter)),
 ))
-const hasSensitiveParameters = computed(() => containsSensitiveParameter(maskingParameters.value))
+const sensitiveName = /password|passwd|secret|token|credential|authorization|cookie|private[-_]?key|api[-_]?key/i
+function httpSensitive(schema: Record<string, unknown> = {}, value?: unknown): boolean {
+  if (schema.format === 'password' || schema.writeOnly === true) return true
+  if (schema.items && typeof schema.items === 'object' && httpSensitive(schema.items as Record<string, unknown>)) return true
+  if (Array.isArray(value)) return value.some(entry => httpSensitive((schema.items || {}) as Record<string, unknown>, entry))
+  const properties = (schema.properties || {}) as Record<string, Record<string, unknown>>
+  if (Object.entries(properties).some(([key, field]) => sensitiveName.test(key) || httpSensitive(field))) return true
+  const object = asRecord(value)
+  return !!object && Object.entries(object).some(([key, entry]) => sensitiveName.test(key)
+    || httpSensitive(properties[key] || (typeof schema.additionalProperties === 'object' ? schema.additionalProperties as Record<string, unknown> : {}), entry))
+}
+function maskedHttpValue(value: unknown, schema: Record<string, unknown> = {}): unknown {
+  if (schema.format === 'password' || schema.writeOnly === true) return '••••••'
+  if (Array.isArray(value)) return value.map(entry => maskedHttpValue(entry, (schema.items || {}) as Record<string, unknown>))
+  const object = asRecord(value)
+  const properties = (schema.properties || {}) as Record<string, Record<string, unknown>>
+  return object ? Object.fromEntries(Object.entries(object).map(([key, entry]) => [key, sensitiveName.test(key) ? '••••••'
+    : maskedHttpValue(entry, properties[key] || (typeof schema.additionalProperties === 'object' ? schema.additionalProperties as Record<string, unknown> : {}))])) : value
+}
+const hasSensitiveParameters = computed(() => props.httpJsonBody
+  ? httpSensitive(props.httpBodySchema, draftValue.value) : containsSensitiveParameter(maskingParameters.value))
 const sampleInput = computed(() => explicitSampleInput({ parameters: props.parameters, singleDtoRootName: props.singleDtoRootName || null }))
 
 function cloneRecord(value: Record<string, unknown>) {
@@ -239,6 +271,10 @@ function cloneRecord(value: Record<string, unknown>) {
   } catch {
     return { ...value }
   }
+}
+
+function cloneInput(value: unknown): unknown {
+  return value === undefined ? undefined : JSON.parse(JSON.stringify(value))
 }
 
 function signature(value: unknown) {
@@ -267,13 +303,15 @@ function fieldValue(parameter: ToolParameter, value: unknown) {
 }
 
 function resolveFormPayload(value = draftValue.value) {
+  const object = asRecord(value) || (props.httpJsonBody && value === undefined && !props.jsonOnly ? {} : null)
+  if (!object) return { payload: null, wrapped: false, reason: '当前请求体不是对象，请继续使用 JSON 编辑。' }
   const rootName = props.singleDtoRootName
-  if (rootName && hasOwn(value, rootName)) {
-    const wrapped = asRecord(value[rootName])
+  if (rootName && hasOwn(object, rootName)) {
+    const wrapped = asRecord(object[rootName])
     if (!wrapped) return { payload: null, wrapped: true, reason: `“${rootName}”当前不是对象，无法在表单中无损编辑。` }
     return { payload: wrapped, wrapped: true, reason: '' }
   }
-  return { payload: value, wrapped: false, reason: '' }
+  return { payload: object, wrapped: false, reason: '' }
 }
 
 function formCompatibility(value = draftValue.value) {
@@ -312,9 +350,10 @@ function resetFields() {
 }
 
 function syncJsonText() {
-  jsonText.value = hasSensitiveParameters.value && !jsonSensitiveRevealed.value
-    ? safeJson(maskInvocationInput(draftValue.value, maskingParameters.value))
-    : safeJson(draftValue.value)
+  jsonText.value = (hasSensitiveParameters.value && !jsonSensitiveRevealed.value
+    ? safeJson(props.httpJsonBody ? maskedHttpValue(draftValue.value, props.httpBodySchema)
+      : maskInvocationInput(asRecord(draftValue.value) || {}, maskingParameters.value))
+    : safeJson(draftValue.value)) ?? ''
 }
 
 function fieldFor(parameter: ToolParameter) {
@@ -329,6 +368,10 @@ function parameterLabel(parameter: ToolParameter) {
 }
 
 function parameterContainsSensitive(parameter: ToolParameter) {
+  if (props.httpJsonBody) {
+    const properties = (props.httpBodySchema?.properties || {}) as Record<string, Record<string, unknown>>
+    return isSensitiveParameter(parameter) || httpSensitive(properties[parameter.name], resolveFormPayload().payload?.[parameter.name])
+  }
   return singleDtoRootSensitive.value || containsSensitiveParameter([parameter])
 }
 
@@ -336,6 +379,11 @@ function maskedFieldPreview(parameter: ToolParameter) {
   if (singleDtoRootSensitive.value) return '••••••'
   const binding = resolveFormPayload()
   const raw = binding.payload?.[parameter.name]
+  if (props.httpJsonBody) {
+    const properties = (props.httpBodySchema?.properties || {}) as Record<string, Record<string, unknown>>
+    return isComplexParameter(parameter) && !isSensitiveParameter(parameter)
+      ? safeJson(maskedHttpValue(raw, properties[parameter.name])) : '••••••'
+  }
   const masked = maskInvocationInput({ [parameter.name]: raw }, [parameter])
   const projection = masked[parameter.name]
   return isComplexParameter(parameter) ? safeJson(projection) : '••••••'
@@ -423,7 +471,7 @@ function formInput(showErrors: boolean): Record<string, unknown> | null {
     result[parameter.name] = field.value
   }
   if (!valid) return null
-  if (binding.wrapped && props.singleDtoRootName) return { ...draftValue.value, [props.singleDtoRootName]: result }
+  if (binding.wrapped && props.singleDtoRootName) return { ...asRecord(draftValue.value), [props.singleDtoRootName]: result }
   return result
 }
 
@@ -433,15 +481,25 @@ function emitDraft(valid: boolean, dirty = false) {
     revision.value += 1
     emit('dirty-change', true)
   }
-  emit('draft-change', { valid, revision: revision.value, mode: mode.value })
+  emit('draft-change', { valid, revision: revision.value, mode: mode.value,
+    error: valid ? '' : jsonError.value || formModeNotice.value })
 }
 
-function commitInput(next: Record<string, unknown>, dirty = false, notify = true) {
-  draftValue.value = cloneRecord(next)
+function commitInput(next: unknown, dirty = false, notify = true) {
+  const error = props.httpJsonBody ? props.jsonValueValidator?.(next) : ''
+  if (error) {
+    if (mode.value === 'json') jsonError.value = error
+    else { formModeNotice.value = error; hasInvalidFormDraft.value = true }
+    emitDraft(false, dirty)
+    return false
+  }
+  draftValue.value = cloneInput(next)
   appliedInputSignature = signature(draftValue.value)
-  emit('update:modelValue', cloneRecord(draftValue.value))
+  if (props.httpJsonBody) emit('http-body-change', cloneInput(draftValue.value))
+  else emit('update:modelValue', cloneInput(draftValue.value) as Record<string, unknown>)
   if (notify) emitDraft(true, dirty)
   else isValidDraft.value = true
+  return true
 }
 
 function onFormChanged() {
@@ -516,14 +574,14 @@ function changeMode(nextMode: EditorMode) {
 function onJsonInput() {
   if (hasSensitiveParameters.value && !jsonSensitiveRevealed.value) return
   try {
-    const parsed = JSON.parse(jsonText.value)
-    if (!asRecord(parsed)) throw new Error('object')
+    const parsed = props.httpJsonBody && !jsonText.value.trim() ? undefined : JSON.parse(jsonText.value)
+    if (!props.httpJsonBody && !asRecord(parsed)) throw new Error('object')
     jsonError.value = ''
     formModeNotice.value = ''
     hiddenSensitiveJsonDraft.value = null
     commitInput(parsed, true)
   } catch {
-    jsonError.value = '请输入合法的 JSON 对象；修正前不会提交此前的输入。'
+    jsonError.value = props.httpJsonBody ? '请输入合法的 JSON 请求体；修正前不会提交此前的输入。' : '请输入合法的 JSON 对象；修正前不会提交此前的输入。'
     emitDraft(false, true)
   }
 }
@@ -541,7 +599,7 @@ function fillSample() {
 
 function revealSensitiveJson() {
   jsonSensitiveRevealed.value = true
-  jsonText.value = hiddenSensitiveJsonDraft.value ?? safeJson(draftValue.value)
+  jsonText.value = hiddenSensitiveJsonDraft.value ?? safeJson(draftValue.value) ?? ''
 }
 
 function hideSensitiveJson() {
@@ -568,13 +626,13 @@ function validate() {
       return { valid: isValidDraft.value, revision: revision.value, mode: mode.value }
     }
     try {
-      const parsed = JSON.parse(jsonText.value)
-      if (!asRecord(parsed)) throw new Error('object')
+      const parsed = props.httpJsonBody && !jsonText.value.trim() ? undefined : JSON.parse(jsonText.value)
+      if (!props.httpJsonBody && !asRecord(parsed)) throw new Error('object')
       jsonError.value = ''
-      commitInput(parsed, false, false)
-      return { valid: true, revision: revision.value, mode: mode.value }
+      const valid = commitInput(parsed, false, false)
+      return { valid, revision: revision.value, mode: mode.value }
     } catch {
-      jsonError.value = '请输入合法的 JSON 对象；修正前不会提交此前的输入。'
+      jsonError.value = props.httpJsonBody ? '请输入合法的 JSON 请求体；修正前不会提交此前的输入。' : '请输入合法的 JSON 对象；修正前不会提交此前的输入。'
       emitDraft(false)
       return { valid: false, revision: revision.value, mode: mode.value }
     }
@@ -584,23 +642,23 @@ function validate() {
     emitDraft(false)
     return { valid: false, revision: revision.value, mode: mode.value }
   }
-  commitInput(next, false, false)
-  return { valid: true, revision: revision.value, mode: mode.value }
+  const valid = commitInput(next, false, false)
+  return { valid, revision: revision.value, mode: mode.value }
 }
 
-function syncIncoming(value: Record<string, unknown>, force = false) {
+function syncIncoming(value: unknown, force = false) {
   const inputSignature = signature(value)
   if (!force && inputSignature === appliedInputSignature) return
   appliedInputSignature = inputSignature
-  draftValue.value = cloneRecord(value)
+  draftValue.value = cloneInput(value)
   jsonError.value = ''
   hiddenSensitiveJsonDraft.value = null
   hasInvalidFormDraft.value = false
   formModeNotice.value = ''
   const incompatibility = formCompatibility()
-  if (mode.value === 'form' && incompatibility) {
+  if (props.jsonOnly || (mode.value === 'form' && incompatibility)) {
     mode.value = 'json'
-    formModeNotice.value = incompatibility
+    formModeNotice.value = props.jsonOnly ? '' : incompatibility
   }
   if (mode.value === 'form') {
     resetFields()
@@ -612,9 +670,11 @@ function syncIncoming(value: Record<string, unknown>, force = false) {
 }
 
 watch(
-  [() => props.modelValue, () => props.parameters, () => props.sourceParameters, () => props.singleDtoRootName],
+  [() => props.modelValue, () => props.parameters, () => props.sourceParameters, () => props.singleDtoRootName,
+    () => props.httpJsonBody, () => props.httpBodySchema, () => props.jsonOnly],
   () => {
-    const parametersSignature = signature([props.parameters, props.sourceParameters, props.singleDtoRootName])
+    const parametersSignature = signature([props.parameters, props.sourceParameters, props.singleDtoRootName,
+      props.httpJsonBody, props.httpBodySchema, props.jsonOnly])
     const changedParameters = parametersSignature !== appliedParametersSignature
     if (changedParameters) {
       appliedParametersSignature = parametersSignature
@@ -625,6 +685,10 @@ watch(
   },
   { deep: true, immediate: true },
 )
+
+watch(hasSensitiveParameters, sensitive => {
+  if (props.httpJsonBody && sensitive && !jsonSensitiveRevealed.value) syncJsonText()
+})
 
 defineExpose({ validate })
 </script>

@@ -210,8 +210,6 @@ import com.enterprise.ai.runtime.runops.consolehttpapi.RuntimeHttpApiConnectionS
 import com.enterprise.ai.runtime.runops.consolehttpapi.RuntimeHttpApiConnectionInternalController;
 import com.enterprise.ai.runtime.runops.consolehttpapi.RuntimeHttpApiInvocationService;
 import com.enterprise.ai.runtime.runops.consolehttpapi.RuntimeHttpApiInvocationInternalController;
-import com.enterprise.ai.runtime.runops.consolehttpapi.RuntimeHttpApiCatalogStateService;
-import com.enterprise.ai.runtime.runops.consolehttpapi.RuntimeHttpApiCatalogStateInternalController;
 import com.enterprise.ai.runtime.runops.consolecapability.ConsoleCapabilityInvocationMapper;
 import com.enterprise.ai.runtime.support.RuntimeQueryTestDatabase;
 import com.enterprise.ai.runtime.trace.RuntimeToolCallLogMapper;
@@ -3509,8 +3507,6 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
                                 castHeaders(arguments[0]));
                         case "saveHttpApiConnection" -> runtimeProxyResponse("PUT",
                                 "/internal/runtime/http-api-connections", (byte[]) arguments[1], castHeaders(arguments[0]));
-                        case "readHttpApiCatalogStates" -> runtimeProxyResponse("POST",
-                                "/internal/runtime/http-api-catalog-states", (byte[]) arguments[1], castHeaders(arguments[0]));
                         case "invokeHttpApi" -> runtimeProxyResponse("POST",
                                 "/internal/runtime/http-api-invocations", (byte[]) arguments[1], castHeaders(arguments[0]));
                         case "getHttpApiInvocation" -> runtimeProxyResponse("GET",
@@ -3811,8 +3807,6 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
                             new RuntimeWorkflowReadOnlyTrialInternalController(readOnlyTrials),
                             new com.enterprise.ai.runtime.runops.consolecapability.ConsoleCapabilityInvocationInternalController(consoleMethodCalls),
                             new RuntimeHttpApiInvocationInternalController(consoleApiCalls),
-                            new RuntimeHttpApiCatalogStateInternalController(new RuntimeHttpApiCatalogStateService(
-                                    session.getMapper(RuntimeHttpApiConnectionMapper.class), session.getMapper(ConsoleCapabilityInvocationMapper.class))),
                             new RuntimeHttpApiConnectionInternalController(httpApiConnections))
                     .addFilters(runtimeFilter)
                     .setControllerAdvice(new RuntimeWorkflowRevisionExceptionHandler())

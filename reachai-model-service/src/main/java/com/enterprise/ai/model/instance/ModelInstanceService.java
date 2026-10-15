@@ -1,6 +1,7 @@
 package com.enterprise.ai.model.instance;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.enterprise.ai.common.exception.BizException;
 import com.enterprise.ai.model.security.CredentialCipher;
 import com.enterprise.ai.model.template.ModelTemplateEntity;
@@ -279,7 +280,14 @@ public class ModelInstanceService {
         entity.setLastTestLatencyMs(latencyMs);
         entity.setLastTestError(success ? null : ConnectionConfigSupport.sanitizeError(error));
         entity.setUpdatedAt(LocalDateTime.now());
-        mapper.updateById(entity);
+        // updateById skips null fields; a successful retest must atomically clear the previous error.
+        mapper.update(null, new LambdaUpdateWrapper<ModelInstanceEntity>()
+                .eq(ModelInstanceEntity::getId, id)
+                .set(ModelInstanceEntity::getLastTestStatus, entity.getLastTestStatus())
+                .set(ModelInstanceEntity::getLastTestAt, entity.getLastTestAt())
+                .set(ModelInstanceEntity::getLastTestLatencyMs, entity.getLastTestLatencyMs())
+                .set(ModelInstanceEntity::getLastTestError, entity.getLastTestError())
+                .set(ModelInstanceEntity::getUpdatedAt, entity.getUpdatedAt()));
     }
 
     public ModelInstanceRuntime toRuntime(ModelInstanceEntity entity) {

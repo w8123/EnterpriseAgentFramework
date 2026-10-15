@@ -3,6 +3,9 @@ package com.enterprise.ai.runtime.runops.consolehttpapi;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.enterprise.ai.common.capability.HttpApiConsoleContracts;
 import com.enterprise.ai.common.capability.HttpApiConsolePolicy;
+import com.enterprise.ai.common.capability.HttpApiJsonBinding;
+import com.enterprise.ai.common.capability.HttpApiRequestPolicy;
+import com.enterprise.ai.common.capability.HttpApiResponseProtection;
 import com.enterprise.ai.runtime.credential.RuntimeWorkflowCredentialRuntime;
 import com.enterprise.ai.runtime.execution.http.WorkflowHttpClient;
 import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
@@ -21,6 +24,7 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
 
@@ -83,14 +87,16 @@ public class RuntimeHttpApiInvocationService {
         if (!markDispatching(command.invocationId())) return outcome(require(command.invocationId()));
         WorkflowHttpClient.HttpExecutionResult response;
         try {
-            boolean write = "WRITE".equals(prepared.bound().sideEffect());
+            boolean write = HttpApiRequestPolicy.requiresWriteConfirmation(prepared.bound().sideEffect());
             response = http.execute(new WorkflowHttpClient.HttpExecutionRequest(prepared.bound().method(),
                     prepared.connection().getOrigin() + prepared.bound().encodedRoute(),
                     prepared.bound().queryParams(), prepared.bound().jsonBody() == null
                             ? Map.of("Accept", "application/json")
-                            : Map.of("Accept", "application/json", "Content-Type", "application/json"),
-                    prepared.bound().jsonBody() == null ? "NONE" : "JSON",
-                    prepared.bound().jsonBody() == null ? null : json(prepared.bound().jsonBody()),
+                            : Map.of("Accept", "application/json", "Content-Type", "text/plain".equals(prepared.bound().bodyContentType())
+                                    ? "text/plain;charset=UTF-8" : prepared.bound().bodyContentType()),
+                    prepared.bound().jsonBody() == null ? "NONE" : "text/plain".equals(prepared.bound().bodyContentType()) ? "TEXT" : "JSON",
+                    prepared.bound().jsonBody() == null ? null : "text/plain".equals(prepared.bound().bodyContentType())
+                            ? (String) prepared.bound().jsonBody() : json(prepared.bound().jsonBody()),
                     30_000, prepared.connection().getCredentialRef(),
                     WorkflowExecutionIdentity.fromAgent(command.projectId(), command.projectCode()),
                     prepared.credentialRevision(), !write));
@@ -100,8 +106,8 @@ public class RuntimeHttpApiInvocationService {
             return finish(claimed, "UNKNOWN", "UNCONFIRMED", "HTTP_API_DISPATCH_UNKNOWN", null, null, null);
         }
         if (response.statusCode() > 0) {
-            if ("WRITE".equals(prepared.bound().sideEffect()) && response.success()
-                    && !(response.parsedBody() instanceof Map<?, ?>)) {
+            if (HttpApiRequestPolicy.requiresWriteConfirmation(prepared.bound().sideEffect()) && response.success()
+                    && !HttpApiRequestPolicy.confirmsResponse(prepared.acceptedContract(), response.parsedBody())) {
                 return finish(claimed, "UNKNOWN", "UNCONFIRMED", "HTTP_API_RESULT_UNCONFIRMED",
                         response.statusCode(), response.durationMs(), null);
             }
@@ -171,10 +177,10 @@ public class RuntimeHttpApiInvocationService {
             throw new IllegalArgumentException("invalid HTTP API credential revision");
         }
         if (command.pathParams() != null && command.pathParams().size() > 64
-                || command.queryParams() != null && command.queryParams().size() > 64
-                || command.body() != null && command.body().size() > 64) {
+                || command.queryParams() != null && command.queryParams().size() > 64) {
             throw new IllegalArgumentException("too many HTTP API parameters");
         }
+        if (command.body() != null) HttpApiJsonBinding.copyWire(command.body(), json);
     }
 
     private Prepared prepare(HttpApiConsoleContracts.InvocationCommand command) {
@@ -188,7 +194,7 @@ public class RuntimeHttpApiInvocationService {
                 || !Objects.equals(owner.sourceSetRevision(), command.expectedSourceSetRevision())) {
             throw new Conflict("HTTP_API_CONTRACT_CHANGED", "API 来源或已接纳契约已变化，请刷新后重试");
         }
-        if ("WRITE".equals(owner.acceptedContract().path("sideEffect").asText()) && !command.confirmedSideEffect()) {
+        if (HttpApiRequestPolicy.requiresWriteConfirmation(owner.acceptedContract().path("sideEffect").asText()) && !command.confirmedSideEffect()) {
             throw new Conflict("HTTP_API_CONFIRMATION_REQUIRED", "写 API 必须确认当前契约、连接和输入");
         }
         RuntimeHttpApiConnectionEntity connection = connections.find(owner.qualifiedName());
@@ -204,7 +210,9 @@ public class RuntimeHttpApiInvocationService {
         if (credential != null && !StringUtils.hasText(credential.revision())) {
             throw new Conflict("HTTP_API_CREDENTIAL_REVISION_UNAVAILABLE", "项目凭据修订不可用，请刷新凭据后重试");
         }
-        if ("WRITE".equals(owner.acceptedContract().path("sideEffect").asText())
+        // Explicit pins apply to reads too; legacy read callers may still omit the revision.
+        if ((HttpApiRequestPolicy.requiresWriteConfirmation(owner.acceptedContract().path("sideEffect").asText())
+                || command.expectedCredentialRevision() != null)
                 && !Objects.equals(command.expectedCredentialRevision(), credential == null ? null : credential.revision())) {
             throw new Conflict("HTTP_API_CREDENTIAL_CHANGED", "项目凭据已变化，请刷新连接并重新确认");
         }
@@ -220,15 +228,15 @@ public class RuntimeHttpApiInvocationService {
         List<String> inputSecrets = new ArrayList<>();
         collectInputSecrets(command.pathParams(), inputSecrets, null);
         collectInputSecrets(command.queryParams(), inputSecrets, null);
-        collectInputSecrets(bound.jsonBody(), inputSecrets,
-                owner.acceptedContract().path("requestBody").path("schema").path("properties"));
+        HttpApiResponseProtection.collectBodySecrets(bound.jsonBody(), inputSecrets,
+                owner.acceptedContract().path("requestBody").path("schema"));
         return new Prepared(connection, credential, credential == null ? null : credential.revision(), bound,
-                List.copyOf(inputSecrets));
+                List.copyOf(inputSecrets), owner.acceptedContract().deepCopy());
     }
 
     private Claim claim(HttpApiConsoleContracts.InvocationCommand command, Prepared prepared) {
         try {
-            return transaction().execute(tx -> {
+            return claimTransaction().execute(tx -> {
                 ConsoleCapabilityInvocationEntity existing = attempts.selectByInvocationIdForUpdate(command.invocationId());
                 if (existing != null) { assertSame(existing, command); return new Claim(existing, false); }
                 LocalDateTime now = LocalDateTime.now();
@@ -464,7 +472,7 @@ public class RuntimeHttpApiInvocationService {
             Map<String, Object> value = new TreeMap<>();
             value.put("path", new TreeMap<>(command.pathParams() == null ? Map.of() : command.pathParams()));
             value.put("query", new TreeMap<>(command.queryParams() == null ? Map.of() : command.queryParams()));
-            value.put("body", command.body() == null ? null : new TreeMap<>(command.body()));
+            value.put("body", command.body() == null ? null : HttpApiJsonBinding.copyWire(command.body(), json));
             value.put("confirmation", command.confirmedSideEffect());
             value.put("credentialRevision", command.expectedCredentialRevision());
             return java.util.HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
@@ -489,11 +497,21 @@ public class RuntimeHttpApiInvocationService {
     }
 
     private boolean hash(String value) { return value != null && value.matches("[a-f0-9]{64}"); }
-    private int size(Map<String, Object> value) { return value == null ? 0 : value.size(); }
+    private int size(Object value) {
+        return value == null ? 0 : value instanceof Map<?, ?> map ? map.size()
+                : value instanceof java.util.Collection<?> items ? items.size() : 1;
+    }
     private TransactionTemplate transaction() { return new TransactionTemplate(transactions); }
+    private TransactionTemplate claimTransaction() {
+        TransactionTemplate claim = transaction();
+        // A missing UUID must not hold an InnoDB RR gap lock before a competing insert.
+        // The unique invocation_id index still elects exactly one durable owner.
+        claim.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+        return claim;
+    }
     private record Prepared(RuntimeHttpApiConnectionEntity connection, RuntimeWorkflowCredentialRuntime credential,
                             String credentialRevision, HttpApiConsolePolicy.BoundRequest bound,
-                            List<String> inputSecrets) { }
+                            List<String> inputSecrets, JsonNode acceptedContract) { }
     private record Claim(ConsoleCapabilityInvocationEntity row, boolean owner) { }
 
     public static class Conflict extends RuntimeException {

@@ -18,7 +18,7 @@
 
 工作台通过 `/business-capabilities/java-methods` 与 `/business-capabilities/http-apis` 两个嵌套目录路由保存分类。HTTP API 详情位于 `/business-capabilities/http-apis/:id`，只匹配正整数资产 ID，避免将来源、分组、语义或图谱子路径当作详情；旧目录 URL 仅重定向并迁移原筛选字段。公共筛选/分页机制使用 method/api query 命名空间，保留项目范围和另一类目录条件。面板卸载、项目或会话变化均使旧响应失效。
 
-后端维持 typed method/API 读取接口及既有调用主路径。方法统计 `GET /api/business-methods/summary?projectId=…` 经 Control 同目录授权后转发 Capability；省略项目要求 GLOBAL grant。Capability 一次聚合已接纳 owner 返回 `total/enabled/disabled`，不解析来源详情、不读取调用投影，统计独立于关键词和分页。HTTP API 列表的当前账号连接与最近试调用提示继续由 Runtime 提供，不挪到方法聚合或跨服务表查询中。
+后端维持 typed method/API 读取接口及既有调用主路径。方法统计 `GET /api/business-methods/summary?projectId=…` 经 Control 同目录授权后转发 Capability；省略项目要求 GLOBAL grant。Capability 一次聚合已接纳 owner 返回 `total/enabled/disabled`，不解析来源详情、不读取调用投影，统计独立于关键词和分页。HTTP API 列表仅返回 Capability owner 分页事实，不请求 Runtime 连接与当前账号最近试调用汇总；这两类信息由详情既有连接与调用查询按需读取，继续归 Runtime 所有。
 
 同一工作台内以“能力目录／接入与变更”组织主任务。业务分类融入两类目录，分类说明、重命名和附加归属就地完成，整理菜单提供批量说明和关联分析。分类合并的前端与后端处理均已退场。局部辅助路径为 `/business-capabilities/{java-methods|http-apis}/{sources|semantics|graph}`；原 groups 路径回到目录，GROUP 说明书签定位分类说明。来源页由 `views/capability/source/BusinessCapabilitySourceWorkbench.vue` 按已授权项目解析可信来源范围，旧 `views/scan/ScanProjectDetail.vue` 页面实现和路由退场。项目管理进入同一来源视图，不再维护另一份 API 管理页。
 

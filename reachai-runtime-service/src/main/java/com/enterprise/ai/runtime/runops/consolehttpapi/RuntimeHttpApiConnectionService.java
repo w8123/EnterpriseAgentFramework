@@ -59,6 +59,9 @@ public class RuntimeHttpApiConnectionService {
                 credential == null ? null : credential.type(), credentialHeader(credential));
         if (authReason != null) throw new Conflict("HTTP_API_AUTH_MISMATCH", authReason);
         RuntimeHttpApiConnectionEntity existing = connections.selectByRefForUpdate(owner.qualifiedName());
+        if (!sameScope(owner, existing)) {
+            throw new Conflict("HTTP_API_OWNER_CHANGED", "连接所属项目或环境与当前 API 不一致，请刷新后核对");
+        }
         Long expected = save.expectedRevision();
         if (existing == null ? expected != null : !Objects.equals(existing.getRevision(), expected)) {
             throw new Conflict("HTTP_API_CONNECTION_REVISION_CHANGED", "连接配置已变化，请刷新后比较并重新保存");
@@ -162,6 +165,7 @@ public class RuntimeHttpApiConnectionService {
 
     private HttpApiConsoleContracts.ConnectionView view(HttpApiConsoleContracts.ExecutionContext owner,
                                                         RuntimeHttpApiConnectionEntity saved) {
+        boolean configurationAllowed = configurationAllowed(owner, saved);
         if (saved == null) {
             String blocker = !owner.sourceConfirmed() || !"ACCEPTED".equals(owner.sourceStatus())
                     ? owner.sourceReason() == null ? "请先接纳当前来源契约" : owner.sourceReason()
@@ -170,7 +174,7 @@ public class RuntimeHttpApiConnectionService {
                     owner.projectId(), owner.projectCode(), owner.environment(), null, null, null, null, null,
                     null, blocker == null ? "UNCONFIGURED" : "BLOCKED",
                     blocker == null ? "尚未保存服务地址与认证方式" : blocker, null,
-                    verification(owner, null, null, blocker));
+                    verification(owner, null, null, blocker), configurationAllowed);
         }
         String reason = null;
         if (!Objects.equals(saved.getProjectId(), owner.projectId())
@@ -193,13 +197,29 @@ public class RuntimeHttpApiConnectionService {
                 || !Objects.equals(owner.acceptedContractHash(), owner.candidateContractHash()))) {
             reason = owner.sourceReason() == null ? "当前 API 契约尚未接纳" : owner.sourceReason();
         }
+        if (reason == null && !owner.consoleCallSupported()) {
+            reason = owner.consoleUnsupportedReason() == null ? "当前 API 契约尚不支持试调用" : owner.consoleUnsupportedReason();
+        }
         return new HttpApiConsoleContracts.ConnectionView(owner.qualifiedName(), owner.projectId(),
                 owner.projectCode(), owner.environment(), saved.getOrigin(), saved.getAuthMode(),
                 saved.getCredentialRef(), credential == null ? null : credential.name(),
                 credential == null ? null : credential.revision(), saved.getRevision(),
                 reason == null ? "CONFIGURED" : "BLOCKED", reason,
                 saved.getOrigin() + owner.routeTemplate(),
-                verification(owner, saved, credential == null ? null : credential.revision(), reason));
+                verification(owner, saved, credential == null ? null : credential.revision(), reason), configurationAllowed);
+    }
+
+    /** A broken origin/credential can be replaced; source, contract and ownership are never repaired by a save. */
+    private boolean configurationAllowed(HttpApiConsoleContracts.ExecutionContext owner, RuntimeHttpApiConnectionEntity saved) {
+        return owner.sourceConfirmed() && "ACCEPTED".equals(owner.sourceStatus()) && owner.consoleCallSupported()
+                && StringUtils.hasText(owner.acceptedContractHash())
+                && Objects.equals(owner.acceptedContractHash(), owner.candidateContractHash()) && sameScope(owner, saved);
+    }
+
+    private boolean sameScope(HttpApiConsoleContracts.ExecutionContext owner, RuntimeHttpApiConnectionEntity saved) {
+        return saved == null || Objects.equals(saved.getProjectId(), owner.projectId())
+                && Objects.equals(saved.getProjectCode(), owner.projectCode())
+                && Objects.equals(saved.getEnvironment(), owner.environment());
     }
 
     private HttpApiConsoleContracts.MarketVerificationView verification(HttpApiConsoleContracts.ExecutionContext owner,

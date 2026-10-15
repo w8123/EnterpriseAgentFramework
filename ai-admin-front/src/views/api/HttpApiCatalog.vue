@@ -79,9 +79,6 @@
             <small v-if="!adjustingClassification" class="api-subline api-qualified-name" :title="row.qualifiedName">{{ row.qualifiedName }}</small>
             <dl v-if="!adjustingClassification" class="api-compact-summary" aria-label="API 关键状态">
               <div><dt>来源</dt><dd>{{ row.sourceKinds.map(sourceKindLabel).join('、') || '暂无来源' }} · {{ statusLabel(row.sourceStatus) }}</dd></div>
-              <div><dt>连接</dt><dd>{{ connectionLabel(row.connectionStatus) }}</dd></div>
-              <div><dt>最近试调用</dt><dd>{{ latestTrialLabel(row) }}</dd></div>
-              <div><dt>下一步</dt><dd>{{ nextAction(row) }}</dd></div>
             </dl>
           </template>
         </el-table-column>
@@ -106,16 +103,6 @@
               </el-tag>
             </div>
           </template>
-        </el-table-column>
-        <el-table-column v-if="!adjustingClassification" label="连接 / 试调用" min-width="180">
-          <template #default="{ row }">
-            <span>{{ connectionLabel(row.connectionStatus) }}</span>
-            <small class="api-subline">最近试调用：{{ latestTrialLabel(row) }}</small>
-            <small class="api-subline">{{ row.latestInvocationAt ? '历史记录' : '仅显示当前账号' }}</small>
-          </template>
-        </el-table-column>
-        <el-table-column v-if="!adjustingClassification" label="下一步" min-width="190">
-          <template #default="{ row }">{{ nextAction(row) }}</template>
         </el-table-column>
         <el-table-column :label="adjustingClassification ? '归类' : '操作'" width="102" fixed="right" align="center">
           <template #default="{ row }">
@@ -335,26 +322,6 @@ function statusTone(status: HttpApiSourceStatus) {
 function sourceKindLabel(kind: string) {
   return ({ OPENAPI_SCAN: 'OpenAPI', CONTROLLER_SCAN: 'Controller', STARTER_MVC: 'Starter MVC',
     API_MARKET_OPERATION: 'API 市场' } as Record<string, string>)[kind] || kind
-}
-function nextAction(row: HttpApiSummary) {
-  if (!row.sourceConfirmed) return row.sourceReason || '重新扫描或同步来源'
-  if (row.sourceStatus === 'DISCOVERED' || row.sourceStatus === 'CONTRACT_DRIFT') return '查看差异并接纳契约'
-  if (row.sourceStatus === 'ACCEPTED') return row.connectionStatus === 'UNCONFIGURED'
-    ? '配置接入' : '查看连接与试调用条件'
-  return '检查来源状态'
-}
-function connectionLabel(status: HttpApiSummary['connectionStatus']) {
-  const labels: Record<string, string> = { SAVED: '连接已保存', UNCONFIGURED: '连接未配置',
-    UNAVAILABLE: '暂不可查询' }
-  return labels[status || 'UNAVAILABLE']
-}
-function latestTrialLabel(row: HttpApiSummary) {
-  if (row.connectionStatus === 'UNAVAILABLE') return '暂不可查询'
-  if (!row.latestInvocationStatus) return '暂无本账号记录'
-  if (row.latestInvocationStatus === 'SUCCEEDED') return `HTTP ${row.latestHttpStatus || '2xx'} 成功`
-  if (row.latestInvocationStatus === 'HTTP_FAILED') return `HTTP ${row.latestHttpStatus || '非 2xx'} 失败`
-  return ({ UNKNOWN: '结果未知', NOT_DISPATCHED: '未派发', ACCEPTED: '已建立',
-    DISPATCHING: '正在调用' } as Record<string, string>)[row.latestInvocationStatus] || '调用已结束'
 }
 watch([query.requestKey, () => scope?.requestKey.value, projectId, platformSessionId], () => {
   if (!isCatalogRoute.value) return

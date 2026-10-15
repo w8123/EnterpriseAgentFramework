@@ -1,5 +1,33 @@
 # 业务方法与 API 重构实施进度
 
+## HTTP API 列表“下一步”及派生提示退场（2026-10-15，D26，实施中）
+
+本批关联 U3 的 API 查找与理解。用户确认列表动作建议价值有限，要求移除相关逻辑；范围为 HTTP 目录桌面列、窄屏摘要、专用 nextAction 函数、既有测试与 DESIGN／UX／基线说明。不把建议迁入其他列；保留来源与接纳状态、详情异常原因及接纳／调用准入校验，不改后端、数据库和共享列表 owner。限定事前快照在 `output/tasks/http-api-next-action-retirement-20261015/before`。停止点为相关回归、前端构建、静态检查及桌面／窄屏走查，不重启后端，不提交或推送。
+
+## HTTP API 列表连接／试调用状态退场（2026-10-15，D25，完成）
+
+本批关联 U3 的 API 查找与理解。用户要求移除“连接 / 试调用”列，并取消列表为该列加载的后端数据。目录保留路径、业务分类、环境、来源与接纳、下一步及查看；连接配置和当前账号调用记录在详情按需读取。无数据库结构或业务数据变更，不提交或推送。
+
+- 前端：同时移除桌面列、窄屏摘要的连接／最近试调用项、四个可选列表类型字段与专用格式化函数。已接纳项下一步统一为“查看详情与试调用”，其余来源确认、契约待接纳／漂移提示保持。分类调整、查询、分页、详情入口及详情连接／调用保护保持。DESIGN、UX、架构与基线 D25 同步。
+- 后端：Control 继续校验列表项目、身份和重复记录，直接返回 Capability owner 分页事实；删除原有 Runtime 状态补全，以及无其他消费者的 Gateway／Feign 路由、Runtime 专用 controller/service、DTO 和最近调用聚合 SQL。每次非空分页少一次内部请求、连接表读取和最近调用聚合两条查询，不报告未经测量的耗时或比例。
+- 自动验证：前端列表、共享列表、真实 scope 导航及详情两类测试共 5 文件 79 项通过；最后 fixture 收口后另复跑导航 9 项，数量不累加，见[前端回归](../../output/tasks/http-api-list-state-retirement-20261015/frontend-tests.log)与[最终导航](../../output/tasks/http-api-list-state-retirement-20261015/navigation-final.log)。`npm run build` 的 vue-tsc／Vite 通过，保留既有大 chunk 提示，见[构建](../../output/tasks/http-api-list-state-retirement-20261015/frontend-build.log)。后端 Common 8、Control 22、Runtime 64，共 94 项零失败／错误／跳过，相关 reactor main/testCompile 通过，见[后端回归](../../output/tasks/http-api-list-state-retirement-20261015/backend/tests.log)。
+- 静态验证：业务能力工作台、页面间距、玻璃组件及物理路由守卫通过；[Premium strict](../../output/tasks/http-api-list-state-retirement-20261015/premium-audit.json)零问题，官方 DESIGN lint 零错误及既有无 YAML 提示，design diff 无 token 回归，限定差异与链接检查通过。[internal-api 守卫](../../output/tasks/http-api-list-state-retirement-20261015/internal-api-contracts.log)保留本批前已存在的 RunOps replay 路由文档缺项，不冒充全部检查通过；详情的连接／调用权限测试继续通过。
+- 浏览器：真实 Vite 页面使用隔离 GET 夹具，18 项检查覆盖 1440px／390px、六列表头、无运行字段记录、窄屏摘要、分类调整进出、Java 相邻目录、键盘下拉／Escape、搜索空态、加载与失败重试、固定查看入口。整页无横向溢出、脚本异常 0、写请求 0；故障夹具的预期 503 单列记录。见[浏览器记录](../../output/tasks/http-api-list-state-retirement-20261015/browser-result.json)、[桌面](../../output/tasks/http-api-list-state-retirement-20261015/desktop.png)及[窄屏](../../output/tasks/http-api-list-state-retirement-20261015/narrow.png)。独立浏览器初次访问进入登录页，夹具不作为真实登录、业务写入或耗时验收。
+- 本地更新：原运行包已在忽略目录保留，Control／Runtime 按原启动参数更新并 health UP，见[目标打包](../../output/tasks/http-api-list-state-retirement-20261015/services-package.log)与[运行状态](../../output/tasks/http-api-list-state-retirement-20261015/services-after.json)；[最终健康检查](../../output/tasks/http-api-list-state-retirement-20261015/health-final.json)确认前端与五后端均正常。首次全依赖 package 在运行中 Knowledge JAR 的 repackage 文件锁处失败并改变其构建产物，随即停止全依赖打包；独立 staging 已恢复完整 Boot3 包，334 个 class／资源与当前已编译结果一致、322 份 Knowledge 源码／POM 无 hash 漂移，原共用内部依赖沿用备份，见[恢复记录](../../output/tasks/http-api-list-state-retirement-20261015/backend/knowledge-repair/repair-result.json)。该恢复是受控重建而非原启动 SHA 的逐字节恢复，Knowledge PID／启动时间保持，因此其运行进程早于恢复产物时间，不作为该服务换包重启验收。目标更新改为不带 `-am` 的限定打包并核验 Boot3 Launcher。保留既有 WIP，未改登录配置、调用记录或数据库。
+- 停止点：本批列表及其专用读取退场完成；用户刷新本地页面查看。未扩展其他列、详情或全平台重构。
+
+## QMSSMP Basic / Teams 全量接入（2026-10-15，接入与本轮走查完成）
+
+本批关联 U1–U4。用户明确要求 Basic 与 Teams 全部业务接口覆盖，并授权直接修复联调中的产品、界面和代码问题。范围为 `D:/work/qmssmp` 的 Basic、Teams、网关及 UI，与 ReachAI 现有接入、目录、Console、Workflow 和嵌入链路；不恢复历史暂停批次，不提交或推送。
+
+- 接入边界：当前完整来源清单按项目管理，分别使用 Basic 项目 37 / `qmssmp-basic` 和既有 Teams 项目 36 / `bzjs21`，避免两个独立服务互删来源、覆盖回调地址。全部业务 Controller 包纳入 HTTP 发现，RPC / Starter / 管理端点排除；Java 业务方法继续显式声明，保留原有两条方法及已发布引用。实际发现、逐条接纳 Basic 50、Teams 139，共 189 条；Teams 目录另有天气和已移除历史来源，不混入业务覆盖数。
+- 必要支撑：修复隐式 query / ModelAttribute / 泛型与媒体证据，增加 HTTP 专用副作用声明以标记 14 条实际修改数据的 GET；修复 SDK 同步超时后被业务失败包装误判成功，使用有界回执预算。全量参数形态暴露 Console 只支持简单 POST 的限制，本批补齐五种方法、递归 JSON / 根数组 / String 原文及三种写级别确认，Studio 草稿真实试运行仍保持 D7 只读边界。JSON 枚举按实际 Jackson wire 类型推导，query / path 保留 Spring 参数转换语义。
+- 真实业务覆盖：189条全部接纳，186条连接配置完成。按API ID去重90条Console业务成功：77条READ_ONLY、9条已审查查询POST、4条隔离模块变更；106条未确认写请求均409、账本404。83条只读中另1条预览截断未作完整校验，5条缺真实任务/立法项ID未派发。multipart上传16/47、void不可逆通知94已纳入契约但Console暂不支持。隔离模块活动残留0，原有身份集合保持；不以全量接纳代替所有写接口实际执行。见[完整覆盖与边界](../../output/tasks/qmssmp-full-integration-20261015/coverage-final.md)。
+- 问题修复与实测：受阻连接可在正常UI换凭据恢复；并发建档只在claim使用READ_COMMITTED，真实MySQL不同/相同ID并发、旧契约/真实旧凭据/缺参数/跨项目隔离6项均通过，零重试旧UNKNOWN。Teams真正零奖金分支除零13项测试修复并换包；模型完整body截止与取消、30秒短测试、SUCCESS清旧错误已部署，真实测试3.644秒通过。供应商TLS问题以仅DeepSeek单域代理规则修复；本地Runtime仅显式允许127.0.0.1/localhost，默认私网策略保持。
+- Workflow与嵌入：三种草稿真实试运行通过；Basic专属查询Agent正常调用发布Workflow返回24，Teams HTTP Agent返回count2。原固定执行/来源修订过期时按正常流程发布新版本，历史内容保持。主Teams Agent config81的真实Embed统计与页面动作均完成：count Workflow36返回2，页面Workflow32真实弹窗、Page Bridge回执、聊天恢复及RunOps工具/节点SUCCESS；见[最终Embed链](../../output/tasks/qmssmp-full-integration-20261015/embed-final-chain.json)。
+- 来源重复同步：末轮重放复现189条契约不变但sourceSetRevision全部漂移，根因为随机inventory/member token及Starter syncId入hash。现改为语义事实指纹，保留token确认/追溯与非Starter真实revision，36项目标测试通过并部署；连续两轮全量SDK同步均189→189、差异0、移除0，两条Java方法UNCHANGED。随后Basic config83/Workflow38实际返回24（5.356秒），Teams HTTP config84/Workflow39返回count2（7.775秒），两者COMPLETED且HTTP节点SUCCESS，证明固定引用跨重复同步仍有效；旧pin未回写。见[最终发布与跨同步调用](../../output/tasks/qmssmp-full-integration-20261015/teams/stable-http-republication.md)。
+- 自动验证与运行：SDK51、Starter130，Model全模块151，Common22、Control19及Runtime分批目标回归；前端能力域540、最终受影响回归、vue-tsc/Vite通过。全reactor包及业务三个Java8包已部署，五ReachAI服务正确health入口全部UP；测试重叠批次不累加。管理端真实50/141目录、连接恢复、嵌套JSON确认取消零派发、390px和Escape通过。原有WIP/索引/HEAD保留；见[独立审计](../../output/tasks/qmssmp-full-integration-20261015/final-verification-audit.md)、[最终部署差量](../../output/tasks/qmssmp-full-integration-20261015/source-set-deployment-delta.md)及[本批交付记录](../../output/tasks/qmssmp-full-integration-20261015/plan.md)。未提交、推送或生产发布。
+
 ## 业务能力目录行设计调整（2026-10-14，完成）
 
 本批关联 U2/U3 的浏览、辨识与查看。用户指出目录每行缺少设计感；在既有平铺分页表和 Glass Workbench 内调整层次：Java 名称与轻量来源标签同行、说明独立，方法标记形成扫描锚点；分类使用轻底按钮，查看增加箭头与明确触达区，正常来源一致用静态绿点，操作性质保持中性标签。HTTP 复用共享表头、分类与操作配方，保留完整方法路径及各自状态事实。

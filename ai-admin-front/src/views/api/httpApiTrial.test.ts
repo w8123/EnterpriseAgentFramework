@@ -91,6 +91,59 @@ describe('HTTP API trial input and current evidence', () => {
       .toEqual([['apiKey', true], ['password', true], ['note', false]])
   })
 
+  it('validates nested DTOs and declared root arrays without flattening or wrapping them', () => {
+    const detail = { acceptedContract: { requestBody: { required: true, schema: { type: 'array', minItems: 1,
+      items: { type: 'object', required: ['moduleId', 'directors'], properties: {
+        moduleId: { type: 'string', minLength: 1 }, directors: { type: 'array', items: {
+          type: 'object', required: ['userId'], properties: { userId: { type: 'string' }, enabled: { type: 'boolean' } },
+        } },
+      } },
+    } } } } as unknown as HttpApiDetail
+    const valid = [{ moduleId: 'LM-test', directors: [{ userId: 'U-test', enabled: false }] }]
+    expect(validateHttpApiBody(detail, valid)).toBe('')
+    expect(validateHttpApiBody(detail, [])).not.toBe('')
+    expect(validateHttpApiBody(detail, [{ moduleId: 'LM-test', directors: [{ userId: 'U-test', extra: true }] }])).not.toBe('')
+    expect(validateHttpApiBody(detail, [{ moduleId: 'LM-test', directors: [{ userId: null }] }])).not.toBe('')
+    expect(validateHttpApiBody(detail, { body: valid })).not.toBe('')
+    expect(validateHttpApiBody(detail, undefined)).not.toBe('')
+  })
+
+  it('keeps scalar JSON, nullable nested fields and optional body absence distinct', () => {
+    const declaration = (schema: Record<string, unknown>, required = true) => ({ acceptedContract: {
+      requestBody: { required, schema, contentTypes: ['application/json'] },
+    } } as unknown as HttpApiDetail)
+    expect(validateHttpApiBody(declaration({ type: 'string' }), 'declared-string')).toBe('')
+    expect(validateHttpApiBody(declaration({ type: 'boolean' }), false)).toBe('')
+    expect(validateHttpApiBody(declaration({ type: 'number' }), 0)).toBe('')
+    expect(validateHttpApiBody(declaration({ type: 'object', properties: { note: { type: 'string', nullable: true } } }), { note: null })).toBe('')
+    expect(validateHttpApiBody(declaration({ type: 'object', properties: {} }, false), undefined)).toBe('')
+    expect(validateHttpApiBody(declaration({ type: 'number' }), Number.POSITIVE_INFINITY)).not.toBe('')
+  })
+
+  it('adapts nested and root-array sensitivity from the accepted schema', () => {
+    const detail = { acceptedContract: { requestBody: { schema: { type: 'array', items: { type: 'object', properties: {
+      accessCode: { type: 'string', format: 'password' }, details: { type: 'object', properties: {
+        deliveryMark: { type: 'string', writeOnly: true },
+      } },
+    } } } } } } as unknown as HttpApiDetail
+    const root = httpApiBodyParameters(detail)[0]!
+    expect(root.name).toBe('$body')
+    expect(root.children?.find(item => item.name === 'accessCode')?.metadata?.sensitive).toBe(true)
+    expect(root.children?.find(item => item.name === 'details')?.children?.[0]?.metadata?.sensitive).toBe(true)
+  })
+
+  it('bounds deep and oversized JSON while accepting escaped text and declared maps', () => {
+    const detail = (schema: Record<string, unknown>) => ({ acceptedContract: { requestBody: { required: true, schema } } } as unknown as HttpApiDetail)
+    expect(validateHttpApiBody(detail({ type: 'string' }), 'first\nsecond')).toBe('')
+    expect(validateHttpApiBody(detail({ type: 'string' }), 'x'.repeat(32769))).not.toBe('')
+    expect(validateHttpApiBody(detail({ type: 'array', items: { type: 'integer' } }), Array(1025).fill(0))).not.toBe('')
+    expect(validateHttpApiBody(detail({ type: 'object', additionalProperties: true }), { labels: { first: ['ok', false] } })).toBe('')
+    expect(validateHttpApiBody(detail({ type: 'object', additionalProperties: { type: 'integer' } }), { count: false })).not.toBe('')
+    let schema: Record<string, unknown> = { type: 'integer' }, input: unknown = 0
+    for (let index = 0; index < 7; index++) { schema = { type: 'array', items: schema }; input = [input] }
+    expect(validateHttpApiBody(detail(schema), input)).not.toBe('')
+  })
+
   it('identifies public ACL rejection without exposing server messages or claiming a business write never happened', () => {
     const rejected = { response: { status: 403, data: { message: 'PRIVATE_SERVER_SENTINEL' } } }
     expect(httpApiTrialFailure(rejected, 'invoke')).toContain('API ACL')
