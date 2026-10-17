@@ -181,7 +181,7 @@ node scripts/load-personal-memory.mjs
 
 单个 Runtime session erase 不等于数据主体请求完成。每次擦除需要逐 owner 完成并出具证明：
 
-ReachAI 已提供持久编排入口 `POST /api/context/memory-erasure-requests`，只允许具有全局 `context:memory:erasure:manage` 的实时平台会话调用。创建时必须提供 tenant、Runtime user、原因码、工单引用、幂等键和精确确认；raw Runtime user 只出现在 HTTPS body 与自动执行所需的短暂数据库列中，不进入 URL、响应或管理审计，五个自动域完成后立即置空。`control_memory_erasure_request` 保存请求租约/退避和聚合状态，`control_memory_erasure_domain` 保存九域机器状态、聚合计数和外部证据引用，不保存正文或对象 ID。
+ReachAI 已提供持久编排入口 `POST /api/compliance/erasure-requests`，只允许具有全局 `context:memory:erasure:manage` 的实时平台会话调用。创建时必须提供 tenant、Runtime user、原因码、工单引用、幂等键和精确确认；raw Runtime user 只出现在 HTTPS body 与自动执行所需的短暂数据库列中，不进入 URL、响应或管理审计，五个自动域完成后立即置空。`control_memory_erasure_request` 保存请求租约/退避和聚合状态，`control_memory_erasure_domain` 保存九域机器状态、聚合计数和外部证据引用，不保存正文或对象 ID。
 
 自动执行严格按 Control canonical → correlation-scoped DELETE outbox 终态 → Knowledge owner aggregate proof 顺序闭环，同时批量擦除 Runtime owner 的 session/state/ledger。outbox 只要存在 `DEAD`/未知状态、Knowledge 仍有 ACTIVE/删除向量残留、Runtime 仍有剩余会话或任何域清单缺失，就不能进入自动完成。Legal Hold 得到 `BLOCKED_LEGAL_HOLD`，不会被重试逻辑释放。自动域完成后请求进入 `ACTION_REQUIRED`；RunOps、Business Index、业务源和备份四域必须分别提交 `ERASED`、`NOT_APPLICABLE` 或 `RETAINED_LEGAL` 加不可变证据引用。九域全部完成才进入 `COMPLETED`；任一合法保留得到 `COMPLETED_WITH_RETENTION`。
 

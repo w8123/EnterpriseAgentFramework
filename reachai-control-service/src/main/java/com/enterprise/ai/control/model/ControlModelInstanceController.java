@@ -35,10 +35,10 @@ public class ControlModelInstanceController {
     @GetMapping
     public ResponseEntity<Map<String, Object>> list(HttpServletRequest request,
                                                    @RequestParam Map<String, String> parameters) {
-        var session = authorization.requirePermission(request, PlatformPermissions.PLATFORM_READ);
+        var session = authorization.requirePermission(request, PlatformPermissions.MODEL_READ);
         if (!Set.of("projectCode", "modelType", "provider").containsAll(parameters.keySet())) return invalid();
         String project = projectCode(parameters.get("projectCode"));
-        if (project != null) requireScope(request, PlatformPermissions.PLATFORM_READ, project);
+        if (project != null) requireScope(request, PlatformPermissions.MODEL_READ, project);
         var owner = models.list(project, parameters.get("modelType"), parameters.get("provider"));
         if (!owner.getStatusCode().is2xxSuccessful() || owner.getBody() == null) return owner;
         Object raw = owner.getBody().get("data");
@@ -54,23 +54,23 @@ public class ControlModelInstanceController {
 
     @GetMapping("/{id}")
     public ResponseEntity<Map<String, Object>> get(HttpServletRequest request, @PathVariable String id) {
-        authorization.requirePermission(request, PlatformPermissions.PLATFORM_READ);
+        authorization.requirePermission(request, PlatformPermissions.MODEL_READ);
         if (!validId(id)) return invalid();
         var owner = models.get(id);
         if (!owner.getStatusCode().is2xxSuccessful() || owner.getBody() == null) return owner;
         if (!(owner.getBody().get("data") instanceof Map<?, ?> model)) return ownerFailure();
-        requireScope(request, PlatformPermissions.PLATFORM_READ, modelProject(model));
+        requireScope(request, PlatformPermissions.MODEL_READ, modelProject(model));
         return owner;
     }
 
     @PostMapping
     public ResponseEntity<Map<String, Object>> create(HttpServletRequest request,
                                                      @RequestBody Map<String, Object> body) {
-        authorization.requirePermission(request, PlatformPermissions.PLATFORM_WRITE);
+        authorization.requirePermission(request, PlatformPermissions.MODEL_MANAGE);
         if (body == null || !CREATE_FIELDS.containsAll(body.keySet())
                 || body.get("projectCode") != null && !(body.get("projectCode") instanceof String)) return invalid();
         String project = projectCode((String) body.get("projectCode"));
-        requireScope(request, PlatformPermissions.PLATFORM_WRITE, project);
+        requireScope(request, PlatformPermissions.MODEL_MANAGE, project);
         var command = new LinkedHashMap<>(body);
         command.put("projectCode", project);
         return models.create(command);
@@ -78,8 +78,8 @@ public class ControlModelInstanceController {
 
     private boolean canRead(PlatformAuthenticatedSession session, Map<?, ?> model) {
         String project = modelProject(model);
-        return project == null ? session.hasGlobalPermission(PlatformPermissions.PLATFORM_READ)
-                : session.hasResourcePermission(PlatformPermissions.PLATFORM_READ, "PROJECT", null, project);
+        return project == null ? session.hasGlobalPermission(PlatformPermissions.MODEL_READ)
+                : session.hasResourcePermission(PlatformPermissions.MODEL_READ, "PROJECT", null, project);
     }
 
     private String modelProject(Map<?, ?> model) {

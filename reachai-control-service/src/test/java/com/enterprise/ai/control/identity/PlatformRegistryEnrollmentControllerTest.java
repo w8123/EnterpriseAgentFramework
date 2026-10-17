@@ -18,14 +18,15 @@ import static org.mockito.Mockito.when;
 class PlatformRegistryEnrollmentControllerTest {
 
     @Test
-    void rejectsEnrollmentBeforeCallingCapabilityWhenAdminPermissionIsMissing() {
+    void rejectsEnrollmentBeforeCallingCapabilityWithoutProjectWritePermission() {
         PlatformRequestAuthorization requestAuthorization = mock(PlatformRequestAuthorization.class);
         CapabilityRegistryEnrollmentGateway enrollmentGateway = mock(CapabilityRegistryEnrollmentGateway.class);
         PlatformAuthAuditService auditService = mock(PlatformAuthAuditService.class);
         HttpServletRequest request = mock(HttpServletRequest.class);
         PlatformRegistryEnrollmentController controller = new PlatformRegistryEnrollmentController(
                 requestAuthorization, enrollmentGateway, auditService);
-        when(requestAuthorization.requireGlobalPermission(request, PlatformPermissions.PLATFORM_ADMIN))
+        when(requestAuthorization.requireResourcePermission(
+                request, PlatformPermissions.PLATFORM_WRITE, "PROJECT", null, "orders"))
                 .thenThrow(new ResponseStatusException(HttpStatus.FORBIDDEN));
 
         ResponseStatusException error = assertThrows(
@@ -39,7 +40,7 @@ class PlatformRegistryEnrollmentControllerTest {
     }
 
     @Test
-    void issuesAndAuditsEnrollmentForAnAuthorizedAdministrator() {
+    void issuesAndAuditsEnrollmentForADeveloperOfTheProject() {
         PlatformRequestAuthorization requestAuthorization = mock(PlatformRequestAuthorization.class);
         CapabilityRegistryEnrollmentGateway enrollmentGateway = mock(CapabilityRegistryEnrollmentGateway.class);
         PlatformAuthAuditService auditService = mock(PlatformAuthAuditService.class);
@@ -47,7 +48,8 @@ class PlatformRegistryEnrollmentControllerTest {
         PlatformAuthenticatedSession actor = mock(PlatformAuthenticatedSession.class);
         PlatformRegistryEnrollmentController controller = new PlatformRegistryEnrollmentController(
                 requestAuthorization, enrollmentGateway, auditService);
-        when(requestAuthorization.requireGlobalPermission(request, PlatformPermissions.PLATFORM_ADMIN))
+        when(requestAuthorization.requireResourcePermission(
+                request, PlatformPermissions.PLATFORM_WRITE, "PROJECT", null, "orders"))
                 .thenReturn(actor);
         when(enrollmentGateway.issue(actor, "orders")).thenReturn(
                 new CapabilityRegistryEnrollmentGateway.IssuedEnrollment(

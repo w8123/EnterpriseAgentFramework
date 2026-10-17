@@ -23,8 +23,8 @@ public class PlatformRegistryEnrollmentController {
     @PostMapping("/api/platform/registry-enrollments")
     public ResponseEntity<RegistryEnrollmentView> issue(HttpServletRequest request,
                                                          @RequestBody(required = false) RegistryEnrollmentCommand command) {
-        PlatformAuthenticatedSession actor = requirePlatformAdmin(request);
         String projectCode = command == null ? null : command.projectCode();
+        PlatformAuthenticatedSession actor = requireProjectWrite(request, projectCode);
         try {
             CapabilityRegistryEnrollmentGateway.IssuedEnrollment issued = enrollmentGateway.issue(actor, projectCode);
             auditService.record(actor, "REGISTRY_ENROLLMENT_ISSUED", "REGISTRY_PROJECT", issued.projectCode(),
@@ -38,8 +38,13 @@ public class PlatformRegistryEnrollmentController {
         }
     }
 
-    private PlatformAuthenticatedSession requirePlatformAdmin(HttpServletRequest request) {
-        return requestAuthorization.requireGlobalPermission(request, PlatformPermissions.PLATFORM_ADMIN);
+    /** Developers enroll the SDK of the projects they are granted; a blank code needs a global grant. */
+    private PlatformAuthenticatedSession requireProjectWrite(HttpServletRequest request, String projectCode) {
+        if (projectCode == null || projectCode.isBlank()) {
+            return requestAuthorization.requireGlobalPermission(request, PlatformPermissions.PLATFORM_WRITE);
+        }
+        return requestAuthorization.requireResourcePermission(
+                request, PlatformPermissions.PLATFORM_WRITE, "PROJECT", null, projectCode.trim());
     }
 
     public record RegistryEnrollmentCommand(String projectCode) {

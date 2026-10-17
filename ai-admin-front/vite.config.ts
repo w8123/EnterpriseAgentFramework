@@ -16,8 +16,9 @@ export default defineConfig({
     // 常见排除段：如 2931–3030、5100–5199（本机 netsh 可见），落在段内会 EACCES
     port: 5200,
     proxy: {
+      /** Knowledge console routes go through Control, which checks the platform session. */
       '/ai': {
-        target: 'http://localhost:18602',
+        target: process.env.VITE_CONTROL_API_TARGET || 'http://localhost:18603',
         changeOrigin: true,
       },
       /** reachai-control-service：统一收口 /api，避免前端直连 Runtime/Capability 内部服务 */
@@ -49,8 +50,9 @@ export default defineConfig({
           })
         },
       },
+      /** Model console routes go through Control, which checks the platform session. */
       '^/model/(templates|instances|chat|catalog)(/.*)?(\\?.*)?$': {
-        target: 'http://localhost:18601',
+        target: process.env.VITE_CONTROL_API_TARGET || 'http://localhost:18603',
         changeOrigin: true,
         bypass(req) {
           // SPA routes share /model/instances*; keep HTML navigations on the Vite app.

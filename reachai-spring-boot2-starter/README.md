@@ -8,6 +8,14 @@ Despite the legacy artifact name, the published starter carries both Spring
 Boot 2 `spring.factories` metadata and Spring Boot 3
 `AutoConfiguration.imports` metadata. Its bytecode remains Java 8-compatible.
 
+> Breaking rename (2026-10-17): the business-index resolver types moved from
+> `com.enterprise.ai.reach.sdk.memory.ReachBusinessMemory*` to
+> `com.enterprise.ai.reach.sdk.bizindex.ReachBusinessIndex*`, the guard is now
+> `ReachBusinessIndexResolverGuard`, and the resolution schema id is
+> `reachai-business-index-resolution-v1`. Business systems that implement a
+> resolver must update imports and rebuild against this starter. See
+> [业务索引回源](../docs/architecture/business-index-resolution.md).
+
 ## Dependency
 
 ```xml
@@ -136,9 +144,9 @@ that exact callback, but they must preserve the signature headers so the
 starter can authenticate it. A login whitelist must not turn the callback into
 an unsigned public endpoint.
 
-## Business-memory resolver
+## Business-index resolver
 
-A business-memory resolver is a normal read-only Capability with one stronger
+A business-index resolver is a normal read-only Capability with one stronger
 contract: it must re-read and re-authorize the source row under the current
 signed ReachAI user. The Knowledge hit is discovery data only.
 
@@ -147,9 +155,9 @@ import com.enterprise.ai.reach.sdk.annotation.ReachCapability;
 import com.enterprise.ai.reach.sdk.annotation.ReachParam;
 import com.enterprise.ai.reach.sdk.annotation.ReachSideEffectLevel;
 import com.enterprise.ai.reach.sdk.auth.ReachAiInvocationClaims;
-import com.enterprise.ai.reach.sdk.memory.ReachBusinessMemoryAccessScope;
-import com.enterprise.ai.reach.sdk.memory.ReachBusinessMemoryResolution;
-import com.enterprise.ai.reach.sdk.memory.ReachBusinessMemoryResolverRequest;
+import com.enterprise.ai.reach.sdk.bizindex.ReachBusinessIndexAccessScope;
+import com.enterprise.ai.reach.sdk.bizindex.ReachBusinessIndexResolution;
+import com.enterprise.ai.reach.sdk.bizindex.ReachBusinessIndexResolverRequest;
 import com.enterprise.ai.reach.spring.ReachAiInvocationContextHolder;
 
 import java.util.LinkedHashMap;
@@ -157,15 +165,15 @@ import java.util.Map;
 
 @ReachCapability(
         name = "order.memory.resolve",
-        title = "Resolve current order for Agent memory",
+        title = "Resolve current order for Agent business-index references",
         description = "Returns only the current order fields visible to the signed business user",
         domain = "order",
-        tags = {"business-memory-resolver"},
+        tags = {"business-index-resolver"},
         sideEffect = ReachSideEffectLevel.READ,
         timeoutMs = 3000)
-public ReachBusinessMemoryResolution resolveOrder(
+public ReachBusinessIndexResolution resolveOrder(
         @ReachParam(name = "request", required = true)
-        ReachBusinessMemoryResolverRequest request) {
+        ReachBusinessIndexResolverRequest request) {
     ReachAiInvocationClaims claims = ReachAiInvocationContextHolder
             .getRequired()
             .getClaims();
@@ -174,7 +182,7 @@ public ReachBusinessMemoryResolution resolveOrder(
             || claims.getExternalUserId().trim().isEmpty()
             || !"order-service".equals(claims.getProjectCode())
             || !"order".equals(request.getResourceType())) {
-        throw new SecurityException("business-memory scope denied");
+        throw new SecurityException("business-index scope denied");
     }
 
     // This query must include both the authoritative tenant predicate and the
@@ -182,8 +190,8 @@ public ReachBusinessMemoryResolution resolveOrder(
     Order order = orderQuery.requireVisibleTo(
             claims.getTenantId(), request.getResourceId(), claims.getExternalUserId());
 
-    ReachBusinessMemoryAccessScope accessScope =
-            ReachBusinessMemoryAccessScope.authorizeRow(
+    ReachBusinessIndexAccessScope accessScope =
+            ReachBusinessIndexAccessScope.authorizeRow(
                     claims.getTenantId(),
                     order.getTenantId(), // authoritative row/deployment tenant
                     claims.getExternalUserId(),
@@ -197,7 +205,7 @@ public ReachBusinessMemoryResolution resolveOrder(
     visible.put("orderNo", order.getOrderNo());
     visible.put("status", order.getStatus());
     visible.put("updatedAt", order.getUpdatedAt());
-    return ReachBusinessMemoryResolution.createAuthorized(
+    return ReachBusinessIndexResolution.createAuthorized(
             accessScope,
             "order-service",
             String.valueOf(order.getVersion()),
@@ -215,7 +223,7 @@ current source version. For deleted, forbidden, or unavailable records, return
 the business application's normal failure; Runtime removes the projection text
 and does not fall back to it.
 
-The Starter treats the `business-memory-resolver` tag, the standard resolver
+The Starter treats the `business-index-resolver` tag, the standard resolver
 request type, or the standard resolution return type as an enforced security
 contract, so omitting the tag does not bypass the guard. Before business code runs it requires a signed tenant, signed user,
 and complete resolver request. After invocation it requires an authorized SDK

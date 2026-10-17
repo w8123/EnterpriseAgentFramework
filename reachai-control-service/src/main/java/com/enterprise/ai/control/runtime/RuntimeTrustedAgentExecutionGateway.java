@@ -2,9 +2,9 @@ package com.enterprise.ai.control.runtime;
 
 import com.enterprise.ai.control.client.runtime.RuntimeAgentExecutionInternalClient;
 import com.enterprise.ai.control.internalauth.InternalServiceAuthSigner;
-import com.enterprise.ai.control.context.PersonalMemoryRecallService;
-import com.enterprise.ai.control.context.PersonalMemoryCandidateObservationService;
-import com.enterprise.ai.control.context.PersonalMemoryCandidateService.ObservationCommand;
+import com.enterprise.ai.control.memory.PersonalMemoryRecallService;
+import com.enterprise.ai.control.memory.PersonalMemoryCandidateObservationService;
+import com.enterprise.ai.control.memory.PersonalMemoryCandidateService.ObservationCommand;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
@@ -38,6 +38,9 @@ public class RuntimeTrustedAgentExecutionGateway {
 
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {
     };
+    private static final String WRITE_EXPLICIT = "EXPLICIT";
+    private static final String WRITE_EXPLICIT_AND_CANDIDATE = "EXPLICIT_AND_CANDIDATE";
+    private static final long READ_POLICY_TTL_MS = 5 * 60 * 1000L;
 
     private final InternalServiceAuthSigner signer;
     private final ObjectMapper objectMapper;
@@ -46,6 +49,11 @@ public class RuntimeTrustedAgentExecutionGateway {
     private final RuntimeAgentStreamProxy streamProxy;
     private final PersonalMemoryRecallService personalMemoryRecallService;
     private final PersonalMemoryCandidateObservationService personalMemoryCandidateObservationService;
+    /**
+     * Last memory read flag each Agent's Runtime response reported. Only used to skip a recall the
+     * Runtime would discard; Runtime enforces the executed configuration either way.
+     */
+    private final Map<String, ReadPolicy> agentReadPolicies = new java.util.concurrent.ConcurrentHashMap<>();
 
     public RuntimeTrustedAgentExecutionGateway(
             InternalServiceAuthSigner signer,
@@ -211,7 +219,8 @@ public class RuntimeTrustedAgentExecutionGateway {
         identity.put("userId", identityUserId == null ? "" : identityUserId);
         envelope.put("identity", identity);
         if (personalMemoryRecallService != null
-                && !IDENTITY_SOURCE_A2A_REMOTE_AGENT.equalsIgnoreCase(identitySource)) {
+                && !IDENTITY_SOURCE_A2A_REMOTE_AGENT.equalsIgnoreCase(identitySource)
+                && !knownNotToReadPersonalMemory(body)) {
             Map<String, Object> personalMemory = personalMemoryRecallService.recall(
                     identitySource, identityTenantId, identityUserId, body);
             if (personalMemory != null && !personalMemory.isEmpty()) {
@@ -257,6 +266,14 @@ public class RuntimeTrustedAgentExecutionGateway {
                                       String identitySource,
                                       String identityTenantId,
                                       String identityUserId) {
+        Map<String, Object> memoryPolicy = mapValue(
+                mapValue(responseBody == null ? null : responseBody.get("metadata")).get("memoryPolicy"));
+        rememberReadPolicy(body, responseBody, memoryPolicy);
+        // The executed Agent configuration decides; a response without a policy writes nothing.
+        String writeMode = stringValue(memoryPolicy, "personalMemoryWrite");
+        if (!WRITE_EXPLICIT.equals(writeMode) && !WRITE_EXPLICIT_AND_CANDIDATE.equals(writeMode)) {
+            return;
+        }
         if (IDENTITY_SOURCE_A2A_REMOTE_AGENT.equalsIgnoreCase(identitySource)
                 || personalMemoryCandidateObservationService == null || body == null
                 || !Boolean.TRUE.equals(booleanValue(responseBody == null ? null : responseBody.get("success")))) {
@@ -273,14 +290,46 @@ public class RuntimeTrustedAgentExecutionGateway {
                         firstText(body, "sessionId", "conversationId"),
                         firstText(responseBody, "traceId", stringValue(metadata, "traceId"),
                                 stringValue(body, "traceId")),
-                        stringValue(body, "agentId"),
-                        identitySource,
-                        booleanValue(body.get("contributeMemory")));
+                        stringValue(body, "agentId"));
         if (!personalMemoryCandidateObservationService.observeExplicitIfPresent(
-                identitySource, identityTenantId, identityUserId, observation)) {
+                identitySource, identityTenantId, identityUserId, observation)
+                && WRITE_EXPLICIT_AND_CANDIDATE.equals(writeMode)) {
             personalMemoryCandidateObservationService.observePassive(
                     identitySource, identityTenantId, identityUserId, observation);
         }
+    }
+
+    private boolean knownNotToReadPersonalMemory(Map<String, Object> body) {
+        String agent = firstText(body, "agentId", "keySlug");
+        if (!StringUtils.hasText(agent)) {
+            return false;
+        }
+        ReadPolicy policy = agentReadPolicies.get(agent);
+        if (policy == null || System.currentTimeMillis() - policy.observedAtMs() > READ_POLICY_TTL_MS) {
+            return false;
+        }
+        return !policy.read();
+    }
+
+    private void rememberReadPolicy(Map<String, Object> body,
+                                    Map<String, Object> responseBody,
+                                    Map<String, Object> memoryPolicy) {
+        Boolean read = booleanValue(memoryPolicy.get("personalMemoryRead"));
+        if (read == null) {
+            return;
+        }
+        Map<String, Object> metadata = mapValue(responseBody == null ? null : responseBody.get("metadata"));
+        ReadPolicy policy = new ReadPolicy(read, System.currentTimeMillis());
+        for (String key : new String[] {
+                stringValue(metadata, "agentId"), stringValue(metadata, "agentKey"),
+                stringValue(body, "agentId"), stringValue(body, "keySlug")}) {
+            if (StringUtils.hasText(key) && agentReadPolicies.size() < 10_000) {
+                agentReadPolicies.put(key, policy);
+            }
+        }
+    }
+
+    private record ReadPolicy(boolean read, long observedAtMs) {
     }
 
     private static Map<String, Object> mapValue(Object value) {

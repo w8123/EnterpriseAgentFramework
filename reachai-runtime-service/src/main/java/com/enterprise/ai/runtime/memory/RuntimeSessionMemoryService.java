@@ -2,6 +2,7 @@ package com.enterprise.ai.runtime.memory;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.enterprise.ai.runtime.agent.RuntimeAgentMemoryPolicy;
 import com.enterprise.ai.runtime.agent.RuntimeAgentView;
 import com.enterprise.ai.runtime.execution.RuntimeSessionClearPort;
 import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
@@ -97,20 +98,34 @@ public class RuntimeSessionMemoryService implements RuntimeSessionClearPort {
     public RuntimeSessionMemoryKey resolve(RuntimeAgentView agent,
                                            String requestedSessionId,
                                            WorkflowExecutionIdentity identity) {
-        return resolve(agent, requestedSessionId, identity, true);
+        return resolve(agent, requestedSessionId, identity, true, 0);
+    }
+
+    /**
+     * Resolves a key under the Agent's published memory policy. A disabled session memory keeps the
+     * turn in process only, exactly like an anonymous caller.
+     */
+    public RuntimeSessionMemoryKey resolve(RuntimeAgentView agent,
+                                           String requestedSessionId,
+                                           WorkflowExecutionIdentity identity,
+                                           RuntimeAgentMemoryPolicy policy) {
+        RuntimeAgentMemoryPolicy effective = policy == null ? RuntimeAgentMemoryPolicy.DEFAULT : policy;
+        return resolve(agent, requestedSessionId, identity, effective.sessionMemoryEnabled(),
+                effective.sessionMemoryWindow());
     }
 
     /** Eval executions keep an isolated in-process turn and never read or write durable chat memory. */
     public RuntimeSessionMemoryKey resolveTransient(RuntimeAgentView agent,
                                                     String requestedSessionId,
                                                     WorkflowExecutionIdentity identity) {
-        return resolve(agent, requestedSessionId, identity, false);
+        return resolve(agent, requestedSessionId, identity, false, 0);
     }
 
     private RuntimeSessionMemoryKey resolve(RuntimeAgentView agent,
                                             String requestedSessionId,
                                             WorkflowExecutionIdentity identity,
-                                            boolean allowPersistence) {
+                                            boolean allowPersistence,
+                                            int contextWindow) {
         String publicSessionId = StringUtils.hasText(requestedSessionId)
                 ? requestedSessionId.trim()
                 : UUID.randomUUID().toString().replace("-", "").substring(0, 16);
@@ -134,7 +149,7 @@ public class RuntimeSessionMemoryService implements RuntimeSessionClearPort {
         String userKey = "u:" + sha256(tenantId + "\n" + trustedUserId);
         String sessionKey = "a:" + sha256(agentId) + ":s:" + sha256(publicSessionId);
         return new RuntimeSessionMemoryKey(true, tenantId, trustedUserId, agentId, publicSessionId,
-                userKey, sessionKey, identity.source().name());
+                userKey, sessionKey, identity.source().name(), Math.max(0, contextWindow));
     }
 
     public AgentStateStore stateStore() {
@@ -261,6 +276,7 @@ public class RuntimeSessionMemoryService implements RuntimeSessionClearPort {
                          io.agentscope.core.state.State state) {
             requireExactStateSlot(userId, sessionId);
             renewTurnLease(key, owner);
+            trimState(state);
             delegate.save(userId, sessionId, stateName, state);
         }
 
@@ -271,7 +287,16 @@ public class RuntimeSessionMemoryService implements RuntimeSessionClearPort {
                          List<? extends io.agentscope.core.state.State> states) {
             requireExactStateSlot(userId, sessionId);
             renewTurnLease(key, owner);
+            if (states != null) {
+                states.forEach(this::trimState);
+            }
             delegate.save(userId, sessionId, stateName, states);
+        }
+
+        private void trimState(io.agentscope.core.state.State state) {
+            if (state instanceof AgentState agentState) {
+                trimMutableContext(agentState.contextMutable(), key);
+            }
         }
 
         @Override
@@ -337,7 +362,7 @@ public class RuntimeSessionMemoryService implements RuntimeSessionClearPort {
         }
         return stateStore.get(key.stateUserKey(), key.stateSessionKey(), STATE_NAME, AgentState.class)
                 .map(AgentState::getContext)
-                .map(this::window)
+                .map(context -> window(context, key))
                 .orElseGet(List::of);
     }
 
@@ -625,25 +650,29 @@ public class RuntimeSessionMemoryService implements RuntimeSessionClearPort {
         if (!tailMatches(context, MsgRole.ASSISTANT, assistantReply)) {
             context.add(message("assistant", MsgRole.ASSISTANT, assistantReply));
         }
-        trimMutableContext(context);
+        trimMutableContext(context, key);
         stateStore.save(key.stateUserKey(), key.stateSessionKey(), STATE_NAME, state);
     }
 
     private void trimPersistentState(RuntimeSessionMemoryKey key, String owner) {
         stateStore.get(key.stateUserKey(), key.stateSessionKey(), STATE_NAME, AgentState.class)
                 .ifPresent(state -> {
-                    if (trimMutableContext(state.contextMutable())) {
+                    if (trimMutableContext(state.contextMutable(), key)) {
                         stateStoreForTurn(key, owner).save(
                                 key.stateUserKey(), key.stateSessionKey(), STATE_NAME, state);
                     }
                 });
     }
 
-    private boolean trimMutableContext(List<Msg> context) {
+    private int contextWindow(RuntimeSessionMemoryKey key) {
+        return key != null && key.contextWindow() > 0 ? key.contextWindow() : properties.maxContextMessages();
+    }
+
+    private boolean trimMutableContext(List<Msg> context, RuntimeSessionMemoryKey key) {
         if (context == null) {
             return false;
         }
-        int overflow = context.size() - properties.maxContextMessages();
+        int overflow = context.size() - contextWindow(key);
         if (overflow <= 0) {
             return false;
         }
@@ -689,11 +718,11 @@ public class RuntimeSessionMemoryService implements RuntimeSessionClearPort {
                 && text(content).equals(text(tail.getTextContent()));
     }
 
-    private List<Msg> window(List<Msg> context) {
+    private List<Msg> window(List<Msg> context, RuntimeSessionMemoryKey key) {
         if (context == null || context.isEmpty()) {
             return List.of();
         }
-        int start = Math.max(0, context.size() - properties.maxContextMessages());
+        int start = Math.max(0, context.size() - contextWindow(key));
         return List.copyOf(context.subList(start, context.size()));
     }
 

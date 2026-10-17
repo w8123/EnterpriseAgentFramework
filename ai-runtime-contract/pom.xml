@@ -12,7 +12,7 @@
 
     <artifactId>ai-runtime-contract</artifactId>
     <name>AI Runtime Contract</name>
-    <description>Framework-neutral business memory reference contracts for ReachAI platform services.</description>
+    <description>Framework-neutral business index reference contracts for ReachAI platform services.</description>
 
     <dependencies>
         <dependency>

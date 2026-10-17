@@ -103,16 +103,16 @@ import AppDialog from '@/components/common/AppDialog.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
 import {
-  createContextRuntimeUserMapping,
-  deleteContextRuntimeUserMapping,
-  listContextRuntimeUserMappings,
-} from '@/api/context'
-import type { ContextRuntimeUserMapping } from '@/types/context'
+  createRuntimeUserMapping,
+  deleteRuntimeUserMapping,
+  listRuntimeUserMappings,
+} from '@/api/runtimeUserMapping'
+import type { RuntimeUserMapping } from '@/types/runtimeUserMapping'
 
 const loading = ref(false)
 const saving = ref(false)
 const dialogOpen = ref(false)
-const mappings = ref<ContextRuntimeUserMapping[]>([])
+const mappings = ref<RuntimeUserMapping[]>([])
 
 const filters = reactive({
   tenantId: 'default',
@@ -136,7 +136,7 @@ async function loadMappings() {
   }
   loading.value = true
   try {
-    const { data } = await listContextRuntimeUserMappings({
+    const { data } = await listRuntimeUserMappings({
       tenantId: filters.tenantId.trim(),
       platformUserId: filters.platformUserId || undefined,
       runtimeUserId: filters.runtimeUserId.trim() || undefined,
@@ -173,7 +173,7 @@ async function saveMapping() {
   }
   saving.value = true
   try {
-    await createContextRuntimeUserMapping({
+    await createRuntimeUserMapping({
       tenantId: form.tenantId.trim(),
       platformUserId: form.platformUserId,
       runtimeUserId: form.runtimeUserId.trim() || undefined,
@@ -188,7 +188,7 @@ async function saveMapping() {
   }
 }
 
-async function handleDelete(row: ContextRuntimeUserMapping) {
+async function handleDelete(row: RuntimeUserMapping) {
   try {
     await ElMessageBox.confirm(
       `撤销后平台用户 ${row.platformUserId} 在租户 ${row.tenantId} 下将无法访问 Runtime 用户 ${row.runtimeUserId} 的个人记忆。`,
@@ -198,7 +198,7 @@ async function handleDelete(row: ContextRuntimeUserMapping) {
   } catch {
     return
   }
-  await deleteContextRuntimeUserMapping(row.id)
+  await deleteRuntimeUserMapping(row.id)
   ElMessage.success('映射已撤销')
   await loadMappings()
 }

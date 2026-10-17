@@ -91,14 +91,14 @@ function completedApi({ affected = true } = {}) {
       requests.push({ method: options.method, path: requestUrl.pathname, body })
       assert.equal(options.headers.Authorization, 'Bearer platform-token')
       if (options.method === 'POST'
-          && requestUrl.pathname === '/api/context/memory-erasure-requests') {
+          && requestUrl.pathname === '/api/compliance/erasure-requests') {
         createCount++
         assert.equal(body.runtimeUserId, OWNER)
         return jsonResponse(createCount === 1 ? 202 : 200,
           snapshot('ACTION_REQUIRED', { created: createCount === 1, affected, evidence }))
       }
       const match = requestUrl.pathname.match(
-        /^\/api\/context\/memory-erasure-requests\/[^/]+\/domains\/([^/]+)\/evidence$/)
+        /^\/api\/compliance\/erasure-requests\/[^/]+\/domains\/([^/]+)\/evidence$/)
       if (options.method === 'POST' && match) {
         const domainCode = decodeURIComponent(match[1])
         const existing = evidence.get(domainCode)

@@ -56,7 +56,7 @@ class KnowledgeDocumentImportControllerTest {
 
         assertEquals(200, response.getStatusCode().value());
         verify(authorization).requireResourcePermission(
-                any(), eq("platform:write"), eq("PROJECT"), eq("workspace-a"), eq("orders"));
+                any(), eq("knowledge:write"), eq("PROJECT"), eq("workspace-a"), eq("orders"));
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, String>> fields = ArgumentCaptor.forClass(Map.class);
         verify(gateway).exchangeDocumentMultipart(
@@ -85,7 +85,7 @@ class KnowledgeDocumentImportControllerTest {
         when(gateway.exchange("GET", root + "/read-access", "default", "42", null, null))
                 .thenReturn(json("{\"code\":200,\"data\":{\"fileId\":\"file_test\",\"userId\":\"42\",\"readable\":false}}"));
         assertEquals(200, controller.fileReadAccess(authenticatedRequest(), "file_test").getStatusCode().value());
-        verify(authorization).requireResourcePermission(any(), eq("platform:read"), eq("PROJECT"), eq("workspace-a"), eq("orders"));
+        verify(authorization).requireResourcePermission(any(), eq("knowledge:read"), eq("PROJECT"), eq("workspace-a"), eq("orders"));
         verify(gateway).exchange("GET", root + "/read-access", "default", "42", null, null);
     }
 
@@ -99,7 +99,7 @@ class KnowledgeDocumentImportControllerTest {
         MockHttpServletRequest request = authenticatedRequest();
         request.setContent("{\"userId\":\"victim\",\"projectCode\":\"foreign\"}".getBytes(StandardCharsets.UTF_8));
         assertEquals(200, controller.ensureFileReadAccess(request, "file_test").getStatusCode().value());
-        verify(authorization).requireResourcePermission(any(), eq("platform:write"), eq("PROJECT"), eq("workspace-a"), eq("orders"));
+        verify(authorization).requireResourcePermission(any(), eq("knowledge:write"), eq("PROJECT"), eq("workspace-a"), eq("orders"));
         ArgumentCaptor<byte[]> body = ArgumentCaptor.forClass(byte[].class);
         verify(gateway).exchange(eq("POST"), eq(root + "/read-access"), eq("default"), eq("42"), body.capture(), eq("application/json"));
         var assertion = new ObjectMapper().readTree(body.getValue());
@@ -115,7 +115,7 @@ class KnowledgeDocumentImportControllerTest {
         when(gateway.exchange("GET", root + "/scope", "default", "42", null, null))
                 .thenReturn(json("{\"code\":200,\"data\":{\"workspaceId\":\"workspace-a\",\"projectCode\":\"orders\",\"scope\":\"PROJECT\"}}"));
         org.mockito.Mockito.doThrow(new ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN, "denied"))
-                .when(authorization).requireResourcePermission(any(), eq("platform:write"), anyString(), anyString(), anyString());
+                .when(authorization).requireResourcePermission(any(), eq("knowledge:write"), anyString(), anyString(), anyString());
         assertThrows(ResponseStatusException.class, () -> controller.ensureFileReadAccess(authenticatedRequest(), "file_test"));
         assertThrows(ResponseStatusException.class, () -> controller.ensureFileReadAccess(new MockHttpServletRequest(), "file_test"));
         assertThrows(ResponseStatusException.class, () -> controller.fileReadAccess(new MockHttpServletRequest(), "file_test"));
@@ -135,8 +135,8 @@ class KnowledgeDocumentImportControllerTest {
                 "pls_test",
                 LocalDateTime.now().plusHours(1),
                 List.of("PROJECT_OWNER"),
-                List.of("platform:read", "platform:write"),
-                List.of(new PlatformPermissionGrant("platform:write", "PROJECT", "orders")));
+                List.of("knowledge:read", "knowledge:write"),
+                List.of(new PlatformPermissionGrant("knowledge:write", "PROJECT", "orders")));
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.setAttribute(PlatformConsoleAuthInterceptor.SESSION_REQUEST_ATTRIBUTE, session);
         return request;

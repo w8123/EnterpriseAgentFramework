@@ -63,6 +63,11 @@
       </header>
 
       <div class="ops-content">
+        <DashboardRoleShortcuts
+          v-if="!editor.editing.value"
+          :permissions="platformSessionUser?.permissions ?? []"
+          @open="go"
+        />
         <DashboardPanelState
           v-if="overviewDenied"
           class="ops-project-entry"
@@ -166,6 +171,7 @@ import { dashboardDomainLabels, defaultConsoleLayout } from './widgetRegistry'
 import { useDashboardLayoutEditor } from './useDashboardLayoutEditor'
 import DashboardLayoutContainer from './components/DashboardLayoutContainer.vue'
 import DashboardPanelState from './components/DashboardPanelState.vue'
+import DashboardRoleShortcuts from './components/DashboardRoleShortcuts.vue'
 
 interface InternalServicesHealthResponse {
   services?: Record<string, { status?: string } | undefined>

@@ -27,7 +27,7 @@ public class BizUpsertRequest {
     /** 元数据，搜索结果中原样返回（不参与语义检索） */
     private Map<String, Object> metadata;
 
-    /** Required when the index is enabled for Agent business-memory references. */
+    /** Required when the index is enabled for Agent business-index references. */
     private String sourceVersion;
 
     /** Optional source-system timestamp; does not grant freshness by itself. */

@@ -10,13 +10,23 @@ package com.enterprise.ai.control.identity;
 public final class PlatformPermissions {
 
     public static final String ALL = "*";
+    /** Projects and their business capabilities (Java methods, HTTP APIs, change review). */
     public static final String PLATFORM_READ = "platform:read";
     public static final String PLATFORM_WRITE = "platform:write";
     public static final String PLATFORM_ADMIN = "platform:admin";
     public static final String CAPABILITY_INVOKE = "capability:invoke";
 
-    public static final String BUILD_WORKSPACE_ACCESS = "workspace:build:access";
-    public static final String OPERATE_WORKSPACE_ACCESS = "workspace:operate:access";
+    public static final String KNOWLEDGE_READ = "knowledge:read";
+    public static final String KNOWLEDGE_WRITE = "knowledge:write";
+
+    public static final String MODEL_READ = "model:read";
+    public static final String MODEL_MANAGE = "model:manage";
+
+    public static final String TOOL_ACL_READ = "tool-acl:read";
+    public static final String TOOL_ACL_MANAGE = "tool-acl:manage";
+
+    public static final String EMBED_READ = "embed:read";
+    public static final String EMBED_MANAGE = "embed:manage";
 
     public static final String BUSINESS_USER_READ = "identity:business-user:read";
     public static final String BUSINESS_USER_MANAGE = "identity:business-user:manage";
@@ -39,6 +49,14 @@ public final class PlatformPermissions {
 
     public static final String RUNOPS_READ = "runops:read";
     public static final String RUNOPS_OPERATE = "runops:operate";
+
+    public static final String RUNTIME_USER_MAPPING_MANAGE = "context:runtime-user:mapping:manage";
+    public static final String MEMORY_ERASURE_MANAGE = "context:memory:erasure:manage";
+    public static final String SESSION_RETENTION_MANAGE = "runtime:session:retention:manage";
+
+    public static final String SKILL_READ = "skill:read";
+    public static final String MCP_HUB_READ = "mcp-hub:read";
+    public static final String A2A_HUB_READ = "a2a-hub:read";
 
     private PlatformPermissions() {
     }

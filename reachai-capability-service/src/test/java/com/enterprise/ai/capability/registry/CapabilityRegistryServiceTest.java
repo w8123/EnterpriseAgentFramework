@@ -69,6 +69,8 @@ class CapabilityRegistryServiceTest {
     private final CapabilitySnapshotMapper snapshotMapper = mock(CapabilitySnapshotMapper.class);
     private final CapabilityDiffItemMapper diffItemMapper = mock(CapabilityDiffItemMapper.class);
     private final CapabilityApplyRecordMapper applyRecordMapper = mock(CapabilityApplyRecordMapper.class);
+    private static final RegistrySecurityService.RegistrySignatureHeaders SIGNED =
+            new RegistrySecurityService.RegistrySignatureHeaders("rak", "1", "n", "sig");
     private final RegistrySecurityService registrySecurityService = mock(RegistrySecurityService.class);
     private final RegistryEnrollmentService registryEnrollmentService = mock(RegistryEnrollmentService.class);
     private final ObjectMapper registryJson = new ObjectMapper();
@@ -285,8 +287,9 @@ class CapabilityRegistryServiceTest {
                 "1.0.0",
                 "0.3.0",
                 Map.of("zone", "dev")
-        ));
+        ), SIGNED);
 
+        verify(registrySecurityService).verifyRequired("orders", SIGNED);
         ProjectInstanceEntity instance = response.instance();
         assertEquals(11L, instance.getId());
         assertEquals(7L, instance.getProjectId());
@@ -328,7 +331,9 @@ class CapabilityRegistryServiceTest {
         project.setProjectCode("orders");
         when(scanProjectMapper.selectOne(any())).thenReturn(project);
 
-        service.offline("orders", "dev-1");
+        service.offline("orders", "dev-1", SIGNED);
+
+        verify(registrySecurityService).verifyRequired("orders", SIGNED);
 
         verify(instanceMapper).markOffline(eq("orders"), eq("dev-1"), any());
     }

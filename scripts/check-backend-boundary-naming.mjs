@@ -317,8 +317,7 @@ const readableAuthorityDocs = [
   architectureOverviewDoc,
   knowledgeAssetDoc,
   embedSupportDoc,
-  jdkRuntimeLayeringDoc,
-  'docs/reference/Context-Governance-Kernel.md'
+  jdkRuntimeLayeringDoc
 ].filter(Boolean)
 const mojibakeSignatures = [
   '鈥',
@@ -563,7 +562,7 @@ assertIncludes('reachai-knowledge-service/pom.xml', '<name>ReachAI Knowledge Ret
 assertNotIncludes('reachai-knowledge-service/pom.xml', '<name>AI Skills Service</name>')
 assertNotIncludes('reachai-knowledge-service/README.md', '# AI Skills Service')
 assertIncludes('reachai-knowledge-service/README.md', '# ReachAI Knowledge Service')
-assertIncludes('ai-admin-front/src/api/request.ts', 'Knowledge / Retrieval deployment unit')
+assertIncludes('ai-admin-front/src/api/request.ts', 'Knowledge / Retrieval console routes under /ai')
 assertIncludes('ai-admin-front/src/api/request.ts', 'Platform Control public API/BFF')
 assertIncludes('ai-admin-front/src/api/request.ts', '请求失败')
 assertNotIncludes('ai-admin-front/src/api/request.ts', '鈥')
@@ -631,9 +630,10 @@ for (const [, displayName] of ideaRunConfigurations) {
 assertNotMatches('.run/00-reachai-five-services.run.xml', /(^|[^a-z-])ai-agent-service([^a-z-]|$)/, 'standalone ai-agent-service')
 assertNotMatches('.run/00-reachai-five-services.run.xml', /(^|[^a-z-])ai-skills-service([^a-z-]|$)/, 'standalone ai-skills-service')
 assertNotMatches('.run/00-reachai-five-services.run.xml', /(^|[^a-z-])ai-model-service([^a-z-]|$)/, 'standalone ai-model-service')
-assertMatches('ai-admin-front/vite.config.ts', /['"]\/ai['"]:\s*\{[\s\S]*?target:\s*['"]http:\/\/localhost:18602['"]/, '/ai proxy -> 18602')
+// Knowledge and model console routes are guarded by Control (platform session + permission), never exposed directly.
+assertMatches('ai-admin-front/vite.config.ts', /['"]\/ai['"]:\s*\{[\s\S]*?target:\s*(?:process\.env\.VITE_CONTROL_API_TARGET\s*\|\|\s*)?['"]http:\/\/localhost:18603['"]/, '/ai proxy -> Control 18603')
 assertMatches('ai-admin-front/vite.config.ts', /['"]\/api['"]:\s*\{[\s\S]*?target:\s*(?:process\.env\.VITE_CONTROL_API_TARGET\s*\|\|\s*)?['"]http:\/\/localhost:18603['"]/, '/api proxy -> 18603')
-assertMatches('ai-admin-front/vite.config.ts', /\^\/model\/\(templates\|instances\|chat\|catalog\)[\s\S]*?target:\s*['"]http:\/\/localhost:18601['"]/, '/model proxy -> 18601')
+assertMatches('ai-admin-front/vite.config.ts', /\^\/model\/\(templates\|instances\|chat\|catalog\)[\s\S]*?target:\s*(?:process\.env\.VITE_CONTROL_API_TARGET\s*\|\|\s*)?['"]http:\/\/localhost:18603['"]/, '/model proxy -> Control 18603')
 assertPackagePrefixUnder('reachai-control-service/src/main/java/com/enterprise/ai/control', 'com.enterprise.ai.control')
 assertPackagePrefixUnder('reachai-runtime-service/src/main/java/com/enterprise/ai/runtime', 'com.enterprise.ai.runtime')
 assertPackagePrefixUnder('reachai-capability-service/src/main/java/com/enterprise/ai/capability', 'com.enterprise.ai.capability')

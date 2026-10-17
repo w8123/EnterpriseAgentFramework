@@ -1,0 +1,21 @@
+package com.enterprise.ai.runtime.execution;
+
+import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
+
+import java.util.Map;
+
+/** Execution-owned port for resolving business-index references in node output. */
+public interface RuntimeBusinessIndexResolutionPort {
+
+    HydrationBatch hydrate(Object input,
+                           WorkflowExecutionIdentity identity,
+                           Map<String, Object> executionContext);
+
+    record HydrationBatch(Object output,
+                          boolean detected,
+                          int referenceCount,
+                          int resolvedCount,
+                          int blockedCount,
+                          int versionChangedCount) {
+    }
+}

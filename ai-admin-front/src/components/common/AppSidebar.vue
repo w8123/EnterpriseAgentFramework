@@ -175,6 +175,14 @@
         <div class="footer-tab-panel" role="tabpanel">
           <div v-if="activeFooterPanel === 'profile'" class="profile-panel">
             <button
+              class="profile-link"
+              type="button"
+              @click="openMyMemories"
+            >
+              <el-icon><Memo /></el-icon>
+              <span>我的记忆</span>
+            </button>
+            <button
               class="profile-action"
               type="button"
               :disabled="loggingOut"
@@ -244,6 +252,7 @@ import {
   ArrowLeft,
   ArrowRight,
   Check,
+  Memo,
   Setting,
   SwitchButton,
   User,
@@ -477,6 +486,11 @@ async function retryProjectOptions() {
 
 function toggleFooterPanel(panel: 'profile' | 'settings') {
   activeFooterPanel.value = activeFooterPanel.value === panel ? null : panel
+}
+
+async function openMyMemories() {
+  activeFooterPanel.value = null
+  await router.push('/me/memories')
 }
 
 async function handleLogout() {
@@ -1094,9 +1108,12 @@ async function handleLogout() {
 
 .profile-panel {
   display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.profile-action {
+.profile-action,
+.profile-link {
   width: 100%;
   height: 38px;
   display: inline-flex;
@@ -1126,6 +1143,22 @@ async function handleLogout() {
   &:disabled {
     cursor: wait;
     opacity: 0.68;
+  }
+}
+
+.profile-link {
+  .el-icon {
+    color: var(--sb-text);
+  }
+
+  &:hover {
+    border-color: var(--sb-divider);
+    background: color-mix(in srgb, var(--brand-primary) 8%, transparent);
+    color: var(--brand-primary);
+
+    .el-icon {
+      color: var(--brand-primary);
+    }
   }
 }
 

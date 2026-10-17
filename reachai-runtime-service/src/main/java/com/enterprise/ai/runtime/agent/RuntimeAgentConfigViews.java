@@ -32,7 +32,40 @@ public final class RuntimeAgentConfigViews {
             LocalDateTime updatedAt,
             List<WorkflowToolView> tools,
             List<SkillBindingView> skills,
-            List<RemoteAgentBindingView> remoteAgents) {
+            List<RemoteAgentBindingView> remoteAgents,
+            AgentMemoryPolicyView memory) {
+
+        /** Source-compatible constructor for callers that do not read the memory policy. */
+        public AgentConfigVersionView(
+                Long id,
+                String agentId,
+                Integer versionNo,
+                String status,
+                String runtimeType,
+                String systemPrompt,
+                String modelInstanceId,
+                Integer maxPlanSteps,
+                Integer maxWorkflowCalls,
+                Integer maxReplans,
+                Integer totalTimeoutMs,
+                Integer workflowTimeoutMs,
+                Integer pageBridgeTimeoutMs,
+                Boolean parallelReadOnly,
+                String policyProfile,
+                String toolCatalogMode,
+                String configJson,
+                String publishedBy,
+                LocalDateTime publishedAt,
+                LocalDateTime createdAt,
+                LocalDateTime updatedAt,
+                List<WorkflowToolView> tools,
+                List<SkillBindingView> skills,
+                List<RemoteAgentBindingView> remoteAgents) {
+            this(id, agentId, versionNo, status, runtimeType, systemPrompt, modelInstanceId,
+                    maxPlanSteps, maxWorkflowCalls, maxReplans, totalTimeoutMs, workflowTimeoutMs,
+                    pageBridgeTimeoutMs, parallelReadOnly, policyProfile, toolCatalogMode, configJson,
+                    publishedBy, publishedAt, createdAt, updatedAt, tools, skills, remoteAgents, null);
+        }
 
         /** Source-compatible constructor for callers without remote A2A bindings. */
         public AgentConfigVersionView(
@@ -112,7 +145,32 @@ public final class RuntimeAgentConfigViews {
             String configJson,
             List<WorkflowToolRequest> tools,
             List<SkillBindingRequest> skills,
-            List<RemoteAgentBindingRequest> remoteAgents) {
+            List<RemoteAgentBindingRequest> remoteAgents,
+            AgentMemoryPolicyView memory) {
+
+        /** Source-compatible constructor for callers that leave the memory policy unchanged. */
+        public AgentConfigDraftRequest(
+                String runtimeType,
+                String systemPrompt,
+                String modelInstanceId,
+                Integer maxPlanSteps,
+                Integer maxWorkflowCalls,
+                Integer maxReplans,
+                Integer totalTimeoutMs,
+                Integer workflowTimeoutMs,
+                Integer pageBridgeTimeoutMs,
+                Boolean parallelReadOnly,
+                String policyProfile,
+                String toolCatalogMode,
+                String configJson,
+                List<WorkflowToolRequest> tools,
+                List<SkillBindingRequest> skills,
+                List<RemoteAgentBindingRequest> remoteAgents) {
+            this(runtimeType, systemPrompt, modelInstanceId, maxPlanSteps, maxWorkflowCalls,
+                    maxReplans, totalTimeoutMs, workflowTimeoutMs, pageBridgeTimeoutMs,
+                    parallelReadOnly, policyProfile, toolCatalogMode, configJson, tools, skills,
+                    remoteAgents, null);
+        }
 
         /** Source-compatible constructor for callers without remote A2A bindings. */
         public AgentConfigDraftRequest(
@@ -156,6 +214,14 @@ public final class RuntimeAgentConfigViews {
                     maxReplans, totalTimeoutMs, workflowTimeoutMs, pageBridgeTimeoutMs,
                     parallelReadOnly, policyProfile, toolCatalogMode, configJson, tools, null, null);
         }
+    }
+
+    /** Agent memory policy; every field is optional in a draft request and keeps its current value when null. */
+    public record AgentMemoryPolicyView(
+            Boolean sessionMemoryEnabled,
+            Integer sessionMemoryWindow,
+            Boolean personalMemoryRead,
+            String personalMemoryWrite) {
     }
 
     /** Control-attested immutable snapshot of one approved A2A remote revision. */

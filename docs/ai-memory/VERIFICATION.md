@@ -163,8 +163,8 @@ npx vue-tsc --noEmit
 前端代理事实：
 
 - `/api/**` -> `reachai-control-service:18603`
-- `/ai/**` -> `reachai-knowledge-service:18602`
-- `/model/**` -> `reachai-model-service:18601`
+- `/ai/**` -> `reachai-control-service:18603`（校验会话与权限后转发 `reachai-knowledge-service:18602`）
+- `/model/**` -> `reachai-control-service:18603`（校验会话与权限后转发 `reachai-model-service:18601`）
 
 ## Agent Memory 验证
 

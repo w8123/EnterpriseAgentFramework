@@ -132,8 +132,8 @@ depart-construction-web/src/main/resources/application.yml
 
 ```yaml
 reachai:
-  business-memory:
-    tenant-id: ${REACHAI_BUSINESS_MEMORY_TENANT_ID:}
+  business-index:
+    tenant-id: ${REACHAI_BUSINESS_INDEX_TENANT_ID:}
   registry:
     enabled: ${REACHAI_REGISTRY_ENABLED:true}
     url: ${REACHAI_REGISTRY_URL:http://localhost:18603}
@@ -169,7 +169,7 @@ reachai:
 | `reachai.registry.credential-store-path` | 长期项目凭据的受限存储位置；为空时使用 Starter 默认路径 |
 | `reachai.project.code` | 中台识别业务系统的稳定项目编码 |
 | `reachai.project.base-url` | ReachAI 服务端调用业务能力和手动 SDK 同步回调时使用的基础地址；必须从 ReachAI 所在网络可达 |
-| `reachai.business-memory.tenant-id` | 单租户 QMSSMP 部署的权威 ReachAI tenant 绑定；启用业务记忆 resolver 前必须显式配置，签名 tenant 不一致或为空时在业务查询前失败。多租户业务系统不能复用该单值配置，必须从权威业务行读取 tenant。 |
+| `reachai.business-index.tenant-id` | 单租户 QMSSMP 部署的权威 ReachAI tenant 绑定；启用业务索引回源 resolver 前必须显式配置，签名 tenant 不一致或为空时在业务查询前失败。多租户业务系统不能复用该单值配置，必须从权威业务行读取 tenant。 |
 | `reachai.embed.allowed-origins` | 允许嵌入对话框的业务前端 Origin |
 | `reachai.embed.allowed-agent-ids` | 允许该业务系统嵌入的 Agent |
 

@@ -1,6 +1,7 @@
 package com.enterprise.ai.runtime.supervisor;
 
 import com.enterprise.ai.runtime.agent.RuntimeAgentConfigSnapshot;
+import com.enterprise.ai.runtime.agent.RuntimeAgentMemoryPolicy;
 import com.enterprise.ai.runtime.agent.RuntimeAgentSkillBindingSnapshot;
 import com.enterprise.ai.runtime.agent.RuntimeAgentSkillRepositoryFactory.SkippedSkill;
 import com.enterprise.ai.runtime.agent.RuntimeAgentView;
@@ -104,7 +105,8 @@ public class SupervisorExecutionTraceService implements RuntimeInteractionExpiry
                 "agentConfigVersionId", config.getId(),
                 "agentConfigVersion", config.getVersionNo(),
                 "policyProfile", config.getPolicyProfile(),
-                "toolCatalogMode", config.getToolCatalogMode())))
+                "toolCatalogMode", config.getToolCatalogMode(),
+                "memoryPolicy", RuntimeAgentMemoryPolicy.of(config).toMetadata())))
                 .startedAt(now).build());
         RuntimeRunSnapshots.AgentConfiguration runConfig = new RuntimeRunSnapshots.AgentConfiguration(
                 config.getId(), config.getVersionNo(), config.getRuntimeType(),

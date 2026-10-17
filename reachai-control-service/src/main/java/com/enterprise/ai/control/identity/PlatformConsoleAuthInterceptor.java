@@ -14,6 +14,7 @@ import org.springframework.web.servlet.HandlerInterceptor;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 
@@ -33,6 +34,7 @@ public class PlatformConsoleAuthInterceptor implements HandlerInterceptor {
     public static final String PLATFORM_SESSION_INVALID = "PLATFORM_SESSION_INVALID";
     public static final String CSRF_HEADER = "X-ReachAI-CSRF";
     public static final String PLATFORM_CSRF_INVALID = "PLATFORM_CSRF_INVALID";
+    public static final String PLATFORM_PERMISSION_DENIED = "PLATFORM_PERMISSION_DENIED";
 
     private final PlatformBearerAuthService bearerAuthService;
     private final PlatformSessionCookieService sessionCookieService;
@@ -47,15 +49,22 @@ public class PlatformConsoleAuthInterceptor implements HandlerInterceptor {
         }
         String authorization = request.getHeader(HttpHeaders.AUTHORIZATION);
         boolean bearerPresented = StringUtils.hasText(authorization);
-        Optional<String> cookieToken = bearerPresented
-                ? Optional.empty()
-                : sessionCookieService.readSessionToken(request);
+        List<String> cookieTokens = bearerPresented
+                ? List.of()
+                : sessionCookieService.readSessionTokens(request);
+        // A stale cookie from an older path can precede the live one, so try each.
         PlatformAuthenticatedSession session = (bearerPresented
                 ? bearerAuthService.resolveBearerSession(authorization)
-                : cookieToken.flatMap(bearerAuthService::resolveSessionToken))
+                : cookieTokens.stream()
+                        .map(bearerAuthService::resolveSessionToken)
+                        .flatMap(Optional::stream)
+                        .findFirst())
                 .orElse(null);
+        if (!cookieTokens.isEmpty() && (session == null || cookieTokens.size() > 1)) {
+            response.addHeader(HttpHeaders.SET_COOKIE, sessionCookieService.expireLegacyCookie(request));
+        }
         if (session == null) {
-            if (cookieToken.isPresent()) {
+            if (!cookieTokens.isEmpty()) {
                 response.addHeader(HttpHeaders.SET_COOKIE, sessionCookieService.expireCookie(request));
             }
             writeSessionFailure(response);
@@ -64,6 +73,13 @@ public class PlatformConsoleAuthInterceptor implements HandlerInterceptor {
         if (!bearerPresented && unsafeMethod(request.getMethod())
                 && !csrfMatches(request.getHeader(CSRF_HEADER), session.sessionId())) {
             writeCsrfFailure(response);
+            return false;
+        }
+        String path = consolePath(request);
+        Optional<PlatformConsolePermissionPolicy.Rule> rule = PlatformConsolePermissionPolicy.ruleFor(path);
+        if (rule.isEmpty() || !PlatformConsolePermissionPolicy.admits(
+                rule.get(), request.getMethod(), path, session)) {
+            writePermissionFailure(response, rule.map(value -> value.requiredAnyOf(request.getMethod())).orElse(null));
             return false;
         }
         // Keep the old user attribute until all existing consumers migrate to
@@ -107,6 +123,31 @@ public class PlatformConsoleAuthInterceptor implements HandlerInterceptor {
         } catch (java.io.IOException ignored) {
             // A closed client connection must not turn a rejected request into an allowed one.
         }
+    }
+
+    private void writePermissionFailure(HttpServletResponse response, List<String> required) {
+        response.setHeader("Cache-Control", "no-store");
+        response.setStatus(HttpStatus.FORBIDDEN.value());
+        response.setCharacterEncoding(StandardCharsets.UTF_8.name());
+        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        String requiredJson = required == null ? "[]" : required.stream()
+                .map(permission -> "\"" + permission + "\"")
+                .collect(java.util.stream.Collectors.joining(",", "[", "]"));
+        try {
+            response.getWriter().write("{\"code\":\"" + PLATFORM_PERMISSION_DENIED
+                    + "\",\"message\":\"当前账号没有访问该功能的权限\",\"requiredAnyOf\":" + requiredJson + "}");
+        } catch (java.io.IOException ignored) {
+            // A closed client connection must not turn a rejected request into an allowed one.
+        }
+    }
+
+    private static String consolePath(HttpServletRequest request) {
+        String uri = request.getRequestURI();
+        String contextPath = request.getContextPath();
+        if (uri != null && StringUtils.hasText(contextPath) && uri.startsWith(contextPath)) {
+            return uri.substring(contextPath.length());
+        }
+        return uri;
     }
 
     private boolean unsafeMethod(String method) {

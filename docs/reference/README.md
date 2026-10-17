@@ -10,7 +10,7 @@
 | [JDK8-SDK与JDK17-Runtime分层.md](./JDK8-SDK与JDK17-Runtime分层.md) | JDK8 业务接入 SDK 与 JDK17 中台 Runtime 分层 |
 | [Workflow-AI-Coding.md](./Workflow-AI-Coding.md) | Workflow AI Coding API、Patch 协议和 Page Assistant 扩展 |
 | [Agent-AI-Coding.md](./Agent-AI-Coding.md) | 项目级 Agent 新建/配置、Skill 发现与绑定、Workflow-as-Tool 接入和安全边界 |
-| [Context-Governance-Kernel.md](./Context-Governance-Kernel.md) | 个人记忆与上下文内核定位、API 边界（项目上下文治理已于 2026-10-17 下线） |
+| [Context-Governance-Kernel.md](./Context-Governance-Kernel.md) | 已退役的上下文治理内核及其替代位置 |
 | [Personal Agent Memory](../architecture/personal-agent-memory.md) | 个人长期记忆、单次会话记忆、候选同意、检索投影和生产配置 |
 
 仍在推进的 UI、认证和统一对话重构计划已统一移至 [计划与验收](../plans/)，避免与当前参考契约混放。

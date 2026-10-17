@@ -2,8 +2,8 @@ package com.enterprise.ai.reach.spring;
 
 import com.enterprise.ai.reach.sdk.annotation.ReachCapability;
 import com.enterprise.ai.reach.sdk.annotation.ReachParam;
-import com.enterprise.ai.reach.sdk.memory.ReachBusinessMemoryResolution;
-import com.enterprise.ai.reach.sdk.memory.ReachBusinessMemoryResolverRequest;
+import com.enterprise.ai.reach.sdk.bizindex.ReachBusinessIndexResolution;
+import com.enterprise.ai.reach.sdk.bizindex.ReachBusinessIndexResolverRequest;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.aop.support.AopUtils;
 import org.springframework.context.ApplicationContext;
@@ -66,18 +66,18 @@ public class ReachCapabilityInvoker {
         return false;
     }
 
-    public boolean requiresBusinessMemoryGuard(String capabilityName) {
+    public boolean requiresBusinessIndexGuard(String capabilityName) {
         ensureInitialized();
         Handler handler = handlers.get(capabilityName);
         if (handler == null) {
             return false;
         }
-        if (hasTag(capabilityName, ReachBusinessMemoryResolverGuard.TAG)
-                || ReachBusinessMemoryResolution.class.isAssignableFrom(handler.method.getReturnType())) {
+        if (hasTag(capabilityName, ReachBusinessIndexResolverGuard.TAG)
+                || ReachBusinessIndexResolution.class.isAssignableFrom(handler.method.getReturnType())) {
             return true;
         }
         for (Class<?> parameterType : handler.parameterTypes) {
-            if (ReachBusinessMemoryResolverRequest.class.isAssignableFrom(parameterType)) {
+            if (ReachBusinessIndexResolverRequest.class.isAssignableFrom(parameterType)) {
                 return true;
             }
         }

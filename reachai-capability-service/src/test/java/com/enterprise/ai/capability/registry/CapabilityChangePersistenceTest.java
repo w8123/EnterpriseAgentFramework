@@ -57,6 +57,8 @@ import static org.mockito.Mockito.mock;
 
 /** Exercises real MyBatis persistence and transactions with MySQL-mode H2, not mock mapper results. */
 class CapabilityChangePersistenceTest {
+    private static final RegistrySecurityService.RegistrySignatureHeaders SIGNED =
+            new RegistrySecurityService.RegistrySignatureHeaders("rak", "1", "n", "sig");
     CapabilityRegistryService registry;
     RegistrySecurityService registrySecurity;
     CapabilityCatalogProjectionStore projections;
@@ -577,15 +579,15 @@ class CapabilityChangePersistenceTest {
     @Test void sdkShutdownAndRestartCannotReenableAnAdministrativelyDisabledInstance() {
         var heartbeat = new InstanceHeartbeatRequest("worker-1", null, "orders-host", 8080,
                 "1.0", "0.3", Map.of("zone", "测试"));
-        tx.executeWithoutResult(status -> registry.heartbeat("orders", heartbeat));
+        tx.executeWithoutResult(status -> registry.heartbeat("orders", heartbeat, SIGNED));
         tx.executeWithoutResult(status -> registry.updateInstanceStatus("orders", "worker-1", "DISABLED"));
-        tx.executeWithoutResult(status -> registry.offline("orders", "worker-1"));
+        tx.executeWithoutResult(status -> registry.offline("orders", "worker-1", SIGNED));
         assertEquals("DISABLED", registry.listInstances("orders").get(0).getStatus());
-        var observed = tx.execute(status -> registry.heartbeat("orders", heartbeat));
+        var observed = tx.execute(status -> registry.heartbeat("orders", heartbeat, SIGNED));
         assertEquals("DISABLED", observed.instance().getStatus());
         assertTrue(observed.instance().getMetadataJson().contains("测试"));
         tx.executeWithoutResult(status -> registry.updateInstanceStatus("orders", "worker-1", "OFFLINE"));
-        assertEquals("ONLINE", tx.execute(status -> registry.heartbeat("orders", heartbeat)).instance().getStatus());
+        assertEquals("ONLINE", tx.execute(status -> registry.heartbeat("orders", heartbeat, SIGNED)).instance().getStatus());
     }
 
     @Test void rollbackDerivesTheProjectionFromTheAcceptedOwnerEvenIfThePriorProjectionWasCorrupted() {

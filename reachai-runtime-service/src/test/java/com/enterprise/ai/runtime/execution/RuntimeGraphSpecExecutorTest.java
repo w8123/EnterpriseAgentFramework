@@ -1029,7 +1029,7 @@ class RuntimeGraphSpecExecutorTest {
                     "type":"TOOL",
                     "ref":{"qualifiedName":"knowledge:business.search"},
                     "config":{"args":{
-                      "query":"business memory canary team",
+                      "query":"business index canary team",
                       "scope":"businessScope"
                     }}
                   }]
@@ -1038,7 +1038,7 @@ class RuntimeGraphSpecExecutorTest {
 
         assertTrue(result.success());
         assertEquals(Map.of(
-                        "query", "business memory canary team",
+                        "query", "business index canary team",
                         "scope", "authorized"),
                 capabilityClient.requests.get(0).get("input"));
     }

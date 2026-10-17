@@ -60,9 +60,9 @@ public final class RuntimeGraphSpecExecutor {
                                     RuntimeControlCatalogClient controlClient,
                                     RuntimeKnowledgeRetrievalClient knowledgeClient,
                                     WorkflowHttpClient httpClient,
-                                    RuntimeBusinessMemoryHydrationPort businessMemoryHydrationPort) {
+                                    RuntimeBusinessIndexResolutionPort businessIndexResolutionPort) {
         this(objectMapper, modelServiceClient, capabilityClient, controlClient,
-                knowledgeClient, httpClient, businessMemoryHydrationPort, null);
+                knowledgeClient, httpClient, businessIndexResolutionPort, null);
     }
 
     @Autowired
@@ -73,7 +73,7 @@ public final class RuntimeGraphSpecExecutor {
                                     @Autowired(required = false) RuntimeKnowledgeRetrievalClient knowledgeClient,
                                     @Autowired(required = false) WorkflowHttpClient httpClient,
                                     @Autowired(required = false)
-                                    RuntimeBusinessMemoryHydrationPort businessMemoryHydrationPort,
+                                    RuntimeBusinessIndexResolutionPort businessIndexResolutionPort,
                                     @Autowired(required = false) RuntimeHttpApiToolExecutionPort httpApis) {
         this.engine = new RuntimeGraphSpecExecutionEngine(
                 objectMapper,
@@ -82,7 +82,7 @@ public final class RuntimeGraphSpecExecutor {
                 controlClient,
                 knowledgeClient,
                 httpClient,
-                businessMemoryHydrationPort,
+                businessIndexResolutionPort,
                 httpApis);
     }
 

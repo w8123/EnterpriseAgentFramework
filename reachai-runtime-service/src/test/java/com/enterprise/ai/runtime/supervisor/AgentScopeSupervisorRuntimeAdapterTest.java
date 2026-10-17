@@ -73,7 +73,7 @@ class AgentScopeSupervisorRuntimeAdapterTest {
         var memoryService = mock(RuntimeSessionMemoryService.class);
         var key = new com.enterprise.ai.runtime.memory.RuntimeSessionMemoryKey(
                 true, "default", "1", "agent-1", "public-session", "trusted-user-key", "trusted-session-key", "AGENT");
-        when(memoryService.resolve(any(), any(), any())).thenReturn(key);
+        when(memoryService.resolve(any(), any(), any(), any())).thenReturn(key);
         when(memoryService.acquireTurn(any(), any(), any())).thenReturn("lease");
         var store = mock(io.agentscope.core.state.AgentStateStore.class);
         var saved = io.agentscope.core.state.AgentState.builder()
@@ -1467,7 +1467,7 @@ class AgentScopeSupervisorRuntimeAdapterTest {
                         null, null, "UNTRUSTED");
         org.mockito.Mockito.doReturn("lease-1").when(memoryService)
                 .acquireTurn(any(), any(), any());
-        when(memoryService.resolve(any(), any(), any())).thenReturn(memoryKey);
+        when(memoryService.resolve(any(), any(), any(), any())).thenReturn(memoryKey);
         AgentScopeSupervisorRuntimeAdapter adapter = adapter(model(List.of()), null, memoryService);
         Map<String, Object> continuation = new LinkedHashMap<>();
         continuation.put("continuationSchemaVersion", 3);

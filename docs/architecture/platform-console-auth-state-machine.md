@@ -27,7 +27,7 @@ stateDiagram-v2
 
 | 数据 | 存储 | 规则 |
 | --- | --- | --- |
-| 会话凭据 | 服务端签发的 Host-only HttpOnly Cookie | `Path=/api`、`SameSite=Strict`；JavaScript 不可读取，不写入 Web Storage、URL 或日志。 |
+| 会话凭据 | 服务端签发的 Host-only HttpOnly Cookie | `Path=/`（覆盖经 Control 转发的 `/ai`、`/model` 控制台路由；登录、登出时清除旧的 `Path=/api` Cookie）、`SameSite=Strict`；JavaScript 不可读取，不写入 Web Storage、URL 或日志。 |
 | `expiresAt`、最小用户资料、`sessionId` | `sessionStorage` | 仅是当前标签页的显示与 CSRF 同步元数据；不能单独证明已登录，新标签页仍以 `/me` 为准。 |
 | 欢迎提示确认 | `localStorage` | 只保存非敏感确认标记，按服务端随机 `sessionId` 隔离；同一会话的多个标签页共享。 |
 | 退出同步事件 | `localStorage` | 只广播 `LOGOUT` 与时间，不包含凭据；其他标签页收到后清理元数据并跳登录。 |

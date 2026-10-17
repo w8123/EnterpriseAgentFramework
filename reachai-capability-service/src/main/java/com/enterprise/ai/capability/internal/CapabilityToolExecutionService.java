@@ -105,7 +105,7 @@ public class CapabilityToolExecutionService {
 
 
     /**
-     * Runtime business-memory hydration uses these constraints to turn a mutable
+     * Runtime business-index resolution uses these constraints to turn a mutable
      * catalog lookup into a fail-closed project/exact-tool boundary. Constraints
      * can only reduce what an invocation may do; they never grant access.
      */

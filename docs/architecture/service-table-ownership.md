@@ -138,16 +138,13 @@ These rows remain in the ownership matrix because the current baseline still rec
 | `capability_sync_log` | `reachai-capability-service` | - | Capability sync log |
 | `capability_sync_receipt` | `reachai-capability-service` | - | Project-scoped sync identity and snapshot binding |
 | `knowledge_chunk` | `reachai-knowledge-service` | - | Knowledge knowledge_chunk storage |
-| `control_context_audit_event` | `reachai-control-service` | - | Control context governance audit |
-| `control_context_binding` | `reachai-control-service` | - | Control context binding |
-| `control_context_evidence` | `reachai-control-service` | - | Control context evidence |
-| `control_context_item` | `reachai-control-service` | - | Control context item |
-| `control_context_memory_candidate` | `reachai-control-service` | - | Control memory candidate review buffer |
-| `control_context_memory_outbox` | `reachai-control-service` | - | Transactional personal-memory projection outbox; Control canonical write boundary |
+| `control_personal_memory` | `reachai-control-service` | - | Canonical personal long-term memory owned by (tenant, runtime user), shared across Agents; physical delete |
+| `control_personal_memory_candidate` | `reachai-control-service` | - | Personal memory candidates awaiting the owner's confirmation |
+| `control_personal_memory_audit` | `reachai-control-service` | - | Personal memory audit trail without memory content |
+| `control_personal_memory_outbox` | `reachai-control-service` | - | Transactional personal-memory projection outbox; Control canonical write boundary |
 | `control_memory_erasure_request` | `reachai-control-service` | - | Durable cross-domain Agent-memory erasure request, lease, retry, and aggregate completion state |
 | `control_memory_erasure_domain` | `reachai-control-service` | - | Per-domain automated/manual erasure evidence without object identifiers or content |
-| `control_context_namespace` | `reachai-control-service` | - | Control context namespace |
-| `control_context_runtime_user_mapping` | `reachai-control-service` | - | Control to Runtime user mapping |
+| `control_runtime_user_mapping` | `reachai-control-service` | - | Platform user to Runtime user mapping (identity) |
 | `knowledge_personal_memory_index` | `reachai-knowledge-service` | - | Rebuildable owner-hashed lexical/vector search projection; never canonical |
 | `knowledge_personal_memory_index_event` | `reachai-knowledge-service` | - | Idempotent personal-memory projection consumption ledger |
 | `control_ai_coding_task` | `reachai-control-service` | - | ReachAI-wide AI Coding task root |

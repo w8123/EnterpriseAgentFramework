@@ -889,12 +889,12 @@ CREATE TABLE IF NOT EXISTS `knowledge_business_index` (
     `split_type`      VARCHAR(32)  NOT NULL DEFAULT 'FIXED' COMMENT '附件切分策略: FIXED / PARAGRAPH / SEMANTIC',
     `status`          VARCHAR(16)  NOT NULL DEFAULT 'ACTIVE' COMMENT '状态: ACTIVE-启用 / INACTIVE-停用',
     `remark`          VARCHAR(512) DEFAULT NULL COMMENT '备注说明',
-    `agent_memory_enabled` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否允许生成非权威 Agent 业务记忆引用',
+    `agent_reference_enabled` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否允许生成非权威 Agent 业务索引引用',
     `resolver_capability_key` VARCHAR(128) DEFAULT NULL COMMENT '按当前业务身份回源并重新鉴权的 Capability key',
     `create_time`     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `update_time`     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY `uk_index_code` (`index_code`),
-    KEY `idx_biz_agent_memory` (`tenant_id`, `project_code`, `agent_memory_enabled`, `status`)
+    KEY `idx_biz_agent_reference` (`tenant_id`, `project_code`, `agent_reference_enabled`, `status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='业务语义索引注册表';
 
 CREATE TABLE IF NOT EXISTS `knowledge_business_index_record` (
@@ -1539,6 +1539,10 @@ CREATE TABLE IF NOT EXISTS `runtime_agent_config_version` (
     `parallel_read_only`    TINYINT(1)   NOT NULL DEFAULT 1,
     `policy_profile`        VARCHAR(64)  NOT NULL DEFAULT 'DEV_ALLOW_ALL',
     `tool_catalog_mode`     VARCHAR(32)  NOT NULL DEFAULT 'ALLOW_LIST',
+    `session_memory_enabled` TINYINT(1)  NOT NULL DEFAULT 1 COMMENT '会话记忆：同一对话的多轮上下文是否持久化',
+    `session_memory_window` INT          NOT NULL DEFAULT 40 COMMENT '会话记忆窗口：保留最近 N 条消息（4-100）',
+    `personal_memory_read`  TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '是否读取用户的个人长期记忆',
+    `personal_memory_write` VARCHAR(32)  NOT NULL DEFAULT 'OFF' COMMENT '个人长期记忆写入：OFF / EXPLICIT / EXPLICIT_AND_CANDIDATE',
     `config_json`           MEDIUMTEXT   DEFAULT NULL COMMENT '扩展配置；不得替代上方稳定字段',
     `published_by`          VARCHAR(64)  DEFAULT NULL,
     `published_at`          DATETIME     DEFAULT NULL,
@@ -3059,10 +3063,10 @@ CALL add_col_if_absent('knowledge_business_index', 'project_id', 'BIGINT DEFAULT
 CALL add_col_if_absent('knowledge_business_index', 'project_code', 'VARCHAR(96) DEFAULT NULL COMMENT ''所属项目编码'' AFTER `project_id`');
 CALL add_col_if_absent('knowledge_business_index', 'environment', 'VARCHAR(32) DEFAULT NULL COMMENT ''环境'' AFTER `project_code`');
 CALL add_col_if_absent('knowledge_business_index', 'tenant_id', 'VARCHAR(96) DEFAULT NULL COMMENT ''租户'' AFTER `environment`');
-CALL add_col_if_absent('knowledge_business_index', 'agent_memory_enabled', 'TINYINT(1) NOT NULL DEFAULT 0 COMMENT ''是否允许生成非权威 Agent 业务记忆引用'' AFTER `remark`');
-CALL add_col_if_absent('knowledge_business_index', 'resolver_capability_key', 'VARCHAR(128) DEFAULT NULL COMMENT ''按当前业务身份回源并重新鉴权的 Capability key'' AFTER `agent_memory_enabled`');
+CALL add_col_if_absent('knowledge_business_index', 'agent_reference_enabled', 'TINYINT(1) NOT NULL DEFAULT 0 COMMENT ''是否允许生成非权威 Agent 业务索引引用'' AFTER `remark`');
+CALL add_col_if_absent('knowledge_business_index', 'resolver_capability_key', 'VARCHAR(128) DEFAULT NULL COMMENT ''按当前业务身份回源并重新鉴权的 Capability key'' AFTER `agent_reference_enabled`');
 CALL add_idx_if_absent('knowledge_business_index', 'idx_biz_index_project', '`project_id`, `status`');
-CALL add_idx_if_absent('knowledge_business_index', 'idx_biz_agent_memory', '`tenant_id`, `project_code`, `agent_memory_enabled`, `status`');
+CALL add_idx_if_absent('knowledge_business_index', 'idx_biz_agent_reference', '`tenant_id`, `project_code`, `agent_reference_enabled`, `status`');
 CALL add_col_if_absent('knowledge_business_index_record', 'source_version', 'VARCHAR(128) DEFAULT NULL COMMENT ''业务源版本；Agent 回源时用于新鲜度校验'' AFTER `metadata_json`');
 CALL add_col_if_absent('knowledge_business_index_record', 'source_updated_at', 'DATETIME DEFAULT NULL COMMENT ''业务源更新时间；不替代 source_version'' AFTER `source_version`');
 CALL add_idx_if_absent('knowledge_business_index_record', 'idx_biz_source_version', '`index_code`, `biz_id`, `source_version`');
@@ -3814,71 +3818,95 @@ CREATE TABLE IF NOT EXISTS `control_embed_renderer` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='嵌入式对话自定义结构化渲染器注册';
 
 -- ============================================================================
--- Context Governance Kernel v1（企业 Agent 上下文治理底座）
--- 说明：Project Dev Memory 与 Runtime User Memory 通过 memory_lane 逻辑隔离。
+-- 个人长期记忆（Control 所有）
+-- 记忆归属用户（tenant + runtime user），在 Agent 间共享；每条记录来源 Agent。
 -- 本阶段未启用 FULLTEXT（MySQL 5.7/8 中文分词与 ngram 配置差异较大，先用 LIKE 检索）。
 -- ============================================================================
 
-CREATE TABLE IF NOT EXISTS `control_context_namespace` (
-    `id`              BIGINT       NOT NULL AUTO_INCREMENT,
-    `namespace_key`   VARCHAR(128) NOT NULL,
-    `namespace_type`  VARCHAR(32)  NOT NULL COMMENT 'PERSONAL/PROJECT/MODULE/FEATURE/PAGE/API/WORKFLOW/AGENT/USER/TENANT/SESSION/GLOBAL',
-    `tenant_id`       VARCHAR(96)  DEFAULT NULL,
-    `project_id`      BIGINT       DEFAULT NULL,
-    `project_code`    VARCHAR(96)  DEFAULT NULL,
-    `owner_type`      VARCHAR(32)  DEFAULT NULL,
-    `owner_id`        VARCHAR(128) DEFAULT NULL,
-    `display_name`    VARCHAR(128) DEFAULT NULL,
-    `description`     VARCHAR(512) DEFAULT NULL,
-    `status`          VARCHAR(24)  NOT NULL DEFAULT 'ACTIVE',
-    `created_by`      VARCHAR(128) DEFAULT NULL,
-    `created_at`      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    `updated_at`      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    `deleted_at`      DATETIME     DEFAULT NULL,
+CREATE TABLE IF NOT EXISTS `control_personal_memory` (
+    `id`                BIGINT        NOT NULL AUTO_INCREMENT,
+    `memory_key`        VARCHAR(128)  NOT NULL COMMENT '幂等键；客户端请求 ID 派生或随机',
+    `tenant_id`         VARCHAR(96)   NOT NULL,
+    `owner_id`          VARCHAR(128)  NOT NULL COMMENT 'Runtime user ID（记忆所有者）',
+    `memory_type`       VARCHAR(16)   NOT NULL COMMENT 'FACT/PREFERENCE/RULE/NOTE',
+    `title`             VARCHAR(256)  DEFAULT NULL,
+    `content`           TEXT          NOT NULL,
+    `content_sha256`    CHAR(64)      NOT NULL COMMENT '规范化正文摘要；同一所有者内去重',
+    `semantic_key`      VARCHAR(80)   DEFAULT NULL COMMENT '语义键哈希（如 profile:location），同键覆盖',
+    `tags_json`         VARCHAR(2000) DEFAULT NULL,
+    `source_type`       VARCHAR(24)   NOT NULL COMMENT 'MANUAL/CONVERSATION/CANDIDATE',
+    `source_agent_id`   VARCHAR(128)  DEFAULT NULL,
+    `source_session_id` VARCHAR(128)  DEFAULT NULL,
+    `expires_at`        DATETIME      DEFAULT NULL,
+    `created_at`        DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`        DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_context_namespace_key` (`namespace_key`),
-    KEY `idx_context_namespace_scope` (`tenant_id`, `project_code`, `namespace_type`, `status`),
-    KEY `idx_context_namespace_owner` (`owner_type`, `owner_id`, `status`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='上下文隔离命名空间';
+    UNIQUE KEY `uk_personal_memory_key` (`memory_key`),
+    UNIQUE KEY `uk_personal_memory_content` (`tenant_id`, `owner_id`, `content_sha256`),
+    UNIQUE KEY `uk_personal_memory_semantic` (`tenant_id`, `owner_id`, `semantic_key`),
+    KEY `idx_personal_memory_owner` (`tenant_id`, `owner_id`, `updated_at`),
+    KEY `idx_personal_memory_agent` (`tenant_id`, `owner_id`, `source_agent_id`),
+    KEY `idx_personal_memory_expiry` (`expires_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='个人长期记忆；删除即物理删除';
 
-CREATE TABLE IF NOT EXISTS `control_context_item` (
-    `id`               BIGINT        NOT NULL AUTO_INCREMENT,
-    `item_key`         VARCHAR(128)  NOT NULL,
-    `namespace_id`     BIGINT        NOT NULL,
-    `item_type`        VARCHAR(32)   NOT NULL COMMENT 'FACT/PREFERENCE/RULE/DECISION/PITFALL/PAGE_CONTEXT/API_CONTRACT/WORKFLOW_CONTEXT/SESSION_SUMMARY/TRACE_LEARNING/NOTE',
-    `memory_lane`      VARCHAR(32)   NOT NULL DEFAULT 'PROJECT_DEV' COMMENT 'PROJECT_DEV or RUNTIME_USER',
-    `title`            VARCHAR(256)  DEFAULT NULL,
-    `content`          MEDIUMTEXT    NOT NULL,
-    `summary`          TEXT          DEFAULT NULL,
-    `metadata_json`    MEDIUMTEXT    DEFAULT NULL,
-    `source_type`      VARCHAR(48)   NOT NULL COMMENT 'USER_CONFIRMED/USER_MESSAGE/AGENT_OUTPUT/CODE/SQL/DOC/API/TRACE/PAGE/WORKFLOW/SYSTEM/MANUAL',
-    `source_ref`       VARCHAR(512)  DEFAULT NULL,
-    `confidence`       DECIMAL(5,4)  NOT NULL DEFAULT 0.7000,
-    `trust_level`      VARCHAR(24)   NOT NULL DEFAULT 'MEDIUM' COMMENT 'LOW/MEDIUM/HIGH/VERIFIED',
-    `visibility`       VARCHAR(32)   NOT NULL DEFAULT 'PRIVATE' COMMENT 'PRIVATE/PROJECT/TENANT/GLOBAL',
-    `status`           VARCHAR(24)   NOT NULL DEFAULT 'ACTIVE' COMMENT 'ACTIVE/STALE/REVOKED/DELETED',
-    `effective_from`   DATETIME      DEFAULT NULL,
-    `expires_at`       DATETIME      DEFAULT NULL,
-    `last_verified_at` DATETIME      DEFAULT NULL,
-    `stale_after`      DATETIME      DEFAULT NULL,
-    `created_by`       VARCHAR(128)  DEFAULT NULL,
-    `updated_by`       VARCHAR(128)  DEFAULT NULL,
-    `created_at`       DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    `updated_at`       DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    `deleted_at`       DATETIME      DEFAULT NULL,
+CREATE TABLE IF NOT EXISTS `control_personal_memory_candidate` (
+    `id`                 BIGINT        NOT NULL AUTO_INCREMENT,
+    `candidate_key`      VARCHAR(128)  NOT NULL,
+    `tenant_id`          VARCHAR(96)   NOT NULL,
+    `owner_id`           VARCHAR(128)  NOT NULL,
+    `memory_type`        VARCHAR(16)   NOT NULL COMMENT 'FACT/PREFERENCE/RULE/NOTE',
+    `title`              VARCHAR(256)  DEFAULT NULL,
+    `content`            TEXT          NOT NULL,
+    `content_sha256`     CHAR(64)      NOT NULL,
+    `dedupe_key`         VARCHAR(128)  DEFAULT NULL COMMENT '仅 PENDING 阶段持有的去重键；审核后清空',
+    `semantic_key`       VARCHAR(128)  DEFAULT NULL COMMENT '提取器给出的语义键（明文，如 profile:location）',
+    `reason`             VARCHAR(512)  DEFAULT NULL,
+    `confidence`         DECIMAL(5,4)  NOT NULL DEFAULT 0.7000,
+    `status`             VARCHAR(16)   NOT NULL DEFAULT 'PENDING' COMMENT 'PENDING/APPROVED/REJECTED',
+    `source_agent_id`    VARCHAR(128)  DEFAULT NULL,
+    `source_session_id`  VARCHAR(128)  DEFAULT NULL,
+    `source_trace_id`    VARCHAR(128)  DEFAULT NULL,
+    `conflict_memory_id` BIGINT        DEFAULT NULL COMMENT '同语义键下将被替换的既有记忆',
+    `approved_memory_id` BIGINT        DEFAULT NULL,
+    `occurrence_count`   INT           NOT NULL DEFAULT 1,
+    `last_seen_at`       DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `reviewed_at`        DATETIME      DEFAULT NULL,
+    `extraction_version` VARCHAR(32)   DEFAULT NULL,
+    `expires_at`         DATETIME      DEFAULT NULL,
+    `created_at`         DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`         DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_context_item_key` (`item_key`),
-    KEY `idx_context_item_namespace` (`namespace_id`, `status`, `item_type`),
-    KEY `idx_context_item_lane` (`memory_lane`, `status`, `updated_at`),
-    KEY `idx_context_item_expiry` (`status`, `expires_at`),
-    KEY `idx_context_item_trust` (`trust_level`, `confidence`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='上下文资产主表';
+    UNIQUE KEY `uk_personal_memory_candidate_key` (`candidate_key`),
+    UNIQUE KEY `uk_personal_memory_candidate_dedupe` (`dedupe_key`),
+    KEY `idx_personal_memory_candidate_owner` (`tenant_id`, `owner_id`, `status`, `last_seen_at`),
+    KEY `idx_personal_memory_candidate_memory` (`approved_memory_id`),
+    KEY `idx_personal_memory_candidate_conflict` (`conflict_memory_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='个人记忆候选（用户确认前缓冲）';
 
-CREATE TABLE IF NOT EXISTS `control_context_memory_outbox` (
+CREATE TABLE IF NOT EXISTS `control_personal_memory_audit` (
+    `id`          BIGINT       NOT NULL AUTO_INCREMENT,
+    `tenant_id`   VARCHAR(96)  NOT NULL,
+    `owner_id`    VARCHAR(128) NOT NULL,
+    `memory_id`   BIGINT       DEFAULT NULL,
+    `event_type`  VARCHAR(32)  NOT NULL COMMENT 'CREATE/UPDATE/DELETE/ERASE_ALL/EXPIRE/SEARCH/CANDIDATE_*',
+    `actor_type`  VARCHAR(24)  NOT NULL COMMENT 'USER/SYSTEM',
+    `agent_id`    VARCHAR(128) DEFAULT NULL,
+    `session_id`  VARCHAR(128) DEFAULT NULL,
+    `trace_id`    VARCHAR(128) DEFAULT NULL,
+    `decision`    VARCHAR(16)  DEFAULT NULL COMMENT 'ALLOW/SKIP',
+    `reason`      VARCHAR(64)  DEFAULT NULL,
+    `metadata_json` VARCHAR(2000) DEFAULT NULL COMMENT '只存摘要和计数，不存记忆正文',
+    `created_at`  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_personal_memory_audit_owner` (`tenant_id`, `owner_id`, `created_at`),
+    KEY `idx_personal_memory_audit_memory` (`memory_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='个人记忆审计（不存正文）';
+
+CREATE TABLE IF NOT EXISTS `control_personal_memory_outbox` (
     `id`              BIGINT        NOT NULL AUTO_INCREMENT,
     `event_id`        VARCHAR(64)   NOT NULL COMMENT '跨服务幂等事件 ID',
     `aggregate_type`  VARCHAR(32)   NOT NULL COMMENT 'PERSONAL_MEMORY',
-    `aggregate_id`    VARCHAR(128)  NOT NULL COMMENT 'control_context_item.id',
+    `aggregate_id`    VARCHAR(128)  NOT NULL COMMENT 'control_personal_memory.id',
     `event_type`      VARCHAR(48)   NOT NULL COMMENT 'PERSONAL_MEMORY_UPSERT / PERSONAL_MEMORY_DELETE',
     `correlation_id`  VARCHAR(64)   DEFAULT NULL COMMENT '跨域擦除请求关联号；不包含 owner 或正文',
     `payload_json`    MEDIUMTEXT    NOT NULL COMMENT '最小搜索投影事件；删除事件不含原文',
@@ -3891,10 +3919,10 @@ CREATE TABLE IF NOT EXISTS `control_context_memory_outbox` (
     `published_at`    DATETIME      DEFAULT NULL,
     `updated_at`      DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_context_memory_outbox_event` (`event_id`),
-    KEY `idx_context_memory_outbox_dispatch` (`status`, `next_attempt_at`, `id`),
-    KEY `idx_context_memory_outbox_aggregate` (`aggregate_type`, `aggregate_id`, `id`),
-    KEY `idx_context_memory_outbox_correlation` (`correlation_id`, `status`, `id`)
+    UNIQUE KEY `uk_personal_memory_outbox_event` (`event_id`),
+    KEY `idx_personal_memory_outbox_dispatch` (`status`, `next_attempt_at`, `id`),
+    KEY `idx_personal_memory_outbox_aggregate` (`aggregate_type`, `aggregate_id`, `id`),
+    KEY `idx_personal_memory_outbox_correlation` (`correlation_id`, `status`, `id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Control 个人记忆到 Knowledge 搜索投影的事务 outbox';
 
 CREATE TABLE IF NOT EXISTS `control_memory_erasure_request` (
@@ -3944,131 +3972,10 @@ CREATE TABLE IF NOT EXISTS `control_memory_erasure_domain` (
     KEY `idx_memory_erasure_domain_status` (`status`, `updated_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='跨域 Agent 记忆擦除逐域证据状态';
 
-CREATE TABLE IF NOT EXISTS `control_context_binding` (
-    `id`           BIGINT       NOT NULL AUTO_INCREMENT,
-    `item_id`      BIGINT       NOT NULL,
-    `bind_type`    VARCHAR(32)  NOT NULL COMMENT 'TENANT/PROJECT/USER/AGENT/WORKFLOW/PAGE/API/SESSION/MODULE/FEATURE',
-    `bind_id`      VARCHAR(128) NOT NULL,
-    `bind_key`     VARCHAR(256) DEFAULT NULL,
-    `tenant_id`    VARCHAR(96)  DEFAULT NULL,
-    `project_id`   BIGINT       DEFAULT NULL,
-    `project_code` VARCHAR(96)  DEFAULT NULL,
-    `status`       VARCHAR(24)  NOT NULL DEFAULT 'ACTIVE',
-    `created_at`   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    `deleted_at`   DATETIME     DEFAULT NULL,
-    PRIMARY KEY (`id`),
-    KEY `idx_context_binding_target` (`bind_type`, `bind_id`, `status`),
-    KEY `idx_context_binding_item` (`item_id`, `status`),
-    KEY `idx_context_binding_project` (`project_code`, `bind_type`, `status`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='上下文资产绑定关系';
-
-CREATE TABLE IF NOT EXISTS `control_context_evidence` (
-    `id`              BIGINT       NOT NULL AUTO_INCREMENT,
-    `item_id`         BIGINT       NOT NULL,
-    `evidence_type`   VARCHAR(48)  NOT NULL COMMENT 'USER_CONFIRMATION/SOURCE_FILE/SQL_SCHEMA/API_RESPONSE/TRACE_SPAN/TOOL_CALL/DOCUMENT/MANUAL_NOTE',
-    `evidence_ref`    VARCHAR(512) DEFAULT NULL,
-    `evidence_excerpt` TEXT        DEFAULT NULL,
-    `trace_id`        VARCHAR(128) DEFAULT NULL,
-    `confidence`      DECIMAL(5,4) DEFAULT NULL,
-    `metadata_json`   MEDIUMTEXT   DEFAULT NULL,
-    `created_at`      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (`id`),
-    KEY `idx_context_evidence_item` (`item_id`),
-    KEY `idx_context_evidence_trace` (`trace_id`),
-    KEY `idx_context_evidence_type` (`evidence_type`, `created_at`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='上下文资产来源证据';
-
-CREATE TABLE IF NOT EXISTS `control_context_audit_event` (
-    `id`            BIGINT       NOT NULL AUTO_INCREMENT,
-    `event_type`    VARCHAR(48)  NOT NULL COMMENT 'CREATE/UPDATE/READ/SEARCH/INJECT/DELETE/REVOKE/EXPIRE/VERIFY/MARK_STALE',
-    `item_id`       BIGINT       DEFAULT NULL,
-    `namespace_id`  BIGINT       DEFAULT NULL,
-    `actor_type`    VARCHAR(32)  DEFAULT NULL,
-    `actor_id`      VARCHAR(128) DEFAULT NULL,
-    `tenant_id`     VARCHAR(96)  DEFAULT NULL,
-    `project_id`    BIGINT       DEFAULT NULL,
-    `project_code`  VARCHAR(96)  DEFAULT NULL,
-    `agent_id`      VARCHAR(128) DEFAULT NULL,
-    `workflow_id`   VARCHAR(128) DEFAULT NULL,
-    `session_id`    VARCHAR(128) DEFAULT NULL,
-    `trace_id`      VARCHAR(128) DEFAULT NULL,
-    `decision`      VARCHAR(32)  DEFAULT NULL COMMENT 'ALLOW/DENY/SKIP',
-    `reason`        VARCHAR(512) DEFAULT NULL,
-    `metadata_json` MEDIUMTEXT   DEFAULT NULL,
-    `created_at`    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (`id`),
-    KEY `idx_context_audit_item` (`item_id`, `created_at`),
-    KEY `idx_context_audit_actor` (`actor_type`, `actor_id`, `created_at`),
-    KEY `idx_context_audit_trace` (`trace_id`),
-    KEY `idx_context_audit_project` (`project_code`, `created_at`),
-    KEY `idx_context_audit_project_id` (`project_id`, `created_at`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='上下文治理审计事件';
-
-CREATE TABLE IF NOT EXISTS `control_context_memory_candidate` (
-    `id`                BIGINT        NOT NULL AUTO_INCREMENT,
-    `candidate_key`     VARCHAR(128)  NOT NULL,
-    `tenant_id`         VARCHAR(96)   NOT NULL,
-    `project_id`        BIGINT        DEFAULT NULL,
-    `project_code`      VARCHAR(96)   DEFAULT NULL,
-    `namespace_id`      BIGINT        DEFAULT NULL,
-    `namespace_key`     VARCHAR(128)  DEFAULT NULL,
-    `memory_lane`       VARCHAR(32)   NOT NULL DEFAULT 'RUNTIME_USER',
-    `candidate_type`    VARCHAR(32)   NOT NULL COMMENT 'PREFERENCE/FACT/RULE/PAGE_CONTEXT/WORKFLOW_CONTEXT/API_CONTEXT/NOTE',
-    `title`             VARCHAR(256)  DEFAULT NULL,
-    `content`           MEDIUMTEXT    NOT NULL,
-    `content_sha256`    CHAR(64)      DEFAULT NULL COMMENT '规范化候选内容摘要；不替代加密与访问控制',
-    `dedupe_key`        VARCHAR(128)  DEFAULT NULL COMMENT '仅 PENDING 阶段持有的并发去重键；审核后清空',
-    `semantic_key`      VARCHAR(128)  DEFAULT NULL COMMENT '可选稳定语义键，用于识别属性替换冲突',
-    `summary`           TEXT          DEFAULT NULL,
-    `reason`            VARCHAR(512)  DEFAULT NULL,
-    `source_type`       VARCHAR(48)   NOT NULL COMMENT 'USER_MESSAGE/USER_CONFIRMED/AGENT_OUTPUT/TRACE/PAGE/WORKFLOW/MANUAL/SYSTEM',
-    `source_ref`        VARCHAR(512)  DEFAULT NULL,
-    `trace_id`          VARCHAR(128)  DEFAULT NULL,
-    `session_id`        VARCHAR(128)  DEFAULT NULL,
-    `user_id`           VARCHAR(128)  DEFAULT NULL,
-    `external_user_id`  VARCHAR(128)  DEFAULT NULL,
-    `global_user_id`    VARCHAR(128)  DEFAULT NULL,
-    `agent_id`          VARCHAR(128)  DEFAULT NULL,
-    `agent_key`         VARCHAR(128)  DEFAULT NULL,
-    `workflow_id`       VARCHAR(128)  DEFAULT NULL,
-    `workflow_key`      VARCHAR(128)  DEFAULT NULL,
-    `page_instance_id`  VARCHAR(128)  DEFAULT NULL,
-    `origin`            VARCHAR(512)  DEFAULT NULL,
-    `confidence`        DECIMAL(5,4)  NOT NULL DEFAULT 0.7000,
-    `trust_level`       VARCHAR(24)   NOT NULL DEFAULT 'LOW',
-    `visibility`        VARCHAR(32)   NOT NULL DEFAULT 'PRIVATE',
-    `status`            VARCHAR(24)   NOT NULL DEFAULT 'PENDING' COMMENT 'PENDING/APPROVED/REJECTED/EXPIRED/DELETED',
-    `proposed_by`       VARCHAR(128)  DEFAULT NULL,
-    `reviewed_by`       VARCHAR(128)  DEFAULT NULL,
-    `reviewed_at`       DATETIME      DEFAULT NULL,
-    `review_reason`     VARCHAR(512)  DEFAULT NULL,
-    `approved_item_id`  BIGINT        DEFAULT NULL COMMENT '批准后写入 control_context_item.id',
-    `conflict_item_id`  BIGINT        DEFAULT NULL COMMENT '同一语义键下待替换的既有个人记忆条目',
-    `conflict_type`     VARCHAR(32)   DEFAULT NULL COMMENT 'REPLACEMENT；精确重复会直接跳过而不创建候选',
-    `occurrence_count`  INT           NOT NULL DEFAULT 1 COMMENT '同一 pending 候选被重复观察到的次数',
-    `last_seen_at`      DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '最近一次重复观察时间',
-    `extraction_version` VARCHAR(32)  DEFAULT NULL COMMENT '规则或模型提取器版本',
-    `metadata_json`     MEDIUMTEXT    DEFAULT NULL,
-    `expires_at`        DATETIME      DEFAULT NULL,
-    `created_at`        DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    `updated_at`        DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    `deleted_at`        DATETIME      DEFAULT NULL,
-    PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_context_memory_candidate_key` (`candidate_key`),
-    UNIQUE KEY `uk_context_memory_candidate_dedupe` (`dedupe_key`),
-    KEY `idx_context_memory_candidate_scope` (`tenant_id`, `project_code`, `memory_lane`, `status`),
-    KEY `idx_context_memory_candidate_user` (`tenant_id`, `user_id`, `status`, `created_at`),
-    KEY `idx_context_memory_candidate_session` (`session_id`, `status`, `created_at`),
-    KEY `idx_context_memory_candidate_trace` (`trace_id`),
-    KEY `idx_context_memory_candidate_agent` (`agent_id`, `status`, `created_at`),
-    KEY `idx_context_memory_candidate_review` (`status`, `expires_at`, `created_at`),
-    KEY `idx_context_memory_candidate_namespace` (`namespace_id`, `status`),
-    KEY `idx_context_memory_candidate_semantic` (`namespace_id`, `semantic_key`, `status`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Runtime User Memory 写回候选（确认前缓冲）';
 
 CREATE TABLE IF NOT EXISTS `knowledge_personal_memory_index` (
     `id`                 BIGINT       NOT NULL AUTO_INCREMENT,
-    `memory_id`          BIGINT       NOT NULL COMMENT 'Control canonical control_context_item.id',
+    `memory_id`          BIGINT       NOT NULL COMMENT 'Control canonical control_personal_memory.id',
     `tenant_id`          VARCHAR(96)  NOT NULL,
     `runtime_user_hash`  CHAR(64)     NOT NULL COMMENT 'HMAC 后用户标识；Knowledge 不保存原始 Runtime user id',
     `item_type`          VARCHAR(32)  NOT NULL,
@@ -4158,11 +4065,11 @@ CREATE TABLE IF NOT EXISTS `knowledge_personal_memory_index_event` (
     KEY `idx_knowledge_personal_memory_event_memory` (`memory_id`, `processed_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='个人记忆搜索投影消费幂等账本';
 
-CREATE TABLE IF NOT EXISTS `control_context_runtime_user_mapping` (
+CREATE TABLE IF NOT EXISTS `control_runtime_user_mapping` (
     `id`               BIGINT       NOT NULL AUTO_INCREMENT,
     `tenant_id`        VARCHAR(96)  NOT NULL DEFAULT 'default',
     `platform_user_id` BIGINT       NOT NULL COMMENT '平台管理端用户 ID',
-    `runtime_user_id`  VARCHAR(128) NOT NULL COMMENT 'Context runtime user ownerId（global/external/user 归一值）',
+    `runtime_user_id`  VARCHAR(128) NOT NULL COMMENT '个人记忆所有者 runtime user ID（global/external/user 归一值）',
     `global_user_id`   VARCHAR(128) DEFAULT NULL,
     `external_user_id` VARCHAR(128) DEFAULT NULL,
     `project_id`       BIGINT       DEFAULT NULL,
@@ -4174,13 +4081,12 @@ CREATE TABLE IF NOT EXISTS `control_context_runtime_user_mapping` (
     `updated_at`       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     `deleted_at`       DATETIME     DEFAULT NULL,
     PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_context_runtime_user_mapping_active` (`tenant_id`, `platform_user_id`, `active_marker`),
-    KEY `idx_context_runtime_user_mapping_actor` (`tenant_id`, `platform_user_id`, `runtime_user_id`, `status`),
-    KEY `idx_context_runtime_user_mapping_project` (`tenant_id`, `project_code`, `project_id`, `status`),
-    KEY `idx_context_runtime_user_mapping_runtime` (`tenant_id`, `runtime_user_id`, `status`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='平台用户代审 Runtime User 记忆的身份映射';
+    UNIQUE KEY `uk_runtime_user_mapping_active` (`tenant_id`, `platform_user_id`, `active_marker`),
+    KEY `idx_runtime_user_mapping_actor` (`tenant_id`, `platform_user_id`, `runtime_user_id`, `status`),
+    KEY `idx_runtime_user_mapping_project` (`tenant_id`, `project_code`, `project_id`, `status`),
+    KEY `idx_runtime_user_mapping_runtime` (`tenant_id`, `runtime_user_id`, `status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='平台用户与运行时用户的映射（管理端查看自己的记忆用）';
 
-CALL add_idx_if_absent('control_context_audit_event', 'idx_context_audit_project_id', '`project_id`, `created_at`');
 
 CREATE TABLE IF NOT EXISTS `control_platform_user` (
     `id`               BIGINT       NOT NULL AUTO_INCREMENT,
@@ -4290,155 +4196,107 @@ CREATE TABLE IF NOT EXISTS `control_platform_auth_audit_event` (
     KEY `idx_platform_auth_audit_target` (`target_type`, `target_id`, `created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='平台认证与高风险身份映射管理操作审计';
 
+-- 平台角色（2026-10-17 人员角色与权限重设计）：开发人员按项目授权，运营人员负责 Workflow/Agent/知识/
+-- 使用者与调用权限，平台管理员拥有全部权限，审计员只读。普通用户（嵌入式对话的终端用户）不是平台角色，
+-- 由业务用户目录与调用权限（control_tool_acl）管理。
 INSERT IGNORE INTO `control_platform_role` (`role_code`, `role_name`, `description`, `role_kind`, `status`)
 VALUES
-('PLATFORM_ADMIN', '平台管理员', '平台全量管理与配置', 'SYSTEM', 'ACTIVE'),
-('AGENT_DESIGNER', '智能体设计者', '创建与编辑智能体及工作流', 'SYSTEM', 'ACTIVE'),
-('PROJECT_OWNER', '项目负责人', '管理已分配业务项目', 'SYSTEM', 'ACTIVE'),
-('OPERATOR', '运维操作员', '运行、调试与回放会话', 'SYSTEM', 'ACTIVE'),
-('AUDITOR', '审计员', '只读审计与追踪', 'SYSTEM', 'ACTIVE');
+('PLATFORM_ADMIN', '平台管理员', '账号与角色、认证源、模型、合规等平台管理，拥有全部权限', 'SYSTEM', 'ACTIVE'),
+('DEVELOPER', '开发人员', 'Java 接入开发者：项目接入、SDK 凭证、业务方法与 HTTP API、变化评审；建议按项目授权', 'SYSTEM', 'ACTIVE'),
+('OPERATOR', '运营人员', 'Agent / Workflow 实施与日常运营：编排、发布、知识、运行中心、使用者与调用权限', 'SYSTEM', 'ACTIVE'),
+('AUDITOR', '审计员', '只读查看配置、运行记录与权限', 'SYSTEM', 'ACTIVE');
 
 INSERT IGNORE INTO `control_platform_permission` (`permission_code`, `permission_name`, `resource_type`, `action`)
 VALUES
-('*', 'All platform permissions', 'PLATFORM', '*'),
-('platform:read', 'Read platform assets', 'PLATFORM', 'READ'),
-('platform:write', 'Write platform assets', 'PLATFORM', 'WRITE'),
-('platform:admin', 'Administer platform users and roles', 'PLATFORM', 'ADMIN'),
-('capability:invoke', 'Invoke accepted business methods from the console', 'CAPABILITY', 'INVOKE'),
-('workspace:build:access', 'Access the build workspace', 'PLATFORM_WORKSPACE', 'ACCESS_BUILD'),
-('workspace:operate:access', 'Access the operations and governance workspace', 'PLATFORM_WORKSPACE', 'ACCESS_OPERATE'),
-('identity:business-user:read', 'Read the governed business user directory', 'BUSINESS_USER', 'READ'),
-('identity:business-user:manage', 'Manage business user profiles and external identity bindings', 'BUSINESS_USER', 'MANAGE'),
-('skill:read', 'Read standard Agent Skill packages', 'AGENT_SKILL', 'READ'),
-('skill:import', 'Import standard Agent Skill packages', 'AGENT_SKILL', 'IMPORT'),
-('skill:review', 'Review standard Agent Skill package versions', 'AGENT_SKILL', 'REVIEW'),
-('skill:publish', 'Publish, deprecate, and revoke Agent Skill versions', 'AGENT_SKILL', 'PUBLISH'),
-('skill:bind', 'Bind published Agent Skill versions to Agent configuration', 'AGENT_SKILL', 'BIND'),
-('skill:script:approve', 'Approve sandboxed Agent Skill script execution policy', 'AGENT_SKILL', 'APPROVE_SCRIPT'),
-('a2a-hub:read', 'Read A2A Hub catalogs and safe task summaries', 'A2A_HUB', 'READ'),
-('a2a-hub:publication:manage', 'Manage local A2A publications', 'A2A_PUBLICATION', 'MANAGE'),
-('a2a-hub:remote-agent:manage', 'Manage trusted remote A2A agents', 'A2A_REMOTE_AGENT', 'MANAGE'),
-('a2a-hub:trust:manage', 'Manage A2A principals and trust profiles', 'A2A_TRUST', 'MANAGE'),
-('a2a-hub:credential:manage', 'Create, rotate, and revoke A2A credentials', 'A2A_CREDENTIAL', 'MANAGE'),
-('a2a-hub:task:operate', 'Operate A2A tasks without reading retained payloads', 'A2A_TASK', 'OPERATE'),
-('a2a-hub:payload:read', 'Read retained A2A payloads under audited authorization', 'A2A_PAYLOAD', 'READ'),
-('a2a-hub:conformance:run', 'Run A2A diagnostics and conformance checks', 'A2A_CONFORMANCE', 'RUN'),
-('mcp-hub:read', 'Read MCP publications and safe call summaries', 'MCP_HUB', 'READ'),
-('mcp-hub:publication:manage', 'Manage outbound MCP publications', 'MCP_PUBLICATION', 'MANAGE'),
-('mcp-hub:publication:irreversible', 'Publish MCP revisions containing irreversible tools', 'MCP_PUBLICATION', 'PUBLISH_IRREVERSIBLE'),
-('mcp-hub:credential:manage', 'Create, rotate, and revoke MCP credentials', 'MCP_CREDENTIAL', 'MANAGE'),
-('mcp-hub:credential-role:manage', 'Grant Tool ACL roles to MCP credentials', 'MCP_CREDENTIAL_ROLE', 'MANAGE'),
-('mcp-hub:payload:read', 'Read retained redacted MCP payloads under audited authorization', 'MCP_PAYLOAD', 'READ'),
-('context:runtime-user:review', 'Review runtime user context candidates', 'CONTEXT_RUNTIME_USER', 'REVIEW'),
-('context:runtime-user:mapping:manage', 'Manage runtime user review mappings', 'CONTEXT_RUNTIME_USER', 'MANAGE_MAPPING'),
-('context:memory:erasure:manage', 'Manage cross-domain Agent memory erasure', 'CONTEXT_MEMORY', 'MANAGE_ERASURE'),
-('runtime:session:retention:manage', 'Manage Runtime session retention and legal hold', 'RUNTIME_SESSION', 'MANAGE_RETENTION'),
-('automation:read', 'Read Automation definitions and execution history', 'AUTOMATION', 'READ'),
-('automation:write', 'Create, version, pause, resume, and archive Automations', 'AUTOMATION', 'WRITE'),
-('automation:operate', 'Run, retry, and cancel Automation occurrences', 'AUTOMATION', 'OPERATE'),
-('agent:read', 'Read Agent definitions and versions', 'AGENT', 'READ'),
-('agent:write', 'Create and edit Agent definitions and drafts', 'AGENT', 'WRITE'),
-('agent:debug', 'Debug Agents and handle development approvals', 'AGENT', 'DEBUG'),
-('agent:evaluate', 'Create and operate Agent evaluation assets', 'AGENT', 'EVALUATE'),
-('agent:publish', 'Publish Agent configuration versions', 'AGENT', 'PUBLISH'),
-('workflow:read', 'Read Workflow definitions and versions', 'WORKFLOW', 'READ'),
-('workflow:write', 'Create and edit Workflow definitions and working copies', 'WORKFLOW', 'WRITE'),
-('workflow:debug', 'Debug Workflow working copies', 'WORKFLOW', 'DEBUG'),
-('workflow:publish', 'Publish and roll back Workflow versions', 'WORKFLOW', 'PUBLISH'),
-('workflow:credential:manage', 'Manage Workflow execution credentials', 'WORKFLOW_CREDENTIAL', 'MANAGE'),
-('runops:read', 'Read traces, diagnostics, and guard decisions', 'RUNOPS', 'READ'),
-('runops:operate', 'Replay and operate Runtime executions', 'RUNOPS', 'OPERATE');
+('*', '全部权限', 'PLATFORM', '*'),
+('platform:read', '查看项目与业务能力', 'PROJECT', 'READ'),
+('platform:write', '维护项目与业务能力', 'PROJECT', 'WRITE'),
+('platform:admin', '管理平台账号、角色与认证源', 'PLATFORM', 'ADMIN'),
+('capability:invoke', '在管理端调试调用业务方法与 API', 'CAPABILITY', 'INVOKE'),
+('knowledge:read', '查看知识库与业务索引', 'KNOWLEDGE', 'READ'),
+('knowledge:write', '维护知识库与业务索引', 'KNOWLEDGE', 'WRITE'),
+('model:read', '查看与试用模型', 'MODEL', 'READ'),
+('model:manage', '管理模型实例与供应商账号', 'MODEL', 'MANAGE'),
+('tool-acl:read', '查看调用权限', 'TOOL_ACL', 'READ'),
+('tool-acl:manage', '管理调用权限', 'TOOL_ACL', 'MANAGE'),
+('embed:read', '查看嵌入式对话配置与会话', 'EMBED', 'READ'),
+('embed:manage', '管理嵌入式对话配置', 'EMBED', 'MANAGE'),
+('identity:business-user:read', '查看业务用户目录', 'BUSINESS_USER', 'READ'),
+('identity:business-user:manage', '管理业务用户与外部身份绑定', 'BUSINESS_USER', 'MANAGE'),
+('skill:read', '查看 Agent Skill 包', 'AGENT_SKILL', 'READ'),
+('skill:import', '导入 Agent Skill 包', 'AGENT_SKILL', 'IMPORT'),
+('skill:review', '审核 Agent Skill 包版本', 'AGENT_SKILL', 'REVIEW'),
+('skill:publish', '发布、弃用和撤销 Agent Skill 版本', 'AGENT_SKILL', 'PUBLISH'),
+('skill:bind', '把已发布 Skill 绑定到 Agent', 'AGENT_SKILL', 'BIND'),
+('skill:script:approve', '批准 Skill 沙箱脚本执行策略', 'AGENT_SKILL', 'APPROVE_SCRIPT'),
+('a2a-hub:read', '查看 A2A 互联', 'A2A_HUB', 'READ'),
+('a2a-hub:publication:manage', '管理本地 A2A 发布', 'A2A_PUBLICATION', 'MANAGE'),
+('a2a-hub:remote-agent:manage', '管理受信远程 A2A Agent', 'A2A_REMOTE_AGENT', 'MANAGE'),
+('a2a-hub:trust:manage', '管理 A2A 主体与信任配置', 'A2A_TRUST', 'MANAGE'),
+('a2a-hub:credential:manage', '创建、轮换和吊销 A2A 凭证', 'A2A_CREDENTIAL', 'MANAGE'),
+('a2a-hub:task:operate', '操作 A2A 任务（不读取留存载荷）', 'A2A_TASK', 'OPERATE'),
+('a2a-hub:payload:read', '在审计下读取 A2A 留存载荷', 'A2A_PAYLOAD', 'READ'),
+('a2a-hub:conformance:run', '运行 A2A 诊断与一致性检查', 'A2A_CONFORMANCE', 'RUN'),
+('mcp-hub:read', '查看 MCP 发布与调用摘要', 'MCP_HUB', 'READ'),
+('mcp-hub:publication:manage', '管理 MCP 对外发布', 'MCP_PUBLICATION', 'MANAGE'),
+('mcp-hub:publication:irreversible', '发布含不可逆工具的 MCP 版本', 'MCP_PUBLICATION', 'PUBLISH_IRREVERSIBLE'),
+('mcp-hub:credential:manage', '创建、轮换和吊销 MCP 凭证', 'MCP_CREDENTIAL', 'MANAGE'),
+('mcp-hub:credential-role:manage', '为 MCP 凭证授予调用权限角色', 'MCP_CREDENTIAL_ROLE', 'MANAGE'),
+('mcp-hub:payload:read', '在审计下读取 MCP 留存载荷', 'MCP_PAYLOAD', 'READ'),
+('context:runtime-user:mapping:manage', '管理运行时用户映射', 'RUNTIME_USER_MAPPING', 'MANAGE'),
+('context:memory:erasure:manage', '管理跨域数据擦除', 'MEMORY_ERASURE', 'MANAGE'),
+('runtime:session:retention:manage', '管理会话保留与 Legal Hold', 'RUNTIME_SESSION', 'MANAGE_RETENTION'),
+('automation:read', '查看自动化', 'AUTOMATION', 'READ'),
+('automation:write', '创建和维护自动化', 'AUTOMATION', 'WRITE'),
+('automation:operate', '运行、重试和取消自动化', 'AUTOMATION', 'OPERATE'),
+('agent:read', '查看 Agent', 'AGENT', 'READ'),
+('agent:write', '创建和编辑 Agent', 'AGENT', 'WRITE'),
+('agent:debug', '调试 Agent 并处理开发期审批', 'AGENT', 'DEBUG'),
+('agent:evaluate', '维护和运行 Agent 评测', 'AGENT', 'EVALUATE'),
+('agent:publish', '发布 Agent 配置版本', 'AGENT', 'PUBLISH'),
+('workflow:read', '查看 Workflow', 'WORKFLOW', 'READ'),
+('workflow:write', '创建和编辑 Workflow', 'WORKFLOW', 'WRITE'),
+('workflow:debug', '调试 Workflow', 'WORKFLOW', 'DEBUG'),
+('workflow:publish', '发布和回滚 Workflow 版本', 'WORKFLOW', 'PUBLISH'),
+('workflow:credential:manage', '管理 Workflow 执行凭证', 'WORKFLOW_CREDENTIAL', 'MANAGE'),
+('runops:read', '查看运行记录、Trace 与诊断', 'RUNOPS', 'READ'),
+('runops:operate', '回放和操作运行', 'RUNOPS', 'OPERATE');
 
 INSERT IGNORE INTO `control_platform_role_permission` (`role_id`, `permission_id`)
 SELECT r.id, p.id FROM `control_platform_role` r JOIN `control_platform_permission` p
-WHERE r.role_code = 'PLATFORM_ADMIN'
-  AND p.permission_code IN ('*', 'platform:read', 'platform:write', 'platform:admin',
-                            'workspace:build:access', 'workspace:operate:access',
-                            'identity:business-user:read', 'identity:business-user:manage',
-                            'skill:read', 'skill:import', 'skill:review',
-                            'skill:publish', 'skill:bind', 'skill:script:approve',
-                            'a2a-hub:read', 'a2a-hub:publication:manage',
-                            'a2a-hub:remote-agent:manage', 'a2a-hub:trust:manage',
-                            'a2a-hub:credential:manage', 'a2a-hub:task:operate',
-                            'a2a-hub:payload:read', 'a2a-hub:conformance:run',
-                            'context:runtime-user:review', 'context:runtime-user:mapping:manage',
-                            'context:memory:erasure:manage',
-                            'runtime:session:retention:manage',
+WHERE r.role_code = 'PLATFORM_ADMIN';
+
+INSERT IGNORE INTO `control_platform_role_permission` (`role_id`, `permission_id`)
+SELECT r.id, p.id FROM `control_platform_role` r JOIN `control_platform_permission` p
+WHERE r.role_code = 'DEVELOPER'
+  AND p.permission_code IN ('platform:read', 'platform:write', 'capability:invoke',
+                            'agent:read', 'workflow:read', 'runops:read', 'automation:read',
+                            'knowledge:read', 'model:read');
+
+INSERT IGNORE INTO `control_platform_role_permission` (`role_id`, `permission_id`)
+SELECT r.id, p.id FROM `control_platform_role` r JOIN `control_platform_permission` p
+WHERE r.role_code = 'OPERATOR'
+  AND p.permission_code IN ('platform:read', 'capability:invoke',
+                            'agent:read', 'agent:write', 'agent:debug', 'agent:evaluate', 'agent:publish',
+                            'workflow:read', 'workflow:write', 'workflow:debug', 'workflow:publish',
+                            'workflow:credential:manage',
+                            'runops:read', 'runops:operate',
                             'automation:read', 'automation:write', 'automation:operate',
-                            'agent:read', 'agent:write', 'agent:debug',
-                            'agent:evaluate', 'agent:publish',
-                            'workflow:read', 'workflow:write', 'workflow:debug',
-                            'workflow:publish', 'workflow:credential:manage',
-                            'runops:read', 'runops:operate');
-
-INSERT IGNORE INTO `control_platform_role_permission` (`role_id`, `permission_id`)
-SELECT r.id, p.id FROM `control_platform_role` r JOIN `control_platform_permission` p
-WHERE r.role_code IN ('AGENT_DESIGNER', 'PROJECT_OWNER', 'OPERATOR')
-  AND p.permission_code IN ('platform:read', 'platform:write');
-
-INSERT IGNORE INTO `control_platform_role_permission` (`role_id`, `permission_id`)
-SELECT r.id, p.id FROM `control_platform_role` r JOIN `control_platform_permission` p
-WHERE (r.role_code = 'AGENT_DESIGNER' AND p.permission_code = 'workspace:build:access')
-   OR (r.role_code = 'PROJECT_OWNER'
-       AND p.permission_code IN ('workspace:build:access', 'workspace:operate:access'))
-   OR (r.role_code IN ('OPERATOR', 'AUDITOR')
-       AND p.permission_code = 'workspace:operate:access');
+                            'knowledge:read', 'knowledge:write', 'model:read',
+                            'tool-acl:read', 'tool-acl:manage', 'embed:read', 'embed:manage',
+                            'identity:business-user:read', 'identity:business-user:manage',
+                            'skill:read', 'skill:import', 'skill:bind',
+                            'mcp-hub:read', 'mcp-hub:publication:manage', 'mcp-hub:credential:manage',
+                            'a2a-hub:read', 'a2a-hub:publication:manage', 'a2a-hub:remote-agent:manage',
+                            'a2a-hub:task:operate', 'a2a-hub:conformance:run');
 
 INSERT IGNORE INTO `control_platform_role_permission` (`role_id`, `permission_id`)
 SELECT r.id, p.id FROM `control_platform_role` r JOIN `control_platform_permission` p
 WHERE r.role_code = 'AUDITOR'
-  AND p.permission_code = 'platform:read';
-
-INSERT IGNORE INTO `control_platform_role_permission` (`role_id`, `permission_id`)
-SELECT r.id, p.id FROM `control_platform_role` r JOIN `control_platform_permission` p
-WHERE (r.role_code IN ('AGENT_DESIGNER', 'PROJECT_OWNER')
-       AND p.permission_code IN ('automation:read', 'automation:write', 'automation:operate'))
-   OR (r.role_code = 'OPERATOR'
-       AND p.permission_code IN ('automation:read', 'automation:operate'))
-   OR (r.role_code = 'AUDITOR' AND p.permission_code = 'automation:read');
-
-INSERT IGNORE INTO `control_platform_role_permission` (`role_id`, `permission_id`)
-SELECT r.id, p.id FROM `control_platform_role` r JOIN `control_platform_permission` p
-WHERE (r.role_code = 'AGENT_DESIGNER'
-       AND p.permission_code IN ('agent:read', 'agent:write', 'agent:debug', 'agent:evaluate',
-                                 'workflow:read', 'workflow:write', 'workflow:debug',
-                                 'runops:read'))
-   OR (r.role_code = 'PROJECT_OWNER'
-       AND p.permission_code IN ('agent:read', 'agent:write', 'agent:debug', 'agent:evaluate',
-                                 'agent:publish', 'workflow:read', 'workflow:write',
-                                 'workflow:debug', 'workflow:publish',
-                                 'runops:read', 'runops:operate'))
-   OR (r.role_code = 'OPERATOR'
-       AND p.permission_code IN ('agent:read', 'agent:debug',
-                                 'workflow:read', 'workflow:debug',
-                                 'runops:read', 'runops:operate'))
-   OR (r.role_code = 'AUDITOR'
-       AND p.permission_code IN ('agent:read', 'workflow:read', 'runops:read'));
-
-INSERT IGNORE INTO `control_platform_role_permission` (`role_id`, `permission_id`)
-SELECT r.id, p.id FROM `control_platform_role` r JOIN `control_platform_permission` p
-WHERE r.role_code = 'AGENT_DESIGNER'
-  AND p.permission_code IN ('skill:read', 'skill:import', 'skill:bind');
-
-INSERT IGNORE INTO `control_platform_role_permission` (`role_id`, `permission_id`)
-SELECT r.id, p.id FROM `control_platform_role` r JOIN `control_platform_permission` p
-WHERE r.role_code = 'PROJECT_OWNER'
-  AND p.permission_code IN ('skill:read', 'skill:import', 'skill:review', 'skill:publish', 'skill:bind');
-
-INSERT IGNORE INTO `control_platform_role_permission` (`role_id`, `permission_id`)
-SELECT r.id, p.id FROM `control_platform_role` r JOIN `control_platform_permission` p
-WHERE r.role_code IN ('OPERATOR', 'AUDITOR')
-  AND p.permission_code = 'skill:read';
-
-INSERT IGNORE INTO `control_platform_role_permission` (`role_id`, `permission_id`)
-SELECT r.id, p.id FROM `control_platform_role` r JOIN `control_platform_permission` p
-WHERE (r.role_code = 'AGENT_DESIGNER'
-       AND p.permission_code IN ('a2a-hub:read', 'a2a-hub:publication:manage',
-                                 'a2a-hub:remote-agent:manage', 'a2a-hub:conformance:run'))
-   OR (r.role_code = 'OPERATOR'
-       AND p.permission_code IN ('a2a-hub:read', 'a2a-hub:task:operate',
-                                 'a2a-hub:conformance:run'))
-   OR (r.role_code = 'AUDITOR' AND p.permission_code = 'a2a-hub:read');
+  AND p.permission_code IN ('platform:read', 'agent:read', 'workflow:read', 'runops:read',
+                            'automation:read', 'knowledge:read', 'model:read', 'tool-acl:read',
+                            'embed:read', 'identity:business-user:read', 'skill:read',
+                            'mcp-hub:read', 'a2a-hub:read');
 
 INSERT IGNORE INTO `control_platform_auth_provider` (`provider_code`, `provider_name`, `provider_type`, `status`, `config_json`)
 VALUES

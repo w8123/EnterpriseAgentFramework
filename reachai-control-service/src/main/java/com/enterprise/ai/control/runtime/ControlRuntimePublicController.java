@@ -4,7 +4,7 @@ import com.enterprise.ai.control.identity.ControlAiCodingAccessGuard;
 import com.enterprise.ai.control.agentskill.AgentSkillBindingSnapshotAssembler;
 import com.enterprise.ai.control.a2a.application.remoteagent.A2aRemoteBindingSnapshotAssembler;
 import com.enterprise.ai.control.client.runtime.RuntimeProxyClient;
-import com.enterprise.ai.control.context.PersonalMemoryIdentityResolver;
+import com.enterprise.ai.control.memory.PersonalMemoryIdentityResolver;
 import com.enterprise.ai.control.identity.PlatformBearerAuthService;
 import com.enterprise.ai.control.identity.PlatformAuthenticatedSession;
 import com.enterprise.ai.control.identity.PlatformConsoleAuthInterceptor;

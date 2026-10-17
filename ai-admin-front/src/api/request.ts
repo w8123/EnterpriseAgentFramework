@@ -84,13 +84,16 @@ function createInstance(baseURL: string, platformSession = false): AxiosInstance
   return instance
 }
 
-/** Knowledge / Retrieval deployment unit (current reachai-knowledge-service): /ai prefix via context path. */
-const textRequest = createInstance(import.meta.env.VITE_API_BASE_URL || '/ai')
+/**
+ * Knowledge / Retrieval console routes under /ai. Control attests the platform session and
+ * forwards them to reachai-knowledge-service, so they carry the same CSRF header as /api.
+ */
+const textRequest = createInstance(import.meta.env.VITE_API_BASE_URL || '/ai', true)
 
 /** Platform Control public API/BFF (current reachai-control-service): /api prefix. */
 export const controlRequest = createInstance('', true)
 
-/** Model Gateway deployment unit (current reachai-model-service): /model prefix. */
-export const modelRequest = createInstance('/model')
+/** Model console routes under /model, guarded by Control before reaching reachai-model-service. */
+export const modelRequest = createInstance('/model', true)
 
 export default textRequest

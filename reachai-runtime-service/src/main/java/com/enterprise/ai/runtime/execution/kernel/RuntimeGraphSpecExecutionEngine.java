@@ -11,8 +11,8 @@ import com.enterprise.ai.runtime.execution.context.WorkflowVariableNamespaces;
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionCancellation;
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionEventSink;
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionResult;
-import com.enterprise.ai.runtime.execution.RuntimeBusinessMemoryHydrationPort;
-import com.enterprise.ai.runtime.execution.RuntimeBusinessMemoryHydrationPort.HydrationBatch;
+import com.enterprise.ai.runtime.execution.RuntimeBusinessIndexResolutionPort;
+import com.enterprise.ai.runtime.execution.RuntimeBusinessIndexResolutionPort.HydrationBatch;
 import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
 import com.enterprise.ai.runtime.execution.http.WorkflowHttpClient;
 import com.enterprise.ai.runtime.execution.interaction.WorkflowInteractionCodes;
@@ -68,7 +68,7 @@ public final class RuntimeGraphSpecExecutionEngine {
             "LOOP");
 
     private final ObjectMapper objectMapper;
-    private final RuntimeBusinessMemoryHydrationPort businessMemoryHydrationPort;
+    private final RuntimeBusinessIndexResolutionPort businessIndexResolutionPort;
     private final RuntimeNodeValueResolver nodeValueResolver;
     private final RuntimeDeterministicNodeHandlers deterministicNodeHandlers;
     private final RuntimeIoNodeHandlers ioNodeHandlers;
@@ -101,9 +101,9 @@ public final class RuntimeGraphSpecExecutionEngine {
                                            RuntimeControlCatalogClient controlClient,
                                            RuntimeKnowledgeRetrievalClient knowledgeClient,
                                            WorkflowHttpClient httpClient,
-                                           RuntimeBusinessMemoryHydrationPort businessMemoryHydrationPort) {
+                                           RuntimeBusinessIndexResolutionPort businessIndexResolutionPort) {
         this(objectMapper, modelServiceClient, capabilityClient, controlClient, knowledgeClient,
-                httpClient, businessMemoryHydrationPort, null);
+                httpClient, businessIndexResolutionPort, null);
     }
 
     public RuntimeGraphSpecExecutionEngine(ObjectMapper objectMapper,
@@ -112,10 +112,10 @@ public final class RuntimeGraphSpecExecutionEngine {
                                            RuntimeControlCatalogClient controlClient,
                                            RuntimeKnowledgeRetrievalClient knowledgeClient,
                                            WorkflowHttpClient httpClient,
-                                           RuntimeBusinessMemoryHydrationPort businessMemoryHydrationPort,
+                                           RuntimeBusinessIndexResolutionPort businessIndexResolutionPort,
                                            RuntimeHttpApiToolExecutionPort httpApis) {
         this.objectMapper = objectMapper;
-        this.businessMemoryHydrationPort = businessMemoryHydrationPort;
+        this.businessIndexResolutionPort = businessIndexResolutionPort;
         this.nodeValueResolver = new RuntimeNodeValueResolver();
         this.deterministicNodeHandlers = new RuntimeDeterministicNodeHandlers(objectMapper, nodeValueResolver);
         this.ioNodeHandlers = new RuntimeIoNodeHandlers(objectMapper, knowledgeClient, httpClient, nodeValueResolver);
@@ -567,7 +567,7 @@ public final class RuntimeGraphSpecExecutionEngine {
             last = executeNode(node, context, graph, eventSink, cancel);
             last = withAttemptMetadata(last, attempt, maxAttempts, attempt > 1 ? "retry" : "initial");
             if (last.success()) {
-                last = hydrateBusinessMemory(last, context);
+                last = resolveBusinessIndexReferences(last, context);
             }
             if (last.success()
                     || last.isWaitingUser()
@@ -582,10 +582,10 @@ public final class RuntimeGraphSpecExecutionEngine {
         return applyErrorPolicy(node, nodeType, last, nodesById, context);
     }
 
-    private RuntimeGraphSpecExecutionResult hydrateBusinessMemory(
+    private RuntimeGraphSpecExecutionResult resolveBusinessIndexReferences(
             RuntimeGraphSpecExecutionResult result,
             Map<String, Object> context) {
-        if (businessMemoryHydrationPort == null || result == null || !result.success()) {
+        if (businessIndexResolutionPort == null || result == null || !result.success()) {
             return result;
         }
         Object structured = result.metadata() == null
@@ -601,7 +601,7 @@ public final class RuntimeGraphSpecExecutionEngine {
             }
         }
         if (structured == null) return result;
-        HydrationBatch batch = businessMemoryHydrationPort.hydrate(
+        HydrationBatch batch = businessIndexResolutionPort.hydrate(
                 structured, RuntimeTrustedExecutionContexts.identity(context), context);
         if (!batch.detected()) return result;
 
@@ -624,7 +624,7 @@ public final class RuntimeGraphSpecExecutionEngine {
             }
         }
         metadata.put("structuredOutput", safeOutput);
-        metadata.put("businessMemoryHydration", Map.of(
+        metadata.put("businessIndexResolution", Map.of(
                 "referenceCount", batch.referenceCount(),
                 "resolvedCount", batch.resolvedCount(),
                 "blockedCount", batch.blockedCount(),

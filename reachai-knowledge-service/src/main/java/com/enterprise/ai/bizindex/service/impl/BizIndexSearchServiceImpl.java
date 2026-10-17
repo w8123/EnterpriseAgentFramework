@@ -9,7 +9,7 @@ import com.enterprise.ai.bizindex.domain.entity.BusinessIndexRecord;
 import com.enterprise.ai.bizindex.repository.BusinessIndexRecordRepository;
 import com.enterprise.ai.bizindex.repository.BusinessIndexRepository;
 import com.enterprise.ai.bizindex.service.BizIndexSearchService;
-import com.enterprise.ai.bizindex.service.BusinessMemoryIndexPolicy;
+import com.enterprise.ai.bizindex.service.BusinessIndexResolutionPolicy;
 import com.enterprise.ai.bizindex.vector.BizVectorService;
 import com.enterprise.ai.embedding.EmbeddingService;
 import com.enterprise.ai.vector.VectorSearchRequest;
@@ -176,9 +176,9 @@ public class BizIndexSearchServiceImpl implements BizIndexSearchService {
                 if (item.getBizType() == null || item.getBizType().isBlank()) {
                     item.setBizType(record.getBizType());
                 }
-                BusinessMemoryIndexPolicy.reference(index, record).ifPresent(reference -> {
-                    item.setBusinessMemoryReference(reference);
-                    item.setAgentMemoryEligible(true);
+                BusinessIndexResolutionPolicy.reference(index, record).ifPresent(reference -> {
+                    item.setBusinessIndexReference(reference);
+                    item.setAgentReferenceEligible(true);
                     item.setHydrationRequired(true);
                 });
             }

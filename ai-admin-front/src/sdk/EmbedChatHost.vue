@@ -16,6 +16,22 @@
         {{ locale === 'en-US' ? 'Retry' : '重试' }}
       </button>
     </div>
+    <button
+      v-if="memoryPanel && authState.status === 'ready' && !memoryOpen"
+      type="button"
+      class="eaf-chat-memory-toggle"
+      :title="locale === 'en-US' ? 'My memories' : '我的记忆'"
+      @click="memoryOpen = true"
+    >
+      {{ locale === 'en-US' ? 'Memories' : '我的记忆' }}
+    </button>
+    <EmbedMemoryPanel
+      v-if="memoryOpen"
+      :api-base="apiBase"
+      :get-token="() => resolveToken('send')"
+      :locale="locale"
+      @close="memoryOpen = false"
+    />
     <ConversationView
       class="eaf-chat__conversation"
       chrome="inline"
@@ -48,6 +64,7 @@ import {
 } from '@/conversation/embed'
 import type { ConversationEventEnvelope } from '@/conversation/core/conversationEvents'
 import type { EafPageBridge } from './eafPageBridge'
+import EmbedMemoryPanel from './EmbedMemoryPanel.vue'
 import { buildEafChatSessionPayload, type EafPageDescriptor } from './embedSession'
 import { extractEmbedPublicMetadata } from '@/conversation/core/adapters/adaptEmbedEvent'
 import type {
@@ -85,6 +102,8 @@ const props = withDefaults(defineProps<{
   placeholder?: string
   locale?: string
   preferStream?: boolean
+  /** Show the end user's 我的记忆 entry (their own personal memories). */
+  memoryPanel?: boolean
   onEvent?: (event: EmbedChatHostEvent) => void
   onError?: (error: EafChatError) => void
   onAuthStateChange?: (state: EafChatAuthState) => void
@@ -96,10 +115,12 @@ const props = withDefaults(defineProps<{
   placeholder: '输入消息',
   locale: 'zh-CN',
   preferStream: true,
+  memoryPanel: true,
   tokenTimeoutMs: 10_000,
 })
 
 const snapshot = ref<ConversationSnapshot>(createEmptySnapshot())
+const memoryOpen = ref(false)
 const authState = ref<EafChatAuthState>({
   phase: 'token',
   status: 'loading',
@@ -676,6 +697,10 @@ function reportError(error: unknown) {
   }
 }
 
+function openMemories() {
+  memoryOpen.value = true
+}
+
 function disposeHost() {
   disposed = true
   tokenAbortController?.abort()
@@ -701,12 +726,14 @@ defineExpose({
   getExistingSessionId,
   ensureHostSession,
   rebindPage,
+  openMemories,
   disposeHost,
 })
 </script>
 
 <style scoped>
 .eaf-chat-host {
+  position: relative;
   display: flex;
   flex: 1;
   flex-direction: column;
@@ -746,6 +773,25 @@ defineExpose({
   background: transparent;
   cursor: pointer;
   font: inherit;
+}
+
+.eaf-chat-memory-toggle {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  z-index: 3;
+  padding: 3px 9px;
+  border: 1px solid rgb(var(--reachai-chat-primary-rgb, 99 102 241) / 0.22);
+  border-radius: 999px;
+  color: var(--reachai-chat-text-muted, #52605f);
+  background: var(--reachai-chat-glass-control, rgb(255 255 255 / 0.82));
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.eaf-chat-memory-toggle:hover {
+  color: var(--reachai-chat-primary, #6366f1);
 }
 
 .eaf-chat__conversation {

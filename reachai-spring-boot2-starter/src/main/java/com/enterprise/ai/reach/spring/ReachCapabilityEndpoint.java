@@ -65,14 +65,14 @@ public class ReachCapabilityEndpoint {
         }
         ReachAiInvocationContextHolder.set(context);
         try {
-            ReachBusinessMemoryResolverGuard.InvocationScope memoryScope = null;
-            if (invoker.requiresBusinessMemoryGuard(capabilityName)) {
-                memoryScope = ReachBusinessMemoryResolverGuard.requireInvocation(
+            ReachBusinessIndexResolverGuard.InvocationScope memoryScope = null;
+            if (invoker.requiresBusinessIndexGuard(capabilityName)) {
+                memoryScope = ReachBusinessIndexResolverGuard.requireInvocation(
                         context, capabilityName, arguments);
             }
             Object result = invokeBridge(0, context, capabilityName, arguments);
             if (memoryScope != null) {
-                return ReachBusinessMemoryResolverGuard.validateResult(memoryScope, result);
+                return ReachBusinessIndexResolverGuard.validateResult(memoryScope, result);
             }
             return result;
         } catch (RuntimeException ex) {

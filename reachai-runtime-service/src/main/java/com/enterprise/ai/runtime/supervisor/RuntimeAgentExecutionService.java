@@ -11,6 +11,7 @@ import com.enterprise.ai.runtime.execution.RuntimeInteractionResumeService;
 import com.enterprise.ai.runtime.execution.RuntimeAgentRunLifecyclePort;
 import com.enterprise.ai.runtime.execution.RuntimeAgentExecutionCancellation;
 import com.enterprise.ai.runtime.agent.RuntimeAgentConfigSnapshot;
+import com.enterprise.ai.runtime.agent.RuntimeAgentMemoryPolicy;
 import com.enterprise.ai.runtime.agent.RuntimeAgentExecutionContext;
 import com.enterprise.ai.runtime.agent.RuntimeAgentExecutionContextResolver;
 import com.enterprise.ai.runtime.agent.RuntimeAgentView;
@@ -403,7 +404,8 @@ public class RuntimeAgentExecutionService implements RuntimePublishedAgentExecut
                 workflowResult,
                 new SupervisorRuntimeAdapter.SupervisorRequest(
                         agent, config, resolved.tools(), supervisorInput, null, eventSink, cancellation,
-                        trustedIdentity, resolved.resolvedTargets(), personalMemory,
+                        trustedIdentity, resolved.resolvedTargets(),
+                        readablePersonalMemory(config, personalMemory),
                         resolved.skills(), remoteAgentSnapshots(resolved)));
         List<Map<String, Object>> steps = new ArrayList<>();
         steps.add(step("resume-workflow-interaction", text(workflowResult.get("interactionId"))));
@@ -431,6 +433,7 @@ public class RuntimeAgentExecutionService implements RuntimePublishedAgentExecut
         metadata.put("interactionId", workflowResult.get("interactionId"));
         metadata.put("interactionPending", false);
         metadata.put("continuationConsumed", true);
+        metadata.put("memoryPolicy", RuntimeAgentMemoryPolicy.of(config).toMetadata());
         metadata.putAll(resolved.timingMetadata());
         if (continued.metadata() != null) {
             metadata.putAll(continued.metadata());
@@ -587,7 +590,8 @@ public class RuntimeAgentExecutionService implements RuntimePublishedAgentExecut
         SupervisorRuntimeAdapter.SupervisorResult result = supervisorRuntime.execute(
                 new SupervisorRuntimeAdapter.SupervisorRequest(
                         agentView, config, tools, body, approvalGrant, eventSink, cancellation,
-                        trustedIdentity, context.resolvedTargets(), personalMemory,
+                        trustedIdentity, context.resolvedTargets(),
+                        readablePersonalMemory(config, personalMemory),
                         context.skills(), remoteAgentSnapshots(context), evalContext));
         List<Map<String, Object>> steps = new ArrayList<>(bootstrap);
         if (result.steps() != null) steps.addAll(result.steps());
@@ -608,6 +612,7 @@ public class RuntimeAgentExecutionService implements RuntimePublishedAgentExecut
         metadata.put("agentConfigVersionId", config.getId());
         metadata.put("agentConfigVersion", config.getVersionNo());
         metadata.put("runtimeType", "AGENTSCOPE");
+        metadata.put("memoryPolicy", RuntimeAgentMemoryPolicy.of(config).toMetadata());
         if (evalContext != null && evalContext.isEvaluation()) {
             metadata.put("evalMode", evalContext.mode().name());
             putIfPresent(metadata, "evalExperimentId", evalContext.experimentId());
@@ -620,6 +625,14 @@ public class RuntimeAgentExecutionService implements RuntimePublishedAgentExecut
         response.put("metadata", metadata);
         if (result.uiRequest() != null) response.put("uiRequest", result.uiRequest());
         return response;
+    }
+
+    /** The executed configuration version decides; Control-side recall is only a pre-fetch. */
+    private static TrustedPersonalMemoryContext readablePersonalMemory(RuntimeAgentConfigSnapshot config,
+                                                                       TrustedPersonalMemoryContext personalMemory) {
+        return RuntimeAgentMemoryPolicy.of(config).personalMemoryRead() && personalMemory != null
+                ? personalMemory
+                : TrustedPersonalMemoryContext.empty();
     }
 
     @SuppressWarnings("unchecked")

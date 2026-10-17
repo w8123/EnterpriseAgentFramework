@@ -31,7 +31,7 @@ ReachAI 是面向 Java 企业系统的 AI 能力中台。它不是单纯的 Work
 - `ai-common/`: 通用模型、响应和工具类。
 - `reachai-capability-sdk/`: JDK8 兼容的业务系统能力声明 SDK 契约。
 - `reachai-spring-boot2-starter/`: Spring Boot 2 接入、扫描、注册、心跳、能力同步和 SDK 图同步。
-- `ai-runtime-contract/`: 中台内部业务记忆引用契约。
+- `ai-runtime-contract/`: 中台内部业务索引回源契约。
 - `sql/`: `initV2.sql` 新库 SQL 基线与升级脚本入口。
 - `docs/`: 当前权威知识库。
 
@@ -112,7 +112,7 @@ Supervisor 策略链已实现分级执行：READ 自动执行，PAGE_ACTION 校�
 开发代理：
 
 - `/api/**` -> `reachai-control-service:18603`
-- `/ai/**` -> `reachai-knowledge-service:18602`
-- `/model/**` -> `reachai-model-service:18601`
+- `/ai/**` -> `reachai-control-service:18603`（校验会话与权限后转发 `reachai-knowledge-service:18602`）
+- `/model/**` -> `reachai-control-service:18603`（校验会话与权限后转发 `reachai-model-service:18601`）
 
 前端不应直接依赖 `reachai-runtime-service:18604` 或 `reachai-capability-service:18605`。

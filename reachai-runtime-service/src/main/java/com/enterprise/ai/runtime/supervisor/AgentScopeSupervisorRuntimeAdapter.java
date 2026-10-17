@@ -27,6 +27,7 @@ import com.enterprise.ai.runtime.execution.interaction.WorkflowInteractionCodes;
 import com.enterprise.ai.runtime.execution.interaction.WorkflowInteractionPresentationPolicy;
 import com.enterprise.ai.runtime.memory.RuntimeSessionMemoryKey;
 import com.enterprise.ai.runtime.memory.RuntimeSessionMemoryService;
+import com.enterprise.ai.runtime.agent.RuntimeAgentMemoryPolicy;
 import com.enterprise.ai.runtime.memory.RuntimeSessionOwnershipException;
 import com.enterprise.ai.runtime.memory.RuntimeSessionBusyException;
 import com.enterprise.ai.runtime.supervisor.SupervisorExecutionTraceService.TraceHandle;
@@ -462,7 +463,8 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                 ? sessionMemoryService.resolveTransient(
                         request.agent(), textObj(requestInput.get("sessionId")), resolveTrustedIdentity(request))
                 : sessionMemoryService.resolve(
-                        request.agent(), textObj(requestInput.get("sessionId")), resolveTrustedIdentity(request));
+                        request.agent(), textObj(requestInput.get("sessionId")), resolveTrustedIdentity(request),
+                        RuntimeAgentMemoryPolicy.of(request.config()));
         String turnId = firstText(textObj(requestInput.get("__memoryTurnId")),
                 textObj(requestInput.get("interactionId")), UUID.randomUUID().toString());
         String userMessage = continuationUserMessage(requestInput);
@@ -1324,7 +1326,8 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                     ? sessionMemoryService.resolveTransient(
                             request.agent(), text(request.input().get("sessionId")), trustedIdentity)
                     : sessionMemoryService.resolve(
-                            request.agent(), text(request.input().get("sessionId")), trustedIdentity);
+                            request.agent(), text(request.input().get("sessionId")), trustedIdentity,
+                            RuntimeAgentMemoryPolicy.of(request.config()));
             this.sessionId = memoryKey.publicSessionId();
             this.userId = memoryKey.persistent() ? memoryKey.trustedUserId() : "anonymous";
             this.turnId = firstText(text(request.input().get("__memoryTurnId")),

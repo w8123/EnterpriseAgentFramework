@@ -2283,6 +2283,7 @@ CREATE TABLE IF NOT EXISTS `model_catalog_source` (
 CREATE TABLE IF NOT EXISTS `model_catalog_setting` (
     `id` TINYINT NOT NULL COMMENT 'Singleton row; always 1',
     `auto_sync_enabled` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '0=manual only; 1=create automatic daily slots',
+    `analyzer_model_instance_id` VARCHAR(64) DEFAULT NULL COMMENT 'Console-selected ACTIVE LLM instance for catalog analysis; NULL falls back to MODEL_CATALOG_ANALYZER_MODEL_INSTANCE_ID',
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`)

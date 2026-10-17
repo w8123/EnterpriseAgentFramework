@@ -9,7 +9,7 @@ import com.enterprise.ai.bizindex.repository.BusinessIndexAttachmentRepository;
 import com.enterprise.ai.bizindex.repository.BusinessIndexRecordRepository;
 import com.enterprise.ai.bizindex.repository.BusinessIndexRepository;
 import com.enterprise.ai.bizindex.service.BizIndexDataService;
-import com.enterprise.ai.bizindex.service.BusinessMemoryIndexPolicy;
+import com.enterprise.ai.bizindex.service.BusinessIndexResolutionPolicy;
 import com.enterprise.ai.bizindex.template.TemplateEngine;
 import com.enterprise.ai.bizindex.vector.BizVectorService;
 import com.enterprise.ai.embedding.EmbeddingService;
@@ -60,7 +60,7 @@ public class BizIndexDataServiceImpl implements BizIndexDataService {
                         BizUpsertRequest request,
                         List<MultipartFile> attachments) {
         String indexCode = index.getIndexCode();
-        BusinessMemoryIndexPolicy.validateUpsert(index, request);
+        BusinessIndexResolutionPolicy.validateUpsert(index, request);
 
         // 1. 使用模板渲染 searchText
         String searchText = templateEngine.render(index.getTextTemplate(), request.getFields());

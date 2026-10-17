@@ -37,8 +37,8 @@ import java.util.Map;
 @RequestMapping("/api/knowledge/biz-index")
 public class KnowledgeBizIndexConsoleController {
 
-    static final String READ_PERMISSION = "platform:read";
-    static final String WRITE_PERMISSION = "platform:write";
+    static final String READ_PERMISSION = "knowledge:read";
+    static final String WRITE_PERMISSION = "knowledge:write";
 
     private final KnowledgeBizIndexGateway gateway;
     private final PlatformAuthorizationService authorizationService;

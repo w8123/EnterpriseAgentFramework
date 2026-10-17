@@ -418,10 +418,10 @@ public final class ReachAiMysqlMigrationRunner {
                             "source_checked_at", "recommendation_level", "recommendation_reason"));
                     checks.add(requireAtLeast(connection, "consolidated.model_catalog.setting", 1,
                             "SELECT COUNT(*) FROM model_catalog_setting WHERE id = 1"));
-                    checks.add(requireAtLeast(connection, "consolidated.authorization.p1", 4,
+                    // workspace:* access codes were retired by upgrade-20261017-platform-roles-redesign.sql.
+                    checks.add(requireAtLeast(connection, "consolidated.authorization.p1", 2,
                             "SELECT COUNT(*) FROM control_platform_permission WHERE permission_code IN "
-                                    + "('workspace:build:access','workspace:operate:access',"
-                                    + "'identity:business-user:read','identity:business-user:manage')"));
+                                    + "('identity:business-user:read','identity:business-user:manage')"));
                     checks.add(requireAtLeast(connection, "consolidated.authorization.p2", 12,
                             "SELECT COUNT(*) FROM control_platform_permission WHERE "
                                     + "permission_code LIKE 'agent:%' OR permission_code LIKE 'workflow:%' "
@@ -430,7 +430,7 @@ public final class ReachAiMysqlMigrationRunner {
                             "control_platform_role", "role_kind"));
                     checks.add(requireZero(connection, "consolidated.authorization.system_role_kind",
                             "SELECT COUNT(*) FROM control_platform_role WHERE role_code IN "
-                                    + "('PLATFORM_ADMIN','AGENT_DESIGNER','PROJECT_OWNER','OPERATOR','AUDITOR') "
+                                    + "('PLATFORM_ADMIN','DEVELOPER','OPERATOR','AUDITOR') "
                                     + "AND role_kind <> 'SYSTEM'"));
                     break;
                 case "upgrade-20260813-runtime-session-memory.sql":

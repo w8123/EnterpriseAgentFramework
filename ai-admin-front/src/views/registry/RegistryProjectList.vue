@@ -9,7 +9,7 @@
         :collapsed="isProjectHeaderCollapsed"
       >
         <template #tags>
-          <el-tag effect="light">项目中心</el-tag>
+          <el-tag effect="light">项目接入</el-tag>
           <el-tag type="success" effect="light">当前 {{ projects.length }} 个项目</el-tag>
           <el-tag type="info" effect="light">SDK Starter 可用</el-tag>
         </template>

@@ -98,6 +98,8 @@ export interface EafChatOptions {
   apiBase?: string
   embedPathPrefix?: string
   stream?: boolean
+  /** Show the end user's 我的记忆 entry inside the chat. Defaults to true. */
+  memories?: boolean
   theme?: EafChatTheme
   locale?: 'zh-CN' | 'en-US' | string
   position?: EafChatPosition
@@ -522,6 +524,7 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
     locale,
     placeholder: locale === 'zh-CN' ? '输入消息' : 'Type a message',
     preferStream: options.stream !== false,
+    memoryPanel: options.memories !== false,
     onEvent: emitPublicEvent,
     onError: (error: EafChatError) => options.onError?.(error),
     onAuthStateChange: handleAuthState,

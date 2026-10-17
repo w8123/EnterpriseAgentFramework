@@ -52,7 +52,7 @@ public class BizIndexRequest {
     private String remark;
 
     /** Disabled by default. Enabling requires tenant/project/resolver configuration. */
-    private Boolean agentMemoryEnabled;
+    private Boolean agentReferenceEnabled;
 
     /** Registered Capability that re-reads the authoritative business record. */
     private String resolverCapabilityKey;

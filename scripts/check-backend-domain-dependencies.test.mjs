@@ -56,10 +56,10 @@ public class RegistryContracts {}
   writeFile(root, 'reachai-knowledge-service/src/main/java/com/enterprise/ai/service/KnowledgeOk.java', `
 package com.enterprise.ai.service;
 
-import com.enterprise.ai.runtime.contract.memory.BusinessMemoryReference;
+import com.enterprise.ai.runtime.contract.bizindex.BusinessIndexReference;
 
 class KnowledgeOk {
-    private BusinessMemoryReference reference;
+    private BusinessIndexReference reference;
 }
 `)
   writeFile(root, 'reachai-model-service/src/main/java/com/enterprise/ai/model/ModelOk.java', `

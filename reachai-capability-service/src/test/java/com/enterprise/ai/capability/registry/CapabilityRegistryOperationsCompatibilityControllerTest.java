@@ -36,11 +36,12 @@ class CapabilityRegistryOperationsCompatibilityControllerTest {
         RequestMapping controllerMapping =
                 CapabilityRegistryOperationsCompatibilityController.class.getAnnotation(RequestMapping.class);
         Method heartbeat = CapabilityRegistryOperationsCompatibilityController.class
-                .getDeclaredMethod("heartbeat", String.class, InstanceHeartbeatRequest.class);
+                .getDeclaredMethod("heartbeat", String.class, String.class, String.class, String.class, String.class,
+                        InstanceHeartbeatRequest.class);
         Method getSdkCapabilityDescriptionSettings = CapabilityRegistryOperationsCompatibilityController.class
                 .getDeclaredMethod("getSdkCapabilityDescriptionSettings", String.class);
         Method offline = CapabilityRegistryOperationsCompatibilityController.class
-                .getDeclaredMethod("offline", String.class,
+                .getDeclaredMethod("offline", String.class, String.class, String.class, String.class, String.class,
                         CapabilityRegistryOperationsCompatibilityController.InstanceOfflineRequest.class);
         Method syncCapabilities = CapabilityRegistryOperationsCompatibilityController.class
                 .getDeclaredMethod("syncCapabilities", String.class, String.class, String.class,
@@ -119,10 +120,10 @@ class CapabilityRegistryOperationsCompatibilityControllerTest {
         CapabilityRegistryOperationsCompatibilityController.InstanceOfflineRequest request =
                 new CapabilityRegistryOperationsCompatibilityController.InstanceOfflineRequest("dev-1");
 
-        ResponseEntity<?> response = controller.offline("orders", request);
+        ResponseEntity<?> response = controller.offline("orders", "rak", "1", "n", "sig", request);
 
         assertEquals(HttpStatus.NO_CONTENT, response.getStatusCode());
-        verify(registryService).offline("orders", "dev-1");
+        verify(registryService).offline("orders", "dev-1", new com.enterprise.ai.agent.registry.RegistrySecurityService.RegistrySignatureHeaders("rak", "1", "n", "sig"));
     }
 
     @Test
@@ -143,13 +144,13 @@ class CapabilityRegistryOperationsCompatibilityControllerTest {
         instance.setProjectCode("orders");
         instance.setInstanceId("dev-1");
         InstanceHeartbeatResponse delegated = new InstanceHeartbeatResponse(instance);
-        when(registryService.heartbeat("orders", request)).thenReturn(delegated);
+        when(registryService.heartbeat("orders", request, new com.enterprise.ai.agent.registry.RegistrySecurityService.RegistrySignatureHeaders("rak", "1", "n", "sig"))).thenReturn(delegated);
 
-        ResponseEntity<?> response = controller.heartbeat("orders", request);
+        ResponseEntity<?> response = controller.heartbeat("orders", "rak", "1", "n", "sig", request);
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals(delegated, response.getBody());
-        verify(registryService).heartbeat("orders", request);
+        verify(registryService).heartbeat("orders", request, new com.enterprise.ai.agent.registry.RegistrySecurityService.RegistrySignatureHeaders("rak", "1", "n", "sig"));
     }
 
     @Test

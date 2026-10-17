@@ -62,6 +62,11 @@ public class CapabilityCompatibilityProxyController {
         if (isRetiredRegistryManagementPath(request.getRequestURI())) {
             return retiredRegistryManagementRoute();
         }
+        // SDK registry calls have explicit, signed handlers. The generic bridge
+        // only carries console instance operations guarded by the platform session.
+        if (!isConsoleInstancePath(request.getRequestURI())) {
+            return unknownRegistryRoute();
+        }
         return proxyRequest(requestEntity, request);
     }
 
@@ -153,6 +158,19 @@ public class CapabilityCompatibilityProxyController {
                 || path.matches("^/api/registry/projects/[^/]+/capability-diff-items/[0-9]+/(review|rollback)$")
                 || path.matches("^/api/registry/capability-snapshots/[0-9]+/diff-items$")
                 || path.matches("^/api/registry/capability-diff-items/[0-9]+/(review|rollback)$");
+    }
+
+    private boolean isConsoleInstancePath(String path) {
+        return StringUtils.hasText(path)
+                && path.matches("^/api/registry/projects/[^/]+/instances/(status|purge-offline)$");
+    }
+
+    private ResponseEntity<byte[]> unknownRegistryRoute() {
+        String body = "{\"code\":\"REGISTRY_ROUTE_NOT_FOUND\","
+                + "\"message\":\"Unknown registry route\"}";
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(body.getBytes(StandardCharsets.UTF_8));
     }
 
     private ResponseEntity<byte[]> retiredCapabilityKernelRoute() {

@@ -63,8 +63,8 @@ class PlatformConsoleAuthInterceptorTest {
                 "pls_7",
                 null,
                 java.util.List.of("PLATFORM_ADMIN"),
-                java.util.List.of("platform:admin"),
-                java.util.List.of(new PlatformPermissionGrant("platform:admin", "GLOBAL", "*")));
+                java.util.List.of("*"),
+                java.util.List.of(new PlatformPermissionGrant("*", "GLOBAL", "*")));
         when(authService.resolveBearerSession("Bearer platform-token"))
                 .thenReturn(Optional.of(session));
         PlatformConsoleAuthInterceptor interceptor =
@@ -204,6 +204,27 @@ class PlatformConsoleAuthInterceptorTest {
         assertTrue(setCookie.contains("HttpOnly"));
     }
 
+    @Test
+    void skipsAStaleApiScopedCookieAndReachesKnowledgeWithTheLiveSession() {
+        PlatformBearerAuthService authService = mock(PlatformBearerAuthService.class);
+        when(authService.resolveSessionToken("stale-api-token")).thenReturn(Optional.empty());
+        when(authService.resolveSessionToken("live-token"))
+                .thenReturn(Optional.of(authenticatedSession("pls_live")));
+        PlatformConsoleAuthInterceptor interceptor =
+                new PlatformConsoleAuthInterceptor(authService, cookieService());
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/ai/knowledge/list");
+        request.setCookies(
+                new Cookie(PlatformSessionCookieService.SESSION_COOKIE_NAME, "stale-api-token"),
+                new Cookie(PlatformSessionCookieService.SESSION_COOKIE_NAME, "live-token"));
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        assertTrue(interceptor.preHandle(request, response, new Object()));
+
+        String setCookie = response.getHeader(HttpHeaders.SET_COOKIE);
+        assertTrue(setCookie.contains("Path=/api"));
+        assertTrue(setCookie.contains("Max-Age=0"));
+    }
+
     private static PlatformSessionCookieService cookieService() {
         return new PlatformSessionCookieService(new PlatformAuthProperties());
     }
@@ -226,9 +247,76 @@ class PlatformConsoleAuthInterceptorTest {
                 sessionId,
                 null,
                 java.util.List.of("PLATFORM_ADMIN"),
-                java.util.List.of("platform:admin"),
-                java.util.List.of(new PlatformPermissionGrant(
-                        "platform:admin", "GLOBAL", "*")));
+                java.util.List.of("*"),
+                java.util.List.of(new PlatformPermissionGrant("*", "GLOBAL", "*")));
+    }
+
+    private static PlatformAuthenticatedSession sessionWith(PlatformPermissionGrant... grants) {
+        PlatformUserEntity user = new PlatformUserEntity();
+        user.setId(8L);
+        java.util.List<PlatformPermissionGrant> grantList = java.util.List.of(grants);
+        return new PlatformAuthenticatedSession(
+                PlatformPrincipal.fromUser(user),
+                "pls_scoped",
+                null,
+                java.util.List.of("CUSTOM"),
+                grantList.stream().map(PlatformPermissionGrant::permissionCode).distinct().toList(),
+                grantList);
+    }
+
+    private static boolean admitsBearer(PlatformAuthenticatedSession session, String method, String path,
+                                        MockHttpServletResponse response) {
+        PlatformBearerAuthService authService = mock(PlatformBearerAuthService.class);
+        when(authService.resolveBearerSession("Bearer scoped")).thenReturn(Optional.of(session));
+        MockHttpServletRequest request = new MockHttpServletRequest(method, path);
+        request.addHeader(HttpHeaders.AUTHORIZATION, "Bearer scoped");
+        return new PlatformConsoleAuthInterceptor(authService, cookieService())
+                .preHandle(request, response, new Object());
+    }
+
+    @Test
+    void rejectsALoginWithoutTheRoutePermission() throws Exception {
+        PlatformAuthenticatedSession developer = sessionWith(
+                new PlatformPermissionGrant("platform:read", "GLOBAL", "*"));
+        MockHttpServletResponse denied = new MockHttpServletResponse();
+
+        assertFalse(admitsBearer(developer, "POST", "/api/tool-acl", denied));
+        assertEquals(403, denied.getStatus());
+        assertTrue(denied.getContentAsString().contains(PlatformConsoleAuthInterceptor.PLATFORM_PERMISSION_DENIED));
+        assertTrue(denied.getContentAsString().contains("tool-acl:manage"));
+        assertFalse(admitsBearer(developer, "GET", "/ai/knowledge/base/list", new MockHttpServletResponse()));
+        assertFalse(admitsBearer(developer, "POST", "/model/chat", new MockHttpServletResponse()));
+        assertTrue(admitsBearer(developer, "GET", "/api/scan-projects", new MockHttpServletResponse()));
+    }
+
+    @Test
+    void separatesReadAndWritePermissionsOfARoute() {
+        PlatformAuthenticatedSession reader = sessionWith(
+                new PlatformPermissionGrant("knowledge:read", "GLOBAL", "*"));
+
+        assertTrue(admitsBearer(reader, "GET", "/ai/knowledge/base/list", new MockHttpServletResponse()));
+        assertTrue(admitsBearer(reader, "POST", "/ai/retrieval/test", new MockHttpServletResponse()));
+        assertFalse(admitsBearer(reader, "DELETE", "/ai/knowledge/base/kb1", new MockHttpServletResponse()));
+    }
+
+    @Test
+    void limitsRegistryInstanceRoutesToTheGrantedProject() {
+        PlatformAuthenticatedSession orders = sessionWith(
+                new PlatformPermissionGrant("platform:read", "PROJECT", "orders"),
+                new PlatformPermissionGrant("platform:write", "PROJECT", "orders"));
+
+        assertTrue(admitsBearer(orders, "GET", "/api/registry/projects/orders/instances",
+                new MockHttpServletResponse()));
+        assertTrue(admitsBearer(orders, "POST", "/api/registry/projects/orders/instances/status",
+                new MockHttpServletResponse()));
+        assertFalse(admitsBearer(orders, "GET", "/api/registry/projects/billing/instances",
+                new MockHttpServletResponse()));
+    }
+
+    @Test
+    void deniesAProtectedRouteThatHasNoDeclaredPermission() {
+        assertFalse(admitsBearer(authenticatedSession("pls_all"), "GET", "/api/unclassified/probe",
+                new MockHttpServletResponse()));
     }
 
     @RestController

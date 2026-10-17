@@ -39,18 +39,18 @@ class ControlModelInstanceControllerTest {
         for (String route : List.of("/model/instances", "/model/instances/model-a"))
             assertEquals(PlatformConsoleRoutePolicy.CredentialDomain.PLATFORM_SESSION,
                     PlatformConsoleRoutePolicy.credentialDomainFor(route));
-        assertEquals(PlatformConsoleRoutePolicy.CredentialDomain.UNCLASSIFIED,
+        assertEquals(PlatformConsoleRoutePolicy.CredentialDomain.PLATFORM_SESSION,
                 PlatformConsoleRoutePolicy.credentialDomainFor("/model/chat"));
     }
 
     @Test void anonymousAndMissingCsrfStopBeforeOwner() throws Exception {
         var bearer = mock(PlatformBearerAuthService.class);
         var cookies = mock(PlatformSessionCookieService.class);
-        when(cookies.readSessionToken(any())).thenReturn(Optional.empty());
+        when(cookies.readSessionTokens(any())).thenReturn(List.of());
         MockMvc mvc = MockMvcBuilders.standaloneSetup(controller)
                 .addInterceptors(new PlatformConsoleAuthInterceptor(bearer, cookies)).build();
         mvc.perform(get("/model/instances")).andExpect(status().isUnauthorized());
-        when(cookies.readSessionToken(any())).thenReturn(Optional.of("server-session-token"));
+        when(cookies.readSessionTokens(any())).thenReturn(List.of("server-session-token"));
         when(bearer.resolveSessionToken("server-session-token")).thenReturn(Optional.of(session(false)));
         mvc.perform(post("/model/instances").contentType("application/json").content("{}"))
                 .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("PLATFORM_CSRF_INVALID"));
@@ -60,7 +60,7 @@ class ControlModelInstanceControllerTest {
     @Test void normalCookieAndCsrfCreateThroughModelOwner() throws Exception {
         var bearer = mock(PlatformBearerAuthService.class);
         var cookies = mock(PlatformSessionCookieService.class);
-        when(cookies.readSessionToken(any())).thenReturn(Optional.of("server-session-token"));
+        when(cookies.readSessionTokens(any())).thenReturn(List.of("server-session-token"));
         when(bearer.resolveSessionToken("server-session-token")).thenReturn(Optional.of(session(false)));
         when(owner.create(any())).thenReturn(ResponseEntity.ok(Map.of("code", 200, "data", Map.of("id", "new-model"))));
         MockMvc mvc = MockMvcBuilders.standaloneSetup(controller)
@@ -127,8 +127,8 @@ class ControlModelInstanceControllerTest {
     private PlatformAuthenticatedSession session(boolean global) {
         String scope = global ? "GLOBAL" : "PROJECT", value = global ? "*" : "orders";
         return new PlatformAuthenticatedSession(null, "server-session-id", LocalDateTime.now().plusMinutes(5),
-                List.of("BUILDER"), List.of(PlatformPermissions.PLATFORM_READ, PlatformPermissions.PLATFORM_WRITE),
-                List.of(new PlatformPermissionGrant(PlatformPermissions.PLATFORM_READ, scope, value),
-                        new PlatformPermissionGrant(PlatformPermissions.PLATFORM_WRITE, scope, value)));
+                List.of("BUILDER"), List.of(PlatformPermissions.MODEL_READ, PlatformPermissions.MODEL_MANAGE),
+                List.of(new PlatformPermissionGrant(PlatformPermissions.MODEL_READ, scope, value),
+                        new PlatformPermissionGrant(PlatformPermissions.MODEL_MANAGE, scope, value)));
     }
 }

@@ -8,6 +8,7 @@ import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.ReadinessIte
 import com.enterprise.ai.control.aicoding.persistence.AiCodingProjectCredentialPolicyMapper;
 import com.enterprise.ai.control.identity.PlatformBearerAuthService;
 import com.enterprise.ai.control.identity.PlatformAuthenticatedSession;
+import com.enterprise.ai.control.identity.PlatformPermissionGrant;
 import com.enterprise.ai.control.identity.PlatformUserEntity;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchReleaseReadinessApplicationService;
 import com.enterprise.ai.control.platform.PlatformEmbedE2eEvidenceService;
@@ -163,8 +164,8 @@ class AiCodingTaskProtocolHttpTest {
                         "test-platform-session",
                         LocalDateTime.now().plusHours(1),
                         List.of("ADMIN"),
-                        List.of(),
-                        List.of())));
+                        List.of("*"),
+                        List.of(new PlatformPermissionGrant("*", "GLOBAL", "*")))));
     }
 
     @Test

@@ -62,26 +62,26 @@ Always set an explicit `@ReachParam(name = "...")` for simple parameters in
 JDK 8 builds. Keep business authorization inside the business method; metadata
 does not replace it.
 
-## Business-memory resolver API
+## Business-index resolver API
 
 An Agent-enabled Knowledge business index must point to a read-only resolver
 Capability. Use the public JDK 8 DTOs:
 
 ```java
-ReachBusinessMemoryResolverRequest request;
-ReachBusinessMemoryResolution resolution;
+ReachBusinessIndexResolverRequest request;
+ReachBusinessIndexResolution resolution;
 ```
 
-`ReachBusinessMemoryResolverRequest` exposes `resourceType`, `resourceId`, and
+`ReachBusinessIndexResolverRequest` exposes `resourceType`, `resourceId`, and
 `expectedSourceVersion`; its fields already carry `@ReachParam` metadata.
-Use `ReachBusinessMemoryAccessScope.authorizeRow(...)` with the signed tenant,
+Use `ReachBusinessIndexAccessScope.authorizeRow(...)` with the signed tenant,
 the tenant read from the authoritative business row (or an explicitly configured
 single-tenant deployment binding), the signed current user, and the actual row
 id/visibility result. Then call
-`ReachBusinessMemoryResolution.createAuthorized(...)` with source system,
+`ReachBusinessIndexResolution.createAuthorized(...)` with source system,
 current source version, and a map containing only fields visible to the signed
 current user. The compatibility `create(...)` factory is rejected by the Starter
-for capabilities tagged `business-memory-resolver` or using the standard
+for capabilities tagged `business-index-resolver` or using the standard
 resolver request/return types because it carries no row-authorization proof.
 Resolution fields carry `@ReachOutput` metadata.
 

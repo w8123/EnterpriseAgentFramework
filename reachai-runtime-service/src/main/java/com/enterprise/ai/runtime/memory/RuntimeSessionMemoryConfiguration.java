@@ -1,5 +1,6 @@
 package com.enterprise.ai.runtime.memory;
 
+import com.enterprise.ai.runtime.agent.RuntimeAgentMemoryPolicy;
 import io.agentscope.core.state.AgentStateStore;
 import io.agentscope.core.state.InMemoryAgentStateStore;
 import io.agentscope.core.state.JsonFileAgentStateStore;
@@ -43,7 +44,9 @@ public class RuntimeSessionMemoryConfiguration {
             default -> throw new IllegalArgumentException(
                     "Unsupported reachai.runtime.session-memory.state-store: " + properties.stateStore());
         };
-        return new WindowedAgentStateStore(delegate, properties.maxContextMessages());
+        // Hard ceiling only: each turn trims to its Agent's published window before saving.
+        return new WindowedAgentStateStore(delegate,
+                Math.max(properties.maxContextMessages(), RuntimeAgentMemoryPolicy.MAX_SESSION_WINDOW));
     }
 
     private static boolean isProduction(Environment environment) {

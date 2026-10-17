@@ -27,9 +27,8 @@ const AUTH_PROVIDER_TYPE_LABELS: Record<string, string> = {
 /** 平台内置角色（按 role_code；与种子数据一致） */
 const PLATFORM_ROLE_LABELS: Record<string, string> = {
   PLATFORM_ADMIN: '平台管理员',
-  AGENT_DESIGNER: '智能体设计者',
-  PROJECT_OWNER: '项目负责人',
-  OPERATOR: '运维操作员',
+  DEVELOPER: '开发人员',
+  OPERATOR: '运营人员',
   AUDITOR: '审计员',
 }
 

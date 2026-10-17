@@ -3,6 +3,7 @@ package com.enterprise.ai.runtime.agent;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.enterprise.ai.runtime.agent.RuntimeAgentConfigViews.AgentConfigDraftRequest;
 import com.enterprise.ai.runtime.agent.RuntimeAgentConfigViews.AgentConfigVersionView;
+import com.enterprise.ai.runtime.agent.RuntimeAgentConfigViews.AgentMemoryPolicyView;
 import com.enterprise.ai.runtime.agent.RuntimeAgentConfigViews.SkillBindingRequest;
 import com.enterprise.ai.runtime.agent.RuntimeAgentConfigViews.SkillBindingView;
 import com.enterprise.ai.runtime.agent.RuntimeAgentConfigViews.RemoteAgentBindingRequest;
@@ -412,7 +413,8 @@ public class RuntimeAgentConfigService {
                 source.getConfigJson(),
                 tools,
                 skills,
-                remoteBindings));
+                remoteBindings,
+                memoryView(source)));
     }
 
     public List<RuntimeAgentWorkflowToolEntity> resolveActiveTools(String agentId,
@@ -1140,7 +1142,14 @@ public class RuntimeAgentConfigService {
                 entity.getUpdatedAt(),
                 listTools(entity.getAgentId(), entity.getId()),
                 listSkills(entity.getAgentId(), entity.getId()),
-                listRemoteAgentBindings(entity.getAgentId(), entity.getId()));
+                listRemoteAgentBindings(entity.getAgentId(), entity.getId()),
+                memoryView(entity));
+    }
+
+    private static AgentMemoryPolicyView memoryView(RuntimeAgentConfigVersionEntity entity) {
+        RuntimeAgentMemoryPolicy policy = RuntimeAgentMemoryPolicy.of(RuntimeAgentConfigSnapshot.fromEntity(entity));
+        return new AgentMemoryPolicyView(policy.sessionMemoryEnabled(), policy.sessionMemoryWindow(),
+                policy.personalMemoryRead(), policy.personalMemoryWrite());
     }
 
     private RuntimeAgentEntity requireAgent(String agentId) {
@@ -1444,6 +1453,10 @@ public class RuntimeAgentConfigService {
         target.setParallelReadOnly(source.getParallelReadOnly());
         target.setPolicyProfile(source.getPolicyProfile());
         target.setToolCatalogMode(source.getToolCatalogMode());
+        target.setSessionMemoryEnabled(source.getSessionMemoryEnabled());
+        target.setSessionMemoryWindow(source.getSessionMemoryWindow());
+        target.setPersonalMemoryRead(source.getPersonalMemoryRead());
+        target.setPersonalMemoryWrite(source.getPersonalMemoryWrite());
         target.setConfigJson(source.getConfigJson());
     }
 
@@ -1461,6 +1474,17 @@ public class RuntimeAgentConfigService {
         if (StringUtils.hasText(request.policyProfile())) target.setPolicyProfile(request.policyProfile().trim());
         if (StringUtils.hasText(request.toolCatalogMode())) target.setToolCatalogMode(request.toolCatalogMode().trim());
         if (request.configJson() != null) target.setConfigJson(request.configJson());
+        AgentMemoryPolicyView memory = request.memory();
+        if (memory != null) {
+            if (memory.sessionMemoryEnabled() != null) target.setSessionMemoryEnabled(memory.sessionMemoryEnabled());
+            if (memory.sessionMemoryWindow() != null) {
+                target.setSessionMemoryWindow(RuntimeAgentMemoryPolicy.requireWindow(memory.sessionMemoryWindow()));
+            }
+            if (memory.personalMemoryRead() != null) target.setPersonalMemoryRead(memory.personalMemoryRead());
+            if (memory.personalMemoryWrite() != null) {
+                target.setPersonalMemoryWrite(RuntimeAgentMemoryPolicy.requireWrite(memory.personalMemoryWrite()));
+            }
+        }
     }
 
     private void applyDefaults(RuntimeAgentConfigVersionEntity target) {
@@ -1474,6 +1498,18 @@ public class RuntimeAgentConfigService {
         if (target.getParallelReadOnly() == null) target.setParallelReadOnly(true);
         if (!StringUtils.hasText(target.getPolicyProfile())) target.setPolicyProfile("DEV_ALLOW_ALL");
         if (!StringUtils.hasText(target.getToolCatalogMode())) target.setToolCatalogMode("ALLOW_LIST");
+        if (target.getSessionMemoryEnabled() == null) {
+            target.setSessionMemoryEnabled(RuntimeAgentMemoryPolicy.DEFAULT.sessionMemoryEnabled());
+        }
+        if (target.getSessionMemoryWindow() == null) {
+            target.setSessionMemoryWindow(RuntimeAgentMemoryPolicy.DEFAULT.sessionMemoryWindow());
+        }
+        if (target.getPersonalMemoryRead() == null) {
+            target.setPersonalMemoryRead(RuntimeAgentMemoryPolicy.DEFAULT.personalMemoryRead());
+        }
+        if (!StringUtils.hasText(target.getPersonalMemoryWrite())) {
+            target.setPersonalMemoryWrite(RuntimeAgentMemoryPolicy.DEFAULT.personalMemoryWrite());
+        }
     }
 
     private AgentConfigDraftRequest emptyDraft() {

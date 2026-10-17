@@ -1,7 +1,7 @@
 package com.enterprise.ai.control.runtime;
 
 import com.enterprise.ai.control.client.runtime.RuntimeProxyClient;
-import com.enterprise.ai.control.context.PersonalMemoryIdentityResolver;
+import com.enterprise.ai.control.memory.PersonalMemoryIdentityResolver;
 import com.enterprise.ai.control.identity.PlatformAuthProperties;
 import com.enterprise.ai.control.identity.PlatformAuthenticatedSession;
 import com.enterprise.ai.control.identity.PlatformBearerAuthService;

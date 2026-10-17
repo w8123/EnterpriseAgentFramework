@@ -62,7 +62,10 @@ public class CapabilityRegistryService {
     }
 
     @Transactional
-    public InstanceHeartbeatResponse heartbeat(String projectCode, InstanceHeartbeatRequest request) {
+    public InstanceHeartbeatResponse heartbeat(String projectCode, InstanceHeartbeatRequest request,
+                                               RegistrySecurityService.RegistrySignatureHeaders signatureHeaders) {
+        // The heartbeat sets the instance base URL that business-method calls are routed to.
+        registrySecurityService.verifyRequired(projectCode, signatureHeaders);
         return instanceLifecycle.heartbeat(getProject(projectCode), request);
     }
 
@@ -89,7 +92,9 @@ public class CapabilityRegistryService {
     }
 
     @Transactional
-    public void offline(String projectCode, String instanceId) {
+    public void offline(String projectCode, String instanceId,
+                        RegistrySecurityService.RegistrySignatureHeaders signatureHeaders) {
+        registrySecurityService.verifyRequired(projectCode, signatureHeaders);
         instanceLifecycle.offline(getProject(projectCode), instanceId);
     }
 

@@ -90,23 +90,23 @@ public class OrderQueryService {
 Do not put `@ReachOutput` on methods. Do not treat annotation roles as a
 replacement for the business application's existing authorization checks.
 
-## Business-memory resolver contracts
+## Business-index resolver contracts
 
 Use these JDK 8 DTOs when a Knowledge business index is enabled for Agent
 memory:
 
 | Type | Purpose |
 | --- | --- |
-| `ReachBusinessMemoryResolverRequest` | `resourceType`, `resourceId`, and the non-authoritative `expectedSourceVersion` index hint. Its fields already carry `@ReachParam` metadata. |
-| `ReachBusinessMemoryAccessScope` | Fail-closed tenant, user, resource-id, and row-visibility assertion created from the authoritative business row or an explicitly configured single-tenant deployment binding. |
-| `ReachBusinessMemoryResolution` | The current, user-authorized source record and current `sourceVersion`. Its fields carry `@ReachOutput` metadata. |
+| `ReachBusinessIndexResolverRequest` | `resourceType`, `resourceId`, and the non-authoritative `expectedSourceVersion` index hint. Its fields already carry `@ReachParam` metadata. |
+| `ReachBusinessIndexAccessScope` | Fail-closed tenant, user, resource-id, and row-visibility assertion created from the authoritative business row or an explicitly configured single-tenant deployment binding. |
+| `ReachBusinessIndexResolution` | The current, user-authorized source record and current `sourceVersion`. Its fields carry `@ReachOutput` metadata. |
 
 The resolver is still an ordinary read-only `@ReachCapability`. The business
 host must verify the short-lived `X-ReachAI-Invocation-Token`, enforce tenant and
 row-level authorization for its current user, create the result with
-`ReachBusinessMemoryResolution.createAuthorized(...)`, and return only fields
+`ReachBusinessIndexResolution.createAuthorized(...)`, and return only fields
 that user may see. The Spring Starter enforces this contract for capabilities
-tagged `business-memory-resolver` or using the standard resolver request/return
+tagged `business-index-resolver` or using the standard resolver request/return
 types; the compatibility `create(...)` factory does not carry row-authorization
 proof and is rejected on that HTTP invocation path.
 Never treat `expectedSourceVersion` or Knowledge projection text as current

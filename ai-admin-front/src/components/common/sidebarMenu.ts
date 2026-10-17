@@ -4,7 +4,14 @@ import {
   PLATFORM_PERMISSION_ADMIN,
   PLATFORM_PERMISSION_AGENT_READ,
   PLATFORM_PERMISSION_AUTOMATION_READ,
+  PLATFORM_PERMISSION_A2A_HUB_READ,
   PLATFORM_PERMISSION_BUSINESS_USER_READ,
+  PLATFORM_PERMISSION_KNOWLEDGE_READ,
+  PLATFORM_PERMISSION_KNOWLEDGE_WRITE,
+  PLATFORM_PERMISSION_MCP_HUB_READ,
+  PLATFORM_PERMISSION_MODEL_READ,
+  PLATFORM_PERMISSION_SKILL_READ,
+  PLATFORM_PERMISSION_TOOL_ACL_READ,
   PLATFORM_PERMISSION_MEMORY_ERASURE_MANAGE,
   PLATFORM_PERMISSION_RUNTIME_USER_MAPPING_MANAGE,
   PLATFORM_PERMISSION_READ,
@@ -18,8 +25,10 @@ import {
   Cpu,
   DataAnalysis,
   Grid,
+  Lock,
   SetUp,
   Share,
+  Shop,
   Timer,
   User,
 } from '@element-plus/icons-vue'
@@ -44,14 +53,20 @@ export type SidebarEntry =
 
 /**
  * 全局主菜单结构。视觉由 AppSidebar 统一控制，这里只描述导航语义。
- * 主导航只承载高频任务与资产入口；测试、诊断和实验性能力统一收进实验室。
+ * 分组按「人」划分：开发人员接入项目与业务能力，运营人员编排和运营 Agent，
+ * 平台管理员管理账号、模型与合规。每个入口都声明权限，只有一个角色的人只看到自己那一组。
  */
 export const sidebarMenu: SidebarEntry[] = [
-  { kind: 'group', label: '智能化改造' },
   { kind: 'item', index: '/dashboard', label: '概览', icon: DataAnalysis },
-  { kind: 'item', index: '/registry/projects', label: '项目管理', icon: Connection },
 
-  { kind: 'group', label: 'AI 资产' },
+  { kind: 'group', label: '开发' },
+  {
+    kind: 'item',
+    index: '/registry/projects',
+    label: '项目接入',
+    icon: Connection,
+    requiredPermissions: [PLATFORM_PERMISSION_READ],
+  },
   {
     kind: 'item',
     index: '/business-capabilities',
@@ -61,6 +76,15 @@ export const sidebarMenu: SidebarEntry[] = [
   },
   {
     kind: 'item',
+    index: '/api-market',
+    label: 'API 市场',
+    icon: Shop,
+    requiredPermissions: [PLATFORM_PERMISSION_READ],
+  },
+
+  { kind: 'group', label: '运营' },
+  {
+    kind: 'item',
     index: '/workflows',
     label: 'Workflow',
     icon: Share,
@@ -68,106 +92,117 @@ export const sidebarMenu: SidebarEntry[] = [
   },
   {
     kind: 'item',
-    index: '/agent',
+    index: '/agent-group',
     label: 'Agent',
     icon: Cpu,
-    requiredPermissions: [PLATFORM_PERMISSION_AGENT_READ],
-  },
-  { kind: 'item', index: '/skills', label: 'Skill', icon: Collection },
-  {
-    kind: 'item',
-    index: '/integration-group',
-    label: '集成与开放',
-    icon: Share,
     children: [
-      { index: '/api-market', label: 'API 市场' },
-      { index: '/mcp-hub', label: 'MCP Hub' },
-      { index: '/a2a-hub', label: 'A2A 互联中心' },
+      { index: '/agent', label: 'Agent 列表', requiredPermissions: [PLATFORM_PERMISSION_AGENT_READ] },
+      { index: '/mcp-hub', label: 'MCP 开放', requiredPermissions: [PLATFORM_PERMISSION_MCP_HUB_READ] },
+      { index: '/a2a-hub', label: 'A2A 开放', requiredPermissions: [PLATFORM_PERMISSION_A2A_HUB_READ] },
     ],
   },
   {
     kind: 'item',
     index: '/knowledge-group',
-    label: '知识库',
+    label: '知识',
     icon: Collection,
     children: [
-      { index: '/knowledge', label: '知识库' },
-      { index: '/knowledge/import', label: '文件入库' },
-      { index: '/biz-index', label: '业务索引' },
+      { index: '/knowledge', label: '知识库', requiredPermissions: [PLATFORM_PERMISSION_KNOWLEDGE_READ] },
+      { index: '/knowledge/import', label: '文件入库', requiredPermissions: [PLATFORM_PERMISSION_KNOWLEDGE_WRITE] },
+      { index: '/biz-index', label: '业务索引', requiredPermissions: [PLATFORM_PERMISSION_KNOWLEDGE_READ] },
     ],
   },
-
-  { kind: 'group', label: '运行与治理' },
   {
     kind: 'item',
-    index: '/automations',
-    label: '自动化中心',
-    icon: Timer,
-    requiredPermissions: [PLATFORM_PERMISSION_AUTOMATION_READ],
-  },
-  {
-    kind: 'item',
-    index: '/runops',
+    index: '/runops-group',
     label: '运行中心',
-    icon: DataAnalysis,
-    requiredPermissions: [PLATFORM_PERMISSION_RUNOPS_READ],
+    icon: Timer,
+    children: [
+      { index: '/runops', label: '运行记录', requiredPermissions: [PLATFORM_PERMISSION_RUNOPS_READ] },
+      { index: '/automations', label: '自动化', requiredPermissions: [PLATFORM_PERMISSION_AUTOMATION_READ] },
+    ],
   },
   {
     kind: 'item',
-    index: '/identity-group',
-    label: '身份与权限',
+    index: '/end-user-group',
+    label: '用户与调用权限',
     icon: User,
     children: [
-      { index: '/settings/personal-memory', label: '我的记忆' },
-      {
-        index: '/settings/platform-users',
-        label: '账号与权限',
-        requiredPermissions: [PLATFORM_PERMISSION_ADMIN],
-      },
       {
         index: '/settings/business-users',
         label: '业务用户',
         requiredPermissions: [PLATFORM_PERMISSION_BUSINESS_USER_READ],
       },
       {
+        index: '/settings/tool-acl',
+        label: '调用权限',
+        requiredPermissions: [PLATFORM_PERMISSION_TOOL_ACL_READ],
+      },
+    ],
+  },
+
+  { kind: 'group', label: '平台管理' },
+  {
+    kind: 'item',
+    index: '/identity-group',
+    label: '账号与角色',
+    icon: Lock,
+    children: [
+      {
+        index: '/settings/platform-users',
+        label: '账号与权限',
+        requiredPermissions: [PLATFORM_PERMISSION_ADMIN],
+      },
+      {
         index: '/settings/auth-providers',
         label: '认证源',
         requiredPermissions: [PLATFORM_PERMISSION_ADMIN],
       },
-      { index: '/settings/tool-acl', label: '调用权限' },
       {
         index: '/settings/runtime-user-mappings',
         label: '运行时用户映射',
         requiredPermissions: [PLATFORM_PERMISSION_RUNTIME_USER_MAPPING_MANAGE],
       },
-      {
-        index: '/settings/memory-erasure',
-        label: '跨域记忆擦除',
-        requiredPermissions: [PLATFORM_PERMISSION_MEMORY_ERASURE_MANAGE],
-      },
     ],
   },
-  { kind: 'group', label: '平台资源' },
   {
     kind: 'item',
     index: '/model-group',
     label: '模型服务',
     icon: Coin,
     children: [
-      { index: '/model/instances', label: '模型中心' },
-      { index: '/model/playground', label: '模型调试台' },
+      { index: '/model/instances', label: '模型中心', requiredPermissions: [PLATFORM_PERMISSION_MODEL_READ] },
+      { index: '/model/playground', label: '模型调试台', requiredPermissions: [PLATFORM_PERMISSION_MODEL_READ] },
     ],
   },
-
-  { kind: 'group', label: '实验室' },
+  {
+    kind: 'item',
+    index: '/compliance-group',
+    label: '合规',
+    icon: Lock,
+    children: [
+      {
+        index: '/compliance/erasure',
+        label: '跨域数据擦除',
+        requiredPermissions: [PLATFORM_PERMISSION_MEMORY_ERASURE_MANAGE],
+      },
+    ],
+  },
+  {
+    kind: 'item',
+    index: '/skills',
+    label: 'Skill 包',
+    icon: Collection,
+    requiredPermissions: [PLATFORM_PERMISSION_SKILL_READ],
+  },
   {
     kind: 'item',
     index: '/diagnostics-group',
-    label: '诊断工具',
+    label: '实验室',
     icon: SetUp,
     children: [
-      { index: '/tool/retrieval', label: '调用候选检索' },
-      { index: '/retrieval', label: '知识检索测试' },
+      { index: '/tool/retrieval', label: '调用候选检索', requiredPermissions: [PLATFORM_PERMISSION_READ] },
+      { index: '/retrieval', label: '知识检索测试', requiredPermissions: [PLATFORM_PERMISSION_KNOWLEDGE_READ] },
     ],
   },
 ]
@@ -234,8 +269,8 @@ export function resolveActiveMenu(path: string, metaActiveMenu?: unknown): strin
   if (path.startsWith('/tool/retrieval')) return '/tool/retrieval'
   if (path.startsWith('/business-capabilities') || path.startsWith('/business-methods') || path.startsWith('/apis')) return '/business-capabilities'
   if (path.startsWith('/settings/platform-users')) return '/settings/platform-users'
-  if (path.startsWith('/settings/personal-memory')) return '/settings/personal-memory'
-  if (path.startsWith('/settings/memory-erasure')) return '/settings/memory-erasure'
+  if (path.startsWith('/me/memories')) return '/me/memories'
+  if (path.startsWith('/compliance/erasure')) return '/compliance/erasure'
   if (path.startsWith('/settings/runtime-user-mappings')) return '/settings/runtime-user-mappings'
   if (path.startsWith('/settings/business-users')) return '/settings/business-users'
   if (path.startsWith('/settings/auth-providers')) return '/settings/auth-providers'
@@ -257,30 +292,33 @@ export function resolveOpenGroups(path: string): string[] {
     open.push('/knowledge-group')
   }
 
+  if (active === '/agent' || active === '/mcp-hub' || active === '/a2a-hub') {
+    open.push('/agent-group')
+  }
+
+  if (active === '/runops' || active === '/automations') {
+    open.push('/runops-group')
+  }
+
+  if (active === '/settings/business-users' || active === '/settings/tool-acl') {
+    open.push('/end-user-group')
+  }
+
   if (
     active === '/settings/platform-users'
-    || active === '/settings/personal-memory'
-    || active === '/settings/memory-erasure'
     || active === '/settings/runtime-user-mappings'
-    || active === '/settings/business-users'
     || active === '/settings/auth-providers'
-    || active === '/settings/tool-acl'
   ) {
     open.push('/identity-group')
   }
 
-  if (
-    active === '/api-market'
-    || active === '/mcp-hub'
-    || active === '/a2a-hub'
-  ) {
-    open.push('/integration-group')
+  if (active === '/compliance/erasure') {
+    open.push('/compliance-group')
   }
 
   if (active === '/model/instances' || active === '/model/playground') {
     open.push('/model-group')
   }
-
 
   if (
     active === '/tool/retrieval'

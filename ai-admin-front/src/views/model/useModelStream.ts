@@ -1,5 +1,6 @@
 import { computed, ref } from 'vue'
 import type { ModelChatRequest, ModelStreamState } from '@/types/model'
+import { platformCsrfHeaders } from '@/utils/platformAuth'
 import {
   createEmptyModelStreamState,
   decodeModelStreamEvent,
@@ -48,7 +49,7 @@ export function useModelStream() {
     try {
       const response = await fetch(STREAM_EVENTS_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+        headers: platformCsrfHeaders({ 'Content-Type': 'application/json', Accept: 'text/event-stream' }),
         body: JSON.stringify(body),
         signal: abortController.signal,
       })

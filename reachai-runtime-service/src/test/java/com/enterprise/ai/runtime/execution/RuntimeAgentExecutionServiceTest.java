@@ -118,7 +118,8 @@ class RuntimeAgentExecutionServiceTest {
                 mock(RuntimeInteractionResumeService.class), mock(RuntimeSessionClearPort.class),
                 mock(RuntimeRunLifecycleService.class));
         RuntimeAgentExecutionView agent = agent("agent-1", "orders-bot", "orders");
-        when(resolver.resolve("orders-bot")).thenReturn(Optional.of(context(agent, activeConfig(), List.of())));
+        when(resolver.resolve("orders-bot")).thenReturn(Optional.of(context(
+                agent, activeConfig().toBuilder().personalMemoryRead(true).build(), List.of())));
         when(supervisor.execute(any())).thenReturn(new SupervisorRuntimeAdapter.SupervisorResult(
                 true, "OK", "answer", "trace-1", List.of(), Map.of(), null));
         TrustedPersonalMemoryContext trusted = new TrustedPersonalMemoryContext(
@@ -141,6 +142,40 @@ class RuntimeAgentExecutionServiceTest {
         verify(supervisor).execute(request.capture());
         assertEquals("默认中文", request.getValue().personalMemory().memories().get(0).content());
         assertFalse(request.getValue().input().containsKey("personalMemory"));
+    }
+
+    @Test
+    void agentThatDoesNotReadPersonalMemoryNeverSeesTrustedMemories() {
+        RuntimeAgentExecutionContextResolver resolver = mock(RuntimeAgentExecutionContextResolver.class);
+        SupervisorRuntimeAdapter supervisor = mock(SupervisorRuntimeAdapter.class);
+        RuntimeAgentExecutionService service = new RuntimeAgentExecutionService(
+                resolver, supervisor, mock(RuntimeSupervisorApprovalPort.class),
+                mock(RuntimeInteractionResumeService.class), mock(RuntimeSessionClearPort.class),
+                mock(RuntimeRunLifecycleService.class));
+        when(resolver.resolve("orders-bot")).thenReturn(Optional.of(context(
+                agent("agent-1", "orders-bot", "orders"), activeConfig(), List.of())));
+        when(supervisor.execute(any())).thenReturn(new SupervisorRuntimeAdapter.SupervisorResult(
+                true, "OK", "answer", "trace-1", List.of(), Map.of(), null));
+        TrustedPersonalMemoryContext trusted = new TrustedPersonalMemoryContext(
+                "reachai-personal-memory-context-v1",
+                List.of(new TrustedPersonalMemoryContext.MemorySnippet(
+                        1L, "PREFERENCE", "语言", "默认中文", null, "VERIFIED", 2)),
+                4, false);
+
+        Map<String, Object> response = service.execute(new LinkedHashMap<>(Map.of(
+                        "agentId", "orders-bot", "message", "hello")),
+                false, RuntimeAgentExecutionEventSink.NOOP,
+                RuntimeAgentExecutionCancellation.NOOP,
+                WorkflowExecutionIdentity.fromAgent("default", null, null, "42"),
+                TrustedControlTiming.empty(), trusted);
+
+        ArgumentCaptor<SupervisorRuntimeAdapter.SupervisorRequest> request =
+                ArgumentCaptor.forClass(SupervisorRuntimeAdapter.SupervisorRequest.class);
+        verify(supervisor).execute(request.capture());
+        assertTrue(request.getValue().personalMemory().memories().isEmpty());
+        Map<?, ?> policy = (Map<?, ?>) ((Map<?, ?>) response.get("metadata")).get("memoryPolicy");
+        assertEquals(false, policy.get("personalMemoryRead"));
+        assertEquals("OFF", policy.get("personalMemoryWrite"));
     }
 
     @Test

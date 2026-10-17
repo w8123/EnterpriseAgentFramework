@@ -7,17 +7,15 @@ import {
 } from './sidebarMenu'
 
 describe('sidebarMenu information architecture', () => {
-  it('keeps task-oriented groups in the intended order', () => {
+  it('groups navigation by the people who use it', () => {
     const groups = sidebarMenu
       .filter((entry) => entry.kind === 'group')
       .map((entry) => entry.label)
 
     expect(groups).toEqual([
-      '智能化改造',
-      'AI 资产',
-      '运行与治理',
-      '平台资源',
-      '实验室',
+      '开发',
+      '运营',
+      '平台管理',
     ])
   })
 
@@ -49,18 +47,27 @@ describe('sidebarMenu information architecture', () => {
     expect(items).not.toContainEqual({ index: '/tool', label: '工具目录' })
   })
 
-  it('groups external integration assets under AI assets', () => {
-    const integration = sidebarMenu.find((entry) => (
-      entry.kind === 'item' && entry.index === '/integration-group'
+  it('keeps MCP and A2A exposure under Agent', () => {
+    const agent = sidebarMenu.find((entry) => (
+      entry.kind === 'item' && entry.index === '/agent-group'
     ))
 
-    expect(integration?.kind).toBe('item')
-    if (integration?.kind !== 'item') return
-    expect(integration.children).toEqual([
-      { index: '/api-market', label: 'API 市场' },
-      { index: '/mcp-hub', label: 'MCP Hub' },
-      { index: '/a2a-hub', label: 'A2A 互联中心' },
+    expect(agent?.kind).toBe('item')
+    if (agent?.kind !== 'item') return
+    expect(agent.children).toEqual([
+      { index: '/agent', label: 'Agent 列表', requiredPermissions: ['agent:read'] },
+      { index: '/mcp-hub', label: 'MCP 开放', requiredPermissions: ['mcp-hub:read'] },
+      { index: '/a2a-hub', label: 'A2A 开放', requiredPermissions: ['a2a-hub:read'] },
     ])
+  })
+
+  it('shows a developer only the development group', () => {
+    const visible = filterSidebarMenu(sidebarMenu, ['platform:read', 'platform:write', 'capability:invoke'])
+    const groups = visible.filter((entry) => entry.kind === 'group').map((entry) => entry.label)
+
+    expect(groups).toEqual(['开发', '平台管理'])
+    const platformItems = visible.slice(visible.findIndex((entry) => entry.kind === 'group' && entry.label === '平台管理') + 1)
+    expect(platformItems.map((entry) => entry.kind === 'item' ? entry.index : '')).toEqual(['/diagnostics-group'])
   })
 
   it('exposes one business capability workbench, with source changes owned by projects', () => {
@@ -76,54 +83,54 @@ describe('sidebarMenu information architecture', () => {
     expect(paths.some(path => path.startsWith('/capability'))).toBe(false)
   })
 
-  it('removes privileged identity entries without leaving the group empty', () => {
-    const visible = filterSidebarMenu(sidebarMenu, ['platform:read'])
-    const identity = visible.find((entry) => (
-      entry.kind === 'item' && entry.index === '/identity-group'
+  it('keeps end-user access with operations and account management with the administrator', () => {
+    const visible = filterSidebarMenu(sidebarMenu, ['platform:read', 'tool-acl:read'])
+    const endUsers = visible.find((entry) => (
+      entry.kind === 'item' && entry.index === '/end-user-group'
     ))
 
-    expect(identity?.kind).toBe('item')
-    if (identity?.kind !== 'item') return
-    expect(identity.children?.map((child) => child.index)).toEqual([
-      '/settings/personal-memory',
+    expect(endUsers?.kind).toBe('item')
+    if (endUsers?.kind !== 'item') return
+    expect(endUsers.children?.map((child) => child.index)).toEqual([
       '/settings/tool-acl',
     ])
+    expect(visible.some((entry) => entry.kind === 'item' && entry.index === '/identity-group')).toBe(false)
+    expect(visible.some((entry) => entry.kind === 'item' && entry.index === '/compliance-group')).toBe(false)
   })
 
   it('shows business user governance only with its dedicated permission', () => {
     const visible = filterSidebarMenu(sidebarMenu, ['identity:business-user:read'])
-    const identity = visible.find((entry) => (
-      entry.kind === 'item' && entry.index === '/identity-group'
+    const endUsers = visible.find((entry) => (
+      entry.kind === 'item' && entry.index === '/end-user-group'
     ))
 
-    expect(identity?.kind).toBe('item')
-    if (identity?.kind !== 'item') return
-    expect(identity.children?.map((child) => child.index)).toContain('/settings/business-users')
-    expect(identity.children?.map((child) => child.index)).not.toContain('/settings/platform-users')
+    expect(endUsers?.kind).toBe('item')
+    if (endUsers?.kind !== 'item') return
+    expect(endUsers.children?.map((child) => child.index)).toEqual(['/settings/business-users'])
+    expect(visible.some((entry) => entry.kind === 'item' && entry.index === '/identity-group')).toBe(false)
   })
 
   it('shows Automation only to principals with Automation read access', () => {
-    const withoutRead = filterSidebarMenu(sidebarMenu, ['platform:read'])
-    const withRead = filterSidebarMenu(sidebarMenu, ['automation:read'])
-
-    expect(withoutRead.some((entry) => (
-      entry.kind === 'item' && entry.index === '/automations'
-    ))).toBe(false)
-    expect(withRead.some((entry) => (
-      entry.kind === 'item' && entry.index === '/automations'
-    ))).toBe(true)
+    expect(visibleTargets(['platform:read'])).not.toContain('/automations')
+    expect(visibleTargets(['automation:read'])).toContain('/automations')
   })
 
   it('separates Build assets from RunOps navigation permissions', () => {
-    const builder = filterSidebarMenu(sidebarMenu, ['agent:read', 'workflow:read'])
-    const operator = filterSidebarMenu(sidebarMenu, ['runops:read'])
+    const builder = visibleTargets(['agent:read', 'workflow:read'])
+    const operator = visibleTargets(['runops:read'])
 
-    expect(builder.some((entry) => entry.kind === 'item' && entry.index === '/agent')).toBe(true)
-    expect(builder.some((entry) => entry.kind === 'item' && entry.index === '/runops')).toBe(false)
-    expect(operator.some((entry) => entry.kind === 'item' && entry.index === '/agent')).toBe(false)
-    expect(operator.some((entry) => entry.kind === 'item' && entry.index === '/runops')).toBe(true)
+    expect(builder).toContain('/agent')
+    expect(builder).not.toContain('/runops')
+    expect(operator).not.toContain('/agent')
+    expect(operator).toContain('/runops')
   })
 })
+
+function visibleTargets(permissions: string[]): string[] {
+  return filterSidebarMenu(sidebarMenu, permissions).flatMap((entry) => (
+    entry.kind === 'item' ? [entry.index, ...(entry.children ?? []).map((child) => child.index)] : []
+  ))
+}
 
 describe('resolveActiveMenu', () => {
   it.each([
@@ -149,14 +156,15 @@ describe('resolveActiveMenu', () => {
 
 describe('resolveOpenGroups', () => {
   it.each([
-    ['/api-market', ['/integration-group']],
+    ['/api-market', []],
     ['/business-methods', []],
     ['/registry/projects/orders', []],
-    ['/settings/tool-acl', ['/identity-group']],
-    ['/settings/personal-memory', ['/identity-group']],
-    ['/mcp-hub/call-logs', ['/integration-group']],
+    ['/settings/tool-acl', ['/end-user-group']],
+    ['/me/memories', []],
+    ['/compliance/erasure', ['/compliance-group']],
+    ['/mcp-hub/call-logs', ['/agent-group']],
     ['/model/playground', ['/model-group']],
-    ['/a2a-hub/overview', ['/integration-group']],
+    ['/a2a-hub/overview', ['/agent-group']],
     ['/tool/retrieval', ['/diagnostics-group']],
     ['/settings/runtime-user-mappings', ['/identity-group']],
     ['/domain', []],
@@ -167,7 +175,7 @@ describe('resolveOpenGroups', () => {
   })
 
   it('does not open a submenu for direct primary navigation', () => {
-    expect(resolveOpenGroups('/runops')).toEqual([])
+    expect(resolveOpenGroups('/workflows')).toEqual([])
     expect(resolveOpenGroups('/skill-market')).toEqual([])
   })
 })

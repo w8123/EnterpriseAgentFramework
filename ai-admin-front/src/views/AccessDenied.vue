@@ -3,10 +3,10 @@
     <el-result
       icon="warning"
       title="没有访问权限"
-      sub-title="当前平台角色不能访问这个工作区或资源。你的登录会话仍然有效。"
+      sub-title="你当前的角色不能访问这个页面。如需开通，请联系平台管理员分配开发人员或运营人员角色。"
     >
       <template #extra>
-        <el-button type="primary" @click="goToWorkspace">返回可用工作台</el-button>
+        <el-button type="primary" @click="goToWorkspace">返回概览</el-button>
       </template>
     </el-result>
   </div>

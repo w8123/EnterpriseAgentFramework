@@ -11,6 +11,10 @@
     "sourceSha256": "3f52227859a3401a6ea9d93f0bbd80bfb7ad172eef786e2190c7bdb5651f0af9",
     "contentTreeSha256": "7d4a8768fbffa578931b839af258a524f22ccfcd932501c67b202eda674abaf6"
   },
+  "reachai-onboarding@0.6.2": {
+    "sourceSha256": "3335b16232032c2f8e71276b296f59d3d511c51e8101d4d054b1b6856bb9a230",
+    "contentTreeSha256": "6027de1884a657564f12652da8847aae4e2a7871b1d9c216c05f96e301c493a1"
+  },
   "workflow-ai-coding@0.1.0": {
     "sourceSha256": "168d6b2163e689a51340dc6bd477776df3ab337eabdde8c8ff45088865f84c23",
     "contentTreeSha256": "c609d5cdd1ca89782fabbbd99d5a9ad9ccc95751035fc785732b75fcbae171c0"

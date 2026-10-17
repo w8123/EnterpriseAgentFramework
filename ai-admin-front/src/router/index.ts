@@ -2,16 +2,23 @@ import { createRouter, createWebHistory } from 'vue-router'
 import type { RouteLocationNormalizedLoaded, RouteRecordRaw } from 'vue-router'
 import {
   PLATFORM_PERMISSION_ADMIN,
+  PLATFORM_PERMISSION_A2A_HUB_READ,
   PLATFORM_PERMISSION_AGENT_DEBUG,
   PLATFORM_PERMISSION_AGENT_EVALUATE,
   PLATFORM_PERMISSION_AGENT_READ,
   PLATFORM_PERMISSION_AGENT_WRITE,
   PLATFORM_PERMISSION_AUTOMATION_READ,
   PLATFORM_PERMISSION_BUSINESS_USER_READ,
+  PLATFORM_PERMISSION_KNOWLEDGE_READ,
+  PLATFORM_PERMISSION_KNOWLEDGE_WRITE,
+  PLATFORM_PERMISSION_MCP_HUB_READ,
   PLATFORM_PERMISSION_MEMORY_ERASURE_MANAGE,
+  PLATFORM_PERMISSION_MODEL_READ,
   PLATFORM_PERMISSION_RUNTIME_USER_MAPPING_MANAGE,
   PLATFORM_PERMISSION_READ,
   PLATFORM_PERMISSION_RUNOPS_READ,
+  PLATFORM_PERMISSION_SKILL_READ,
+  PLATFORM_PERMISSION_TOOL_ACL_READ,
   PLATFORM_PERMISSION_WORKFLOW_READ,
   PLATFORM_PERMISSION_WORKFLOW_WRITE,
 } from '@/auth/platformAccess'
@@ -121,13 +128,13 @@ export const routes: RouteRecordRaw[] = [
         path: 'skill-market',
         name: 'SkillMarket',
         component: () => import('@/views/skill-market/SkillMarket.vue'),
-        meta: { title: 'Skill 市场', layoutMode: 'standard' },
+        meta: { title: 'Skill 市场', layoutMode: 'standard', requiredPermissions: [PLATFORM_PERMISSION_SKILL_READ] },
       },
       {
         path: 'skills',
         name: 'SkillCenter',
         component: () => import('@/views/skill/SkillCenter.vue'),
-        meta: { title: 'Skill 管理', layoutMode: 'standard' },
+        meta: { title: 'Skill 管理', layoutMode: 'standard', requiredPermissions: [PLATFORM_PERMISSION_SKILL_READ] },
       },
       {
         path: 'workflows',
@@ -200,43 +207,43 @@ export const routes: RouteRecordRaw[] = [
         path: 'knowledge',
         name: 'KnowledgeList',
         component: () => import('@/views/KnowledgeList.vue'),
-        meta: { title: '知识库管理', layoutMode: 'standard' },
+        meta: { title: '知识库管理', layoutMode: 'standard', requiredPermissions: [PLATFORM_PERMISSION_KNOWLEDGE_READ] },
       },
       {
         path: 'knowledge/import',
         name: 'KnowledgeImport',
         component: () => import('@/views/KnowledgeImport.vue'),
-        meta: { title: '文件入库', layoutMode: 'standard' },
+        meta: { title: '文件入库', layoutMode: 'standard', requiredPermissions: [PLATFORM_PERMISSION_KNOWLEDGE_WRITE] },
       },
       {
         path: 'knowledge/:code',
         name: 'KnowledgeDetail',
         component: () => import('@/views/KnowledgeDetail.vue'),
-        meta: { title: '知识库详情', layoutMode: 'standard' },
+        meta: { title: '知识库详情', layoutMode: 'standard', requiredPermissions: [PLATFORM_PERMISSION_KNOWLEDGE_READ] },
       },
       {
         path: 'knowledge/:code/file/:fileId',
         name: 'FileDetail',
         component: () => import('@/views/FileDetail.vue'),
-        meta: { title: '文件详情', layoutMode: 'standard' },
+        meta: { title: '文件详情', layoutMode: 'standard', requiredPermissions: [PLATFORM_PERMISSION_KNOWLEDGE_READ] },
       },
       {
         path: 'retrieval',
         name: 'RetrievalTest',
         component: () => import('@/views/RetrievalTest.vue'),
-        meta: { title: '检索测试', layoutMode: 'standard' },
+        meta: { title: '检索测试', layoutMode: 'standard', requiredPermissions: [PLATFORM_PERMISSION_KNOWLEDGE_READ] },
       },
       {
         path: 'biz-index',
         name: 'BizIndexList',
         component: () => import('@/views/BizIndexList.vue'),
-        meta: { title: '业务索引管理', layoutMode: 'standard' },
+        meta: { title: '业务索引管理', layoutMode: 'standard', requiredPermissions: [PLATFORM_PERMISSION_KNOWLEDGE_READ] },
       },
       {
         path: 'biz-index/:code',
         name: 'BizIndexDetail',
         component: () => import('@/views/BizIndexDetail.vue'),
-        meta: { title: '索引详情', layoutMode: 'standard' },
+        meta: { title: '索引详情', layoutMode: 'standard', requiredPermissions: [PLATFORM_PERMISSION_KNOWLEDGE_READ] },
       },
 
       // ── 模型管理 ──
@@ -244,7 +251,7 @@ export const routes: RouteRecordRaw[] = [
         path: 'model/instances',
         name: 'ModelInstances',
         component: () => import('@/views/model/ModelInstances.vue'),
-        meta: { title: '模型中心', layoutMode: 'standard', activeMenu: '/model/instances' },
+        meta: { title: '模型中心', layoutMode: 'standard', activeMenu: '/model/instances', requiredPermissions: [PLATFORM_PERMISSION_MODEL_READ] },
       },
       {
         path: 'model/instances/:id',
@@ -254,13 +261,14 @@ export const routes: RouteRecordRaw[] = [
           title: '模型详情',
           layoutMode: 'standard',
           activeMenu: '/model/instances',
+          requiredPermissions: [PLATFORM_PERMISSION_MODEL_READ],
         },
       },
       {
         path: 'model/playground',
         name: 'ModelPlayground',
         component: () => import('@/views/model/ModelPlayground.vue'),
-        meta: { title: '模型调试台', layoutMode: 'edge-to-edge' },
+        meta: { title: '模型调试台', layoutMode: 'edge-to-edge', requiredPermissions: [PLATFORM_PERMISSION_MODEL_READ] },
       },
 
       // ── 外部 API 市场 ──
@@ -268,7 +276,7 @@ export const routes: RouteRecordRaw[] = [
         path: 'api-market',
         name: 'ApiMarket',
         component: () => import('@/views/api-market/ApiMarket.vue'),
-        meta: { title: 'API 市场', layoutMode: 'standard',
+        meta: { title: 'API 市场', layoutMode: 'standard', requiredPermissions: [PLATFORM_PERMISSION_READ],
           projectScope: { permission: PLATFORM_PERMISSION_READ, resourceLabel: 'API 接入', requiresProjectCode: true } },
       },
 
@@ -277,7 +285,7 @@ export const routes: RouteRecordRaw[] = [
         path: 'tool/retrieval',
         name: 'ToolRetrievalTest',
         component: () => import('@/views/tool/ToolRetrievalTest.vue'),
-        meta: { title: '调用候选检索', layoutMode: 'standard' },
+        meta: { title: '调用候选检索', layoutMode: 'standard', requiredPermissions: [PLATFORM_PERMISSION_READ] },
       },
       {
         path: 'business-capabilities',
@@ -296,7 +304,7 @@ export const routes: RouteRecordRaw[] = [
             resetQueryKeysOnScopeChange: BUSINESS_CAPABILITY_SCOPE_QUERY_KEYS,
           },
           activeMenu: '/business-capabilities',
-          breadcrumb: [{ title: 'AI 资产' }, { title: '业务能力' }],
+          breadcrumb: [{ title: '开发' }, { title: '业务能力' }],
         },
         children: [
           { path: '', name: 'BusinessCapabilityEntry', redirect: to => ({ path: '/business-capabilities/java-methods', query: to.query }) },
@@ -312,14 +320,14 @@ export const routes: RouteRecordRaw[] = [
             meta: { title: '业务能力工具',
               projectScope: { permission: PLATFORM_PERMISSION_READ, resourceLabel: '业务能力', requiresProjectCode: false,
                 resetQueryKeysOnScopeChange: BUSINESS_CAPABILITY_SCOPE_QUERY_KEYS },
-              breadcrumb: [{ title: 'AI 资产' }, { title: '业务能力' }, { title: (route: RouteLocationNormalizedLoaded) =>
+              breadcrumb: [{ title: '开发' }, { title: '业务能力' }, { title: (route: RouteLocationNormalizedLoaded) =>
                 ({ sources: '接入与变更', semantics: '批量整理说明', graph: '关联分析' }[String(route.params.workspace)] || '能力目录') }] },
           },
           {
             path: 'java-methods', name: 'BusinessMethodCatalog',
             component: () => import('@/views/capability/BusinessMethodCatalog.vue'),
             meta: { title: 'Java 业务方法 · 业务能力',
-              breadcrumb: [{ title: 'AI 资产' }, { title: '业务能力' }, { title: 'Java 业务方法' }] },
+              breadcrumb: [{ title: '开发' }, { title: '业务能力' }, { title: 'Java 业务方法' }] },
           },
           {
             path: 'http-apis', name: 'HttpApiCatalog',
@@ -327,7 +335,7 @@ export const routes: RouteRecordRaw[] = [
             meta: { title: 'HTTP API · 业务能力',
               projectScope: { permission: PLATFORM_PERMISSION_READ, resourceLabel: 'HTTP API', requiresProjectCode: true,
                 resetQueryKeysOnScopeChange: BUSINESS_CAPABILITY_SCOPE_QUERY_KEYS },
-              breadcrumb: [{ title: 'AI 资产' }, { title: '业务能力' }, { title: 'HTTP API' }] },
+              breadcrumb: [{ title: '开发' }, { title: '业务能力' }, { title: 'HTTP API' }] },
           },
         ],
       },
@@ -351,7 +359,7 @@ export const routes: RouteRecordRaw[] = [
           projectScope: { permission: PLATFORM_PERMISSION_READ, resourceLabel: 'HTTP API', requiresProjectCode: true,
             resetQueryKeysOnScopeChange: BUSINESS_CAPABILITY_SCOPE_QUERY_KEYS },
           activeMenu: '/business-capabilities',
-          breadcrumb: [{ title: 'AI 资产' }, { title: '业务能力', to: (route: RouteLocationNormalizedLoaded) => ({ path: '/business-capabilities/http-apis', query: route.query }) }, { title: 'HTTP API 详情' }],
+          breadcrumb: [{ title: '开发' }, { title: '业务能力', to: (route: RouteLocationNormalizedLoaded) => ({ path: '/business-capabilities/http-apis', query: route.query }) }, { title: 'HTTP API 详情' }],
         },
       },
       {
@@ -364,11 +372,12 @@ export const routes: RouteRecordRaw[] = [
         name: 'RegistryProjectList',
         component: () => import('@/views/registry/RegistryProjectList.vue'),
         meta: {
-          title: '项目中心 · 项目管理',
+          requiredPermissions: [PLATFORM_PERMISSION_READ],
+          title: '项目接入 · 项目列表',
           layoutMode: 'project-workbench',
           hideSidebarProjectPanel: true,
           activeMenu: '/registry/projects',
-          breadcrumb: [{ title: '项目中心' }, { title: '项目管理' }],
+          breadcrumb: [{ title: '开发' }, { title: '项目接入' }],
         },
       },
       {
@@ -385,13 +394,14 @@ export const routes: RouteRecordRaw[] = [
         name: 'RegistryProjectDetail',
         component: () => import('@/views/registry/RegistryProjectDetail.vue'),
         meta: {
-          title: '项目中心 · 项目详情',
+          requiredPermissions: [PLATFORM_PERMISSION_READ],
+          title: '项目接入 · 项目详情',
           layoutMode: 'project-workbench',
           hideSidebarProjectPanel: true,
           activeMenu: '/registry/projects',
           breadcrumb: [
-            { title: '项目中心' },
-            { title: '项目管理', to: { path: '/registry/projects' } },
+            { title: '开发' },
+            { title: '项目接入', to: { path: '/registry/projects' } },
             { title: '项目详情' },
           ],
         },
@@ -401,12 +411,13 @@ export const routes: RouteRecordRaw[] = [
         name: 'EmbedOpsMonitor',
         component: () => import('@/views/settings/EmbedOpsMonitor.vue'),
         meta: {
+          requiredPermissions: [PLATFORM_PERMISSION_READ],
           title: '前端页面管理',
           layoutMode: 'project-workbench',
           activeMenu: '/registry/projects',
           breadcrumb: [
-            { title: '项目中心' },
-            { title: '项目管理', to: { path: '/registry/projects' } },
+            { title: '开发' },
+            { title: '项目接入', to: { path: '/registry/projects' } },
             { title: '项目详情', to: toProjectDetail },
             { title: '前端页面管理' },
           ],
@@ -417,13 +428,14 @@ export const routes: RouteRecordRaw[] = [
         name: 'PageAssistantWizard',
         component: () => import('@/views/registry/PageAssistantWizard.vue'),
         meta: {
+          requiredPermissions: [PLATFORM_PERMISSION_READ],
           title: '业务页面工作台',
           layoutMode: 'project-workbench',
           breadcrumbShowBack: false,
           activeMenu: '/registry/projects',
           breadcrumb: [
-            { title: '项目中心' },
-            { title: '项目管理', to: { path: '/registry/projects' } },
+            { title: '开发' },
+            { title: '项目接入', to: { path: '/registry/projects' } },
             { title: '项目详情', to: toProjectDetail },
             { title: '业务页面工作台' },
           ],
@@ -434,12 +446,13 @@ export const routes: RouteRecordRaw[] = [
         name: 'SdkAccessWizard',
         component: () => import('@/views/registry/SdkAccessWizard.vue'),
         meta: {
+          requiredPermissions: [PLATFORM_PERMISSION_READ],
           title: '项目接入工作台',
           layoutMode: 'project-workbench',
           activeMenu: '/registry/projects',
           breadcrumb: [
-            { title: '项目中心' },
-            { title: '项目管理', to: { path: '/registry/projects' } },
+            { title: '开发' },
+            { title: '项目接入', to: { path: '/registry/projects' } },
             { title: '项目详情', to: toProjectDetail },
             { title: '项目接入工作台' },
           ],
@@ -450,12 +463,13 @@ export const routes: RouteRecordRaw[] = [
         name: 'EmbedSessionAudit',
         component: () => import('@/views/settings/EmbedSessionAudit.vue'),
         meta: {
+          requiredPermissions: [PLATFORM_PERMISSION_READ],
           title: '嵌入式会话审计',
           layoutMode: 'project-workbench',
           activeMenu: '/registry/projects',
           breadcrumb: [
-            { title: '项目中心' },
-            { title: '项目管理', to: { path: '/registry/projects' } },
+            { title: '开发' },
+            { title: '项目接入', to: { path: '/registry/projects' } },
             { title: '项目详情', to: toProjectDetail },
             { title: '前端页面管理', to: toProjectPageActions },
             { title: '嵌入式会话审计' },
@@ -467,7 +481,7 @@ export const routes: RouteRecordRaw[] = [
         path: 'mcp-hub',
         component: () => import('@/views/mcp-hub/McpHubLayout.vue'),
         redirect: '/mcp-hub/overview',
-        meta: { activeMenu: '/mcp-hub', layoutMode: 'standard' },
+        meta: { activeMenu: '/mcp-hub', layoutMode: 'standard', requiredPermissions: [PLATFORM_PERMISSION_MCP_HUB_READ] },
         children: [
           {
             path: 'overview',
@@ -501,7 +515,7 @@ export const routes: RouteRecordRaw[] = [
         path: 'a2a-hub',
         component: () => import('@/views/a2a-hub/A2aHubLayout.vue'),
         redirect: '/a2a-hub/overview',
-        meta: { activeMenu: '/a2a-hub', layoutMode: 'standard' },
+        meta: { activeMenu: '/a2a-hub', layoutMode: 'standard', requiredPermissions: [PLATFORM_PERMISSION_A2A_HUB_READ] },
         children: [
           {
             path: 'overview',
@@ -543,12 +557,14 @@ export const routes: RouteRecordRaw[] = [
       },
 
       // ── 设置 / 护栏 ──
+      // ── 个人中心 ──
       {
-        path: 'settings/personal-memory',
-        name: 'PersonalMemory',
-        component: () => import('@/views/settings/PersonalMemory.vue'),
+        path: 'me/memories',
+        name: 'MyMemories',
+        component: () => import('@/views/me/MyMemories.vue'),
         meta: { title: '我的记忆', layoutMode: 'standard' },
       },
+      { path: 'settings/personal-memory', redirect: '/me/memories' },
       {
         path: 'settings/runtime-user-mappings',
         name: 'RuntimeUserMapping',
@@ -560,11 +576,11 @@ export const routes: RouteRecordRaw[] = [
         },
       },
       {
-        path: 'settings/memory-erasure',
-        name: 'MemoryErasure',
-        component: () => import('@/views/settings/MemoryErasure.vue'),
+        path: 'compliance/erasure',
+        name: 'DataErasure',
+        component: () => import('@/views/compliance/DataErasure.vue'),
         meta: {
-          title: '跨域记忆擦除',
+          title: '跨域数据擦除',
           layoutMode: 'standard',
           requiredPermissions: [PLATFORM_PERMISSION_MEMORY_ERASURE_MANAGE],
         },
@@ -603,7 +619,7 @@ export const routes: RouteRecordRaw[] = [
         path: 'settings/tool-acl',
         name: 'ToolAclList',
         component: () => import('@/views/settings/ToolAclList.vue'),
-        meta: { title: '调用权限', layoutMode: 'standard' },
+        meta: { title: '调用权限', layoutMode: 'standard', requiredPermissions: [PLATFORM_PERMISSION_TOOL_ACL_READ] },
       },
     ],
   },

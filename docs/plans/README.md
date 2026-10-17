@@ -27,6 +27,8 @@
 | [managed-executor-implementation-plan.md](./managed-executor-implementation-plan.md) | Managed Executor P0-P5 源码交付状态及仍待镜像、集群、浏览器和攻击验收的门禁 |
 | [reachai-agent-operations-dashboard-handoff.md](./reachai-agent-operations-dashboard-handoff.md) | 智能体运营大屏的数据口径、服务边界、Widget/布局体系、接口、SQL、实施阶段与验收交接 |
 | [mcp-hub-implementation-plan.md](./mcp-hub-implementation-plan.md) | MCP Hub 分阶段实现、升级和部署/外部客户端验收门禁 |
+| [记忆模块重设计方案.md](./记忆模块重设计方案.md) | 记忆作为 Agent 能力的重设计：Agent 记忆策略、个人记忆独立表与接口、嵌入式「我的记忆」、业务索引解析改名（M1–M4） |
+| [人员角色与权限重设计方案.md](./人员角色与权限重设计方案.md) | 开发人员 / 运营人员 / 平台管理员 / 审计员四个内置角色、接口权限闸门、按人分组的导航（R1–R4） |
 
 ## 维护规则
 

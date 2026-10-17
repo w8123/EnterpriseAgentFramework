@@ -1,7 +1,7 @@
 package com.enterprise.ai.control.runtime;
 
-import com.enterprise.ai.control.context.PersonalMemoryRecallService;
-import com.enterprise.ai.control.context.PersonalMemoryCandidateObservationService;
+import com.enterprise.ai.control.memory.PersonalMemoryRecallService;
+import com.enterprise.ai.control.memory.PersonalMemoryCandidateObservationService;
 import com.enterprise.ai.control.internalauth.InternalServiceAuthSigner;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -55,13 +55,69 @@ class RuntimeTrustedAgentExecutionGatewayMemoryTest {
         method.setAccessible(true);
         Map<String, Object> request = Map.of("message", "请记住我住在青岛", "agentId", "a1");
 
-        method.invoke(gateway, request, Map.of("success", false, "answer", "failed"),
+        method.invoke(gateway, request, response(false, "EXPLICIT_AND_CANDIDATE"),
                 "AGENT", "default", "42");
         verify(observation, never()).observeExplicitIfPresent(any(), any(), any(), any());
 
         when(observation.observeExplicitIfPresent(any(), any(), any(), any())).thenReturn(true);
-        method.invoke(gateway, request, Map.of("success", true, "answer", "记住了"),
+        method.invoke(gateway, request, response(true, "EXPLICIT_AND_CANDIDATE"),
                 "AGENT", "default", "42");
         verify(observation).observeExplicitIfPresent(eq("AGENT"), eq("default"), eq("42"), any());
+    }
+
+    @Test
+    void agentMemoryPolicyDecidesWhetherATurnMayWritePersonalMemory() throws Exception {
+        PersonalMemoryCandidateObservationService observation = mock(PersonalMemoryCandidateObservationService.class);
+        RuntimeTrustedAgentExecutionGateway gateway = new RuntimeTrustedAgentExecutionGateway(
+                mock(InternalServiceAuthSigner.class), new ObjectMapper(), mock(RuntimeAgentStreamProxy.class),
+                "http://localhost:18604", null, observation);
+        Method method = RuntimeTrustedAgentExecutionGateway.class.getDeclaredMethod(
+                "observeCompletedTurn", Map.class, Map.class, String.class, String.class, String.class);
+        method.setAccessible(true);
+        Map<String, Object> request = Map.of("message", "我喜欢简洁的回答", "agentId", "a1");
+
+        method.invoke(gateway, request, Map.of("success", true, "answer", "好的"), "AGENT", "default", "42");
+        method.invoke(gateway, request, response(true, "OFF"), "AGENT", "default", "42");
+        verify(observation, never()).observeExplicitIfPresent(any(), any(), any(), any());
+
+        method.invoke(gateway, request, response(true, "EXPLICIT"), "AGENT", "default", "42");
+        verify(observation).observeExplicitIfPresent(eq("AGENT"), eq("default"), eq("42"), any());
+        verify(observation, never()).observePassive(any(), any(), any(), any());
+
+        method.invoke(gateway, request, response(true, "EXPLICIT_AND_CANDIDATE"), "AGENT", "default", "42");
+        verify(observation).observePassive(eq("AGENT"), eq("default"), eq("42"), any());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void skipsRecallOnceRuntimeReportsTheAgentDoesNotReadPersonalMemory() throws Exception {
+        PersonalMemoryRecallService recall = mock(PersonalMemoryRecallService.class);
+        when(recall.recall(any(), any(), any(), any())).thenReturn(Map.of(
+                "schema", "reachai-personal-memory-context-v1",
+                "memories", List.of(Map.of("id", 1, "type", "FACT", "content", "住在青岛"))));
+        ObjectMapper mapper = new ObjectMapper();
+        RuntimeTrustedAgentExecutionGateway gateway = new RuntimeTrustedAgentExecutionGateway(
+                mock(InternalServiceAuthSigner.class), mapper, mock(RuntimeAgentStreamProxy.class),
+                "http://localhost:18604", recall, mock(PersonalMemoryCandidateObservationService.class));
+        Method method = RuntimeTrustedAgentExecutionGateway.class.getDeclaredMethod(
+                "observeCompletedTurn", Map.class, Map.class, String.class, String.class, String.class);
+        method.setAccessible(true);
+        Map<String, Object> request = Map.of("agentId", "a1", "message", "我住哪里");
+
+        method.invoke(gateway, request, Map.of("success", true, "metadata", Map.of(
+                "agentId", "a1",
+                "memoryPolicy", Map.of("personalMemoryRead", false, "personalMemoryWrite", "OFF"))),
+                "AGENT", "default", "42");
+        Map<String, Object> envelope = mapper.readValue(
+                gateway.serializeEnvelope(request, "AGENT", "default", "42"), Map.class);
+
+        assertFalse(envelope.containsKey("personalMemory"));
+        verify(recall, never()).recall(any(), any(), any(), any());
+    }
+
+    private static Map<String, Object> response(boolean success, String writeMode) {
+        return Map.of("success", success, "answer", success ? "记住了" : "failed",
+                "metadata", Map.of("agentId", "a1", "memoryPolicy", Map.of(
+                        "personalMemoryRead", true, "personalMemoryWrite", writeMode)));
     }
 }

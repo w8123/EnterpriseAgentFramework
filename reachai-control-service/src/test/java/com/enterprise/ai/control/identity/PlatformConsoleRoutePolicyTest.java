@@ -48,6 +48,32 @@ class PlatformConsoleRoutePolicyTest {
     }
 
     @Test
+    void declaresAnEntryPermissionForEveryProtectedConsoleRoute() {
+        for (String pattern : PlatformConsoleRoutePolicy.PROTECTED_PATH_PATTERNS) {
+            String sample = pattern.replace("/**", "/sample").replace("*", "sample");
+            assertTrue(PlatformConsolePermissionPolicy.ruleFor(sample).isPresent(),
+                    "protected console route has no permission rule: " + pattern);
+            assertTrue(PlatformConsolePermissionPolicy.ruleFor(pattern.replace("/**", "")).isPresent(),
+                    "protected console route root has no permission rule: " + pattern);
+        }
+    }
+
+    @Test
+    void bridgesKnowledgeAndModelConsoleRoutesThroughThePlatformSession() {
+        assertProtected("/ai/knowledge/base/list");
+        assertProtected("/ai/file/12/chunks");
+        assertProtected("/ai/retrieval/test");
+        assertProtected("/model/chat");
+        assertProtected("/model/chat/stream/events");
+        assertProtected("/model/instances/provider-accounts/3/models");
+        assertProtected("/model/catalog/status");
+        assertProtected("/api/registry/projects/orders/instances");
+        assertProtected("/api/registry/projects/orders/instances/purge-offline");
+        assertNotProtected("/api/registry/projects/orders/instances/heartbeat");
+        assertNotProtected("/ai/internal/knowledge/retrieval/query");
+    }
+
+    @Test
     void keepsIndependentProtocolCredentialsOutsideConsoleSessionPolicy() {
         assertNotProtected("/api/platform/auth/login");
         assertNotProtected("/api/embed/chat/sessions");

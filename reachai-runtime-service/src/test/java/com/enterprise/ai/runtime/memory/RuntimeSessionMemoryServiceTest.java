@@ -1,6 +1,7 @@
 package com.enterprise.ai.runtime.memory;
 
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
+import com.enterprise.ai.runtime.agent.RuntimeAgentMemoryPolicy;
 import com.enterprise.ai.runtime.agent.RuntimeAgentView;
 import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
 import io.agentscope.core.message.Msg;
@@ -319,6 +320,46 @@ class RuntimeSessionMemoryServiceTest {
                 "u4", "a4", "COMPLETED", true, false, false);
 
         assertEquals(List.of("u3", "a3", "u4", "a4"), persistedContext(stateStore, key));
+    }
+
+    @Test
+    void agentMemoryPolicyDecidesPersistenceAndOverridesTheGlobalWindow() {
+        InMemoryAgentStateStore stateStore = new InMemoryAgentStateStore();
+        RuntimeConversationSessionMapper sessionMapper = mock(RuntimeConversationSessionMapper.class);
+        RuntimeConversationEventMapper eventMapper = mock(RuntimeConversationEventMapper.class);
+        when(sessionMapper.selectOne(any(Wrapper.class)))
+                .thenReturn(existingSession("tenant-a", "session-1", "user-1", "agent-a"));
+        when(sessionMapper.update(any(), any(Wrapper.class))).thenReturn(1);
+        when(eventMapper.selectCount(any(Wrapper.class))).thenReturn(0L);
+        RuntimeSessionMemoryService service = new RuntimeSessionMemoryService(
+                stateStore, sessionMapper, eventMapper,
+                new RuntimeSessionMemoryProperties(
+                        true, "in-memory", "", "", "", false, 40, 65_535, 600));
+        WorkflowExecutionIdentity identity = WorkflowExecutionIdentity.fromAgent("tenant-a", 7L, "p", "user-1");
+
+        RuntimeSessionMemoryKey off = service.resolve(agent("agent-a"), "session-1", identity,
+                new RuntimeAgentMemoryPolicy(false, 40, false, "OFF"));
+        assertFalse(off.persistent());
+
+        RuntimeSessionMemoryKey key = service.resolve(agent("agent-a"), "session-1", identity,
+                new RuntimeAgentMemoryPolicy(true, 4, false, "OFF"));
+        assertTrue(key.persistent());
+        stateStore.save(key.stateUserKey(), key.stateSessionKey(), RuntimeSessionMemoryService.STATE_NAME,
+                AgentState.builder()
+                        .sessionId(key.stateSessionKey())
+                        .userId(key.stateUserKey())
+                        .context(List.of(
+                                msg(MsgRole.USER, "u1"),
+                                msg(MsgRole.ASSISTANT, "a1"),
+                                msg(MsgRole.USER, "u2"),
+                                msg(MsgRole.ASSISTANT, "a2"),
+                                msg(MsgRole.USER, "u3"),
+                                msg(MsgRole.ASSISTANT, "a3")))
+                        .build());
+
+        service.acquireTurn(key, agent("agent-a"), 7L);
+
+        assertEquals(List.of("u2", "a2", "u3", "a3"), persistedContext(stateStore, key));
     }
 
     @Test

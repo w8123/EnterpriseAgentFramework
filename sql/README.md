@@ -2,6 +2,14 @@
 
 ## 当前基线
 
+2026-10-17 平台角色收口（[人员角色与权限重设计方案](../docs/plans/人员角色与权限重设计方案.md) R1）：内置角色改为平台管理员 `PLATFORM_ADMIN`、开发人员 `DEVELOPER`、运营人员 `OPERATOR`、审计员 `AUDITOR`。`AGENT_DESIGNER` 的账号绑定迁到 `OPERATOR`，`PROJECT_OWNER` 迁到 `OPERATOR` + `DEVELOPER`（保留原授权范围）后删除这两个角色；原 `OPERATOR`（运维操作员）就地改为运营人员，权限扩大。新增 `knowledge:*`、`model:*`、`tool-acl:*`、`embed:*` 权限码，知识库、模型、调用权限和嵌入配置不再由 `platform:read/write` 放行；删除无代码使用的 `workspace:*` 和 `context:runtime-user:review`。四个内置角色权限整体重置，自定义角色若需要知识库、模型等功能须重新勾选。不改表结构。新库基线已包含；已有开发/测试库备份四张平台角色表后执行 [升级脚本](./upgrade-20261017-platform-roles-redesign.sql)，可重复执行，需在部署新版 Control 之前执行，执行后用户重新登录生效。
+
+2026-10-17 业务索引回源改名（[记忆模块重设计方案](../docs/plans/记忆模块重设计方案.md) M4）：`knowledge_business_index.agent_memory_enabled` 改名为 `agent_reference_enabled`，索引 `idx_biz_agent_memory` 改名为 `idx_biz_agent_reference`，数据保留。新库基线已包含；已有开发/测试库执行 [升级脚本](./upgrade-20261017-business-index-reference-naming.sql)，可重复执行，需在部署新版 Knowledge 之前执行。
+
+2026-10-17 个人记忆独立化（[记忆模块重设计方案](../docs/plans/记忆模块重设计方案.md) M2）：新建 `control_personal_memory`、`control_personal_memory_candidate`、`control_personal_memory_audit`、`control_personal_memory_outbox`，删除 `control_context_*` 七张上下文治理旧表，旧个人记忆数据直接丢弃并清空 Knowledge 搜索投影；`control_context_runtime_user_mapping` 改名为 `control_runtime_user_mapping` 并保留数据。新库基线已包含；已有开发/测试库执行 [升级脚本](./upgrade-20261017-personal-memory-tables.sql)，可重复执行，需在部署新版 Control 之前执行。
+
+2026-10-17 Agent 记忆策略（[记忆模块重设计方案](../docs/plans/记忆模块重设计方案.md) M1）：`runtime_agent_config_version` 新增 `session_memory_enabled`、`session_memory_window`、`personal_memory_read`、`personal_memory_write` 四列，随 Agent 配置版本发布。已有版本按默认值补齐：会话记忆行为不变，个人长期记忆的召回和提取关闭，需要的 Agent 在编辑页开启后重新发布。新库基线已包含；已有开发/测试库执行 [升级脚本](./upgrade-20261017-agent-memory-policy.sql)，只加列，可重复执行，需在部署新版 Runtime 之前执行。
+
 2026-10-16 HTTP API 项目默认连接（D27）：新增 Runtime 独占表 `runtime_http_api_project_connection`（`project_id + environment` 唯一，带 `revision` 乐观并发），本项目所有 HTTP API 自动继承；`runtime_http_api_connection` 改为单 API 覆盖并新增 `override_active`（移除覆盖时置 0、保留行以延续修订号）。已有开发/测试库先备份 `runtime_http_api_connection`、暂停 Runtime 连接写入，再执行 [升级脚本](./upgrade-20261016-http-api-project-connection.sql)（MySQL 5.7/8，可重复执行），回读 `information_schema` 确认新表、唯一键和新列后部署配套服务。既有每 API 连接全部按覆盖继续生效，不回填项目默认；生效修订改为 `revision*2(+1 覆盖)`，升级前未完成的试调用与已发布 Workflow 中固定的连接修订需刷新或重新发布。本批只交付脚本，尚未执行到数据库。
 
 2026-10-16 模型中心「厂商账号」：新建表 `model_provider_account`（同一厂商的地址和 API Key 只存一次），`model_instance` 新增可空列 `provider_account_id`。已有实例该列为 NULL，继续用自己的连接配置。新库基线已包含；已有开发/测试库执行 [升级脚本](./upgrade-20261016-model-provider-account.sql)，可重复执行，需在部署新版 Model Service 之前执行。
@@ -190,7 +198,7 @@ Workflow 恢复期限需要 [恢复期限升级](./upgrade-20260906-workflow-res
 - Runtime 上下文工程短期工件：`runtime_tool_result_artifact` 只保存作用域摘要与 AES-GCM 密文，过期或清空会话后擦除，不作为个人长期记忆。
 - EvalOps：服务端目标快照、不可变数据集/评分器版本、基线与候选实验、逐项 Score，以及 MySQL 5.7 兼容的可恢复任务租约。旧 `runtime_agent_eval_*` 只保留兼容入口。
 - Managed Executor：Runtime-owned execution、严格顺序事件、对象存储 Artifact 元数据与 durable outbox；Worker 只持有单 execution 短期 token，不获得共享服务 Secret 或数据库账号。
-- 个人长期记忆使用 Control canonical context 表；`control_context_memory_outbox` 将变更可靠投影到 Knowledge-owned `knowledge_personal_memory_index` 和幂等事件账本。Knowledge 可异步生成版本化 float32 embedding，并在 owner 配额边界内执行精确向量/混合排序；该投影仍不是事实源。
+- 个人长期记忆使用 Control 自有 `control_personal_memory*` 表；`control_personal_memory_outbox` 将变更可靠投影到 Knowledge-owned `knowledge_personal_memory_index` 和幂等事件账本。Knowledge 可异步生成版本化 float32 embedding，并在 owner 配额边界内执行精确向量/混合排序；该投影仍不是事实源。
 - 企业擦除使用 Control-owned `control_memory_erasure_request` / `control_memory_erasure_domain` 持久协调九个责任域。五个自动域完成后擦除 raw Runtime user，四个人工域必须提交外部证据；Legal Hold 和 `RETAINED_LEGAL` 保持显式，不能把部分成功报告为全部删除。
 
 ## 升级规则

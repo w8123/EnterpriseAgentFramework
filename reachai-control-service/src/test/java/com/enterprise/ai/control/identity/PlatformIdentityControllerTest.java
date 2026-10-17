@@ -65,7 +65,11 @@ class PlatformIdentityControllerTest {
         assertTrue(setCookie.startsWith(PlatformSessionCookieService.SESSION_COOKIE_NAME + "="));
         assertTrue(setCookie.contains("HttpOnly"));
         assertTrue(setCookie.contains("SameSite=Strict"));
-        assertTrue(setCookie.contains("Path=/api"));
+        assertTrue(setCookie.contains("Path=/;"));
+        List<String> setCookies = response.getHeaders().get("Set-Cookie");
+        assertEquals(2, setCookies.size());
+        assertTrue(setCookies.get(1).contains("Path=/api"));
+        assertTrue(setCookies.get(1).contains("Max-Age=0"));
         assertEquals("no-store", response.getHeaders().getCacheControl());
         ArgumentCaptor<PlatformLoginSessionEntity> sessionCaptor = ArgumentCaptor.forClass(PlatformLoginSessionEntity.class);
         verify(fixture.sessionMapper).insert(sessionCaptor.capture());

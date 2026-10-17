@@ -8,7 +8,7 @@
 ## 1. 架构结论
 
 1. 后端继续按业务域和数据所有权拆分为 Control、Runtime、Capability、Knowledge、Model，不按人物角色拆服务。
-2. 平台角色是可分配的权限模板。Controller、策略和前端路由只依赖稳定权限码，不依赖 `PLATFORM_ADMIN`、`AGENT_DESIGNER` 等角色名。
+2. 平台角色是可分配的权限模板。Controller、策略和前端路由只依赖稳定权限码，不依赖 `PLATFORM_ADMIN`、`OPERATOR` 等角色名。
 3. 建设中心与运营治理中心是同一管理端的两个工作区。工作区切换只改变产品上下文和导航投影，不能切换身份、扩大权限或绕过后端授权。
 4. 业务终端用户属于业务系统身份域，不是平台角色。业务用户目录用于跨系统身份映射与治理，不自动产生平台登录账号。
 5. 菜单隐藏不是安全边界。前端菜单、深链路由和后端 API 必须使用同一权限码；最终安全判定始终在后端。
@@ -57,13 +57,14 @@
 
 系统角色用于首次安装和常见分工，不是硬编码的唯一角色集合。后续可以增加自定义角色而不改业务代码。
 
-| 系统角色 | 产品含义 | 默认工作区 | 高风险身份治理 |
+2026-10-17 起按[人员角色与权限重设计方案](../plans/人员角色与权限重设计方案.md)收口为四个系统角色（原 `AGENT_DESIGNER`、`PROJECT_OWNER` 已删除，绑定迁移见 `sql/upgrade-20261017-platform-roles-redesign.sql`）：
+
+| 系统角色 | 产品含义 | 默认授权范围 | 主要权限 |
 | --- | --- | --- | --- |
-| `PLATFORM_ADMIN` | 平台超级管理员 | 建设 + 运营治理 | 全局允许；当前包含 `*`，生产应限制人数并保留审计 |
-| `AGENT_DESIGNER` | Agent / Workflow 开发者 | 建设 | 不允许 |
-| `PROJECT_OWNER` | 项目负责人、业务管理者 | 建设 + 运营治理 | 不允许跨项目治理业务身份 |
-| `OPERATOR` | 运行与治理人员 | 运营治理 | 不允许 |
-| `AUDITOR` | 只读审计人员 | 运营治理 | 不允许修改 |
+| `PLATFORM_ADMIN` | 平台管理员 | GLOBAL | 全部权限（含 `*`），生产应限制人数并保留审计 |
+| `DEVELOPER` | 开发人员（Java 接入开发者） | 建议 PROJECT | 项目与业务能力读写、调试调用；Agent、Workflow、运行记录、知识、模型只读 |
+| `OPERATOR` | 运营人员（Agent / Workflow 实施与运营） | GLOBAL | Agent、Workflow、知识、运行中心、自动化、嵌入与开放、业务用户与调用权限；业务能力只读 |
+| `AUDITOR` | 审计员 | GLOBAL | 只读 |
 
 “用户”不应新增成一个笼统平台角色。若指业务终端用户，应留在业务身份域；若指只读平台成员，应通过只读权限组合成平台角色。
 
@@ -75,7 +76,7 @@
 - 新账号默认零权限，管理员必须显式授予角色；密码为 12–128 位，至少满足大写、小写、数字、符号中的三类。
 - 停用账号会撤销全部会话；当前账号不能停用自己；最后一个 ACTIVE 全局 `PLATFORM_ADMIN` 不能被停用或移除管理员授权。
 - 一个角色可以在一条编辑记录中选择多个项目，保存时展开为多条 canonical `projectCode` 授权；同一角色不能同时持有 GLOBAL 与 PROJECT 绑定。
-- `control_platform_role.role_kind` 将角色区分为 `SYSTEM` 与 `CUSTOM`。五个系统角色由基线和升级 SQL 维护、界面只读；自定义角色可以维护名称、说明、状态和权限清单。
+- `control_platform_role.role_kind` 将角色区分为 `SYSTEM` 与 `CUSTOM`。系统角色由基线和升级 SQL 维护、界面只读；自定义角色可以维护名称、说明、状态和权限清单。
 - 自定义角色不能持有 `*` 或 `platform:admin`，ACTIVE 自定义角色至少拥有一项权限；停用已有绑定的角色要求管理员确认影响。
 - 账号、密码、会话、角色和授权变更都写入 `control_platform_auth_audit_event`；页面只展示脱敏结构化摘要，不渲染密码、Token、Secret、Credential 或 Provider 配置。
 
@@ -83,12 +84,12 @@
 
 ## 5. 已落地的权限闭环
 
+每个平台会话管理端路由在 `PlatformConsolePermissionPolicy` 中声明进入权限（读/写分别声明），由 `PlatformConsoleAuthInterceptor` 在会话校验后统一判定；受保护路由没有声明权限时直接拒绝。`/api/registry/projects/{projectCode}/...` 控制台路由还按路径中的项目校验 PROJECT 授权。Controller 继续负责发布、调试、项目范围等细粒度判定。知识库 `/ai/**` 与模型 `/model/**` 控制台路由也经 Control 校验后再转发给 Knowledge、Model，不再由 Nginx 直接暴露。
+
 本阶段新增并落地以下权限：
 
 | 权限码 | 用途 | 默认系统角色 |
 | --- | --- | --- |
-| `workspace:build:access` | 进入建设中心 | `PLATFORM_ADMIN`、`AGENT_DESIGNER`、`PROJECT_OWNER` |
-| `workspace:operate:access` | 进入运营治理中心 | `PLATFORM_ADMIN`、`PROJECT_OWNER`、`OPERATOR`、`AUDITOR` |
 | `identity:business-user:read` | 查看业务用户及外部身份绑定 | `PLATFORM_ADMIN` |
 | `identity:business-user:manage` | 修改业务用户及外部身份绑定 | `PLATFORM_ADMIN` |
 

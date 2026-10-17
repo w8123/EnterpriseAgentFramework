@@ -15,7 +15,7 @@ JDK8 侧不运行完整 Agent Runtime，不依赖 LangGraph4j，不承担平台�
 | --- | --- | --- |
 | `reachai-capability-sdk` | JDK8 兼容 | 注解、能力描述、注册协议和业务系统侧契约。 |
 | `reachai-spring-boot2-starter` | JDK8 / Spring Boot 2 | 扫描 `@ReachCapability`、注册项目、发送实例心跳，并在显式触发时同步能力。 |
-| `ai-runtime-contract` | 平台内部契约 | 中台内部业务记忆引用契约。 |
+| `ai-runtime-contract` | 平台内部契约 | 中台内部业务索引回源契约。 |
 | `reachai-control-service` | JDK17 | Platform Control public API/BFF 和 SDK 注册兼容入口。 |
 | `reachai-runtime-service` | JDK17 | Runtime Host，执行 Agent、Workflow、GraphSpec、Trace、RunOps 和调试。 |
 | `reachai-capability-service` | JDK17 | Capability Catalog，管理能力快照、diff、评审、扫描目录和能力资产。 |

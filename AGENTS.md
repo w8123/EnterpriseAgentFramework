@@ -11,6 +11,11 @@
 - Windows PowerShell 是常见执行环境；中文文件统一按 UTF-8 读写，避免 GBK/mojibake。
 - 使用 `rg` / `rg --files` 优先查找文件和文本。
 
+## 产品框架
+
+- [平台定位与架构总览](docs/01-平台定位与架构总览.md) 的定位、用户、核心对象和模块边界于 2026-10-17 经用户确认，是各模块重设计的依据；与之冲突的改动先改该页并与用户确认。
+- 记忆是 Agent 的一项能力，不是独立模块；重构按 [记忆模块重设计方案](docs/plans/记忆模块重设计方案.md) 进行。
+
 ## 业务方法与 API 重构专项
 
 - 开始或恢复本专项前，先读 [实施基线](docs/plans/业务方法与API重构实施基线.md) 和 [实施进度](docs/plans/业务方法与API重构实施进度.md)，再核对当前工作树；已确认目标与当前实现状态分别判断。
@@ -58,7 +63,7 @@ ReachAI 是面向 Java 企业系统的 AI 能力中台，不只是 Workflow Buil
 - `reachai-model-service/`: 当前 Model Gateway 部署单元；包括模型中心 V2（`model_template` + `model_instance`）、Chat、Embedding、Rerank。不再提供未使用的 `/model/openai-proxy` 入口。
 - `reachai-capability-sdk/`: JDK8 兼容的业务能力声明 SDK 契约。
 - `reachai-spring-boot2-starter/`: Spring Boot 2 业务系统接入、扫描、注册和 SDK 图同步。
-- `ai-runtime-contract/`: 中台内部业务记忆引用契约。
+- `ai-runtime-contract/`: 中台内部业务索引回源契约。
 - `sql/initV2.sql`: 当前新库 SQL 基线入口；第一阶段仍是同一个 MySQL 库，不拆库。
 - `sql/upgrade-*.sql`: 仅用于当次数据库变更升级已有开发/测试库；当前新库基线不要求兼容旧数据。
 - `docs/`: 当前权威知识库。

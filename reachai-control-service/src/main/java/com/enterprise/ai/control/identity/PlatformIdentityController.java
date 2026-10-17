@@ -80,7 +80,9 @@ public class PlatformIdentityController {
                 user,
                 issuedSession.session());
         return ResponseEntity.ok()
-                .header("Set-Cookie", sessionCookieService.issueCookie(httpRequest, issuedSession.accessToken()))
+                .header("Set-Cookie",
+                        sessionCookieService.issueCookie(httpRequest, issuedSession.accessToken()),
+                        sessionCookieService.expireLegacyCookie(httpRequest))
                 .header("Cache-Control", "no-store")
                 .body(new PlatformLoginResult(
                         authProperties.getSessionTtl().toSeconds(),
@@ -104,7 +106,9 @@ public class PlatformIdentityController {
                 .isNull(PlatformLoginSessionEntity::getRevokedAt)
                 .set(PlatformLoginSessionEntity::getRevokedAt, LocalDateTime.now()));
         return ResponseEntity.ok()
-                .header("Set-Cookie", sessionCookieService.expireCookie(request))
+                .header("Set-Cookie",
+                        sessionCookieService.expireCookie(request),
+                        sessionCookieService.expireLegacyCookie(request))
                 .header("Cache-Control", "no-store")
                 .build();
     }

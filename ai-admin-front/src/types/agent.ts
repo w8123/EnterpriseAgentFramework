@@ -54,6 +54,14 @@ export interface AgentA2aRemoteBindingConfig {
   priority?: number
 }
 
+/** Agent memory policy, published with the config version. */
+export interface AgentMemoryPolicy {
+  sessionMemoryEnabled: boolean
+  sessionMemoryWindow: number
+  personalMemoryRead: boolean
+  personalMemoryWrite: 'OFF' | 'EXPLICIT' | 'EXPLICIT_AND_CANDIDATE' | string
+}
+
 export interface AgentConfigVersion {
   id: number
   agentId: string
@@ -71,6 +79,7 @@ export interface AgentConfigVersion {
   parallelReadOnly: boolean
   policyProfile: string
   toolCatalogMode: 'ALLOW_LIST' | string
+  memory?: AgentMemoryPolicy | null
   configJson?: string | null
   publishedBy?: string | null
   publishedAt?: string | null

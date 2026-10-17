@@ -36,9 +36,15 @@ public class CapabilityRegistryOperationsCompatibilityController {
 
     @PostMapping("/projects/{projectCode}/instances/heartbeat")
     public ResponseEntity<?> heartbeat(@PathVariable String projectCode,
+                                       @RequestHeader(value = "X-ReachAI-App-Key", required = false) String appKey,
+                                       @RequestHeader(value = "X-ReachAI-Timestamp", required = false) String timestamp,
+                                       @RequestHeader(value = "X-ReachAI-Nonce", required = false) String nonce,
+                                       @RequestHeader(value = "X-ReachAI-Signature", required = false) String signature,
                                        @RequestBody(required = false) InstanceHeartbeatRequest request) {
         try {
-            return ResponseEntity.ok(registryService.heartbeat(projectCode, request));
+            return ResponseEntity.ok(registryService.heartbeat(projectCode, request,
+                    new com.enterprise.ai.agent.registry.RegistrySecurityService.RegistrySignatureHeaders(
+                            appKey, timestamp, nonce, signature)));
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(new ApiErrorResponse(ex.getMessage()));
         }
@@ -55,9 +61,15 @@ public class CapabilityRegistryOperationsCompatibilityController {
 
     @PostMapping("/projects/{projectCode}/instances/offline")
     public ResponseEntity<?> offline(@PathVariable String projectCode,
+                                     @RequestHeader(value = "X-ReachAI-App-Key", required = false) String appKey,
+                                     @RequestHeader(value = "X-ReachAI-Timestamp", required = false) String timestamp,
+                                     @RequestHeader(value = "X-ReachAI-Nonce", required = false) String nonce,
+                                     @RequestHeader(value = "X-ReachAI-Signature", required = false) String signature,
                                      @RequestBody(required = false) InstanceOfflineRequest request) {
         try {
-            registryService.offline(projectCode, request == null ? null : request.instanceId());
+            registryService.offline(projectCode, request == null ? null : request.instanceId(),
+                    new com.enterprise.ai.agent.registry.RegistrySecurityService.RegistrySignatureHeaders(
+                            appKey, timestamp, nonce, signature));
             return ResponseEntity.noContent().build();
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(new ApiErrorResponse(ex.getMessage()));

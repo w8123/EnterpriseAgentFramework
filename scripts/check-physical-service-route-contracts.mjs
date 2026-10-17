@@ -592,8 +592,12 @@ function isPlatformControlOwnedPublicRoute(route) {
       path.startsWith('/api/ai-assist/') ||
       path === '/api/ai-coding' ||
       path.startsWith('/api/ai-coding/') ||
-      path === '/api/context' ||
-      path.startsWith('/api/context/') ||
+      path === '/api/me' ||
+      path.startsWith('/api/me/') ||
+      path === '/api/compliance' ||
+      path.startsWith('/api/compliance/') ||
+      path === '/api/runtime-user-mappings' ||
+      path.startsWith('/api/runtime-user-mappings/') ||
       path === '/api/market' ||
       path.startsWith('/api/market/') ||
       path === '/api/tool-acl' ||

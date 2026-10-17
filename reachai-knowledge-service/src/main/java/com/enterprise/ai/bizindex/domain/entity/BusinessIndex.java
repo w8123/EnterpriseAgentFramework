@@ -16,7 +16,7 @@ public class BusinessIndex {
     @TableId(type = IdType.AUTO)
     private Long id;
 
-    /** Enterprise scope. Agent-memory eligibility requires tenant and project. */
+    /** Enterprise scope. Agent-reference eligibility requires tenant and project. */
     private Long projectId;
     private String projectCode;
     private String environment;
@@ -58,8 +58,8 @@ public class BusinessIndex {
     /** 备注 */
     private String remark;
 
-    /** Whether this projection may emit non-authoritative Agent business-memory references. */
-    private Boolean agentMemoryEnabled;
+    /** Whether this projection may emit non-authoritative Agent business-index references. */
+    private Boolean agentReferenceEnabled;
 
     /** Capability used to hydrate and re-authorize the current business record. */
     private String resolverCapabilityKey;

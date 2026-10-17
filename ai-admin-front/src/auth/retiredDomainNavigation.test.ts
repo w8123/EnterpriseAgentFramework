@@ -23,5 +23,7 @@ describe('retired domain navigation', () => {
     expect(router.resolve('/business-capabilities/http-apis').name).toBe('HttpApiCatalog')
     expect(router.resolve('/context/governance').name).not.toBe('ContextGovernance')
     expect(router.resolve('/settings/runtime-user-mappings').name).toBe('RuntimeUserMapping')
+    expect(router.resolve('/me/memories').name).toBe('MyMemories')
+    expect(router.resolve('/compliance/erasure').name).toBe('DataErasure')
   })
 })

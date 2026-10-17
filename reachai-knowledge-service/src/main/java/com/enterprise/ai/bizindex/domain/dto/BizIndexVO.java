@@ -27,7 +27,7 @@ public class BizIndexVO {
     private String splitType;
     private String status;
     private String remark;
-    private Boolean agentMemoryEnabled;
+    private Boolean agentReferenceEnabled;
     private String resolverCapabilityKey;
 
     /** 已索引的记录数（由查询动态填充） */

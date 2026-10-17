@@ -397,20 +397,20 @@ export async function runMemoryErasureE2e({
     referenceId,
   }
   const first = validateSnapshot(await request(
-    'POST', '/api/context/memory-erasure-requests', createBody), {
+    'POST', '/api/compliance/erasure-requests', createBody), {
     rawRuntimeUserId: runtimeUserId,
     expectedTenantId: normalizedTenant,
     expectedClientRequestId: clientRequestId,
   })
   const replay = validateSnapshot(await request(
-    'POST', '/api/context/memory-erasure-requests', createBody), {
+    'POST', '/api/compliance/erasure-requests', createBody), {
     rawRuntimeUserId: runtimeUserId,
     expectedTenantId: normalizedTenant,
     expectedClientRequestId: clientRequestId,
     expectedRequestId: first.requestId,
   })
   if (replay.snapshot.created !== false) throw new Error('memory erasure create replay was not idempotent')
-  const requestPath = `/api/context/memory-erasure-requests/${encodeURIComponent(first.requestId)}`
+  const requestPath = `/api/compliance/erasure-requests/${encodeURIComponent(first.requestId)}`
   let current = replay
   while (!DECISION_STATUSES.has(current.snapshot.status) && Date.now() < deadline) {
     await sleepImpl(pollIntervalMs)

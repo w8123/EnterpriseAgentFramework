@@ -47,7 +47,7 @@ import java.util.stream.Collectors;
 public class PlatformAccountRoleController {
 
     private static final Set<String> SYSTEM_ROLE_CODES = Set.of(
-            "PLATFORM_ADMIN", "AGENT_DESIGNER", "PROJECT_OWNER", "OPERATOR", "AUDITOR");
+            "PLATFORM_ADMIN", "DEVELOPER", "OPERATOR", "AUDITOR");
     private static final Set<String> RESERVED_CUSTOM_PERMISSIONS = Set.of(
             PlatformPermissions.ALL, PlatformPermissions.PLATFORM_ADMIN);
     private static final Pattern USERNAME_PATTERN = Pattern.compile("[A-Za-z][A-Za-z0-9._-]{2,95}");

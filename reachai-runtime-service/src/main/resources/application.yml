@@ -169,11 +169,11 @@ reachai:
       max-expanded-bytes: ${RUNTIME_SKILL_MAX_EXPANDED_BYTES:104857600}
       max-single-file-bytes: ${RUNTIME_SKILL_MAX_SINGLE_FILE_BYTES:20971520}
       max-files: ${RUNTIME_SKILL_MAX_FILES:1024}
-    business-memory:
-      # Only explicit agentMemoryEnabled business-index hits enter this path.
+    business-index:
+      # Only explicit agentReferenceEnabled business-index hits enter this path.
       # Resolver failures strip projection text instead of falling back to stale data.
-      max-references: ${RUNTIME_BUSINESS_MEMORY_MAX_REFERENCES:8}
-      max-resolution-bytes: ${RUNTIME_BUSINESS_MEMORY_MAX_RESOLUTION_BYTES:262144}
+      max-references: ${RUNTIME_BUSINESS_INDEX_MAX_REFERENCES:8}
+      max-resolution-bytes: ${RUNTIME_BUSINESS_INDEX_MAX_RESOLUTION_BYTES:262144}
     session-memory:
       enabled: ${RUNTIME_SESSION_MEMORY_ENABLED:true}
       # Production must use redis; local development may use json or in-memory.

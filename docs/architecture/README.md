@@ -46,7 +46,8 @@
 | [model-center-v2.md](./model-center-v2.md) | 模型模板/实例、稳定 ID、测试、归档和凭据边界 |
 | [docling-document-ingestion.md](./docling-document-ingestion.md) | 文档解析路由、导入任务、原件工件和部署安全 |
 | [knowledge-base-lifecycle.md](./knowledge-base-lifecycle.md) | 知识库创建、删除、目录编辑和配置更新的职责与并发边界 |
-| [personal-agent-memory.md](./personal-agent-memory.md) | 会话、个人、业务记忆及检索投影、遗忘与生产治理 |
+| [personal-agent-memory.md](./personal-agent-memory.md) | Agent 记忆：会话记忆、个人长期记忆、Agent 记忆策略、用户自助管理、检索投影与生产配置 |
+| [business-index-resolution.md](./business-index-resolution.md) | 业务索引回源：带版本引用、按当前身份回源鉴权的 resolver 契约（原「业务记忆」） |
 
 ## 开放协议
 

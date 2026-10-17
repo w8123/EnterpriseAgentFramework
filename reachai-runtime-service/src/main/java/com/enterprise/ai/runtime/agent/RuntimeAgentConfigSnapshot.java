@@ -25,6 +25,10 @@ public class RuntimeAgentConfigSnapshot {
     Boolean parallelReadOnly;
     String policyProfile;
     String toolCatalogMode;
+    Boolean sessionMemoryEnabled;
+    Integer sessionMemoryWindow;
+    Boolean personalMemoryRead;
+    String personalMemoryWrite;
     String configJson;
     String publishedBy;
     LocalDateTime publishedAt;
@@ -50,6 +54,10 @@ public class RuntimeAgentConfigSnapshot {
                 .parallelReadOnly(entity.getParallelReadOnly())
                 .policyProfile(entity.getPolicyProfile())
                 .toolCatalogMode(entity.getToolCatalogMode())
+                .sessionMemoryEnabled(entity.getSessionMemoryEnabled())
+                .sessionMemoryWindow(entity.getSessionMemoryWindow())
+                .personalMemoryRead(entity.getPersonalMemoryRead())
+                .personalMemoryWrite(entity.getPersonalMemoryWrite())
                 .configJson(entity.getConfigJson())
                 .publishedBy(entity.getPublishedBy())
                 .publishedAt(entity.getPublishedAt())

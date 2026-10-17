@@ -29,6 +29,10 @@ public class RuntimeAgentConfigVersionEntity {
     private Boolean parallelReadOnly;
     private String policyProfile;
     private String toolCatalogMode;
+    private Boolean sessionMemoryEnabled;
+    private Integer sessionMemoryWindow;
+    private Boolean personalMemoryRead;
+    private String personalMemoryWrite;
     private String configJson;
     private String publishedBy;
     private LocalDateTime publishedAt;
