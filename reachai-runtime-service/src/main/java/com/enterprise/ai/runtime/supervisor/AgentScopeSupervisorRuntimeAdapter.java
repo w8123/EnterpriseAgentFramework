@@ -620,14 +620,6 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
         return safe;
     }
 
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> asMap(Object value) {
-        if (value instanceof Map<?, ?> map) {
-            return new LinkedHashMap<>((Map<String, Object>) map);
-        }
-        return new LinkedHashMap<>();
-    }
-
     private List<String> stringList(Object value) {
         return SupervisorExecutionPlanState.toolNames(value);
     }

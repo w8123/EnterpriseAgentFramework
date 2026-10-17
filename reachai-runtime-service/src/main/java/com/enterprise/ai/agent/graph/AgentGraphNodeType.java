@@ -88,16 +88,8 @@ public enum AgentGraphNodeType {
         return canvasCategory;
     }
 
-    public boolean isLlm() {
-        return family == NodeFamily.LLM;
-    }
-
     public boolean isToolLike() {
         return family == NodeFamily.TOOL;
-    }
-
-    public boolean isFlow() {
-        return family == NodeFamily.FLOW;
     }
 
     public boolean retryable() {

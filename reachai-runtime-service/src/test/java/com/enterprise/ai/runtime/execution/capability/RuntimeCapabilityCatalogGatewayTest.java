@@ -172,13 +172,13 @@ class RuntimeCapabilityCatalogGatewayTest {
                 RuntimeCapabilityCatalogClient.TRUSTED_IDENTITY_ATTRIBUTE,
                 WorkflowExecutionIdentity.fromAttestedStudioProjectTest(41L, "orders", "42")));
     }
-    private com.enterprise.ai.common.capability.WorkflowReadOnlyTrialPolicy.BusinessMethodPin methodPin() {
-        return new com.enterprise.ai.common.capability.WorkflowReadOnlyTrialPolicy.BusinessMethodPin("method", 41L, "orders",
-                methodOwner(), Map.of("orderNo", "A-1024"), System.currentTimeMillis() + 40_000);
+    private com.enterprise.ai.common.capability.WorkflowReadOnlyTrialPolicy.BusinessMethodTrialScope methodPin() {
+        return new com.enterprise.ai.common.capability.WorkflowReadOnlyTrialPolicy.BusinessMethodTrialScope(41L, "orders",
+                Map.of("method", methodOwner()), System.currentTimeMillis() + 40_000);
     }
     @Test
     @SuppressWarnings({"rawtypes", "unchecked"})
-    void studioPinSignsExactProjectOnlyContextAndContractAndNeverDispatchesTwice() throws Exception {
+    void studioScopeSignsExactProjectOnlyContextAndContractForEachPinnedNode() throws Exception {
         var transport = mock(RuntimeCapabilityCatalogFeignClient.class);
         when(transport.businessMethodExecutionContext(anyString(), anyMap(), any(byte[].class))).thenReturn(methodOwner());
         when(transport.invokeCapability(anyMap(), any(byte[].class))).thenAnswer(invocation -> successResponse(invocation.getArgument(1)));
@@ -186,7 +186,6 @@ class RuntimeCapabilityCatalogGatewayTest {
         gateway.withBusinessMethodDraftScope(methodPin(), () -> true, () -> {
             var response = gateway.invokeTool("orders:normalize", methodRequest());
             assertEquals(Map.of("ok", true), response.data()); assertFalse(response.retryable());
-            assertThrows(IllegalStateException.class, () -> gateway.invokeTool("orders:normalize", methodRequest()));
             return null;
         });
         var headers = ArgumentCaptor.forClass(Map.class); var body = ArgumentCaptor.forClass(byte[].class);
@@ -204,7 +203,7 @@ class RuntimeCapabilityCatalogGatewayTest {
     }
     @Test
     void wrongTypedIdentityTargetInputNodeAndDraftAreRejectedBeforeCapabilityDispatch() {
-        for (String mutation : java.util.List.of("mapIdentity", "debugIdentity", "project", "target", "input", "node", "revision")) {
+        for (String mutation : java.util.List.of("mapIdentity", "debugIdentity", "project", "target", "input", "node", "revision", "deadline")) {
             var transport = mock(RuntimeCapabilityCatalogFeignClient.class);
             when(transport.businessMethodExecutionContext(anyString(), anyMap(), any(byte[].class))).thenReturn(methodOwner());
             var gateway = new RuntimeCapabilityCatalogGateway(transport, new RuntimeCapabilityInternalAuthSigner(SECRET), objectMapper);
@@ -213,10 +212,13 @@ class RuntimeCapabilityCatalogGatewayTest {
                 case "mapIdentity" -> request.put(RuntimeCapabilityCatalogClient.TRUSTED_IDENTITY_ATTRIBUTE, Map.of("source", "STUDIO_PROJECT_TEST", "projectTrusted", true));
                 case "debugIdentity" -> request.put(RuntimeCapabilityCatalogClient.TRUSTED_IDENTITY_ATTRIBUTE, WorkflowExecutionIdentity.untrustedDebug());
                 case "project" -> request.put(RuntimeCapabilityCatalogClient.TRUSTED_IDENTITY_ATTRIBUTE, WorkflowExecutionIdentity.fromAttestedStudioProjectTest(99L, "other", "42"));
-                case "input" -> request.put("input", Map.of("orderNo", "changed"));
+                case "input" -> request.put("input", "not-an-object");
                 case "node" -> request.put("context", Map.of("nodeId", "other"));
             }
-            assertThrows(IllegalStateException.class, () -> gateway.withBusinessMethodDraftScope(methodPin(),
+            var scope = "deadline".equals(mutation)
+                    ? new com.enterprise.ai.common.capability.WorkflowReadOnlyTrialPolicy.BusinessMethodTrialScope(41L, "orders",
+                            Map.of("method", methodOwner()), System.currentTimeMillis() - 1) : methodPin();
+            assertThrows(IllegalStateException.class, () -> gateway.withBusinessMethodDraftScope(scope,
                     () -> !"revision".equals(mutation), () -> gateway.invokeTool("target".equals(mutation) ? "orders:other" : "orders:normalize", request)), mutation);
             org.mockito.Mockito.verify(transport, org.mockito.Mockito.never()).invokeCapability(anyMap(), any(byte[].class));
         }
@@ -233,6 +235,64 @@ class RuntimeCapabilityCatalogGatewayTest {
         assertEquals("BUSINESS_METHOD_TRIAL_SCOPE_REQUIRED", assertThrows(IllegalStateException.class,
                 () -> gateway.invokeTool("orders:normalize", methodRequest())).getMessage());
         verify(transport).invokeCapability(anyMap(), any(byte[].class));
+    }
+
+    @Test
+    void wholeDraftScopeDispatchesModelProducedInputForEachPinnedNodeWithinBounds() throws Exception {
+        var transport = mock(RuntimeCapabilityCatalogFeignClient.class);
+        var other = new com.enterprise.ai.common.capability.ConsoleCapabilityInvocationContracts.InvocationContext(1,
+                "orders_stock", "orders:stock", "orders:stock", "BUSINESS_METHOD", 41L, "orders",
+                "e".repeat(64), "e".repeat(64), "e".repeat(64), "READY", true, "READ_ONLY", java.util.List.of(),
+                null, "String", null, null, "UNKNOWN", true, false, true, null, null, 30_000, "f".repeat(64));
+        when(transport.businessMethodExecutionContext(org.mockito.ArgumentMatchers.eq("orders:normalize"), anyMap(), any(byte[].class))).thenReturn(methodOwner());
+        when(transport.businessMethodExecutionContext(org.mockito.ArgumentMatchers.eq("orders:stock"), anyMap(), any(byte[].class))).thenReturn(other);
+        when(transport.invokeCapability(anyMap(), any(byte[].class))).thenAnswer(invocation -> successResponse(invocation.getArgument(1)));
+        var gateway = new RuntimeCapabilityCatalogGateway(transport, new RuntimeCapabilityInternalAuthSigner(SECRET), objectMapper);
+        var scope = new com.enterprise.ai.common.capability.WorkflowReadOnlyTrialPolicy.BusinessMethodTrialScope(41L, "orders",
+                Map.of("method", methodOwner(), "stock", other), System.currentTimeMillis() + 40_000);
+        gateway.withBusinessMethodDraftScope(scope, () -> true, () -> {
+            // Downstream input comes from an LLM / PARAMETER_EXTRACT node; it is not pinned up front.
+            gateway.invokeTool("orders:normalize", methodRequest());
+            var downstream = methodRequest();
+            downstream.put("input", Map.of("productId", 42));
+            downstream.put("context", Map.of("nodeId", "stock"));
+            gateway.invokeTool("orders:stock", downstream);
+            // A pinned node can never address another pinned node's method.
+            var crossed = methodRequest(); crossed.put("context", Map.of("nodeId", "stock"));
+            assertEquals("BUSINESS_METHOD_TRIAL_TARGET_CHANGED", assertThrows(IllegalStateException.class,
+                    () -> gateway.invokeTool("orders:normalize", crossed)).getMessage());
+            for (int i = 1; i < com.enterprise.ai.common.capability.WorkflowReadOnlyTrialPolicy.MAX_DISPATCHES_PER_NODE; i++) {
+                gateway.invokeTool("orders:normalize", methodRequest());
+            }
+            assertEquals("BUSINESS_METHOD_TRIAL_DISPATCH_LIMIT_EXCEEDED", assertThrows(IllegalStateException.class,
+                    () -> gateway.invokeTool("orders:normalize", methodRequest())).getMessage());
+            return null;
+        });
+        verify(transport, org.mockito.Mockito.times(
+                com.enterprise.ai.common.capability.WorkflowReadOnlyTrialPolicy.MAX_DISPATCHES_PER_NODE + 1))
+                .invokeCapability(anyMap(), any(byte[].class));
+    }
+
+    @Test
+    void declaredInputDiagnosticFromCapabilityReachesTheAuthorButOtherErrorsStayGeneric() {
+        for (var item : Map.of("CAPABILITY_INPUT_INVALID", "输入字段无效: productId (REQUIRED)",
+                "UPSTREAM_SECRET", "connect to http://internal:8080 with token=abc").entrySet()) {
+            var transport = mock(RuntimeCapabilityCatalogFeignClient.class);
+            when(transport.businessMethodExecutionContext(anyString(), anyMap(), any(byte[].class))).thenReturn(methodOwner());
+            when(transport.invokeCapability(anyMap(), any(byte[].class))).thenAnswer(invocation -> {
+                var request = objectMapper.readValue((byte[]) invocation.getArgument(1),
+                        com.enterprise.ai.common.capability.CapabilityInvocationRequest.class);
+                return new CapabilityInvocationResponse(1, request.invocationId(), request.qualifiedName(), "n", "t",
+                        com.enterprise.ai.common.capability.CapabilityInvocationStatus.REJECTED, false, null,
+                        item.getKey(), item.getValue(), com.enterprise.ai.common.capability.CapabilityInvocationFailureCategory.POLICY_REJECTED,
+                        false, 1L, 1, null, Map.of());
+            });
+            var gateway = new RuntimeCapabilityCatalogGateway(transport, new RuntimeCapabilityInternalAuthSigner(SECRET), objectMapper);
+            var response = gateway.withBusinessMethodDraftScope(methodPin(), () -> true,
+                    () -> gateway.invokeTool("orders:normalize", methodRequest()));
+            assertEquals("CAPABILITY_INPUT_INVALID".equals(item.getKey()) ? item.getValue() : "业务方法试运行未确认，请查看 Run/Trace",
+                    response.message());
+        }
     }
 
     @ParameterizedTest

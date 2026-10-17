@@ -16,13 +16,6 @@ const RUNTIME_TYPE_LABELS: Record<string, string> = {
   WORKFLOW: '工作流',
 }
 
-export const INSTANCE_STATUS_SELECT_OPTIONS = [
-  { value: 'ONLINE', label: '在线' },
-  { value: 'OFFLINE', label: '离线' },
-  { value: 'DISABLED', label: '已禁用' },
-  { value: 'STALE', label: '心跳超时' },
-] as const
-
 export function formatInstanceStatusLabel(status?: string | null): string {
   if (status == null || status === '') return '-'
   const key = status.toUpperCase()

@@ -36,6 +36,9 @@ public class ModelInstanceEntity {
     @TableField(insertStrategy = FieldStrategy.NEVER, updateStrategy = FieldStrategy.NEVER)
     private String projectScopeKey;
 
+    /** 引用的厂商账号；非空时地址与鉴权来自账号，connectionConfigJson 只存请求路径 */
+    private String providerAccountId;
+
     private String connectionConfigJson;
 
     private String defaultOptionsJson;

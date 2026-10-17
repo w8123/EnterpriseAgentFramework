@@ -46,6 +46,8 @@ import java.util.concurrent.TimeoutException;
 public class OpenAiCompatibleRuntimeClient {
 
     private static final Duration REQUEST_TIMEOUT = Duration.ofMinutes(8);
+    private static final Duration MODEL_LIST_TIMEOUT = Duration.ofSeconds(20);
+    private static final int MODEL_LIST_MAX_BYTES = 4 * 1024 * 1024;
 
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient = HttpClient.newBuilder()
@@ -377,6 +379,37 @@ public class OpenAiCompatibleRuntimeClient {
         ModelProtectedOptions.assertAllowed(ModelType.RERANKER, options);
         options.forEach((key, value) -> body.set(key, objectMapper.valueToTree(value)));
         return body;
+    }
+
+    /**
+     * 用实例连接配置调用供应商 {@code GET {baseUrl}/models}，列出当前凭证可用的模型。
+     */
+    public List<UpstreamModel> listModels(ModelInstanceRuntime runtime) {
+        HttpRequest httpRequest = requestBuilder(runtime, ModelApiUrl.DEFAULT_MODELS_PATH)
+                .timeout(MODEL_LIST_TIMEOUT)
+                .GET()
+                .build();
+        try {
+            HttpResponse<byte[]> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofByteArray());
+            byte[] bytes = response.body() == null ? new byte[0] : response.body();
+            if (bytes.length > MODEL_LIST_MAX_BYTES) {
+                throw new BizException(502, "Model list response is too large");
+            }
+            String body = new String(bytes, StandardCharsets.UTF_8);
+            ensureSuccess(response.statusCode(), body, runtime);
+            return UpstreamModelListParser.parse(objectMapper.readTree(body));
+        } catch (BizException e) {
+            throw e;
+        } catch (HttpTimeoutException e) {
+            throw new BizException(504, "Model list request timed out");
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new BizException(502, "Model list request interrupted");
+        } catch (IllegalArgumentException e) {
+            throw new BizException(502, "供应商未返回可识别的模型列表：" + e.getMessage());
+        } catch (Exception e) {
+            throw new BizException(502, "Model list request failed: " + e.getClass().getSimpleName());
+        }
     }
 
     static String joinApiUrl(String apiRoot, String relativePath) {

@@ -55,6 +55,14 @@ final class RuntimeManagementAccess {
         }
     }
 
+    /** Non-throwing project check used to filter rows of a mixed-project read model. */
+    boolean allowsProject(
+            PlatformAuthenticatedSession session,
+            String permission,
+            String projectCode) {
+        return session != null && session.hasResourcePermission(permission, "PROJECT", null, text(projectCode));
+    }
+
     void requireBodyProject(
             PlatformAuthenticatedSession session,
             String permission,

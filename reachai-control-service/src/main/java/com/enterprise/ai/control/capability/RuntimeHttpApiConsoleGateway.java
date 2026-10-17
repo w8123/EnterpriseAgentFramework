@@ -19,7 +19,9 @@ import java.util.function.Supplier;
 @RequiredArgsConstructor
 public class RuntimeHttpApiConsoleGateway {
     private static final String CONNECTION = "/internal/runtime/http-api-connections";
-    private static final String INVOCATION = "/internal/runtime/http-api-invocations";
+    private static final String PROJECT_DEFAULT = CONNECTION + "/project-default";
+    private static final String OVERRIDE_REMOVAL = CONNECTION + "/override-removals";
+    private static final String INVOCATION ="/internal/runtime/http-api-invocations";
     private final RuntimeProxyClient runtime;
     private final InternalServiceAuthSigner signer;
     private final ObjectMapper json;
@@ -32,6 +34,18 @@ public class RuntimeHttpApiConsoleGateway {
     public ResponseEntity<Object> saveConnection(HttpApiConsoleContracts.ConnectionCommand command, String actor) {
         byte[] body = encode(command);
         return call(() -> runtime.saveHttpApiConnection(headers("PUT", CONNECTION, command.projectCode(), actor, body), body));
+    }
+
+    public ResponseEntity<Object> saveProjectDefaultConnection(HttpApiConsoleContracts.ConnectionCommand command, String actor) {
+        byte[] body = encode(command);
+        return call(() -> runtime.saveHttpApiProjectDefaultConnection(
+                headers("PUT", PROJECT_DEFAULT, command.projectCode(), actor, body), body));
+    }
+
+    public ResponseEntity<Object> removeConnectionOverride(HttpApiConsoleContracts.ConnectionCommand command, String actor) {
+        byte[] body = encode(command);
+        return call(() -> runtime.removeHttpApiConnectionOverride(
+                headers("POST", OVERRIDE_REMOVAL, command.projectCode(), actor, body), body));
     }
 
     public ResponseEntity<Object> invoke(HttpApiConsoleContracts.InvocationCommand command, String actor) {
@@ -54,12 +68,19 @@ public class RuntimeHttpApiConsoleGateway {
             if (status == 404) return ResponseEntity.notFound().build();
             if (status == 400 || status == 409) {
                 String code = "HTTP_API_RUNTIME_REJECTED";
+                String upstreamMessage = null;
                 try {
                     var body = json.readTree(failure.contentUTF8());
                     String candidate = body.path("code").asText();
                     if (candidate.matches("[A-Z0-9_]{1,96}")) code = candidate;
-                } catch (Exception ignored) { /* no upstream body is forwarded */ }
+                    upstreamMessage = body.path("message").asText(null);
+                } catch (Exception ignored) { /* only the vetted code/message pair below is forwarded */ }
                 String message = status == 409 ? "当前条件已变化，请刷新后重试" : "请求参数无效";
+                if (status == 409 && userFacingRuntimeMessage(code, upstreamMessage)) {
+                    // Runtime HTTP API conflicts carry fixed, user-facing reasons such as
+                    // "项目凭据类型与连接认证方式不一致"; a generic "refresh" hides the actual fix.
+                    message = upstreamMessage;
+                }
                 if (status == 409 && java.util.Set.of("RUNTIME_HTTP_EGRESS_SCHEME_DENIED",
                         "RUNTIME_HTTP_EGRESS_HOST_DENIED", "RUNTIME_HTTP_EGRESS_DNS_DENIED",
                         "RUNTIME_HTTP_EGRESS_REDIRECT_DENIED").contains(code)) {
@@ -70,6 +91,12 @@ public class RuntimeHttpApiConsoleGateway {
             }
             throw failure;
         }
+    }
+
+    static boolean userFacingRuntimeMessage(String code, String message) {
+        return code != null && code.startsWith("HTTP_API_") && StringUtils.hasText(message)
+                && message.length() <= 120 && message.chars().noneMatch(ch -> ch < 32)
+                && !message.contains("://");
     }
 
     private Map<String, String> headers(String method, String path, String projectCode,

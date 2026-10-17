@@ -92,6 +92,28 @@ export interface HttpApiConnection {
   blockingReason: string | null
   previewUrl: string | null
   verification?: HttpApiMarketVerification | null
+  /** D27: where the effective connection comes from; `revision` stays the opaque effective revision for calls. */
+  connectionSource?: 'OVERRIDE' | 'PROJECT_DEFAULT' | null
+  inherited?: boolean
+  overrideActive?: boolean
+  /** Optimistic revision for saving/removing this API's override (null before the first override). */
+  overrideRevision?: number | null
+  projectDefault?: HttpApiProjectDefaultConnection | null
+}
+
+/** Project + environment default connection inherited by every API without an active override. */
+export interface HttpApiProjectDefaultConnection {
+  projectId: number
+  projectCode: string
+  environment: string
+  origin: string | null
+  authMode: string | null
+  credentialRef: string | null
+  credentialName: string | null
+  revision: number | null
+  status: 'UNCONFIGURED' | 'CONFIGURED' | 'BLOCKED'
+  blockingReason: string | null
+  configurationAllowed: boolean
 }
 
 export interface HttpApiMarketVerification {

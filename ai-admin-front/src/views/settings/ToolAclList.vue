@@ -140,7 +140,7 @@
       <el-form :model="editing" label-width="90px" v-if="editing">
         <ToolAclProjectScopeField :model-value="editing" :disabled="saving" @update:model-value="setEditingScope" />
         <el-form-item label="角色" required>
-          <el-input v-model="editing.roleCode" placeholder="admin / ops / customer-service" />
+          <el-input v-model="editing.roleCode" placeholder="PLATFORM_ADMIN / ops / customer-service" />
         </el-form-item>
         <el-form-item label="类型" required>
           <el-radio-group v-model="editing.targetKind">

@@ -163,15 +163,4 @@ public final class ControlEmbedChatArtifactSupport {
             return input.readAllBytes();
         }
     }
-
-    public static byte[] loadManifestBytes() throws IOException {
-        ClassPathResource resource = new ClassPathResource(
-                CLASS_PATH_DIR + MANIFEST_FILE_NAME);
-        if (!resource.exists()) {
-            throw new IOException("Missing Embed Chat artifact manifest");
-        }
-        try (var input = resource.getInputStream()) {
-            return input.readAllBytes();
-        }
-    }
 }

@@ -17,10 +17,11 @@ describe('retired domain navigation', () => {
     }
   })
 
-  it('keeps the current business capability and context destinations registered', () => {
+  it('keeps the current business capability destinations registered and retires context governance', () => {
     const router = createRouter({ history: createMemoryHistory(), routes })
     expect(router.resolve('/business-capabilities/java-methods').name).toBe('BusinessMethodCatalog')
     expect(router.resolve('/business-capabilities/http-apis').name).toBe('HttpApiCatalog')
-    expect(router.resolve('/context/governance').name).toBe('ContextGovernance')
+    expect(router.resolve('/context/governance').name).not.toBe('ContextGovernance')
+    expect(router.resolve('/settings/runtime-user-mappings').name).toBe('RuntimeUserMapping')
   })
 })

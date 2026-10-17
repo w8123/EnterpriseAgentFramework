@@ -25,7 +25,7 @@ import java.util.Set;
 import java.util.Objects;
 import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Serializes once, scrubs caller-controlled identity, then signs the exact bytes sent to Capability.
@@ -44,8 +44,14 @@ public class RuntimeCapabilityCatalogGateway implements RuntimeCapabilityCatalog
     private final ObjectMapper objectMapper;
     private final ThreadLocal<BusinessMethodDraftScope> businessMethodDraft = new ThreadLocal<>();
 
-    private record BusinessMethodDraftScope(WorkflowReadOnlyTrialPolicy.BusinessMethodPin pin,
-                                            BooleanSupplier current, AtomicBoolean dispatched) { }
+    /**
+     * Request-local whole-draft trial scope. Only pinned node ids may dispatch, each only to its own pinned
+     * qualified name, at most {@link WorkflowReadOnlyTrialPolicy#MAX_DISPATCHES_PER_NODE} times per node and
+     * {@link WorkflowReadOnlyTrialPolicy#MAX_DISPATCHES} times per trial.
+     */
+    private record BusinessMethodDraftScope(WorkflowReadOnlyTrialPolicy.BusinessMethodTrialScope pin,
+                                            BooleanSupplier current, Map<String, AtomicInteger> dispatches,
+                                            AtomicInteger total) { }
 
     public RuntimeCapabilityCatalogGateway(RuntimeCapabilityCatalogFeignClient transport,
                                            RuntimeCapabilityInternalAuthSigner signer,
@@ -106,23 +112,33 @@ public class RuntimeCapabilityCatalogGateway implements RuntimeCapabilityCatalog
         outbound.put("constraints", suppliedConstraints);
         if (draft != null) {
             var pin = draft.pin();
-            if (!studio || evaluation.isEvaluation()
+            Object nodeId = stringMap(outbound.get("context")).get("nodeId");
+            var pinnedOwner = nodeId instanceof String id ? pin.owners().get(id) : null;
+            // The node id comes from the hashed saved graph executed by the server; a node outside the pinned
+            // set, or a pinned node addressing another method, never dispatches.
+            if (!studio || evaluation.isEvaluation() || pinnedOwner == null
                     || !identity.authorizeProjectCredential(pin.projectId(), pin.projectCode())
-                    || !Objects.equals(qualifiedName, pin.owner().qualifiedName())
-                    || !Objects.equals(pin.nodeId(), stringMap(outbound.get("context")).get("nodeId"))
-                    || !Objects.equals(pin.expectedInput(), stringMap(outbound.get("input")))) {
+                    || !Objects.equals(qualifiedName, pinnedOwner.qualifiedName())) {
                 throw new IllegalStateException("BUSINESS_METHOD_TRIAL_TARGET_CHANGED");
             }
             if (!draft.current().getAsBoolean() || System.currentTimeMillis() > pin.deadlineEpochMs()) {
                 throw new IllegalStateException("BUSINESS_METHOD_TRIAL_DRAFT_STALE");
             }
+            // Downstream input is model/variable produced and cannot be pinned up front. It must still be a
+            // bounded JSON object; Capability validates it against the declared input contract because the
+            // signed Studio constraint below enables the same validator as the Console trial.
+            if (!(outbound.get("input") == null || outbound.get("input") instanceof Map<?, ?>) || oversized(outbound.get("input"))) {
+                throw new IllegalStateException("BUSINESS_METHOD_TRIAL_INPUT_INVALID");
+            }
             var owner = getBusinessMethodExecutionContext(qualifiedName, pin.projectCode());
             String rejected = WorkflowReadOnlyTrialPolicy.businessOwnerRejection(owner,
                     pin.projectId(), pin.projectCode(), qualifiedName);
             if (rejected != null) throw new IllegalStateException(rejected);
-            if (!Objects.equals(owner, pin.owner())) throw new IllegalStateException("BUSINESS_METHOD_TRIAL_OWNER_CHANGED");
-            if (!draft.current().getAsBoolean() || !draft.dispatched().compareAndSet(false, true)) {
-                throw new IllegalStateException("BUSINESS_METHOD_TRIAL_ALREADY_DISPATCHED_OR_STALE");
+            if (!Objects.equals(owner, pinnedOwner)) throw new IllegalStateException("BUSINESS_METHOD_TRIAL_OWNER_CHANGED");
+            if (!draft.current().getAsBoolean()) throw new IllegalStateException("BUSINESS_METHOD_TRIAL_DRAFT_STALE");
+            if (draft.dispatches().get((String) nodeId).incrementAndGet() > WorkflowReadOnlyTrialPolicy.MAX_DISPATCHES_PER_NODE
+                    || draft.total().incrementAndGet() > WorkflowReadOnlyTrialPolicy.MAX_DISPATCHES) {
+                throw new IllegalStateException("BUSINESS_METHOD_TRIAL_DISPATCH_LIMIT_EXCEEDED");
             }
             outbound.put("constraints", Map.of(WorkflowReadOnlyTrialPolicy.STUDIO_CONSTRAINT, true,
                     "expectedQualifiedName", qualifiedName, "expectedProjectId", pin.projectId(),
@@ -202,23 +218,45 @@ public class RuntimeCapabilityCatalogGateway implements RuntimeCapabilityCatalog
         }
         validateResponse(invocation, response);
         if (studio) {
-            // No transport headers, credentials or arbitrary error strings enter the draft result/state.
+            // No transport headers, credentials or arbitrary error strings enter the draft result/state. Capability
+            // policy rejections (e.g. "输入字段无效: productId (REQUIRED)") are built from declared field paths and
+            // fixed reasons only, so they are kept to tell the author why the node failed.
             return new CapabilityInvocationResponse(response.contractVersion(), response.invocationId(),
                     response.qualifiedName(), response.toolName(), response.toolTitle(), response.status(), response.success(),
-                    redact(response.data(), null), response.code(), response.success() ? null : "业务方法试运行未确认，请查看 Run/Trace",
+                    redact(response.data(), null), response.code(), response.success() ? null : studioFailureMessage(response),
                     response.failureCategory(), false, response.latencyMs(), response.attempt(),
                     response.businessCode(), Map.of());
         }
         return response;
     }
 
+    private static String studioFailureMessage(CapabilityInvocationResponse response) {
+        String code = response.code() == null ? "" : response.code();
+        String message = response.message();
+        boolean declaredDiagnostic = Set.of("CAPABILITY_INPUT_INVALID", "CAPABILITY_INPUT_CONTRACT_INVALID",
+                "CAPABILITY_STUDIO_READ_ONLY_REQUIRED", "CAPABILITY_BUSINESS_IDENTITY_REQUIRED",
+                "CAPABILITY_PROJECT_CREDENTIAL_REQUIRED").contains(code);
+        if (declaredDiagnostic && message != null && message.length() <= 300) return message;
+        if (response.status() == CapabilityInvocationStatus.BUSINESS_FAILED && message != null && message.length() <= 300) {
+            return "业务系统返回失败：" + message;
+        }
+        return "业务方法试运行未确认，请查看 Run/Trace";
+    }
+
+    private boolean oversized(Object input) {
+        try { return input != null && objectMapper.writeValueAsBytes(input).length > 64 * 1024; }
+        catch (Exception invalid) { return true; }
+    }
+
     @Override
-    public <T> T withBusinessMethodDraftScope(WorkflowReadOnlyTrialPolicy.BusinessMethodPin pin,
+    public <T> T withBusinessMethodDraftScope(WorkflowReadOnlyTrialPolicy.BusinessMethodTrialScope pin,
                                              BooleanSupplier currentDraft, Supplier<T> execution) {
         if (pin == null || currentDraft == null || execution == null || businessMethodDraft.get() != null) {
             throw new IllegalStateException("BUSINESS_METHOD_TRIAL_SCOPE_INVALID");
         }
-        businessMethodDraft.set(new BusinessMethodDraftScope(pin, currentDraft, new AtomicBoolean()));
+        Map<String, AtomicInteger> counters = new LinkedHashMap<>();
+        pin.owners().keySet().forEach(nodeId -> counters.put(nodeId, new AtomicInteger()));
+        businessMethodDraft.set(new BusinessMethodDraftScope(pin, currentDraft, Map.copyOf(counters), new AtomicInteger()));
         try { return execution.get(); }
         finally { businessMethodDraft.remove(); }
     }

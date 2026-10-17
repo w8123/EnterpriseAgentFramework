@@ -1,5 +1,3 @@
-import type { ProjectToolInfo } from '@/types/scanProject'
-
 export type AiOnboardingStepStatus =
   | 'TODO'
   | 'RUNNING'
@@ -22,10 +20,4 @@ export function aiAccessStepStatusLabel(status: AiOnboardingStepStatus): string 
   if (status === 'RUNNING') return '进行中'
   if (status === 'SKIPPED') return '已声明跳过'
   return '待处理'
-}
-
-export function projectApiToolLabel(tool: ProjectToolInfo): string {
-  const method = tool.httpMethod || 'API'
-  const path = tool.endpointPath || tool.sourceLocation || tool.name
-  return `${tool.title || tool.name} · ${method} ${path}`
 }

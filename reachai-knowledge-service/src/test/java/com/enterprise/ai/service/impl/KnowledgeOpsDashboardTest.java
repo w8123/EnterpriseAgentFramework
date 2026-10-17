@@ -1,11 +1,8 @@
 package com.enterprise.ai.service.impl;
 
 import com.enterprise.ai.domain.entity.*;
-import com.enterprise.ai.embedding.EmbeddingService;
-import com.enterprise.ai.pipeline.document.artifact.DocumentArtifactStore;
 import com.enterprise.ai.repository.*;
 import com.enterprise.ai.retrieval.KnowledgeRetrievalEngine;
-import com.enterprise.ai.vector.VectorService;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.NullSource;
 import org.junit.jupiter.params.provider.ValueSource;

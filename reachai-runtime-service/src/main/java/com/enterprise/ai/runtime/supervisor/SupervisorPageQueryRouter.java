@@ -16,6 +16,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Pattern;
 
+import static com.enterprise.ai.common.util.Texts.firstText;
+
 /** Resolves current-page read routes from published Workflows and the Control action catalog. */
 final class SupervisorPageQueryRouter {
     private static final Logger log = LoggerFactory.getLogger(SupervisorPageQueryRouter.class);
@@ -229,11 +231,6 @@ final class SupervisorPageQueryRouter {
         }
         String text = String.valueOf(value).trim();
         return text.isEmpty() || "null".equalsIgnoreCase(text) ? null : text;
-    }
-
-    private String firstText(String... values) {
-        for (String value : values) if (StringUtils.hasText(value)) return value.trim();
-        return null;
     }
 
     record Route(RuntimeResolvedWorkflowTarget target, Map<String, Object> args) { }

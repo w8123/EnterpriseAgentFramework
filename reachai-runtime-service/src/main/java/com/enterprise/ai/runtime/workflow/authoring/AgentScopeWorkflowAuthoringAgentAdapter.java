@@ -321,13 +321,15 @@ public class AgentScopeWorkflowAuthoringAgentAdapter implements WorkflowAuthorin
                 - USER_INPUT config mirrors the Workflow request contract for Studio editing: include outputAlias="params"
                   and a fields array using name, type, required, description, defaultValue, and source="input.<name>".
                   GraphSpec.inputSchema remains the authoritative external request contract.
+                  Downstream nodes read USER_INPUT fields as params.<name> (for example "params.productName").
+                  nodeOutput.<userInputNodeId> is only the raw user text; never write nodeOutput.<userInputNodeId>.<name>.
                 - PARAMETER_EXTRACT config MUST use extractMode="llm" or "expression" and a non-empty fields array.
                   Each field uses name, type, required, source when expression mode, and defaultValue for defaults.
                   Never use config.parameters, config.targetFields, or a field key named default.
                 - TOOL puts qualifiedName in the top-level node.ref object, for example
                   ref={"qualifiedName":"project:capability"}. Never put ref inside node.config.
                   TOOL config.inputMapping maps target argument names to runtime expressions such as
-                  "nodeOutput.extract_query.teamName". Keep errorPolicy at the top-level node field.
+                  "params.teamName" or "nodeOutput.extract_query.teamName". Keep errorPolicy at the top-level node field.
                 - When a detail Tool requires an opaque id but the user supplies a business name, build an explicit
                   chain: list/query TOOL -> PARAMETER_EXTRACT -> detail TOOL. Feed the query Tool's structured output
                   through inputExpression="nodeOutput.<queryNodeId>". Leave userPrompt empty to consume that input,

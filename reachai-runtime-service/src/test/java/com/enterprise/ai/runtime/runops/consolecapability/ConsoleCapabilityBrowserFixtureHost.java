@@ -17,7 +17,6 @@ import com.enterprise.ai.control.identity.PlatformPermissionGrant;
 import com.enterprise.ai.control.identity.PlatformPermissions;
 import com.enterprise.ai.control.identity.PlatformPrincipal;
 import com.enterprise.ai.control.identity.PlatformRequestAuthorization;
-import com.enterprise.ai.runtime.client.capability.RuntimeCapabilityCatalogClient;
 import com.enterprise.ai.runtime.client.capability.RuntimeCapabilityCatalogFeignClient;
 import com.enterprise.ai.runtime.client.capability.RuntimeCapabilityInternalAuthSigner;
 import com.enterprise.ai.runtime.execution.capability.RuntimeCapabilityCatalogGateway;

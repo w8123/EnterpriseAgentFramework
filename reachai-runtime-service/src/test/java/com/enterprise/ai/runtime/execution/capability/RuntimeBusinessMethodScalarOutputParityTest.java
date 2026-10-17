@@ -65,8 +65,8 @@ class RuntimeBusinessMethodScalarOutputParityTest {
                 mock(RuntimeControlCatalogClient.class));
         var input = Map.<String, Object>of("params", Map.of("orderNo", "A-1024"));
         var studioIdentity = WorkflowExecutionIdentity.fromAttestedStudioProjectTest(41L, "orders", "42");
-        var pin = new WorkflowReadOnlyTrialPolicy.BusinessMethodPin("method", 41L, "orders", owner,
-                Map.of("orderNo", "A-1024"), System.currentTimeMillis() + 40_000);
+        var pin = new WorkflowReadOnlyTrialPolicy.BusinessMethodTrialScope(41L, "orders", Map.of("method", owner),
+                System.currentTimeMillis() + 40_000);
         var trial = gateway.withBusinessMethodDraftScope(pin, () -> true,
                 () -> executor.execute(GRAPH, input, studioIdentity));
         var published = executor.execute(GRAPH, input,

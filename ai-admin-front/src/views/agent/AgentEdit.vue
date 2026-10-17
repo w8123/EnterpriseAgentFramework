@@ -49,6 +49,35 @@
       <button type="button" :class="{ 'is-active': activeSection === 'versions' }" @click="showVersionSection">版本记录</button>
     </nav>
 
+    <el-alert
+      v-if="!isNew && staleWorkflowTools.length"
+      class="agent-workflow-freshness-alert"
+      type="warning"
+      :closable="false"
+      show-icon
+      :title="`${staleWorkflowTools.length} 个 Workflow 有新发布版本，线上配置 v${workflowFreshness?.activeConfigVersionNo ?? '-'} 仍在使用旧版本`"
+    >
+      <p class="agent-workflow-freshness-alert__detail">
+        <span v-for="tool in staleWorkflowTools" :key="tool.workflowId">
+          {{ tool.workflowName || tool.workflowKeySlug || tool.workflowId }}：当前 {{ formatWorkflowVersionLabel(tool.pinnedWorkflowVersion) }} · 最新 {{ formatWorkflowVersionLabel(tool.latestWorkflowVersion) }}
+        </span>
+      </p>
+      <p class="agent-workflow-freshness-alert__detail">
+        需要重新发布 Agent 才会用到新版本。点击「发布配置」会同时发布草稿并改用最新 Workflow 版本；
+        「更新并发布」只更新 Workflow 版本，其余线上配置保持不变，未发布的草稿不受影响。
+      </p>
+      <el-button
+        v-if="canPublishAgent"
+        size="small"
+        type="warning"
+        :loading="publishingLatestWorkflows"
+        :disabled="publishing"
+        @click="handlePublishLatestWorkflows"
+      >
+        更新并发布
+      </el-button>
+    </el-alert>
+
     <AgentDetailOverview
       v-if="!isNew && activeSection === 'overview'"
       class="agent-overview-scroll"
@@ -315,7 +344,13 @@
               </header>
 
               <div class="config-asset-card__meta">
-                <div><small>版本</small><strong>{{ row.workflowVersion || '已发布' }}</strong></div>
+                <div>
+                  <small>版本</small>
+                  <strong v-if="newerWorkflowVersion(row)" class="is-stale" title="发布 Agent 后才会用到新版本">
+                    当前 {{ formatWorkflowVersionLabel(row.workflowVersion) }} · 最新 {{ formatWorkflowVersionLabel(newerWorkflowVersion(row)?.latestWorkflowVersion) }}
+                  </strong>
+                  <strong v-else>{{ row.workflowVersion || '已发布' }}</strong>
+                </div>
                 <div><small>操作范围</small><strong>{{ riskLabel(row.riskLevel) }}</strong></div>
                 <div><small>调用权限</small><strong :class="{ 'is-ready': row.permissionKey }">{{ row.permissionKey ? '已配置' : '待配置' }}</strong></div>
               </div>
@@ -977,6 +1012,8 @@ import type {
   Agent,
   AgentA2aRemoteBindingConfig,
   AgentIdentityForm,
+  AgentWorkflowFreshness,
+  AgentWorkflowPinFreshness,
   AgentWorkflowToolConfig,
 } from '@/types/agent'
 import type { WorkflowWorkingCopy } from '@/types/workflow'
@@ -995,6 +1032,12 @@ import {
   searchWorkflows,
   updateAgent,
 } from '@/api/workflow'
+import {
+  agentWorkflowFreshnessFailure,
+  formatWorkflowVersionLabel,
+  getAgentWorkflowFreshness,
+  publishLatestAgentWorkflowVersions,
+} from '@/api/agentWorkflowFreshness'
 import { listBindableAgentSkillVersions } from '@/api/skill'
 import { getA2aRemoteAgent, listA2aPrincipals, listA2aRemoteAgents } from '@/api/a2aHub'
 import type {
@@ -1046,6 +1089,8 @@ const formRef = ref<FormInstance>()
 const pageLoading = ref(false)
 const saving = ref(false)
 const publishing = ref(false)
+const publishingLatestWorkflows = ref(false)
+const workflowFreshness = ref<AgentWorkflowFreshness | null>(null)
 const scanProjects = ref<ScanProject[]>([])
 const llmModelInstances = ref<ModelInstance[]>([])
 const llmModelInstancesLoading = ref(false)
@@ -1223,6 +1268,54 @@ const rules: FormRules = {
 
 const activeConfig = computed(() => configVersions.value.find((item) => item.status === 'ACTIVE') || null)
 const draftConfig = computed(() => configVersions.value.find((item) => item.status === 'DRAFT') || null)
+const staleWorkflowTools = computed(() => (workflowFreshness.value?.tools || []).filter((tool) => tool.stale))
+
+/** Latest published version of this card's Workflow when the card is pinned to a different one. */
+function newerWorkflowVersion(row: AgentWorkflowToolConfig): AgentWorkflowPinFreshness | null {
+  const latest = (workflowFreshness.value?.tools || []).find((tool) => tool.workflowId === row.workflowId)
+  if (!latest?.latestWorkflowVersionId || !row.workflowVersionId) return null
+  return latest.latestWorkflowVersionId !== row.workflowVersionId ? latest : null
+}
+
+async function refreshWorkflowFreshness() {
+  if (isNew) return
+  try {
+    const { data } = await getAgentWorkflowFreshness(agentId, { errorFeedback: 'local' })
+    workflowFreshness.value = data && Array.isArray(data.tools) ? data : null
+  } catch {
+    workflowFreshness.value = null
+  }
+}
+
+async function handlePublishLatestWorkflows() {
+  const expected = workflowFreshness.value?.activeConfigVersionId
+  if (!canPublishAgent.value || !expected || publishingLatestWorkflows.value) return
+  try {
+    await ElMessageBox.confirm(
+      `将基于线上配置 v${workflowFreshness.value?.activeConfigVersionNo ?? '-'} 生成新版本，把 ${staleWorkflowTools.value.length} 个 Workflow 更新到当前发布版本后立即发布。`
+        + '其他线上配置不变；未保存或未发布的草稿修改不会包含在内。',
+      '更新 Workflow 版本并发布',
+      { type: 'warning', confirmButtonText: '更新并发布', cancelButtonText: '取消' },
+    )
+  } catch {
+    return
+  }
+  publishingLatestWorkflows.value = true
+  try {
+    const { data } = await publishLatestAgentWorkflowVersions(agentId, expected, 'admin-ui', { errorFeedback: 'local' })
+    const hadDraft = Boolean(draftConfig.value)
+    await refreshConfigVersions()
+    if (!hadDraft && data.published) loadConfigToForm(data.config)
+    ElMessage.success(data.published
+      ? `已发布配置 v${data.config.versionNo}，开始使用最新 Workflow 版本`
+      : '线上配置已在使用最新 Workflow 版本')
+  } catch (error) {
+    ElMessage.error(agentWorkflowFreshnessFailure(error))
+  } finally {
+    publishingLatestWorkflows.value = false
+    await refreshWorkflowFreshness()
+  }
+}
 const selectedModelLabel = computed(() => {
   const modelId = supervisor.modelInstanceId
   if (!modelId) return '尚未配置'
@@ -1803,6 +1896,7 @@ async function handlePublish() {
     const { data: active } = await publishAgentConfig(agentId, draft.id, 'admin-ui')
     currentConfig.value = active
     await refreshConfigVersions()
+    void refreshWorkflowFreshness()
     activeSection.value = 'overview'
     ElMessage.success(`Agent 配置 v${active.versionNo} 已发布`)
   } catch (error) {
@@ -1912,6 +2006,7 @@ async function loadAgent() {
 async function loadAgentConfig() {
   if (isNew) return
   await refreshConfigVersions()
+  void refreshWorkflowFreshness()
   const config = configVersions.value.find((item) => item.status === 'DRAFT')
     || configVersions.value.find((item) => item.status === 'ACTIVE')
     || configVersions.value[0]
@@ -2645,6 +2740,22 @@ onUnmounted(() => {
 .config-asset-card__meta strong {
   margin-top: 3px;
   color: var(--text-primary);
+  font-size: 12px;
+}
+
+.config-asset-card__meta strong.is-stale {
+  color: var(--el-color-warning);
+}
+
+.agent-workflow-freshness-alert {
+  flex: 0 0 auto;
+}
+
+.agent-workflow-freshness-alert__detail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 2px 0 6px;
   font-size: 12px;
 }
 

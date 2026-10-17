@@ -3,8 +3,6 @@ package com.enterprise.ai.service.impl;
 import com.enterprise.ai.domain.dto.KnowledgeImportRequest;
 import com.enterprise.ai.embedding.EmbeddingService;
 import com.enterprise.ai.pipeline.PipelineContext;
-import com.enterprise.ai.pipeline.document.artifact.DocumentArtifactStore;
-import com.enterprise.ai.pipeline.document.job.DocumentIndexExecutionStore;
 import com.enterprise.ai.pipeline.document.job.DocumentIndexVectorManifest;
 import com.enterprise.ai.pipeline.step.VectorStoreStep;
 import com.enterprise.ai.repository.*;

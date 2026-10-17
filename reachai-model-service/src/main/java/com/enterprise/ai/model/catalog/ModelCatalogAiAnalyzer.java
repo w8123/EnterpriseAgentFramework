@@ -41,11 +41,13 @@ class ModelCatalogAiAnalyzer {
             """;
 
     private final ModelCatalogSyncProperties properties;
+    private final ModelCatalogSettingsService settingsService;
     private final ModelRoutingService routingService;
     private final ObjectMapper objectMapper;
 
     ModelCatalogAnalysis analyze(ModelCatalogSourceEntity source, String content) {
-        if (!properties.analyzerConfigured()) {
+        String analyzerModelInstanceId = settingsService.analyzerModelInstanceId();
+        if (analyzerModelInstanceId == null) {
             throw new ModelCatalogSyncException(
                     "MODEL_CATALOG_ANALYZER_NOT_CONFIGURED",
                     "Catalog AI analyzer model instance is not configured",
@@ -57,7 +59,7 @@ class ModelCatalogAiAnalyzer {
                 + "\n<official_document>\n" + bounded + "\n</official_document>";
         try {
             ChatResponse response = routingService.chat(ChatRequest.builder()
-                    .modelInstanceId(properties.getAnalyzerModelInstanceId().trim())
+                    .modelInstanceId(analyzerModelInstanceId)
                     .messages(List.of(
                             ChatRequest.ChatMessage.builder().role("system").content(SYSTEM_PROMPT).build(),
                             ChatRequest.ChatMessage.builder().role("user").content(userPrompt).build()))

@@ -515,6 +515,7 @@ public class SupervisorExecutionTraceService implements RuntimeInteractionExpiry
             putIfPresent(childMetadata, "maxAttempts", nodeTrace.get("maxAttempts"));
             putIfPresent(childMetadata, "errorPolicy", nodeTrace.get("errorPolicy"));
             putIfPresent(childMetadata, "failureCode", nodeTrace.get("failureCode"));
+            putIfPresent(childMetadata, "failureReason", nodeTrace.get("failureReason"));
             putIfPresent(childMetadata, "fallbackNodeId", nodeTrace.get("fallbackNodeId"));
             putIfPresent(childMetadata, "nextNodeId", nodeTrace.get("nextNodeId"));
             putIfPresent(childMetadata, "outcomeClass", nodeTrace.get("outcomeClass"));
@@ -528,6 +529,7 @@ public class SupervisorExecutionTraceService implements RuntimeInteractionExpiry
             child.metadataJson(json(childMetadata));
             child.errorCode(firstText(nodeTrace.get("failureCode"),
                     "FAILED".equalsIgnoreCase(status) ? workflowCode : null));
+            child.errorMessage(firstText(nodeTrace.get("failureReason")));
             child.latencyMs(toInt(longValue(nodeTrace.get("latencyMs"), 0L)));
             LocalDateTime started = epochMillisToLocalDateTime(nodeTrace.get("startedAt"), endedAt);
             child.startedAt(started);

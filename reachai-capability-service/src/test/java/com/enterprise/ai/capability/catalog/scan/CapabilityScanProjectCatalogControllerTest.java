@@ -3,7 +3,6 @@ package com.enterprise.ai.capability.catalog.scan;
 import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectEntity;
 import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectBlockers;
 import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectToolEntity;
-import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionParameter;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;

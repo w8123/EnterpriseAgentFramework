@@ -1,6 +1,5 @@
 package com.enterprise.ai.control.a2a.application.outbound;
 
-import com.enterprise.ai.control.a2a.application.identity.A2aCredentialBinding;
 import com.enterprise.ai.control.a2a.application.port.A2aContentCipher;
 import com.enterprise.ai.control.a2a.application.port.A2aCredentialRepository;
 import com.enterprise.ai.control.a2a.application.port.A2aOutboundProtocolCodec;

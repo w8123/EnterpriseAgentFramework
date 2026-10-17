@@ -36,6 +36,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
+import static com.enterprise.ai.common.util.Texts.firstText;
+
 /** Builds and persists immutable, server-derived Eval target snapshots. */
 @Service
 @RequiredArgsConstructor
@@ -626,15 +628,6 @@ public class RuntimeEvalTargetSnapshotService {
 
     private String normalized(String value) {
         return StringUtils.hasText(value) ? value.trim().toUpperCase(Locale.ROOT) : null;
-    }
-
-    private String firstText(String... values) {
-        for (String value : values) {
-            if (StringUtils.hasText(value)) {
-                return value.trim();
-            }
-        }
-        return null;
     }
 
     public record CapturedTarget(RuntimeEvalTargetSnapshotEntity snapshot,

@@ -101,7 +101,7 @@ class HttpApiMarketBindingE2eIntegrationTest {
             var trial = f.marketTrial(); assertEquals(200, trial.get("httpStatus"));
             assertTrue(json.writeValueAsString(trial).contains("PAID"), "actual readonly trial must reach the isolated GET");
             var observedTrial = json.readTree(f.marketReadOnlyTrialResponse());
-            assertEquals("PAID", observedTrial.at("/apiOutput/state").asText());
+            assertEquals("PAID", observedTrial.at("/steps/0/output/state").asText());
             assertEquals("PAID", observedTrial.at("/variables/order_state").asText());
             var version = f.changePublishVersion("v1.0.0");
             var published = f.marketCallPublished();

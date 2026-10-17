@@ -22,6 +22,9 @@ public final class ConnectionConfigSupport {
     private static final Set<String> CANONICAL_KEYS = Set.of(
             BASE_URL, CHAT_PATH, EMBEDDING_PATH, RERANK_PATH, API_KEY, AUTH_HEADER, AUTH_PREFIX);
 
+    /** 厂商账号持有的连接字段：地址与鉴权；请求路径仍由各模型实例决定。 */
+    public static final Set<String> ACCOUNT_KEYS = Set.of(BASE_URL, API_KEY, AUTH_HEADER, AUTH_PREFIX);
+
     private static final Pattern SK_KEY = Pattern.compile("sk-[A-Za-z0-9_\\-]{8,}");
     private static final Pattern BEARER_TOKEN = Pattern.compile("(?i)Bearer\\s+[A-Za-z0-9._\\-+=/]{8,}");
     private static final int ERROR_MAX_LEN = 500;
@@ -42,6 +45,32 @@ public final class ConnectionConfigSupport {
                 out.put(key, source.get(key));
             }
         }
+        return out;
+    }
+
+    /** 只保留厂商账号字段。 */
+    public static Map<String, Object> accountOnly(Map<String, Object> source) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        normalize(source).forEach((key, value) -> {
+            if (ACCOUNT_KEYS.contains(key)) out.put(key, value);
+        });
+        return out;
+    }
+
+    /** 去掉厂商账号字段，只保留实例自己的请求路径。 */
+    public static Map<String, Object> withoutAccountKeys(Map<String, Object> source) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        normalize(source).forEach((key, value) -> {
+            if (!ACCOUNT_KEYS.contains(key)) out.put(key, value);
+        });
+        return out;
+    }
+
+    /** 实例有效连接 = 实例路径 + 厂商账号的地址与鉴权（账号字段整体覆盖，账号未配置的鉴权字段不沿用实例旧值）。 */
+    public static Map<String, Object> overlayAccount(Map<String, Object> instanceConnection,
+                                                     Map<String, Object> accountConnection) {
+        Map<String, Object> out = withoutAccountKeys(instanceConnection);
+        out.putAll(accountOnly(accountConnection));
         return out;
     }
 

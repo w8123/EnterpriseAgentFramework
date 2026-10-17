@@ -11,7 +11,6 @@ import type {
   AiCodingTaskQuestion,
   AiCodingManagedExecutionDetail,
   ManagedApprovalDecisionRequest,
-  ManagedExecutionArtifact,
   ManagedExecutionStartRequest,
   ManagedExecutionProgressEvent,
 } from '@/types/aiCodingTask'
@@ -171,12 +170,6 @@ export function resolveManagedAiCodingApproval(
   return controlRequest.post<AiCodingManagedExecutionDetail>(
     `${ROOT}/${encodeURIComponent(taskId)}/managed-execution/approvals/${encodeURIComponent(interactionId)}:resolve`,
     data,
-  )
-}
-
-export function listManagedAiCodingArtifacts(taskId: string) {
-  return controlRequest.get<ManagedExecutionArtifact[]>(
-    `${ROOT}/${encodeURIComponent(taskId)}/managed-execution/artifacts`,
   )
 }
 

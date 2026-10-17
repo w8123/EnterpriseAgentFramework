@@ -2,6 +2,12 @@
 
 > 状态：SOURCE_VERIFIED / SEMANTIC_PROJECTION_DB_E2E_PENDING（2026-08-24）
 
+## 2026-10-17 收口：项目上下文治理已下线
+
+管理端「上下文治理」页面（`/context/governance`）及其 PROJECT_DEV 项目上下文接口已删除，原因是 Runtime 从未消费这些数据：Agent / Workflow 执行时不读取项目上下文条目，`/api/context/package` 只是管理端预览，AI Coding 的 `context-candidates` 提交接口也只回显请求、不落库。同批删除的还有嵌入页面管理里的「页面记忆工作台」（写 PAGE_CONTEXT 条目，同样无人消费）。
+
+保留且仍在主路径上的部分：个人记忆（RUNTIME_USER）自助治理、私有候选确认、Agent 运行时召回与注入、跨域记忆擦除，以及 Runtime 用户映射（管理端入口移到「身份与权限 / 运行时用户映射」，路由 `/settings/runtime-user-mappings`）。`control_context_*` 表继续保留，因为个人记忆复用 namespace、item、candidate、audit 等表。
+
 ## 当前定位
 
 Context Governance Kernel 是 ReachAI 的企业 Agent 上下文治理底座。它负责上下文命名空间、上下文条目、证据、候选记忆、运行时用户映射、审计、检索、组包和生命周期治理。
@@ -24,9 +30,8 @@ Context Governance Kernel 是 ReachAI 的企业 Agent 上下文治理底座。�
 
 - 存储模型：`control_context_namespace`、`control_context_item`、`control_context_binding`、`control_context_evidence`、`control_context_audit_event`、`control_context_memory_candidate`、`control_context_runtime_user_mapping`、`control_context_memory_outbox`，以及 Knowledge 可重建投影和 Runtime 会话账本。
 - 访问边界：tenant、project、lane、visibility、RUNTIME_USER PRIVATE。
-- 管理端能力：项目上下文管理、个人记忆自助增改删导出、私有候选确认、运行时用户映射、运维摘要、审计过滤和深链。
-- 运行时能力：Runtime CENTRAL 组包、AgentScope 多轮会话状态、完整事件账本、HMAC 个人记忆注入、候选记忆抽取、候选质量门、HYBRID fallback、metadata 解释摘要。
-- 外部 AI Coding 能力：项目级 manifest、context candidate 提交、候选状态回查、审计深链模板。
+- 管理端能力：个人记忆自助增改删导出、私有候选确认、运行时用户映射。
+- 运行时能力：AgentScope 多轮会话状态、完整事件账本、HMAC 个人记忆注入、候选记忆抽取、候选质量门、HYBRID fallback、metadata 解释摘要。
 - Header-first 外部工具鉴权：`X-ReachAI-AiCoding-Key`，不再生成 query key URL。
 
 当前 Knowledge 个人记忆投影支持 `LEXICAL`、`HYBRID`、`VECTOR` 三种模式，Embedding 统一经过 Model Gateway；`HYBRID` 在单条向量尚未就绪时保留词面降级。新增语义 schema 和真实 Provider/目标库 E2E 仍为待验收，不能仅凭源码把语义模式写成已部署。当前仍不包含图谱级个人记忆，也不自动迁移旧实验性会话数据；主路径以 Runtime AgentScope state + ledger 为准。
@@ -35,20 +40,11 @@ Context Governance Kernel 是 ReachAI 的企业 Agent 上下文治理底座。�
 
 | API | Owning service | 说明 |
 | --- | --- | --- |
-| `/api/context/namespaces` | `reachai-control-service` | Namespace CRUD。 |
-| `/api/context/items` | `reachai-control-service` | Item 管理、binding、evidence。 |
-| `/api/context/query` | `reachai-control-service` | Context 检索入口。 |
-| `/api/context/package` | `reachai-control-service` | Runtime context 组包预览和管理端调试。 |
-| `/api/context/audit` | `reachai-control-service` | 审计查询。 |
-| `/api/context/ops/summary` | `reachai-control-service` | 运维摘要。 |
-| `/api/context/lifecycle/run` | `reachai-control-service` | lifecycle dry run / 手动执行入口。 |
-| `/api/context/memory/candidates` | `reachai-control-service` | PROJECT_DEV 等治理候选审核；私有 RUNTIME_USER candidate 被明确隔离。 |
 | `/api/context/personal-memories/**` | `reachai-control-service` | 当前认证用户的长期记忆 CRUD、查询、审计和导出。 |
 | `/api/context/personal-memory-candidates/**` | `reachai-control-service` | 当前认证用户的私有候选确认或忽略。 |
 | `/api/context/memory-erasure-requests/**` | `reachai-control-service` | 独立权限保护的九域 Agent 记忆擦除请求、重试、状态和人工证据；不是普通上下文 CRUD。 |
 | `/api/context/runtime-user-mappings` | `reachai-control-service` | 平台用户到 runtime user 的映射维护。 |
 | `/api/embed/**` | `reachai-control-service` | 嵌入式对话 session、message 和 page action 公开入口。 |
-| `/api/ai-coding/projects/{projectId}/context-candidates` | `reachai-control-service` | 外部 AI Coding 工具提交 PROJECT_DEV candidates。 |
 
 Runtime 执行时需要上下文注入，应通过 Runtime 与 Control/Context 边界的服务间契约完成，不让前端或外部工具直接访问 Runtime 内部端口。
 
@@ -59,22 +55,18 @@ Runtime 执行时需要上下文注入，应通过 Runtime 与 Control/Context �
 ```text
 reachai-control-service/src/main/java/com/enterprise/ai/control/context/
 reachai-control-service/src/main/java/com/enterprise/ai/control/platform/
-reachai-control-service/src/main/java/com/enterprise/ai/control/aiassist/
 reachai-runtime-service/src/main/java/com/enterprise/ai/runtime/
 reachai-capability-service/src/main/java/com/enterprise/ai/capability/
-ai-admin-front/src/views/context/ContextGovernance.vue
+ai-admin-front/src/views/settings/RuntimeUserMapping.vue
 ai-admin-front/src/views/settings/PersonalMemory.vue
-ai-admin-front/src/views/registry/RegistryProjectDetail.vue
 ai-admin-front/src/api/context.ts
 ai-admin-front/src/types/context.ts
-ai-admin-front/scripts/check-context-candidate-ui.mjs
 ```
 
 代表性测试：
 
 - `reachai-control-service/src/test/java/com/enterprise/ai/control/context/*`
 - `reachai-control-service/src/test/java/com/enterprise/ai/control/platform/*`
-- `reachai-control-service/src/test/java/com/enterprise/ai/control/aiassist/*`
 - `reachai-runtime-service/src/test/java/com/enterprise/ai/runtime/*`
 - `reachai-capability-service/src/test/java/com/enterprise/ai/capability/*`
 
@@ -84,7 +76,6 @@ ai-admin-front/scripts/check-context-candidate-ui.mjs
 mvn -pl reachai-control-service,reachai-runtime-service,reachai-capability-service,reachai-knowledge-service,reachai-model-service -am -DskipTests compile
 Set-Location ai-admin-front
 npm run build
-node scripts/check-context-candidate-ui.mjs
 ```
 
 从仓库根目录运行静态边界检查：

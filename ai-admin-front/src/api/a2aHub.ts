@@ -11,7 +11,6 @@ import type {
   A2aPublication,
   A2aPublicationCreateRequest,
   A2aPublicationDetail,
-  A2aPublicationDraft,
   A2aRemoteAgent,
   A2aRemoteAgentDetail,
   A2aRemoteAgentDiscoverRequest,
@@ -22,7 +21,6 @@ import type {
   A2aTrustProfile,
   A2aTrustProfileUpsertRequest,
 } from '@/types/a2aHub'
-
 const ROOT = '/api/a2a-hub'
 
 export function getA2aHubOverview() {
@@ -44,13 +42,6 @@ export function getA2aPublication(id: number) {
 
 export function createA2aPublication(body: A2aPublicationCreateRequest) {
   return controlRequest.post<A2aPublicationDetail>(`${ROOT}/publications`, body)
-}
-
-export function createA2aPublicationRevision(publicationId: number, body: A2aPublicationDraft) {
-  return controlRequest.post(
-    `${ROOT}/publications/${publicationId}/revisions`,
-    body,
-  )
 }
 
 export function preflightA2aPublication(publicationId: number, revisionId: number) {

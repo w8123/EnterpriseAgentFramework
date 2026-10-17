@@ -7,7 +7,6 @@ import com.enterprise.ai.control.aicoding.persistence.AiCodingTaskEntity;
 import com.enterprise.ai.control.aicoding.persistence.AiCodingTaskMapper;
 import com.enterprise.ai.control.managed.ControlManagedExecutionRuntimeClient;
 import com.enterprise.ai.control.managed.ControlManagedExecutionRuntimeClient.ApprovalDecisionRequest;
-import com.enterprise.ai.control.managed.ControlManagedExecutionRuntimeClient.ApprovalDecisionView;
 import com.enterprise.ai.control.managed.ControlManagedExecutionRuntimeClient.ApprovalView;
 import com.enterprise.ai.control.managed.ControlManagedExecutionRuntimeClient.ArtifactContent;
 import com.enterprise.ai.control.managed.ControlManagedExecutionRuntimeClient.ArtifactView;

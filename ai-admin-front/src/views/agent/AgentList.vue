@@ -129,6 +129,16 @@
               {{ configStatusLabel(agent) }}
             </el-tag>
             <el-tag size="small" effect="plain">{{ agent.workflowToolCount || 0 }} 个 Workflow</el-tag>
+            <el-tag
+              v-if="agent.staleWorkflowToolCount"
+              size="small"
+              type="warning"
+              effect="light"
+              class="workflow-update-tag"
+              :title="staleWorkflowTitle(agent)"
+            >
+              有 Workflow 新版本
+            </el-tag>
           </div>
 
           <div class="agent-card-footer" @click.stop>
@@ -185,6 +195,16 @@
                 {{ configStatusLabel(row) }}
               </el-tag>
               <small class="config-tool-count">{{ row.workflowToolCount || 0 }} 个可调用 Workflow</small>
+              <el-tag
+                v-if="row.staleWorkflowToolCount"
+                size="small"
+                type="warning"
+                effect="light"
+                class="workflow-update-tag"
+                :title="staleWorkflowTitle(row)"
+              >
+                有 Workflow 新版本
+              </el-tag>
             </template>
           </el-table-column>
           <el-table-column prop="enabled" label="状态" width="86" align="center">
@@ -615,6 +635,10 @@ function configStatusType(status?: string | null) {
   if (status === 'ACTIVE') return 'success'
   if (status === 'DRAFT') return 'warning'
   return 'info'
+}
+
+function staleWorkflowTitle(agent: Agent) {
+  return `${agent.staleWorkflowToolCount} 个 Workflow 已发布新版本，线上配置仍在使用旧版本；重新发布 Agent 后生效`
 }
 
 function configStatusLabel(agent: Agent) {
@@ -1334,6 +1358,10 @@ watch(isAgentHeaderCollapsed, () => {
   margin-top: 4px;
   color: var(--text-muted);
   font-size: 11px;
+}
+
+.config-tool-count + .workflow-update-tag {
+  margin-top: 4px;
 }
 
 .agent-card-grid {

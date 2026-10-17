@@ -40,8 +40,4 @@ public class ModelCatalogSyncProperties {
     public ZoneId resolvedZoneId() {
         return ZoneId.of(zoneId);
     }
-
-    public boolean analyzerConfigured() {
-        return analyzerModelInstanceId != null && !analyzerModelInstanceId.isBlank();
-    }
 }

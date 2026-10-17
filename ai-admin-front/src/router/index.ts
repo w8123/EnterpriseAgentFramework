@@ -9,6 +9,7 @@ import {
   PLATFORM_PERMISSION_AUTOMATION_READ,
   PLATFORM_PERMISSION_BUSINESS_USER_READ,
   PLATFORM_PERMISSION_MEMORY_ERASURE_MANAGE,
+  PLATFORM_PERMISSION_RUNTIME_USER_MAPPING_MANAGE,
   PLATFORM_PERMISSION_READ,
   PLATFORM_PERMISSION_RUNOPS_READ,
   PLATFORM_PERMISSION_WORKFLOW_READ,
@@ -549,6 +550,16 @@ export const routes: RouteRecordRaw[] = [
         meta: { title: '我的记忆', layoutMode: 'standard' },
       },
       {
+        path: 'settings/runtime-user-mappings',
+        name: 'RuntimeUserMapping',
+        component: () => import('@/views/settings/RuntimeUserMapping.vue'),
+        meta: {
+          title: '运行时用户映射',
+          layoutMode: 'standard',
+          requiredPermissions: [PLATFORM_PERMISSION_RUNTIME_USER_MAPPING_MANAGE],
+        },
+      },
+      {
         path: 'settings/memory-erasure',
         name: 'MemoryErasure',
         component: () => import('@/views/settings/MemoryErasure.vue'),
@@ -593,14 +604,6 @@ export const routes: RouteRecordRaw[] = [
         name: 'ToolAclList',
         component: () => import('@/views/settings/ToolAclList.vue'),
         meta: { title: '调用权限', layoutMode: 'standard' },
-      },
-
-      // ── 上下文治理 ──
-      {
-        path: 'context/governance',
-        name: 'ContextGovernance',
-        component: () => import('@/views/context/ContextGovernance.vue'),
-        meta: { title: '上下文治理', layoutMode: 'standard' },
       },
     ],
   },

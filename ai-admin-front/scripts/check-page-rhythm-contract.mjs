@@ -155,7 +155,7 @@ const STANDARD_PAGE_FILES = new Set([
   'src/views/settings/ToolAclList.vue',
   'src/views/settings/PersonalMemory.vue',
   'src/views/settings/MemoryErasure.vue',
-  'src/views/context/ContextGovernance.vue',
+  'src/views/settings/RuntimeUserMapping.vue',
 ])
 
 const PROJECT_WORKBENCH_PAGE_FILES = new Set([

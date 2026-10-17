@@ -21,6 +21,18 @@ class BusinessResponseEnvelopeTest {
     }
 
     @Test
+    void acceptsZeroSuccessCodeUsedByYudaoStyleEnvelopes() {
+        assertTrue(BusinessResponseEnvelope.failure(Map.of("code", 0, "msg", "", "data", Map.of("total", 0))).isEmpty());
+        assertTrue(BusinessResponseEnvelope.failure(Map.of("code", "0")).isEmpty());
+
+        BusinessResponseEnvelope.Failure failure = BusinessResponseEnvelope.failure(Map.of(
+                        "code", 1_002_000_000, "msg", "账号不存在"))
+                .orElseThrow();
+        assertEquals("1002000000", failure.businessCode());
+        assertEquals("查询失败：账号不存在", failure.message());
+    }
+
+    @Test
     void rejectsNon200BusinessCodeWithClearQueryFailureMessage() {
         BusinessResponseEnvelope.Failure failure = BusinessResponseEnvelope.failure(Map.of(
                         "code", "500",

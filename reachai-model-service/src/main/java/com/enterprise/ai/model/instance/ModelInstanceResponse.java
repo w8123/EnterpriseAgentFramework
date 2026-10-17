@@ -16,6 +16,9 @@ public class ModelInstanceResponse {
     private String modelName;
     private String protocol;
     private String projectCode;
+    /** 引用的厂商账号；为空表示连接配置由实例自己保存 */
+    private String providerAccountId;
+    private String providerAccountName;
     /** 脱敏后的连接配置 */
     private Map<String, Object> connection;
     private Map<String, Object> defaultOptions;

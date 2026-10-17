@@ -47,10 +47,6 @@ const BUSINESS_METHOD_CATALOG_PROJECTION_FIELDS = new Set([
   'frontendHash', 'definitionId', 'projectionId', 'toolDefinitionId',
 ])
 
-function outputLocation(location: unknown) {
-  return OUTPUT_LOCATIONS.has(String(location || '').trim().toUpperCase())
-}
-
 function hasOwn(value: Record<string, unknown>, key: string) {
   return Object.prototype.hasOwnProperty.call(value, key)
 }

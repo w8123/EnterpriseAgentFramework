@@ -326,6 +326,26 @@ describe('AgentList project scope integration', () => {
     expect(mounted.wrapper.find('.filter-bar-stub').exists()).toBe(true)
   })
 
+  it('marks Agents whose published config still runs an older Workflow version', async () => {
+    const projectB = createProject(2, 'project-b')
+    authenticate(['project-b'])
+    mocks.getScanProjects.mockResolvedValue({ data: [projectB] })
+    mocks.listAgents.mockResolvedValue({ data: [
+      { ...createAgent('agent-stale', 2, 'project-b'), staleWorkflowToolCount: 2 },
+      { ...createAgent('agent-current', 2, 'project-b'), staleWorkflowToolCount: 0 },
+    ] })
+    mocks.getAgentStatistics.mockResolvedValue({ data: createStatistics(2) })
+
+    const mounted = await mountAgentList('/agent?projectId=2')
+    ;(mounted.agentWrapper.vm as unknown as { viewMode: string }).viewMode = 'card'
+    await settleAgentList()
+
+    const tags = mounted.wrapper.findAll('.workflow-update-tag')
+    expect(tags).toHaveLength(1)
+    expect(tags[0].text()).toBe('有 Workflow 新版本')
+    expect(tags[0].attributes('title')).toContain('2 个 Workflow 已发布新版本')
+  })
+
   it('does not request agent data while the address is unresolved or blocked', async () => {
     const projectA = createProject(1, 'project-a')
     authenticate(['project-a'])

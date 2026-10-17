@@ -4,7 +4,6 @@ import com.enterprise.ai.control.a2a.application.port.A2aAgentCardGenerator;
 import com.enterprise.ai.control.a2a.domain.A2aAuthenticationMethod;
 import com.enterprise.ai.control.a2a.domain.A2aDomainException;
 import com.enterprise.ai.control.a2a.domain.publication.A2aAgentCardSnapshot;
-import com.enterprise.ai.control.a2a.domain.publication.A2aProtocolSkill;
 import com.enterprise.ai.control.a2a.domain.trust.A2aTrustProfile;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.core.JsonProcessingException;

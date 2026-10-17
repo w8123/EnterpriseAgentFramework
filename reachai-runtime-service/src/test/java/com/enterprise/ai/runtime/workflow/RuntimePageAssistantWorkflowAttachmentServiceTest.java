@@ -1,6 +1,5 @@
 package com.enterprise.ai.runtime.workflow;
 
-import com.enterprise.ai.runtime.workflow.RuntimeWorkflowAgentAttachmentPort;
 
 import com.enterprise.ai.runtime.workflow.aicoding.AiCodingAttachmentException;
 import com.enterprise.ai.runtime.internal.RuntimeAgentSupervisorWorkflowAttachmentService;

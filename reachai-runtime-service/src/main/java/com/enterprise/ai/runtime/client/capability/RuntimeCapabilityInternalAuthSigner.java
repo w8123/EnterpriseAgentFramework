@@ -35,15 +35,6 @@ public class RuntimeCapabilityInternalAuthSigner {
         this.serviceSecret = serviceSecret == null ? "" : serviceSecret.trim();
     }
 
-    public Map<String, String> signToolExecute(String qualifiedName,
-                                               String identitySource,
-                                               String identityTenantId,
-                                               String identityUserId,
-                                               byte[] exactBody) {
-        return sign(toolExecutePath(qualifiedName), identitySource,
-                identityTenantId, identityUserId, exactBody);
-    }
-
     public Map<String, String> signInvocation(String identitySource,
                                               String identityTenantId,
                                               String identityUserId,

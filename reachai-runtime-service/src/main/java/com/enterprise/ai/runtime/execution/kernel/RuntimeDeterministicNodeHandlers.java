@@ -241,8 +241,11 @@ final class RuntimeDeterministicNodeHandlers {
             // The editor defaults fields to input.message. Published callers already bind
             // named JSON values under params; do not replace objects, false/0 or null with text.
             // Explicit author-selected sources still resolve normally below.
+            // input.<name> names that same caller-bound value (Studio trial, Workflow-as-Tool), so
+            // keep it rather than falling back to the raw message text.
+            String source = field.source() == null ? "" : field.source().trim();
             if (existing != null && existing.containsKey(field.name())
-                    && "input.message".equals(field.source().trim())) {
+                    && ("input.message".equals(source) || ("input." + field.name()).equals(source))) {
                 continue;
             }
             Object value = resolveUserInputFieldValue(field, context, rawInput);

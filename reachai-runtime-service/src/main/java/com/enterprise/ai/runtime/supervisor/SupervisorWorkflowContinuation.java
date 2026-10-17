@@ -9,6 +9,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import static com.enterprise.ai.common.util.Texts.firstText;
+
 /** 已验证的 Workflow 续跑顺序；数值字段不能通过截断或溢出变为合法位置。 */
 record SupervisorWorkflowContinuation(List<String> plannedWorkflowToolNames,
                                       int plannedWorkflowCursor,
@@ -98,11 +100,6 @@ record SupervisorWorkflowContinuation(List<String> plannedWorkflowToolNames,
         }
         String text = String.valueOf(value).trim();
         return text.isEmpty() || "null".equalsIgnoreCase(text) ? null : text;
-    }
-
-    private static String firstText(String... values) {
-        for (String value : values) if (StringUtils.hasText(value)) return value.trim();
-        return null;
     }
 
     private static int integer(Object value, String message) {

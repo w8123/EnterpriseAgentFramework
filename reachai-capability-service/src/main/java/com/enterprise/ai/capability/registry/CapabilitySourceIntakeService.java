@@ -440,19 +440,6 @@ public class CapabilitySourceIntakeService {
                 .replaceAll("_+", "_");
     }
 
-    private String firstText(String... values) {
-        String fallback = null;
-        for (String value : values) {
-            if (value != null) {
-                fallback = value;
-            }
-            if (StringUtils.hasText(value)) {
-                return value.trim();
-            }
-        }
-        return fallback;
-    }
-
     private String defaultString(String value, String fallback) {
         return StringUtils.hasText(value) ? value.trim() : fallback;
     }

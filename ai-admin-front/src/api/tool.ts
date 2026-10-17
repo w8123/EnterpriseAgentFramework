@@ -12,10 +12,6 @@ export function getTools(params?: ToolListQuery) {
   return controlRequest.get<ToolPageResult>('/api/tools', { params })
 }
 
-export function getTool(name: string) {
-  return controlRequest.get<ToolInfo>(`/api/tools/${encodeURIComponent(name)}`)
-}
-
 export async function listAllTools(
   params: ToolListQuery = {},
   maxPages = TOOL_SELECTOR_MAX_PAGES,

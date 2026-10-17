@@ -52,7 +52,8 @@ class ModelInstanceTestServiceTest {
         client = mock(OpenAiCompatibleRuntimeClient.class);
         cipher = new CredentialCipher("unit-test-secret-for-model-center");
         instanceService = new ModelInstanceService(mapper, mock(ModelTemplateService.class), new ObjectMapper(), cipher,
-                new ModelInstanceRuntimeCache(ModelInstanceRuntimeCache.DEFAULT_TTL_MS));
+                new ModelInstanceRuntimeCache(ModelInstanceRuntimeCache.DEFAULT_TTL_MS),
+                mock(com.enterprise.ai.model.account.ModelProviderAccountMapper.class));
         testService = new ModelInstanceTestService(instanceService, client);
         when(mapper.selectCount(any())).thenReturn(0L);
     }

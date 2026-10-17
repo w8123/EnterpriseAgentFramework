@@ -210,8 +210,4 @@ export function isBlockingUiRequest(raw: unknown): boolean {
 
 export const WORKFLOW_INITIAL_INPUT_INTERACTION_ID = 'local:workflow-initial-input'
 
-export function workflowInitialInputInteractionId(): string {
-  return WORKFLOW_INITIAL_INPUT_INTERACTION_ID
-}
-
 export { COMPONENT_ALIASES, READONLY_COMPONENTS }

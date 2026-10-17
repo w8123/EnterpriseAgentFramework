@@ -36,6 +36,19 @@ class ConsoleBusinessMethodInputValidatorTest {
     }
 
     @Test
+    void plainNumericAndBooleanTextFromWorkflowNodesBindLikeJacksonButLooserTextFails() {
+        ToolDefinitionEntity typed = tool("[{\"name\":\"productId\",\"type\":\"Long\",\"required\":true,"
+                + "\"metadata\":{\"minimum\":1}},{\"name\":\"enabled\",\"type\":\"boolean\",\"required\":false}]");
+        assertDoesNotThrow(() -> ConsoleBusinessMethodInputValidator.validate(typed, Map.of("productId", "1", "enabled", "true")));
+        for (Object bad : List.of("1.5", "0", "1e3", " 1", "0x1", "")) {
+            assertThrows(ConsoleBusinessMethodInputValidator.InvalidInputException.class,
+                    () -> ConsoleBusinessMethodInputValidator.validate(typed, Map.of("productId", bad)), String.valueOf(bad));
+        }
+        assertThrows(ConsoleBusinessMethodInputValidator.InvalidInputException.class,
+                () -> ConsoleBusinessMethodInputValidator.validate(typed, Map.of("productId", 1, "enabled", "yes")));
+    }
+
+    @Test
     void mapAndArrayShapesAreValidatedWithoutPretendingUnknownShapeIsClosed() {
         ToolDefinitionEntity map = tool("[{\"name\":\"attributes\",\"type\":\"object\",\"required\":true,"
                 + "\"metadata\":{\"openObject\":true}}]");

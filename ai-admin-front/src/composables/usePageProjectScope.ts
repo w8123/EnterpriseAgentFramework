@@ -29,11 +29,9 @@ import {
   type ProjectScopeCatalogProject,
   type ProjectScopeProjectIdentity,
   type ProjectScopeQueryReference,
-  type ProjectScopeRequestIdentity,
   type ResolvedProjectScope,
   type ResolvedProjectScopeSuccess,
 } from '@/utils/projectScope'
-
 export interface ProjectScopeRouteConfig {
   permission: string
   resourceLabel: string
@@ -86,8 +84,6 @@ export interface PageProjectScopeController {
 }
 
 export const pageProjectScopeKey: InjectionKey<PageProjectScopeController> = Symbol('page-project-scope')
-export const PAGE_PROJECT_SCOPE_KEY = pageProjectScopeKey
-
 const NO_SCOPE_LABEL = '范围未确认'
 const ALL_SCOPE_VALUE: PageProjectScopeSelection = 'all'
 

@@ -76,7 +76,8 @@ These rows remain in the ownership matrix because the current baseline still rec
 | `control_managed_execution_inbox` | `reachai-control-service` | - | Idempotent Runtime event receipt and Control-side Managed Execution projection state |
 | `runtime_run` | `reachai-runtime-service` | - | RunOps root execution fact used by lists, KPIs, diagnostics, and replay |
 | `runtime_console_capability_invocation` | `reachai-runtime-service` | - | Typed Console BUSINESS_METHOD / HTTP_API trial-call idempotency, safe result retention, and UNKNOWN recovery record |
-| `runtime_http_api_connection` | `reachai-runtime-service` | - | Revisioned project/environment API origin, auth mode, and PROJECT credential reference; no secret material |
+| `runtime_http_api_connection` | `reachai-runtime-service` | - | Revisioned per-API override of the project default connection (origin, auth mode, PROJECT credential reference, `override_active`); no secret material |
+| `runtime_http_api_project_connection` | `reachai-runtime-service` | - | Revisioned project + environment default HTTP API connection inherited by every API without an active override (D27); no secret material |
 | `runtime_workflow_http_api_pin` | `reachai-runtime-service` | - | Immutable Workflow API release pin for owner contract and connection/credential revisions; no origin or secret |
 | `runtime_internal_auth_nonce` | `reachai-runtime-service` | - | Control→Runtime HMAC nonce anti-replay store (multi-instance safe) |
 | `runtime_conversation_session` | `reachai-runtime-service` | - | Trusted tenant/user/Agent session ownership, turn/lifecycle leases, Legal Hold, and retention state machine |
@@ -93,6 +94,7 @@ These rows remain in the ownership matrix because the current baseline still rec
 | `runtime_agent_remote_agent_binding` | `reachai-runtime-service` | - | Exact remote Agent revision delegated by a published Agent configuration; Runtime validates through Control internal API |
 | `model_template` | `reachai-model-service` | - | Model Center V2 catalog templates (no secrets) |
 | `model_instance` | `reachai-model-service` | - | Model Center V2 executable instances (stable modelInstanceId) |
+| `model_provider_account` | `reachai-model-service` | - | Provider base URL and API key stored once and referenced by model instances |
 | `model_catalog_source` | `reachai-model-service` | - | Official provider source metadata and safe fetch policy; no credentials |
 | `model_catalog_setting` | `reachai-model-service` | - | Singleton automatic-sync setting; defaults to manual-only mode |
 | `model_catalog_sync_run` | `reachai-model-service` | - | One recoverable leased synchronization slot per source and business day |

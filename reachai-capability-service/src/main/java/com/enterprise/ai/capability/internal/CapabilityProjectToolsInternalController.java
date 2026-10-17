@@ -5,7 +5,6 @@ import com.enterprise.ai.capability.catalog.scan.CapabilityScanProjectCatalogSer
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
@@ -13,6 +12,8 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+
+import static com.enterprise.ai.common.util.Texts.firstText;
 
 @RestController
 @RequiredArgsConstructor
@@ -57,15 +58,4 @@ public class CapabilityProjectToolsInternalController {
         return body;
     }
 
-    private String firstText(String... values) {
-        if (values == null) {
-            return null;
-        }
-        for (String value : values) {
-            if (StringUtils.hasText(value)) {
-                return value.trim();
-            }
-        }
-        return null;
-    }
 }

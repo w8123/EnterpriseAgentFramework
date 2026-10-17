@@ -41,16 +41,6 @@ export function formatProjectScopeLabel(
   return normalized
 }
 
-export function formatGrantScopeSummary(
-  scopeType: string | undefined | null,
-  scopeValue: string | undefined | null,
-  projects: ScanProject[],
-): string {
-  const type = (scopeType || 'GLOBAL').toUpperCase()
-  if (type !== 'PROJECT') return '全部'
-  return formatProjectScopeLabel(scopeValue, projects)
-}
-
 /** 将 API 返回的多条项目授权合并为编辑行 */
 export function grantsToEditorRows(
   grants: PlatformUserRoleGrant[],

@@ -6,11 +6,12 @@ import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+
+import static com.enterprise.ai.common.util.Texts.firstText;
 
 /**
  * GraphSpec INTERACTION node pause/resume semantics.
@@ -462,18 +463,6 @@ public final class WorkflowInteractionNodeHandler {
 
     private static Object firstPresent(Object first, Object second) {
         return first != null ? first : second;
-    }
-
-    private static String firstText(String... values) {
-        if (values == null) {
-            return null;
-        }
-        for (String value : values) {
-            if (StringUtils.hasText(value)) {
-                return value.trim();
-            }
-        }
-        return null;
     }
 
     private static String text(Object value) {

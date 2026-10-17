@@ -6,15 +6,14 @@ import {
   PLATFORM_PERMISSION_AUTOMATION_READ,
   PLATFORM_PERMISSION_BUSINESS_USER_READ,
   PLATFORM_PERMISSION_MEMORY_ERASURE_MANAGE,
+  PLATFORM_PERMISSION_RUNTIME_USER_MAPPING_MANAGE,
   PLATFORM_PERMISSION_READ,
   PLATFORM_PERMISSION_RUNOPS_READ,
-  PLATFORM_PERMISSION_WRITE,
   PLATFORM_PERMISSION_WORKFLOW_READ,
 } from '@/auth/platformAccess'
 import {
   Coin,
   Collection,
-  Compass,
   Connection,
   Cpu,
   DataAnalysis,
@@ -137,6 +136,11 @@ export const sidebarMenu: SidebarEntry[] = [
       },
       { index: '/settings/tool-acl', label: '调用权限' },
       {
+        index: '/settings/runtime-user-mappings',
+        label: '运行时用户映射',
+        requiredPermissions: [PLATFORM_PERMISSION_RUNTIME_USER_MAPPING_MANAGE],
+      },
+      {
         index: '/settings/memory-erasure',
         label: '跨域记忆擦除',
         requiredPermissions: [PLATFORM_PERMISSION_MEMORY_ERASURE_MANAGE],
@@ -156,15 +160,6 @@ export const sidebarMenu: SidebarEntry[] = [
   },
 
   { kind: 'group', label: '实验室' },
-  {
-    kind: 'item',
-    index: '/experimental-group',
-    label: '实验性能力',
-    icon: Compass,
-    children: [
-      { index: '/context/governance', label: '上下文治理' },
-    ],
-  },
   {
     kind: 'item',
     index: '/diagnostics-group',
@@ -241,13 +236,13 @@ export function resolveActiveMenu(path: string, metaActiveMenu?: unknown): strin
   if (path.startsWith('/settings/platform-users')) return '/settings/platform-users'
   if (path.startsWith('/settings/personal-memory')) return '/settings/personal-memory'
   if (path.startsWith('/settings/memory-erasure')) return '/settings/memory-erasure'
+  if (path.startsWith('/settings/runtime-user-mappings')) return '/settings/runtime-user-mappings'
   if (path.startsWith('/settings/business-users')) return '/settings/business-users'
   if (path.startsWith('/settings/auth-providers')) return '/settings/auth-providers'
   if (path.startsWith('/settings/tool-acl')) return '/settings/tool-acl'
   if (path.startsWith('/registry/projects')) return '/registry/projects'
   if (path.startsWith('/automations')) return '/automations'
   if (path.startsWith('/runops')) return '/runops'
-  if (path.startsWith('/context/governance')) return '/context/governance'
   if (path.startsWith('/mcp-hub')) return '/mcp-hub'
   if (path.startsWith('/a2a-hub')) return '/a2a-hub'
   return path
@@ -266,6 +261,7 @@ export function resolveOpenGroups(path: string): string[] {
     active === '/settings/platform-users'
     || active === '/settings/personal-memory'
     || active === '/settings/memory-erasure'
+    || active === '/settings/runtime-user-mappings'
     || active === '/settings/business-users'
     || active === '/settings/auth-providers'
     || active === '/settings/tool-acl'
@@ -285,10 +281,6 @@ export function resolveOpenGroups(path: string): string[] {
     open.push('/model-group')
   }
 
-
-  if (active === '/context/governance') {
-    open.push('/experimental-group')
-  }
 
   if (
     active === '/tool/retrieval'

@@ -554,8 +554,9 @@ final class RuntimeActionNodeHandlers {
             mapping = mapValue(config.get("args"));
         }
         if (mapping == null || mapping.isEmpty()) {
-            // PAGE_ACTION supports an explicit zero-argument contract serialized as args={ }.
-            if (config.containsKey("args")) return Map.of();
+            // An explicit empty inputMapping/args is a zero-argument contract (e.g. a parameterless business
+            // method). Only a node that declares neither keeps the legacy {input: lastOutput} fallback.
+            if (config.containsKey("args") || config.get("inputMapping") instanceof Map<?, ?>) return Map.of();
             String input = firstText(text(context.get("lastOutput")), text(context.get("input")));
             return Map.of("input", input == null ? "" : input);
         }

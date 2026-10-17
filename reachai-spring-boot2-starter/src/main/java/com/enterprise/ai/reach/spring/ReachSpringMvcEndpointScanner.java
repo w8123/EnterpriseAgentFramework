@@ -76,12 +76,29 @@ final class ReachSpringMvcEndpointScanner {
     }
 
     static List<ReachHttpApiDescriptor> scanClass(Class<?> type, List<HttpMessageConverter<?>> converters) {
+        return scanClass(type, converters, null);
+    }
+
+    /**
+     * @param pathPrefix the prefix Spring MVC itself adds to this controller through
+     *                   {@code PathMatchConfigurer#addPathPrefix} (for example yudao's {@code /admin-api});
+     *                   without it the reported route would not be callable.
+     */
+    static List<ReachHttpApiDescriptor> scanClass(Class<?> type, List<HttpMessageConverter<?>> converters,
+                                                  String pathPrefix) {
         if (type == null || !AnnotatedElementUtils.hasAnnotation(type, RestController.class)) {
             return Collections.emptyList();
         }
         RequestMapping classMapping = AnnotatedElementUtils.findMergedAnnotation(type, RequestMapping.class);
         RequestMappingInfo classInfo = mappingInfo(classMapping);
         List<String> classPaths = paths(classMapping);
+        if (StringUtils.hasText(pathPrefix)) {
+            List<String> prefixed = new ArrayList<String>();
+            for (String classPath : classPaths) {
+                prefixed.add(combinePath(pathPrefix, classPath));
+            }
+            classPaths = prefixed;
+        }
         List<ReachHttpApiDescriptor> descriptors = new ArrayList<ReachHttpApiDescriptor>();
         for (Method method : type.getDeclaredMethods()) {
             RequestMapping methodMapping = AnnotatedElementUtils.findMergedAnnotation(method, RequestMapping.class);

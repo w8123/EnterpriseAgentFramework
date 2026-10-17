@@ -44,6 +44,8 @@ export interface Agent {
   configStatus?: 'NONE' | 'DRAFT' | 'ACTIVE' | 'ARCHIVED' | string | null
   runtimeType?: string | null
   workflowToolCount?: number | null
+  /** Enabled Workflow tools in the ACTIVE config that are not on the Workflow's current published version. */
+  staleWorkflowToolCount?: number | null
   createdAt?: string | null
   updatedAt?: string | null
 }
@@ -206,23 +208,50 @@ export type WorkflowNodeDebugResult = AgentNodeDebugResult
 export type WorkflowDebugRunResult = AgentWorkflowDebugRunResult
 
 /** Explicit saved-draft read-only trial; ordinary debug does not gain this project-test authority. */
+/** Studio 整稿只读试运行（D28）：被拒绝时服务端返回的阻断节点 */
+export interface WorkflowReadOnlyTrialBlockedNode {
+  nodeId: string
+  nodeName: string
+  nodeType: string
+  reason: string
+}
+
+export interface WorkflowReadOnlyTrialTarget {
+  nodeId: string
+  nodeName: string
+  assetType: 'HTTP_API' | 'BUSINESS_METHOD'
+  qualifiedName: string
+  apiId: number
+}
+
+/** 按执行顺序的节点结果；output 为已截断、已脱敏的节点输出，失败或结果过期时为 null */
+export interface WorkflowReadOnlyTrialStep {
+  index: number
+  nodeId: string
+  nodeType: string
+  nodeName: string
+  status: string
+  elapsedMs: number
+  output: unknown | null
+  errorCode: string | null
+  errorMessage: string | null
+}
+
 export interface WorkflowReadOnlyTrialResult {
   success: boolean
   status: string
-  runId: string
-  traceId: string
+  runId: string | null
+  traceId: string | null
   workflowId: string
   revision: string
-  apiId: number
-  assetType?: 'HTTP_API' | 'BUSINESS_METHOD'
-  methodName?: string | null
-  methodOutput?: unknown | null
-  qualifiedName: string
-  environment: string | null
-  apiOutput: unknown | null
+  answer: string | null
   variables: Record<string, unknown>
+  steps: WorkflowReadOnlyTrialStep[]
+  targets: WorkflowReadOnlyTrialTarget[]
   elapsedMs: number
   errorCode: string | null
+  failedNodeId: string | null
+  failedNodeName: string | null
   errorMessage: string | null
 }
 export type WorkflowDebugStepResult = AgentWorkflowDebugStepResult

@@ -18,10 +18,10 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.net.http.HttpTimeoutException;
-import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+import static com.enterprise.ai.common.util.Texts.firstText;
 import static com.enterprise.ai.common.internalauth.InternalServiceAuthHeaders.IDENTITY_SOURCE_MCP_REMOTE_CLIENT;
 
 /**
@@ -239,12 +239,4 @@ public class TrustedMcpRuntimeExecutionGateway implements McpRuntimeExecutionGat
         return text.isEmpty() ? null : text;
     }
 
-    private static String firstText(String... values) {
-        for (String value : values) {
-            if (value != null && !value.isBlank()) {
-                return value.trim();
-            }
-        }
-        return null;
-    }
 }

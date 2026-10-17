@@ -9,6 +9,8 @@ import com.enterprise.ai.runtime.agent.RuntimeAgentConfigViews.RemoteAgentBindin
 import com.enterprise.ai.runtime.agent.RuntimeAgentConfigViews.RemoteAgentBindingView;
 import com.enterprise.ai.runtime.agent.RuntimeAgentConfigViews.WorkflowToolRequest;
 import com.enterprise.ai.runtime.agent.RuntimeAgentConfigViews.WorkflowToolView;
+import com.enterprise.ai.runtime.agent.RuntimeAgentWorkflowFreshnessViews.PublishLatestWorkflowsResult;
+import com.enterprise.ai.runtime.agent.RuntimeAgentWorkflowFreshnessViews.WorkflowPinFreshness;
 import com.enterprise.ai.runtime.agent.RuntimeAgentEntity;
 import com.enterprise.ai.runtime.agent.RuntimeAgentMapper;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowToolCatalogQuery;
@@ -244,6 +246,83 @@ public class RuntimeAgentConfigService {
 
     public record WorkflowAttachmentPublication(AgentConfigVersionView config, boolean reused) { }
 
+    /**
+     * Publishes a copy of the ACTIVE configuration whose enabled Workflow tools
+     * move to their current published versions. Everything else (prompt, model,
+     * Skills, A2A bindings, unrelated pins and the editable DRAFT) is preserved.
+     * The caller must name the ACTIVE configuration it reviewed so a concurrent
+     * publish is never silently overwritten.
+     */
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public PublishLatestWorkflowsResult publishLatestWorkflowVersions(
+            String agentId, Long expectedActiveConfigVersionId, String publishedBy) {
+        RuntimeAgentEntity agent = requireLockedAgent(agentId);
+        if (expectedActiveConfigVersionId == null) {
+            throw new IllegalArgumentException("expectedActiveConfigVersionId is required");
+        }
+        RuntimeAgentConfigVersionEntity active = resolveActive(agentId).orElse(null);
+        if (active == null || !expectedActiveConfigVersionId.equals(active.getId())) {
+            throw new RuntimeAgentConfigConflictException(
+                    "Agent 的线上配置已变化，请刷新后再更新 Workflow 版本");
+        }
+        List<RuntimeAgentWorkflowToolEntity> activeTools = snapshotTools(agentId, active.getId()).stream()
+                .filter(tool -> Boolean.TRUE.equals(tool.getEnabled()))
+                .toList();
+        Map<String, Entry> current = workflowCatalog.current(activeTools.stream()
+                .map(RuntimeAgentWorkflowToolEntity::getWorkflowId).toList());
+        Map<String, Entry> staleTargets = new LinkedHashMap<>();
+        for (RuntimeAgentWorkflowToolEntity tool : activeTools) {
+            Entry latest = current.get(tool.getWorkflowId());
+            if (RuntimeAgentWorkflowFreshnessViews.isStale(tool.getWorkflowVersionId(), latest)) {
+                staleTargets.put(tool.getWorkflowId(), latest);
+            }
+        }
+        if (staleTargets.isEmpty()) {
+            return new PublishLatestWorkflowsResult(false, toView(active), List.of());
+        }
+        Map<Reference, Entry> pinned = workflowCatalog.pinned(activeTools.stream()
+                .filter(tool -> staleTargets.containsKey(tool.getWorkflowId()))
+                .map(tool -> new Reference(tool.getWorkflowId(), tool.getWorkflowVersionId())).toList());
+
+        RuntimeAgentConfigVersionEntity candidate = new RuntimeAgentConfigVersionEntity();
+        candidate.setAgentId(agentId);
+        candidate.setVersionNo(nextVersionNo(agentId));
+        candidate.setStatus("DRAFT");
+        copyConfiguration(active, candidate);
+        applyDefaults(candidate);
+        validatePublishable(candidate);
+        candidate.setCreatedAt(LocalDateTime.now());
+        candidate.setUpdatedAt(candidate.getCreatedAt());
+        configMapper.insert(candidate);
+        copyActiveToolsIfNeeded(agentId, candidate.getId(), null);
+        copyActiveSkillsIfNeeded(agentId, candidate.getId(), null);
+        copyActiveRemoteAgentsIfNeeded(agentId, candidate.getId(), null);
+
+        List<WorkflowPinFreshness> updated = new ArrayList<>();
+        for (RuntimeAgentWorkflowToolEntity copy : snapshotTools(agentId, candidate.getId())) {
+            Entry latest = staleTargets.get(copy.getWorkflowId());
+            if (latest == null || !Boolean.TRUE.equals(copy.getEnabled())) continue;
+            assertApiRisk(latest.version().httpApiRiskFloor(), firstText(copy.getRiskLevel(), "READ"), copy.getReadOnly());
+            Entry before = pinned.get(new Reference(copy.getWorkflowId(), copy.getWorkflowVersionId()));
+            updated.add(new WorkflowPinFreshness(
+                    copy.getWorkflowId(),
+                    latest.workflow().keySlug(),
+                    latest.workflow().name(),
+                    copy.getToolName(),
+                    copy.getWorkflowVersionId(),
+                    before == null || before.version() == null ? null : before.version().version(),
+                    latest.version().id(),
+                    latest.version().version(),
+                    true));
+            copy.setWorkflowVersionId(latest.version().id());
+            copy.setUpdatedAt(LocalDateTime.now());
+            toolMapper.updateById(copy);
+        }
+        validateUniqueToolNames(candidate);
+        AgentConfigVersionView published = publishPrepared(agent, candidate, publishedBy, false);
+        return new PublishLatestWorkflowsResult(true, published, List.copyOf(updated));
+    }
+
     private AgentConfigVersionView publishPrepared(RuntimeAgentEntity agent, RuntimeAgentConfigVersionEntity target,
                                                    String publishedBy, boolean refreshAllWorkflowPins) {
         String agentId = agent.getId();
@@ -365,19 +444,6 @@ public class RuntimeAgentConfigService {
         return toToolViews(rows);
     }
 
-    public List<RuntimeAgentSkillBindingEntity> resolveSkills(String agentId,
-                                                               RuntimeAgentConfigVersionEntity config) {
-        if (config == null || config.getId() == null || !agentId.equals(config.getAgentId())) {
-            return List.of();
-        }
-        return skillBindingMapper.selectList(Wrappers.<RuntimeAgentSkillBindingEntity>lambdaQuery()
-                .eq(RuntimeAgentSkillBindingEntity::getAgentId, agentId)
-                .eq(RuntimeAgentSkillBindingEntity::getAgentConfigVersionId, config.getId())
-                .eq(RuntimeAgentSkillBindingEntity::getEnabled, true)
-                .orderByAsc(RuntimeAgentSkillBindingEntity::getPriority)
-                .orderByAsc(RuntimeAgentSkillBindingEntity::getId));
-    }
-
     public List<SkillBindingView> listSkills(String agentId, Long configVersionId) {
         requireVersion(agentId, configVersionId);
         return skillBindingMapper.selectList(Wrappers.<RuntimeAgentSkillBindingEntity>lambdaQuery()
@@ -388,20 +454,6 @@ public class RuntimeAgentConfigService {
                 .stream()
                 .map(this::toView)
                 .toList();
-    }
-
-    public List<RuntimeAgentRemoteBindingEntity> resolveRemoteAgentBindings(
-            String agentId, RuntimeAgentConfigVersionEntity config) {
-        if (config == null || config.getId() == null || !agentId.equals(config.getAgentId())) {
-            return List.of();
-        }
-        return remoteAgentBindingMapper.selectList(
-                Wrappers.<RuntimeAgentRemoteBindingEntity>lambdaQuery()
-                        .eq(RuntimeAgentRemoteBindingEntity::getAgentId, agentId)
-                        .eq(RuntimeAgentRemoteBindingEntity::getAgentConfigVersionId, config.getId())
-                        .eq(RuntimeAgentRemoteBindingEntity::getEnabled, true)
-                        .orderByAsc(RuntimeAgentRemoteBindingEntity::getPriority)
-                        .orderByAsc(RuntimeAgentRemoteBindingEntity::getId));
     }
 
     public List<RemoteAgentBindingView> listRemoteAgentBindings(
@@ -1124,10 +1176,10 @@ public class RuntimeAgentConfigService {
             throw new IllegalArgumentException("Supervisor runtimeType must be AGENTSCOPE");
         }
         if (!StringUtils.hasText(target.getSystemPrompt())) {
-            throw new IllegalArgumentException("Agent systemPrompt is required before publish");
+            throw new IllegalArgumentException("发布前请先填写 Agent 的系统提示词");
         }
         if (!StringUtils.hasText(target.getModelInstanceId())) {
-            throw new IllegalArgumentException("Agent modelInstanceId is required before publish");
+            throw new IllegalArgumentException("发布前请先为 Agent 选择模型");
         }
         if (!"ALLOW_LIST".equalsIgnoreCase(target.getToolCatalogMode())) {
             throw new IllegalArgumentException("Agent toolCatalogMode must be ALLOW_LIST");

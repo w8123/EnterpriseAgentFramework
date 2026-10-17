@@ -267,11 +267,61 @@
         <p v-if="connectionError" class="api-warning" role="alert">{{ connectionError }}
           <el-button link type="primary" @click="load">刷新连接</el-button></p>
         <div class="api-facts" v-if="connection?.revision">
+          <div><span>生效来源</span><strong>
+            <el-tag size="small" effect="light" :type="connectionInherited ? 'info' : 'primary'">{{ connectionInherited ? '继承项目默认连接' : '本 API 覆盖连接' }}</el-tag>
+          </strong></div>
           <div><span>当前服务地址</span><strong>{{ connection.origin }}</strong></div>
           <div><span>当前凭据</span><strong>{{ connection.credentialName || '不使用凭据' }}</strong></div>
           <div><span>预览地址</span><strong>{{ connection.previewUrl }}</strong></div>
           <div><span>连接修订</span><strong>{{ connection.revision }}</strong></div>
         </div>
+
+        <div v-if="connection?.projectDefault" class="api-connection-scope" aria-labelledby="api-project-connection-heading">
+          <div class="api-connection-scope-head">
+            <h3 id="api-project-connection-heading">项目默认连接（本项目所有 API 共用）</h3>
+            <el-tag size="small" effect="light" :type="projectDefaultTone">{{ projectDefaultStatusLabel }}</el-tag>
+          </div>
+          <p class="api-muted">{{ detail.summary.projectCode }} · {{ detail.summary.environment }} 内未单独覆盖的 API 自动继承此连接；修改后，继承它的 API 需按新修订重新试调用或发布。</p>
+          <p v-if="connection.projectDefault.blockingReason && connection.projectDefault.status === 'BLOCKED'" class="api-warning" role="status">{{ connection.projectDefault.blockingReason }}</p>
+          <p v-if="projectDefaultError" class="api-warning" role="alert">{{ projectDefaultError }}
+            <el-button link type="primary" @click="load">刷新连接</el-button></p>
+          <el-form novalidate label-position="top" class="api-form" @submit.prevent="saveProjectDefault">
+            <el-form-item label="项目默认服务地址" :error="projectDefaultFieldError">
+              <el-input v-model="defaultOriginDraft" placeholder="https://gateway.example.com" :disabled="!canWrite" aria-label="项目默认服务地址" />
+            </el-form-item>
+            <el-form-item label="项目默认认证方式">
+              <el-select v-model="defaultAuthModeDraft" placeholder="明确选择认证方式" :disabled="!canWrite" aria-label="项目默认认证方式">
+                <el-option v-for="mode in projectDefaultModes" :key="mode" :value="mode" :label="authModeLabel(mode)" />
+              </el-select>
+            </el-form-item>
+            <el-form-item v-if="defaultAuthModeDraft && defaultAuthModeDraft !== 'NONE'" label="项目默认凭据">
+              <div class="api-credential-row">
+                <el-select v-model="defaultCredentialDraft" filterable clearable placeholder="选择项目默认使用的活动凭据"
+                  :loading="credentialsLoading" :disabled="!canWrite || credentialsLoading || !!credentialsError" aria-label="项目默认凭据">
+                  <el-option v-for="item in eligibleDefaultCredentials" :key="item.credentialRef"
+                    :label="`${item.name} / ${item.type}`" :value="item.credentialRef" />
+                </el-select>
+                <el-button v-if="canManageCredential" native-type="button" :disabled="credentialsLoading" @click="openCredentialDialog('default')">新建项目凭据</el-button>
+              </div>
+              <p v-if="credentialsError" class="api-warning" role="alert">{{ credentialsError }} <el-button link @click="loadCredentials()">重读项目凭据</el-button></p>
+            </el-form-item>
+            <div class="api-form-actions"><el-button type="primary" native-type="submit" :loading="savingDefault"
+              :disabled="!canWrite || !connection.projectDefault.configurationAllowed || savingDefault || (defaultAuthModeDraft !== 'NONE' && (credentialsLoading || !!credentialsError || !credentialsLoaded))">保存项目默认连接</el-button>
+              <span v-if="!canWrite">当前账号缺少项目写入权限。</span>
+              <span v-else-if="connection.projectDefault.revision">项目默认修订 {{ connection.projectDefault.revision }}</span>
+            </div>
+          </el-form>
+        </div>
+
+        <div class="api-connection-scope" aria-labelledby="api-override-connection-heading">
+          <div class="api-connection-scope-head">
+            <h3 id="api-override-connection-heading">本 API 覆盖连接（可选）</h3>
+            <el-tag v-if="connection?.projectDefault" size="small" effect="light" :type="overrideActive ? 'primary' : 'info'">{{ overrideActive ? '覆盖生效中' : '未覆盖' }}</el-tag>
+          </div>
+          <p v-if="connection?.projectDefault" class="api-muted">{{ overrideActive
+            ? '本 API 使用以下覆盖连接，优先于项目默认连接；移除后恢复继承。'
+            : '未覆盖时继承项目默认连接。仅当本 API 需要不同的服务地址或凭据时保存覆盖。' }}</p>
+          <p v-if="overrideError" class="api-warning" role="alert">{{ overrideError }}</p>
         <el-form novalidate label-position="top" class="api-form" @submit.prevent="saveConnection">
           <el-form-item label="服务地址" :error="connectionFieldError">
             <el-input v-model="originDraft" placeholder="https://orders.example.com:8443" :disabled="!canWrite" />
@@ -288,21 +338,24 @@
                 <el-option v-for="item in eligibleCredentials" :key="item.credentialRef"
                   :label="`${item.name} / ${item.type}`" :value="item.credentialRef" />
               </el-select>
-              <el-button v-if="canManageCredential" native-type="button" :disabled="credentialsLoading" @click="credentialDialog = true">新建项目凭据</el-button>
+              <el-button v-if="canManageCredential" native-type="button" :disabled="credentialsLoading" @click="openCredentialDialog('override')">新建项目凭据</el-button>
             </div>
             <p v-if="credentialsLoading" class="api-muted" role="status">正在读取项目凭据…</p>
             <p v-else-if="credentialsError" class="api-warning" role="alert">{{ credentialsError }} <el-button link @click="loadCredentials()">重读项目凭据</el-button></p>
             <p v-else-if="credentialsLoaded && !eligibleCredentials.length" class="api-muted">没有匹配的活动项目凭据；{{ canManageCredential ? '可在这里新建。' : '请联系有凭据管理权限的同事。' }}</p>
           </el-form-item>
           <div class="api-form-actions"><el-button type="primary" native-type="submit" :loading="saving"
-            :disabled="!canWrite || !sourceAccepted || !connectionConfigurationAllowed || saving || (authModeDraft !== 'NONE' && (credentialsLoading || !!credentialsError || !credentialsLoaded))">保存连接</el-button>
+            :disabled="!canWrite || !sourceAccepted || !connectionConfigurationAllowed || saving || (authModeDraft !== 'NONE' && (credentialsLoading || !!credentialsError || !credentialsLoaded))">{{ connection?.projectDefault ? '保存覆盖连接' : '保存连接' }}</el-button>
+            <el-button v-if="overrideActive && connection?.projectDefault" native-type="button" :loading="removingOverride"
+              :disabled="!canWrite || removingOverride || saving" @click="removeOverride">移除覆盖，改用项目默认</el-button>
             <span v-if="!canWrite">当前账号缺少项目写入权限。</span>
             <span v-else-if="!sourceAccepted">请先接纳当前来源契约。</span>
           </div>
         </el-form>
+        </div>
         <CredentialCreateDialog v-model="credentialDialog" project-only
           :project-id="detail.summary.projectId" :project-code="detail.summary.projectCode"
-          :allowed-types="['API_KEY_HEADER', 'BEARER']" :initial-type="authModeDraft === 'BEARER' ? 'BEARER' : 'API_KEY_HEADER'"
+          :allowed-types="['API_KEY_HEADER', 'BEARER']" :initial-type="credentialDialogMode === 'BEARER' ? 'BEARER' : 'API_KEY_HEADER'"
           :suggested-header="declaredHeader" @created="credentialCreated" />
       </section>
 
@@ -313,7 +366,7 @@
       <div class="api-confirmation">
         <p>这会实际写入所选环境，不是模拟或只读验证。</p>
         <p>{{ detail?.summary.projectCode }} · {{ detail?.summary.environment }} · {{ detail?.summary.httpMethod }} {{ detail?.summary.routeTemplate }}</p>
-        <p>目标：{{ connection?.previewUrl }}；项目凭据：{{ connection?.credentialName || '不使用凭据' }}。平台账号仅用于授权与审计，不提供业务用户身份。</p>
+        <p>目标：{{ connection?.previewUrl }}（{{ connectionInherited ? '继承项目默认连接' : '本 API 覆盖连接' }}）；项目凭据：{{ connection?.credentialName || '不使用凭据' }}。平台账号仅用于授权与审计，不提供业务用户身份。</p>
         <p>确认绑定当前契约、来源、连接修订及完整输入；平台不会自动重试或跟随重定向。</p>
       </div>
       <template #footer>
@@ -355,7 +408,8 @@ import { hasPlatformResourcePermission, PLATFORM_PERMISSION_WRITE, PLATFORM_PERM
 import { usePageProjectScope } from '@/composables/usePageProjectScope'
 import { listWorkflowCredentials } from '@/api/workflowCredential'
 import { acceptHttpApi, getHttpApi, getHttpApiConnection, getHttpApiInvocation,
-  getHttpApiReferences, invokeHttpApi, saveHttpApiConnection } from '@/api/httpApi'
+  getHttpApiReferences, invokeHttpApi, removeHttpApiConnectionOverride, saveHttpApiConnection,
+  saveHttpApiProjectDefaultConnection } from '@/api/httpApi'
 import type { AssetReferences } from '@/types/assetReferences'
 import { referenceKindLabel, referenceStage, usageRoute } from '@/views/capability/referenceUsage'
 import { buildHttpApiTrialParameters, canStartNewHttpApiAttempt, httpApiBodyParameters, httpApiSideEffectState, httpApiTrialFailure, validateHttpApiBody, isCurrentHttpApiEvidence } from './httpApiTrial'
@@ -410,6 +464,16 @@ const callError = ref('')
 const originDraft = ref('')
 const authModeDraft = ref('')
 const credentialDraft = ref('')
+const savingDefault = ref(false)
+const removingOverride = ref(false)
+const projectDefaultError = ref('')
+const projectDefaultFieldError = ref('')
+const overrideError = ref('')
+const defaultOriginDraft = ref('')
+const defaultAuthModeDraft = ref('')
+const defaultCredentialDraft = ref('')
+const credentialDialogTarget = ref<'override' | 'default'>('override')
+const projectDefaultModes = ['NONE', 'API_KEY_HEADER', 'BEARER']
 const parameterDraft = reactive<Record<string, string>>({})
 const parameterErrors = reactive<Record<string, string>>({})
 const bodyDraft = shallowRef<HttpApiJsonValue | undefined>(undefined)
@@ -481,7 +545,22 @@ const allowedModes = computed(() => {
 const eligibleCredentials = computed(() => credentials.value.filter((item) => item.scope === 'PROJECT'
   && item.status === 'ACTIVE' && item.projectId === detail.value?.summary.projectId
   && item.projectCode === detail.value?.summary.projectCode && item.type === authModeDraft.value))
-const trialParameters = computed(() => detail.value?.acceptedContract?.parameters?.filter(
+const eligibleDefaultCredentials = computed(() => credentials.value.filter((item) => item.scope === 'PROJECT'
+  && item.status === 'ACTIVE' && item.projectId === detail.value?.summary.projectId
+  && item.projectCode === detail.value?.summary.projectCode && item.type === defaultAuthModeDraft.value))
+/** D27: effective source; a legacy view without the field is a per-API connection. */
+const connectionInherited = computed(() => connection.value?.connectionSource === 'PROJECT_DEFAULT'
+  || connection.value?.inherited === true)
+const overrideActive = computed(() => connection.value?.overrideActive
+  ?? (connection.value?.revision != null && !connectionInherited.value))
+const overrideExpectedRevision = computed(() => connection.value && 'overrideRevision' in connection.value
+  ? connection.value.overrideRevision ?? null : connection.value?.revision ?? null)
+const credentialDialogMode = computed(() => credentialDialogTarget.value === 'default'
+  ? defaultAuthModeDraft.value : authModeDraft.value)
+const projectDefaultStatusLabel = computed(() => ({ CONFIGURED: '已配置', BLOCKED: '受阻',
+  UNCONFIGURED: '未配置' } as Record<string, string>)[connection.value?.projectDefault?.status || 'UNCONFIGURED'] || '未配置')
+const projectDefaultTone = computed(() => connection.value?.projectDefault?.status === 'CONFIGURED' ? 'success' : 'warning')
+const trialParameters = computed(() =>detail.value?.acceptedContract?.parameters?.filter(
   (parameter) => parameter.location === 'PATH' || parameter.location === 'QUERY') || [])
 const effectState = computed(() => httpApiSideEffectState(detail.value))
 const isWrite = computed(() => effectState.value === 'write')
@@ -606,6 +685,9 @@ function resetView() {
   querying.value = false
   pageError.value = ''; acceptError.value = ''; connectionError.value = ''; callError.value = ''
   originDraft.value = ''; authModeDraft.value = ''; credentialDraft.value = ''; credentialDialog.value = false
+  savingDefault.value = false; removingOverride.value = false
+  projectDefaultError.value = ''; projectDefaultFieldError.value = ''; overrideError.value = ''
+  defaultOriginDraft.value = ''; defaultAuthModeDraft.value = ''; defaultCredentialDraft.value = ''
   Object.keys(parameterDraft).forEach((key) => delete parameterDraft[key])
   Object.keys(parameterErrors).forEach((key) => delete parameterErrors[key])
 }
@@ -629,6 +711,7 @@ async function load() {
       originDraft.value = connection.value.origin || ''
       authModeDraft.value = connection.value.authMode || (allowedModes.value.length === 1 ? allowedModes.value[0] : '')
       credentialDraft.value = connection.value.credentialRef || ''
+      applyProjectDefaultDrafts(connection.value)
     } catch { if (current === epoch) connectionError.value = '连接状态读取失败；请刷新后再保存或调用' }
     if (current !== epoch) return
     const prior = storedId()
@@ -684,9 +767,69 @@ async function acceptCurrent() {
   } catch { if (current === epoch) acceptError.value = '接纳失败：来源可能已变化；刷新并比较后重试' }
   finally { if (current === epoch) accepting.value = false }
 }
+function applyProjectDefaultDrafts(view: HttpApiConnection) {
+  const fallback = view.projectDefault
+  defaultOriginDraft.value = fallback?.origin || ''
+  defaultAuthModeDraft.value = fallback?.authMode || ''
+  defaultCredentialDraft.value = fallback?.credentialRef || ''
+}
+function openCredentialDialog(target: 'override' | 'default') {
+  credentialDialogTarget.value = target; credentialDialog.value = true
+}
 async function credentialCreated(item: WorkflowCredential) {
   credentials.value = [...credentials.value.filter((entry) => entry.credentialRef !== item.credentialRef), item]
-  credentialDraft.value = item.credentialRef
+  if (credentialDialogTarget.value === 'default') defaultCredentialDraft.value = item.credentialRef
+  else credentialDraft.value = item.credentialRef
+}
+async function saveProjectDefault() {
+  const fallback = connection.value?.projectDefault
+  if (!detail.value || !canWrite.value || !connection.value || !fallback?.configurationAllowed || savingDefault.value) return
+  projectDefaultError.value = ''; projectDefaultFieldError.value = ''
+  if (!/^https?:\/\/[^/?#]+\/?$/i.test(defaultOriginDraft.value.trim())) {
+    projectDefaultFieldError.value = '只填写 HTTP(S) 协议、主机和端口，不包含路径或查询'; return
+  }
+  if (!projectDefaultModes.includes(defaultAuthModeDraft.value)) { projectDefaultError.value = '请选择项目默认认证方式'; return }
+  if (defaultAuthModeDraft.value !== 'NONE' && (credentialsLoading.value || credentialsError.value || !credentialsLoaded.value)) {
+    projectDefaultError.value = '请先重读项目凭据，再选择并保存项目默认连接。'; return
+  }
+  if (defaultAuthModeDraft.value !== 'NONE'
+    && !eligibleDefaultCredentials.value.some((item) => item.credentialRef === defaultCredentialDraft.value)) {
+    projectDefaultError.value = '请选择当前项目且类型匹配的活动凭据'; return
+  }
+  const current = epoch
+  savingDefault.value = true
+  try {
+    const { data } = await saveHttpApiProjectDefaultConnection(apiId.value, { origin: defaultOriginDraft.value.trim(),
+      authMode: defaultAuthModeDraft.value,
+      credentialRef: defaultAuthModeDraft.value === 'NONE' ? null : defaultCredentialDraft.value,
+      expectedRevision: fallback.revision ?? null })
+    if (current !== epoch) return
+    connection.value = data
+    applyProjectDefaultDrafts(data)
+    if (data.inherited || data.connectionSource === 'PROJECT_DEFAULT') {
+      originDraft.value = data.origin || ''; authModeDraft.value = data.authMode || authModeDraft.value
+      credentialDraft.value = data.credentialRef || ''
+    }
+    ElMessage.success('项目默认连接已保存')
+  } catch { if (current === epoch) projectDefaultError.value = '项目默认连接保存失败或修订已变化；草稿已保留，请刷新比较后重试' }
+  finally { if (current === epoch) savingDefault.value = false }
+}
+async function removeOverride() {
+  const expected = overrideExpectedRevision.value
+  if (!detail.value || !canWrite.value || !overrideActive.value || expected == null || removingOverride.value) return
+  const current = epoch
+  removingOverride.value = true; overrideError.value = ''
+  try {
+    const { data } = await removeHttpApiConnectionOverride(apiId.value, expected)
+    if (current !== epoch) return
+    connection.value = data
+    originDraft.value = data.origin || ''
+    authModeDraft.value = data.authMode || (allowedModes.value.length === 1 ? allowedModes.value[0] : '')
+    credentialDraft.value = data.credentialRef || ''
+    applyProjectDefaultDrafts(data)
+    ElMessage.success('已移除覆盖，本 API 改用项目默认连接')
+  } catch { if (current === epoch) overrideError.value = '移除覆盖失败或修订已变化；请刷新后重试' }
+  finally { if (current === epoch) removingOverride.value = false }
 }
 async function saveConnection() {
   if (!detail.value || !canWrite.value || !sourceAccepted.value || !connection.value || !connectionConfigurationAllowed.value || saving.value) return
@@ -706,10 +849,10 @@ async function saveConnection() {
   try {
     const { data } = await saveHttpApiConnection(apiId.value, { origin: originDraft.value.trim(),
       authMode: authModeDraft.value, credentialRef: authModeDraft.value === 'NONE' ? null : credentialDraft.value,
-      expectedRevision: connection.value.revision })
+      expectedRevision: overrideExpectedRevision.value })
     if (current !== epoch) return
     connection.value = data
-    ElMessage.success('连接已保存')
+    ElMessage.success(data.projectDefault ? '本 API 覆盖连接已保存' : '连接已保存')
   } catch { if (current === epoch) connectionError.value = '连接保存失败或修订已变化；草稿已保留，请刷新比较后重试' }
   finally { if (current === epoch) saving.value = false }
 }
@@ -888,6 +1031,10 @@ onBeforeUnmount(() => { ++epoch; resetView() })
 .api-contract-compare { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .api-contract-compare pre, .api-result-body { max-height: 300px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;
   padding: 12px; border-radius: var(--radius-md); background: var(--surface-glass-selected); font-size: 12px; }
+.api-connection-scope { margin-top: 16px; padding: 14px 16px; border: 1px solid var(--border-divider); border-radius: var(--radius-md); }
+.api-connection-scope-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.api-connection-scope-head h3 { margin: 0; font-size: 15px; line-height: 1.5; }
+.api-connection-scope .api-muted { margin: 6px 0 0; }
 .api-form { margin-top: 14px; }
 .api-form :deep(.el-select) { width: 100%; }
 .api-credential-row { display: flex; gap: 8px; width: 100%; }

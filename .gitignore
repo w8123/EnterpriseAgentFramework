@@ -91,3 +91,6 @@ _runtime/
 /design-qa.md
 
 OtherOutstandingProjects/
+
+# ---- Local runtime data (knowledge artifacts etc.) ----
+/data/

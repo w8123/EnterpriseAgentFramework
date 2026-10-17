@@ -250,17 +250,9 @@ export const STUDIO_NODE_REGISTRY: Record<CanvasNodeKind, StudioNodeRegistryItem
   },
 }
 
-export function studioNodeMeta(kind: CanvasNodeKind) {
-  return STUDIO_NODE_REGISTRY[kind]
-}
-
 export function studioNodeLabel(kind?: string | null) {
   const meta = STUDIO_NODE_REGISTRY[String(kind || '') as CanvasNodeKind]
   return meta?.label || kind || '节点'
-}
-
-export function studioNodeDefaultLabel(kind: CanvasNodeKind) {
-  return STUDIO_NODE_REGISTRY[kind].defaultLabel
 }
 
 export function studioNodeColor(kind: CanvasNodeKind) {
@@ -334,27 +326,6 @@ export function canCreateStudioNodeKind(
 
 function normalizeNodeVariant(value: unknown) {
   return String(value || '').trim().replace(/[-\s]+/g, '_').toUpperCase()
-}
-
-/**
- * Fail-closed capability check for features that require multiple Studio-creatable kinds.
- * Returns the first blocked dependency reason from the unified node capability catalog.
- */
-export function resolveStudioNodeSetCreation(
-  requiredKinds: ReadonlyArray<string | null | undefined>,
-  descriptors: WorkflowGraphNodeTypeDescriptor[],
-  capabilityLoaded: boolean,
-): StudioNodeCreationDecision {
-  if (!capabilityLoaded || !descriptors?.length) {
-    return { allowed: false, reason: '节点能力目录未加载，暂不可新增节点' }
-  }
-  for (const kind of requiredKinds) {
-    const decision = resolveStudioNodeCreation(kind, descriptors, capabilityLoaded)
-    if (!decision.allowed) {
-      return decision
-    }
-  }
-  return { allowed: true, reason: '' }
 }
 
 

@@ -62,7 +62,7 @@ public interface RuntimeCapabilityCatalogClient {
         throw new UnsupportedOperationException("Business method owner execution context is unavailable");
     }
 
-    default <T> T withBusinessMethodDraftScope(WorkflowReadOnlyTrialPolicy.BusinessMethodPin pin,
+    default <T> T withBusinessMethodDraftScope(WorkflowReadOnlyTrialPolicy.BusinessMethodTrialScope scope,
                                              BooleanSupplier currentDraft, Supplier<T> execution) {
         throw new UnsupportedOperationException("Business method draft scope is unavailable");
     }

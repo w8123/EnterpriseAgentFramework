@@ -42,8 +42,30 @@ public class RuntimeHttpApiConnectionInternalController {
                                   @RequestBody HttpApiConsoleContracts.ConnectionCommand command) {
         VerifiedInternalServiceAuth auth = verified(request, command);
         if (auth == null) return unauthorized();
+        return write(() -> service.save(command, auth.identityUserId()));
+    }
+
+    /** Project + environment default inherited by every API of the verified owner without an active override. */
+    @PutMapping("/project-default")
+    public ResponseEntity<?> saveProjectDefault(HttpServletRequest request,
+                                                @RequestBody HttpApiConsoleContracts.ConnectionCommand command) {
+        VerifiedInternalServiceAuth auth = verified(request, command);
+        if (auth == null) return unauthorized();
+        return write(() -> service.saveProjectDefault(command, auth.identityUserId()));
+    }
+
+    /** Deactivates this API's override; {@code save.expectedRevision} pins the override row revision. */
+    @PostMapping("/override-removals")
+    public ResponseEntity<?> removeOverride(HttpServletRequest request,
+                                            @RequestBody HttpApiConsoleContracts.ConnectionCommand command) {
+        VerifiedInternalServiceAuth auth = verified(request, command);
+        if (auth == null) return unauthorized();
+        return write(() -> service.removeOverride(command, auth.identityUserId()));
+    }
+
+    private ResponseEntity<?> write(java.util.function.Supplier<HttpApiConsoleContracts.ConnectionView> action) {
         try {
-            return ResponseEntity.ok(service.save(command, auth.identityUserId()));
+            return ResponseEntity.ok(action.get());
         } catch (RuntimeHttpApiConnectionService.Conflict conflict) {
             return ResponseEntity.status(409).body(error(conflict.code(), conflict.getMessage()));
         } catch (WorkflowHttpEgressPolicy.WorkflowHttpEgressException denied) {

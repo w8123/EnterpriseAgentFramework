@@ -2,6 +2,14 @@
 
 ## 当前基线
 
+2026-10-16 HTTP API 项目默认连接（D27）：新增 Runtime 独占表 `runtime_http_api_project_connection`（`project_id + environment` 唯一，带 `revision` 乐观并发），本项目所有 HTTP API 自动继承；`runtime_http_api_connection` 改为单 API 覆盖并新增 `override_active`（移除覆盖时置 0、保留行以延续修订号）。已有开发/测试库先备份 `runtime_http_api_connection`、暂停 Runtime 连接写入，再执行 [升级脚本](./upgrade-20261016-http-api-project-connection.sql)（MySQL 5.7/8，可重复执行），回读 `information_schema` 确认新表、唯一键和新列后部署配套服务。既有每 API 连接全部按覆盖继续生效，不回填项目默认；生效修订改为 `revision*2(+1 覆盖)`，升级前未完成的试调用与已发布 Workflow 中固定的连接修订需刷新或重新发布。本批只交付脚本，尚未执行到数据库。
+
+2026-10-16 模型中心「厂商账号」：新建表 `model_provider_account`（同一厂商的地址和 API Key 只存一次），`model_instance` 新增可空列 `provider_account_id`。已有实例该列为 NULL，继续用自己的连接配置。新库基线已包含；已有开发/测试库执行 [升级脚本](./upgrade-20261016-model-provider-account.sql)，可重复执行，需在部署新版 Model Service 之前执行。
+
+2026-10-16 目录分析模型可在界面选择：`model_catalog_setting` 新增可空列 `analyzer_model_instance_id`，界面保存的值优先，为空时回退环境变量 `MODEL_CATALOG_ANALYZER_MODEL_INSTANCE_ID`。新库基线已包含该列；已有开发/测试库执行 [升级脚本](./upgrade-20261016-model-catalog-analyzer-setting.sql)，只加列，可重复执行，需在部署新版 Model Service 之前执行。
+
+2026-10-16 补齐平台管理员调用权限：`control_tool_acl` 原种子只给角色码 `admin` 放行，而平台登录会话的管理员角色码是 `PLATFORM_ADMIN`，导致全新环境的平台管理员试调用任何业务方法都返回 403 `CONSOLE_CAPABILITY_ACL_DENIED`。新库基线已补 `PLATFORM_ADMIN / ALL / * / ALLOW`；已有开发/测试库执行 [升级脚本](./upgrade-20261016-platform-admin-tool-acl.sql)，只新增这一条规则，可重复执行，不改其他规则。
+
 2026-10-14 领域治理退场：新库不再创建 `capability_domain_def`、`capability_domain_assignment` 或扫描项目的 `default_domain_code`。已有开发/测试库使用 [领域治理清理脚本](./upgrade-20261014-retire-domain-governance.sql)，兼容 MySQL 5.7/8，可重复执行。脚本直接丢弃领域定义、领域归属以及项目默认领域，不迁移成业务分类；业务能力目录的 `capability_scan_module`、`capability_catalog_group_member`、`capability_catalog_classification_state` 和既有分类数据保留。
 
 执行顺序：先核对目标库、版本和字符集，备份两张领域表及 `capability_scan_project` 的结构/数据，记录业务分类相关表的行数与摘要；停止配套旧 Capability/Control 服务，执行上述清理脚本，再部署本批 Capability、Control 和前端。MySQL DDL 隐式提交，不能用事务回滚；恢复须使用执行前备份。执行后回读脚本的两个计数均为 0，核对保留分类表的行数与摘要保持，再恢复服务。本批仅交付脚本，尚未执行到数据库；全新环境只执行 `initV2.sql`，不要同时执行本升级。

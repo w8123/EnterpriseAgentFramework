@@ -1,9 +1,9 @@
 package com.enterprise.ai.control.runtime;
 
-import com.enterprise.ai.common.capability.HttpApiDraftTrialPolicy;
-import com.enterprise.ai.common.capability.WorkflowReadOnlyTrialPolicy;
 import com.enterprise.ai.common.capability.ConsoleCapabilityInvocationContracts;
+import com.enterprise.ai.common.capability.HttpApiDraftTrialPolicy;
 import com.enterprise.ai.common.capability.HttpApiFirstCallPolicy;
+import com.enterprise.ai.common.capability.WorkflowReadOnlyTrialPolicy;
 import com.enterprise.ai.control.capability.CapabilityReviewGateway;
 import com.enterprise.ai.control.capability.CatalogReadAuthorization;
 import com.enterprise.ai.control.client.runtime.RuntimeProxyClient;
@@ -20,16 +20,24 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
-/** Explicit browser action for one saved, read-only business method or API draft. */
+/**
+ * Explicit browser action: run the whole saved working copy for real when every business method / HTTP API node
+ * is read-only (D28). Control attests the session, project grants, per-target owner facts and Tool ACL, then signs
+ * one command; the browser never supplies a graph, target, hash, identity or credential.
+ */
 @RestController
 @RequiredArgsConstructor
 public class ControlWorkflowReadOnlyTrialController {
+    private static final Set<String> REQUIRED_FIELDS = Set.of("workflowId", "expectedRevision", "inputParams");
+    private static final Set<String> ALLOWED_FIELDS = Set.of("workflowId", "expectedRevision", "inputParams", "message");
+
     private final RuntimeProxyClient runtime;
     private final CapabilityReviewGateway capability;
     private final RuntimeManagementAccess access;
@@ -41,23 +49,27 @@ public class ControlWorkflowReadOnlyTrialController {
     public ResponseEntity<Object> run(@RequestBody(required = false) Map<String, Object> body) {
         PlatformAuthenticatedSession session = access.require(PlatformPermissions.WORKFLOW_DEBUG);
         access.require(PlatformPermissions.CAPABILITY_INVOKE);
-        if (body == null || !body.keySet().equals(Set.of("workflowId", "expectedRevision", "inputParams"))) {
-            return error(HttpStatus.BAD_REQUEST, "HTTP_API_TRIAL_REQUEST_INVALID", "请提供草稿、保存修订和测试输入");
+        if (body == null || !body.keySet().containsAll(REQUIRED_FIELDS) || !ALLOWED_FIELDS.containsAll(body.keySet())) {
+            return error(HttpStatus.BAD_REQUEST, "WORKFLOW_TRIAL_REQUEST_INVALID", "请提供草稿、保存修订和测试输入");
         }
         String workflowId = text(body.get("workflowId"));
         String revision = text(body.get("expectedRevision"));
         Map<String, Object> input = inputParams(body.get("inputParams"));
-        if (workflowId == null || !workflowId.matches("[A-Za-z0-9_-]{1,32}") || revision == null || input == null) {
-            return error(HttpStatus.BAD_REQUEST, "HTTP_API_TRIAL_REQUEST_INVALID", "试运行输入无效，请检查后重试");
+        Object rawMessage = body.get("message");
+        String message = rawMessage instanceof String value && StringUtils.hasText(value) ? value : null;
+        if (workflowId == null || !workflowId.matches("[A-Za-z0-9_-]{1,32}") || revision == null || input == null
+                || rawMessage != null && !(rawMessage instanceof String)
+                || message != null && message.length() > WorkflowReadOnlyTrialPolicy.MAX_MESSAGE_LENGTH) {
+            return error(HttpStatus.BAD_REQUEST, "WORKFLOW_TRIAL_REQUEST_INVALID", "试运行输入无效，请检查后重试");
         }
         ResponseEntity<Object> saved;
         try { saved = runtime.workflowWorkingCopy(workflowId); }
         catch (RuntimeException unavailable) {
-            return error(HttpStatus.SERVICE_UNAVAILABLE, "HTTP_API_TRIAL_DRAFT_UNAVAILABLE", "无法读取已保存草稿");
+            return error(HttpStatus.SERVICE_UNAVAILABLE, "WORKFLOW_TRIAL_DRAFT_UNAVAILABLE", "无法读取已保存草稿");
         }
         if (saved == null || !saved.getStatusCode().is2xxSuccessful()
                 || !(saved.getBody() instanceof Map<?, ?> workingCopy)) {
-            return error(HttpStatus.SERVICE_UNAVAILABLE, "HTTP_API_TRIAL_DRAFT_UNAVAILABLE", "无法读取已保存草稿");
+            return error(HttpStatus.SERVICE_UNAVAILABLE, "WORKFLOW_TRIAL_DRAFT_UNAVAILABLE", "无法读取已保存草稿");
         }
         Long projectId = positive(workingCopy.get("projectId"));
         String projectCode = text(workingCopy.get("projectCode"));
@@ -66,35 +78,54 @@ public class ControlWorkflowReadOnlyTrialController {
                 ? value : null; // The signed digest binds exact stored bytes, including surrounding whitespace.
         if (projectId == null || projectCode == null || savedRevision == null || graph == null
                 || !workflowId.equals(text(workingCopy.get("workflowId")))) {
-            return error(HttpStatus.SERVICE_UNAVAILABLE, "HTTP_API_TRIAL_DRAFT_INVALID", "已保存草稿身份无法确认");
+            return error(HttpStatus.SERVICE_UNAVAILABLE, "WORKFLOW_TRIAL_DRAFT_INVALID", "已保存草稿身份无法确认");
         }
         access.requireProject(session, PlatformPermissions.WORKFLOW_DEBUG, projectId, projectCode);
         access.requireProject(session, PlatformPermissions.CAPABILITY_INVOKE, projectId, projectCode);
-        if (!"DRAFT".equals(workingCopy.get("status"))) {
-            return error(HttpStatus.CONFLICT, "WORKFLOW_TRIAL_DRAFT_REQUIRED", "只读试运行需要已保存且未发布的草稿");
-        }
+        // No status gate: the trial runs the saved working copy, never the published version, so an edited
+        // working copy of a published Workflow can be trialled before re-publishing (D28).
         if (!revision.equals(savedRevision)) {
-            return error(HttpStatus.CONFLICT, "HTTP_API_TRIAL_DRAFT_STALE", "草稿已变化，请保存或重新加载后重试");
+            return error(HttpStatus.CONFLICT, "WORKFLOW_TRIAL_DRAFT_STALE", "草稿已变化，请保存或重新加载后重试");
         }
-        WorkflowReadOnlyTrialPolicy.Target target;
-        try { target = WorkflowReadOnlyTrialPolicy.target(json, graph); }
-        catch (IllegalArgumentException unsupported) {
-            return error(HttpStatus.CONFLICT, "HTTP_API_TRIAL_GRAPH_UNSUPPORTED",
-                    "本次只支持一个业务方法或 API 接变量的只读草稿，请调整并保存后重试");
+        WorkflowReadOnlyTrialPolicy.Plan plan;
+        try { plan = WorkflowReadOnlyTrialPolicy.plan(json, graph); }
+        catch (WorkflowReadOnlyTrialPolicy.GraphRejected rejected) {
+            Map<String, Object> response = new LinkedHashMap<>(errorBody(rejected.code(), rejected.userMessage()));
+            response.put("blockedNodes", rejected.blocked().stream().map(node -> Map.of(
+                    "nodeId", node.nodeId(), "nodeName", node.nodeName(), "nodeType", node.nodeType(),
+                    "reason", node.reason())).toList());
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
         }
         String actor = String.valueOf(session.user().getId());
-        if (WorkflowReadOnlyTrialPolicy.BUSINESS_METHOD.equals(target.assetType())) {
-            return runBusinessMethod(session, workflowId, revision, graph, projectId, projectCode, actor, target, input);
+        List<WorkflowReadOnlyTrialPolicy.AllowedTarget> allowed = new ArrayList<>();
+        for (WorkflowReadOnlyTrialPolicy.Target target : plan.targets()) {
+            Approval approval = WorkflowReadOnlyTrialPolicy.BUSINESS_METHOD.equals(target.assetType())
+                    ? approveBusinessMethod(session, actor, projectId, projectCode, target)
+                    : approveHttpApi(session, actor, projectId, projectCode, target);
+            if (approval.rejection() != null) return approval.rejection();
+            allowed.add(approval.target());
         }
+        return trials.run(new WorkflowReadOnlyTrialPolicy.TrialCommand(WorkflowReadOnlyTrialPolicy.VERSION,
+                workflowId, revision, HttpApiDraftTrialPolicy.graphSha256(graph), projectId, projectCode, actor,
+                List.copyOf(allowed), message, input,
+                System.currentTimeMillis() + WorkflowReadOnlyTrialPolicy.MAX_DURATION_MS));
+    }
+
+    private record Approval(WorkflowReadOnlyTrialPolicy.AllowedTarget target, ResponseEntity<Object> rejection) {
+        static Approval rejected(ResponseEntity<Object> response) { return new Approval(null, response); }
+    }
+
+    private Approval approveHttpApi(PlatformAuthenticatedSession session, String actor, Long projectId,
+                                    String projectCode, WorkflowReadOnlyTrialPolicy.Target target) {
+        String node = "「" + target.nodeName() + "」";
         ResponseEntity<Object> ownerResponse;
         try { ownerResponse = capability.getHttpApi(target.apiId(), actor,
                 CatalogReadAuthorization.resourceBody(session, PlatformPermissions.CAPABILITY_INVOKE)); }
-        catch (RuntimeException unavailable) {
-            return error(HttpStatus.SERVICE_UNAVAILABLE, "HTTP_API_TRIAL_OWNER_UNAVAILABLE", "API 来源暂不可读取");
-        }
+        catch (RuntimeException unavailable) { ownerResponse = null; }
         if (ownerResponse == null || !ownerResponse.getStatusCode().is2xxSuccessful()
                 || !(ownerResponse.getBody() instanceof Map<?, ?> ownerBody)) {
-            return error(HttpStatus.SERVICE_UNAVAILABLE, "HTTP_API_TRIAL_OWNER_UNAVAILABLE", "API 来源暂不可读取");
+            return Approval.rejected(nodeError(HttpStatus.SERVICE_UNAVAILABLE, "HTTP_API_TRIAL_OWNER_UNAVAILABLE",
+                    node + "的 API 来源暂不可读取", target));
         }
         JsonNode owner = json.valueToTree(ownerBody);
         JsonNode summary = owner.path("summary");
@@ -108,73 +139,79 @@ public class ControlWorkflowReadOnlyTrialController {
                 || !projectCode.equals(summary.path("projectCode").asText())
                 || !target.qualifiedName().equals(qualifiedName) || environment.isBlank()
                 || !CatalogReadAuthorization.matchesOwner(ownerResponse, projectId, projectCode)) {
-            return error(HttpStatus.CONFLICT, "HTTP_API_TRIAL_OWNER_CHANGED", "API 所属项目或身份已变化");
+            return Approval.rejected(nodeError(HttpStatus.CONFLICT, "HTTP_API_TRIAL_OWNER_CHANGED",
+                    node + "的 API 所属项目或身份已变化，请重新选择 API 并保存", target));
         }
         if (!summary.path("sourceConfirmed").asBoolean(false)
                 || !"ACCEPTED".equals(summary.path("sourceStatus").asText())
                 || !Objects.equals(summary.path("candidateContractHash").asText(), contractHash)
                 || !contractHash.matches("[0-9a-f]{64}") || !sourceRevision.matches("[0-9a-f]{64}")) {
-            return error(HttpStatus.CONFLICT, "HTTP_API_TRIAL_SOURCE_CHANGED", "API 来源或已接纳契约已变化");
+            return Approval.rejected(nodeError(HttpStatus.CONFLICT, "HTTP_API_TRIAL_SOURCE_CHANGED",
+                    WorkflowReadOnlyTrialPolicy.ownerRejectionMessage("HTTP_API_TRIAL_SOURCE_CHANGED", target.nodeName()), target));
         }
-        String method = summary.path("httpMethod").asText();
-        if (!HttpApiDraftTrialPolicy.readOnlyOwner(method, contract)
+        if (!HttpApiDraftTrialPolicy.readOnlyOwner(summary.path("httpMethod").asText(), contract)
                 || HttpApiFirstCallPolicy.unsupportedReason(contract) != null) {
-            return error(HttpStatus.CONFLICT, "HTTP_API_TRIAL_READ_ONLY_REQUIRED",
-                    "此 API 未明确声明为本批支持的只读 GET 操作");
+            return Approval.rejected(nodeError(HttpStatus.CONFLICT, "HTTP_API_TRIAL_READ_ONLY_REQUIRED",
+                    WorkflowReadOnlyTrialPolicy.ownerRejectionMessage("HTTP_API_TRIAL_READ_ONLY_REQUIRED", target.nodeName()), target));
         }
+        ResponseEntity<Object> denied = aclDenied(session, projectId, projectCode, qualifiedName, target,
+                "HTTP_API_TRIAL_ACL_DENIED", "HTTP_API_TRIAL_ACL_UNAVAILABLE", "API");
+        if (denied != null) return Approval.rejected(denied);
+        return new Approval(WorkflowReadOnlyTrialPolicy.AllowedTarget.httpApi(target, environment, contractHash,
+                sourceRevision), null);
+    }
+
+    private Approval approveBusinessMethod(PlatformAuthenticatedSession session, String actor, Long projectId,
+                                           String projectCode, WorkflowReadOnlyTrialPolicy.Target target) {
+        ConsoleCapabilityInvocationContracts.InvocationContext owner = null;
+        try {
+            var response = capability.getBusinessMethodInvocationContext(target.qualifiedName(), actor);
+            if (response != null && response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+                owner = json.convertValue(response.getBody(), ConsoleCapabilityInvocationContracts.InvocationContext.class);
+            }
+        } catch (RuntimeException unavailable) {
+            owner = null;
+        }
+        if (owner == null) {
+            return Approval.rejected(nodeError(HttpStatus.SERVICE_UNAVAILABLE, "BUSINESS_METHOD_TRIAL_OWNER_UNAVAILABLE",
+                    "「" + target.nodeName() + "」的业务方法来源暂不可读取", target));
+        }
+        String rejection = WorkflowReadOnlyTrialPolicy.businessOwnerRejection(owner, projectId, projectCode, target.qualifiedName());
+        if (rejection != null) {
+            return Approval.rejected(nodeError(HttpStatus.CONFLICT, rejection,
+                    WorkflowReadOnlyTrialPolicy.ownerRejectionMessage(rejection, target.nodeName()), target));
+        }
+        ResponseEntity<Object> denied = aclDenied(session, projectId, projectCode, target.qualifiedName(), target,
+                "BUSINESS_METHOD_TRIAL_ACL_DENIED", "BUSINESS_METHOD_TRIAL_ACL_UNAVAILABLE", "业务方法");
+        if (denied != null) return Approval.rejected(denied);
+        return new Approval(WorkflowReadOnlyTrialPolicy.AllowedTarget.businessMethod(target, owner), null);
+    }
+
+    private ResponseEntity<Object> aclDenied(PlatformAuthenticatedSession session, Long projectId, String projectCode,
+                                             String qualifiedName, WorkflowReadOnlyTrialPolicy.Target target,
+                                             String deniedCode, String unavailableCode, String label) {
         try {
             if (!ControlToolAclDecisionService.DECISION_ALLOW.equals(acl.decide(session.roles(),
                     projectId, projectCode, "TOOL", qualifiedName))) {
-                return error(HttpStatus.FORBIDDEN, "HTTP_API_TRIAL_ACL_DENIED", "当前角色无此 API 的试运行权限");
+                return nodeError(HttpStatus.FORBIDDEN, deniedCode,
+                        "当前角色无「" + target.nodeName() + "」所用" + label + "的调用权限（ACL）", target);
             }
+            return null;
         } catch (RuntimeException unavailable) {
-            return error(HttpStatus.SERVICE_UNAVAILABLE, "HTTP_API_TRIAL_ACL_UNAVAILABLE", "API 调用权限暂不可用");
+            return nodeError(HttpStatus.SERVICE_UNAVAILABLE, unavailableCode, label + "调用权限暂不可用", target);
         }
-        WorkflowReadOnlyTrialPolicy.TrialCommand command = new WorkflowReadOnlyTrialPolicy.TrialCommand(
-                WorkflowReadOnlyTrialPolicy.VERSION, workflowId, revision,
-                HttpApiDraftTrialPolicy.graphSha256(graph), projectId, projectCode, actor,
-                List.of(new WorkflowReadOnlyTrialPolicy.AllowedTarget(target.nodeId(), target.apiId(),
-                        qualifiedName, environment, contractHash, sourceRevision)), input,
-                System.currentTimeMillis() + 45_000);
-        return trials.run(command);
     }
 
-    private ResponseEntity<Object> runBusinessMethod(PlatformAuthenticatedSession session, String workflowId,
-            String revision, String graph, Long projectId, String projectCode, String actor,
-            WorkflowReadOnlyTrialPolicy.Target target, Map<String, Object> input) {
-        final ConsoleCapabilityInvocationContracts.InvocationContext owner;
-        try {
-            var response = capability.getBusinessMethodInvocationContext(target.qualifiedName(), actor);
-            if (response == null || !response.getStatusCode().is2xxSuccessful() || response.getBody() == null) {
-                return error(HttpStatus.SERVICE_UNAVAILABLE, "BUSINESS_METHOD_TRIAL_OWNER_UNAVAILABLE", "业务方法来源暂不可读取");
-            }
-            owner = json.convertValue(response.getBody(), ConsoleCapabilityInvocationContracts.InvocationContext.class);
-        } catch (RuntimeException unavailable) {
-            return error(HttpStatus.SERVICE_UNAVAILABLE, "BUSINESS_METHOD_TRIAL_OWNER_UNAVAILABLE", "业务方法来源暂不可读取");
-        }
-        String rejection = WorkflowReadOnlyTrialPolicy.businessOwnerRejection(owner, projectId, projectCode, target.qualifiedName());
-        if (rejection != null) return error(HttpStatus.CONFLICT, rejection,
-                "业务方法来源、只读声明或项目测试身份条件已变化，请到方法详情核对");
-        try {
-            if (!ControlToolAclDecisionService.DECISION_ALLOW.equals(acl.decide(session.roles(),
-                    projectId, projectCode, "TOOL", target.qualifiedName()))) {
-                return error(HttpStatus.FORBIDDEN, "BUSINESS_METHOD_TRIAL_ACL_DENIED", "当前角色无此业务方法的试运行权限");
-            }
-        } catch (RuntimeException unavailable) {
-            return error(HttpStatus.SERVICE_UNAVAILABLE, "BUSINESS_METHOD_TRIAL_ACL_UNAVAILABLE", "业务方法调用权限暂不可用");
-        }
-        try { WorkflowReadOnlyTrialPolicy.businessInput(json, graph, target, owner, input); }
-        catch (IllegalArgumentException invalid) {
-            return error(HttpStatus.CONFLICT, invalid.getMessage(), "请检查业务方法声明、必填输入与参数映射后重新保存");
-        }
-        return trials.run(new WorkflowReadOnlyTrialPolicy.TrialCommand(WorkflowReadOnlyTrialPolicy.VERSION,
-                workflowId, revision, WorkflowReadOnlyTrialPolicy.graphSha256(graph), projectId, projectCode, actor,
-                List.of(WorkflowReadOnlyTrialPolicy.AllowedTarget.businessMethod(target, owner)), input,
-                System.currentTimeMillis() + 45_000));
+    private static ResponseEntity<Object> nodeError(HttpStatus status, String code, String message,
+                                                    WorkflowReadOnlyTrialPolicy.Target target) {
+        Map<String, Object> body = new LinkedHashMap<>(errorBody(code, message));
+        body.put("failedNodeId", target.nodeId());
+        body.put("failedNodeName", target.nodeName());
+        return ResponseEntity.status(status).body(body);
     }
 
     private static Map<String, Object> inputParams(Object raw) {
-        if (!(raw instanceof Map<?, ?> values) || values.size() > 16) return null;
+        if (!(raw instanceof Map<?, ?> values) || values.size() > WorkflowReadOnlyTrialPolicy.MAX_INPUT_FIELDS) return null;
         Map<String, Object> safe = new LinkedHashMap<>();
         for (var entry : values.entrySet()) {
             if (!(entry.getKey() instanceof String name)
@@ -197,8 +234,11 @@ public class ControlWorkflowReadOnlyTrialController {
         return raw instanceof String value && StringUtils.hasText(value) ? value.trim() : null;
     }
 
+    private static Map<String, Object> errorBody(String code, String message) {
+        return Map.of("success", false, "errorCode", code, "errorMessage", message);
+    }
+
     private static ResponseEntity<Object> error(HttpStatus status, String code, String message) {
-        return ResponseEntity.status(status).body(Map.of("success", false,
-                "errorCode", code, "errorMessage", message));
+        return ResponseEntity.status(status).body(errorBody(code, message));
     }
 }

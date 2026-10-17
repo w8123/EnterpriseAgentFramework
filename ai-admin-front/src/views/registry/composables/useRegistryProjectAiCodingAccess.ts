@@ -40,26 +40,6 @@ export function useRegistryProjectAiCodingAccess(deps: UseRegistryProjectAiCodin
     deps.project.value?.id ? `${reachAiPlatformUrl.value}/api/ai-coding/projects/${deps.project.value.id}/manifest` : '',
   )
 
-  const contextCandidatesUrl = computed(() =>
-    deps.project.value?.id
-      ? `${reachAiPlatformUrl.value}/api/ai-coding/projects/${deps.project.value.id}/context-candidates`
-      : '',
-  )
-
-  const contextCandidatesBatchUrl = computed(() =>
-    contextCandidatesUrl.value ? `${contextCandidatesUrl.value}/batch` : '',
-  )
-
-  const contextCandidateStatusUrlTemplate = computed(() =>
-    contextCandidatesUrl.value ? `${contextCandidatesUrl.value}?traceId={submissionId}&status=PENDING` : '',
-  )
-
-  const contextCandidateAuditUrlTemplate = computed(() =>
-    deps.project.value?.id
-      ? `${reachAiPlatformUrl.value}/context/governance?tab=audit&projectId=${deps.project.value.id}&traceId={submissionId}`
-      : '',
-  )
-
   const aiCodingKeyDisplay = computed(() => {
     if (!aiCodingAccessEnabled.value) return '未启用'
     const key = aiCodingAccessKey.value.trim()
@@ -103,26 +83,6 @@ export function useRegistryProjectAiCodingAccess(deps: UseRegistryProjectAiCodin
         label: 'AI Coding Gateway Manifest',
         displayValue: gatewayManifestUrl.value || '-',
         copyValue: gatewayManifestUrl.value,
-      },
-      {
-        label: '上下文候选提交 URL',
-        displayValue: contextCandidatesUrl.value || '-',
-        copyValue: contextCandidatesUrl.value,
-      },
-      {
-        label: '上下文候选批量提交 URL',
-        displayValue: contextCandidatesBatchUrl.value || '-',
-        copyValue: contextCandidatesBatchUrl.value,
-      },
-      {
-        label: '上下文候选状态查询 URL 模板',
-        displayValue: contextCandidateStatusUrlTemplate.value || '-',
-        copyValue: contextCandidateStatusUrlTemplate.value,
-      },
-      {
-        label: '上下文候选审计 URL 模板',
-        displayValue: contextCandidateAuditUrlTemplate.value || '-',
-        copyValue: contextCandidateAuditUrlTemplate.value,
       },
       {
         label: 'AI Coding Header',

@@ -94,6 +94,12 @@
       </el-table-column>
     </el-table>
 
+    <WorkflowAgentReferencesPanel
+      :workflow-id="workflowId"
+      :refresh-key="agentReferencesRefreshKey"
+      @loaded="handleAgentReferencesLoaded"
+    />
+
     <AppDialog v-model="publishOpen" title="发布 Workflow 版本" width="460px"
       :close-on-click-modal="!publishing" :close-on-press-escape="!publishing" :show-close="!publishing">
       <el-alert v-if="releaseError" type="error" :closable="false" show-icon :title="releaseError">
@@ -120,6 +126,7 @@
 
 <script setup lang="ts">
 import AppDialog from '@/components/common/AppDialog.vue'
+import WorkflowAgentReferencesPanel from '@/components/agent/WorkflowAgentReferencesPanel.vue'
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -137,6 +144,7 @@ import type {
   WorkflowReleaseValidationResult,
   WorkflowVersion,
 } from '@/types/workflow'
+import type { WorkflowAgentReferences } from '@/types/agent'
 import {
   formatWorkflowExecutionEngineLabel,
   formatWorkflowKindLabel,
@@ -181,6 +189,8 @@ watch(referenceVersion, async version => {
   versionsTable.value?.setCurrentRow(version)
 })
 const validation = ref<WorkflowReleaseValidationResult | null>(null)
+const agentReferencesRefreshKey = ref(0)
+let announceStaleAgents = false
 const releaseError = ref('')
 const publishForm = reactive<WorkflowPublishRequest>({
   version: '',
@@ -261,6 +271,7 @@ async function publishVersion() {
     publishOpen.value = false
     validation.value = null
     ElMessage.success('Workflow 版本已发布')
+    announceStaleAgents = true
     await refreshAfterRelease()
   } catch (error) {
     releaseError.value = releaseFailure(error)
@@ -289,6 +300,7 @@ async function rollback(row: WorkflowVersion) {
   try {
     await rollbackWorkflowVersion(workflowId, row.id, baseRevision)
     ElMessage.success('Workflow 已回滚')
+    announceStaleAgents = true
     await refreshAfterRelease()
   } catch (error) {
     releaseError.value = releaseFailure(error)
@@ -297,7 +309,16 @@ async function rollback(row: WorkflowVersion) {
   }
 }
 
+function handleAgentReferencesLoaded(references: WorkflowAgentReferences) {
+  if (!announceStaleAgents) return
+  announceStaleAgents = false
+  if (references.staleCount > 0) {
+    ElMessage.warning(`${references.staleCount} 个 Agent 仍在使用旧版本，发布 Agent 后才会用到新版本；可在下方「引用此 Workflow 的 Agent」中更新并发布。`)
+  }
+}
+
 async function refreshAfterRelease() {
+  agentReferencesRefreshKey.value += 1
   try {
     await Promise.all([loadWorkflow(), loadVersions()])
   } catch {

@@ -1193,6 +1193,78 @@ public class ControlRuntimePublicController {
         return runtimeProxyClient.copyAgentConfigVersionToDraft(agentId, configVersionId);
     }
 
+    @GetMapping("/api/agents/{agentId}/workflow-freshness")
+    public ResponseEntity<Object> getAgentWorkflowFreshness(@PathVariable String agentId) {
+        if (runtimeManagementAccess != null) {
+            PlatformAuthenticatedSession session = requireRuntimePermission(PlatformPermissions.AGENT_READ);
+            requireRuntimeResponseProject(
+                    session, PlatformPermissions.AGENT_READ, runtimeProxyClient.getAgent(agentId));
+        }
+        return runtimeProxyClient.getAgentWorkflowFreshness(agentId);
+    }
+
+    /**
+     * Publishes a copy of the ACTIVE Agent config with stale Workflow tools moved
+     * to their current published versions. Same grant and Skill/A2A attestation
+     * as an ordinary Agent publish; Runtime rejects a changed ACTIVE config with 409.
+     */
+    @PostMapping("/api/agents/{agentId}/workflow-freshness/publish-latest")
+    public ResponseEntity<Object> publishLatestAgentWorkflowVersions(HttpServletRequest request,
+                                                                     @PathVariable String agentId,
+                                                                     @RequestBody(required = false) Map<String, Object> body) {
+        if (runtimeManagementAccess != null) {
+            PlatformAuthenticatedSession session = requireRuntimePermission(PlatformPermissions.AGENT_PUBLISH);
+            requireRuntimeResponseProject(
+                    session, PlatformPermissions.AGENT_PUBLISH, runtimeProxyClient.getAgent(agentId));
+        }
+        Map<String, Object> runtimeBody = new LinkedHashMap<>();
+        Long expected = normalizedLong(body == null ? null : body.get("expectedActiveConfigVersionId"));
+        runtimeBody.put("expectedActiveConfigVersionId", expected);
+        runtimeBody.put("publishedBy", normalizedText(body == null ? null : body.get("publishedBy")));
+        if (expected != null) {
+            revalidateAgentSkillBindingsForPublish(request, agentId, expected);
+        }
+        return runtimeProxyClient.publishLatestAgentWorkflowVersions(agentId, runtimeBody);
+    }
+
+    /**
+     * Agents whose ACTIVE config runs this Workflow. Rows for Agents outside the
+     * caller's AGENT_READ projects are withheld and only counted.
+     */
+    @GetMapping("/api/workflows/{workflowId}/agent-references")
+    public ResponseEntity<Object> listWorkflowAgentReferences(@PathVariable String workflowId) {
+        PlatformAuthenticatedSession session = null;
+        if (runtimeManagementAccess != null) {
+            session = requireRuntimePermission(PlatformPermissions.WORKFLOW_READ);
+            requireRuntimeResponseProject(
+                    session, PlatformPermissions.WORKFLOW_READ, runtimeProxyClient.getWorkflow(workflowId));
+        }
+        ResponseEntity<Object> response = runtimeProxyClient.listWorkflowAgentReferences(workflowId);
+        if (runtimeManagementAccess == null || response == null || !response.getStatusCode().is2xxSuccessful()
+                || !(response.getBody() instanceof Map<?, ?> payload)) {
+            return response;
+        }
+        Map<String, Object> filtered = stringKeyMap(payload);
+        List<Object> visible = new java.util.ArrayList<>();
+        int hidden = 0;
+        int stale = 0;
+        if (payload.get("agents") instanceof Collection<?> agents) {
+            for (Object row : agents) {
+                if (row instanceof Map<?, ?> agent && runtimeManagementAccess.allowsProject(
+                        session, PlatformPermissions.AGENT_READ, normalizedText(agent.get("projectCode")))) {
+                    visible.add(agent);
+                    if (Boolean.TRUE.equals(agent.get("stale"))) stale++;
+                } else {
+                    hidden++;
+                }
+            }
+        }
+        filtered.put("agents", visible);
+        filtered.put("staleCount", stale);
+        filtered.put("hiddenAgentCount", hidden);
+        return ResponseEntity.status(response.getStatusCode()).body(filtered);
+    }
+
     @PostMapping("/api/runtime/debug-sessions")
     public ResponseEntity<Object> createRuntimeDebugSession(@RequestBody Map<String, Object> body) {
         return debugSessionGateway.create(body);

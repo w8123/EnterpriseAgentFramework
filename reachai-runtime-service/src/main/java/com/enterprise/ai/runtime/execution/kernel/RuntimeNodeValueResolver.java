@@ -19,6 +19,9 @@ import java.util.regex.Pattern;
  */
 final class RuntimeNodeValueResolver {
 
+    private static final com.fasterxml.jackson.databind.ObjectMapper TEMPLATE_JSON =
+            new com.fasterxml.jackson.databind.ObjectMapper();
+
     private static final Pattern TEMPLATE_TOKEN = Pattern.compile("\\{\\{\\s*([A-Za-z0-9_.-]+)\\s*}}");
 
     record PresentValue(boolean present, Object value) {
@@ -153,8 +156,8 @@ final class RuntimeNodeValueResolver {
             case "input", "userInput", "query" -> userInputText(context);
             case "message" -> firstText(text(context.get("message")), userInputText(context));
             case "lastOutput", "previousOutput" ->
-                    firstText(text(context.get(token)), userInputText(context));
-            default -> text(resolveContextValue(token, context));
+                    firstText(templateText(context.get(token)), userInputText(context));
+            default -> templateText(resolveContextValue(token, context));
         };
         return resolved == null ? "" : resolved;
     }
@@ -193,6 +196,21 @@ final class RuntimeNodeValueResolver {
     private boolean isEmptyStructuredInput(Object value) {
         return (value instanceof Map<?, ?> map && map.isEmpty())
                 || (value instanceof Collection<?> collection && collection.isEmpty());
+    }
+
+    /**
+     * Template tokens are read by people (ANSWER/TEMPLATE) and models (LLM prompts): structured node
+     * output renders as JSON instead of Java's {@code {code=0, data=[...]}} toString.
+     */
+    private String templateText(Object value) {
+        if (value instanceof Map<?, ?> || value instanceof Collection<?>) {
+            try {
+                return TEMPLATE_JSON.writeValueAsString(value);
+            } catch (com.fasterxml.jackson.core.JsonProcessingException ignored) {
+                // fall through to the plain text form
+            }
+        }
+        return text(value);
     }
 
     private String text(Object value) {

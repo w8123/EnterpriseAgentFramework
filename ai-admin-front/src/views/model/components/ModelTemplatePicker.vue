@@ -21,17 +21,21 @@ const props = withDefaults(
     modelType?: ModelType | ''
     lockModelType?: boolean
     showCustomEntry?: boolean
+    /** 只选厂商：点击厂商即发出 selectProvider，不进入目录模型列表 */
+    providerOnly?: boolean
   }>(),
   {
     modelType: '',
     lockModelType: false,
     showCustomEntry: true,
+    providerOnly: false,
   },
 )
 
 const emit = defineEmits<{
   selectTemplate: [template: ModelTemplate]
   selectCustom: []
+  selectProvider: [group: ModelProviderGroup]
 }>()
 
 type PickerStep = 'provider' | 'model'
@@ -184,6 +188,10 @@ function ensureSelectedProviderValid(message?: string) {
 }
 
 function selectProvider(group: ModelProviderGroup) {
+  if (props.providerOnly) {
+    emit('selectProvider', group)
+    return
+  }
   selectedProvider.value = group.provider
   modelKeyword.value = ''
   pickerStep.value = 'model'
@@ -216,7 +224,7 @@ defineExpose({
 
 <template>
   <div class="model-catalog-picker">
-    <div class="catalog-steps" aria-label="选择进度">
+    <div v-if="!providerOnly" class="catalog-steps" aria-label="选择进度">
       <button
         type="button"
         class="catalog-steps__item"
@@ -284,7 +292,8 @@ defineExpose({
       <div class="catalog-header">
         <div>
           <h3>选择模型厂商</h3>
-          <p>选择厂商后，再选择该厂商提供的模型。</p>
+          <p v-if="providerOnly">选择厂商后，用该厂商的 API Key 实时获取它当前提供的全部模型。</p>
+          <p v-else>选择厂商后，再选择该厂商提供的模型。</p>
         </div>
         <el-input
           v-model="providerKeyword"
@@ -311,7 +320,7 @@ defineExpose({
           <ModelProviderIcon :provider="group.provider" :icon-key="group.iconKey" :size="36" />
           <div class="provider-card__body">
             <strong>{{ group.displayName }}</strong>
-            <span>{{ group.modelCount }} 个模型</span>
+            <span>{{ providerOnly ? `目录推荐 ${group.modelCount} 个` : `${group.modelCount} 个模型` }}</span>
           </div>
           <el-icon class="provider-card__arrow"><ArrowRight /></el-icon>
         </button>
@@ -328,8 +337,9 @@ defineExpose({
             <el-icon><Plus /></el-icon>
           </div>
           <div class="custom-card__body">
-            <strong>自定义 OpenAI 兼容模型</strong>
-            <p>自行配置 Base URL、模型名称、路径和凭证。</p>
+            <strong>{{ providerOnly ? '自定义 OpenAI 兼容服务' : '自定义 OpenAI 兼容模型' }}</strong>
+            <p v-if="providerOnly">自行填写 Base URL 和凭证，例如私有部署、中转服务或其他厂商。</p>
+            <p v-else>自行配置 Base URL、模型名称、路径和凭证。</p>
           </div>
           <el-icon class="provider-card__arrow" aria-hidden="true"><ArrowRight /></el-icon>
         </button>

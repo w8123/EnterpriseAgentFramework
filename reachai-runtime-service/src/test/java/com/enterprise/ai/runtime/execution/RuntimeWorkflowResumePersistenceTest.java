@@ -2,7 +2,6 @@ package com.enterprise.ai.runtime.execution;
 
 import com.enterprise.ai.runtime.supervisor.SupervisorRuntimeAdapter;
 import com.enterprise.ai.runtime.supervisor.RuntimeAgentExecutionService;
-import com.enterprise.ai.runtime.client.capability.RuntimeCapabilityCatalogClient;
 import com.enterprise.ai.runtime.execution.interaction.WorkflowInteractionCodes;
 import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
 import com.enterprise.ai.runtime.support.RuntimeQueryTestDatabase;

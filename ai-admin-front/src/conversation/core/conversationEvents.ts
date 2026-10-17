@@ -1,4 +1,3 @@
-import type { ConversationSnapshot } from './conversationTypes'
 import { nowIso } from './conversationTypes'
 
 export type ConversationEventType =
@@ -76,10 +75,6 @@ export function isDebugEventType(type: string): boolean {
   return type.startsWith('debug.')
 }
 
-export function isPublicEventType(type: string): boolean {
-  return !isDebugEventType(type)
-}
-
 export function createEvent<T>(
   type: ConversationEventType | string,
   data: T,
@@ -92,8 +87,4 @@ export function createEvent<T>(
     data,
     ...extras,
   }
-}
-
-export function snapshotFromRestore(snapshot: ConversationSnapshot): ConversationEventEnvelope<ConversationSnapshot> {
-  return createEvent('session.restored', snapshot, { sessionId: snapshot.sessionId })
 }

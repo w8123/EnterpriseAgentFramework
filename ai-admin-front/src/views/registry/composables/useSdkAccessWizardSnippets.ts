@@ -26,10 +26,15 @@ export function useSdkAccessWizardSnippets(
   <version>1.0.0-SNAPSHOT</version>
 </dependency>`)
 
+  const registryPublicUrl = computed(() =>
+    deps.aiOnboardingManifest.value?.sdk?.config?.registryUrl
+    || (typeof window === 'undefined' ? '' : window.location.origin)
+    || 'http://localhost:18603')
+
   const starterApplicationSnippet = computed(() => `reachai:
   registry:
     enabled: true
-    url: \${REACHAI_REGISTRY_URL:http://localhost:18603}
+    url: \${REACHAI_REGISTRY_URL:${registryPublicUrl.value}}
     app-key: ${deps.project.value?.registryAppKey || 'your-app-key'}
     app-secret: \${REACHAI_REGISTRY_APP_SECRET}
   project:
@@ -42,7 +47,8 @@ export function useSdkAccessWizardSnippets(
   capability:
     scan-beans: true
     scan-mode: ANNOTATED_ONLY
-    # SDK 接入阶段只注册项目与实例；接口扫描由 ReachAI API 管理手动触发。`)
+    # ANNOTATED_ONLY 只同步 @ReachCapability 业务方法；要把 Controller 接口同步为 HTTP API，
+    # 改为 ALL_CONTROLLERS 并用 scan-packages 限定包名。启动只注册项目与实例，同步在项目内手动触发。`)
 
   const highlightedStarterDependencySnippet = computed(() =>
     highlightXmlCode(starterDependencySnippet.value),

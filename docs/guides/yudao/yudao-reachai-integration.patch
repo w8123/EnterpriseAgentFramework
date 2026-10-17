@@ -1,0 +1,700 @@
+diff --git a/pom.xml b/pom.xml
+index 3e8c815..c29f315 100644
+--- a/pom.xml
++++ b/pom.xml
+@@ -22,7 +22,7 @@
+ <!--        <module>yudao-module-pay</module>-->
+ <!--        <module>yudao-module-mall</module>-->
+ <!--        <module>yudao-module-crm</module>-->
+-<!--        <module>yudao-module-erp</module>-->
++        <module>yudao-module-erp</module>
+ <!--        <module>yudao-module-iot</module>-->
+ <!--        <module>yudao-module-mes</module>-->
+ <!--        <module>yudao-module-wms</module>-->
+diff --git a/yudao-module-erp/pom.xml b/yudao-module-erp/pom.xml
+index ce377ff..d2de3c9 100644
+--- a/yudao-module-erp/pom.xml
++++ b/yudao-module-erp/pom.xml
+@@ -17,7 +17,18 @@
+         例如说：采购、销售、库存、财务、产品等等
+     </description>
+ 
++    <properties>
++        <!-- 保留方法参数名，ReachAI 能力参数显示为 pageReqVO 而不是 arg0 -->
++        <maven.compiler.parameters>true</maven.compiler.parameters>
++    </properties>
++
+     <dependencies>
++        <!-- ReachAI 能力声明 SDK（@ReachCapability / @ReachParam） -->
++        <dependency>
++            <groupId>com.enterprise.ai</groupId>
++            <artifactId>reachai-capability-sdk</artifactId>
++            <version>1.0.0-SNAPSHOT</version>
++        </dependency>
+         <dependency>
+             <groupId>cn.iocoder.boot</groupId>
+             <artifactId>yudao-module-system</artifactId>
+diff --git a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/product/ErpProductController.java b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/product/ErpProductController.java
+index aba64d8..8adadd3 100644
+--- a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/product/ErpProductController.java
++++ b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/product/ErpProductController.java
+@@ -1,5 +1,8 @@
+ package cn.iocoder.yudao.module.erp.controller.admin.product;
+ 
++import com.enterprise.ai.reach.sdk.annotation.ReachCapability;
++import com.enterprise.ai.reach.sdk.annotation.ReachSideEffectLevel;
++
+ import cn.iocoder.yudao.framework.apilog.core.annotation.ApiAccessLog;
+ import cn.iocoder.yudao.framework.common.enums.CommonStatusEnum;
+ import cn.iocoder.yudao.framework.common.pojo.CommonResult;
+@@ -71,6 +74,10 @@ public class ErpProductController {
+         return success(BeanUtils.toBean(product, ErpProductRespVO.class));
+     }
+ 
++    @ReachCapability(name = "erpProductPage", title = "查询产品",
++            description = "按产品名称或分类分页查询 ERP 产品，返回产品编号、名称、条码、规格、单位、分类、采购价、销售价和最低价。查库存、下单前先用它把产品名称换成产品编号。",
++            domain = "erp", module = "product", tags = {"产品", "列表查询"},
++            sideEffect = ReachSideEffectLevel.READ)
+     @GetMapping("/page")
+     @Operation(summary = "获得产品分页")
+     @PreAuthorize("@ss.hasPermission('erp:product:query')")
+@@ -78,6 +85,10 @@ public class ErpProductController {
+         return success(productService.getProductVOPage(pageReqVO));
+     }
+ 
++    @ReachCapability(name = "erpProductSimpleList", title = "获取全部启用产品",
++            description = "返回全部启用状态的 ERP 产品精简列表（编号、名称、单位、价格），适合把产品名称匹配为产品编号。",
++            domain = "erp", module = "product", tags = {"产品"},
++            sideEffect = ReachSideEffectLevel.READ)
+     @GetMapping("/simple-list")
+     @Operation(summary = "获得产品精简列表", description = "只包含被开启的产品，主要用于前端的下拉选项")
+     public CommonResult<List<ErpProductRespVO>> getProductSimpleList() {
+diff --git a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/product/vo/product/ErpProductPageReqVO.java b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/product/vo/product/ErpProductPageReqVO.java
+index de4f814..8496fb8 100644
+--- a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/product/vo/product/ErpProductPageReqVO.java
++++ b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/product/vo/product/ErpProductPageReqVO.java
+@@ -1,5 +1,7 @@
+ package cn.iocoder.yudao.module.erp.controller.admin.product.vo.product;
+ 
++import com.enterprise.ai.reach.sdk.annotation.ReachParam;
++
+ import lombok.*;
+ import io.swagger.v3.oas.annotations.media.Schema;
+ import cn.iocoder.yudao.framework.common.pojo.PageParam;
+@@ -14,9 +16,11 @@ import static cn.iocoder.yudao.framework.common.util.date.DateUtils.FORMAT_YEAR_
+ @ToString(callSuper = true)
+ public class ErpProductPageReqVO extends PageParam {
+ 
++    @ReachParam(description = "产品名称，模糊匹配")
+     @Schema(description = "产品名称", example = "李四")
+     private String name;
+ 
++    @ReachParam(description = "产品分类编号")
+     @Schema(description = "产品分类编号", example = "11161")
+     private Long categoryId;
+ 
+diff --git a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/purchase/ErpPurchaseOrderController.java b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/purchase/ErpPurchaseOrderController.java
+index c3d36e9..397bb6e 100644
+--- a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/purchase/ErpPurchaseOrderController.java
++++ b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/purchase/ErpPurchaseOrderController.java
+@@ -1,5 +1,8 @@
+ package cn.iocoder.yudao.module.erp.controller.admin.purchase;
+ 
++import com.enterprise.ai.reach.sdk.annotation.ReachCapability;
++import com.enterprise.ai.reach.sdk.annotation.ReachSideEffectLevel;
++
+ import cn.hutool.core.collection.CollUtil;
+ import cn.iocoder.yudao.framework.apilog.core.annotation.ApiAccessLog;
+ import cn.iocoder.yudao.framework.common.pojo.CommonResult;
+@@ -113,6 +116,10 @@ public class ErpPurchaseOrderController {
+                 }))));
+     }
+ 
++    @ReachCapability(name = "erpPurchaseOrderPage", title = "查询采购订单",
++            description = "按采购单号、供应商编号、产品编号、审核状态、入库状态分页查询 ERP 采购订单，返回订单号、供应商、采购时间、产品摘要、数量、金额和入库进度。",
++            domain = "erp", module = "purchase", tags = {"采购订单", "列表查询"},
++            sideEffect = ReachSideEffectLevel.READ)
+     @GetMapping("/page")
+     @Operation(summary = "获得采购订单分页")
+     @PreAuthorize("@ss.hasPermission('erp:purchase-order:query')")
+diff --git a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/purchase/ErpSupplierController.java b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/purchase/ErpSupplierController.java
+index affc0ca..16aea9a 100644
+--- a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/purchase/ErpSupplierController.java
++++ b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/purchase/ErpSupplierController.java
+@@ -1,5 +1,8 @@
+ package cn.iocoder.yudao.module.erp.controller.admin.purchase;
+ 
++import com.enterprise.ai.reach.sdk.annotation.ReachCapability;
++import com.enterprise.ai.reach.sdk.annotation.ReachSideEffectLevel;
++
+ import cn.iocoder.yudao.framework.apilog.core.annotation.ApiAccessLog;
+ import cn.iocoder.yudao.framework.common.enums.CommonStatusEnum;
+ import cn.iocoder.yudao.framework.common.pojo.CommonResult;
+@@ -71,6 +74,10 @@ public class ErpSupplierController {
+         return success(BeanUtils.toBean(supplier, ErpSupplierRespVO.class));
+     }
+ 
++    @ReachCapability(name = "erpSupplierPage", title = "查询供应商",
++            description = "按供应商名称、手机号或联系电话分页查询 ERP 供应商。",
++            domain = "erp", module = "purchase", tags = {"供应商", "列表查询"},
++            sideEffect = ReachSideEffectLevel.READ)
+     @GetMapping("/page")
+     @Operation(summary = "获得供应商分页")
+     @PreAuthorize("@ss.hasPermission('erp:supplier:query')")
+diff --git a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/purchase/vo/order/ErpPurchaseOrderPageReqVO.java b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/purchase/vo/order/ErpPurchaseOrderPageReqVO.java
+index 8bf70d4..c89dee6 100644
+--- a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/purchase/vo/order/ErpPurchaseOrderPageReqVO.java
++++ b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/purchase/vo/order/ErpPurchaseOrderPageReqVO.java
+@@ -1,5 +1,7 @@
+ package cn.iocoder.yudao.module.erp.controller.admin.purchase.vo.order;
+ 
++import com.enterprise.ai.reach.sdk.annotation.ReachParam;
++
+ import cn.iocoder.yudao.framework.common.pojo.PageParam;
+ import io.swagger.v3.oas.annotations.media.Schema;
+ import lombok.Data;
+@@ -43,9 +45,11 @@ public class ErpPurchaseOrderPageReqVO extends PageParam {
+      */
+     public static final Integer RETURN_STATUS_ALL = 2;
+ 
++    @ReachParam(description = "采购单编号")
+     @Schema(description = "采购单编号", example = "XS001")
+     private String no;
+ 
++    @ReachParam(description = "供应商编号，可先用 erpSupplierPage 查到")
+     @Schema(description = "供应商编号", example = "1724")
+     private Long supplierId;
+ 
+@@ -56,15 +60,18 @@ public class ErpPurchaseOrderPageReqVO extends PageParam {
+     @Schema(description = "备注", example = "你猜")
+     private String remark;
+ 
++    @ReachParam(description = "审核状态：10 未审核，20 已审核")
+     @Schema(description = "采购状态", example = "2")
+     private Integer status;
+ 
+     @Schema(description = "创建者")
+     private String creator;
+ 
++    @ReachParam(description = "产品编号")
+     @Schema(description = "产品编号", example = "1")
+     private Long productId;
+ 
++    @ReachParam(description = "入库状态：0 未入库，1 部分入库，2 全部入库")
+     @Schema(description = "入库状态", example = "2")
+     private Integer inStatus;
+ 
+diff --git a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/purchase/vo/supplier/ErpSupplierPageReqVO.java b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/purchase/vo/supplier/ErpSupplierPageReqVO.java
+index 229ab63..efbc138 100644
+--- a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/purchase/vo/supplier/ErpSupplierPageReqVO.java
++++ b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/purchase/vo/supplier/ErpSupplierPageReqVO.java
+@@ -1,5 +1,7 @@
+ package cn.iocoder.yudao.module.erp.controller.admin.purchase.vo.supplier;
+ 
++import com.enterprise.ai.reach.sdk.annotation.ReachParam;
++
+ import cn.iocoder.yudao.framework.common.pojo.PageParam;
+ import io.swagger.v3.oas.annotations.media.Schema;
+ import lombok.Data;
+@@ -12,12 +14,15 @@ import lombok.ToString;
+ @ToString(callSuper = true)
+ public class ErpSupplierPageReqVO extends PageParam {
+ 
++    @ReachParam(description = "供应商名称，模糊匹配")
+     @Schema(description = "供应商名称", example = "芋道源码")
+     private String name;
+ 
++    @ReachParam(description = "手机号码")
+     @Schema(description = "手机号码", example = "15601691300")
+     private String mobile;
+ 
++    @ReachParam(description = "联系电话")
+     @Schema(description = "联系电话", example = "18818288888")
+     private String telephone;
+ 
+diff --git a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/sale/ErpCustomerController.java b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/sale/ErpCustomerController.java
+index 5a1c4a8..1f789ef 100644
+--- a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/sale/ErpCustomerController.java
++++ b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/sale/ErpCustomerController.java
+@@ -1,5 +1,8 @@
+ package cn.iocoder.yudao.module.erp.controller.admin.sale;
+ 
++import com.enterprise.ai.reach.sdk.annotation.ReachCapability;
++import com.enterprise.ai.reach.sdk.annotation.ReachSideEffectLevel;
++
+ import cn.iocoder.yudao.framework.apilog.core.annotation.ApiAccessLog;
+ import cn.iocoder.yudao.framework.common.enums.CommonStatusEnum;
+ import cn.iocoder.yudao.framework.common.pojo.CommonResult;
+@@ -38,6 +41,10 @@ public class ErpCustomerController {
+     @Resource
+     private ErpCustomerService customerService;
+ 
++    @ReachCapability(name = "erpCustomerCreate", title = "新建客户",
++            description = "在 ERP 中新建一个客户。name、status（0 开启 1 关闭）和 sort 必填，其余联系方式、税务和银行信息可选。返回新客户编号。",
++            domain = "erp", module = "sale", tags = {"客户", "新建"},
++            sideEffect = ReachSideEffectLevel.WRITE)
+     @PostMapping("/create")
+     @Operation(summary = "创建客户")
+     @PreAuthorize("@ss.hasPermission('erp:customer:create')")
+@@ -71,6 +78,10 @@ public class ErpCustomerController {
+         return success(BeanUtils.toBean(customer, ErpCustomerRespVO.class));
+     }
+ 
++    @ReachCapability(name = "erpCustomerPage", title = "查询客户",
++            description = "按客户名称、手机号或联系电话分页查询 ERP 客户，返回客户编号、联系人、联系方式、税号和开户信息。",
++            domain = "erp", module = "sale", tags = {"客户", "列表查询"},
++            sideEffect = ReachSideEffectLevel.READ)
+     @GetMapping("/page")
+     @Operation(summary = "获得客户分页")
+     @PreAuthorize("@ss.hasPermission('erp:customer:query')")
+diff --git a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/sale/ErpSaleOrderController.java b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/sale/ErpSaleOrderController.java
+index 0e4d286..c97dba8 100644
+--- a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/sale/ErpSaleOrderController.java
++++ b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/sale/ErpSaleOrderController.java
+@@ -1,5 +1,8 @@
+ package cn.iocoder.yudao.module.erp.controller.admin.sale;
+ 
++import com.enterprise.ai.reach.sdk.annotation.ReachCapability;
++import com.enterprise.ai.reach.sdk.annotation.ReachSideEffectLevel;
++
+ import cn.hutool.core.collection.CollUtil;
+ import cn.iocoder.yudao.framework.apilog.core.annotation.ApiAccessLog;
+ import cn.iocoder.yudao.framework.common.pojo.CommonResult;
+@@ -113,6 +116,10 @@ public class ErpSaleOrderController {
+                 }))));
+     }
+ 
++    @ReachCapability(name = "erpSaleOrderPage", title = "查询销售订单",
++            description = "按销售单号、客户编号、产品编号、审核状态、出库状态分页查询 ERP 销售订单，返回订单号、客户、下单时间、产品摘要、数量、金额、已出库和已退货数量。",
++            domain = "erp", module = "sale", tags = {"销售订单", "列表查询"},
++            sideEffect = ReachSideEffectLevel.READ)
+     @GetMapping("/page")
+     @Operation(summary = "获得销售订单分页")
+     @PreAuthorize("@ss.hasPermission('erp:sale-order:query')")
+diff --git a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/sale/vo/customer/ErpCustomerPageReqVO.java b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/sale/vo/customer/ErpCustomerPageReqVO.java
+index e790cb9..1404343 100644
+--- a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/sale/vo/customer/ErpCustomerPageReqVO.java
++++ b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/sale/vo/customer/ErpCustomerPageReqVO.java
+@@ -1,5 +1,7 @@
+ package cn.iocoder.yudao.module.erp.controller.admin.sale.vo.customer;
+ 
++import com.enterprise.ai.reach.sdk.annotation.ReachParam;
++
+ import lombok.*;
+ import java.util.*;
+ import io.swagger.v3.oas.annotations.media.Schema;
+@@ -16,12 +18,15 @@ import static cn.iocoder.yudao.framework.common.util.date.DateUtils.FORMAT_YEAR_
+ @ToString(callSuper = true)
+ public class ErpCustomerPageReqVO extends PageParam {
+ 
++    @ReachParam(description = "客户名称，模糊匹配")
+     @Schema(description = "客户名称", example = "张三")
+     private String name;
+ 
++    @ReachParam(description = "手机号码")
+     @Schema(description = "手机号码", example = "15601691300")
+     private String mobile;
+ 
++    @ReachParam(description = "联系电话")
+     @Schema(description = "联系电话", example = "15601691300")
+     private String telephone;
+ 
+diff --git a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/sale/vo/customer/ErpCustomerSaveReqVO.java b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/sale/vo/customer/ErpCustomerSaveReqVO.java
+index bff1547..1fba762 100644
+--- a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/sale/vo/customer/ErpCustomerSaveReqVO.java
++++ b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/sale/vo/customer/ErpCustomerSaveReqVO.java
+@@ -1,5 +1,7 @@
+ package cn.iocoder.yudao.module.erp.controller.admin.sale.vo.customer;
+ 
++import com.enterprise.ai.reach.sdk.annotation.ReachParam;
++
+ import io.swagger.v3.oas.annotations.media.Schema;
+ import lombok.*;
+ 
+@@ -13,36 +15,45 @@ public class ErpCustomerSaveReqVO {
+     @Schema(description = "客户编号", requiredMode = Schema.RequiredMode.REQUIRED, example = "27520")
+     private Long id;
+ 
++    @ReachParam(description = "客户名称（必填）", required = true)
+     @Schema(description = "客户名称", requiredMode = Schema.RequiredMode.REQUIRED, example = "张三")
+     @NotEmpty(message = "客户名称不能为空")
+     private String name;
+ 
++    @ReachParam(description = "联系人")
+     @Schema(description = "联系人", example = "老王")
+     private String contact;
+ 
++    @ReachParam(description = "手机号码")
+     @Schema(description = "手机号码", example = "15601691300")
+     private String mobile;
+ 
++    @ReachParam(description = "联系电话")
+     @Schema(description = "联系电话", example = "15601691300")
+     private String telephone;
+ 
++    @ReachParam(description = "电子邮箱")
+     @Schema(description = "电子邮箱", example = "7685323@qq.com")
+     private String email;
+ 
+     @Schema(description = "传真", example = "20 7123 4567")
+     private String fax;
+ 
++    @ReachParam(description = "备注")
+     @Schema(description = "备注", example = "你猜")
+     private String remark;
+ 
++    @ReachParam(description = "开启状态（必填）：0 开启，1 关闭", required = true)
+     @Schema(description = "开启状态", requiredMode = Schema.RequiredMode.REQUIRED, example = "1")
+     @NotNull(message = "开启状态不能为空")
+     private Integer status;
+ 
++    @ReachParam(description = "排序（必填），默认 0", required = true)
+     @Schema(description = "排序", requiredMode = Schema.RequiredMode.REQUIRED, example = "10")
+     @NotNull(message = "排序不能为空")
+     private Integer sort;
+ 
++    @ReachParam(description = "纳税人识别号")
+     @Schema(description = "纳税人识别号", example = "91130803MA098BY05W")
+     private String taxNo;
+ 
+diff --git a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/sale/vo/order/ErpSaleOrderPageReqVO.java b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/sale/vo/order/ErpSaleOrderPageReqVO.java
+index 84d92fb..8a83146 100644
+--- a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/sale/vo/order/ErpSaleOrderPageReqVO.java
++++ b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/sale/vo/order/ErpSaleOrderPageReqVO.java
+@@ -1,5 +1,7 @@
+ package cn.iocoder.yudao.module.erp.controller.admin.sale.vo.order;
+ 
++import com.enterprise.ai.reach.sdk.annotation.ReachParam;
++
+ import cn.iocoder.yudao.framework.common.pojo.PageParam;
+ import io.swagger.v3.oas.annotations.media.Schema;
+ import lombok.Data;
+@@ -43,9 +45,11 @@ public class ErpSaleOrderPageReqVO extends PageParam {
+      */
+     public static final Integer RETURN_STATUS_ALL = 2;
+ 
++    @ReachParam(description = "销售单编号，如 XS20261016000001")
+     @Schema(description = "销售单编号", example = "XS001")
+     private String no;
+ 
++    @ReachParam(description = "客户编号，可先用 erpCustomerPage 查到")
+     @Schema(description = "客户编号", example = "1724")
+     private Long customerId;
+ 
+@@ -56,15 +60,18 @@ public class ErpSaleOrderPageReqVO extends PageParam {
+     @Schema(description = "备注", example = "你猜")
+     private String remark;
+ 
++    @ReachParam(description = "审核状态：10 未审核，20 已审核")
+     @Schema(description = "销售状态", example = "2")
+     private Integer status;
+ 
+     @Schema(description = "创建者")
+     private String creator;
+ 
++    @ReachParam(description = "产品编号")
+     @Schema(description = "产品编号", example = "1")
+     private Long productId;
+ 
++    @ReachParam(description = "出库状态：0 未出库，1 部分出库，2 全部出库")
+     @Schema(description = "出库状态", example = "2")
+     private Integer outStatus;
+ 
+diff --git a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/statistics/ErpPurchaseStatisticsController.java b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/statistics/ErpPurchaseStatisticsController.java
+index be0258d..22d83d4 100644
+--- a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/statistics/ErpPurchaseStatisticsController.java
++++ b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/statistics/ErpPurchaseStatisticsController.java
+@@ -1,5 +1,8 @@
+ package cn.iocoder.yudao.module.erp.controller.admin.statistics;
+ 
++import com.enterprise.ai.reach.sdk.annotation.ReachCapability;
++import com.enterprise.ai.reach.sdk.annotation.ReachSideEffectLevel;
++
+ import cn.hutool.core.date.LocalDateTimeUtil;
+ import cn.iocoder.yudao.framework.common.pojo.CommonResult;
+ import cn.iocoder.yudao.framework.common.util.date.LocalDateTimeUtils;
+@@ -33,6 +36,10 @@ public class ErpPurchaseStatisticsController {
+     @Resource
+     private ErpPurchaseStatisticsService purchaseStatisticsService;
+ 
++    @ReachCapability(name = "erpPurchaseSummary", title = "采购统计概览",
++            description = "返回今天、昨天、本月、今年的 ERP 采购额汇总。",
++            domain = "erp", module = "statistics", tags = {"采购统计"},
++            sideEffect = ReachSideEffectLevel.READ)
+     @GetMapping("/summary")
+     @Operation(summary = "获得采购统计")
+     @PreAuthorize("@ss.hasPermission('erp:statistics:query')")
+diff --git a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/statistics/ErpSaleStatisticsController.java b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/statistics/ErpSaleStatisticsController.java
+index c43c971..e457e4d 100644
+--- a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/statistics/ErpSaleStatisticsController.java
++++ b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/statistics/ErpSaleStatisticsController.java
+@@ -1,5 +1,8 @@
+ package cn.iocoder.yudao.module.erp.controller.admin.statistics;
+ 
++import com.enterprise.ai.reach.sdk.annotation.ReachCapability;
++import com.enterprise.ai.reach.sdk.annotation.ReachSideEffectLevel;
++
+ import cn.hutool.core.date.LocalDateTimeUtil;
+ import cn.iocoder.yudao.framework.common.pojo.CommonResult;
+ import cn.iocoder.yudao.framework.common.util.date.LocalDateTimeUtils;
+@@ -33,6 +36,10 @@ public class ErpSaleStatisticsController {
+     @Resource
+     private ErpSaleStatisticsService saleStatisticsService;
+ 
++    @ReachCapability(name = "erpSaleSummary", title = "销售统计概览",
++            description = "返回今天、昨天、本月、今年的 ERP 销售额汇总，用于回答“今天/本月卖了多少”。",
++            domain = "erp", module = "statistics", tags = {"销售统计"},
++            sideEffect = ReachSideEffectLevel.READ)
+     @GetMapping("/summary")
+     @Operation(summary = "获得销售统计")
+     @PreAuthorize("@ss.hasPermission('erp:statistics:query')")
+diff --git a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/stock/ErpStockController.java b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/stock/ErpStockController.java
+index b63f82d..bf66792 100644
+--- a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/stock/ErpStockController.java
++++ b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/stock/ErpStockController.java
+@@ -1,5 +1,8 @@
+ package cn.iocoder.yudao.module.erp.controller.admin.stock;
+ 
++import com.enterprise.ai.reach.sdk.annotation.ReachCapability;
++import com.enterprise.ai.reach.sdk.annotation.ReachSideEffectLevel;
++
+ import cn.hutool.core.collection.CollUtil;
+ import cn.iocoder.yudao.framework.apilog.core.annotation.ApiAccessLog;
+ import cn.iocoder.yudao.framework.common.pojo.CommonResult;
+@@ -74,6 +77,10 @@ public class ErpStockController {
+         return success(stockService.getStockCount(productId));
+     }
+ 
++    @ReachCapability(name = "erpStockPage", title = "查询产品库存",
++            description = "按产品编号、仓库编号分页查询 ERP 产品库存，返回产品名称、仓库名称、库存数量和单位。只能按编号过滤，按名称查询时先用 erpProductPage 找到产品编号。",
++            domain = "erp", module = "stock", tags = {"库存", "列表查询"},
++            sideEffect = ReachSideEffectLevel.READ)
+     @GetMapping("/page")
+     @Operation(summary = "获得产品库存分页")
+     @PreAuthorize("@ss.hasPermission('erp:stock:query')")
+diff --git a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/stock/ErpWarehouseController.java b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/stock/ErpWarehouseController.java
+index 9de214b..6688671 100644
+--- a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/stock/ErpWarehouseController.java
++++ b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/stock/ErpWarehouseController.java
+@@ -1,5 +1,8 @@
+ package cn.iocoder.yudao.module.erp.controller.admin.stock;
+ 
++import com.enterprise.ai.reach.sdk.annotation.ReachCapability;
++import com.enterprise.ai.reach.sdk.annotation.ReachSideEffectLevel;
++
+ import cn.iocoder.yudao.framework.apilog.core.annotation.ApiAccessLog;
+ import cn.iocoder.yudao.framework.common.enums.CommonStatusEnum;
+ import cn.iocoder.yudao.framework.common.pojo.CommonResult;
+@@ -92,6 +95,10 @@ public class ErpWarehouseController {
+         return success(BeanUtils.toBean(pageResult, ErpWarehouseRespVO.class));
+     }
+ 
++    @ReachCapability(name = "erpWarehouseSimpleList", title = "获取全部仓库",
++            description = "返回全部启用仓库的编号和名称，用于把仓库名称换成仓库编号。",
++            domain = "erp", module = "stock", tags = {"仓库"},
++            sideEffect = ReachSideEffectLevel.READ)
+     @GetMapping("/simple-list")
+     @Operation(summary = "获得仓库精简列表", description = "只包含被开启的仓库，主要用于前端的下拉选项")
+     public CommonResult<List<ErpWarehouseRespVO>> getWarehouseSimpleList() {
+diff --git a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/stock/vo/stock/ErpStockPageReqVO.java b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/stock/vo/stock/ErpStockPageReqVO.java
+index f7f3fa3..cf1a104 100644
+--- a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/stock/vo/stock/ErpStockPageReqVO.java
++++ b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/stock/vo/stock/ErpStockPageReqVO.java
+@@ -1,5 +1,7 @@
+ package cn.iocoder.yudao.module.erp.controller.admin.stock.vo.stock;
+ 
++import com.enterprise.ai.reach.sdk.annotation.ReachParam;
++
+ import cn.iocoder.yudao.framework.common.pojo.PageParam;
+ import io.swagger.v3.oas.annotations.media.Schema;
+ import lombok.Data;
+@@ -12,9 +14,11 @@ import lombok.ToString;
+ @ToString(callSuper = true)
+ public class ErpStockPageReqVO extends PageParam {
+ 
++    @ReachParam(description = "产品编号，可先用 erpProductPage 按名称查到")
+     @Schema(description = "产品编号", example = "19614")
+     private Long productId;
+ 
++    @ReachParam(description = "仓库编号，可先用 erpWarehouseSimpleList 查到")
+     @Schema(description = "仓库编号", example = "2802")
+     private Long warehouseId;
+ 
+diff --git a/yudao-server/pom.xml b/yudao-server/pom.xml
+index 88ebde5..f9a715c 100644
+--- a/yudao-server/pom.xml
++++ b/yudao-server/pom.xml
+@@ -95,11 +95,18 @@
+ <!--        </dependency>-->
+ 
+         <!-- ERP 相关模块。默认注释，保证编译速度 -->
+-<!--        <dependency>-->
+-<!--            <groupId>cn.iocoder.boot</groupId>-->
+-<!--            <artifactId>yudao-module-erp</artifactId>-->
+-<!--            <version>${revision}</version>-->
+-<!--        </dependency>-->
++        <dependency>
++            <groupId>cn.iocoder.boot</groupId>
++            <artifactId>yudao-module-erp</artifactId>
++            <version>${revision}</version>
++        </dependency>
++
++        <!-- ReachAI 接入：项目注册、心跳、能力同步与调用入口 -->
++        <dependency>
++            <groupId>com.enterprise.ai</groupId>
++            <artifactId>reachai-spring-boot2-starter</artifactId>
++            <version>1.0.0-SNAPSHOT</version>
++        </dependency>
+ 
+         <!-- AI 大模型相关模块。默认注释，保证编译速度 -->
+ <!--        <dependency>-->
+diff --git a/yudao-server/src/main/java/cn/iocoder/yudao/server/reachai/YudaoReachAiConfiguration.java b/yudao-server/src/main/java/cn/iocoder/yudao/server/reachai/YudaoReachAiConfiguration.java
+new file mode 100644
+index 0000000..33ca03c
+--- /dev/null
++++ b/yudao-server/src/main/java/cn/iocoder/yudao/server/reachai/YudaoReachAiConfiguration.java
+@@ -0,0 +1,40 @@
++package cn.iocoder.yudao.server.reachai;
++
++import cn.iocoder.yudao.framework.security.config.AuthorizeRequestsCustomizer;
++import cn.iocoder.yudao.module.system.service.user.AdminUserService;
++import org.springframework.beans.factory.annotation.Value;
++import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
++import org.springframework.context.annotation.Bean;
++import org.springframework.context.annotation.Configuration;
++import org.springframework.security.config.annotation.web.builders.HttpSecurity;
++import org.springframework.security.config.annotation.web.configurers.AuthorizeHttpRequestsConfigurer;
++
++/**
++ * ReachAI 接入配置。
++ *
++ * <p>{@code /reachai/**} 由 ReachAI Starter 自己校验项目签名和调用令牌，因此在芋道的登录拦截里放行；
++ * 业务调用的身份和租户由 {@link YudaoReachAiSecurityBridge} 建立。</p>
++ */
++@Configuration(proxyBeanMethods = false)
++@ConditionalOnClass(name = "com.enterprise.ai.reach.spring.ReachAiSecurityContextBridge")
++public class YudaoReachAiConfiguration {
++
++    @Bean("reachAiAuthorizeRequestsCustomizer")
++    public AuthorizeRequestsCustomizer reachAiAuthorizeRequestsCustomizer() {
++        return new AuthorizeRequestsCustomizer() {
++            @Override
++            public void customize(AuthorizeHttpRequestsConfigurer<HttpSecurity>.AuthorizationManagerRequestMatcherRegistry registry) {
++                registry.requestMatchers("/reachai/**").permitAll();
++            }
++        };
++    }
++
++    @Bean
++    public YudaoReachAiSecurityBridge yudaoReachAiSecurityBridge(
++            AdminUserService adminUserService,
++            @Value("${yudao.reachai.default-tenant-id:1}") Long defaultTenantId,
++            @Value("${yudao.reachai.default-user-id:}") Long defaultUserId) {
++        return new YudaoReachAiSecurityBridge(adminUserService, defaultTenantId, defaultUserId);
++    }
++
++}
+diff --git a/yudao-server/src/main/java/cn/iocoder/yudao/server/reachai/YudaoReachAiSecurityBridge.java b/yudao-server/src/main/java/cn/iocoder/yudao/server/reachai/YudaoReachAiSecurityBridge.java
+new file mode 100644
+index 0000000..fedc0e8
+--- /dev/null
++++ b/yudao-server/src/main/java/cn/iocoder/yudao/server/reachai/YudaoReachAiSecurityBridge.java
+@@ -0,0 +1,98 @@
++package cn.iocoder.yudao.server.reachai;
++
++import cn.hutool.core.util.NumberUtil;
++import cn.hutool.core.util.StrUtil;
++import cn.iocoder.yudao.framework.common.enums.CommonStatusEnum;
++import cn.iocoder.yudao.framework.common.enums.UserTypeEnum;
++import cn.iocoder.yudao.framework.security.core.LoginUser;
++import cn.iocoder.yudao.framework.tenant.core.context.TenantContextHolder;
++import cn.iocoder.yudao.framework.tenant.core.util.TenantUtils;
++import cn.iocoder.yudao.module.system.dal.dataobject.user.AdminUserDO;
++import cn.iocoder.yudao.module.system.service.user.AdminUserService;
++import com.enterprise.ai.reach.spring.ReachAiInvocationContext;
++import com.enterprise.ai.reach.spring.ReachAiSecurityContextBridge;
++import lombok.extern.slf4j.Slf4j;
++import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
++import org.springframework.security.core.context.SecurityContext;
++import org.springframework.security.core.context.SecurityContextHolder;
++
++import java.util.Collections;
++import java.util.HashMap;
++import java.util.Map;
++
++/**
++ * 把 ReachAI 已验签的调用身份映射为芋道的租户和登录用户，让 {@code @PreAuthorize}、数据权限和多租户插件照常生效。
++ *
++ * <p>用户映射顺序：调用令牌里的外部用户编号（芋道用户 id）→ 同名芋道账号 → 配置的默认服务账号。
++ * 都找不到时拒绝调用，而不是匿名执行。</p>
++ */
++@Slf4j
++public class YudaoReachAiSecurityBridge implements ReachAiSecurityContextBridge {
++
++    private final AdminUserService adminUserService;
++    private final Long defaultTenantId;
++    private final Long defaultUserId;
++
++    public YudaoReachAiSecurityBridge(AdminUserService adminUserService, Long defaultTenantId, Long defaultUserId) {
++        this.adminUserService = adminUserService;
++        this.defaultTenantId = defaultTenantId;
++        this.defaultUserId = defaultUserId;
++    }
++
++    @Override
++    public Object runWith(ReachAiInvocationContext context, Invocation invocation) throws Exception {
++        Long tenantId = NumberUtil.isLong(context.getTenantId()) ? Long.valueOf(context.getTenantId()) : defaultTenantId;
++        // 用户查询本身也受多租户约束，所以在目标租户内解析
++        AdminUserDO user = TenantUtils.execute(tenantId, () -> resolveUser(context));
++        if (user == null || !CommonStatusEnum.ENABLE.getStatus().equals(user.getStatus())) {
++            throw new IllegalStateException("ReachAI 调用无法映射到可用的芋道用户");
++        }
++        LoginUser loginUser = new LoginUser().setId(user.getId()).setUserType(UserTypeEnum.ADMIN.getValue())
++                .setTenantId(tenantId).setInfo(buildInfo(user)).setScopes(Collections.emptyList());
++
++        Long oldTenantId = TenantContextHolder.getTenantId();
++        Boolean oldIgnore = TenantContextHolder.isIgnore();
++        SecurityContext oldSecurityContext = SecurityContextHolder.getContext();
++        try {
++            TenantContextHolder.setTenantId(tenantId);
++            TenantContextHolder.setIgnore(false);
++            SecurityContext securityContext = SecurityContextHolder.createEmptyContext();
++            securityContext.setAuthentication(new UsernamePasswordAuthenticationToken(loginUser, null, Collections.emptyList()));
++            SecurityContextHolder.setContext(securityContext);
++            log.info("[ReachAI] capability={} agent={} trace={} -> yudao user={} tenant={}",
++                    context.getCapabilityName(), context.getAgentId(), context.getTraceId(), user.getId(), tenantId);
++            return invocation.proceed();
++        } finally {
++            SecurityContextHolder.setContext(oldSecurityContext);
++            TenantContextHolder.setTenantId(oldTenantId);
++            TenantContextHolder.setIgnore(oldIgnore);
++        }
++    }
++
++    private AdminUserDO resolveUser(ReachAiInvocationContext context) {
++        String externalUserId = context.getExternalUserId();
++        if (NumberUtil.isLong(externalUserId)) {
++            AdminUserDO user = adminUserService.getUser(Long.valueOf(externalUserId));
++            if (user != null) {
++                return user;
++            }
++        }
++        for (String username : new String[]{externalUserId, context.getUserName()}) {
++            if (StrUtil.isNotBlank(username)) {
++                AdminUserDO user = adminUserService.getUserByUsername(username);
++                if (user != null) {
++                    return user;
++                }
++            }
++        }
++        return defaultUserId == null ? null : adminUserService.getUser(defaultUserId);
++    }
++
++    private static Map<String, String> buildInfo(AdminUserDO user) {
++        Map<String, String> info = new HashMap<>();
++        info.put(LoginUser.INFO_KEY_NICKNAME, user.getNickname());
++        info.put(LoginUser.INFO_KEY_DEPT_ID, StrUtil.toStringOrNull(user.getDeptId()));
++        return info;
++    }
++
++}

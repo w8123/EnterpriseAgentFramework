@@ -356,7 +356,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Refresh, Search } from '@element-plus/icons-vue'
+import { Search } from '@element-plus/icons-vue'
 import type { CanvasNodeData, StudioPort, StudioVariableOption, ToolNodeConfig } from '@/types/studio'
 import type { BusinessMethodInfo } from '@/types/businessMethod'
 import type { WorkflowCredential } from '@/types/workflowCredential'

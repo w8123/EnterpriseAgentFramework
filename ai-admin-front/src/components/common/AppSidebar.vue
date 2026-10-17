@@ -312,13 +312,6 @@ const sidebarProjectSelection = computed(() => (
     ? pageProjectScope.selection.value
     : projectStore.currentProject?.id ?? NO_PROJECT_VALUE
 ))
-// Keep the previous test/consumer-facing name while the active page scope may
-// also expose the explicit `all` sentinel instead of a numeric project id.
-const resolvedCurrentProjectId = computed(() => (
-  usesPageProjectScope.value && pageProjectScope
-    ? pageProjectScope.selection.value ?? NO_PROJECT_VALUE
-    : projectStore.currentProject?.id ?? NO_PROJECT_VALUE
-))
 const sidebarProjectLoading = computed(() => (
   usesPageProjectScope.value && pageProjectScope
     ? pageProjectScope.isCatalogLoading.value

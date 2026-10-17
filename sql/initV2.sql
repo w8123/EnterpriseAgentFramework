@@ -150,7 +150,8 @@ CREATE TABLE IF NOT EXISTS `model_instance` (
     `protocol`                 VARCHAR(32)   NOT NULL DEFAULT 'OPENAI_COMPATIBLE' COMMENT 'Only OPENAI_COMPATIBLE in V2 phase 1',
     `project_code`             VARCHAR(64)   DEFAULT NULL COMMENT 'NULL = global; non-null reserved for future project scope',
     `project_scope_key`        VARCHAR(64)   AS (IFNULL(`project_code`, '')) STORED COMMENT 'Generated unique-scope key from project_code',
-    `connection_config_json`   MEDIUMTEXT    DEFAULT NULL COMMENT 'Encrypted full connection config JSON (aesgcm:)',
+    `provider_account_id`      VARCHAR(64)   DEFAULT NULL COMMENT 'model_provider_account.id; when set, base URL and credentials come from the account',
+    `connection_config_json`   MEDIUMTEXT    DEFAULT NULL COMMENT 'Encrypted connection config JSON (aesgcm:); only request paths when provider_account_id is set',
     `default_options_json`     MEDIUMTEXT    DEFAULT NULL COMMENT 'Default runtime options JSON',
     `params_schema_json`       MEDIUMTEXT    DEFAULT NULL COMMENT 'UI parameter schema JSON',
     `status`                   VARCHAR(32)   NOT NULL DEFAULT 'ACTIVE' COMMENT 'ACTIVE / DISABLED / ARCHIVED',
@@ -165,8 +166,21 @@ CREATE TABLE IF NOT EXISTS `model_instance` (
     KEY `idx_model_instance_provider` (`provider`),
     KEY `idx_model_instance_type` (`model_type`),
     KEY `idx_model_instance_status` (`status`),
-    KEY `idx_model_instance_project` (`project_code`)
+    KEY `idx_model_instance_project` (`project_code`),
+    KEY `idx_model_instance_account` (`provider_account_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Executable model instances bound by stable id (no template_id)';
+
+CREATE TABLE IF NOT EXISTS `model_provider_account` (
+    `id`                       VARCHAR(64)   NOT NULL PRIMARY KEY,
+    `name`                     VARCHAR(128)  NOT NULL COMMENT 'Human-readable account name, unique per provider',
+    `provider`                 VARCHAR(64)   NOT NULL COMMENT 'Provider key, same vocabulary as model_template.provider',
+    `connection_config_json`   MEDIUMTEXT    DEFAULT NULL COMMENT 'Encrypted {baseUrl, apiKey, authHeader, authPrefix} (aesgcm:)',
+    `status`                   VARCHAR(32)   NOT NULL DEFAULT 'ACTIVE' COMMENT 'ACTIVE',
+    `remark`                   VARCHAR(512)  DEFAULT NULL,
+    `created_at`               DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`               DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY `uk_model_provider_account_name` (`provider`, `name`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Provider base URL and API key stored once, shared by model instances';
 
 CREATE TABLE IF NOT EXISTS `model_catalog_source` (
     `id`                    BIGINT        NOT NULL AUTO_INCREMENT,
@@ -199,6 +213,7 @@ CREATE TABLE IF NOT EXISTS `model_catalog_source` (
 CREATE TABLE IF NOT EXISTS `model_catalog_setting` (
     `id`                    TINYINT       NOT NULL COMMENT 'Singleton row; always 1',
     `auto_sync_enabled`     TINYINT(1)    NOT NULL DEFAULT 0 COMMENT '0=manual only; 1=create automatic daily slots',
+    `analyzer_model_instance_id` VARCHAR(64) DEFAULT NULL COMMENT 'Console-selected ACTIVE LLM instance for catalog analysis; NULL falls back to MODEL_CATALOG_ANALYZER_MODEL_INSTANCE_ID',
     `created_at`            DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at`            DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`)
@@ -1358,6 +1373,7 @@ CREATE TABLE IF NOT EXISTS `runtime_http_api_connection` (
     `origin` VARCHAR(512) NOT NULL COMMENT '仅协议、主机和端口；不含 route、秘密或查询',
     `auth_mode` VARCHAR(32) NOT NULL COMMENT 'NONE / API_KEY_HEADER / BEARER',
     `credential_ref` VARCHAR(128) DEFAULT NULL COMMENT '仅 PROJECT vault 引用',
+    `override_active` TINYINT(1) NOT NULL DEFAULT 1 COMMENT '1=本 API 覆盖项目默认连接；0=已移除覆盖并继承项目默认，保留行以延续修订号',
     `revision` BIGINT NOT NULL,
     `saved_by` VARCHAR(128) NOT NULL,
     `created_at` DATETIME NOT NULL,
@@ -1365,7 +1381,23 @@ CREATE TABLE IF NOT EXISTS `runtime_http_api_connection` (
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_runtime_http_api_connection_ref` (`qualified_name`),
     KEY `idx_runtime_http_api_connection_project` (`project_id`, `environment`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Runtime 独占 HTTP API 测试环境连接修订';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Runtime 独占 HTTP API 单 API 覆盖连接修订';
+
+CREATE TABLE IF NOT EXISTS `runtime_http_api_project_connection` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `project_id` BIGINT NOT NULL,
+    `project_code` VARCHAR(96) NOT NULL,
+    `environment` VARCHAR(32) NOT NULL,
+    `origin` VARCHAR(512) NOT NULL COMMENT '仅协议、主机和端口；不含 route、秘密或查询',
+    `auth_mode` VARCHAR(32) NOT NULL COMMENT 'NONE / API_KEY_HEADER / BEARER',
+    `credential_ref` VARCHAR(128) DEFAULT NULL COMMENT '仅 PROJECT vault 引用',
+    `revision` BIGINT NOT NULL COMMENT '乐观并发修订；生效修订=revision*2，覆盖连接为 revision*2+1',
+    `saved_by` VARCHAR(128) NOT NULL,
+    `created_at` DATETIME NOT NULL,
+    `updated_at` DATETIME NOT NULL,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_runtime_http_api_project_connection_scope` (`project_id`, `environment`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Runtime 独占 HTTP API 项目默认连接（项目+环境，所有 API 继承）';
 
 CREATE TABLE IF NOT EXISTS `runtime_tool_call_log` (
     `id`                   BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
@@ -2167,6 +2199,16 @@ SELECT * FROM (
     SELECT 'public',               'TOOL',                 '*',                 'DENY',             '内建：匿名身份默认拒绝所有 TOOL'
 ) AS seed
 WHERE NOT EXISTS (SELECT 1 FROM `control_tool_acl` LIMIT 1);
+
+-- 平台登录会话的管理员角色码是 PLATFORM_ADMIN（见 control_platform_role），不是 admin；
+-- 不补这条时，全新环境的平台管理员无法在控制台试调用任何业务方法（CONSOLE_CAPABILITY_ACL_DENIED）。
+INSERT INTO `control_tool_acl` (`role_code`, `target_kind`, `target_name`, `permission`, `note`)
+SELECT 'PLATFORM_ADMIN', 'ALL', '*', 'ALLOW', '内建：平台管理员默认放行全部能力'
+FROM DUAL
+WHERE NOT EXISTS (
+    SELECT 1 FROM `control_tool_acl`
+    WHERE `role_code` = 'PLATFORM_ADMIN' AND `target_kind` = 'ALL' AND `target_name` = '*'
+);
 
 
 -- ============================================================================

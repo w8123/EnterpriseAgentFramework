@@ -82,12 +82,4 @@ public final class SseStreamRelay {
     public static FrameHandler passthrough() {
         return (eventName, data, downstream) -> writeFrame(downstream, eventName, data);
     }
-
-    public static FrameHandler withSideEffect(java.util.function.BiConsumer<String, String> sideEffect,
-                                              FrameHandler delegate) {
-        return (eventName, data, downstream) -> {
-            sideEffect.accept(eventName, data);
-            delegate.handle(eventName, data, downstream);
-        };
-    }
 }

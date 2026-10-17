@@ -89,7 +89,7 @@ public class RuntimeHttpApiInvocationService {
         try {
             boolean write = HttpApiRequestPolicy.requiresWriteConfirmation(prepared.bound().sideEffect());
             response = http.execute(new WorkflowHttpClient.HttpExecutionRequest(prepared.bound().method(),
-                    prepared.connection().getOrigin() + prepared.bound().encodedRoute(),
+                    prepared.connection().origin() + prepared.bound().encodedRoute(),
                     prepared.bound().queryParams(), prepared.bound().jsonBody() == null
                             ? Map.of("Accept", "application/json")
                             : Map.of("Accept", "application/json", "Content-Type", "text/plain".equals(prepared.bound().bodyContentType())
@@ -97,7 +97,7 @@ public class RuntimeHttpApiInvocationService {
                     prepared.bound().jsonBody() == null ? "NONE" : "text/plain".equals(prepared.bound().bodyContentType()) ? "TEXT" : "JSON",
                     prepared.bound().jsonBody() == null ? null : "text/plain".equals(prepared.bound().bodyContentType())
                             ? (String) prepared.bound().jsonBody() : json(prepared.bound().jsonBody()),
-                    30_000, prepared.connection().getCredentialRef(),
+                    30_000, prepared.connection().credentialRef(),
                     WorkflowExecutionIdentity.fromAgent(command.projectId(), command.projectCode()),
                     prepared.credentialRevision(), !write));
         } catch (RuntimeException unconfirmed) {
@@ -197,16 +197,17 @@ public class RuntimeHttpApiInvocationService {
         if (HttpApiRequestPolicy.requiresWriteConfirmation(owner.acceptedContract().path("sideEffect").asText()) && !command.confirmedSideEffect()) {
             throw new Conflict("HTTP_API_CONFIRMATION_REQUIRED", "写 API 必须确认当前契约、连接和输入");
         }
-        RuntimeHttpApiConnectionEntity connection = connections.find(owner.qualifiedName());
-        if (connection == null || !Objects.equals(connection.getRevision(), command.connectionRevision())
-                || !Objects.equals(connection.getProjectId(), owner.projectId())
-                || !Objects.equals(connection.getProjectCode(), owner.projectCode())
-                || !Objects.equals(connection.getEnvironment(), owner.environment())) {
+        // Effective connection: this API's active override, else the project default (D27).
+        RuntimeHttpApiConnectionService.ConnectionSnapshot connection = connections.snapshot(owner);
+        if (connection == null || !Objects.equals(connection.revision(), command.connectionRevision())
+                || !Objects.equals(connection.projectId(), owner.projectId())
+                || !Objects.equals(connection.projectCode(), owner.projectCode())
+                || !Objects.equals(connection.environment(), owner.environment())) {
             throw new Conflict("HTTP_API_CONNECTION_CHANGED", "连接配置已变化，请刷新后重试");
         }
-        connections.origin(connection.getOrigin());
+        connections.origin(connection.origin());
         RuntimeWorkflowCredentialRuntime credential = connections.selectedCredential(
-                connection.getAuthMode(), connection.getCredentialRef(), owner);
+                connection.authMode(), connection.credentialRef(), owner);
         if (credential != null && !StringUtils.hasText(credential.revision())) {
             throw new Conflict("HTTP_API_CREDENTIAL_REVISION_UNAVAILABLE", "项目凭据修订不可用，请刷新凭据后重试");
         }
@@ -219,7 +220,7 @@ public class RuntimeHttpApiInvocationService {
         String headerName = credential == null || credential.secret() == null ? null
                 : credential.secret().get("headerName") instanceof String name ? name : null;
         String authReason = HttpApiConsolePolicy.connectionAuthReason(owner.acceptedContract(),
-                connection.getAuthMode(), credential == null ? null : credential.type(), headerName);
+                connection.authMode(), credential == null ? null : credential.type(), headerName);
         if (authReason != null) throw new Conflict("HTTP_API_AUTH_MISMATCH", authReason);
         HttpApiConsolePolicy.BoundRequest bound = HttpApiConsolePolicy.bind(owner.acceptedContract(),
                 command.pathParams(), command.queryParams(), command.body(), json);
@@ -509,7 +510,7 @@ public class RuntimeHttpApiInvocationService {
         claim.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
         return claim;
     }
-    private record Prepared(RuntimeHttpApiConnectionEntity connection, RuntimeWorkflowCredentialRuntime credential,
+    private record Prepared(RuntimeHttpApiConnectionService.ConnectionSnapshot connection, RuntimeWorkflowCredentialRuntime credential,
                             String credentialRevision, HttpApiConsolePolicy.BoundRequest bound,
                             List<String> inputSecrets, JsonNode acceptedContract) { }
     private record Claim(ConsoleCapabilityInvocationEntity row, boolean owner) { }

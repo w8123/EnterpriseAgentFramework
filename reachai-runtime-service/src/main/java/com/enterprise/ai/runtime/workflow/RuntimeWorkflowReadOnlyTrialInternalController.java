@@ -14,7 +14,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.Map;
 import java.util.Objects;
 
-/** Only the HMAC-authenticated Control session may request a project-scoped draft trial. */
+/** Only the HMAC-authenticated Control session may request a project-scoped whole-draft read-only trial. */
 @RestController
 @RequiredArgsConstructor
 public class RuntimeWorkflowReadOnlyTrialInternalController {
@@ -39,7 +39,7 @@ public class RuntimeWorkflowReadOnlyTrialInternalController {
         } catch (RuntimeWorkflowReadOnlyTrialService.Conflict rejected) {
             return ResponseEntity.status(409).body(error(rejected.code(), "试运行条件已变化，请检查草稿和业务方法/API 状态"));
         } catch (IllegalArgumentException invalid) {
-            return ResponseEntity.badRequest().body(error("HTTP_API_TRIAL_REQUEST_INVALID", "试运行参数无效"));
+            return ResponseEntity.badRequest().body(error("WORKFLOW_TRIAL_REQUEST_INVALID", "试运行参数无效"));
         }
     }
 

@@ -11,6 +11,9 @@ public interface ModelCatalogSettingMapper {
     @Select("SELECT auto_sync_enabled FROM model_catalog_setting WHERE id = 1")
     Boolean selectAutoSyncEnabled();
 
+    @Select("SELECT analyzer_model_instance_id FROM model_catalog_setting WHERE id = 1")
+    String selectAnalyzerModelInstanceId();
+
     @Insert("""
             INSERT INTO model_catalog_setting (id, auto_sync_enabled, created_at, updated_at)
             VALUES (1, #{enabled}, NOW(), NOW())
@@ -19,4 +22,13 @@ public interface ModelCatalogSettingMapper {
                 updated_at = NOW()
             """)
     int upsertAutoSyncEnabled(@Param("enabled") boolean enabled);
+
+    @Insert("""
+            INSERT INTO model_catalog_setting (id, auto_sync_enabled, analyzer_model_instance_id, created_at, updated_at)
+            VALUES (1, 0, #{instanceId}, NOW(), NOW())
+            ON DUPLICATE KEY UPDATE
+                analyzer_model_instance_id = VALUES(analyzer_model_instance_id),
+                updated_at = NOW()
+            """)
+    int upsertAnalyzerModelInstanceId(@Param("instanceId") String instanceId);
 }

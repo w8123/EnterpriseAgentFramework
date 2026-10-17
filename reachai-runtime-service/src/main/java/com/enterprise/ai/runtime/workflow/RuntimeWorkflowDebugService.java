@@ -95,14 +95,14 @@ public class RuntimeWorkflowDebugService {
     }
 
     /** Only the signed internal trial service may provide this server-built identity and audit. */
-    public DebugRunResult runReadOnlyTrial(DebugDefinition definition, Map<String, Object> params,
+    public DebugRunResult runReadOnlyTrial(DebugDefinition definition, String message, Map<String, Object> params,
                                            WorkflowExecutionIdentity identity, TrialAudit audit) {
         if (definition == null || audit == null || identity == null
                 || identity.source() != WorkflowExecutionIdentity.Source.STUDIO_PROJECT_TEST
                 || !identity.authorizeProjectCredential(definition.projectId(), definition.projectCode())) {
-            throw new IllegalArgumentException("HTTP_API_TRIAL_IDENTITY_INVALID");
+            throw new IllegalArgumentException("WORKFLOW_TRIAL_IDENTITY_INVALID");
         }
-        return executeSnapshot(definition, new DebugInput(null, Map.of("params", params), Map.of()),
+        return executeSnapshot(definition, new DebugInput(message, Map.of("params", params == null ? Map.of() : params), Map.of()),
                 DebugRunReference.fresh(), null, false, RuntimeGraphSpecExecutionEventSink.NOOP,
                 RuntimeGraphSpecExecutionCancellation.none(), identity, audit);
     }
@@ -161,7 +161,7 @@ public class RuntimeWorkflowDebugService {
                         resolved.graphSpecJson(), context, sink, cancel, identity, evaluation);
         } catch (RuntimeException unexpected) {
             if (trial == null) throw unexpected;
-            execution = failure("HTTP_API_TRIAL_RESULT_UNCONFIRMED",
+            execution = failure("WORKFLOW_TRIAL_RESULT_UNCONFIRMED",
                     "试运行结果未确认，请先核对 Run/Trace，勿直接重试", null, null);
         }
         finishWorkflowTrace(trace, execution);
@@ -277,9 +277,21 @@ public class RuntimeWorkflowDebugService {
     private List<DebugStepResult> debugSteps(GraphSpec graph, RuntimeGraphSpecExecutionResult execution) {
         List<Map<String, Object>> rawSteps = execution.steps() == null ? List.of() : execution.steps();
         List<DebugStepResult> steps = new ArrayList<>();
+        // Node traces carry the executor-measured latency; consume them in order per node id.
+        Map<String, java.util.ArrayDeque<Long>> latencies = new LinkedHashMap<>();
+        if (execution.metadata() != null && execution.metadata().get("workflowNodeTraces") instanceof List<?> traces) {
+            for (Object raw : traces) {
+                if (raw instanceof Map<?, ?> trace && trace.get("latencyMs") instanceof Number latency) {
+                    latencies.computeIfAbsent(String.valueOf(trace.get("nodeId")), ignored -> new java.util.ArrayDeque<>())
+                            .add(latency.longValue());
+                }
+            }
+        }
         for (int i = 0; i < rawSteps.size(); i++) {
             Map<String, Object> rawStep = rawSteps.get(i);
             String nodeId = firstText(text(rawStep.get("detail")), text(rawStep.get("nodeId")));
+            java.util.ArrayDeque<Long> nodeLatencies = nodeId == null ? null : latencies.get(nodeId);
+            Long elapsed = nodeLatencies == null || nodeLatencies.isEmpty() ? 0L : nodeLatencies.poll();
             GraphSpec.Node node = nodeById(graph, nodeId);
             boolean waitingStep = execution.isWaitingUser()
                     && nodeId != null
@@ -307,7 +319,7 @@ public class RuntimeWorkflowDebugService {
                     stepStatus,
                     null,
                     null,
-                    0L,
+                    elapsed,
                     Map.of(),
                     output,
                     output.isEmpty() ? null : output,
@@ -321,6 +333,19 @@ public class RuntimeWorkflowDebugService {
                     null,
                     failedStep ? execution.code() : null,
                     failedStep ? execution.answer() : null));
+        }
+        String failedNodeId = execution.nodeId();
+        if (!execution.success() && !execution.isWaitingUser() && StringUtils.hasText(failedNodeId)
+                && steps.stream().noneMatch(step -> failedNodeId.equals(step.nodeId()))) {
+            // A node that failed before producing an execution step (e.g. input validation) still gets an
+            // explicit ERROR step so the author can see which node stopped the run and why.
+            GraphSpec.Node node = nodeById(graph, failedNodeId);
+            java.util.ArrayDeque<Long> nodeLatencies = latencies.get(failedNodeId);
+            steps.add(new DebugStepResult(steps.size(), failedNodeId,
+                    firstText(normalizeNodeType(node), execution.nodeType()), node == null ? null : node.getName(),
+                    "ERROR", null, null, nodeLatencies == null || nodeLatencies.isEmpty() ? 0L : nodeLatencies.poll(),
+                    Map.of(), Map.of(), null, Map.of(), Map.of(), "execute-node", null, null, null, null, null,
+                    execution.code(), execution.answer()));
         }
         return steps;
     }
@@ -553,30 +578,18 @@ public class RuntimeWorkflowDebugService {
                                        TrialAudit trial) {
     }
 
-    public record TrialAudit(String actorId, String revision, long apiId, String qualifiedName,
-                             String environment, String acceptedContractHash, String sourceSetRevision,
-                             String graphSha256, List<String> inputKeys, String assetType, String methodName,
-                             String currentContractHash, String sourceContractHash) {
-        public TrialAudit(String actorId, String revision, long apiId, String qualifiedName,
-                          String environment, String acceptedContractHash, String sourceSetRevision,
-                          String graphSha256, List<String> inputKeys) {
-            this(actorId, revision, apiId, qualifiedName, environment, acceptedContractHash, sourceSetRevision,
-                    graphSha256, inputKeys, "HTTP_API", null, null, null);
+    /** Server-built audit of one whole-draft read-only trial; the pinned targets never include input values. */
+    public record TrialAudit(String actorId, String revision, String graphSha256, List<String> inputKeys,
+                             List<Map<String, Object>> targets) {
+        public TrialAudit {
+            inputKeys = inputKeys == null ? List.of() : List.copyOf(inputKeys);
+            targets = targets == null ? List.of() : List.copyOf(targets);
         }
         Map<String, Object> metadata() {
-            if ("BUSINESS_METHOD".equals(assetType)) {
-                return Map.ofEntries(Map.entry("sourceType", "STUDIO_READ_ONLY_TRIAL"),
-                        Map.entry("assetType", assetType), Map.entry("platformActorId", actorId),
-                        Map.entry("identityMode", "STUDIO_PROJECT_TEST"), Map.entry("draftRevision", revision),
-                        Map.entry("methodName", methodName), Map.entry("methodQualifiedName", qualifiedName),
-                        Map.entry("currentContractHash", currentContractHash), Map.entry("acceptedContractHash", acceptedContractHash),
-                        Map.entry("sourceContractHash", sourceContractHash), Map.entry("graphSha256", graphSha256),
-                        Map.entry("inputKeys", inputKeys));
-            }
-            return Map.of("sourceType", "STUDIO_READ_ONLY_TRIAL", "platformActorId", actorId,
-                    "draftRevision", revision, "apiId", apiId, "apiQualifiedName", qualifiedName,
-                    "environment", environment, "acceptedContractHash", acceptedContractHash,
-                    "sourceSetRevision", sourceSetRevision, "graphSha256", graphSha256, "inputKeys", inputKeys);
+            return Map.of("sourceType", "STUDIO_READ_ONLY_TRIAL", "trialScope", "WHOLE_DRAFT",
+                    "identityMode", "STUDIO_PROJECT_TEST", "platformActorId", actorId,
+                    "draftRevision", revision, "graphSha256", graphSha256, "inputKeys", inputKeys,
+                    "targets", targets);
         }
     }
 

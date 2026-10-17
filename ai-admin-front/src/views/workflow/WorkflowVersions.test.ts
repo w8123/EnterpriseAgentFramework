@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
-import ElementPlus, { ElMessageBox } from 'element-plus'
+import ElementPlus, { ElMessage, ElMessageBox } from 'element-plus'
 import WorkflowVersions from './WorkflowVersions.vue'
 import { getWorkflow, listWorkflowVersions, publishWorkflowVersion, rollbackWorkflowVersion } from '@/api/workflow'
+import { listWorkflowAgentReferences } from '@/api/agentWorkflowFreshness'
 
 vi.mock('vue-router', () => ({
   useRoute: () => ({ params: { workflowId: 'wf-orders' }, query: {} }),
@@ -12,9 +13,15 @@ vi.mock('@/api/workflow', () => ({
   getWorkflow: vi.fn(), listWorkflowVersions: vi.fn(), publishWorkflowVersion: vi.fn(),
   rollbackWorkflowVersion: vi.fn(), validateWorkflowVersion: vi.fn(),
 }))
+vi.mock('@/api/agentWorkflowFreshness', async (original) => ({
+  ...await original<typeof import('@/api/agentWorkflowFreshness')>(),
+  listWorkflowAgentReferences: vi.fn(),
+  publishLatestAgentWorkflowVersions: vi.fn(),
+}))
 vi.mock('@/auth/platformAccess', () => ({
   hasPlatformResourcePermission: () => true,
   PLATFORM_PERMISSION_WORKFLOW_PUBLISH: 'workflow:publish', PLATFORM_PERMISSION_WORKFLOW_WRITE: 'workflow:write',
+  PLATFORM_PERMISSION_AGENT_PUBLISH: 'agent:publish',
 }))
 vi.mock('@/auth/platformSession', () => ({ platformSessionUser: { value: { permissionGrants: [] } } }))
 vi.mock('element-plus', async (original) => ({
@@ -33,8 +40,11 @@ describe('Workflow version release commands', () => {
     vi.mocked(listWorkflowVersions).mockResolvedValue({ data: [
       { id: 9, workflowId: 'wf-orders', version: 'v1', status: 'RETIRED' },
     ] } as any)
+    vi.mocked(listWorkflowAgentReferences).mockResolvedValue({ data: {
+      workflowId: 'wf-orders', latestWorkflowVersion: 'v1', staleCount: 0, agents: [],
+    } } as any)
     wrapper = mount(WorkflowVersions, { attachTo: document.body, global: {
-      plugins: [ElementPlus], stubs: { AppDialog: {
+      plugins: [ElementPlus], stubs: { RouterLink: { template: '<a><slot /></a>' }, AppDialog: {
         props: ['modelValue', 'title'],
         template: '<section v-if="modelValue" role="dialog" :aria-label="title"><slot /><slot name="footer" /></section>',
       } },
@@ -88,5 +98,22 @@ describe('Workflow version release commands', () => {
     expect(ElMessageBox.confirm).toHaveBeenCalledWith(expect.stringContaining('当前编辑草稿会保留'),
       '回滚 Workflow', expect.objectContaining({ confirmButtonText: '回滚版本' }))
     expect(rollbackWorkflowVersion).toHaveBeenCalledWith('wf-orders', 9, '2026-09-05T10:00:00')
+  })
+
+  it('reloads Agent references after publishing and warns about Agents still on the old version', async () => {
+    vi.mocked(publishWorkflowVersion).mockResolvedValue({ data: {} } as any)
+    vi.mocked(listWorkflowAgentReferences).mockResolvedValue({ data: {
+      workflowId: 'wf-orders', latestWorkflowVersion: 'v2', staleCount: 1, agents: [{
+        agentId: 'agent-1', agentName: '订单助手', keySlug: 'orders-agent', projectCode: 'orders',
+        activeConfigVersionId: 5, activeConfigVersionNo: 3, pinnedWorkflowVersion: 'v1',
+        latestWorkflowVersion: 'v2', stale: true,
+      }],
+    } } as any)
+    const dialog = await openPublish()
+    await dialog.findAll('button').find(value => value.text() === '发布')!.trigger('click')
+    await flushPromises()
+    expect(listWorkflowAgentReferences).toHaveBeenCalledTimes(2)
+    expect(ElMessage.warning).toHaveBeenCalledWith(expect.stringContaining('1 个 Agent 仍在使用旧版本'))
+    expect(wrapper.text()).toContain('仍在使用 v1，发布 Agent 后才会用到新版本 v2')
   })
 })

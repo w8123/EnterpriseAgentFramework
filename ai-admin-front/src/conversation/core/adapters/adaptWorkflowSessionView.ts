@@ -157,19 +157,6 @@ export function adaptWorkflowSessionView(
   return { snapshot: adaptWorkflowSessionViewToSnapshot(view) }
 }
 
-export function workflowSessionViewToEvents(
-  view: WorkflowDebugSessionViewLike,
-  options: { isRestore?: boolean; previousStepCount?: number } = {},
-): Generator<ConversationEventEnvelope> {
-  if (options.isRestore) {
-    const snapshot = adaptWorkflowSessionViewToSnapshot(view)
-    return (function* () {
-      yield createEvent('session.restored', snapshot, { sessionId: snapshot.sessionId })
-    })()
-  }
-  return adaptWorkflowSessionViewToEvents(view, { previousStepCount: options.previousStepCount })
-}
-
 export function* adaptWorkflowSessionViewToEvents(
   view: WorkflowDebugSessionViewLike,
   options: { previousStepCount?: number } = {},

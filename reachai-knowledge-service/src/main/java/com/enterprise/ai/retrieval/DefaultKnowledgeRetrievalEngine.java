@@ -164,8 +164,11 @@ public class DefaultKnowledgeRetrievalEngine implements KnowledgeRetrievalEngine
         int rerankedCandidateCount = (int) allItems.stream()
                 .filter(item -> item.getRerankScore() != null)
                 .count();
+        // The threshold already gated each recall channel on its own similarity scale. The blended
+        // score only ranks: a chunk recalled by one channel scores 0 in the other, so re-applying
+        // the same threshold here silently dropped relevant hits (e.g. vector 0.52 → hybrid 0.36).
         allItems = allItems.stream()
-                .filter(item -> item.getScore() != null && item.getScore() >= threshold)
+                .filter(item -> item.getScore() != null)
                 .collect(Collectors.toList());
         int scoreAcceptedCandidateCount = allItems.size();
 
@@ -431,18 +434,59 @@ public class DefaultKnowledgeRetrievalEngine implements KnowledgeRetrievalEngine
         }
     }
 
-    private List<String> tokenize(String text) {
+    /**
+     * Whitespace/punctuation split plus character bigrams for CJK runs: Chinese text has no spaces, so
+     * a whole sentence used to become one LIKE term and never matched. Bigrams keep matching cheap
+     * (plain LIKE) while letting "退货运费谁出" hit content containing "退货运费".
+     */
+    static List<String> tokenize(String text) {
         if (text == null || text.isBlank()) {
             return List.of();
         }
-        return Arrays.stream(text.toLowerCase(Locale.ROOT).split("[\\s,.;:!?，。；：！？、()（）\\[\\]{}]+"))
-                .map(String::trim)
-                .filter(s -> !s.isBlank())
-                .distinct()
-                .limit(16)
-                .collect(Collectors.toList());
+        List<String> terms = new ArrayList<>();
+        for (String part : text.toLowerCase(Locale.ROOT).split("[\\s,.;:!?，。；：！？、()（）\\[\\]{}\"'“”‘’《》<>]+")) {
+            String trimmed = part.trim();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+            StringBuilder latin = new StringBuilder();
+            StringBuilder cjk = new StringBuilder();
+            for (int i = 0; i < trimmed.length(); i++) {
+                char c = trimmed.charAt(i);
+                if (Character.UnicodeScript.of(c) == Character.UnicodeScript.HAN) {
+                    flushLatin(latin, terms);
+                    cjk.append(c);
+                } else {
+                    flushCjk(cjk, terms);
+                    latin.append(c);
+                }
+            }
+            flushLatin(latin, terms);
+            flushCjk(cjk, terms);
+        }
+        return terms.stream().distinct().limit(24).collect(Collectors.toList());
     }
 
+    private static void flushLatin(StringBuilder buffer, List<String> terms) {
+        if (!buffer.isEmpty()) {
+            terms.add(buffer.toString());
+            buffer.setLength(0);
+        }
+    }
+
+    private static void flushCjk(StringBuilder buffer, List<String> terms) {
+        if (buffer.isEmpty()) {
+            return;
+        }
+        if (buffer.length() == 1) {
+            terms.add(buffer.toString());
+        } else {
+            for (int i = 0; i + 1 < buffer.length(); i++) {
+                terms.add(buffer.substring(i, i + 2));
+            }
+        }
+        buffer.setLength(0);
+    }
 
     private float valueOrDefault(Float value, float fallback) {
         return value != null ? value : fallback;

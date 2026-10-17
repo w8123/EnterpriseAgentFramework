@@ -207,10 +207,6 @@ public final class ConsoleCapabilityInvocationContracts {
         }
     }
 
-    public static boolean hasValidContractHash(String value) {
-        return value != null && CONTRACT_HASH.matcher(value.trim()).matches();
-    }
-
     private static void requireVersion(int version) {
         if (version != CONTRACT_VERSION) {
             throw new IllegalArgumentException("Unsupported Console Capability invocation contract: " + version);

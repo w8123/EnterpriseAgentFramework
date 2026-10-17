@@ -45,11 +45,32 @@ public final class HttpApiConsoleContracts {
         }
     }
 
+    /**
+     * Effective connection for one API. {@code revision} is the opaque effective revision that invocations pin;
+     * {@code connectionSource} says whether it comes from this API's override or the project default.
+     * {@code overrideRevision} is the optimistic revision for saving/removing this API's override and
+     * {@code projectDefault.revision} the one for saving the project default.
+     */
     public record ConnectionView(String qualifiedName, Long projectId, String projectCode,
                                  String environment, String origin, String authMode,
                                  String credentialRef, String credentialName, String credentialRevision, Long revision,
                                  String status, String blockingReason, String previewUrl,
-                                 MarketVerificationView verification, boolean configurationAllowed) {
+                                 MarketVerificationView verification, boolean configurationAllowed,
+                                 String connectionSource, boolean inherited, boolean overrideActive,
+                                 Long overrideRevision, ProjectDefaultConnectionView projectDefault) {
+        public static final String SOURCE_OVERRIDE = "OVERRIDE";
+        public static final String SOURCE_PROJECT_DEFAULT = "PROJECT_DEFAULT";
+
+        /** Per-API-only shape kept for existing integrations: the saved row is treated as an active override. */
+        public ConnectionView(String qualifiedName, Long projectId, String projectCode, String environment,
+                              String origin, String authMode, String credentialRef, String credentialName,
+                              String credentialRevision, Long revision, String status, String blockingReason,
+                              String previewUrl, MarketVerificationView verification, boolean configurationAllowed) {
+            this(qualifiedName, projectId, projectCode, environment, origin, authMode, credentialRef,
+                    credentialName, credentialRevision, revision, status, blockingReason, previewUrl, verification,
+                    configurationAllowed, revision == null ? null : SOURCE_OVERRIDE, false, revision != null,
+                    revision, null);
+        }
         /** Source-compatible constructor for existing integrations; Runtime returns explicit owner facts. */
         public ConnectionView(String qualifiedName, Long projectId, String projectCode, String environment,
                               String origin, String authMode, String credentialRef, String credentialName,
@@ -67,6 +88,12 @@ public final class HttpApiConsoleContracts {
                     credentialName, credentialRevision, revision, status, blockingReason, previewUrl, null);
         }
     }
+
+    /** Project + environment default connection inherited by every API without an active override. */
+    public record ProjectDefaultConnectionView(Long projectId, String projectCode, String environment,
+                                               String origin, String authMode, String credentialRef,
+                                               String credentialName, Long revision, String status,
+                                               String blockingReason, boolean configurationAllowed) { }
 
     /** Derived from the existing Runtime Console ledger and root Run; never submitted by the browser. */
     public record MarketVerificationView(String status, String reason, Long apiId, String acceptedContractHash,

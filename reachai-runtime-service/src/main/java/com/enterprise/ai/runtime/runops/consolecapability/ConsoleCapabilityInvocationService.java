@@ -2,7 +2,6 @@ package com.enterprise.ai.runtime.runops.consolecapability;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.enterprise.ai.common.capability.CapabilityInvocationResponse;
-import com.enterprise.ai.common.capability.CapabilityInvocationStatus;
 import com.enterprise.ai.common.capability.ConsoleCapabilityInvocationContracts;
 import com.enterprise.ai.runtime.client.capability.RuntimeCapabilityCatalogClient;
 import com.enterprise.ai.runtime.runops.RuntimeRunEntity;

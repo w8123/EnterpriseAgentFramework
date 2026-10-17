@@ -33,7 +33,7 @@ class RuntimeHttpApiVerificationServiceTest {
     }
     @Test void connectionSourceAcceptedAndCredentialChangesInvalidateTheProof() throws Exception {
         var attempt = successfulAttempt();
-        var connection = connection(); connection.setRevision(2L);
+        Long connection = 2L;
         assertEquals("STALE", service.read(owner(reference), connection, null, null).status());
         assertEquals("STALE", service.read(owner(reference), connection(), "d".repeat(64), null).status());
         attempt.setSourceSetRevision("e".repeat(64));
@@ -78,7 +78,7 @@ class RuntimeHttpApiVerificationServiceTest {
         return new HttpApiConsoleContracts.ExecutionContext(1, 1L, ref, 41L, "orders", "dev", "GET", "/orders/{orderId}",
                 true, "ACCEPTED", null, hash, hash, source, json.createObjectNode(), true, null);
     }
-    private RuntimeHttpApiConnectionEntity connection() {
-        var row = new RuntimeHttpApiConnectionEntity(); row.setRevision(1L); return row;
+    private Long connection() {
+        return 1L;
     }
 }

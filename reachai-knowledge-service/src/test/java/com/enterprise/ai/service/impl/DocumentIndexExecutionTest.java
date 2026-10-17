@@ -8,7 +8,6 @@ import com.enterprise.ai.repository.*;
 import com.enterprise.ai.support.KnowledgeQueryTestDatabase;
 import com.enterprise.ai.vector.VectorService;
 import org.junit.jupiter.api.Test;
-import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;

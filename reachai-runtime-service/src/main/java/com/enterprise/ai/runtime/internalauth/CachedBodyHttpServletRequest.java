@@ -24,10 +24,6 @@ public final class CachedBodyHttpServletRequest extends HttpServletRequestWrappe
         this.cachedBody = cachedBody == null ? new byte[0] : cachedBody;
     }
 
-    public byte[] getCachedBody() {
-        return cachedBody;
-    }
-
     @Override
     public ServletInputStream getInputStream() {
         ByteArrayInputStream input = new ByteArrayInputStream(cachedBody);

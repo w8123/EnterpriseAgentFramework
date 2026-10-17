@@ -3,6 +3,8 @@ package com.enterprise.ai.model.instance;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.enterprise.ai.common.exception.BizException;
+import com.enterprise.ai.model.account.ModelProviderAccountEntity;
+import com.enterprise.ai.model.account.ModelProviderAccountMapper;
 import com.enterprise.ai.model.security.CredentialCipher;
 import com.enterprise.ai.model.template.ModelTemplateEntity;
 import com.enterprise.ai.model.template.ModelTemplateService;
@@ -30,6 +32,7 @@ public class ModelInstanceService {
     private final ObjectMapper objectMapper;
     private final CredentialCipher credentialCipher;
     private final ModelInstanceRuntimeCache runtimeCache;
+    private final ModelProviderAccountMapper accountMapper;
 
     public List<ModelInstanceResponse> list(String projectCode,
                                             String modelType,
@@ -202,10 +205,18 @@ public class ModelInstanceService {
         // 变更前有效运行配置快照（用明文规范化后比较，避免 aesgcm 密文每次重加密误判）
         String beforeProvider = entity.getProvider();
         String beforeModelName = entity.getModelName();
-        Map<String, Object> beforeConnection = readConnection(entity);
+        ModelProviderAccountEntity account = linkedAccount(entity);
+        Map<String, Object> ownConnection = readConnection(entity);
+        Map<String, Object> beforeConnection = account == null
+                ? ownConnection
+                : ConnectionConfigSupport.overlayAccount(ownConnection, readAccountConnection(account));
         Map<String, Object> beforeOptions = readMap(entity.getDefaultOptionsJson());
 
         ModelType modelType = ModelType.valueOf(entity.getModelType());
+        if (account != null && StringUtils.hasText(request.getProvider())
+                && !request.getProvider().trim().equals(account.getProvider())) {
+            throw new BizException(400, "该模型使用厂商账号「" + account.getName() + "」，不能更换厂商");
+        }
         if (StringUtils.hasText(request.getProvider())) {
             entity.setProvider(request.getProvider().trim());
         }
@@ -222,10 +233,20 @@ public class ModelInstanceService {
         applyProjectScope(entity, projectCode);
 
         Map<String, Object> mergedConnection;
+        Map<String, Object> persistedConnection;
         Map<String, Object> afterOptions = beforeOptions;
         try {
-            mergedConnection = ConnectionConfigSupport.mergeForEdit(
-                    beforeConnection, request.getConnection());
+            if (account == null) {
+                mergedConnection = ConnectionConfigSupport.mergeForEdit(
+                        beforeConnection, request.getConnection());
+                persistedConnection = mergedConnection;
+            } else {
+                // 地址与 Key 归厂商账号管理；实例编辑只改请求路径。
+                persistedConnection = ConnectionConfigSupport.withoutAccountKeys(ConnectionConfigSupport.mergeMasked(
+                        ownConnection, ConnectionConfigSupport.withoutAccountKeys(request.getConnection())));
+                mergedConnection = ConnectionConfigSupport.overlayAccount(
+                        persistedConnection, readAccountConnection(account));
+            }
             ConnectionConfigSupport.requireBaseUrl(mergedConnection);
             if (request.getDefaultOptions() != null) {
                 ModelProtectedOptions.assertAllowed(modelType, request.getDefaultOptions(), "defaultOptions");
@@ -234,7 +255,7 @@ public class ModelInstanceService {
         } catch (IllegalArgumentException e) {
             throw new BizException(400, e.getMessage());
         }
-        entity.setConnectionConfigJson(credentialCipher.encrypt(toJson(mergedConnection)));
+        entity.setConnectionConfigJson(credentialCipher.encrypt(toJson(persistedConnection)));
 
         if (request.getDefaultOptions() != null) {
             entity.setDefaultOptionsJson(toJson(afterOptions));
@@ -298,12 +319,15 @@ public class ModelInstanceService {
                 .modelType(entity.getModelType())
                 .modelName(entity.getModelName())
                 .protocol(entity.getProtocol())
-                .connectionConfig(readConnection(entity))
+                .connectionConfig(effectiveConnection(entity))
                 .defaultOptions(readMap(entity.getDefaultOptionsJson()))
                 .build();
     }
 
     public ModelInstanceResponse toResponse(ModelInstanceEntity entity) {
+        ModelProviderAccountEntity account = StringUtils.hasText(entity.getProviderAccountId())
+                ? accountMapper.selectById(entity.getProviderAccountId())
+                : null;
         return ModelInstanceResponse.builder()
                 .id(entity.getId())
                 .name(entity.getName())
@@ -312,7 +336,11 @@ public class ModelInstanceService {
                 .modelName(entity.getModelName())
                 .protocol(entity.getProtocol())
                 .projectCode(entity.getProjectCode())
-                .connection(ConnectionConfigSupport.mask(readConnection(entity)))
+                .providerAccountId(entity.getProviderAccountId())
+                .providerAccountName(account == null ? null : account.getName())
+                .connection(ConnectionConfigSupport.mask(account == null
+                        ? readConnection(entity)
+                        : ConnectionConfigSupport.overlayAccount(readConnection(entity), readAccountConnection(account))))
                 .defaultOptions(readMap(entity.getDefaultOptionsJson()))
                 .paramsSchema(readObject(entity.getParamsSchemaJson()))
                 .status(entity.getStatus())
@@ -367,7 +395,13 @@ public class ModelInstanceService {
                 throw new IllegalArgumentException("protocol is immutable");
             }
             ModelType entityType = ModelType.valueOf(entity.getModelType());
-            connection = ConnectionConfigSupport.mergeForEdit(readConnection(entity), request.getConnection());
+            ModelProviderAccountEntity account = linkedAccount(entity);
+            connection = account == null
+                    ? ConnectionConfigSupport.mergeForEdit(readConnection(entity), request.getConnection())
+                    : ConnectionConfigSupport.overlayAccount(
+                            ConnectionConfigSupport.mergeMasked(readConnection(entity),
+                                    ConnectionConfigSupport.withoutAccountKeys(request.getConnection())),
+                            readAccountConnection(account));
             provider = StringUtils.hasText(request.getProvider()) ? request.getProvider().trim() : entity.getProvider();
             modelType = entity.getModelType();
             modelName = StringUtils.hasText(request.getModelName()) ? request.getModelName().trim() : entity.getModelName();
@@ -502,6 +536,71 @@ public class ModelInstanceService {
 
     private String toProjectScopeKey(String projectCode) {
         return projectCode == null ? "" : projectCode;
+    }
+
+    /**
+     * 在厂商账号下创建实例：地址与 Key 来自账号，实例只保存请求路径。
+     */
+    public ModelInstanceResponse createForAccount(ModelProviderAccountEntity account,
+                                                  String name,
+                                                  ModelType modelType,
+                                                  String modelName,
+                                                  Map<String, Object> instanceConnection,
+                                                  Map<String, Object> defaultOptions) {
+        if (account == null || !StringUtils.hasText(account.getId())) {
+            throw new BizException(400, "Provider account is required");
+        }
+        Map<String, Object> options = defaultOptions == null ? Map.of() : defaultOptions;
+        Map<String, Object> own = ConnectionConfigSupport.withoutAccountKeys(instanceConnection);
+        try {
+            ConnectionConfigSupport.requireBaseUrl(
+                    ConnectionConfigSupport.overlayAccount(own, readAccountConnection(account)));
+            ModelProtectedOptions.assertAllowed(modelType, options, "defaultOptions");
+        } catch (IllegalArgumentException e) {
+            throw new BizException(400, e.getMessage());
+        }
+        assertNameUnique(name, null, null);
+        LocalDateTime now = LocalDateTime.now();
+        ModelInstanceEntity entity = new ModelInstanceEntity();
+        entity.setId(UUID.randomUUID().toString());
+        entity.setName(name.trim());
+        entity.setProvider(account.getProvider());
+        entity.setModelType(modelType.name());
+        entity.setModelName(modelName.trim());
+        entity.setProtocol(ModelProtocol.OPENAI_COMPATIBLE.name());
+        entity.setProviderAccountId(account.getId());
+        applyProjectScope(entity, null);
+        entity.setConnectionConfigJson(credentialCipher.encrypt(toJson(own)));
+        entity.setDefaultOptionsJson(toJson(options));
+        entity.setParamsSchemaJson(toJson(List.of()));
+        entity.setStatus(ModelInstanceStatus.ACTIVE.name());
+        entity.setLastTestStatus(ModelTestStatus.UNKNOWN.name());
+        entity.setCreatedAt(now);
+        entity.setUpdatedAt(now);
+        mapper.insert(entity);
+        runtimeCache.invalidate(entity.getId());
+        return toResponse(entity);
+    }
+
+    private ModelProviderAccountEntity linkedAccount(ModelInstanceEntity entity) {
+        if (!StringUtils.hasText(entity.getProviderAccountId())) {
+            return null;
+        }
+        ModelProviderAccountEntity account = accountMapper.selectById(entity.getProviderAccountId());
+        if (account == null) {
+            throw new BizException(409, "模型引用的厂商账号不存在: " + entity.getProviderAccountId());
+        }
+        return account;
+    }
+
+    private Map<String, Object> effectiveConnection(ModelInstanceEntity entity) {
+        ModelProviderAccountEntity account = linkedAccount(entity);
+        Map<String, Object> own = readConnection(entity);
+        return account == null ? own : ConnectionConfigSupport.overlayAccount(own, readAccountConnection(account));
+    }
+
+    private Map<String, Object> readAccountConnection(ModelProviderAccountEntity account) {
+        return ConnectionConfigSupport.accountOnly(readMap(credentialCipher.decrypt(account.getConnectionConfigJson())));
     }
 
     private Map<String, Object> readConnection(ModelInstanceEntity entity) {

@@ -8,6 +8,8 @@ vi.mock('vue-router', () => ({ useRoute: () => ({ params: { workflowId: 'orders-
 vi.mock('@/auth/platformSession', async () => { const { ref } = await import('vue'); return { platformSessionUser: ref({ permissionGrants: [] }) } })
 vi.mock('@/api/workflow', () => ({ getWorkflow: mocks.workflow, listWorkflowVersions: mocks.versions,
   publishWorkflowVersion: vi.fn(), rollbackWorkflowVersion: vi.fn(), validateWorkflowVersion: vi.fn() }))
+vi.mock('@/api/agentWorkflowFreshness', async (original) => ({ ...await original<typeof import('@/api/agentWorkflowFreshness')>(),
+  listWorkflowAgentReferences: vi.fn().mockResolvedValue({ data: { workflowId: 'orders-wf', staleCount: 0, agents: [] } }) }))
 let wrapper: ReturnType<typeof mount>
 beforeEach(() => {
   mocks.query = { versionId: '9', nodeId: 'api-node' }

@@ -4,11 +4,13 @@ import ModelCatalogSettingsDialog from './ModelCatalogSettingsDialog.vue'
 
 const {
   getModelCatalogStatus,
+  getModelInstances,
   updateModelCatalogSettings,
   triggerModelCatalogSync,
   messageSuccess,
 } = vi.hoisted(() => ({
   getModelCatalogStatus: vi.fn(),
+  getModelInstances: vi.fn(),
   updateModelCatalogSettings: vi.fn(),
   triggerModelCatalogSync: vi.fn(),
   messageSuccess: vi.fn(),
@@ -16,6 +18,7 @@ const {
 
 vi.mock('@/api/model', () => ({
   getModelCatalogStatus: (...args: unknown[]) => getModelCatalogStatus(...args),
+  getModelInstances: (...args: unknown[]) => getModelInstances(...args),
   updateModelCatalogSettings: (...args: unknown[]) => updateModelCatalogSettings(...args),
   triggerModelCatalogSync: (...args: unknown[]) => triggerModelCatalogSync(...args),
 }))
@@ -28,8 +31,9 @@ vi.mock('element-plus', () => ({
   },
 }))
 
-function catalogStatus(autoSyncEnabled = false) {
+function catalogStatus(autoSyncEnabled = false, analyzerModelInstanceId: string | null = 'qwen-analyzer') {
   return {
+    analyzerModelInstanceId,
     enabled: autoSyncEnabled,
     autoSyncEnabled,
     zoneId: 'Asia/Shanghai',
@@ -66,6 +70,16 @@ async function mountDialog() {
           template:
             '<button class="stub-switch" :disabled="disabled" @click="$emit(\'update:modelValue\', !modelValue)">{{ modelValue }}</button>',
         },
+        'el-select': {
+          props: ['modelValue', 'disabled'],
+          emits: ['update:modelValue'],
+          template:
+            '<select class="stub-analyzer" :value="modelValue" @change="$emit(\'update:modelValue\', $event.target.value)"><slot /></select>',
+        },
+        'el-option': {
+          props: ['label', 'value'],
+          template: '<option :value="value">{{ label }}</option>',
+        },
         'el-button': {
           props: ['disabled', 'loading'],
           emits: ['click'],
@@ -85,7 +99,34 @@ describe('ModelCatalogSettingsDialog', () => {
     updateModelCatalogSettings.mockReset()
     triggerModelCatalogSync.mockReset()
     messageSuccess.mockReset()
+    getModelInstances.mockReset()
     getModelCatalogStatus.mockResolvedValue({ data: { data: catalogStatus(false) } })
+    getModelInstances.mockResolvedValue({
+      data: {
+        data: [
+          { id: 'qwen-analyzer', name: '通义千问', modelName: 'qwen-plus', status: 'ACTIVE' },
+          { id: 'qwen-max', name: '通义旗舰', modelName: 'qwen3-max', status: 'ACTIVE' },
+          { id: 'old', name: '已停用', modelName: 'qwen-turbo', status: 'DISABLED' },
+        ],
+      },
+    })
+  })
+
+  it('lists active LLM instances and saves only the changed analyzer choice', async () => {
+    updateModelCatalogSettings.mockResolvedValue({ data: { data: catalogStatus(false, 'qwen-max') } })
+    const wrapper = await mountDialog()
+
+    expect(getModelInstances).toHaveBeenCalledWith({ modelType: 'LLM' })
+    const options = wrapper.findAll('.stub-analyzer option').map((option) => option.attributes('value'))
+    expect(options).toEqual(['qwen-analyzer', 'qwen-max'])
+
+    await wrapper.get('.stub-analyzer').setValue('qwen-max')
+    const saveButton = wrapper.findAll('button').find((button) => button.text().includes('保存设置'))
+    await saveButton!.trigger('click')
+    await flushPromises()
+
+    expect(updateModelCatalogSettings).toHaveBeenCalledWith({ analyzerModelInstanceId: 'qwen-max' })
+    expect(messageSuccess).toHaveBeenCalledWith('已保存目录分析模型')
   })
 
   it('loads the persisted default-off setting and saves an enabled setting', async () => {

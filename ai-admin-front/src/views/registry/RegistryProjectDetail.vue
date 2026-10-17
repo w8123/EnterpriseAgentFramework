@@ -406,7 +406,7 @@
           <section class="ai-coding-endpoint-section">
             <GlassSectionHeader
               title="接口与请求头"
-              description="用于 manifest 获取、上下文候选提交、状态查询与治理审计。"
+              description="用于 manifest 获取、SDK 接入、Agent 与 Workflow 编排接口。"
               :meta="`${aiCodingEndpointRows.length} 项`"
             >
               <template #icon><el-icon><Link /></el-icon></template>

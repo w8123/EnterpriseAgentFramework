@@ -44,6 +44,17 @@ public class ModelTemplateService {
         return mapper.selectList(query).stream().map(this::toResponse).toList();
     }
 
+    /** 某厂商下启用的模板，用于推荐模型和批量接入时的默认路径/参数。 */
+    public List<ModelTemplateEntity> enabledEntitiesForProvider(String provider) {
+        if (!StringUtils.hasText(provider)) {
+            return List.of();
+        }
+        return mapper.selectList(new LambdaQueryWrapper<ModelTemplateEntity>()
+                .eq(ModelTemplateEntity::getProvider, provider.trim())
+                .eq(ModelTemplateEntity::getEnabled, true)
+                .orderByAsc(ModelTemplateEntity::getSortOrder));
+    }
+
     public ModelTemplateResponse get(String id) {
         return toResponse(getEntity(id));
     }

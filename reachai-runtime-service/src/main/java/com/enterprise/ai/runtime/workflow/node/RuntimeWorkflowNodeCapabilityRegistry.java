@@ -94,10 +94,6 @@ public class RuntimeWorkflowNodeCapabilityRegistry {
                 .orElse(false);
     }
 
-    public boolean isStudioEnabled(String rawType) {
-        return find(rawType).map(item -> item.runtimeExecutable() && item.studioEnabled()).orElse(false);
-    }
-
     public boolean isPublishable(String rawType) {
         return find(rawType).map(RuntimeWorkflowNodeCapabilityDescriptor::publishable).orElse(false);
     }
@@ -294,14 +290,6 @@ public class RuntimeWorkflowNodeCapabilityRegistry {
                     .distinct()
                     .toList();
             return new Policy(WorkflowNodeMaturity.BETA, false, true, true, normalized, reason);
-        }
-
-        static Policy betaNotOpen(String reason) {
-            return new Policy(WorkflowNodeMaturity.BETA, false, false, false, List.of(), reason);
-        }
-
-        static Policy codeGatePending(String reason) {
-            return new Policy(WorkflowNodeMaturity.CODE_GATE_PENDING, false, false, false, List.of(), reason);
         }
 
         static Policy planned(String reason) {

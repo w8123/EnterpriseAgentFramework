@@ -294,7 +294,7 @@ class HttpApiWriteWorkflowE2eIntegrationTest {
         assertEquals("HTTP_API_PUBLISHED_PIN_INVALID", body(debug).get("errorCode"));
         var readOnly = request("POST", "/api/workflows/studio/read-only-trials", Map.of("workflowId", workflowId,
                 "expectedRevision", revision, "inputParams", validInput()));
-        assertEquals(409, readOnly.statusCode()); assertEquals("HTTP_API_TRIAL_GRAPH_UNSUPPORTED", body(readOnly).get("errorCode"));
+        assertEquals(409, readOnly.statusCode()); assertEquals("HTTP_API_TRIAL_READ_ONLY_REQUIRED", body(readOnly).get("errorCode"));
         var working = body(request("GET", "/api/workflows/" + workflowId + "/working-copy", null));
         var forgedGraph = (ObjectNode) json.readTree(String.valueOf(working.get("graphSpecJson")));
         forgedGraph.putObject("metadata").put("riskLevel", "READ");

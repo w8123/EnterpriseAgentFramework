@@ -28,6 +28,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 
+import static com.enterprise.ai.common.util.Texts.firstText;
+
 /**
  * Revision-driven MCP protocol core: Bearer authentication, tools/list
  * projection from the frozen revision snapshot, and tools/call with the
@@ -265,15 +267,6 @@ public class McpProtocolApplicationService {
         } catch (NoSuchAlgorithmException failure) {
             throw new IllegalStateException("SHA-256 is not available", failure);
         }
-    }
-
-    private static String firstText(String... values) {
-        for (String value : values) {
-            if (value != null && !value.isBlank()) {
-                return value.trim();
-            }
-        }
-        return null;
     }
 
     public record McpAuthenticatedSession(McpClient client, McpPublication publication,

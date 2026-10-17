@@ -36,6 +36,8 @@ public class RuntimeWorkflowReleaseValidationService {
 
     private static final Pattern PAGE_ACTION_DATA_WRAPPER_REFERENCE = Pattern.compile(
             "nodeOutput\\.([A-Za-z0-9_-]+)\\.data(?=\\.|\\b)");
+    private static final Pattern NODE_OUTPUT_FIELD_REFERENCE = Pattern.compile(
+            "nodeOutput\\.([A-Za-z0-9_-]+)\\.([A-Za-z0-9_]+)");
 
     private final RuntimeControlCatalogClient controlCatalogClient;
     private final ObjectMapper objectMapper;
@@ -291,6 +293,7 @@ public class RuntimeWorkflowReleaseValidationService {
             validateErrorPolicy(node, byId.keySet(), report);
         }
         validatePageActionOutputReferences(byId, pageActionsByNodeId, report);
+        validateUserInputFieldReferences(byId, report);
         validateLoopBodyDualOwnership(byId, report);
 
         String entry = StringUtils.hasText(graph.getEntryNodeId()) ? graph.getEntryNodeId().trim() : null;
@@ -1649,6 +1652,61 @@ public class RuntimeWorkflowReleaseValidationService {
                     "PAGE_ACTION nodeOutput already is the business action data. Use "
                             + corrected + " instead of adding another .data after nodeOutput."
                             + producerNodeId);
+        }
+    }
+
+    /**
+     * USER_INPUT publishes the raw user text as {@code nodeOutput.<nodeId>}; its declared fields are
+     * written to {@code params.<field>}. A field path under the node output silently resolves to null,
+     * so fail the release (and AI authoring validation) with the corrected reference.
+     */
+    private void validateUserInputFieldReferences(Map<String, GraphSpec.Node> nodesById,
+                                                  RuntimeWorkflowReleaseValidationResult.Builder report) {
+        Set<String> userInputNodeIds = new LinkedHashSet<>();
+        nodesById.forEach((id, node) -> {
+            if ("USER_INPUT".equals(node.getType())) userInputNodeIds.add(id);
+        });
+        if (userInputNodeIds.isEmpty()) {
+            return;
+        }
+        for (GraphSpec.Node consumer : nodesById.values()) {
+            Set<String> reported = new LinkedHashSet<>();
+            validateUserInputFieldReferences(consumer.getConfig(), consumer.getId(), userInputNodeIds, reported, report);
+        }
+    }
+
+    private void validateUserInputFieldReferences(Object value,
+                                                  String consumerNodeId,
+                                                  Set<String> userInputNodeIds,
+                                                  Set<String> reported,
+                                                  RuntimeWorkflowReleaseValidationResult.Builder report) {
+        if (value instanceof Map<?, ?> map) {
+            for (Object nested : map.values()) {
+                validateUserInputFieldReferences(nested, consumerNodeId, userInputNodeIds, reported, report);
+            }
+            return;
+        }
+        if (value instanceof Iterable<?> items) {
+            for (Object nested : items) {
+                validateUserInputFieldReferences(nested, consumerNodeId, userInputNodeIds, reported, report);
+            }
+            return;
+        }
+        if (!(value instanceof String expression) || !expression.contains("nodeOutput.")) {
+            return;
+        }
+        Matcher matcher = NODE_OUTPUT_FIELD_REFERENCE.matcher(expression);
+        while (matcher.find()) {
+            String producerNodeId = matcher.group(1);
+            String field = matcher.group(2);
+            if (!userInputNodeIds.contains(producerNodeId) || !reported.add(matcher.group())) {
+                continue;
+            }
+            report.error(
+                    "GRAPH_USER_INPUT_FIELD_REFERENCE_INVALID",
+                    consumerNodeId,
+                    "USER_INPUT nodeOutput." + producerNodeId + " is the raw user text and has no field "
+                            + field + ". Use params." + field + " instead of " + matcher.group() + ".");
         }
     }
 

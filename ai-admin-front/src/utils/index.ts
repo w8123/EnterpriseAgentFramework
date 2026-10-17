@@ -1,11 +1,4 @@
 /**
- * 生成唯一文件ID
- */
-export function generateFileId(): string {
-  return `file_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-}
-
-/**
  * 获取文件扩展名（不含点号）
  */
 export function getFileExtension(fileName: string): string {
@@ -33,14 +26,6 @@ export function formatFileSize(bytes: number): string {
   const units = ['B', 'KB', 'MB', 'GB']
   const i = Math.floor(Math.log(bytes) / Math.log(1024))
   return (bytes / Math.pow(1024, i)).toFixed(1) + ' ' + units[i]
-}
-
-/**
- * 截断文本
- */
-export function truncateText(text: string, maxLength: number): string {
-  if (text.length <= maxLength) return text
-  return text.slice(0, maxLength) + '...'
 }
 
 /** 切分策略中文映射 */

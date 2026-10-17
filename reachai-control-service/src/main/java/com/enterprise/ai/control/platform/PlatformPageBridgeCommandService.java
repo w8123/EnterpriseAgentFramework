@@ -27,7 +27,6 @@ public class PlatformPageBridgeCommandService {
             "PAGE_BRIDGE_BUSINESS_TERMINAL";
 
     private final PlatformEmbedSessionMapper sessionMapper;
-    private final PlatformEmbedSessionService sessionService;
     private final PlatformPageActionEventMapper eventMapper;
     private final ObjectMapper objectMapper;
 

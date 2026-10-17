@@ -15,7 +15,6 @@ import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.util.List;
 
 /** Project-locked preparation/commit token; no database connection is held during scanner IO. */
 @Service

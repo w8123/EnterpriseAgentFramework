@@ -36,36 +36,6 @@ export function getBizIndexStats(indexCode: string) {
 
 // ==================== 数据同步 ====================
 
-export function bizIndexUpsert(
-  indexCode: string,
-  data: Record<string, unknown>,
-  attachments?: File[],
-) {
-  const formData = new FormData()
-  formData.append('data', new Blob([JSON.stringify(data)], { type: 'application/json' }))
-
-  if (attachments) {
-    attachments.forEach((file) => {
-      formData.append('attachments', file)
-    })
-  }
-
-  return request.post<ApiResult<void>>(`/api/knowledge/biz-index/${indexCode}/upsert`, formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-    timeout: 300000,
-  })
-}
-
-export function bizIndexBatchUpsert(indexCode: string, items: Record<string, unknown>[]) {
-  return request.post<ApiResult<void>>(`/api/knowledge/biz-index/${indexCode}/batch`, { items }, {
-    timeout: 300000,
-  })
-}
-
-export function bizIndexDeleteRecord(indexCode: string, bizId: string) {
-  return request.delete<ApiResult<void>>(`/api/knowledge/biz-index/${indexCode}/record/${encodeURIComponent(bizId)}`)
-}
-
 export function bizIndexRebuild(indexCode: string) {
   return request.post<ApiResult<void>>(`/api/knowledge/biz-index/${indexCode}/rebuild`, null, {
     timeout: 600000,

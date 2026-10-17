@@ -84,12 +84,14 @@ class ControlWorkflowReadOnlyTrialControllerTest {
     }
 
     @Test void browserCannotSupplyTrustGraphPinsActorOrCredentials() {
-        for (String name : List.of("graphSpecJson", "projectId", "platformActorId", "allowedTargets", "credentialRef", "identity")) {
+        for (String name : List.of("graphSpecJson", "projectId", "platformActorId", "allowedTargets", "credentialRef", "identity", "deadlineEpochMs")) {
             var body = input(); body.put(name, "forged");
             assertEquals(HttpStatus.BAD_REQUEST, controller.run(body).getStatusCode());
         }
         var nested = input(); nested.put("inputParams", Map.of("id", Map.of("secret", "forged")));
         assertEquals(HttpStatus.BAD_REQUEST, controller.run(nested).getStatusCode());
+        var objectMessage = input(); objectMessage.put("message", Map.of("text", "forged"));
+        assertEquals(HttpStatus.BAD_REQUEST, controller.run(objectMessage).getStatusCode());
         verifyNoInteractions(runtime, owner, acl, gateway);
     }
 
@@ -135,8 +137,69 @@ class ControlWorkflowReadOnlyTrialControllerTest {
         assertEquals("saved-r1", command.expectedRevision());
         assertEquals(HttpApiDraftTrialPolicy.graphSha256(GRAPH), command.graphSha256());
         assertEquals(Map.of("id", "O-321"), command.inputParams());
-        assertEquals(List.of(new WorkflowReadOnlyTrialPolicy.AllowedTarget("api", 1L, "http-api:orders:dev:api",
-                "dev", "a".repeat(64), "b".repeat(64))), command.allowedTargets());
+        assertEquals(List.of(WorkflowReadOnlyTrialPolicy.AllowedTarget.httpApi(new WorkflowReadOnlyTrialPolicy.Target(
+                "api", null, 1L, "http-api:orders:dev:api", "HTTP_API"), "dev", "a".repeat(64), "b".repeat(64))),
+                command.allowedTargets());
+        assertEquals(WorkflowReadOnlyTrialPolicy.VERSION, command.contractVersion());
+        assertNull(command.message());
+        assertTrue(command.deadlineEpochMs() <= System.currentTimeMillis() + WorkflowReadOnlyTrialPolicy.MAX_DURATION_MS);
+    }
+
+    private static final String MULTI_STEP = """
+            {"nodes":[{"id":"input","type":"USER_INPUT","config":{}},
+              {"id":"method","name":"查询产品","type":"TOOL","ref":{"kind":"TOOL","qualifiedName":"orders:normalize"},"config":{}},
+              {"id":"extract","type":"PARAMETER_EXTRACT","config":{}},
+              {"id":"api","name":"查询库存","type":"TOOL","ref":{"kind":"TOOL","qualifiedName":"http-api:orders:dev:api"},
+               "config":{"httpApiAssetId":1,"inputMapping":{"pathParams.id":"var.productId"}}},
+              {"id":"answer","type":"ANSWER","config":{}}],"edges":[],"entryNodeId":"input","exitNodeIds":["answer"]}
+            """;
+
+    @Test void wholeDraftPinsEveryReadOnlyTargetAndForwardsTheMessage() {
+        prepareMethod();
+        when(runtime.workflowWorkingCopy("wf-api")).thenReturn(ResponseEntity.ok(Map.of("workflowId", "wf-api",
+                "projectId", 41L, "projectCode", "orders", "revision", "saved-r1", "status", "PUBLISHED",
+                "graphSpecJson", MULTI_STEP)));
+        var body = input(); body.put("message", "查一下螺丝的库存");
+        assertEquals(HttpStatus.OK, controller.run(body).getStatusCode());
+        var captor = ArgumentCaptor.forClass(WorkflowReadOnlyTrialPolicy.TrialCommand.class);
+        verify(gateway).run(captor.capture());
+        var command = captor.getValue();
+        assertEquals(List.of("method", "api"), command.allowedTargets().stream()
+                .map(WorkflowReadOnlyTrialPolicy.AllowedTarget::nodeId).toList());
+        assertEquals("查一下螺丝的库存", command.message());
+        assertEquals(HttpApiDraftTrialPolicy.graphSha256(MULTI_STEP), command.graphSha256());
+        verify(acl).decide(session.roles(), 41L, "orders", "TOOL", "orders:normalize");
+        verify(acl).decide(session.roles(), 41L, "orders", "TOOL", "http-api:orders:dev:api");
+    }
+
+    @Test void anyWriteTargetOrSideEffectNodeRefusesTheWholeDraftNamingTheNode() {
+        Map<String, Object> method = prepareMethod();
+        when(runtime.workflowWorkingCopy("wf-api")).thenReturn(ResponseEntity.ok(Map.of("workflowId", "wf-api",
+                "projectId", 41L, "projectCode", "orders", "revision", "saved-r1", "status", "DRAFT",
+                "graphSpecJson", MULTI_STEP)));
+        method.put("sideEffect", "WRITE");
+        var write = controller.run(input());
+        assertEquals(HttpStatus.CONFLICT, write.getStatusCode());
+        var body = (Map<?, ?>) write.getBody();
+        assertEquals("BUSINESS_METHOD_TRIAL_READ_ONLY_REQUIRED", body.get("errorCode"));
+        assertEquals("method", body.get("failedNodeId"));
+        assertTrue(String.valueOf(body.get("errorMessage")).contains("「查询产品」"));
+        method.put("sideEffect", "READ_ONLY");
+        contract.put("sideEffect", "WRITE");
+        var api = (Map<?, ?>) controller.run(input()).getBody();
+        assertEquals("HTTP_API_TRIAL_READ_ONLY_REQUIRED", api.get("errorCode"));
+        assertTrue(String.valueOf(api.get("errorMessage")).contains("「查询库存」"));
+
+        when(runtime.workflowWorkingCopy("wf-api")).thenReturn(ResponseEntity.ok(Map.of("workflowId", "wf-api",
+                "projectId", 41L, "projectCode", "orders", "revision", "saved-r1", "status", "DRAFT",
+                "graphSpecJson", MULTI_STEP.replace("\"type\":\"ANSWER\"", "\"name\":\"打开单据\",\"type\":\"PAGE_ACTION\""))));
+        var page = controller.run(input());
+        assertEquals(HttpStatus.CONFLICT, page.getStatusCode());
+        var pageBody = (Map<?, ?>) page.getBody();
+        assertEquals("WORKFLOW_TRIAL_GRAPH_UNSUPPORTED", pageBody.get("errorCode"));
+        assertTrue(String.valueOf(pageBody.get("errorMessage")).contains("「打开单据」（页面动作）"), String.valueOf(pageBody));
+        assertEquals(1, ((List<?>) pageBody.get("blockedNodes")).size());
+        verifyNoInteractions(gateway);
     }
 
     private Map<String, Object> prepareMethod() {
@@ -175,7 +238,7 @@ class ControlWorkflowReadOnlyTrialControllerTest {
         assertNull(target.environment()); assertNull(target.sourceSetRevision());
         verify(acl).decide(session.roles(), 41L, "orders", "TOOL", "orders:normalize");
     }
-    @Test void methodOwnerDriftAndMissingInputCannotSignAnExecutionCommand() {
+    @Test void methodOwnerDriftCannotSignAnExecutionCommand() {
         Map<String, Object> method = prepareMethod();
         for (var change : Map.<String, Object>of("enabled", false, "sourceAvailability", "DRIFT", "sideEffect", "UNKNOWN",
                 "credentialAvailable", false, "businessIdentityRequired", true, "sourceContractHash", "b".repeat(64),
@@ -184,7 +247,6 @@ class ControlWorkflowReadOnlyTrialControllerTest {
             assertEquals(HttpStatus.CONFLICT, controller.run(methodInput()).getStatusCode(), change.getKey());
             method.put(change.getKey(), previous);
         }
-        assertEquals(HttpStatus.CONFLICT, controller.run(input()).getStatusCode());
         when(acl.decide(session.roles(), 41L, "orders", "TOOL", "orders:normalize")).thenReturn("DENY_NO_MATCH");
         assertEquals(HttpStatus.FORBIDDEN, controller.run(methodInput()).getStatusCode()); verifyNoInteractions(gateway);
     }

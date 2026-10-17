@@ -3,7 +3,6 @@ package com.enterprise.ai.control.a2a.domain.remoteagent;
 import com.enterprise.ai.control.a2a.domain.A2aDomainException;
 
 import java.time.LocalDateTime;
-import java.util.List;
 
 public record A2aRemoteAgentRevision(
         Long id,
@@ -56,11 +55,5 @@ public record A2aRemoteAgentRevision(
                 .findFirst()
                 .orElseThrow(() -> new A2aDomainException("A2A_REMOTE_INTERFACE_NOT_SUPPORTED",
                         "preferred interface is not an A2A 1.0 HTTP+JSON interface"));
-    }
-
-    public List<A2aRemoteInterface> callableInterfaces() {
-        return card.supportedInterfaces().stream()
-                .filter(A2aRemoteInterface::supportedByFirstRelease)
-                .toList();
     }
 }

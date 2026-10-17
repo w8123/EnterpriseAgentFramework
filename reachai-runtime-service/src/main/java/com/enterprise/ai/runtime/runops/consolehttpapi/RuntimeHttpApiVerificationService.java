@@ -26,9 +26,9 @@ public class RuntimeHttpApiVerificationService {
     }
 
     public HttpApiConsoleContracts.MarketVerificationView read(HttpApiConsoleContracts.ExecutionContext owner,
-            RuntimeHttpApiConnectionEntity connection, String credentialRevision, String configurationReason) {
+            Long connectionRevision, String credentialRevision, String configurationReason) {
         if (!isMarket(owner.qualifiedName())) return null;
-        if (configurationReason != null || connection == null) {
+        if (configurationReason != null || connectionRevision == null) {
             return unavailable("BLOCKED", configurationReason == null ? "请先显式配置当前 API 连接" : configurationReason);
         }
         var attempt = attempts.selectOne(Wrappers.<ConsoleCapabilityInvocationEntity>lambdaQuery()
@@ -45,7 +45,7 @@ public class RuntimeHttpApiVerificationService {
         boolean current = Objects.equals(owner.apiId(), recordedApiId)
                 && Objects.equals(owner.acceptedContractHash(), attempt.getExpectedContractHash())
                 && Objects.equals(owner.sourceSetRevision(), attempt.getSourceSetRevision())
-                && Objects.equals(connection.getRevision(), attempt.getConnectionRevision())
+                && Objects.equals(connectionRevision, attempt.getConnectionRevision())
                 && Objects.equals(credentialRevision, attempt.getCredentialRevision())
                 && Objects.equals(owner.qualifiedName(), snapshot.path("qualifiedName").asText(null))
                 && Objects.equals(attempt.getExpectedContractHash(), snapshot.path("contractHash").asText(null))

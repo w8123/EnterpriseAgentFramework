@@ -35,6 +35,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import static com.enterprise.ai.common.util.Texts.firstText;
+
 /** Governed Runtime boundary for version-pinned MCP Capability and Workflow execution. */
 @Service
 public class RuntimeMcpToolExecutionService {
@@ -332,11 +334,6 @@ public class RuntimeMcpToolExecutionService {
         if (value == null) return null;
         String text = String.valueOf(value).trim();
         return text.isEmpty() ? null : text;
-    }
-
-    private static String firstText(String... values) {
-        for (String value : values) if (StringUtils.hasText(value)) return value.trim();
-        return null;
     }
 
     public record ExecutionRequest(String sourceKind, String sourceRef, Long workflowVersionId,

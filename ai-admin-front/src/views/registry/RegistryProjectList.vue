@@ -443,7 +443,7 @@ const enrollmentSnippet = computed(() => {
     'reachai:',
     '  registry:',
     '    enabled: true',
-    '    url: ${REACHAI_REGISTRY_URL:http://localhost:18603}',
+    `    url: \${REACHAI_REGISTRY_URL:${registryPublicUrl()}}`,
     `    enrollment-token: ${JSON.stringify(issuedEnrollment.value.enrollmentToken)}`,
     '  project:',
     `    code: ${JSON.stringify(issuedEnrollment.value.projectCode)}`,
@@ -457,7 +457,8 @@ const enrollmentSnippet = computed(() => {
     '  capability:',
     '    scan-beans: true',
     '    scan-mode: ANNOTATED_ONLY',
-    '    # 启动先注册项目与实例；业务方法和 HTTP API 在项目内手动同步。',
+    '    # ANNOTATED_ONLY 只同步 @ReachCapability 业务方法；要把 Controller 接口同步为 HTTP API，',
+    '    # 改为 ALL_CONTROLLERS 并用 scan-packages 限定包名。启动只注册项目与实例，同步在项目内手动触发。',
   ].join('\n')
 })
 
@@ -468,6 +469,11 @@ const visibleEnrollmentSnippet = computed(() => {
     'enrollment-token: "******"',
   )
 })
+
+function registryPublicUrl() {
+  // 业务系统要访问的是用户当前打开的 ReachAI 公网入口，而不是开发机的 Control 端口
+  return typeof window === 'undefined' ? 'http://localhost:18603' : window.location.origin
+}
 
 function clearEnrollment() {
   issuedEnrollment.value = null

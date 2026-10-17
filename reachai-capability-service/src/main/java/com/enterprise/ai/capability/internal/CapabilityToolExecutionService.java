@@ -12,7 +12,6 @@ import com.enterprise.ai.common.response.BusinessResponseEnvelope;
 import com.enterprise.ai.common.capability.WorkflowReadOnlyTrialPolicy;
 import com.enterprise.ai.reach.sdk.auth.ReachAiInvocationClaims;
 import com.enterprise.ai.reach.sdk.auth.ReachAiInvocationToken;
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;

@@ -41,10 +41,6 @@ public record PlatformPermissionGrant(
         return false;
     }
 
-    public boolean hasUsableScope() {
-        return StringUtils.hasText(scopeType) && StringUtils.hasText(scopeValue);
-    }
-
     private boolean grantsPermission(String requiredPermission) {
         return "*".equals(permissionCode) || requiredPermission.equals(permissionCode);
     }

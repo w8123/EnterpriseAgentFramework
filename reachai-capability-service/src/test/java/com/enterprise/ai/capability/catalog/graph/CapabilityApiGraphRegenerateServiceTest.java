@@ -1,7 +1,6 @@
 package com.enterprise.ai.capability.catalog.graph;
 
 import com.enterprise.ai.agent.capability.catalog.graph.*;
-import com.enterprise.ai.agent.capability.catalog.scan.ScanModuleEntity;
 import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectMapper;
 import com.enterprise.ai.capability.catalog.semantic.CapabilitySemanticDocumentStore;
 import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionParameter;

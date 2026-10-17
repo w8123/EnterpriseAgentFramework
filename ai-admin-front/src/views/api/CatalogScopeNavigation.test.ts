@@ -1,4 +1,4 @@
-import { computed, defineComponent, reactive } from 'vue'
+import { defineComponent, reactive } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
 import ElementPlus, { ElSelect } from 'element-plus'

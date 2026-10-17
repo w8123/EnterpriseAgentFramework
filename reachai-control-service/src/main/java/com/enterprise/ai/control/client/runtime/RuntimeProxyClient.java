@@ -17,7 +17,7 @@ public interface RuntimeProxyClient {
 
     @RequestMapping(method = RequestMethod.POST,
             path = "/internal/runtime/workflows/studio/read-only-trials", consumes = "application/json")
-    ResponseEntity<Object> runReadOnlyApiDraftTrial(@RequestHeader Map<String, String> headers,
+    ResponseEntity<Object> runReadOnlyWorkflowTrial(@RequestHeader Map<String, String> headers,
                                                     @RequestBody byte[] exactBody);
 
     @RequestMapping(method = RequestMethod.POST, path = "/internal/runtime/http-api-connections", consumes = "application/json")
@@ -27,6 +27,16 @@ public interface RuntimeProxyClient {
     @RequestMapping(method = RequestMethod.PUT, path = "/internal/runtime/http-api-connections", consumes = "application/json")
     ResponseEntity<Object> saveHttpApiConnection(@RequestHeader Map<String, String> headers,
                                                  @RequestBody byte[] exactBody);
+
+    @RequestMapping(method = RequestMethod.PUT, path = "/internal/runtime/http-api-connections/project-default",
+            consumes = "application/json")
+    ResponseEntity<Object> saveHttpApiProjectDefaultConnection(@RequestHeader Map<String, String> headers,
+                                                               @RequestBody byte[] exactBody);
+
+    @RequestMapping(method = RequestMethod.POST, path = "/internal/runtime/http-api-connections/override-removals",
+            consumes = "application/json")
+    ResponseEntity<Object> removeHttpApiConnectionOverride(@RequestHeader Map<String, String> headers,
+                                                           @RequestBody byte[] exactBody);
 
     @RequestMapping(method = RequestMethod.POST, path = "/internal/runtime/http-api-invocations", consumes = "application/json")
     ResponseEntity<Object> invokeHttpApi(@RequestHeader Map<String, String> headers, @RequestBody byte[] exactBody);
@@ -380,6 +390,16 @@ public interface RuntimeProxyClient {
             path = "/api/agents/{agentId}/config-versions/{configVersionId}/copy-to-draft")
     ResponseEntity<Object> copyAgentConfigVersionToDraft(@PathVariable("agentId") String agentId,
                                                          @PathVariable("configVersionId") Long configVersionId);
+
+    @RequestMapping(method = RequestMethod.GET, path = "/api/agents/{agentId}/workflow-freshness")
+    ResponseEntity<Object> getAgentWorkflowFreshness(@PathVariable("agentId") String agentId);
+
+    @RequestMapping(method = RequestMethod.POST, path = "/api/agents/{agentId}/workflow-freshness/publish-latest")
+    ResponseEntity<Object> publishLatestAgentWorkflowVersions(@PathVariable("agentId") String agentId,
+                                                              @RequestBody Map<String, Object> body);
+
+    @RequestMapping(method = RequestMethod.GET, path = "/api/workflows/{workflowId}/agent-references")
+    ResponseEntity<Object> listWorkflowAgentReferences(@PathVariable("workflowId") String workflowId);
 
     @RequestMapping(method = RequestMethod.POST, path = "/api/runtime/debug-sessions", consumes = "application/json")
     ResponseEntity<Object> createRuntimeDebugSession(@RequestHeader Map<String, String> signedHeaders, @RequestBody byte[] body);

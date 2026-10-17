@@ -15,6 +15,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
+import static com.enterprise.ai.common.util.Texts.firstText;
+
 /**
  * MySQL 5.7-compatible leased worker. It is opt-in until the EvalOps migration is applied.
  * Expired leases are reclaimable and all executable side effects remain blocked by the typed Eval context.
@@ -267,11 +269,6 @@ public class RuntimeEvalTaskWorker {
 
     private String text(Object value) {
         return value == null ? null : String.valueOf(value).trim();
-    }
-
-    private String firstText(String... values) {
-        for (String value : values) if (StringUtils.hasText(value)) return value.trim();
-        return null;
     }
 
     record ClaimedTask(RuntimeEvalTaskEntity task,

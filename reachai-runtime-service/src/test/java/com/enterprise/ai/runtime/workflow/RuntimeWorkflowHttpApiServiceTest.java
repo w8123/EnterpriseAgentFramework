@@ -1,7 +1,6 @@
 package com.enterprise.ai.runtime.workflow;
 
 import com.enterprise.ai.common.capability.HttpApiConsoleContracts;
-import com.enterprise.ai.common.capability.HttpApiDraftTrialPolicy;
 import com.enterprise.ai.runtime.client.capability.RuntimeCapabilityCatalogClient;
 import com.enterprise.ai.runtime.client.control.RuntimeControlCatalogClient;
 import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient;
@@ -123,7 +122,7 @@ class RuntimeWorkflowHttpApiServiceTest {
                 credentialRevision.get() == null ? "NONE" : "API_KEY_HEADER",
                 credentialRevision.get() == null ? null : "cred-1", null, credentialRevision.get(),
                 connectionRevision.get(), connectionStatus.get(), null, origin + "/orders/{orderId}"));
-        when(connections.snapshot(eq(reference))).thenAnswer(call ->
+        when(connections.snapshot(any())).thenAnswer(call ->
                 new RuntimeHttpApiConnectionService.ConnectionSnapshot(41L, "orders", "dev", origin,
                         credentialRevision.get() == null ? "NONE" : "API_KEY_HEADER",
                         credentialRevision.get() == null ? null : "cred-1", connectionRevision.get()));
@@ -267,14 +266,15 @@ class RuntimeWorkflowHttpApiServiceTest {
         var workflow = new RuntimeWorkflowDefinitionEntity();
         workflow.setId("wf-draft"); workflow.setProjectId(41L); workflow.setProjectCode("orders");
         var node = json.readValue(graph, com.enterprise.ai.agent.graph.GraphSpec.class).getNodes().get(0);
-        return projection.prepareDraft(node, workflow, "saved-r1", HttpApiDraftTrialPolicy.target(json, graph));
+        return projection.prepareDraft(node, workflow, "saved-r1", new com.enterprise.ai.common.capability.WorkflowReadOnlyTrialPolicy.Target(node.getId(), null,
+                ((Number) node.getConfig().get("httpApiAssetId")).longValue(), node.getRef().getQualifiedName(), "HTTP_API"));
     }
 
     @Test void draftTrialUsesRequestFactsCallsOnceAndNeverPersistsOrBorrowsReleasePin() throws Exception {
         var identity = WorkflowExecutionIdentity.fromAttestedStudioProjectTest(41L, "orders", "42");
         var input = Map.<String, Object>of("params", Map.of("orderId", "O-321", "detailLevel", "full"));
         var pin = draftPin();
-        var result = projection.withDraftScope(pin, () -> true, () -> executor.execute(graph, input, identity));
+        var result = projection.withDraftScope(List.of(pin), () -> true, () -> executor.execute(graph, input, identity));
         assertTrue(result.success(), result.code()); assertTrue(result.answer().contains("PAID"));
         assertFalse(result.answer().contains("synthetic-controller-value"));
         assertEquals(1, requests.get()); assertEquals(1, controller.methodCalls());
@@ -289,21 +289,21 @@ class RuntimeWorkflowHttpApiServiceTest {
         var pin = draftPin();
         var identity = WorkflowExecutionIdentity.fromAttestedStudioProjectTest(41L, "orders", "42");
         var input = Map.<String, Object>of("params", Map.of("orderId", "O-321"));
-        var stale = projection.withDraftScope(pin, () -> false, () -> executor.execute(graph, input, identity));
+        var stale = projection.withDraftScope(List.of(pin), () -> false, () -> executor.execute(graph, input, identity));
         assertFalse(stale.success()); assertEquals(0, requests.get());
-        var crossProject = projection.withDraftScope(pin, () -> true, () -> executor.execute(graph, input,
+        var crossProject = projection.withDraftScope(List.of(pin), () -> true, () -> executor.execute(graph, input,
                 WorkflowExecutionIdentity.fromAttestedStudioProjectTest(42L, "other", "42")));
         assertFalse(crossProject.success()); assertEquals(0, requests.get());
         candidateHash.set("f".repeat(64));
-        assertFalse(projection.withDraftScope(pin, () -> true, () -> executor.execute(graph, input, identity)).success());
+        assertFalse(projection.withDraftScope(List.of(pin), () -> true, () -> executor.execute(graph, input, identity)).success());
         candidateHash.set(HASH); connectionRevision.set(2L);
-        assertFalse(projection.withDraftScope(pin, () -> true, () -> executor.execute(graph, input, identity)).success());
+        assertFalse(projection.withDraftScope(List.of(pin), () -> true, () -> executor.execute(graph, input, identity)).success());
         connectionRevision.set(1L); credentialRevision.set("credential-r2");
-        assertFalse(projection.withDraftScope(pin, () -> true, () -> executor.execute(graph, input, identity)).success());
+        assertFalse(projection.withDraftScope(List.of(pin), () -> true, () -> executor.execute(graph, input, identity)).success());
         credentialRevision.set("credential-r1"); credentialDisabled.set(true);
-        assertFalse(projection.withDraftScope(pin, () -> true, () -> executor.execute(graph, input, identity)).success());
+        assertFalse(projection.withDraftScope(List.of(pin), () -> true, () -> executor.execute(graph, input, identity)).success());
         credentialDisabled.set(false); connectionStatus.set("BLOCKED");
-        assertFalse(projection.withDraftScope(pin, () -> true, () -> executor.execute(graph, input, identity)).success());
+        assertFalse(projection.withDraftScope(List.of(pin), () -> true, () -> executor.execute(graph, input, identity)).success());
         assertEquals(0, requests.get()); assertEquals(0, controller.methodCalls());
     }
 
@@ -314,11 +314,11 @@ class RuntimeWorkflowHttpApiServiceTest {
         for (String declaration : List.of("WRITE", "IDEMPOTENT_WRITE", "IRREVERSIBLE", "UNKNOWN", "")) {
             sideEffect.set(declaration);
             assertThrows(IllegalArgumentException.class, this::draftPin);
-            assertFalse(projection.withDraftScope(pin, () -> true, () -> executor.execute(graph, input, identity)).success());
+            assertFalse(projection.withDraftScope(List.of(pin), () -> true, () -> executor.execute(graph, input, identity)).success());
         }
         assertEquals(0, requests.get());
         sideEffect.set("READ_ONLY"); unauthorized.set(true);
-        var failed = projection.withDraftScope(pin, () -> true, () -> executor.execute(graph, input, identity));
+        var failed = projection.withDraftScope(List.of(pin), () -> true, () -> executor.execute(graph, input, identity));
         assertFalse(failed.success()); assertEquals(1, requests.get());
     }
 }

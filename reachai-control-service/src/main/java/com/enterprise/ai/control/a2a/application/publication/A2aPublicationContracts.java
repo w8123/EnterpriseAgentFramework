@@ -49,9 +49,6 @@ public final class A2aPublicationContracts {
             List<String> outputModes) {
     }
 
-    public record RevisionCommandRequest(Long revisionId) {
-    }
-
     public record PublicationView(
             String schema,
             Long id,

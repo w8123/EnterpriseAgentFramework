@@ -15,6 +15,8 @@ import java.time.LocalDateTime;
 import java.util.*;
 import java.util.regex.Pattern;
 
+import static com.enterprise.ai.common.util.Texts.firstText;
+
 /** Agent-owned target provisioning and automatic Workflow attachment publication. */
 @Service
 @RequiredArgsConstructor
@@ -188,22 +190,9 @@ public class RuntimeAgentWorkflowAttachmentService {
         return value.trim();
     }
 
-    private String firstText(String... values) {
-        if (values == null) {
-            return null;
-        }
-        for (String value : values) {
-            if (StringUtils.hasText(value)) {
-                return value.trim();
-            }
-        }
-        return null;
-    }
-
     private String stringValue(Object value) {
         return value == null ? null : String.valueOf(value);
     }
-
 
     private String newId() { return UUID.randomUUID().toString().replace("-", ""); }
 

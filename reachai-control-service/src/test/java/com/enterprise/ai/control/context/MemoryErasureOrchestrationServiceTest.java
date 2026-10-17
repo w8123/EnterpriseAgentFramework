@@ -2,7 +2,6 @@ package com.enterprise.ai.control.context;
 
 import com.enterprise.ai.control.client.runtime.RuntimeSessionRetentionGateway;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.server.ResponseStatusException;
 

@@ -1,6 +1,5 @@
 import { controlRequest } from './request'
 import type {
-  ApiMarketCategory,
   ApiMarketEntryDetail,
   ApiMarketIntegration,
   ApiMarketIntegrationCreateRequest,
@@ -8,7 +7,6 @@ import type {
   ApiMarketSource,
   ApiMarketStats,
 } from '@/types/apiMarket'
-
 export function listApiMarketEntries(params?: {
   current?: number
   size?: number
@@ -31,10 +29,6 @@ export function getApiMarketEntry(entryKey: string) {
 
 export function getApiMarketStats() {
   return controlRequest.get<ApiMarketStats>('/api/api-market/stats')
-}
-
-export function listApiMarketCategories() {
-  return controlRequest.get<ApiMarketCategory[]>('/api/api-market/categories')
 }
 
 export function listApiMarketSources() {

@@ -50,15 +50,6 @@ public class McpPrecheckService {
                 ? "" : tool.riskLevel()));
     }
 
-    public boolean requiresIrreversibleAcknowledgement(McpPublication publication) {
-        try {
-            return containsIrreversible(resolveEnabledItems(publication));
-        } catch (RuntimeException failure) {
-            // Unresolvable items fail precheck before the acknowledgement question matters.
-            return false;
-        }
-    }
-
     static McpToolProjection applyOverrides(McpToolProjection source, McpPublicationItem item) {
         String name = item.alias() == null || item.alias().isBlank() ? source.name() : item.alias();
         String description = item.descriptionOverride() == null || item.descriptionOverride().isBlank()

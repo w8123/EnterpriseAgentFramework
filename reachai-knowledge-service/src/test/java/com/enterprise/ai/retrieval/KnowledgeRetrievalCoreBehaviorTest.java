@@ -187,6 +187,40 @@ class KnowledgeRetrievalCoreBehaviorTest {
     }
 
     @Test
+    void chineseQueryTokenizesIntoBigramsSoKeywordRecallCanMatch() {
+        assertEquals(List.of("退货", "货运", "运费", "费谁", "谁出"),
+                DefaultKnowledgeRetrievalEngine.tokenize("退货运费谁出？"));
+        assertEquals(List.of("erp", "退货", "货单", "v2"),
+                DefaultKnowledgeRetrievalEngine.tokenize("ERP 退货单 v2"));
+    }
+
+    @Test
+    void hybridVectorOnlyHitAboveThresholdIsNotDroppedByBlendedScore() {
+        KnowledgeBase kb = kb("kb_cn");
+        when(knowledgeBaseRepository.selectList(any())).thenReturn(List.of(kb));
+        when(embeddingService.embed(anyString(), anyString())).thenReturn(List.of(0.1f));
+        when(vectorService.search(any())).thenReturn(List.of(result("v1", 0.52f, "f1", "质量问题由卖方承担")));
+        Chunk chunk = chunk(31L, kb.getId(), "f1", "质量问题由卖方承担", "v1");
+        when(chunkRepository.selectOne(any())).thenReturn(chunk);
+        when(chunkRepository.selectList(any())).thenReturn(List.of());
+        when(fileInfoRepository.selectList(any())).thenReturn(List.of(file("f1", "policy.md")));
+
+        KnowledgeRetrievalCoreResponse response = core.retrieve(KnowledgeRetrievalCoreRequest.builder()
+                .query("退货运费谁出")
+                .knowledgeBaseCodes(List.of("kb_cn"))
+                .searchMode("hybrid")
+                .topK(5)
+                .scoreThreshold(0.5f)
+                .rerankEnabled(false)
+                .recordHit(false)
+                .userId("u1")
+                .build());
+
+        assertEquals(1, response.getItems().size());
+        assertEquals("质量问题由卖方承担", response.getItems().get(0).getContent());
+    }
+
+    @Test
     void multiKnowledgeBaseFailureIsIsolated() {
         KnowledgeBase ok = kb("kb_ok");
         KnowledgeBase bad = kb("kb_bad");

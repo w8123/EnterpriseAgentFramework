@@ -3,7 +3,6 @@ package com.enterprise.ai.capability.registry;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectEntity;
 import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectMapper;
-import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectToolEntity;
 import com.enterprise.ai.agent.registry.CapabilityDiffItemEntity;
 import com.enterprise.ai.agent.registry.CapabilityDiffItemMapper;
 import com.enterprise.ai.agent.registry.CapabilitySnapshotEntity;
@@ -534,19 +533,6 @@ public class CapabilityRegistryService {
         return (projectCode + "_" + capabilityName)
                 .replaceAll("[^A-Za-z0-9_]+", "_")
                 .replaceAll("_+", "_");
-    }
-
-    private String firstText(String... values) {
-        String fallback = null;
-        for (String value : values) {
-            if (value != null) {
-                fallback = value;
-            }
-            if (StringUtils.hasText(value)) {
-                return value.trim();
-            }
-        }
-        return fallback;
     }
 
     private String defaultString(String value, String fallback) {

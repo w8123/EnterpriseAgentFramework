@@ -15,6 +15,7 @@ public class ModelCatalogStatusResponse {
     private String zoneId;
     private LocalDate businessDate;
     private boolean analyzerConfigured;
+    private String analyzerModelInstanceId;
     private boolean stale;
     private LocalDateTime catalogVerifiedAt;
     private LocalDateTime lastAnySuccessfulAt;

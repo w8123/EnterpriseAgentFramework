@@ -1,6 +1,5 @@
 package com.enterprise.ai.runtime.execution;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.enterprise.ai.runtime.execution.checkpoint.WorkflowCheckpointCodec;
@@ -20,6 +19,8 @@ import java.time.temporal.ChronoUnit;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
+
+import static com.enterprise.ai.common.util.Texts.firstText;
 
 /**
  * Creates and loads GraphSpec-native Workflow interaction sessions for production Agent/Embed.
@@ -282,17 +283,6 @@ public class RuntimeWorkflowInteractionSessionService {
         return session;
     }
 
-    public RuntimeInteractionSessionEntity findWaitingByChatSession(String chatSessionId) {
-        if (!StringUtils.hasText(chatSessionId)) {
-            return null;
-        }
-        return sessionMapper.selectOne(new LambdaQueryWrapper<RuntimeInteractionSessionEntity>()
-                .eq(RuntimeInteractionSessionEntity::getSessionId, chatSessionId.trim())
-                .eq(RuntimeInteractionSessionEntity::getStatus, "WAITING_USER")
-                .orderByDesc(RuntimeInteractionSessionEntity::getUpdateTime)
-                .last("LIMIT 1"));
-    }
-
     public Map<String, Object> readMap(String json) {
         if (!StringUtils.hasText(json)) {
             return new LinkedHashMap<>();
@@ -387,18 +377,6 @@ public class RuntimeWorkflowInteractionSessionService {
             return String.valueOf(map.get("component"));
         }
         return "";
-    }
-
-    private static String firstText(String... values) {
-        if (values == null) {
-            return null;
-        }
-        for (String value : values) {
-            if (StringUtils.hasText(value)) {
-                return value.trim();
-            }
-        }
-        return null;
     }
 
     private static String nullToEmpty(String value) {

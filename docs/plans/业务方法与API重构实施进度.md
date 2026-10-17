@@ -1,5 +1,26 @@
 # 业务方法与 API 重构实施进度
 
+## Studio 整稿只读试运行（2026-10-16，D28，代码完成待部署）
+
+本批关联 U2“方法选入 Workflow 并真实验证”与 U3“Workflow 使用 API”，同时服务 Agent / Workflow 实施人员。用户授权按“让用户更好用、系统更好”自主调整（D28）。此前 Studio 只读真实试运行只接受“一个方法/API → 变量”单形草稿，真实业务流程（输入 → 业务方法 → 参数提取 → API → 回答）无法在发布前真实跑通。预期行为：作者点正常“调试”，草稿含业务方法或 API 节点时自动打开整稿只读试运行，填写 Workflow 输入字段与可选用户消息后真实运行整个已保存草稿，按节点看到状态、耗时、输出和最终回答；任一写节点或副作用节点在派发前整体拒绝并点名。范围限 common 策略、Control BFF、Runtime 试运行编排与派发守卫、Studio 前端与文档；不改 SQL、资产 owner、接纳、ACL 模型或发布流程；本批不部署、不推送。
+
+- 后端：`WorkflowReadOnlyTrialPolicy` v2 改为整图规划（目标 ≤16、单节点派发 ≤20、总派发 ≤50、≤120s、输入 ≤32 个标量、消息 ≤4000 字），返回被阻断节点及中文原因；旧单目标 `target()`/`BusinessMethodPin`/逐节点 expectedInput 与 `HttpApiDraftTrialPolicy.target` 退场。Control `ControlWorkflowReadOnlyTrialController` 逐目标核对 owner、只读声明、连接与 ACL 后签名 `TrialCommand`（允许目标列表、消息、截止）；去掉 DRAFT 状态门禁。Runtime `RuntimeWorkflowReadOnlyTrialService` 对原始与规范化图重新规划、逐目标复读 owner，在嵌套的 HTTP API 与业务方法请求作用域中执行整个 GraphSpec；`RuntimeCapabilityCatalogGateway` 每次派发前校验节点→方法一一对应、修订/图 hash、截止与计数，输入仅限 ≤64KB 对象，由 Capability 在签名 studio 约束下按已接纳契约校验；`RuntimeWorkflowHttpApiService` 按节点 pin 与计数派发。Debug 步骤补齐节点耗时与失败节点。
+- 接口：公开 `POST /api/workflows/studio/read-only-trials` 请求为 `{workflowId, expectedRevision, inputParams, message?}`；成功或运行中失败返回 200 `{success, status, runId, traceId, workflowId, revision, answer, variables, steps[{index,nodeId,nodeType,nodeName,status,elapsedMs,output,errorCode,errorMessage}], targets[{nodeId,nodeName,assetType,qualifiedName,apiId}], elapsedMs, errorCode, failedNodeId, failedNodeName, errorMessage}`；派发前拒绝返回 400/403/409/503 `{success:false, errorCode, errorMessage, failedNodeId?, failedNodeName?, blockedNodes?[{nodeId,nodeName,nodeType,reason}]}`。内部 `POST /internal/runtime/workflows/studio/read-only-trials` 接收签名 `TrialCommand` v2，Feign 方法改名 `runReadOnlyWorkflowTrial`。
+- 前端：Studio 顶栏只保留一个“调试”，草稿含业务方法或 API 节点时自动打开“只读试运行整个草稿”抽屉（单独“只读真实试运行”按钮退场）；抽屉列出将真实调用的节点、提示可见副作用节点、按 `inputSchema`/USER_INPUT 字段收集输入及可选用户消息，展示最终回答和逐节点结果，失败节点可点回画布；有未保存编辑时提供“保存草稿”。请求超时 130s。
+- 验证：见本批交付报告；`HttpApiWriteWorkflowE2eIntegrationTest.fixedFactsDriftRejectsOldReleaseAndNeedsExplicitWorkflowAndMcpRepublishing`（2 项）与 `HttpApiMarketBindingE2eIntegrationTest.latestFailureUnknownConnectionChangeAndDirectoryUnavailableAreNotProof` 在改前基线 24e14ea 上已以相同断言失败（均为连接修订 409），与本批无关、未修改。未做浏览器实测、真实业务系统或 MySQL 验证。
+- 下一步：部署 Control/Runtime/前端后，以真实项目的“查询产品 → 参数提取 → 查询库存 → 回答”草稿走查整稿试运行、写节点拒绝与已发布 Workflow 工作副本试运行；另行排查上述基线已失败的 E2E 断言。
+
+## HTTP API 项目默认连接与单 API 覆盖（2026-10-16，D27，代码完成待部署）
+
+本批关联 U3 的“配置必要接入条件并完成真实 HTTP 验证”及 Workflow 使用 API。用户确认同一项目同一环境的大量 API 共用服务地址与凭据，逐条保存连接负担过重；改为项目默认连接一次配置、全部 API 继承，单 API 可选覆盖。预期行为：未覆盖的 API 详情显示“继承项目默认连接”且可直接试调用；覆盖优先，移除后恢复继承；任一来源修改都使旧调用和 Workflow pin 按“连接已变化”拒绝。范围限 Runtime 连接解析、Control BFF 转发、API 详情连接区、SQL 与文档；不改资产 owner、契约、接纳、ACL 或调用协议；本批不部署、不推送。
+
+- 后端：Runtime 新增 `runtime_http_api_project_connection`（`project_id + environment` 唯一，乐观修订），`runtime_http_api_connection` 改为单 API 覆盖并新增 `override_active`（移除覆盖置 0、保留行延续修订号）。`RuntimeHttpApiConnectionService.snapshot(owner)` 统一返回生效连接，Console 试调用、市场验证与 Workflow HTTP API 执行均改用它。生效修订＝行修订×2（覆盖再 +1），来源切换或任一行修订变化都会产生新值；不复用已删除覆盖的修订。项目默认保存沿用 origin 规范化、出站策略、PROJECT 凭据和类型校验，不按单 API 契约裁剪；不适配的 API 视图为 BLOCKED 并提示可覆盖。
+- 接口：公开 `GET /api/apis/{id}/connection` 增加 `connectionSource`、`inherited`、`overrideActive`、`overrideRevision`、`projectDefault`；新增 `GET|PUT /api/apis/{id}/connection/project-default` 与 `DELETE /api/apis/{id}/connection/override?expectedRevision=`。Control 以 API owner 解析项目与环境并要求项目写权限，经 HMAC 签名转发 Runtime `PUT /internal/runtime/http-api-connections/project-default`、`POST /internal/runtime/http-api-connections/override-removals`。
+- 前端：API 详情“配置接入”显示生效来源，新增“项目默认连接（本项目所有 API 共用）”编辑区，原表单改为“本 API 覆盖连接（可选）”，覆盖生效时可“移除覆盖，改用项目默认”；试调用继续使用生效修订。
+- SQL：`sql/initV2.sql` 同步；已有库使用 `sql/upgrade-20261016-http-api-project-connection.sql`（幂等，未执行到任何数据库）。升级后既有连接按覆盖继续生效，但生效修订变为 `revision*2+1`，升级前未完成的试调用和已发布 Workflow 的连接 pin 需刷新或重新发布。
+- 验证：Runtime 目标测试（连接/项目默认/调用持久化/验证/Workflow HTTP API/内部鉴权）及 `BusinessMethodWorkflowMcpE2eIntegrationTest` 全量 25 项（含新增经公开路由的继承、覆盖、移除与旧修订拒绝场景）通过；Control `HttpApiConsoleControllerTest`、`RuntimeHttpApiConsoleEgressGatewayTest` 与 common 兼容测试通过；前端 `vue-tsc`、`npm run build`、`src/views/api` 7 文件 102 项（happy-dom）及 Workflow HTTP API 相关 3 文件通过；内部 API 契约守卫仅保留既有 RunOps replay 缺项。未做浏览器实测、真实 MySQL 升级或服务重启。
+- 下一步：在开发库备份后执行升级脚本、部署 Runtime/Control/前端，以真实项目保存一次项目默认连接并验证继承、覆盖与已发布 Workflow 重新发布路径。
+
 ## HTTP API 列表“下一步”及派生提示退场（2026-10-15，D26，实施中）
 
 本批关联 U3 的 API 查找与理解。用户确认列表动作建议价值有限，要求移除相关逻辑；范围为 HTTP 目录桌面列、窄屏摘要、专用 nextAction 函数、既有测试与 DESIGN／UX／基线说明。不把建议迁入其他列；保留来源与接纳状态、详情异常原因及接纳／调用准入校验，不改后端、数据库和共享列表 owner。限定事前快照在 `output/tasks/http-api-next-action-retirement-20261015/before`。停止点为相关回归、前端构建、静态检查及桌面／窄屏走查，不重启后端，不提交或推送。
@@ -805,6 +826,7 @@
 | D19 | 自动分类缺失且成员只能追加，来源变化会改变目录归属 | 2026-10-13 用户授权持久归属和单条/批量编辑 | 复用项目单层分类，owner 持久成员与人工空集合；初始来源标签不进入执行契约，编辑支持新建/多选/移除/清空；接替 D14/D17 的追加语义 |
 | D21 | HTTP 仍有独立分类导航与分段，与 Java 目录体验不一致 | 2026-10-14 用户授权 HTTP API 与 Java 一致使用平铺单表、分类列及搜索栏下拉 | 接替此前 HTTP 保留呈现，分类继续可选，既有归属、编辑、分页前筛选及执行边界保持；实际实现和验证见本页D21完成记录 |
 | D22 | HTTP 顶部概览重复分页数量与已有筛选条件 | 2026-10-14 用户要求去掉“匹配 API／环境范围／HTTP 方法”及其逻辑 | 删除HTTP目录概览及其专用派生状态，保留分页与筛选；无独立summary请求，不修改共享MetricStrip、后端或SQL；本次结果见本页首项 |
+| D28 | Studio 只读真实试运行仅支持单节点代表图，多步骤 Workflow 无法发布前真实验证 | 2026-10-16 用户授权“我们的目的是让用户更好用，系统更好。你可以随便改” | 接替 D7 单节点形态：整稿只读试运行、正常调试入口自动切换、声明契约校验替代逐节点 expectedInput、已发布 Workflow 工作副本可试运行；详见基线 D28 与本页同名记录 |
 | Q1 | Controller 的双重声明 | 方法声明与 HTTP 映射形成各自调用契约，保留实现关联 | 完整分流在 BMAPI-3；2A 不改变现有路由与 skip |
 | Q2 | 身份、版本与调用投影关联 | 明确类型进入来源 metadata，投影列仅作派生；保留已有方法稳定引用 | 2A 实现类型贯通；API 有界编码与冲突规则在 3 具体化 |
 | Q3 | 来源与平台字段所有权 | 来源拥有契约，平台拥有接纳与独立补充 | 不提供类型、风险和来源契约的旁路覆盖 |

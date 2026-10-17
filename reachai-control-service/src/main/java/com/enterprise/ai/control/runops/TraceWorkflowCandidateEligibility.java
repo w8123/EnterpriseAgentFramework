@@ -385,13 +385,6 @@ public class TraceWorkflowCandidateEligibility {
         return text == null ? "" : text.trim().toUpperCase(Locale.ROOT);
     }
 
-    private static String firstText(String... values) {
-        for (String value : values) {
-            if (StringUtils.hasText(value)) return value.trim();
-        }
-        return null;
-    }
-
     private static String requireText(String value, String field) {
         if (!StringUtils.hasText(value)) {
             throw new IllegalArgumentException(field + " is required");

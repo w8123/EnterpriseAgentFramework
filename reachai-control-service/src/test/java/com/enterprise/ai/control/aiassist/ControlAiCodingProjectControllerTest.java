@@ -291,36 +291,4 @@ class ControlAiCodingProjectControllerTest {
                 org.mockito.ArgumentMatchers.anyLong(),
                 org.mockito.ArgumentMatchers.anyMap());
     }
-
-    @Test
-    void acceptsExternalContextCandidateSubmissionsWithoutFallingThroughToRetiredProxy() {
-        CapabilityProjectOnboardingClient client = mock(CapabilityProjectOnboardingClient.class);
-        RuntimeProxyClient runtimeClient = mock(RuntimeProxyClient.class);
-        ControlAiCodingProjectController controller = new ControlAiCodingProjectController(client, runtimeClient,
-                mock(ControlProjectAgentProvisioningService.class));
-        when(client.getOnboardingProjectById(7L)).thenReturn(Map.of(
-                "id", 7L,
-                "name", "Orders",
-                "projectCode", "orders"
-        ));
-
-        ResponseEntity<Map<String, Object>> single = controller.createContextCandidate(7L, Map.of(
-                "content", "Order cancel API requires audit reason",
-                "candidateType", "NOTE"
-        ));
-        ResponseEntity<List<Map<String, Object>>> batch = controller.createContextCandidateBatch(7L, List.of(
-                Map.of("content", "Order refund workflow should ask for approval"),
-                Map.of("content", "Order export action is read-only")
-        ));
-        ResponseEntity<List<Map<String, Object>>> listed = controller.listContextCandidates(
-                7L,
-                "ai-coding-submission-1",
-                "PENDING");
-
-        assertEquals(HttpStatus.OK, single.getStatusCode());
-        assertEquals("PENDING", single.getBody().get("status"));
-        assertEquals("orders", single.getBody().get("projectCode"));
-        assertEquals(2, batch.getBody().size());
-        assertEquals(List.of(), listed.getBody());
-    }
 }

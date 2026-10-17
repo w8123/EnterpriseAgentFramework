@@ -20,6 +20,8 @@ public class ModelCatalogStatusService {
 
     public ModelCatalogStatusResponse status() {
         boolean autoSyncEnabled = settingsService.autoSyncEnabled();
+        String analyzerModelInstanceId = settingsService.analyzerModelInstanceId();
+        boolean analyzerConfigured = analyzerModelInstanceId != null;
         LocalDate businessDate = LocalDate.now(properties.resolvedZoneId());
         List<ModelCatalogSourceEntity> sources = sourceMapper.selectEnabled();
         List<ModelCatalogStatusResponse.SourceStatus> sourceStatuses = new ArrayList<>();
@@ -64,20 +66,21 @@ public class ModelCatalogStatusService {
                 .autoSyncEnabled(autoSyncEnabled)
                 .zoneId(properties.getZoneId())
                 .businessDate(businessDate)
-                .analyzerConfigured(properties.analyzerConfigured())
+                .analyzerConfigured(analyzerConfigured)
+                .analyzerModelInstanceId(analyzerModelInstanceId)
                 .stale(stale)
                 .catalogVerifiedAt(catalogVerifiedAt)
                 .lastAnySuccessfulAt(latestSuccess)
                 .sourceCount(sources.size())
                 .completedToday(completedToday)
-                .message(message(autoSyncEnabled, sources.size(), completedToday))
+                .message(message(autoSyncEnabled, analyzerConfigured, sources.size(), completedToday))
                 .sources(List.copyOf(sourceStatuses))
                 .build();
     }
 
-    private String message(boolean autoSyncEnabled, int sourceCount, int completedToday) {
+    private String message(boolean autoSyncEnabled, boolean analyzerConfigured, int sourceCount, int completedToday) {
         if (sourceCount == 0) return "尚未配置启用的官方模型来源";
-        if (!properties.analyzerConfigured()) return "未配置目录分析模型，官方快照不会直接发布为模型模板";
+        if (!analyzerConfigured) return "未配置目录分析模型，官方快照不会直接发布为模型模板";
         if (completedToday == sourceCount) return "今日官方模型目录已同步";
         if (!autoSyncEnabled) return "自动同步已关闭，可在目录设置中手动同步";
         if (completedToday == 0) return "等待今日首次同步，服务启动 10 分钟后会自动执行";

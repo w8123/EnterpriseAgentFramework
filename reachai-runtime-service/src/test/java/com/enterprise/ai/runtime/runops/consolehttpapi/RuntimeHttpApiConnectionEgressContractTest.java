@@ -35,7 +35,7 @@ class RuntimeHttpApiConnectionEgressContractTest {
                 36L, "bzjs21", "dev", "GET", "/count", true, "ACCEPTED", null,
                 "same-hash", "same-hash", "source", json.createObjectNode(), true, null);
         when(capability.getHttpApiExecutionContext(3L, "bzjs21")).thenReturn(owner);
-        var service = new RuntimeHttpApiConnectionService(mapper, capability, credentials,
+        var service = new RuntimeHttpApiConnectionService(mapper, mock(RuntimeHttpApiProjectConnectionMapper.class), capability, credentials,
                 WorkflowHttpEgressPolicy.productionDefault());
         var controller = new RuntimeHttpApiConnectionInternalController(service);
         var command = new HttpApiConsoleContracts.ConnectionCommand(1, 3L, owner.qualifiedName(),

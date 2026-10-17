@@ -5,6 +5,7 @@ import com.enterprise.ai.common.capability.HttpApiConsoleContracts;
 import com.enterprise.ai.common.capability.HttpApiDraftTrialPolicy;
 import com.enterprise.ai.common.capability.HttpApiFirstCallPolicy;
 import com.enterprise.ai.common.capability.HttpApiRequestPolicy;
+import com.enterprise.ai.common.capability.WorkflowReadOnlyTrialPolicy;
 import com.enterprise.ai.common.capability.HttpApiResponseProtection;
 import com.enterprise.ai.runtime.client.capability.RuntimeCapabilityCatalogClient;
 import com.enterprise.ai.runtime.credential.RuntimeWorkflowCredentialRuntime;
@@ -19,10 +20,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
 /** Owner-backed, version-pinned HTTP API TOOL projection. Never creates a Console invocation. */
@@ -43,10 +46,15 @@ public class RuntimeWorkflowHttpApiService implements RuntimeHttpApiToolExecutio
                            String acceptedContractHash, String sourceSetRevision,
                            Long connectionRevision, String credentialRevision) { }
 
-    private record DraftScope(DraftPin pin, Supplier<Boolean> revisionCurrent) { }
+    /**
+     * Request-local set of pinned API nodes for one whole-draft trial. Only these nodes may dispatch, each with a
+     * bounded number of read-only calls (loops/retries), and every call rechecks the draft and owner facts.
+     */
+    private record DraftScope(Map<String, DraftPin> pins, Supplier<Boolean> revisionCurrent,
+                              Map<String, AtomicInteger> dispatches, AtomicInteger total) { }
 
     public DraftPin prepareDraft(GraphSpec.Node node, RuntimeWorkflowDefinitionEntity workflow,
-                                 String revision, HttpApiDraftTrialPolicy.Target allowed) {
+                                 String revision, WorkflowReadOnlyTrialPolicy.Target allowed) {
         if (workflow == null || allowed == null || node == null || node.getRef() == null
                 || !StringUtils.hasText(revision) || !Objects.equals(node.getId(), allowed.nodeId())
                 || !Objects.equals(node.getRef().getQualifiedName(), allowed.qualifiedName())
@@ -65,11 +73,19 @@ public class RuntimeWorkflowHttpApiService implements RuntimeHttpApiToolExecutio
                 current.credential() == null ? null : current.credential().revision());
     }
 
-    public <T> T withDraftScope(DraftPin pin, Supplier<Boolean> revisionCurrent, Supplier<T> action) {
-        if (pin == null || revisionCurrent == null || action == null || draftScope.get() != null) {
+    public <T> T withDraftScope(Collection<DraftPin> pins, Supplier<Boolean> revisionCurrent, Supplier<T> action) {
+        if (pins == null || revisionCurrent == null || action == null || draftScope.get() != null) {
             throw invalid("HTTP_API_TRIAL_SCOPE_INVALID");
         }
-        draftScope.set(new DraftScope(pin, revisionCurrent));
+        Map<String, DraftPin> byNode = new LinkedHashMap<>();
+        Map<String, AtomicInteger> counters = new LinkedHashMap<>();
+        for (DraftPin pin : pins) {
+            if (pin == null || !StringUtils.hasText(pin.nodeId()) || byNode.put(pin.nodeId(), pin) != null) {
+                throw invalid("HTTP_API_TRIAL_SCOPE_INVALID");
+            }
+            counters.put(pin.nodeId(), new AtomicInteger());
+        }
+        draftScope.set(new DraftScope(Map.copyOf(byNode), revisionCurrent, Map.copyOf(counters), new AtomicInteger()));
         try { return action.get(); }
         finally { draftScope.remove(); }
     }
@@ -181,7 +197,7 @@ public class RuntimeWorkflowHttpApiService implements RuntimeHttpApiToolExecutio
                                    WorkflowExecutionIdentity identity) {
         try {
             DraftScope scope = draftScope.get();
-            DraftPin pin = scope == null ? null : scope.pin();
+            DraftPin pin = scope == null || node == null ? null : scope.pins().get(node.getId());
             if (pin == null || !identity.canResolveProjectCredential()
                     || !identity.authorizeProjectCredential(pin.projectId(), pin.projectCode())
                     || node == null || node.getRef() == null
@@ -204,6 +220,10 @@ public class RuntimeWorkflowHttpApiService implements RuntimeHttpApiToolExecutio
                 return failure("HTTP_API_TRIAL_FACTS_STALE");
             }
             if (!scope.revisionCurrent().get()) return failure("HTTP_API_TRIAL_DRAFT_STALE");
+            if (scope.dispatches().get(pin.nodeId()).incrementAndGet() > WorkflowReadOnlyTrialPolicy.MAX_DISPATCHES_PER_NODE
+                    || scope.total().incrementAndGet() > WorkflowReadOnlyTrialPolicy.MAX_DISPATCHES) {
+                return failure("HTTP_API_TRIAL_DISPATCH_LIMIT_EXCEEDED");
+            }
             return dispatch(input, identity, current, pin.credentialRevision());
         } catch (Rejected rejected) {
             return failure(rejected.getMessage());
@@ -325,7 +345,7 @@ public class RuntimeWorkflowHttpApiService implements RuntimeHttpApiToolExecutio
         HttpApiConsoleContracts.ConnectionCommand command = new HttpApiConsoleContracts.ConnectionCommand(
                 HttpApiConsoleContracts.VERSION, apiId, reference, projectId, projectCode, owner.environment(), null);
         HttpApiConsoleContracts.ConnectionView view = connections.read(command);
-        RuntimeHttpApiConnectionService.ConnectionSnapshot connection = connections.snapshot(reference);
+        RuntimeHttpApiConnectionService.ConnectionSnapshot connection = connections.snapshot(owner);
         if (view == null || !"CONFIGURED".equals(view.status()) || connection == null
                 || !Objects.equals(view.revision(), connection.revision())
                 || !Objects.equals(connection.projectId(), projectId)

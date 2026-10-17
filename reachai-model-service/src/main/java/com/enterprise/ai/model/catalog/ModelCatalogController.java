@@ -1,6 +1,7 @@
 package com.enterprise.ai.model.catalog;
 
 import com.enterprise.ai.common.dto.ApiResult;
+import com.enterprise.ai.common.exception.BizException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -25,7 +26,15 @@ public class ModelCatalogController {
 
     @PutMapping("/settings")
     public ApiResult<ModelCatalogStatusResponse> updateSettings(@RequestBody ModelCatalogSettingsRequest request) {
-        settingsService.updateAutoSyncEnabled(request == null ? null : request.autoSyncEnabled());
+        if (request == null || (request.autoSyncEnabled() == null && request.analyzerModelInstanceId() == null)) {
+            throw new BizException(400, "No catalog setting to update");
+        }
+        if (request.analyzerModelInstanceId() != null) {
+            settingsService.updateAnalyzerModelInstanceId(request.analyzerModelInstanceId());
+        }
+        if (request.autoSyncEnabled() != null) {
+            settingsService.updateAutoSyncEnabled(request.autoSyncEnabled());
+        }
         return ApiResult.ok(statusService.status());
     }
 

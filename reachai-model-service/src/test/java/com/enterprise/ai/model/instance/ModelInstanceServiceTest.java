@@ -5,6 +5,8 @@ import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.conditions.AbstractWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.enterprise.ai.common.exception.BizException;
+import com.enterprise.ai.model.account.ModelProviderAccountEntity;
+import com.enterprise.ai.model.account.ModelProviderAccountMapper;
 import com.enterprise.ai.model.security.CredentialCipher;
 import com.enterprise.ai.model.template.ModelTemplateEntity;
 import com.enterprise.ai.model.template.ModelTemplateService;
@@ -34,6 +36,7 @@ import static org.mockito.Mockito.when;
 class ModelInstanceServiceTest {
 
     private ModelInstanceMapper mapper;
+    private ModelProviderAccountMapper accountMapper;
     private ModelTemplateService templateService;
     private CredentialCipher cipher;
     private ModelInstanceService service;
@@ -52,8 +55,50 @@ class ModelInstanceServiceTest {
         templateService = mock(ModelTemplateService.class);
         cipher = new CredentialCipher("unit-test-secret-for-model-center");
         service = new ModelInstanceService(mapper, templateService, objectMapper, cipher,
-                new ModelInstanceRuntimeCache(ModelInstanceRuntimeCache.DEFAULT_TTL_MS));
+                new ModelInstanceRuntimeCache(ModelInstanceRuntimeCache.DEFAULT_TTL_MS),
+                accountMapper = mock(ModelProviderAccountMapper.class));
         when(mapper.selectCount(any())).thenReturn(0L);
+    }
+
+    @Test
+    void accountLinkedInstanceUsesAccountAddressAndKeyWithItsOwnPath() {
+        ModelInstanceEntity entity = accountLinkedLlm();
+        when(accountMapper.selectById("acct-1")).thenReturn(account("https://dashscope.aliyuncs.com/compatible-mode/v1", "sk-account-12345678"));
+
+        ModelInstanceRuntime runtime = service.toRuntime(entity);
+
+        assertEquals("https://dashscope.aliyuncs.com/compatible-mode/v1", runtime.getConnectionConfig().get("baseUrl"));
+        assertEquals("sk-account-12345678", runtime.getConnectionConfig().get("apiKey"));
+        assertEquals("/chat/completions", runtime.getConnectionConfig().get("chatPath"));
+        ModelInstanceResponse response = service.toResponse(entity);
+        assertEquals("acct-1", response.getProviderAccountId());
+        assertEquals("百炼主账号", response.getProviderAccountName());
+        assertFalse(String.valueOf(response.getConnection().get("apiKey")).contains("12345678"));
+    }
+
+    @Test
+    void editingAccountLinkedInstancePersistsOnlyPathsAndKeepsProvider() throws Exception {
+        ModelInstanceEntity entity = accountLinkedLlm();
+        when(mapper.selectById("inst-1")).thenReturn(entity);
+        when(accountMapper.selectById("acct-1")).thenReturn(account("https://dashscope.aliyuncs.com/compatible-mode/v1", "sk-account-12345678"));
+
+        ModelInstanceRequest request = new ModelInstanceRequest();
+        request.setName("千问");
+        request.setConnection(Map.of(
+                "baseUrl", "https://evil.example.com/v1",
+                "apiKey", "sk-ac******5678",
+                "chatPath", "/v2/chat"));
+        service.update("inst-1", request);
+
+        ArgumentCaptor<ModelInstanceEntity> saved = ArgumentCaptor.forClass(ModelInstanceEntity.class);
+        verify(mapper).updateById(saved.capture());
+        Map<?, ?> persisted = objectMapper.readValue(cipher.decrypt(saved.getValue().getConnectionConfigJson()), Map.class);
+        assertEquals(Map.of("chatPath", "/v2/chat"), persisted);
+
+        ModelInstanceRequest switchProvider = new ModelInstanceRequest();
+        switchProvider.setName("千问");
+        switchProvider.setProvider("openai");
+        assertThrows(BizException.class, () -> service.update("inst-1", switchProvider));
     }
 
     @Test
@@ -572,6 +617,25 @@ class ModelInstanceServiceTest {
         template.setDefaultOptionsJson("{\"temperature\":0.7}");
         template.setParamsSchemaJson("[]");
         return template;
+    }
+
+    private ModelInstanceEntity accountLinkedLlm() {
+        ModelInstanceEntity entity = savedLlm("inst-1", "千问");
+        entity.setProvider("tongyi");
+        entity.setModelName("qwen3-max");
+        entity.setProviderAccountId("acct-1");
+        entity.setConnectionConfigJson(cipher.encrypt("{\"chatPath\":\"/chat/completions\"}"));
+        return entity;
+    }
+
+    private ModelProviderAccountEntity account(String baseUrl, String apiKey) {
+        ModelProviderAccountEntity account = new ModelProviderAccountEntity();
+        account.setId("acct-1");
+        account.setName("百炼主账号");
+        account.setProvider("tongyi");
+        account.setConnectionConfigJson(cipher.encrypt(
+                "{\"baseUrl\":\"" + baseUrl + "\",\"apiKey\":\"" + apiKey + "\"}"));
+        return account;
     }
 
     private ModelInstanceEntity savedLlm(String id, String name) {

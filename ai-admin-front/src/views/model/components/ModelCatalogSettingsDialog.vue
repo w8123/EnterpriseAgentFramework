@@ -5,11 +5,17 @@ import { RefreshRight } from '@element-plus/icons-vue'
 import AppDialog from '@/components/common/AppDialog.vue'
 import {
   getModelCatalogStatus,
+  getModelInstances,
   triggerModelCatalogSync,
   updateModelCatalogSettings,
 } from '@/api/model'
-import type { ModelCatalogManualSyncResponse, ModelCatalogStatus } from '@/types/model'
-import { readModelApiPayload } from '../modelCenterUi'
+import type {
+  ModelCatalogManualSyncResponse,
+  ModelCatalogSettingsRequest,
+  ModelCatalogStatus,
+  ModelInstance,
+} from '@/types/model'
+import { normalizeListPayload, readModelApiPayload } from '../modelCenterUi'
 
 const props = defineProps<{
   modelValue: boolean
@@ -27,13 +33,21 @@ const error = ref('')
 const status = ref<ModelCatalogStatus | null>(null)
 const autoSyncEnabled = ref(false)
 const savedAutoSyncEnabled = ref(false)
+const analyzerModelInstanceId = ref<string | undefined>('')
+const savedAnalyzerModelInstanceId = ref('')
+const analyzerCandidates = ref<ModelInstance[]>([])
 
 const visible = computed({
   get: () => props.modelValue,
   set: (value: boolean) => emit('update:modelValue', value),
 })
 
-const settingChanged = computed(() => autoSyncEnabled.value !== savedAutoSyncEnabled.value)
+const analyzerChanged = computed(
+  () => (analyzerModelInstanceId.value || '') !== savedAnalyzerModelInstanceId.value,
+)
+const settingChanged = computed(
+  () => autoSyncEnabled.value !== savedAutoSyncEnabled.value || analyzerChanged.value,
+)
 const progressText = computed(() => {
   if (!status.value) return '尚未读取目录状态'
   return `今日 ${status.value.completedToday}/${status.value.sourceCount} 个来源已完成`
@@ -56,6 +70,9 @@ async function loadStatus() {
     const enabled = nextStatus.autoSyncEnabled ?? nextStatus.enabled
     autoSyncEnabled.value = enabled
     savedAutoSyncEnabled.value = enabled
+    analyzerModelInstanceId.value = nextStatus.analyzerModelInstanceId || ''
+    savedAnalyzerModelInstanceId.value = analyzerModelInstanceId.value
+    await loadAnalyzerCandidates()
   } catch (err) {
     status.value = null
     error.value = err instanceof Error ? err.message : '读取模型目录设置失败'
@@ -64,18 +81,37 @@ async function loadStatus() {
   }
 }
 
+async function loadAnalyzerCandidates() {
+  try {
+    const { data } = await getModelInstances({ modelType: 'LLM' })
+    analyzerCandidates.value = normalizeListPayload<ModelInstance>(data).filter(
+      (instance) => instance.status === 'ACTIVE' || instance.id === analyzerModelInstanceId.value,
+    )
+  } catch {
+    analyzerCandidates.value = []
+  }
+}
+
 async function saveSettings() {
   saving.value = true
+  const autoSyncChanged = autoSyncEnabled.value !== savedAutoSyncEnabled.value
+  const request: ModelCatalogSettingsRequest = {}
+  if (autoSyncChanged) request.autoSyncEnabled = autoSyncEnabled.value
+  if (analyzerChanged.value) request.analyzerModelInstanceId = analyzerModelInstanceId.value || ''
   try {
-    const { data } = await updateModelCatalogSettings({
-      autoSyncEnabled: autoSyncEnabled.value,
-    })
+    const { data } = await updateModelCatalogSettings(request)
     const nextStatus = readModelApiPayload<ModelCatalogStatus>(data)
     status.value = nextStatus
     savedAutoSyncEnabled.value = nextStatus.autoSyncEnabled ?? nextStatus.enabled
     autoSyncEnabled.value = savedAutoSyncEnabled.value
+    savedAnalyzerModelInstanceId.value = nextStatus.analyzerModelInstanceId || ''
+    analyzerModelInstanceId.value = savedAnalyzerModelInstanceId.value
     emit('updated', nextStatus)
-    ElMessage.success(autoSyncEnabled.value ? '已开启模型目录自动同步' : '已关闭模型目录自动同步')
+    if (autoSyncChanged) {
+      ElMessage.success(autoSyncEnabled.value ? '已开启模型目录自动同步' : '已关闭模型目录自动同步')
+    } else {
+      ElMessage.success('已保存目录分析模型')
+    }
   } catch (err) {
     ElMessage.error(err instanceof Error ? err.message : '保存目录设置失败')
   } finally {
@@ -119,6 +155,28 @@ async function synchronizeNow() {
         :title="error"
       />
 
+      <section class="catalog-settings__card catalog-settings__card--analyzer">
+        <div>
+          <strong>目录分析模型</strong>
+          <p>同步时用它读懂各厂商官方模型页面，提取新模型和下线信息；提取结果还要通过原文校验才会更新模板。</p>
+        </div>
+        <el-select
+          v-model="analyzerModelInstanceId"
+          class="catalog-settings__analyzer"
+          clearable
+          filterable
+          placeholder="选择一个已启用的大语言模型"
+          :disabled="loading || Boolean(error)"
+        >
+          <el-option
+            v-for="instance in analyzerCandidates"
+            :key="instance.id"
+            :label="`${instance.name}（${instance.modelName}）`"
+            :value="instance.id"
+          />
+        </el-select>
+      </section>
+
       <section class="catalog-settings__card">
         <div>
           <strong>每日自动同步</strong>
@@ -155,8 +213,8 @@ async function synchronizeNow() {
         type="warning"
         :closable="false"
         show-icon
-        title="尚未配置目录分析模型，暂不能手动同步"
-        description="请先设置 MODEL_CATALOG_ANALYZER_MODEL_INSTANCE_ID，并重启模型服务。"
+        title="尚未配置目录分析模型，暂不能同步"
+        description="先在模型中心接入一个大语言模型，再在上方选择并保存。"
       />
 
       <p v-if="status" class="catalog-settings__message">{{ status.message }}</p>
@@ -212,6 +270,14 @@ async function synchronizeNow() {
   margin-top: 7px;
   color: var(--text-muted);
   font-size: 12px;
+}
+
+.catalog-settings__card--analyzer {
+  align-items: flex-start;
+}
+
+.catalog-settings__analyzer {
+  flex: 0 0 240px;
 }
 
 .catalog-settings__card--manual {

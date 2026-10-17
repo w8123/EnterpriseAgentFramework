@@ -3,9 +3,7 @@ import { type PlatformUserProfile } from '@/utils/platformAuth'
 import {
   markPlatformSessionAnonymous,
   markPlatformSessionAuthenticated,
-  type PlatformSessionView,
 } from '@/auth/platformSession'
-
 export interface PlatformLoginResult {
   expiresIn: number
   expiresAt: string
@@ -110,12 +108,6 @@ export function loginPlatform(data: { username: string; password: string }) {
   })
 }
 
-export function getCurrentPlatformUser() {
-  return controlRequest.get<PlatformSessionView>('/api/platform/auth/me', {
-    platformAuthFailure: 'ignore',
-  })
-}
-
 export function applyPlatformLogin(result: PlatformLoginResult) {
   markPlatformSessionAuthenticated({
     sessionId: result.sessionId,
@@ -135,18 +127,6 @@ export function listPlatformAuthProviders() {
 
 export function savePlatformAuthProvider(body: PlatformAuthProviderCommand) {
   return controlRequest.post<PlatformAuthProviderView>('/api/platform/auth-providers', body)
-}
-
-export function listPlatformUsers() {
-  return controlRequest.get<PlatformUserView[]>('/api/platform/users')
-}
-
-export function listPlatformRoles() {
-  return controlRequest.get<PlatformRoleView[]>('/api/platform/roles')
-}
-
-export function listPlatformUserRoleGrants(userId: number) {
-  return controlRequest.get<PlatformUserRoleGrant[]>(`/api/platform/users/${userId}/roles`)
 }
 
 export function savePlatformUserRoleGrants(userId: number, body: PlatformUserRoleGrantCommand[]) {

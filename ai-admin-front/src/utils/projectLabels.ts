@@ -1,6 +1,5 @@
 import type { ProjectVisibility } from '@/types/registry'
-import type { ScanStatus, ScanType } from '@/types/scanProject'
-
+import type { ScanStatus } from '@/types/scanProject'
 const PROJECT_KIND_LABELS: Record<string, string> = {
   SCAN: '扫描接入',
   REGISTERED: 'SDK 接入',
@@ -21,12 +20,6 @@ const SCAN_STATUS_LABELS: Record<string, string> = {
   failed: '失败',
 }
 
-const SCAN_TYPE_LABELS: Record<string, string> = {
-  openapi: 'OpenAPI',
-  controller: 'Controller',
-  auto: '自动',
-}
-
 /** 项目形态（SCAN / REGISTERED / HYBRID）展示文案；kind 为已是后端枚举值（调用处按需默认 SCAN / REGISTERED 等） */
 export function formatProjectKindLabel(kind: string): string {
   return PROJECT_KIND_LABELS[kind] ?? kind
@@ -41,12 +34,6 @@ export function formatVisibilityLabel(visibility: string): string {
 export function formatScanStatusLabel(s?: ScanStatus | string | null): string {
   if (s == null || s === '') return '-'
   return SCAN_STATUS_LABELS[String(s)] ?? String(s)
-}
-
-/** 扫描方式展示文案 */
-export function formatScanTypeLabel(t?: ScanType | string | null): string {
-  if (t == null || t === '') return '-'
-  return SCAN_TYPE_LABELS[String(t)] ?? String(t)
 }
 
 /** 表单：可见性下拉（value 仍为后端枚举） */

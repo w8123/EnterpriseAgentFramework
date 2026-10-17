@@ -48,11 +48,12 @@
 
 ### 设置与手动入口
 
-- 前端模型中心顶部“目录设置”打开设置弹窗，展示持久化开关、今日进度和分析器配置状态。
+- 前端模型中心顶部“目录设置”打开设置弹窗，展示持久化开关、今日进度，并可选择目录分析模型。
 - `GET /model/catalog/status`：读取当前设置、今日完成数、目录新鲜度与各来源状态。
-- `PUT /model/catalog/settings`：保存 `autoSyncEnabled`。
+- `PUT /model/catalog/settings`：保存 `autoSyncEnabled` 和/或 `analyzerModelInstanceId`（字段为 null 不修改；
+  分析模型传空字符串清除界面设置）。
 - `POST /model/catalog/sync`：提交当天尚未完成来源的手动同步；自动同步关闭时同样可用。
-- 未配置 `MODEL_CATALOG_ANALYZER_MODEL_INSTANCE_ID` 时，手动入口失败关闭，不会暗选业务模型。
+- 未选择目录分析模型时，手动入口失败关闭，不会暗选业务模型。
 
 ### 来源与抓取边界
 
@@ -65,8 +66,9 @@
 
 ### AI 分析与发布守门
 
-目录分析模型必须通过 `MODEL_CATALOG_ANALYZER_MODEL_INSTANCE_ID` 显式绑定一个 ACTIVE LLM 实例。
-未配置时保存快照但明确失败，不会从业务模型中暗选一个实例。
+目录分析模型必须显式绑定一个 ACTIVE LLM 实例：优先使用“目录设置”中保存的
+`model_catalog_setting.analyzer_model_instance_id`（保存时校验 ACTIVE + LLM），为空时回退到部署环境变量
+`MODEL_CATALOG_ANALYZER_MODEL_INSTANCE_ID`。都未配置时保存快照但明确失败，不会从业务模型中暗选一个实例。
 
 官方页面正文始终按不可信数据处理：系统提示要求忽略正文内指令，禁止工具和链接访问，只接受
 严格 JSON schema。候选必须再次通过确定性校验：精确模型 ID 必须原样出现在快照中、AI 给出的
@@ -86,6 +88,32 @@ AI 不直接写模板。完整链路为：
 
 模型“新”不等于“推荐”。同步任务只把 `recommendation_status` 设为 `UNASSESSED`；推荐等级和理由
 必须来自 EvalOps 代表性数据集证据或人工评审。Embedding 模型更换仍需单独重建向量索引。
+
+## 厂商账号与接入流程
+
+`model_provider_account` 保存一个厂商的服务地址与鉴权（`baseUrl`、`apiKey`、`authHeader`、`authPrefix`，加密存储），
+同一厂商可以有多个账号（如测试/生产），名称在厂商内唯一。`model_instance.provider_account_id` 非空时：
+
+- 有效连接 = 实例自己的请求路径（`chatPath` 等）+ 账号的地址与鉴权；实例只持久化请求路径。
+- 编辑实例时提交的地址与 Key 被忽略，不能更换厂商；换 Key 改账号即可，账号更新会清空本进程运行时缓存。
+- 该列为 NULL 的实例（旧数据、自定义单模型）继续使用实例自己保存的完整连接配置。
+
+管理端「接入模型」流程：选厂商 → 选择该厂商已有账号，或填写地址与 Key（先实时取模型列表成功，才保存账号）
+→ 从厂商实时返回的模型中勾选（标出目录推荐和已接入，可手动补充模型名）→ 批量接入。批量接入时，若目录里有
+同厂商、同模型名、同类型的模板，沿用它的请求路径与默认参数；否则使用该类型的默认路径、空默认参数。
+已接入（未归档）的同名同类型模型会跳过。账号仍被未归档实例引用时不能删除。
+
+接口（挂在 `/model/instances/provider-accounts` 下，沿用现有实例路由）：`GET` 列表（`provider` 过滤）、`POST` 新建、
+`PUT /{id}` 修改（Key 传掩码表示不变，地址换域名必须重填 Key）、`DELETE /{id}`、`POST /discover`（不保存试取列表）、
+`POST /{id}/models`（用已保存账号取列表）、`POST /{id}/instances`（批量接入，单次最多 50 个）。
+
+## 供应商实时模型列表
+
+模板目录有发布节奏，供应商上新可能更快。创建或编辑实例时，`上游模型名称` 旁的“获取最新模型”按钮调用
+`POST /model/instances/discover-models`：请求体与 `test-draft` 相同（`modelName` 可空；带 `id` 时复用已保存密钥），
+服务端用该连接配置请求 `GET {baseUrl}/models`，返回当前凭证实际可用的模型 ID、创建时间和按 ID 推断的类型
+（LLM / EMBEDDING / RERANKER / OTHER，仅用于前端筛选）。兼容 OpenAI 风格 `data[]` 与 Gemini 原生 `models[]`，
+响应限 4 MB、20 秒超时，失败原因经脱敏后返回。该接口只读，不写模板也不改实例。
 
 ## URL 语义
 

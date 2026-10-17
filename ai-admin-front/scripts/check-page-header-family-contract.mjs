@@ -42,7 +42,6 @@ const files = {
   platformUsers: 'src/views/settings/PlatformUserSettings.vue',
   businessUsers: 'src/views/settings/BusinessUserDirectory.vue',
   authProviders: 'src/views/settings/AuthProviderSettings.vue',
-  contextGovernance: 'src/views/context/ContextGovernance.vue',
   runOpsList: 'src/views/runops/RunOpsList.vue',
   runOpsDetail: 'src/views/runops/RunOpsDetail.vue',
 }
@@ -471,13 +470,11 @@ function validate(sources, { validateAssets = true } = {}) {
   expectPageHeader(failures, sources.platformUsers, 'overview', 'platform', 'PlatformUserSettings', { enriched: true })
   expectPageHeader(failures, sources.businessUsers, 'standard', 'platform', 'BusinessUserDirectory', { enriched: true, noActionControls: true })
   expectPageHeader(failures, sources.authProviders, 'standard', 'platform', 'AuthProviderSettings', { enriched: true, primaryLast: true })
-  expectPageHeader(failures, sources.contextGovernance, 'workbench', 'governance', 'ContextGovernance', { enriched: true })
   expectPageHeader(failures, sources.runOpsList, 'overview', 'governance', 'RunOpsList', { enriched: true, noActionControls: true })
   expectPageHeader(failures, sources.runOpsDetail, 'entity', 'governance', 'RunOpsDetail', { primaryLast: true })
   expectIncludes(failures, sources.sdkWorkbench, '<HeaderModeSwitch', 'SdkAccessWizard mode control')
   expectIncludes(failures, actionSlot(sources.platformUsers), '@click="reload"', 'PlatformUserSettings reload action')
   expectIncludes(failures, actionSlot(sources.authProviders), '@click="reload"', 'AuthProviderSettings reload action')
-  expectIncludes(failures, actionSlot(sources.contextGovernance), '@click="reloadAll"', 'ContextGovernance reload action')
   expectIncludes(failures, actionSlot(sources.runOpsList), '@click="refreshAll"', 'RunOpsList refresh action')
   for (const [fragment, label] of [
     ['<MetricStrip', 'metric strip'],
@@ -548,7 +545,6 @@ if (process.argv.includes('--self-test')) {
       ['legacy-page-header', 'a2aHub', (value) => value.replace('<PageHeader', '<div class="page-header"></div>\n    <PageHeader'), 'A2aHubLayout must not retain a legacy page header'],
       ['knowledge-artwork-disabled', 'retrievalTest', (value) => value.replace('title="召回测试实验室"', 'title="召回测试实验室"\n      :artwork="false"'), 'RetrievalTest must not disable PageHeader artwork'],
       ['platform-users-domain', 'platformUsers', (value) => value.replace('domain="platform"', 'domain="governance"'), 'PlatformUserSettings PageHeader is missing domain="platform"'],
-      ['context-wrong-variant', 'contextGovernance', (value) => value.replace('variant="workbench"', 'variant="standard"'), 'ContextGovernance PageHeader is missing variant="workbench"'],
       ['runops-control-in-dock', 'runOpsList', (value) => value.replace('<template #actions>', '<template #actions>\n        <el-input />'), 'RunOpsList action dock must not contain form controls'],
       ['auth-primary-order', 'authProviders', (value) => value.replace('<template #actions>', '<template #actions>\n        <el-button type="primary">非法前置主操作</el-button>'), 'AuthProviderSettings primary action must be the last button'],
       ['project-collapse-binding', 'projectList', (value) => value.replace(':collapsed="isProjectHeaderCollapsed"', ':collapsed="false"'), 'RegistryProjectList collapse region is missing <CollapsibleHeaderRegion :collapsed="isProjectHeaderCollapsed">'],

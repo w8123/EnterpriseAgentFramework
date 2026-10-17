@@ -124,7 +124,7 @@ AI Draft 的 `nodeTypes` 与 system prompt 均以 `RuntimeWorkflowNodeCapability
 HTTP 契约：
 
 - 传输成功：仅 HTTP 200–299；4xx/5xx → `success=false`，供 Retry/ErrorPolicy 消费
-- 业务响应：若 JSON 顶层存在 `code`，仅字符串或数值 `200` 视为成功；`code != 200` 或显式 `success=false` → 节点失败、`retryableFailure=false`，用户提示以“查询失败”开头。该规则同时适用于 `HTTP_REQUEST` 与 Capability/Tool 返回，不能把 HTTP 200 误判为业务成功
+- 业务响应：若 JSON 顶层存在 `code`，字符串或数值 `200` 与 `0`（芋道 ruoyi-vue-pro 等框架的成功码）视为成功；其他 `code` 或显式 `success=false` → 节点失败、`retryableFailure=false`，用户提示以“查询失败”开头。该规则同时适用于 `HTTP_REQUEST` 与 Capability/Tool 返回，不能把 HTTP 200 误判为业务成功
 - Canonical 凭据类型：`BEARER`、`BASIC`、`API_KEY_HEADER`、`API_KEY_QUERY`、`CUSTOM_HEADERS`（历史别名仅在单一 normalize 层转换）
 - Scope fail-closed：PROJECT 凭据在缺少 `projectId/projectCode` 时拒绝；list 无项目身份时仅返回 GLOBAL
 - Redirect：credentialed 请求禁止跨 origin；HTTPS→HTTP 降级拒绝；同 origin 仍重新做 egress 校验

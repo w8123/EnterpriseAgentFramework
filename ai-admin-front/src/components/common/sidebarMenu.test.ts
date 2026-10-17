@@ -30,13 +30,14 @@ describe('sidebarMenu information architecture', () => {
     expect(new Set(targets).size).toBe(targets.length)
   })
 
-  it('keeps context and retrieval navigation after retiring domain governance', () => {
+  it('keeps retrieval navigation after retiring domain and context governance', () => {
     const targets = sidebarMenu.flatMap((entry) => (
       entry.kind === 'item' ? [entry.index, ...(entry.children ?? []).map(child => child.index)] : []
     ))
 
     expect(targets.some(path => path === '/domain' || path.startsWith('/domain/'))).toBe(false)
-    expect(targets).toEqual(expect.arrayContaining(['/context/governance', '/tool/retrieval', '/retrieval']))
+    expect(targets.some(path => path.startsWith('/context/'))).toBe(false)
+    expect(targets).toEqual(expect.arrayContaining(['/settings/runtime-user-mappings', '/tool/retrieval', '/retrieval']))
   })
 
   it('does not expose a generic Tool catalog as a product asset', () => {
@@ -46,7 +47,6 @@ describe('sidebarMenu information architecture', () => {
     })
 
     expect(items).not.toContainEqual({ index: '/tool', label: '工具目录' })
-    expect(items.find((item) => item.index === '/experimental-group')?.label).toBe('实验性能力')
   })
 
   it('groups external integration assets under AI assets', () => {
@@ -158,7 +158,7 @@ describe('resolveOpenGroups', () => {
     ['/model/playground', ['/model-group']],
     ['/a2a-hub/overview', ['/integration-group']],
     ['/tool/retrieval', ['/diagnostics-group']],
-    ['/context/governance', ['/experimental-group']],
+    ['/settings/runtime-user-mappings', ['/identity-group']],
     ['/domain', []],
     ['/domain/board', []],
     ['/domain/classifier-test', []],

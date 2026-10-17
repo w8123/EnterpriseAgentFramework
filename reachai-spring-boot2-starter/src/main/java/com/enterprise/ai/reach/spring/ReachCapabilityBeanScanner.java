@@ -7,10 +7,12 @@ import org.springframework.aop.support.AopUtils;
 import org.springframework.context.ApplicationContext;
 import org.springframework.http.converter.HttpMessageConverter;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerAdapter;
+import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Predicate;
 
 /**
  * Scans Spring beans for capabilities. When bean scanning is enabled, explicit
@@ -68,6 +70,10 @@ public class ReachCapabilityBeanScanner {
         for (RequestMappingHandlerAdapter adapter : applicationContext.getBeansOfType(RequestMappingHandlerAdapter.class).values()) {
             converters.addAll(adapter.getMessageConverters());
         }
+        List<Map<String, Predicate<Class<?>>>> pathPrefixes = new ArrayList<Map<String, Predicate<Class<?>>>>();
+        for (RequestMappingHandlerMapping mapping : applicationContext.getBeansOfType(RequestMappingHandlerMapping.class).values()) {
+            pathPrefixes.add(mapping.getPathPrefixes());
+        }
         Map<String, Object> beans = applicationContext.getBeansOfType(Object.class);
         for (Object bean : beans.values()) {
             if (bean == null || isInfrastructureBean(bean)) {
@@ -76,7 +82,8 @@ public class ReachCapabilityBeanScanner {
             Class<?> userClass = AopUtils.getTargetClass(bean);
             descriptors.addAll(ReachCapabilityScanner.scanClasses(userClass));
             if (shouldScanSpringMvcEndpoints(userClass)) {
-                httpApis.addAll(ReachSpringMvcEndpointScanner.scanClass(userClass, converters));
+                httpApis.addAll(ReachSpringMvcEndpointScanner.scanClass(userClass, converters,
+                        pathPrefix(pathPrefixes, userClass)));
             }
         }
         return new ScanResult(descriptors, httpApis);
@@ -84,6 +91,21 @@ public class ReachCapabilityBeanScanner {
 
     public List<ReachHttpApiDescriptor> scanHttpApis() {
         return scanResult().getHttpApis();
+    }
+
+    /** Mirrors RequestMappingHandlerMapping#getPathPrefix: the first matching configured prefix wins. */
+    static String pathPrefix(List<Map<String, Predicate<Class<?>>>> pathPrefixes, Class<?> userClass) {
+        for (Map<String, Predicate<Class<?>>> prefixes : pathPrefixes) {
+            if (prefixes == null) {
+                continue;
+            }
+            for (Map.Entry<String, Predicate<Class<?>>> entry : prefixes.entrySet()) {
+                if (entry.getValue() != null && entry.getValue().test(userClass)) {
+                    return entry.getKey();
+                }
+            }
+        }
+        return null;
     }
 
     private boolean shouldScanSpringMvcEndpoints(Class<?> userClass) {

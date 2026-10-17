@@ -71,7 +71,7 @@
 - 业务输出别名统一写入 `var.<alias>`；保留 `input/message/params/sys/nodeOutput/lastOutput/previousOutput`；裸别名仅作只读兼容解析，不双写两套真相。`VARIABLE_ASSIGN` GraphSpec 保存原生 JSON 类型。
 - `RetryPolicy` 必须同时受 `retryable()`、失败分类与 HTTP 幂等约束；`ErrorPolicy` 只在重试耗尽后消费一次。
 - Knowledge 检索只走 Knowledge owning service 的 `POST /internal/knowledge/retrieval/query`（hits only），并由 `KnowledgeRetrievalCore` 承载正式生产检索；Runtime Internal API 不得构造 `RetrievalTestRequest` 或调用 `retrievalTest` 命名入口。`searchMode`/`rerankEnabled` 为 request override，不改 KB 持久化配置；Workflow GraphSpec/AI Draft 不得写入 `directReturnEnabled`/`directReturnThreshold`。
-- HTTP 凭据 canonical 类型：`BEARER` / `BASIC` / `API_KEY_HEADER` / `API_KEY_QUERY` / `CUSTOM_HEADERS`；scope fail-closed；传输层仅 2xx 成功；若 JSON 顶层存在业务 `code`，则仅字符串/数值 `200` 成功，`code != 200` 或 `success=false` 必须作为不可重试的节点失败并明确提示“查询失败”（Capability/Tool 同规则）；credentialed 跨 origin redirect 拒绝；HTTPS→HTTP 拒绝。Egress 校验与连接 pin 必须共用同一组 DNS 解析结果（每 hop 只解析一次）；普通节点不得覆盖 Host/Content-Length/Transfer-Encoding/Connection/Proxy-Authorization。
+- HTTP 凭据 canonical 类型：`BEARER` / `BASIC` / `API_KEY_HEADER` / `API_KEY_QUERY` / `CUSTOM_HEADERS`；scope fail-closed；传输层仅 2xx 成功；若 JSON 顶层存在业务 `code`，则字符串/数值 `200` 或 `0` 成功（2026-10-16 芋道接入时补 `0`：ruoyi-vue-pro/yudao 等框架以 0 表示成功），其他 `code` 或 `success=false` 必须作为不可重试的节点失败并明确提示“查询失败”（Capability/Tool 同规则）；credentialed 跨 origin redirect 拒绝；HTTPS→HTTP 拒绝。Egress 校验与连接 pin 必须共用同一组 DNS 解析结果（每 hop 只解析一次）；普通节点不得覆盖 Host/Content-Length/Transfer-Encoding/Connection/Proxy-Authorization。
 - 可信执行身份：`WorkflowExecutionIdentity` 仅由受控 factory 构造（无公共 `@JsonCreator` / 不可由外部 JSON 设置 trust 布尔）。`SupervisorRequest.identity` 显式携带身份；Supervisor 不得从 `request.input`/metadata/模型 args 构造可信用户。Control→Runtime 使用 HMAC-SHA256 内部服务认证（canonical 含 method/path/caller/source/userId/timestamp/nonce/**BODY_SHA256**；恒定时间验签；JDBC nonce 仅清理过期条目，满容 fail-closed 拒绝新 nonce，绝不为腾容量删除有效 nonce；`nonceTtlSeconds >= 2 * skewSeconds`；缺密钥 fail-closed；actuator `INTERNAL_AUTH_NOT_CONFIGURED`）。RunOps/`runtime_run.userId`/ToolCallLog 审计主体必须来自可信身份，禁止从业务 body 提升。公开 `/api/runtime/agents/execute(+stream)`：有平台 Bearer 则经签名 internal 传 `AGENT` 身份，否则 `userTrusted=false`。Embed sync/stream 必须从已验签 claims 经签名 internal 传 `EMBED_SESSION`。Debug/Composition 保持 untrusted。`projectId`/`projectCode` 冲突 fail-closed。
 - Trace 持久化边界：按数据来源构造 `TraceSafeSummary` allowlist（statusCode/hitCount/attempt/latency 等）；`inputSummary` 只存 inputType/messageLength/hasMessage 与非敏感 id，永不存用户原文；禁止内容猜测与固定 marker 特判；plan/replan 只存工具名与步骤数；HTTP 非 2xx raw body 可留内存供 ErrorPolicy，不得落库。Replay 若安全策略禁止原文，必须显式 `messageOverride`，不得从脱敏摘要伪造输入。
 - Retry 默认 fail-closed：仅显式 transient（HTTP 408/429/5xx、timeout/connect，或 metadata `retryableFailure=true`）可重试；`*_REQUIRED` / `*_DENIED` / `*_UNAVAILABLE` / 配置与权限错误不可重试。
@@ -148,6 +148,11 @@ MCP Hub 按 clean-slate 重塑，不是旧 visibility 白名单模型的增量�
 - 多实例部署下，其他副本在 TTL 窗口内仍可能使用旧的 ACTIVE runtime（含禁用、归档、凭据轮换后的短暂陈旧）。
 - 当前阶段不引入分布式缓存或跨实例失效广播；缩短 TTL 是刻意的安全窗口，而不是“强一致”。
 - 缓存与日志均不得输出模型凭据或解密后的连接配置。
+
+## 项目上下文治理下线（2026-10-17）
+
+- 管理端「上下文治理」页面、页面记忆工作台、PROJECT_DEV 项目上下文接口（namespaces、items、audit、ops、lifecycle、query、package、memory/candidates）和 AI Coding `context-candidates` 提交已删除：Runtime 从不消费这些数据，留着只会误导用户。
+- 个人记忆（RUNTIME_USER）、私有候选、跨域擦除和 Runtime 用户映射保留；映射入口在「身份与权限 / 运行时用户映射」。不要再新增一套不被 Runtime 读取的“项目上下文”资产；若将来要做项目级上下文注入，必须先有 Runtime 消费路径。
 
 ## 品牌与技术身份
 

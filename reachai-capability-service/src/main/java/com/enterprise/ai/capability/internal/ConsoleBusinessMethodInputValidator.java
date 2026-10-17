@@ -30,6 +30,7 @@ final class ConsoleBusinessMethodInputValidator {
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final int MAX_DIAGNOSTICS = 20;
     private static final int MAX_PATH_LENGTH = 160;
+    private static final Pattern PLAIN_DECIMAL = Pattern.compile("-?\\d+(\\.\\d+)?");
 
     private ConsoleBusinessMethodInputValidator() {
     }
@@ -94,8 +95,9 @@ final class ConsoleBusinessMethodInputValidator {
         }
         String type = normalizedType(node.type());
         if (!recognized(type)) fail(path, "UNSUPPORTED_DECLARATION_TYPE");
-        validateType(type, value, path);
-        constraints(node.metadata(), value, path);
+        Object scalar = coerceScalar(type, value);
+        validateType(type, scalar, path);
+        constraints(node.metadata(), scalar, path);
         if (isObject(type)) {
             if (!node.children().isEmpty()) {
                 validateChildren(node, asMap(value), path, diagnostics, false);
@@ -150,14 +152,29 @@ final class ConsoleBusinessMethodInputValidator {
         for (int index = 0; index < elements.size(); index++) {
             String itemPath = path + "[" + index + "]";
             Object element = elements.get(index);
-            validateType(itemsType, element, itemPath);
-            constraints(rawItemsMetadata, element, itemPath);
+            Object scalar = coerceScalar(itemsType, element);
+            validateType(itemsType, scalar, itemPath);
+            constraints(rawItemsMetadata, scalar, itemPath);
         }
         if (openObjectShape && !elements.isEmpty()) diagnostics.add(path + "[]", "ARRAY_OBJECT_SHAPE_UNSPECIFIED");
     }
 
     private static String childPath(String parentPath, String childName) {
         return StringUtils.hasText(parentPath) ? parentPath + "." + childName : childName;
+    }
+
+    /**
+     * Workflow values produced by LLM / parameter-extract nodes are usually text ("1", "true"). The
+     * business side binds them with Jackson scalar coercion (production calls already rely on it), so a
+     * plain decimal or boolean literal counts as that type here; constraints run on the parsed value.
+     * Anything looser (blank, exponent, hex, "yes") still fails closed.
+     */
+    private static Object coerceScalar(String type, Object value) {
+        if (!(value instanceof CharSequence text) || text.length() > 40) return value;
+        String literal = text.toString();
+        if (isNumber(type) && PLAIN_DECIMAL.matcher(literal).matches()) return new BigDecimal(literal);
+        if (isBoolean(type) && ("true".equals(literal) || "false".equals(literal))) return Boolean.valueOf(literal);
+        return value;
     }
 
     private static void validateType(String type, Object value, String path) {

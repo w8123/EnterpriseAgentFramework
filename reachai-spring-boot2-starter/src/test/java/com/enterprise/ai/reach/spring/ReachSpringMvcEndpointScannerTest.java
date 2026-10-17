@@ -49,6 +49,32 @@ class ReachSpringMvcEndpointScannerTest {
     }
 
     @Test
+    void appliesSpringMvcPathPrefixConfiguredForTheController() {
+        List<ReachHttpApiDescriptor> operations = ReachSpringMvcEndpointScanner.scanClass(
+                CartesianController.class, java.util.Collections.emptyList(), "/admin-api");
+
+        Set<String> identities = new HashSet<String>();
+        for (ReachHttpApiDescriptor operation : operations) {
+            identities.add(operation.getHttpMethod() + " " + operation.getEndpointPath());
+        }
+        assertTrue(identities.contains("GET /admin-api/v1/a"));
+        assertTrue(identities.contains("POST /admin-api/v2/b"));
+        assertEquals(8, identities.size());
+    }
+
+    @Test
+    void resolvesFirstMatchingHandlerMappingPathPrefix() {
+        java.util.Map<String, java.util.function.Predicate<Class<?>>> prefixes = new java.util.LinkedHashMap<>();
+        prefixes.put("/app-api", type -> type.getName().contains(".app."));
+        prefixes.put("/admin-api", type -> type == CartesianController.class);
+
+        assertEquals("/admin-api", ReachCapabilityBeanScanner.pathPrefix(
+                java.util.Collections.singletonList(prefixes), CartesianController.class));
+        assertEquals(null, ReachCapabilityBeanScanner.pathPrefix(
+                java.util.Collections.singletonList(prefixes), PlainBean.class));
+    }
+
+    @Test
     void ignoresNullAndNonControllerTypes() {
         assertTrue(ReachSpringMvcEndpointScanner.scanClass(null).isEmpty());
         assertTrue(ReachSpringMvcEndpointScanner.scanClass(PlainBean.class).isEmpty());

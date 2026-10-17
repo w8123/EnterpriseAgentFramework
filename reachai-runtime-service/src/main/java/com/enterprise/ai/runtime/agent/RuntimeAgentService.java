@@ -8,6 +8,7 @@ import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.regex.Pattern;
@@ -20,6 +21,12 @@ public class RuntimeAgentService {
 
     private final RuntimeAgentMapper mapper;
     private final RuntimeAgentConfigService configService;
+    private RuntimeAgentWorkflowFreshnessService freshnessService;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setFreshnessService(RuntimeAgentWorkflowFreshnessService freshnessService) {
+        this.freshnessService = freshnessService;
+    }
 
     public List<RuntimeAgentView> list(Long projectId, String projectCode) {
         var query = Wrappers.<RuntimeAgentEntity>lambdaQuery()
@@ -30,8 +37,10 @@ public class RuntimeAgentService {
         if (StringUtils.hasText(projectCode)) {
             query.eq(RuntimeAgentEntity::getProjectCode, projectCode.trim());
         }
-        return mapper.selectList(query).stream()
-                .map(this::toView)
+        List<RuntimeAgentEntity> agents = mapper.selectList(query);
+        Map<String, Integer> stale = staleCounts(agents);
+        return agents.stream()
+                .map(agent -> toView(agent, stale))
                 .toList();
     }
 
@@ -158,7 +167,16 @@ public class RuntimeAgentService {
         return entity;
     }
 
+    private Map<String, Integer> staleCounts(List<RuntimeAgentEntity> agents) {
+        return freshnessService == null || agents == null || agents.isEmpty()
+                ? null : freshnessService.staleWorkflowToolCounts(agents);
+    }
+
     private RuntimeAgentView toView(RuntimeAgentEntity entity) {
+        return toView(entity, null);
+    }
+
+    private RuntimeAgentView toView(RuntimeAgentEntity entity, Map<String, Integer> staleCounts) {
         RuntimeAgentConfigVersionEntity config = configService.resolveDisplayConfig(entity.getId()).orElse(null);
         int workflowToolCount = config == null ? 0 : configService.listTools(entity.getId(), config.getId()).size();
         return new RuntimeAgentView(
@@ -178,7 +196,8 @@ public class RuntimeAgentService {
                 config == null ? null : config.getRuntimeType(),
                 workflowToolCount,
                 entity.getCreatedAt(),
-                entity.getUpdatedAt());
+                entity.getUpdatedAt(),
+                staleCounts == null ? null : staleCounts.getOrDefault(entity.getId(), 0));
     }
 
     private void requireValidKeySlug(String keySlug) {

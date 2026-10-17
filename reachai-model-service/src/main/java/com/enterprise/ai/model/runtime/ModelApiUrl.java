@@ -10,6 +10,7 @@ public final class ModelApiUrl {
     public static final String DEFAULT_CHAT_PATH = "/chat/completions";
     public static final String DEFAULT_EMBEDDING_PATH = "/embeddings";
     public static final String DEFAULT_RERANK_PATH = "/rerank";
+    public static final String DEFAULT_MODELS_PATH = "/models";
 
     private ModelApiUrl() {
     }

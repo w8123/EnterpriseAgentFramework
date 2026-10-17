@@ -61,7 +61,7 @@ class RuntimeHttpApiInvocationPersistenceTest {
                     }
                 });
         when(connections.owner(any())).thenReturn(owner());
-        when(connections.find("orders.dev.GET./orders/{orderId}")).thenReturn(connection());
+        when(connections.snapshot(any())).thenReturn(connection("http://example.org"));
         when(connections.selectedCredential(eq("API_KEY_HEADER"), eq("cred-1"), any()))
                 .thenReturn(credential("c".repeat(64)));
     }
@@ -232,9 +232,8 @@ class RuntimeHttpApiInvocationPersistenceTest {
         });
         server.start();
         try {
-            RuntimeHttpApiConnectionEntity saved = connection();
-            saved.setOrigin("http://127.0.0.1:" + server.getAddress().getPort());
-            when(connections.find("orders.dev.GET./orders/{orderId}")).thenReturn(saved);
+            var saved = connection("http://127.0.0.1:" + server.getAddress().getPort());
+            when(connections.snapshot(any())).thenReturn(saved);
             RuntimeWorkflowCredentialService vault = mock(RuntimeWorkflowCredentialService.class);
             when(vault.resolve(eq("cred-1"), any())).thenReturn(Optional.of(credential("c".repeat(64))));
             WorkflowHttpClient realHttp = new WorkflowHttpClient(json,
@@ -371,6 +370,24 @@ class RuntimeHttpApiInvocationPersistenceTest {
     }
 
     @Test
+    void inheritedProjectDefaultIsPinnedByItsEffectiveRevisionAndAChangedDefaultRejectsStaleCalls() {
+        when(http.execute(any())).thenReturn(response(200, true, Map.of("ok", true), "application/json"));
+        // Project default revision 2 → effective revision 4; a call pinned to the old revision must not dispatch.
+        when(connections.snapshot(any())).thenReturn(new RuntimeHttpApiConnectionService.ConnectionSnapshot(7L,
+                "orders", "dev", "http://example.org", "API_KEY_HEADER", "cred-1",
+                RuntimeHttpApiConnectionService.effectiveRevision(2L, false), "PROJECT_DEFAULT", 2L));
+        assertEquals("HTTP_API_CONNECTION_CHANGED", assertThrows(RuntimeHttpApiInvocationService.Conflict.class,
+                () -> service.invoke(command(UUID.randomUUID().toString(), "stale-default"))).code());
+        verify(http, never()).execute(any());
+        var current = new HttpApiConsoleContracts.InvocationCommand(1, UUID.randomUUID().toString(), "actor-1", 9L,
+                "orders.dev.GET./orders/{orderId}", 7L, "orders", "dev", HASH, SOURCE, 4L,
+                Map.of("orderId", "inherited"), Map.of(), System.currentTimeMillis() + 30_000);
+        var outcome = service.invoke(current);
+        assertEquals("SUCCEEDED", outcome.status());
+        assertEquals(4L, outcome.connectionRevision());
+    }
+
+    @Test
     void readExplicitStaleCredentialRevisionCannotClaimOrDispatch() {
         when(http.execute(any())).thenReturn(response(200, true, Map.of("ok", true), "application/json"));
         var command = withCredentialRevision(command(UUID.randomUUID().toString(), "read-stale"), "d".repeat(64), false);
@@ -474,8 +491,8 @@ class RuntimeHttpApiInvocationPersistenceTest {
         });
         upstream.start();
         try {
-            var connection = connection(); connection.setOrigin("http://127.0.0.1:" + upstream.getAddress().getPort());
-            when(connections.find(connection.getQualifiedName())).thenReturn(connection);
+            var connection = connection("http://127.0.0.1:" + upstream.getAddress().getPort());
+            when(connections.snapshot(any())).thenReturn(connection);
             var vault = mock(RuntimeWorkflowCredentialService.class);
             when(vault.resolve(eq("cred-1"), any())).thenReturn(Optional.of(credential("c".repeat(64))));
             var real = new WorkflowHttpClient(json, WorkflowHttpEgressPolicy.permissiveForTests(), vault);
@@ -483,7 +500,7 @@ class RuntimeHttpApiInvocationPersistenceTest {
                     database.mapper(RuntimeRunMapper.class), new RuntimeTraceRootService(database.mapper(RuntimeTraceSpanMapper.class), json),
                     connections, real, json, new DataSourceTransactionManager(database.jdbc().getDataSource()));
             var command = new HttpApiConsoleContracts.InvocationCommand(1, UUID.randomUUID().toString(), "actor-1", 9L,
-                    connection.getQualifiedName(), 7L, "orders", "dev", HASH, SOURCE, 1L,
+                    "orders.dev.GET./orders/{orderId}", 7L, "orders", "dev", HASH, SOURCE, 1L,
                     Map.of("orderId", "fixture"), Map.of(), System.currentTimeMillis() + 30_000, body, true, "c".repeat(64));
             var first = service.invoke(command); var replay = service.invoke(command);
             assertEquals("SUCCEEDED", first.status()); assertEquals(first.runId(), replay.runId()); assertEquals(1, received.get());
@@ -509,13 +526,10 @@ class RuntimeHttpApiInvocationPersistenceTest {
                 """), true, null);
     }
 
-    private RuntimeHttpApiConnectionEntity connection() {
-        RuntimeHttpApiConnectionEntity value = new RuntimeHttpApiConnectionEntity();
-        value.setQualifiedName("orders.dev.GET./orders/{orderId}");
-        value.setProjectId(7L); value.setProjectCode("orders"); value.setEnvironment("dev");
-        value.setOrigin("http://example.org"); value.setAuthMode("API_KEY_HEADER");
-        value.setCredentialRef("cred-1"); value.setRevision(1L);
-        return value;
+    /** Effective connection with opaque effective revision 1, as pinned by the commands in this test. */
+    private RuntimeHttpApiConnectionService.ConnectionSnapshot connection(String origin) {
+        return new RuntimeHttpApiConnectionService.ConnectionSnapshot(7L, "orders", "dev", origin,
+                "API_KEY_HEADER", "cred-1", 1L);
     }
 
     private RuntimeWorkflowCredentialRuntime credential(String revision) {

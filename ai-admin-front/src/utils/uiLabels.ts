@@ -38,12 +38,6 @@ const PLATFORM_USER_DISPLAY_NAME_LABELS: Record<string, string> = {
   'Platform Admin': '平台管理员',
 }
 
-/** 平台用户角色授权作用域 */
-const SCOPE_TYPE_LABELS: Record<string, string> = {
-  GLOBAL: '全局',
-  PROJECT: '项目',
-}
-
 export function formatCommonStatusLabel(status?: string | null): string {
   if (status == null || status === '') return '-'
   return COMMON_STATUS_LABELS[status] ?? status
@@ -88,22 +82,6 @@ export const AUTH_PROVIDER_TYPE_SELECT_OPTIONS = [
   { value: 'SAML', label: 'SAML 单点登录' },
 ] as const
 
-export function formatScopeTypeLabel(scopeType?: string | null): string {
-  if (scopeType == null || scopeType === '') return '-'
-  return SCOPE_TYPE_LABELS[scopeType] ?? scopeType
-}
-
-export const SCOPE_TYPE_SELECT_OPTIONS = [
-  { value: 'GLOBAL', label: '全局' },
-  { value: 'PROJECT', label: '项目' },
-] as const
-
-/** 平台用户来源认证源编码 */
-export function formatSourceProviderLabel(code?: string | null): string {
-  if (code == null || code === '') return '-'
-  return AUTH_PROVIDER_TYPE_LABELS[code] ?? code
-}
-
 /** 平台角色展示名（内置编码优先中文） */
 export function formatPlatformRoleLabel(roleCode?: string | null, roleName?: string | null): string {
   if (roleCode && PLATFORM_ROLE_LABELS[roleCode]) {
@@ -113,23 +91,4 @@ export function formatPlatformRoleLabel(roleCode?: string | null, roleName?: str
     return PLATFORM_USER_DISPLAY_NAME_LABELS[roleName]
   }
   return roleName?.trim() || roleCode || '-'
-}
-
-/** 角色下拉选项文案 */
-export function formatPlatformRoleOptionLabel(roleCode?: string | null, roleName?: string | null): string {
-  return formatPlatformRoleLabel(roleCode, roleName)
-}
-
-/** 平台用户显示名 */
-export function formatPlatformUserDisplayName(
-  displayName?: string | null,
-  username?: string | null,
-): string {
-  if (displayName && PLATFORM_USER_DISPLAY_NAME_LABELS[displayName]) {
-    return PLATFORM_USER_DISPLAY_NAME_LABELS[displayName]
-  }
-  if (username === 'admin' && (!displayName || displayName === 'Platform Admin')) {
-    return '平台管理员'
-  }
-  return displayName?.trim() || username || '-'
 }

@@ -174,7 +174,7 @@ describe('AppSidebar account actions', () => {
     expect(wrapper.get('.sidebar-project-feedback').attributes('role')).toBe('alert')
     expect(wrapper.get('.sidebar-project-retry').attributes('aria-label')).toBe('重试加载项目列表')
     expect(wrapper.get('.sidebar-project-pill').text()).toBe('项目级')
-    expect((wrapper.vm as any).resolvedCurrentProjectId).toBe(project.id)
+    expect((wrapper.vm as any).sidebarProjectSelection).toBe(project.id)
     expect(projectStore.fetchProjects).not.toHaveBeenCalled()
 
     await wrapper.get('.sidebar-project-retry').trigger('click')

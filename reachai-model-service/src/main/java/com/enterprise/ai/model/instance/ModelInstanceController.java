@@ -20,6 +20,7 @@ public class ModelInstanceController {
 
     private final ModelInstanceService service;
     private final ModelInstanceTestService testService;
+    private final ModelDiscoveryService discoveryService;
 
     @GetMapping
     public ApiResult<List<ModelInstanceResponse>> list(@RequestParam(required = false) String keyword,
@@ -56,6 +57,12 @@ public class ModelInstanceController {
     @PostMapping("/test-draft")
     public ApiResult<ModelInstanceTestResponse> testDraft(@RequestBody ModelInstanceRequest request) {
         return ApiResult.ok(testService.testDraft(request));
+    }
+
+    /** 用草稿或已保存实例的连接配置，实时列出供应商当前可用的模型。 */
+    @PostMapping("/discover-models")
+    public ApiResult<ModelDiscoveryResponse> discoverModels(@RequestBody ModelInstanceRequest request) {
+        return ApiResult.ok(discoveryService.discover(request));
     }
 
     @PostMapping("/{id}/test")

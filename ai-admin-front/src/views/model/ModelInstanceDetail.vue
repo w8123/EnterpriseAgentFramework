@@ -522,6 +522,8 @@ onBeforeUnmount(() => {
             :draft="draft"
             :api-key="apiKey"
             mode="update"
+            :instance-id="instance?.id"
+            :account-name="instance?.providerAccountName || undefined"
             lock-model-type
             lock-provider
             :show-enable-toggle="false"

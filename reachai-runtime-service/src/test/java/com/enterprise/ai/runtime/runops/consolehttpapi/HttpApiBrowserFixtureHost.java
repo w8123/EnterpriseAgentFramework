@@ -146,7 +146,7 @@ public final class HttpApiBrowserFixtureHost {
                     "capability_diff_item", "capability_api_graph_node",
                     "capability_http_api_source_binding", "capability_http_api_inventory_state",
                     "capability_http_api_inventory_member", "capability_http_api_acceptance",
-                    "runtime_agent_workflow_credential", "runtime_http_api_connection", "runtime_run",
+                    "runtime_agent_workflow_credential", "runtime_http_api_connection", "runtime_http_api_project_connection", "runtime_run",
                     "runtime_trace_span", "runtime_tool_call_log", "runtime_guard_decision_log",
                     "runtime_console_capability_invocation"),
                     ScanProjectMapper.class, HttpApiAssetMapper.class, HttpApiSourceBindingMapper.class,
@@ -162,7 +162,7 @@ public final class HttpApiBrowserFixtureHost {
                     com.enterprise.ai.agent.capability.catalog.graph.ApiGraphNodeMapper.class,
                     HttpApiInventoryStateMapper.class, HttpApiInventoryMemberMapper.class,
                     HttpApiAcceptanceMapper.class, RuntimeWorkflowCredentialMapper.class,
-                    RuntimeHttpApiConnectionMapper.class, RuntimeRunMapper.class,
+                    RuntimeHttpApiConnectionMapper.class, RuntimeHttpApiProjectConnectionMapper.class, RuntimeRunMapper.class,
                     RuntimeTraceSpanMapper.class, RuntimeToolCallLogMapper.class,
                     RuntimeGuardDecisionLogMapper.class, ConsoleCapabilityInvocationMapper.class);
             tx = new TransactionTemplate(new DataSourceTransactionManager(db.jdbc().getDataSource()));
@@ -213,7 +213,8 @@ public final class HttpApiBrowserFixtureHost {
             when(owner.getHttpApiExecutionContext(eq(apiId), eq(PROJECT_CODE))).thenAnswer(call -> executionContext());
             WorkflowHttpEgressPolicy egress = WorkflowHttpEgressPolicy.permissiveForTests();
             RuntimeHttpApiConnectionService connections = new RuntimeHttpApiConnectionService(
-                    db.mapper(RuntimeHttpApiConnectionMapper.class), owner, credentials, egress);
+                    db.mapper(RuntimeHttpApiConnectionMapper.class), db.mapper(RuntimeHttpApiProjectConnectionMapper.class),
+                    owner, credentials, egress);
             invocations = new RuntimeHttpApiInvocationService(db.mapper(ConsoleCapabilityInvocationMapper.class),
                     db.mapper(RuntimeRunMapper.class),
                     new RuntimeTraceRootService(db.mapper(RuntimeTraceSpanMapper.class), JSON),

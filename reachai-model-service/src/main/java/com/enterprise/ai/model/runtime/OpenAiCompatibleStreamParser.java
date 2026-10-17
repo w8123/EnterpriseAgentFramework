@@ -4,7 +4,6 @@ import com.enterprise.ai.model.service.ChatResponse;
 import com.enterprise.ai.model.service.ModelStreamEvent;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -103,9 +102,5 @@ public final class OpenAiCompatibleStreamParser {
         List<ModelStreamEvent> events = new ArrayList<>();
         acceptChunk(objectMapper.readTree(json), events::add);
         return events;
-    }
-
-    public ObjectNode emptyChoiceRoot() {
-        return objectMapper.createObjectNode();
     }
 }

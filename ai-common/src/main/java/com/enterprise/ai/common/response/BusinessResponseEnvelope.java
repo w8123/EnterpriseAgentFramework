@@ -7,7 +7,10 @@ import java.util.Optional;
 /**
  * Interprets the conventional top-level business response envelope used by
  * enterprise APIs. Transport success alone is not enough when the payload
- * explicitly reports a non-200 business code or {@code success=false}.
+ * explicitly reports a failing business code or {@code success=false}.
+ *
+ * <p>Both widely used success conventions are accepted: {@code code=200} and
+ * {@code code=0} (ruoyi-vue-pro / yudao, pig and many other Chinese frameworks).</p>
  */
 public final class BusinessResponseEnvelope {
 
@@ -37,7 +40,8 @@ public final class BusinessResponseEnvelope {
             return false;
         }
         try {
-            return new BigDecimal(String.valueOf(code).trim()).compareTo(BigDecimal.valueOf(200)) == 0;
+            BigDecimal value = new BigDecimal(String.valueOf(code).trim());
+            return value.compareTo(BigDecimal.valueOf(200)) == 0 || value.compareTo(BigDecimal.ZERO) == 0;
         } catch (NumberFormatException ex) {
             return false;
         }

@@ -8,22 +8,19 @@ import feign.FeignException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.util.StringUtils;
-import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.time.Instant;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+
+import static com.enterprise.ai.common.util.Texts.firstText;
 
 @RestController
 @RequestMapping("/api/ai-coding/projects/{projectId}")
@@ -69,9 +66,8 @@ public class ControlAiCodingProjectController {
                     ControlAiAssistProjectController.sdkArtifacts(baseUrl),
                     ControlAiAssistProjectController.responseShapes(),
                     ControlAiAssistProjectController.gatewayChecklist(),
-                    gatewayEndpoints(baseUrl, root, projectId),
-                    contextCandidateSubmission(root),
-                    capabilities(root, baseUrl, projectId)));
+                    gatewayEndpoints(baseUrl, root),
+                    capabilities(root, baseUrl)));
         } catch (FeignException.NotFound ex) {
             return ResponseEntity.notFound().build();
         }
@@ -174,47 +170,6 @@ public class ControlAiCodingProjectController {
         }
     }
 
-    @PostMapping("/context-candidates")
-    public ResponseEntity<Map<String, Object>> createContextCandidate(
-            @PathVariable Long projectId,
-            @RequestBody(required = false) Map<String, ?> request) {
-        try {
-            Map<String, Object> project = capabilityClient.getOnboardingProjectById(projectId);
-            return ResponseEntity.ok(contextCandidate(project, request));
-        } catch (FeignException.NotFound ex) {
-            return ResponseEntity.notFound().build();
-        }
-    }
-
-    @PostMapping("/context-candidates/batch")
-    public ResponseEntity<List<Map<String, Object>>> createContextCandidateBatch(
-            @PathVariable Long projectId,
-            @RequestBody(required = false) List<Map<String, ?>> requests) {
-        try {
-            Map<String, Object> project = capabilityClient.getOnboardingProjectById(projectId);
-            List<Map<String, Object>> result = new ArrayList<>();
-            for (Map<String, ?> item : requests == null ? List.<Map<String, ?>>of() : requests) {
-                result.add(contextCandidate(project, item));
-            }
-            return ResponseEntity.ok(result);
-        } catch (FeignException.NotFound ex) {
-            return ResponseEntity.notFound().build();
-        }
-    }
-
-    @GetMapping("/context-candidates")
-    public ResponseEntity<List<Map<String, Object>>> listContextCandidates(
-            @PathVariable Long projectId,
-            @RequestParam(required = false) String traceId,
-            @RequestParam(required = false) String status) {
-        try {
-            capabilityClient.getOnboardingProjectById(projectId);
-            return ResponseEntity.ok(List.of());
-        } catch (FeignException.NotFound ex) {
-            return ResponseEntity.notFound().build();
-        }
-    }
-
     private ControlAiAssistProjectController.ProjectManifest projectManifest(Map<String, Object> project) {
         return new ControlAiAssistProjectController.ProjectManifest(
                 longValue(project.get("id")),
@@ -307,55 +262,19 @@ public class ControlAiCodingProjectController {
                         "Remote A2A bindings and Skill package governance still require the human console."));
     }
 
-    private Map<String, Object> contextCandidate(Map<String, Object> project, Map<String, ?> request) {
-        String submissionId = "ai-coding-submission-" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("id", submissionId);
-        body.put("submissionId", submissionId);
-        body.put("tenantId", "default");
-        body.put("memoryLane", "PROJECT_DEV");
-        body.put("projectId", longValue(project.get("id")));
-        body.put("projectCode", stringValue(project.get("projectCode")));
-        body.put("content", stringValue(request == null ? null : request.get("content")));
-        body.put("candidateType", firstText(stringValue(request == null ? null : request.get("candidateType")), "NOTE"));
-        body.put("sourceType", firstText(stringValue(request == null ? null : request.get("sourceType")), "CODE"));
-        body.put("status", "PENDING");
-        body.put("traceId", submissionId);
-        body.put("origin", "ai-coding");
-        body.put("createdAt", Instant.now().toString());
-        body.put("updatedAt", Instant.now().toString());
-        return body;
-    }
-
     @SuppressWarnings("unchecked")
     private Map<String, Object> mapValue(Object value) {
         return value instanceof Map<?, ?> map ? (Map<String, Object>) map : Map.of();
-    }
-
-    private String firstText(String... values) {
-        if (values == null) {
-            return null;
-        }
-        for (String value : values) {
-            if (StringUtils.hasText(value)) {
-                return value.trim();
-            }
-        }
-        return null;
     }
 
     private String emptyToNull(String value) {
         return StringUtils.hasText(value) ? value.trim() : null;
     }
 
-    private AiCodingGatewayEndpoints gatewayEndpoints(String baseUrl, String root, Long projectId) {
-        String contextCandidates = root + "/context-candidates";
+    private AiCodingGatewayEndpoints gatewayEndpoints(String baseUrl, String root) {
         String taskProtocol = baseUrl + "/api/ai-coding/tasks/{taskId}";
         return new AiCodingGatewayEndpoints(
                 root + "/manifest",
-                contextCandidates,
-                contextCandidates + "/batch",
-                contextCandidates + "?traceId={submissionId}&status=PENDING",
                 root + "/onboarding-manifest",
                 baseUrl + "/api/ai-coding/handoffs/{handoffId}/activate",
                 taskProtocol + "/context",
@@ -380,53 +299,10 @@ public class ControlAiCodingProjectController {
                 baseUrl + "/api/workflows/{workflowId}/ai-coding/run",
                 baseUrl + "/api/workflows/{workflowId}/ai-coding/versions",
                 baseUrl + "/api/workflows/{workflowId}/ai-coding/publish",
-                baseUrl + "/api/workflows/{workflowId}/ai-coding/runs",
-                baseUrl + "/context-governance?projectId=" + projectId + "&tab=candidates",
-                baseUrl + "/context-governance?projectId=" + projectId + "&tab=candidates&traceId={submissionId}");
+                baseUrl + "/api/workflows/{workflowId}/ai-coding/runs");
     }
 
-    private ContextCandidateSubmission contextCandidateSubmission(String root) {
-        return new ContextCandidateSubmission(
-                "reachai.context-candidate-submission.v1",
-                root + "/context-candidates",
-                root + "/context-candidates/batch",
-                "PENDING_HUMAN_REVIEW",
-                "PROJECT_DEV",
-                "default",
-                "CODE",
-                "NOTE",
-                List.of("content"),
-                List.of("NOTE", "API", "RULE", "DECISION"),
-                List.of("CODE", "DOC", "CHAT", "AI_CODING"),
-                new TraceMetadata(
-                        "traceMetadata",
-                        "ai-coding-submission-",
-                        "ai-coding",
-                        "Server may generate traceId when absent.",
-                        "Client may provide sessionId for correlation."),
-                List.of(
-                        "tenantId",
-                        "memoryLane",
-                        "projectId",
-                        "projectCode",
-                        "proposedBy",
-                        "traceId",
-                        "sessionId",
-                        "origin",
-                        "visibility",
-                        "confidence",
-                        "trustLevel",
-                        "expiresAt",
-                        "userId",
-                        "globalUserId",
-                        "externalUserId"),
-                List.of(
-                        "Submit project development context as candidates; human review is still required.",
-                        "Use status URL with the returned submissionId to check pending candidates.",
-                        "Do not submit secrets or raw customer data."));
-    }
-
-    private List<AiCodingCapability> capabilities(String root, String baseUrl, Long projectId) {
+    private List<AiCodingCapability> capabilities(String root, String baseUrl) {
         return List.of(
                 new AiCodingCapability(
                         "SDK_ACCESS",
@@ -459,13 +335,7 @@ public class ControlAiCodingProjectController {
                         baseUrl + "/api/workflows/ai-coding/workflows",
                         List.of(
                                 "Use workflow scoped endpoints for GraphSpec draft edits and validation.",
-                                "Set first-class page resource bindings before the first publish; they are immutable afterward.")),
-                new AiCodingCapability(
-                        "CONTEXT_CANDIDATES",
-                        "上下文候选提交",
-                        "PROJECT",
-                        root + "/context-candidates",
-                        List.of("Submit PROJECT_DEV candidates for review under project " + projectId + ".")));
+                                "Set first-class page resource bindings before the first publish; they are immutable afterward.")));
     }
 
     private boolean booleanValue(Object value) {
@@ -531,7 +401,6 @@ public class ControlAiCodingProjectController {
                                           Map<String, ControlAiAssistProjectController.ResponseShape> responseShapes,
                                           List<ControlAiAssistProjectController.GatewayChecklistItem> gatewayChecklist,
                                           AiCodingGatewayEndpoints endpoints,
-                                          ContextCandidateSubmission contextCandidateSubmission,
                                           List<AiCodingCapability> capabilities) {
     }
 
@@ -546,9 +415,6 @@ public class ControlAiCodingProjectController {
     }
 
     public record AiCodingGatewayEndpoints(String manifestUrl,
-                                           String contextCandidatesUrl,
-                                           String contextCandidatesBatchUrl,
-                                           String contextCandidateStatusUrlTemplate,
                                            String sdkAccessManifestUrl,
                                            String handoffActivationUrlTemplate,
                                            String taskContextUrlTemplate,
@@ -573,32 +439,7 @@ public class ControlAiCodingProjectController {
                                            String workflowRunUrlTemplate,
                                            String workflowVersionsUrlTemplate,
                                            String workflowPublishUrlTemplate,
-                                           String workflowRunsUrlTemplate,
-                                           String contextCandidateReviewUrl,
-                                           String contextCandidateAuditUrlTemplate) {
-    }
-
-    public record ContextCandidateSubmission(String schema,
-                                             String endpoint,
-                                             String batchEndpoint,
-                                             String reviewMode,
-                                             String memoryLane,
-                                             String tenantId,
-                                             String defaultSourceType,
-                                             String defaultCandidateType,
-                                             List<String> requiredFields,
-                                             List<String> candidateTypes,
-                                             List<String> sourceTypes,
-                                             TraceMetadata traceMetadata,
-                                             List<String> serverControlledFields,
-                                             List<String> guidance) {
-    }
-
-    public record TraceMetadata(String metadataKey,
-                                String generatedSubmissionIdPrefix,
-                                String defaultOrigin,
-                                String traceIdPolicy,
-                                String sessionIdPolicy) {
+                                           String workflowRunsUrlTemplate) {
     }
 
     public record AiCodingCapability(String key,

@@ -125,6 +125,8 @@ public class InternalServiceAuthFilter extends OncePerRequestFilter {
 
     private static boolean isHttpApiConsolePath(String path) {
         return "/internal/runtime/http-api-connections".equals(path)
+                || "/internal/runtime/http-api-connections/project-default".equals(path)
+                || "/internal/runtime/http-api-connections/override-removals".equals(path)
                 || "/internal/runtime/http-api-invocations".equals(path)
                 || (path != null && path.matches("^/internal/runtime/http-api-invocations/[0-9a-fA-F-]{36}$"));
     }

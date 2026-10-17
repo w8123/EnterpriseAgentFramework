@@ -160,4 +160,46 @@ describe('useWorkflowStudioRelease', () => {
     expect(publishWorkflowVersion).toHaveBeenCalledTimes(1)
     expect(syncPublishedPageAssistant).toHaveBeenCalledTimes(1)
   })
+
+  it('runs the post-publish Agent reference follow-up only after a successful release', async () => {
+    vi.mocked(validateWorkflowVersion).mockResolvedValue({
+      data: { valid: true, errors: [], warnings: [] },
+    } as any)
+    vi.mocked(publishWorkflowVersion).mockResolvedValue({ data: {} } as any)
+    const afterPublished = vi.fn()
+    const actions = useWorkflowStudioRelease({
+      workflowId: ref('wf-1'),
+      studioReadOnly: ref(false),
+      studio: ref({ workflowId: 'wf-1', keySlug: 'demo' } as any),
+      nodes: ref([]),
+      graphLintErrors: computed(() => []),
+      graphLintWarnings: computed(() => []),
+      editGeneration: ref(0),
+      publishing: ref(false),
+      releaseChecking: ref(false),
+      releaseValidationReady: ref(false),
+      publishDialogOpen: ref(false),
+      releaseErrors: ref([]),
+      releaseWarnings: ref([]),
+      publishForm: { version: 'v1.1.0', rolloutPercent: 100, note: '' },
+      validateWorkingCopy: vi.fn(async () => ({ valid: true, errors: [], warnings: [] })),
+      saveStudio: vi.fn(async () => ({ workflowId: 'wf-1', revision: 'revision-1' } as any)),
+      loadStudio: vi.fn(async () => ({ workflowId: 'wf-1' } as any)),
+      afterPublished,
+    })
+    confirmRelease.mockResolvedValue('confirm')
+
+    await actions.publishWorkflow()
+    await actions.handlePublishWorkflow()
+    await Promise.resolve()
+
+    expect(afterPublished).toHaveBeenCalledWith('wf-1')
+
+    afterPublished.mockClear()
+    vi.mocked(publishWorkflowVersion).mockRejectedValue({ response: { status: 409 } })
+    await actions.publishWorkflow()
+    await actions.handlePublishWorkflow()
+    await Promise.resolve()
+    expect(afterPublished).not.toHaveBeenCalled()
+  })
 })

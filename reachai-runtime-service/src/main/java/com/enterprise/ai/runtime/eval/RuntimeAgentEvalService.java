@@ -18,6 +18,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
+import static com.enterprise.ai.common.util.Texts.firstText;
+
 @Service
 @RequiredArgsConstructor
 public class RuntimeAgentEvalService {
@@ -564,11 +566,6 @@ public class RuntimeAgentEvalService {
     private Object firstValue(Map<String, Object> source, String first, String second) {
         Object value = source == null ? null : source.get(first);
         return value == null && source != null ? source.get(second) : value;
-    }
-
-    private String firstText(String... values) {
-        for (String value : values) if (StringUtils.hasText(value)) return value.trim();
-        return null;
     }
 
     private String toJson(Object value) {

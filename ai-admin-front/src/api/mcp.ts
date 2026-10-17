@@ -13,11 +13,9 @@ import type {
   McpPublicationDetail,
   McpPublicationItem,
   McpPublicationItemAddRequest,
-  McpPublicationRevisionView,
   McpPublicationUpsertRequest,
   McpResolvePreviewRow,
 } from '@/types/mcp'
-
 const ROOT = '/api/mcp'
 
 // ===== 总览 =====
@@ -85,10 +83,6 @@ export function rollbackMcpPublication(publicationId: number, revisionId: number
   return controlRequest.post<McpPublicationDetail>(
     `${ROOT}/publications/${publicationId}/revisions/${revisionId}/rollback`,
   )
-}
-
-export function listMcpPublicationRevisions(publicationId: number) {
-  return controlRequest.get<McpPublicationRevisionView[]>(`${ROOT}/publications/${publicationId}/revisions`)
 }
 
 // ===== 凭证管理（发布子资源） =====

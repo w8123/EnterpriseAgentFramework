@@ -29,8 +29,7 @@ class PlatformPageBridgeCommandServiceTest {
         session.setRoute("/");
         session.setStatus("ACTIVE");
         when(sessions.selectOne(any())).thenReturn(session);
-        var service = new PlatformPageBridgeCommandService(sessions,
-                mock(PlatformEmbedSessionService.class), events, new ObjectMapper());
+        var service = new PlatformPageBridgeCommandService(sessions, events, new ObjectMapper());
         for (String pageKey : new String[]{null, "", "  "}) {
             session.setPageKey(pageKey);
             var result = service.execute(new PlatformPageBridgeCommandService.PageBridgeExecutionRequest(
@@ -60,7 +59,6 @@ class PlatformPageBridgeCommandServiceTest {
 
         PlatformPageBridgeCommandService service = new PlatformPageBridgeCommandService(
                 sessionMapper,
-                mock(PlatformEmbedSessionService.class),
                 mock(PlatformPageActionEventMapper.class),
                 new ObjectMapper());
 
@@ -79,7 +77,6 @@ class PlatformPageBridgeCommandServiceTest {
     @Test
     void waitsForTheTargetPageRebindInsteadOfTrustingNavigationAckPayload() {
         PlatformEmbedSessionMapper sessionMapper = mock(PlatformEmbedSessionMapper.class);
-        PlatformEmbedSessionService sessionService = mock(PlatformEmbedSessionService.class);
         PlatformPageActionEventMapper eventMapper = mock(PlatformPageActionEventMapper.class);
         PlatformEmbedSessionEntity session = new PlatformEmbedSessionEntity();
         session.setSessionId("embed-1");
@@ -113,7 +110,7 @@ class PlatformPageBridgeCommandServiceTest {
         when(eventMapper.selectById(any())).thenAnswer(invocation ->
                 events.get(((Number) invocation.getArgument(0)).longValue()));
         PlatformPageBridgeCommandService service = new PlatformPageBridgeCommandService(
-                sessionMapper, sessionService, eventMapper, new ObjectMapper());
+                sessionMapper, eventMapper, new ObjectMapper());
         long startedAt = System.nanoTime();
         PlatformPageBridgeCommandService.PageBridgeExecutionResponse result = service.execute(
                 new PlatformPageBridgeCommandService.PageBridgeExecutionRequest(
@@ -166,7 +163,6 @@ class PlatformPageBridgeCommandServiceTest {
 
         PlatformPageBridgeCommandService service = new PlatformPageBridgeCommandService(
                 sessionMapper,
-                mock(PlatformEmbedSessionService.class),
                 eventMapper,
                 new ObjectMapper());
 
@@ -212,7 +208,6 @@ class PlatformPageBridgeCommandServiceTest {
 
         PlatformPageBridgeCommandService service = new PlatformPageBridgeCommandService(
                 sessionMapper,
-                mock(PlatformEmbedSessionService.class),
                 eventMapper,
                 new ObjectMapper());
 
@@ -270,7 +265,6 @@ class PlatformPageBridgeCommandServiceTest {
 
         PlatformPageBridgeCommandService service = new PlatformPageBridgeCommandService(
                 sessionMapper,
-                mock(PlatformEmbedSessionService.class),
                 eventMapper,
                 new ObjectMapper());
         long startedAt = System.nanoTime();

@@ -1254,6 +1254,8 @@ public final class RuntimeGraphSpecExecutionEngine {
         }
         if (!nodeResult.success()) {
             putIfPresent(trace, "failureCode", nodeResult.code());
+            putIfPresent(trace, "failureReason",
+                    RuntimeNodeFailureReasons.safeReason(nodeResult.code(), nodeResult.answer()));
         }
         if (nodeResult.interactionId() != null) {
             trace.put("interactionId", nodeResult.interactionId());

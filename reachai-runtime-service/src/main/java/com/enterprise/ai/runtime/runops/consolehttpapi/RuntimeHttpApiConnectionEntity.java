@@ -20,6 +20,8 @@ public class RuntimeHttpApiConnectionEntity {
     private String origin;
     private String authMode;
     private String credentialRef;
+    /** false: override removed, the API inherits the project default; the row keeps its revision sequence. */
+    private Boolean overrideActive;
     private Long revision;
     private String savedBy;
     private LocalDateTime createdAt;

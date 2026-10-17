@@ -225,10 +225,6 @@ export function listPageActionReferences(id: number) {
   return controlRequest.get<PageActionReferenceView[]>(`/api/platform/embed/page-actions/catalog/${id}/references`)
 }
 
-export function declarePageActionCatalog(payload: PageActionManualDeclarePayload) {
-  return controlRequest.post<PageActionManualDeclareResponse>('/api/platform/embed/page-actions/catalog/manual', payload)
-}
-
 export function listEmbedChatEvents(sessionId: string, limit = 200) {
   return controlRequest.get<EmbedChatEventView[]>('/api/platform/embed/chat-events', { params: { sessionId, limit } })
 }

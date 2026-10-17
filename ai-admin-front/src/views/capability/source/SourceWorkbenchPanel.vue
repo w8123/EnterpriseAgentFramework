@@ -281,7 +281,6 @@ const {
   toolDetailError,
   resetToolDetailCache,
   scanToolRowClassName,
-  ensureToolDetail,
   handleToolExpandChange,
   toolLinkLabel,
   toolLinkTagType,

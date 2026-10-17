@@ -31,6 +31,8 @@ export interface UseWorkflowStudioReleaseDeps {
   loadStudio: () => Promise<WorkflowWorkingCopyState | null>
   ensurePanelValidationClear?: () => boolean
   syncPublishedPageAssistant?: () => Promise<boolean>
+  /** Best-effort follow-up after a successful publish, e.g. telling the user which Agents still run the old version. */
+  afterPublished?: (workflowId: string) => Promise<void> | void
 }
 
 export function useWorkflowStudioRelease({
@@ -53,6 +55,7 @@ export function useWorkflowStudioRelease({
   loadStudio,
   ensurePanelValidationClear,
   syncPublishedPageAssistant,
+  afterPublished,
 }: UseWorkflowStudioReleaseDeps) {
   const publishWarnings: ComputedRef<string[]> = computed(() => {
     const warnings: string[] = []
@@ -255,6 +258,11 @@ export function useWorkflowStudioRelease({
         + (pageAssistantSynced ? '，已同步页面副驾驶' : ''),
       )
       publishDialogOpen.value = false
+      if (afterPublished) {
+        void Promise.resolve()
+          .then(() => afterPublished(publishingWorkflowId))
+          .catch(() => undefined)
+      }
       if (isCurrentPublishingWorkingCopy()) {
         await loadStudio()
       } else {

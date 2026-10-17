@@ -99,6 +99,53 @@ class RuntimeWorkflowReleaseValidationServiceTest {
     }
 
     @Test
+    void userInputFieldReadThroughNodeOutputFailsWithParamsHint() {
+        RuntimeWorkflowReleaseValidationService service = service(mock(RuntimeControlCatalogClient.class));
+        RuntimeWorkflowDefinitionEntity workflow = workflow("""
+                {
+                  "schemaVersion":2,
+                  "nodes":[
+                    {"id":"user_input","type":"USER_INPUT","config":{"outputAlias":"params",
+                      "fields":[{"name":"productName","type":"string","source":"input.productName"}]}},
+                    {"id":"answer","type":"ANSWER","config":{"template":"{{ nodeOutput.user_input.productName }}"}}
+                  ],
+                  "edges":[{"id":"e1","from":"user_input","to":"answer"}],
+                  "entryNodeId":"user_input",
+                  "exitNodeIds":["answer"]
+                }
+                """);
+
+        RuntimeWorkflowReleaseValidationResult result = service.validate(workflow);
+
+        assertFalse(result.valid());
+        assertTrue(result.errors().stream().anyMatch(item ->
+                "GRAPH_USER_INPUT_FIELD_REFERENCE_INVALID".equals(item.code())
+                        && item.message().contains("params.productName")));
+    }
+
+    @Test
+    void userInputFieldReadThroughParamsIsValid() {
+        RuntimeWorkflowReleaseValidationService service = service(mock(RuntimeControlCatalogClient.class));
+        RuntimeWorkflowDefinitionEntity workflow = workflow("""
+                {
+                  "schemaVersion":2,
+                  "nodes":[
+                    {"id":"user_input","type":"USER_INPUT","config":{"outputAlias":"params",
+                      "fields":[{"name":"productName","type":"string","source":"input.productName"}]}},
+                    {"id":"answer","type":"ANSWER","config":{"template":"{{ params.productName }} {{ nodeOutput.user_input }}"}}
+                  ],
+                  "edges":[{"id":"e1","from":"user_input","to":"answer"}],
+                  "entryNodeId":"user_input",
+                  "exitNodeIds":["answer"]
+                }
+                """);
+
+        RuntimeWorkflowReleaseValidationResult result = service.validate(workflow);
+
+        assertFalse(hasError(result, "GRAPH_USER_INPUT_FIELD_REFERENCE_INVALID"));
+    }
+
+    @Test
     void llmNodeRequiresModelInstanceWhenWorkflowDefaultIsMissing() {
         RuntimeWorkflowReleaseValidationService service = service(mock(RuntimeControlCatalogClient.class));
         RuntimeWorkflowDefinitionEntity workflow = workflow("""

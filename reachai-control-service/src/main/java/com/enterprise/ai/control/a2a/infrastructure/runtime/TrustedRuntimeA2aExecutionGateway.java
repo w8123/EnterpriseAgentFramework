@@ -38,6 +38,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
+import static com.enterprise.ai.common.util.Texts.firstText;
 import static com.enterprise.ai.common.internalauth.InternalServiceAuthHeaders.IDENTITY_SOURCE_A2A_REMOTE_AGENT;
 
 /** Exact-byte signed Control→Runtime adapter dedicated to A2A execution and cancellation. */
@@ -321,15 +322,6 @@ public class TrustedRuntimeA2aExecutionGateway implements A2aRuntimeExecutionGat
         }
         String text = String.valueOf(value).trim();
         return text.isEmpty() ? null : text;
-    }
-
-    private String firstText(String... values) {
-        for (String value : values) {
-            if (value != null && !value.isBlank()) {
-                return value.trim();
-            }
-        }
-        return null;
     }
 
     private void putIfPresent(Map<String, Object> target, String key, String value) {

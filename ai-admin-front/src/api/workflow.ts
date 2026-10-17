@@ -8,14 +8,11 @@ import type {
   WorkflowGraphNodeTypeDescriptor,
   WorkflowWorkingCopy,
   WorkflowWorkingCopyInput,
-  WorkflowWorkingCopyUpdateInput,
   WorkflowDebugRunRequest,
   WorkflowDebugRunResult,
   WorkflowReadOnlyTrialResult,
   WorkflowProposalEditRequest,
   WorkflowProposalEditResult,
-  WorkflowProposalGenerationRequest,
-  WorkflowProposalGenerationResult,
   PageAssistantWorkflowAttachRequest,
   PageAssistantWorkflowAttachmentResult,
   WorkflowRuntimeValidationRequest,
@@ -131,13 +128,6 @@ export function createWorkflow(data: WorkflowWorkingCopyInput) {
   return controlRequest.post<WorkflowWorkingCopy>('/api/workflows', normalizeWorkingCopyInput(data))
 }
 
-export function updateWorkflow(id: string, data: WorkflowWorkingCopyUpdateInput) {
-  return controlRequest.put<WorkflowWorkingCopy>(
-    `/api/workflows/${encodeURIComponent(id)}`,
-    normalizeWorkingCopyInput(data),
-  )
-}
-
 export function saveWorkflowWorkingCopy(id: string, data: SaveWorkflowWorkingCopyRequest) {
   return controlRequest.put<WorkflowWorkingCopyState>(
     `/api/workflows/${encodeURIComponent(id)}/working-copy`,
@@ -151,14 +141,6 @@ export function getWorkflowGraphNodeTypes() {
 
 export function validateWorkflowRuntime(data: WorkflowRuntimeValidationRequest) {
   return controlRequest.post<WorkflowRuntimeValidationResult>('/api/workflows/runtime-validation', data)
-}
-
-export function generateWorkflowProposal(data: WorkflowProposalGenerationRequest) {
-  return controlRequest.post<WorkflowProposalGenerationResult>(
-    '/api/workflows/studio/proposals/generate',
-    data,
-    { timeout: WORKFLOW_AI_AUTHORING_TIMEOUT_MS },
-  )
 }
 
 export function editWorkflowProposal(data: WorkflowProposalEditRequest) {
@@ -181,9 +163,11 @@ export function runWorkflowReadOnlyTrial(data: {
   workflowId: string
   expectedRevision: string
   inputParams: Record<string, string | number | boolean>
+  message?: string
 }) {
+  // 整稿试运行服务端上限 120s（WorkflowReadOnlyTrialPolicy.MAX_DURATION_MS），客户端多留 10s 余量。
   return controlRequest.post<WorkflowReadOnlyTrialResult>(
-    '/api/workflows/studio/read-only-trials', data, { timeout: 50_000 },
+    '/api/workflows/studio/read-only-trials', data, { timeout: 130_000 },
   )
 }
 

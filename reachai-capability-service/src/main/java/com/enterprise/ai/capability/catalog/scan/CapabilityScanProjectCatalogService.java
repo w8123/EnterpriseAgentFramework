@@ -30,7 +30,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
@@ -737,13 +736,6 @@ public class CapabilityScanProjectCatalogService {
                 .set(failedStatus, "status", "scanned"));
     }
 
-    private Long toEpochMs(LocalDateTime time) {
-        if (time == null) {
-            return 0L;
-        }
-        return time.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
-    }
-
     private String normalizeName(String value) {
         if (!StringUtils.hasText(value)) {
             return "";
@@ -952,15 +944,6 @@ public class CapabilityScanProjectCatalogService {
 
     private String trimToNull(String value) {
         return StringUtils.hasText(value) ? value.trim() : null;
-    }
-
-    private String stableKey(ScanProjectToolEntity tool) {
-        String method = tool.getHttpMethod() == null ? "" : tool.getHttpMethod().trim().toUpperCase(Locale.ROOT);
-        String path = tool.getEndpointPath() == null ? "" : tool.getEndpointPath().trim();
-        if (StringUtils.hasText(method) || StringUtils.hasText(path)) {
-            return method + " " + path;
-        }
-        return StringUtils.hasText(tool.getSourceLocation()) ? tool.getSourceLocation() : tool.getName();
     }
 
     public record ScanProjectUpsertRequest(

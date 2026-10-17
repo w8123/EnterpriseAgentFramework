@@ -2,7 +2,6 @@ package com.enterprise.ai.service.impl;
 
 import com.enterprise.ai.domain.dto.KnowledgeImportRequest;
 import com.enterprise.ai.embedding.EmbeddingService;
-import com.enterprise.ai.pipeline.document.artifact.DocumentArtifactStore;
 import com.enterprise.ai.repository.*;
 import com.enterprise.ai.retrieval.KnowledgeRetrievalEngine;
 import com.enterprise.ai.support.KnowledgeQueryTestDatabase;

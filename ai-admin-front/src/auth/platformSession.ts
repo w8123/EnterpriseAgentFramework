@@ -66,7 +66,6 @@ export const platformSessionId = computed(() => session.value?.sessionId || '')
 export const isPlatformAuthenticated = computed(
   () => state.value === 'AUTHENTICATED',
 )
-export const isPlatformExplorationAcknowledged = readonly(explorationAcknowledged)
 export const isPlatformWorkspaceReady = computed(
   () => isPlatformAuthenticated.value && explorationAcknowledged.value,
 )

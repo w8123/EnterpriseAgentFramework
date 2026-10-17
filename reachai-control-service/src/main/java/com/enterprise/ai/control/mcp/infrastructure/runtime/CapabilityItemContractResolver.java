@@ -16,6 +16,8 @@ import org.springframework.stereotype.Component;
 import java.util.Locale;
 import java.util.Map;
 
+import static com.enterprise.ai.common.util.Texts.firstText;
+
 /**
  * CAPABILITY contract resolution: fetches the tool definition through the
  * Capability service internal API (never Control-side table reads) and maps
@@ -189,12 +191,4 @@ public class CapabilityItemContractResolver implements McpItemContractResolver {
         return text.isEmpty() ? null : text;
     }
 
-    private static String firstText(String... values) {
-        for (String value : values) {
-            if (value != null && !value.isBlank()) {
-                return value.trim();
-            }
-        }
-        return null;
-    }
 }

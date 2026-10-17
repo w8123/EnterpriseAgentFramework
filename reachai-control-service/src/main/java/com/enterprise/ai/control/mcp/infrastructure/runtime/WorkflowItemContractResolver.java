@@ -16,6 +16,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
+import static com.enterprise.ai.common.util.Texts.firstText;
+
 /**
  * WORKFLOW contract resolution: reads the Workflow definition and its version
  * history through the Runtime public API (never Control-side table reads),
@@ -216,12 +218,4 @@ public class WorkflowItemContractResolver implements McpItemContractResolver {
         return text.isEmpty() ? null : text;
     }
 
-    private static String firstText(String... values) {
-        for (String value : values) {
-            if (value != null && !value.isBlank()) {
-                return value.trim();
-            }
-        }
-        return null;
-    }
 }

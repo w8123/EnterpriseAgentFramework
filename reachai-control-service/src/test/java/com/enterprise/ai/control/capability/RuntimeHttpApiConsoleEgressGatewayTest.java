@@ -15,6 +15,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 class RuntimeHttpApiConsoleEgressGatewayTest {
@@ -36,6 +37,21 @@ class RuntimeHttpApiConsoleEgressGatewayTest {
         assertEquals("HTTP_API_CONNECTION_REVISION_CHANGED", body.get("code"));
         assertEquals("当前条件已变化，请刷新后重试", body.get("message"));
         assertFalse(body.toString().contains("private-upstream-detail"));
+    }
+
+    @Test void projectDefaultAndOverrideRemovalSignTheirOwnInternalPaths() {
+        var runtime = mock(RuntimeProxyClient.class);
+        var signer = mock(InternalServiceAuthSigner.class);
+        when(signer.sign(any(), any(), any(), any(), any(), any())).thenReturn(Map.of("X-Signed", "1"));
+        var command = new HttpApiConsoleContracts.ConnectionCommand(1, 3L, "http-api:bzjs21:count", 36L,
+                "bzjs21", "dev", new HttpApiConsoleContracts.ConnectionSaveRequest("https://bzjs21.test", "NONE", null, null));
+        var gateway = new RuntimeHttpApiConsoleGateway(runtime, signer, new ObjectMapper());
+        gateway.saveProjectDefaultConnection(command, "1");
+        gateway.removeConnectionOverride(command, "1");
+        verify(signer).sign(eq("PUT"), eq("/internal/runtime/http-api-connections/project-default"), any(), eq("bzjs21"), eq("1"), any());
+        verify(signer).sign(eq("POST"), eq("/internal/runtime/http-api-connections/override-removals"), any(), eq("bzjs21"), eq("1"), any());
+        verify(runtime).saveHttpApiProjectDefaultConnection(eq(Map.of("X-Signed", "1")), any());
+        verify(runtime).removeHttpApiConnectionOverride(eq(Map.of("X-Signed", "1")), any());
     }
 
     private org.springframework.http.ResponseEntity<Object> rejection(String code) throws Exception {

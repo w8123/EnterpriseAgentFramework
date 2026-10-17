@@ -67,7 +67,7 @@ class RuntimeWorkflowHttpApiExtendedBodyTest {
         var connections = mock(RuntimeHttpApiConnectionService.class);
         when(connections.read(any())).thenReturn(new HttpApiConsoleContracts.ConnectionView(reference, 7L, "fixture", "dev",
                 "https://fixture.test", "NONE", null, null, null, 1L, "CONFIGURED", null, "https://fixture.test/fixture"));
-        when(connections.snapshot(reference)).thenReturn(new RuntimeHttpApiConnectionService.ConnectionSnapshot(
+        when(connections.snapshot(any())).thenReturn(new RuntimeHttpApiConnectionService.ConnectionSnapshot(
                 7L, "fixture", "dev", "https://fixture.test", "NONE", null, 1L));
         var row = new RuntimeWorkflowHttpApiPinEntity();
         row.setId(1L); row.setWorkflowVersionId(1L); row.setNodeId("n1"); row.setApiId(9L); row.setQualifiedName(reference);

@@ -13,6 +13,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.util.StringUtils;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -115,6 +116,61 @@ public class HttpApiConsoleController {
             return forward(runtime.saveConnection(command(resolved.owner(), save), actor(session)));
         } catch (RuntimeException unavailable) {
             return error(HttpStatus.SERVICE_UNAVAILABLE, "HTTP_API_RUNTIME_UNAVAILABLE", "连接保存服务暂不可用");
+        }
+    }
+
+    /** Project + environment default connection, resolved from this API's verified owner (D27). */
+    @GetMapping("/api/apis/{id}/connection/project-default")
+    public ResponseEntity<Object> projectDefaultConnection(HttpServletRequest request, @PathVariable long id) {
+        ResponseEntity<Object> response = connection(request, id);
+        if (!response.getStatusCode().is2xxSuccessful()) return response;
+        Object fallback;
+        try {
+            fallback = response.getBody() == null ? null : json.convertValue(response.getBody(),
+                    new TypeReference<LinkedHashMap<String, Object>>() { }).get("projectDefault");
+        } catch (IllegalArgumentException invalid) { fallback = null; }
+        if (!(fallback instanceof Map<?, ?>)) {
+            return error(HttpStatus.BAD_GATEWAY, "HTTP_API_RUNTIME_RESPONSE_INVALID", "项目默认连接返回无效");
+        }
+        return ResponseEntity.ok(fallback);
+    }
+
+    /** Saves the project default; {@code expectedRevision} is {@code projectDefault.revision} (null before the first save). */
+    @PutMapping("/api/apis/{id}/connection/project-default")
+    public ResponseEntity<Object> saveProjectDefaultConnection(HttpServletRequest request, @PathVariable long id,
+                                                               @RequestBody(required = false) Map<String, Object> body) {
+        PlatformAuthenticatedSession session = authorization.requirePermission(request, PlatformPermissions.PLATFORM_WRITE);
+        HttpApiConsoleContracts.ConnectionSaveRequest save;
+        try { save = HttpApiConsoleContracts.ConnectionSaveRequest.fromWire(body); }
+        catch (IllegalArgumentException invalid) {
+            return error(HttpStatus.BAD_REQUEST, "HTTP_API_CONNECTION_INVALID", "项目默认连接格式无效");
+        }
+        OwnerResolution resolved = identity(id, actor(session), CatalogReadAuthorization.resourceBody(session, PlatformPermissions.PLATFORM_WRITE));
+        if (resolved.failure() != null) return resolved.failure();
+        authorizeProject(request, PlatformPermissions.PLATFORM_WRITE, resolved.owner());
+        try {
+            return forward(runtime.saveProjectDefaultConnection(command(resolved.owner(), save), actor(session)));
+        } catch (RuntimeException unavailable) {
+            return error(HttpStatus.SERVICE_UNAVAILABLE, "HTTP_API_RUNTIME_UNAVAILABLE", "项目默认连接保存服务暂不可用");
+        }
+    }
+
+    /** Removes this API's override so it inherits the project default again. */
+    @DeleteMapping("/api/apis/{id}/connection/override")
+    public ResponseEntity<Object> removeConnectionOverride(HttpServletRequest request, @PathVariable long id,
+                                                           @RequestParam(required = false) Long expectedRevision) {
+        PlatformAuthenticatedSession session = authorization.requirePermission(request, PlatformPermissions.PLATFORM_WRITE);
+        if (expectedRevision == null || expectedRevision <= 0) {
+            return error(HttpStatus.BAD_REQUEST, "HTTP_API_CONNECTION_INVALID", "覆盖连接修订无效");
+        }
+        OwnerResolution resolved = identity(id, actor(session), CatalogReadAuthorization.resourceBody(session, PlatformPermissions.PLATFORM_WRITE));
+        if (resolved.failure() != null) return resolved.failure();
+        authorizeProject(request, PlatformPermissions.PLATFORM_WRITE, resolved.owner());
+        try {
+            return forward(runtime.removeConnectionOverride(command(resolved.owner(),
+                    new HttpApiConsoleContracts.ConnectionSaveRequest(null, null, null, expectedRevision)), actor(session)));
+        } catch (RuntimeException unavailable) {
+            return error(HttpStatus.SERVICE_UNAVAILABLE, "HTTP_API_RUNTIME_UNAVAILABLE", "覆盖连接移除服务暂不可用");
         }
     }
 

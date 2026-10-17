@@ -3,7 +3,6 @@ package com.enterprise.ai.service.impl;
 import com.enterprise.ai.pipeline.*;
 import com.enterprise.ai.pipeline.step.MetadataPersistStep;
 import com.enterprise.ai.pipeline.document.job.DocumentImportPublicationGuard;
-import com.enterprise.ai.pipeline.document.job.DocumentIndexExecutionStore;
 import com.enterprise.ai.pipeline.document.job.DocumentIndexVectorManifest;
 import com.enterprise.ai.repository.*;
 import com.enterprise.ai.support.KnowledgeQueryTestDatabase;

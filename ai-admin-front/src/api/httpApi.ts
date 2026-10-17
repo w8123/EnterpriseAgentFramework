@@ -1,6 +1,6 @@
 import { controlRequest } from './request'
 import type { AssetReferences } from '@/types/assetReferences'
-import type { HttpApiConnection, HttpApiDetail, HttpApiInvocationOutcome,
+import type { HttpApiConnection, HttpApiDetail, HttpApiInvocationOutcome, HttpApiProjectDefaultConnection,
   HttpApiInvocationUnconfirmed, HttpApiJsonValue, HttpApiPage } from '@/types/httpApi'
 
 export function listHttpApis(params: { projectId: number; environment?: string; keyword?: string;
@@ -27,6 +27,22 @@ export function getHttpApiConnection(id: number) {
 export function saveHttpApiConnection(id: number, body: { origin: string; authMode: string;
   credentialRef: string | null; expectedRevision: number | null }) {
   return controlRequest.put<HttpApiConnection>(`/api/apis/${id}/connection`, body)
+}
+
+/** Project + environment default connection, resolved from this API's owner (D27). */
+export function getHttpApiProjectDefaultConnection(id: number) {
+  return controlRequest.get<HttpApiProjectDefaultConnection>(`/api/apis/${id}/connection/project-default`)
+}
+
+/** `expectedRevision` is `projectDefault.revision` (null before the first save); returns this API's effective view. */
+export function saveHttpApiProjectDefaultConnection(id: number, body: { origin: string; authMode: string;
+  credentialRef: string | null; expectedRevision: number | null }) {
+  return controlRequest.put<HttpApiConnection>(`/api/apis/${id}/connection/project-default`, body)
+}
+
+/** Removes this API's override so it inherits the project default again. */
+export function removeHttpApiConnectionOverride(id: number, expectedRevision: number) {
+  return controlRequest.delete<HttpApiConnection>(`/api/apis/${id}/connection/override`, { params: { expectedRevision } })
 }
 
 export function invokeHttpApi(id: number, body: { invocationId: string; expectedContractHash: string;

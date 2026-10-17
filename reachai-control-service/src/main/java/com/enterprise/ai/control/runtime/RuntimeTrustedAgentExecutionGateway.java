@@ -1,6 +1,5 @@
 package com.enterprise.ai.control.runtime;
 
-import com.enterprise.ai.common.internalauth.InternalServiceAuthHeaders;
 import com.enterprise.ai.control.client.runtime.RuntimeAgentExecutionInternalClient;
 import com.enterprise.ai.control.internalauth.InternalServiceAuthSigner;
 import com.enterprise.ai.control.context.PersonalMemoryRecallService;

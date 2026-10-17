@@ -16,6 +16,7 @@ public class ModelCatalogManualSyncService {
     private final ModelCatalogSyncRunMapper runMapper;
     private final ModelCatalogSyncWorker worker;
     private final ModelCatalogSyncProperties properties;
+    private final ModelCatalogSettingsService settingsService;
     private final TaskExecutor taskExecutor;
 
     public ModelCatalogManualSyncService(
@@ -23,16 +24,18 @@ public class ModelCatalogManualSyncService {
             ModelCatalogSyncRunMapper runMapper,
             ModelCatalogSyncWorker worker,
             ModelCatalogSyncProperties properties,
+            ModelCatalogSettingsService settingsService,
             @Qualifier("applicationTaskExecutor") TaskExecutor taskExecutor) {
         this.sourceMapper = sourceMapper;
         this.runMapper = runMapper;
         this.worker = worker;
         this.properties = properties;
+        this.settingsService = settingsService;
         this.taskExecutor = taskExecutor;
     }
 
     public ModelCatalogManualSyncResponse trigger() {
-        if (!properties.analyzerConfigured()) {
+        if (!settingsService.analyzerConfigured()) {
             throw new BizException(409, "请先配置目录分析模型，再执行手动同步");
         }
         int sourceCount = sourceMapper.selectEnabled().size();

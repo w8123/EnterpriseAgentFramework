@@ -41,8 +41,8 @@
           <i></i>
           <span>{{ saveBadgeText }}</span>
         </span>
-        <el-button :icon="VideoPlay" :loading="debugLoading" @click="handleDebug">调试</el-button>
-        <el-button v-if="hasReadOnlyTrialTarget" :icon="VideoPlay" @click="readOnlyTrialOpen = true">只读真实试运行</el-button>
+        <el-button :icon="VideoPlay" :loading="debugLoading" @click="handleStudioRun"
+          :title="hasReadOnlyTrialTarget ? '草稿含业务方法或 API：以只读试运行真实执行整个已保存草稿' : undefined">调试</el-button>
         <el-button :icon="CircleCheck" :loading="validating" @click="validateRuntime()">校验</el-button>
         <el-dropdown trigger="click" @command="handleHeaderCommand">
           <el-button :icon="MoreFilled">更多</el-button>
@@ -1451,9 +1451,12 @@
       v-model:open="readOnlyTrialOpen"
       :studio="studio"
       :dirty="saving || visualDirty || workflowMetaDirty() || (jsonDrawerVisible && sourceBufferChanged)"
+      :saving="saving"
       :authorized="readOnlyTrialAuthorized"
       :session-scope="platformSessionId + ':' + workflowId"
       @open-runops="router.push('/runops/' + $event)"
+      @focus-node="focusReadOnlyTrialNode"
+      @save="handleSaveStudio"
     />
 
     <WorkflowStudioDebugDrawer
@@ -1641,7 +1644,7 @@ import {
 import NodeConfigPanel from '@/views/workflow/studio-panels/NodeConfigPanel.vue'
 import WorkflowStudioDebugDrawer from '@/views/workflow/studio-overlays/WorkflowStudioDebugDrawer.vue'
 import WorkflowStudioReadOnlyTrialDrawer from '@/views/workflow/studio-overlays/WorkflowStudioReadOnlyTrialDrawer.vue'
-import { savedReadOnlyTrialTarget } from '@/views/workflow/composables/useWorkflowStudioReadOnlyTrial'
+import { hasReadOnlyTrialTarget as graphHasReadOnlyTrialTarget } from '@/views/workflow/composables/useWorkflowStudioReadOnlyTrial'
 import { hasPlatformResourcePermission, PLATFORM_PERMISSION_WORKFLOW_DEBUG, PLATFORM_PERMISSION_RUNOPS_READ,
   PLATFORM_PERMISSION_CAPABILITY_INVOKE } from '@/auth/platformAccess'
 import WorkflowStudioEvalDrawer from '@/views/workflow/studio-overlays/WorkflowStudioEvalDrawer.vue'
@@ -1657,6 +1660,7 @@ import { useWorkflowStudioRuntimeValidation } from '@/views/workflow/composables
 import { useWorkflowStudioPersistence } from '@/views/workflow/composables/useWorkflowStudioPersistence'
 import { useWorkflowStudioPanelValidation } from '@/views/workflow/composables/useWorkflowStudioPanelValidation'
 import { useWorkflowStudioRelease } from '@/views/workflow/composables/useWorkflowStudioRelease'
+import { notifyStaleAgentReferences } from '@/views/workflow/composables/workflowAgentReferenceNotice'
 import {
   useWorkflowStudioCanvasActions,
 } from '@/views/workflow/composables/useWorkflowStudioCanvasActions'
@@ -1782,7 +1786,10 @@ const canvasSourceBuffer = ref('')
 const jsonApplying = ref(false)
 const debugOpen = ref(false)
 const readOnlyTrialOpen = ref(false)
-const hasReadOnlyTrialTarget = computed(() => Boolean(savedReadOnlyTrialTarget(graphSpecJson.value)))
+// D28: a draft that calls business methods or HTTP APIs can only be really run as a whole-draft
+// read-only trial (ordinary debug refuses them), so the single 调试 entry routes there automatically.
+const hasReadOnlyTrialTarget = computed(() => graphHasReadOnlyTrialTarget(graphSpecJson.value)
+  || graphHasReadOnlyTrialTarget(studio.value?.graphSpecJson || ''))
 const readOnlyTrialAuthorized = computed(() => [PLATFORM_PERMISSION_WORKFLOW_DEBUG,
   PLATFORM_PERMISSION_CAPABILITY_INVOKE].every((permission) => hasPlatformResourcePermission(
   platformSessionUser.value?.permissionGrants, permission, 'PROJECT', 'BUILD', studio.value?.projectCode,
@@ -2436,6 +2443,21 @@ const {
   ensurePanelValidationClear,
 })
 
+function handleStudioRun() {
+  if (hasReadOnlyTrialTarget.value) {
+    readOnlyTrialOpen.value = true
+    return
+  }
+  void handleDebug()
+}
+
+function focusReadOnlyTrialNode(nodeId: string) {
+  if (!nodeId || !nodes.value.some((node) => node.id === nodeId)) return
+  selectedNodeId.value = nodeId
+  selectedEdgeId.value = null
+  focusDebugNode(nodeId)
+}
+
 async function handleSaveStudio() {
   const saved = await saveStudio()
   if (saved) {
@@ -2659,6 +2681,10 @@ const {
   loadStudio,
   ensurePanelValidationClear,
   syncPublishedPageAssistant: () => syncPublishedPageAssistant({ silent: true }),
+  afterPublished: (publishedWorkflowId) => notifyStaleAgentReferences(
+    publishedWorkflowId,
+    () => router.push(`/workflows/${publishedWorkflowId}/versions`),
+  ),
 })
 
 function handlePublishDialogBeforeClose(done: () => void) {

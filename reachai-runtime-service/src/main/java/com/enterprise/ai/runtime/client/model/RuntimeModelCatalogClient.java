@@ -11,6 +11,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import static com.enterprise.ai.common.util.Texts.firstText;
+
 @FeignClient(
         name = "reachai-model-catalog-runtime",
         url = "${services.model-service.url:http://localhost:18601}"
@@ -66,15 +68,4 @@ public interface RuntimeModelCatalogClient {
         return value == null ? null : String.valueOf(value);
     }
 
-    private static String firstText(String... values) {
-        if (values == null) {
-            return null;
-        }
-        for (String value : values) {
-            if (StringUtils.hasText(value)) {
-                return value.trim();
-            }
-        }
-        return null;
-    }
 }

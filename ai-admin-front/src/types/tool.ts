@@ -1,8 +1,5 @@
-import { isAssetInputParameter, type AssetParameter } from './assetParameter'
-
+import { type AssetParameter } from './assetParameter'
 export type ToolParameter = AssetParameter
-export const isToolInputParameter = isAssetInputParameter
-
 /** 已注册 Tool 信息 */
 export interface ToolInfo {
   /** 来源资产投影：业务方法、API 或尚未分类的存量定义。 */

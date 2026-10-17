@@ -353,6 +353,39 @@ class HttpApiConsoleControllerTest {
         verify(fixture.authorization).requireResourcePermission(fixture.request, PlatformPermissions.PLATFORM_READ, "PROJECT", null, "orders");
     }
 
+    @Test void projectDefaultAndOverrideRemovalUseTheApiOwnerAndProjectWriteGrant() {
+        var fixture = fixture(ControlToolAclDecisionService.DECISION_ALLOW, HASH, true);
+        when(fixture.runtime.saveProjectDefaultConnection(any(), eq("42")))
+                .thenReturn(ResponseEntity.ok(Map.of("connectionSource", "PROJECT_DEFAULT")));
+        when(fixture.runtime.removeConnectionOverride(any(), eq("42")))
+                .thenReturn(ResponseEntity.ok(Map.of("connectionSource", "PROJECT_DEFAULT")));
+        when(fixture.runtime.readConnection(any(), eq("42"))).thenReturn(ResponseEntity.ok(Map.of(
+                "status", "CONFIGURED", "projectDefault", Map.of("origin", "https://orders.example.test", "revision", 2))));
+
+        assertEquals(HttpStatus.OK, fixture.controller.saveProjectDefaultConnection(fixture.request, 9L,
+                Map.of("origin", "https://orders.example.test", "authMode", "NONE")).getStatusCode());
+        var saved = ArgumentCaptor.forClass(HttpApiConsoleContracts.ConnectionCommand.class);
+        verify(fixture.runtime).saveProjectDefaultConnection(saved.capture(), eq("42"));
+        assertEquals(9L, saved.getValue().apiId()); assertEquals(7L, saved.getValue().projectId());
+        assertEquals("orders", saved.getValue().projectCode()); assertEquals("dev", saved.getValue().environment());
+        assertEquals("https://orders.example.test", saved.getValue().save().origin());
+        assertNull(saved.getValue().save().expectedRevision());
+        verify(fixture.authorization).requireResourcePermission(fixture.request, PlatformPermissions.PLATFORM_WRITE, "PROJECT", null, "orders");
+        assertEquals(HttpStatus.BAD_REQUEST, fixture.controller.saveProjectDefaultConnection(fixture.request, 9L,
+                Map.of("origin", "https://orders.example.test", "projectId", 8L)).getStatusCode());
+
+        var read = fixture.controller.projectDefaultConnection(fixture.request, 9L);
+        assertEquals(HttpStatus.OK, read.getStatusCode());
+        assertEquals("https://orders.example.test", ((Map<?, ?>) read.getBody()).get("origin"));
+
+        assertEquals(HttpStatus.BAD_REQUEST, fixture.controller.removeConnectionOverride(fixture.request, 9L, null).getStatusCode());
+        assertEquals(HttpStatus.OK, fixture.controller.removeConnectionOverride(fixture.request, 9L, 3L).getStatusCode());
+        var removal = ArgumentCaptor.forClass(HttpApiConsoleContracts.ConnectionCommand.class);
+        verify(fixture.runtime).removeConnectionOverride(removal.capture(), eq("42"));
+        assertEquals(3L, removal.getValue().save().expectedRevision());
+        assertEquals(REF, removal.getValue().qualifiedName());
+    }
+
     @Test void listWithMissingAttestedOwnerHeadersFailsClosedBeforeRuntime() {
         var fixture = fixture(ControlToolAclDecisionService.DECISION_ALLOW, HASH, true);
         when(fixture.capability.listHttpApis(7L, null, null, null, null, 1, 20, "42", null, false, grant()))

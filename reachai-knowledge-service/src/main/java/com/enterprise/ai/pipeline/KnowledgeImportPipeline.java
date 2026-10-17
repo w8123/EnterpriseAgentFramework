@@ -45,14 +45,6 @@ public class KnowledgeImportPipeline {
     }
 
     /**
-     * 在指定位置插入步骤（用于动态调整流水线）
-     */
-    public KnowledgeImportPipeline insertStep(int index, PipelineStep step) {
-        steps.add(index, step);
-        return this;
-    }
-
-    /**
      * 执行整个流水线
      *
      * @param context 入库上下文

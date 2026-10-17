@@ -19,6 +19,7 @@ class ModelCatalogAiAnalyzerTest {
     void setUp() {
         analyzer = new ModelCatalogAiAnalyzer(
                 new ModelCatalogSyncProperties(),
+                mock(ModelCatalogSettingsService.class),
                 mock(ModelRoutingService.class),
                 new ObjectMapper());
     }

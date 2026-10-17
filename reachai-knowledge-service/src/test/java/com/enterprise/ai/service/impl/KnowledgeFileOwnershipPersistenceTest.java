@@ -1,7 +1,6 @@
 package com.enterprise.ai.service.impl;
 
 import com.enterprise.ai.domain.entity.*;
-import com.enterprise.ai.embedding.EmbeddingService;
 import com.enterprise.ai.pipeline.PipelineContext;
 import com.enterprise.ai.pipeline.PipelineException;
 import com.enterprise.ai.pipeline.document.artifact.DocumentArtifactStore;

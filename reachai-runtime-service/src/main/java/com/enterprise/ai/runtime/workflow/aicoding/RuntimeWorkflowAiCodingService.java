@@ -42,6 +42,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import static com.enterprise.ai.common.util.Texts.firstText;
+
 @Service
 @RequiredArgsConstructor
 public class RuntimeWorkflowAiCodingService {
@@ -854,15 +856,6 @@ public class RuntimeWorkflowAiCodingService {
 
     private String defaultText(String value, String fallback) {
         return StringUtils.hasText(value) ? value.trim() : fallback;
-    }
-
-    private String firstText(String... values) {
-        for (String value : values) {
-            if (StringUtils.hasText(value)) {
-                return value.trim();
-            }
-        }
-        return null;
     }
 
     private String text(Object value) {

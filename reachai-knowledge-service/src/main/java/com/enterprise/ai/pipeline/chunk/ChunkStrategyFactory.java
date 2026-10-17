@@ -40,8 +40,4 @@ public class ChunkStrategyFactory {
         }
         return strategy;
     }
-
-    public boolean hasStrategy(String strategyName) {
-        return strategyMap.containsKey(strategyName);
-    }
 }

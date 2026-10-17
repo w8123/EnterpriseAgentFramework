@@ -16,6 +16,8 @@ import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+import static com.enterprise.ai.common.util.Texts.firstText;
+
 /**
  * Resumes GraphSpec-native Workflow interaction sessions.
  * Execution uses only the Workflow snapshot captured on the session.
@@ -472,18 +474,6 @@ public class RuntimeInteractionResumeService {
 
     private static String ownershipUser(Ownership ownership) {
         return ownership == null ? null : ownership.userId();
-    }
-
-    private static String firstText(String... values) {
-        if (values == null) {
-            return null;
-        }
-        for (String value : values) {
-            if (StringUtils.hasText(value)) {
-                return value.trim();
-            }
-        }
-        return null;
     }
 
     private String text(Object value) {

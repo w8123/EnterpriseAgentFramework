@@ -5,3 +5,4 @@
 | 文档 | 用途 |
 | --- | --- |
 | [班组系统接入ReachAI SDK实施步骤.md](./班组系统接入ReachAI%20SDK实施步骤.md) | 班组系统接入样例、网关、前端嵌入、Page Action 与验收清单 |
+| [芋道ERP接入ReachAI实施步骤.md](./芋道ERP接入ReachAI实施步骤.md) | 开源 Java 系统（芋道 ruoyi-vue-pro ERP）按真实用户流程接入：SDK 注册、业务方法、HTTP API、凭据与多租户身份映射 |

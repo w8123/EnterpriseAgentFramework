@@ -33,10 +33,6 @@ public final class WorkflowCredentialTypes {
     private WorkflowCredentialTypes() {
     }
 
-    public static boolean isCanonical(String type) {
-        return StringUtils.hasText(type) && CANONICAL.contains(type.trim().toUpperCase(Locale.ROOT));
-    }
-
     /**
      * Normalize storage/runtime type to canonical form. Aliases are accepted only here.
      */

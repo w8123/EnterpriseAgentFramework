@@ -1112,7 +1112,7 @@ class RuntimeGraphSpecExecutorTest {
                 """, Map.of("message", "A001"));
 
         assertEquals(true, result.success());
-        assertEquals("工具结果：{orderStatus=PAID}", result.answer());
+        assertEquals("工具结果：{\"orderStatus\":\"PAID\"}", result.answer());
         assertEquals(List.of(
                 Map.of("name", "execute-node", "detail", "user_input"),
                 Map.of("name", "execute-node", "detail", "query_order"),
@@ -1395,6 +1395,44 @@ class RuntimeGraphSpecExecutorTest {
 
         assertEquals(true, result.success());
         assertEquals(Map.of("input", "查询订单 A001"), capabilityClient.requests.get(0).get("input"));
+    }
+
+    @Test
+    void userInputNamedSourceKeepsCallerBoundParamInsteadOfEmptyMessage() {
+        RuntimeGraphSpecExecutionResult result = executor.execute("""
+                {
+                  "entryNodeId":"user_input",
+                  "exitNodeIds":["tool"],
+                  "nodes":[
+                    {"id":"user_input","type":"USER_INPUT","config":{"outputAlias":"params","fields":[
+                      {"name":"productName","type":"string","required":true,"source":"input.productName"}]}},
+                    {"id":"tool","type":"TOOL","ref":{"qualifiedName":"orders:queryOrder"},
+                     "config":{"inputMapping":{"keyword":"params.productName"}}}
+                  ],
+                  "edges":[{"from":"user_input","to":"tool","condition":"always"}]
+                }
+                """, Map.of("params", Map.of("productName", "联想笔记本")));
+
+        assertEquals(true, result.success());
+        assertEquals(Map.of("keyword", "联想笔记本"), capabilityClient.requests.get(0).get("input"));
+    }
+
+    @Test
+    void explicitEmptyInputMappingCallsParameterlessToolWithoutLegacyInputField() {
+        RuntimeGraphSpecExecutionResult result = executor.execute("""
+                {
+                  "entryNodeId":"tool",
+                  "exitNodeIds":["tool"],
+                  "nodes":[
+                    {"id":"tool","type":"TOOL","ref":{"qualifiedName":"orders:queryOrder"},
+                     "config":{"inputMapping":{}}}
+                  ],
+                  "edges":[]
+                }
+                """, Map.of("message", "查询全部产品"));
+
+        assertEquals(true, result.success());
+        assertEquals(Map.of(), capabilityClient.requests.get(0).get("input"));
     }
 
     @Test

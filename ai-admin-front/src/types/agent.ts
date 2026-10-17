@@ -84,6 +84,66 @@ export interface AgentConfigVersion {
 export type AgentConfigDraft = Omit<AgentConfigVersion,
   'id' | 'agentId' | 'versionNo' | 'status' | 'publishedBy' | 'publishedAt' | 'createdAt' | 'updatedAt'>
 
+/** One enabled Workflow tool of an ACTIVE Agent config: pinned version vs the Workflow's current published version. */
+export interface AgentWorkflowPinFreshness {
+  workflowId: string
+  workflowKeySlug?: string | null
+  workflowName?: string | null
+  toolName?: string | null
+  pinnedWorkflowVersionId?: number | null
+  pinnedWorkflowVersion?: string | null
+  latestWorkflowVersionId?: number | null
+  latestWorkflowVersion?: string | null
+  stale: boolean
+}
+
+export interface AgentWorkflowFreshness {
+  agentId: string
+  agentName?: string | null
+  keySlug?: string | null
+  projectId?: number | null
+  projectCode?: string | null
+  agentEnabled?: boolean | null
+  activeConfigVersionId?: number | null
+  activeConfigVersionNo?: number | null
+  staleCount: number
+  tools: AgentWorkflowPinFreshness[]
+}
+
+export interface WorkflowAgentReference {
+  agentId: string
+  agentName?: string | null
+  keySlug?: string | null
+  projectId?: number | null
+  projectCode?: string | null
+  agentEnabled?: boolean | null
+  activeConfigVersionId: number
+  activeConfigVersionNo?: number | null
+  toolName?: string | null
+  pinnedWorkflowVersionId?: number | null
+  pinnedWorkflowVersion?: string | null
+  latestWorkflowVersionId?: number | null
+  latestWorkflowVersion?: string | null
+  stale: boolean
+}
+
+export interface WorkflowAgentReferences {
+  workflowId: string
+  latestWorkflowVersionId?: number | null
+  latestWorkflowVersion?: string | null
+  staleCount: number
+  /** Agents in projects the viewer cannot read; counted but not listed. */
+  hiddenAgentCount?: number
+  agents: WorkflowAgentReference[]
+}
+
+export interface PublishLatestAgentWorkflowsResult {
+  /** false when the ACTIVE config already used every current Workflow version. */
+  published: boolean
+  config: AgentConfigVersion
+  updatedTools: AgentWorkflowPinFreshness[]
+}
+
 export interface CapabilityReference {
   kind: 'TOOL'
   projectCode?: string | null
@@ -487,24 +547,6 @@ export interface ExecutableDebugSessionView extends AgentWorkflowDebugRunResult 
   updatedAt?: string
   expiresAt?: string
 }
-
-/** 预置意图类型（可通过管理后台自定义扩展） */
-export const INTENT_TYPES = [
-  { value: 'KNOWLEDGE_QA', label: '知识问答' },
-  { value: 'QUERY_DATA', label: '数据查询' },
-  { value: 'BUSINESS_OPERATION', label: '业务操作' },
-  { value: 'ANALYSIS', label: '分析推理' },
-  { value: 'CREATIVE_TASK', label: '创意任务' },
-  { value: 'GENERAL_CHAT', label: '通用对话' },
-] as const
-
-/** 触发方式选项 */
-export const TRIGGER_MODES = [
-  { value: 'all', label: '全部' },
-  { value: 'chat', label: '仅对话' },
-  { value: 'api', label: '仅 API' },
-  { value: 'event', label: '仅事件' },
-] as const
 
 import type { UiRequestPayload } from './interaction'
 

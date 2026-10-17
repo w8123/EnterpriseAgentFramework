@@ -119,6 +119,9 @@ export interface ModelInstance {
   modelName: string
   protocol: ModelProtocol | string
   projectCode?: string | null
+  /** 引用的厂商账号；为空表示连接配置由实例自己保存 */
+  providerAccountId?: string | null
+  providerAccountName?: string | null
   connection: ModelConnectionConfig
   defaultOptions: Record<string, unknown>
   paramsSchema: unknown
@@ -261,6 +264,7 @@ export interface ModelCatalogStatus {
   zoneId: string
   businessDate: string
   analyzerConfigured: boolean
+  analyzerModelInstanceId?: string | null
   stale: boolean
   catalogVerifiedAt?: string | null
   lastAnySuccessfulAt?: string | null
@@ -271,7 +275,27 @@ export interface ModelCatalogStatus {
 }
 
 export interface ModelCatalogSettingsRequest {
-  autoSyncEnabled: boolean
+  autoSyncEnabled?: boolean
+  /** 空字符串清除界面设置，回退到部署环境变量 */
+  analyzerModelInstanceId?: string
+}
+
+export type UpstreamModelType = ModelType | 'OTHER'
+
+export interface UpstreamModel {
+  id: string
+  ownedBy?: string | null
+  /** epoch 秒 */
+  created?: number | null
+  inferredType: UpstreamModelType
+}
+
+export interface ModelDiscoveryResult {
+  success: boolean
+  message: string
+  provider?: string | null
+  total: number
+  models: UpstreamModel[]
 }
 
 export interface ModelCatalogManualSyncResponse {
@@ -281,4 +305,51 @@ export interface ModelCatalogManualSyncResponse {
   completedToday: number
   queuedCount: number
   message: string
+}
+
+/** 厂商账号：同一厂商的地址和 API Key 只存一次，供多个模型实例引用 */
+export interface ModelProviderAccount {
+  id: string
+  name: string
+  provider: string
+  connection: ModelConnectionConfig
+  apiKeyConfigured: boolean
+  status: string
+  remark?: string | null
+  instanceCount: number
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface ModelProviderAccountRequest {
+  name?: string
+  provider?: string
+  connection?: Partial<ModelConnectionConfig>
+  remark?: string
+}
+
+export interface ProviderConnectedModel {
+  modelName: string
+  modelType: ModelType
+  instanceId: string
+  instanceName: string
+}
+
+export interface ProviderModelsResult {
+  success: boolean
+  message: string
+  provider?: string | null
+  total: number
+  models: UpstreamModel[]
+  recommendedModelNames: string[]
+  connected: ProviderConnectedModel[]
+}
+
+export interface ProviderAccountInstancesRequest {
+  models: Array<{ modelName: string; modelType: ModelType; name?: string }>
+}
+
+export interface ProviderAccountInstancesResult {
+  created: ModelInstance[]
+  skipped: Array<{ modelName: string; reason: string }>
 }

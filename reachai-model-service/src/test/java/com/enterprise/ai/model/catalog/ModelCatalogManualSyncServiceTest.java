@@ -22,6 +22,7 @@ class ModelCatalogManualSyncServiceTest {
     private ModelCatalogSyncRunMapper runMapper;
     private ModelCatalogSyncWorker worker;
     private ModelCatalogSyncProperties properties;
+    private ModelCatalogSettingsService settingsService;
     private TaskExecutor taskExecutor;
     private ModelCatalogManualSyncService service;
 
@@ -33,9 +34,11 @@ class ModelCatalogManualSyncServiceTest {
         properties = new ModelCatalogSyncProperties();
         properties.setAnalyzerModelInstanceId("catalog-analyzer");
         properties.setMaxAttempts(3);
+        settingsService = mock(ModelCatalogSettingsService.class);
+        when(settingsService.analyzerConfigured()).thenReturn(true);
         taskExecutor = mock(TaskExecutor.class);
         service = new ModelCatalogManualSyncService(
-                sourceMapper, runMapper, worker, properties, taskExecutor);
+                sourceMapper, runMapper, worker, properties, settingsService, taskExecutor);
     }
 
     @Test

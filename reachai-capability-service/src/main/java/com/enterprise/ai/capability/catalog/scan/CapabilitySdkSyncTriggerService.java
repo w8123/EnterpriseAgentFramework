@@ -30,6 +30,8 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.time.Duration;
 
+import static com.enterprise.ai.common.util.Texts.firstText;
+
 @Service
 @RequiredArgsConstructor
 public class CapabilitySdkSyncTriggerService {
@@ -244,15 +246,6 @@ public class CapabilitySdkSyncTriggerService {
             normalized = normalized.substring(0, normalized.length() - 1);
         }
         return normalized;
-    }
-
-    private String firstText(String... values) {
-        for (String value : values) {
-            if (StringUtils.hasText(value)) {
-                return value.trim();
-            }
-        }
-        return null;
     }
 
     private int intValue(Object value) {

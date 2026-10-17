@@ -24,10 +24,10 @@ class RuntimeHttpApiConnectionRecoveryTest {
         var blocked = fixture.service.read(command(null));
         assertEquals("BLOCKED", blocked.status());
         assertTrue(json.valueToTree(blocked).path("configurationAllowed").asBoolean(false));
-        assertEquals(1L, blocked.revision());
+        assertEquals(1L, blocked.overrideRevision()); assertEquals(3L, blocked.revision());
         var repaired = fixture.service.save(command(new HttpApiConsoleContracts.ConnectionSaveRequest(
                 "http://127.0.0.1:8080", "NONE", null, 1L)), "actor");
-        assertEquals("CONFIGURED", repaired.status()); assertEquals(2L, repaired.revision());
+        assertEquals("CONFIGURED", repaired.status()); assertEquals(2L, repaired.overrideRevision());
         verify(fixture.rows).updateById(fixture.saved);
     }
 
@@ -43,7 +43,7 @@ class RuntimeHttpApiConnectionRecoveryTest {
         var repaired = fixture.service.save(command(new HttpApiConsoleContracts.ConnectionSaveRequest(
                 "http://new.invalid", "BEARER", "active", 1L)), "actor");
         assertEquals("CONFIGURED", repaired.status()); assertEquals("active", repaired.credentialRef());
-        assertEquals(2L, repaired.revision());
+        assertEquals(2L, repaired.overrideRevision()); assertEquals(5L, repaired.revision());
     }
 
     @ParameterizedTest @ValueSource(strings={"unaccepted", "unconfirmed", "drift", "unsupported", "foreign-scope"})
@@ -84,7 +84,7 @@ class RuntimeHttpApiConnectionRecoveryTest {
             when(rows.selectOne(any())).thenReturn(entity);
             when(rows.selectByRefForUpdate("http-api:fixture")).thenReturn(entity);
         }
-        return new Fixture(new RuntimeHttpApiConnectionService(rows, capability, credentials, egress), rows, credentials, egress, entity);
+        return new Fixture(new RuntimeHttpApiConnectionService(rows, mock(RuntimeHttpApiProjectConnectionMapper.class), capability, credentials, egress), rows, credentials, egress, entity);
     }
 
     private HttpApiConsoleContracts.ConnectionCommand command(HttpApiConsoleContracts.ConnectionSaveRequest save) {

@@ -11,6 +11,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 
+import static com.enterprise.ai.common.util.Texts.firstText;
+
 @Component
 @RequiredArgsConstructor
 class RuntimeEvalDeterministicJudge {
@@ -214,11 +216,6 @@ class RuntimeEvalDeterministicJudge {
         if (value instanceof Number number) return number.intValue() != 0;
         if (value instanceof String text && StringUtils.hasText(text)) return Boolean.parseBoolean(text);
         return fallback;
-    }
-
-    private String firstText(String... values) {
-        for (String value : values) if (StringUtils.hasText(value)) return value.trim();
-        return null;
     }
 
     record ScoreResult(String key,

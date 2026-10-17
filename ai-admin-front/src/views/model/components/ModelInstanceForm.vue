@@ -1,12 +1,17 @@
 <script setup lang="ts">
-import { computed, reactive, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
+import { ElMessage } from 'element-plus'
+import { discoverUpstreamModels } from '@/api/model'
+import type { UpstreamModel } from '@/types/model'
 import type { ModelInstanceDraft, FriendlyOptionFields } from '../modelCenterUi'
 import {
+  buildDraftTestRequest,
   defaultPathForType,
   hasBaseUrlAuthorityChanged,
   mergeFriendlyOptions,
   modelTypeLabel,
   pathKeyForType,
+  readModelApiPayload,
   shouldShowDeepSeekThinking,
   splitFriendlyOptions,
 } from '../modelCenterUi'
@@ -20,6 +25,10 @@ const props = withDefaults(
     lockProvider?: boolean
     showEnableToggle?: boolean
     credentialRequired?: boolean
+    /** 编辑已保存实例时传入，获取模型列表可复用已保存的密钥 */
+    instanceId?: string
+    /** 实例引用的厂商账号名称；有值时地址与 Key 由账号管理，表单只显示不编辑 */
+    accountName?: string
   }>(),
   {
     lockModelType: false,
@@ -73,6 +82,60 @@ const authorityChangedHint = computed(() => {
   }
   return '服务地址已变化，请重新填写 API Key'
 })
+
+const discovering = ref(false)
+const discoveredModels = ref<UpstreamModel[]>([])
+const discoveryMessage = ref('')
+const discoveryFailed = ref(false)
+const showAllDiscovered = ref(false)
+
+const visibleDiscoveredModels = computed(() =>
+  showAllDiscovered.value
+    ? discoveredModels.value
+    : discoveredModels.value.filter((model) => model.inferredType === props.draft.modelType),
+)
+
+function discoveredDate(model: UpstreamModel): string {
+  if (!model.created) return ''
+  const date = new Date(model.created * 1000)
+  return Number.isNaN(date.getTime()) ? '' : date.toISOString().slice(0, 10)
+}
+
+async function discoverModels() {
+  if (!props.draft.connection.baseUrl?.trim()) {
+    ElMessage.warning('请先填写 Base URL')
+    return
+  }
+  if (!props.accountName && props.credentialRequired && !props.apiKey.trim()
+    && !(props.instanceId && props.draft.apiKeyConfigured)) {
+    ElMessage.warning('请先填写 API Key')
+    return
+  }
+  discovering.value = true
+  try {
+    const payload = buildDraftTestRequest(props.draft, props.apiKey, { instanceId: props.instanceId })
+    const { data } = await discoverUpstreamModels(payload)
+    const result = readModelApiPayload<{ success: boolean; message: string; models: UpstreamModel[] }>(data)
+    discoveryFailed.value = !result.success
+    discoveredModels.value = result.success ? result.models || [] : []
+    showAllDiscovered.value = false
+    if (!result.success) {
+      discoveryMessage.value = result.message || '获取模型列表失败'
+    } else if (!discoveredModels.value.length) {
+      discoveryMessage.value = '供应商返回了空的模型列表'
+    } else {
+      const sameType = visibleDiscoveredModels.value.length
+      discoveryMessage.value = `供应商返回 ${discoveredModels.value.length} 个可用模型，其中 ${sameType} 个看起来是${modelTypeLabel(props.draft.modelType)}`
+      if (!sameType) showAllDiscovered.value = true
+    }
+  } catch (err) {
+    discoveryFailed.value = true
+    discoveredModels.value = []
+    discoveryMessage.value = err instanceof Error ? err.message : '获取模型列表失败'
+  } finally {
+    discovering.value = false
+  }
+}
 
 function syncFriendlyFromDraft() {
   const next = splitFriendlyOptions(
@@ -213,7 +276,35 @@ defineExpose({
             :model-value="draft.modelName"
             placeholder="供应商侧的 modelName 或部署名"
             @update:model-value="patchDraft({ modelName: $event })"
-          />
+          >
+            <template #append>
+              <el-button :loading="discovering" @click="discoverModels">获取最新模型</el-button>
+            </template>
+          </el-input>
+          <div v-if="!discoveryMessage" class="field-hint">
+            填好 Base URL 和 API Key 后，可从供应商实时获取你的账号当前可用的模型
+          </div>
+          <div v-else class="field-hint" :class="{ 'is-warning': discoveryFailed }">{{ discoveryMessage }}</div>
+          <div v-if="discoveredModels.length" class="model-instance-form__discovery">
+            <el-select
+              :model-value="draft.modelName"
+              filterable
+              placeholder="从供应商模型列表中选择"
+              style="width: 100%"
+              @update:model-value="patchDraft({ modelName: $event })"
+            >
+              <el-option
+                v-for="model in visibleDiscoveredModels"
+                :key="model.id"
+                :label="model.id"
+                :value="model.id"
+              >
+                <span>{{ model.id }}</span>
+                <span class="model-instance-form__discovery-meta">{{ discoveredDate(model) }}</span>
+              </el-option>
+            </el-select>
+            <el-checkbox v-model="showAllDiscovered">显示全部类型</el-checkbox>
+          </div>
         </el-form-item>
       </div>
     </section>
@@ -227,7 +318,11 @@ defineExpose({
         </div>
       </header>
       <div class="model-instance-form__grid">
-        <el-form-item label="Base URL" required class="span-2">
+        <div v-if="accountName" class="span-2 model-instance-form__account">
+          地址和 API Key 来自厂商账号「{{ accountName }}」（{{ draft.connection.baseUrl }}）。换 Key 请在「接入模型」里选择该厂商后修改账号，所有引用它的模型会一起生效。
+        </div>
+
+        <el-form-item v-if="!accountName" label="Base URL" required class="span-2">
           <el-input
             :model-value="draft.connection.baseUrl"
             placeholder="https://api.example.com/v1"
@@ -244,7 +339,7 @@ defineExpose({
           />
         </el-form-item>
 
-        <el-form-item label="API Key" :required="mode === 'create' ? credentialRequired : Boolean(authorityChangedHint)">
+        <el-form-item v-if="!accountName" label="API Key" :required="mode === 'create' ? credentialRequired : Boolean(authorityChangedHint)">
           <el-input
             :model-value="apiKey"
             type="password"
@@ -258,7 +353,7 @@ defineExpose({
           </div>
         </el-form-item>
 
-        <el-form-item label="认证 Header">
+        <el-form-item v-if="!accountName" label="认证 Header">
           <el-input
             :model-value="draft.connection.authHeader || ''"
             placeholder="Authorization"
@@ -266,7 +361,7 @@ defineExpose({
           />
         </el-form-item>
 
-        <el-form-item label="认证前缀">
+        <el-form-item v-if="!accountName" label="认证前缀">
           <el-input
             :model-value="draft.connection.authPrefix || ''"
             placeholder="Bearer"
@@ -495,6 +590,31 @@ defineExpose({
   color: var(--text-muted);
   font-size: 12px;
   line-height: 1.45;
+}
+
+.model-instance-form__account {
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-glass);
+  border-radius: 10px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.model-instance-form__discovery {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+  margin-top: 8px;
+}
+
+.model-instance-form__discovery-meta {
+  float: right;
+  margin-left: 16px;
+  color: var(--text-muted);
+  font-size: 12px;
 }
 
 .field-hint.is-warning {

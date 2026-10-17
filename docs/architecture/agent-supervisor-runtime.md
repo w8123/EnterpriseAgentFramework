@@ -130,6 +130,18 @@ Workflow AI Coding 入口负责项目、Workflow 类型/发布状态和替换目
 
 配置版本生命周期为 `DRAFT -> ACTIVE -> ARCHIVED`。ACTIVE 和 ARCHIVED 都是不可变快照；`POST /api/agents/{agentId}/config-versions/{configVersionId}/copy-to-draft` 会把历史快照及其完整可调用 Workflow 列表复制为新的单一 DRAFT，再由用户编辑和发布。
 
+### Workflow 新版本提示与一键更新（2026-10-16）
+
+ACTIVE 配置固定 `runtime_agent_workflow_tool.workflow_version_id`，Workflow 发布新版本不会静默改变已发布 Agent 的运行版本。为让这一状态可见且可显式处理，Runtime 提供三个公开入口（经 Control BFF 同路径代理）：
+
+| 路由 | Control 权限 | 说明 |
+|---|---|---|
+| `GET /api/workflows/{workflowId}/agent-references` | Workflow 项目 `workflow:read`；行按 Agent 项目 `agent:read` 过滤，不可见行只计入 `hiddenAgentCount` | ACTIVE 配置中启用了该 Workflow 的 Agent，返回固定版本、当前发布版本与 `stale` |
+| `GET /api/agents/{agentId}/workflow-freshness` | Agent 项目 `agent:read` | ACTIVE 配置每个启用 Workflow 工具的固定版本与当前发布版本 |
+| `POST /api/agents/{agentId}/workflow-freshness/publish-latest` | Agent 项目 `agent:publish`，并与普通发布一样复核 Skill / A2A 快照 | 请求体 `{expectedActiveConfigVersionId, publishedBy}`；复制 ACTIVE 配置，只把 stale 的启用 Workflow 工具移到当前发布版本，执行发布校验后发布。ACTIVE 已变化返回 409 `AGENT_ACTIVE_CONFIG_CHANGED`；无 stale 时返回 `published=false` 且不新建版本。已有 DRAFT 与其他固定版本保持不变 |
+
+`stale` 定义为 Workflow 当前存在可执行的发布版本且其 ID 与固定版本不同（回滚到旧版本同样提示）。Agent 列表 `staleWorkflowToolCount` 通过一次工具查询和一次 Workflow 目录批量查询得到，不按 Agent 逐个查询。前端在 Workflow 版本页、Workflow Studio 发布成功提示、Agent 配置页和 Agent 列表展示该状态。[持久化回归](../../reachai-runtime-service/src/test/java/com/enterprise/ai/runtime/agent/RuntimeAgentWorkflowFreshnessPersistenceTest.java) 覆盖 stale 识别、草稿引用排除、草稿保留、并发 409 与校验失败回滚。
+
 Workflow-as-Tool 的目录读取由 Workflow 模块的 [RuntimeWorkflowToolCatalogQuery](../../reachai-runtime-service/src/main/java/com/enterprise/ai/runtime/workflow/RuntimeWorkflowToolCatalogQuery.java) 提供不可变视图，Agent 配置不直接读取 Workflow Mapper/Entity。保存目录和发布配置按批获取当前发布版本，保留原有 rollout percent、版本 ID 的选择顺序；发布时还必须确认 Workflow 当前为 ACTIVE 且发布图非空，避免将已停用目标发布为可执行目录。
 
 历史目录按固定的版本 ID 与 Workflow ID 共同读取契约，仅接受 ACTIVE/RETIRED 发布版本。版本缺失、未固定、来源不匹配或未发布时返回空的版本/契约字段，不读取当前工作草稿；已发布版本本身未声明 Schema 时也保留空值。Agent 配置的显式 Schema 覆盖仍可生效。查询每批最多 500 个 ID；[真实 MyBatis/H2 回归](../../reachai-runtime-service/src/test/java/com/enterprise/ai/runtime/workflow/RuntimeWorkflowToolCatalogPersistenceTest.java) 验证 1,001 个目标的当前版本与固定版本读取各执行 6 次 JDBC 查询，未代表实际 MySQL 查询计划或生产性能验收。

@@ -4,7 +4,6 @@ import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.extension.spring.MybatisSqlSessionFactoryBean;
 import com.enterprise.ai.pipeline.PipelineContext;
 import com.enterprise.ai.pipeline.document.job.DocumentImportPublicationGuard;
-import com.enterprise.ai.pipeline.document.job.DocumentIndexExecutionStore;
 import com.enterprise.ai.pipeline.document.job.DocumentIndexVectorManifest;
 import com.enterprise.ai.repository.DocumentImportJobRepository;
 import com.enterprise.ai.repository.DocumentIndexExecutionRepository;
