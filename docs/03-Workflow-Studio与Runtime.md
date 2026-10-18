@@ -66,6 +66,29 @@ Workflow Studio 是唯一的画布编辑器：
 - AI 生成 Proposal 使用 `POST /api/workflows/studio/proposals/generate`。
 - AI 编辑 Proposal 使用 `POST /api/workflows/studio/proposals/edit`：AgentScope Authoring Adapter 通过受约束工具修改内存候选，确定性内核负责 mutation / validation；仅 `status=SUCCEEDED` 可应用到 Working Copy。旧 `generate-draft`、`edit-draft` 路由不再提供。
 
+### 连线条件与「没找到」
+
+连线条件由 Runtime 执行，Studio 只提供 Runtime 认识的选项：
+
+| 条件 | Studio 名称 | 语义 |
+| --- | --- | --- |
+| 空、`always`、`success` | 默认 | 节点成功后走这条线；有更具体的匹配时排在后面 |
+| `error` | 失败时 | 节点失败且没有另配错误策略时走这条线；失败信息写入变量 `lastError`（`nodeId`、`nodeName`、`code`、固定中文说明 `message`），节点结果带 `recoveredFromCode`。没有这条线时失败仍结束整次运行 |
+| `empty` / `not_empty` | 结果为空 / 有结果 | 按节点输出是否为空分流：空列表、空对象、空字符串，以及 `total=0` 或 `list/records/rows/items` 为空的分页结果都算空；参数提取缺少必填字段时优先走「结果为空」 |
+| 分支 ID（`route:x` 或 `x`）、`else` | 分支名 / 其他分支 | 仅意图分类、条件、交互、知识检索、页面动作、人工审批、循环等会产生分支的节点 |
+
+没有分支的节点，出边条件只能是前三行的值，否则发布校验报 `GRAPH_EDGE_CONDITION_UNSUPPORTED`。
+
+参数提取字段可设「取值必须来自列表」：`optionsFrom`（列表表达式，如 `nodeOutput.products`；也接受分页对象的 `list/records/rows/items` 和业务响应外层的 `data`，例如 `{"code":0,"data":[...]}`）、`optionValueKey`（取值字段）、`optionLabelKey`（名称字段）。候选会写进模型提示词；提取结果不在列表里就当作没提取到，不会用相近的值代替。默认提示词也要求模型只用输入里明确出现的值。查询类 Workflow 推荐「产品名必填 + 取值必须来自产品列表 + 结果为空连到回答“没有找到”」。列表表达式没有解析到列表时，节点以 `RUNTIME_GRAPH_PARAMETER_OPTIONS_INVALID` 失败（可走「失败时」连线），不会把所有值都当成没找到。走「失败时」或「结果为空」连线的节点仍记一步，调试和只读试运行里能看到它和所走的分支。
+
+Agent Supervisor 的系统提示要求核对工具结果是否就是用户问的对象；不一致或没查到时必须明说，不能把别的记录当答案。
+
+### Studio 编辑、调试与评测
+
+- 单击画布节点，右侧属性面板直接显示「配置 / 测试 / 调试记录」三个页签，修改立即写入画布草稿；面板可拖宽，宽度记在本机浏览器。节点配置面板按面板宽度自适应（CSS 容器 `studio-config`）。
+- 顶部「调试」按钮旁标出当前方式：草稿不调用业务方法或 API 时是「沙箱」调试；调用了时改为「只读试运行」，真实调用业务系统但只允许只读操作，需先保存草稿。
+- 评测集按 Agent 保存在运行中心。Studio「更多 → 到运行中心评测」列出引用该 Workflow 的 Agent，只有一个时直接打开它的评测页（`/runops/evals/{agentId}`）；Studio 不再提供页面内临时的批量评测。
+
 ### 节点能力目录
 
 `RuntimeWorkflowNodeCapabilityRegistry` 是 Workflow 节点产品开放策略的统一事实源；`RuntimeGraphSpecExecutor.handledNodeTypes()` 是 Runtime 真实可执行 Handler 集合。`GET /api/workflows/graph-node-types`、Studio Palette、发布校验和网页 AI 编排共同消费该目录，不再各自维护一份“可见/可生成/可发布”列表。

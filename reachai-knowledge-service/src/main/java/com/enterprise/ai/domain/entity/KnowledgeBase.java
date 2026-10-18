@@ -38,6 +38,9 @@ public class KnowledgeBase {
 
     private String scope;
 
+    /** 谁能检索：ALL_CALLERS（调用方都能查到）/ FILE_GRANTS（仅逐文件授权的用户）。 */
+    private String accessMode;
+
     /** 向量维度 */
     private Integer dimension;
 
@@ -55,10 +58,6 @@ public class KnowledgeBase {
     private Integer topK;
 
     private Float similarityThreshold;
-
-    private Boolean directReturnEnabled;
-
-    private Float directReturnThreshold;
 
     private Boolean rerankEnabled;
 

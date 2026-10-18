@@ -58,7 +58,11 @@ function workflowEditOperationLabel(type: WorkflowProposalEditOperationType) {
   return labels[type] || type
 }
 
-function operationTarget(item: WorkflowProposalEditOperation) {
+export function proposalOperationKey(item: WorkflowProposalEditOperation) {
+  return `${item.type}:${item.nodeId || item.edgeId || operationTarget(item)}:${item.reason || ''}`
+}
+
+export function operationTarget(item: WorkflowProposalEditOperation) {
   const node = item.node as { id?: string; name?: string; data?: { label?: string } } | undefined
   const edge = item.edge as { id?: string; from?: string; to?: string } | undefined
   if (item.nodeId) return item.nodeId
@@ -344,9 +348,7 @@ export function useWorkflowStudioProposalActions(deps: UseWorkflowStudioProposal
     }
   }
 
-  function operationKey(item: WorkflowProposalEditOperation) {
-    return `${item.type}:${item.nodeId || item.edgeId || operationTarget(item)}:${item.reason || ''}`
-  }
+  const operationKey = proposalOperationKey
 
   return {
     aiEditOperationGroups,

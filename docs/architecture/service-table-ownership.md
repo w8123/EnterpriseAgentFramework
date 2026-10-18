@@ -47,10 +47,6 @@ These rows remain in the ownership matrix because the current baseline still rec
 | `control_a2a_rate_limit_window` | `reachai-control-service` | - | Multi-instance Principal/publication request-rate windows |
 | `control_a2a_conformance_run` | `reachai-control-service` | - | A2A TCK and publication preflight evidence |
 | `control_a2a_outbox` | `reachai-control-service` | - | Durable A2A dispatch and notification outbox without content bodies |
-| `runtime_agent_eval_case` | `reachai-runtime-service` | - | Runtime evaluation case |
-| `runtime_agent_eval_case_result` | `reachai-runtime-service` | - | Runtime evaluation result |
-| `runtime_agent_eval_dataset` | `reachai-runtime-service` | - | Runtime evaluation dataset |
-| `runtime_agent_eval_run` | `reachai-runtime-service` | - | Runtime evaluation run |
 | `runtime_automation` | `reachai-runtime-service` | - | Automation aggregate and current immutable-version projection |
 | `runtime_automation_version` | `reachai-runtime-service` | - | Exact Agent/Workflow target, schedule, policy, principal and input snapshot |
 | `runtime_automation_occurrence` | `reachai-runtime-service` | - | Idempotent nominal trigger occurrence and recoverable execution lease |
@@ -177,8 +173,6 @@ These rows remain in the ownership matrix because the current baseline still rec
 | `runtime_interaction_session` | `reachai-runtime-service` | - | Runtime interaction session |
 | `knowledge_base` | `reachai-knowledge-service` | - | Knowledge base |
 | `knowledge_hit_log` | `reachai-knowledge-service` | - | Knowledge retrieval hit log |
-| `knowledge_question` | `reachai-knowledge-service` | - | Knowledge question curation; file retirement unlinks chunk references while retaining question text |
-| `knowledge_tag` | `reachai-knowledge-service` | - | Knowledge tag |
 | `control_market_item` | `reachai-control-service` | - | Control marketplace item |
 | `control_agent_skill` | `reachai-control-service` | - | Scope-keyed standard Agent Skill installation identity plus enforced PRIVATE owner / PROJECT scope / SHARED / PUBLIC visibility |
 | `control_agent_skill_version` | `reachai-control-service` | - | Immutable package version, artifact digest, validation and compatibility snapshot |

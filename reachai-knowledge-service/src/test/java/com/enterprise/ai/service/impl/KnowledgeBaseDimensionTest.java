@@ -30,7 +30,6 @@ class KnowledgeBaseDimensionTest {
         embeddings = mock(EmbeddingService.class);
         vectors = mock(VectorService.class);
         lifecycle = new KnowledgeBaseLifecycleService(db.mapper(KnowledgeBaseRepository.class),
-                mock(KnowledgeTagRepository.class), mock(KnowledgeQuestionService.class),
                 mock(KnowledgeFileDeletionService.class), KnowledgeIndexTestSupport.collectionStore(db),
                 vectors, embeddings, new DataSourceTransactionManager(db.jdbc().getDataSource()));
     }

@@ -51,7 +51,7 @@ public class RagServiceImpl implements RagService {
         return retrieval.retrieve(KnowledgeRetrievalCoreRequest.builder()
                 .query(request.getQuestion()).knowledgeBaseCodes(request.getKnowledgeBaseCodes()).userId(request.getUserId())
                 .topK(request.getTopK()).scoreThreshold(request.getScoreThreshold()).searchMode("vector")
-                .rerankEnabled(false).directReturnEnabled(false).recordHit(false).build());
+                .rerankEnabled(false).recordHit(false).build());
     }
 
     private RagResponse changed() { return empty("检索内容的授权或版本已变化，请重新检索。"); }

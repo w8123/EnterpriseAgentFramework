@@ -40,8 +40,8 @@ class KnowledgeFileOwnershipPersistenceTest {
         files = db.mapper(FileInfoRepository.class); chunks = db.mapper(ChunkRepository.class);
         db.jdbc().update("INSERT INTO knowledge_base(id,name,code,vector_collection_name) VALUES (7,'target','target','target'),(8,'other','other','other')");
         vectors = mock(VectorService.class); artifacts = mock(DocumentArtifactStore.class);
-        service = transactional(KnowledgeManagementTestServices.create(files, chunks, mock(KnowledgeTagRepository.class), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeQuestionService.class), mock(KnowledgeOperationsQuery.class), mock(KnowledgeIndexWriteService.class), new KnowledgeBaseLookup(bases), mock(KnowledgeRetrievalEngine.class), KnowledgeIndexTestSupport.deletion(db), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeBaseLifecycleService.class), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeTagService.class)));
-        persist = transactional(new MetadataPersistStep(bases, files, chunks, new ObjectMapper(), mock(com.enterprise.ai.pipeline.document.job.DocumentImportPublicationGuard.class), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeTagService.class), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeQuestionService.class)));
+        service = transactional(KnowledgeManagementTestServices.create(files, chunks, mock(KnowledgeOperationsQuery.class), mock(KnowledgeIndexWriteService.class), new KnowledgeBaseLookup(bases), mock(KnowledgeRetrievalEngine.class), KnowledgeIndexTestSupport.deletion(db), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeBaseLifecycleService.class)));
+        persist = transactional(new MetadataPersistStep(bases, files, chunks, new ObjectMapper(), mock(com.enterprise.ai.pipeline.document.job.DocumentImportPublicationGuard.class)));
     }
 
     @AfterEach

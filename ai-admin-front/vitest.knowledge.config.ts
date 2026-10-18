@@ -14,7 +14,7 @@ export default defineConfig({
     include: [
       'src/utils/documentImport.test.ts',
       'src/components/DocumentImportJobCard.test.ts',
-      'src/components/ChunkPreview.test.ts',
+      'src/views/knowledge/knowledgeDetailModel.test.ts',
     ],
     css: false,
   },

@@ -33,7 +33,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Objects;
 
 @RestController
 @RequestMapping("/api/embed")
@@ -629,49 +628,15 @@ public class PlatformEmbedPublicController {
 
     private void ensureRuntimeAgentAvailable(String projectCode, String agentId) {
         ResponseEntity<Object> response = runtimeProxyClient.listAgents(null, projectCode);
-        if (!response.getStatusCode().is2xxSuccessful()) {
+        if (!response.getStatusCode().is2xxSuccessful()
+                || PlatformEmbedAgentLookup.find(response.getBody(), projectCode, agentId).isEmpty()) {
             throw new PlatformEmbedTokenException("agent not found: " + agentId);
         }
-        for (Object item : extractItems(response.getBody())) {
-            if (!(item instanceof Map<?, ?> map)) {
-                continue;
-            }
-            Object id = firstValue(map, "id", "keySlug");
-            Object keySlug = map.get("keySlug");
-            if ((Objects.equals(String.valueOf(id), agentId) || Objects.equals(String.valueOf(keySlug), agentId))
-                    && !Boolean.FALSE.equals(map.get("enabled"))) {
-                Object agentProjectCode = map.get("projectCode");
-                if (agentProjectCode == null || projectCode.equals(String.valueOf(agentProjectCode))) {
-                    return;
-                }
-            }
-        }
-        throw new PlatformEmbedTokenException("agent not found: " + agentId);
-    }
-
-    private Collection<?> extractItems(Object body) {
-        if (body instanceof Collection<?> collection) {
-            return collection;
-        }
-        if (body instanceof Map<?, ?> map) {
-            for (String key : List.of("data", "records", "items", "agents")) {
-                Object value = map.get(key);
-                if (value instanceof Collection<?> collection) {
-                    return collection;
-                }
-            }
-        }
-        return List.of();
     }
 
     private int safeLimit(int requested, int fallback) {
         int value = requested <= 0 ? fallback : requested;
         return Math.min(Math.max(value, 1), 1000);
-    }
-
-    private Object firstValue(Map<?, ?> map, String first, String second) {
-        Object value = map.get(first);
-        return value == null ? map.get(second) : value;
     }
 
     private Integer asInteger(Object value) {

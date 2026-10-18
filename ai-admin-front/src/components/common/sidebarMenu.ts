@@ -1,13 +1,12 @@
 import type { Component } from 'vue'
 import {
   hasAllPlatformPermissions,
+  hasPlatformPermission,
   PLATFORM_PERMISSION_ADMIN,
   PLATFORM_PERMISSION_AGENT_READ,
-  PLATFORM_PERMISSION_AUTOMATION_READ,
   PLATFORM_PERMISSION_A2A_HUB_READ,
   PLATFORM_PERMISSION_BUSINESS_USER_READ,
   PLATFORM_PERMISSION_KNOWLEDGE_READ,
-  PLATFORM_PERMISSION_KNOWLEDGE_WRITE,
   PLATFORM_PERMISSION_MCP_HUB_READ,
   PLATFORM_PERMISSION_MODEL_READ,
   PLATFORM_PERMISSION_SKILL_READ,
@@ -15,7 +14,6 @@ import {
   PLATFORM_PERMISSION_MEMORY_ERASURE_MANAGE,
   PLATFORM_PERMISSION_RUNTIME_USER_MAPPING_MANAGE,
   PLATFORM_PERMISSION_READ,
-  PLATFORM_PERMISSION_RUNOPS_READ,
   PLATFORM_PERMISSION_WORKFLOW_READ,
 } from '@/auth/platformAccess'
 import {
@@ -32,6 +30,7 @@ import {
   Timer,
   User,
 } from '@element-plus/icons-vue'
+import { RUN_CENTER_PERMISSIONS } from '@/views/runops/runCenterTabs'
 
 export interface SidebarLeaf {
   index: string
@@ -47,6 +46,8 @@ export type SidebarEntry =
       icon: Component
       children?: SidebarLeaf[]
       requiredPermissions?: string[]
+      /** 只要具备其中一个权限就显示；用于内含多个按权限显示页签的入口。 */
+      anyPermissions?: string[]
     }
   /** 面向用户任务的信息架构分组标题。 */
   | { kind: 'group'; label: string }
@@ -103,24 +104,17 @@ export const sidebarMenu: SidebarEntry[] = [
   },
   {
     kind: 'item',
-    index: '/knowledge-group',
-    label: '知识',
+    index: '/knowledge',
+    label: '知识库',
     icon: Collection,
-    children: [
-      { index: '/knowledge', label: '知识库', requiredPermissions: [PLATFORM_PERMISSION_KNOWLEDGE_READ] },
-      { index: '/knowledge/import', label: '文件入库', requiredPermissions: [PLATFORM_PERMISSION_KNOWLEDGE_WRITE] },
-      { index: '/biz-index', label: '业务索引', requiredPermissions: [PLATFORM_PERMISSION_KNOWLEDGE_READ] },
-    ],
+    requiredPermissions: [PLATFORM_PERMISSION_KNOWLEDGE_READ],
   },
   {
     kind: 'item',
-    index: '/runops-group',
+    index: '/run-center',
     label: '运行中心',
     icon: Timer,
-    children: [
-      { index: '/runops', label: '运行记录', requiredPermissions: [PLATFORM_PERMISSION_RUNOPS_READ] },
-      { index: '/automations', label: '自动化', requiredPermissions: [PLATFORM_PERMISSION_AUTOMATION_READ] },
-    ],
+    anyPermissions: RUN_CENTER_PERMISSIONS,
   },
   {
     kind: 'item',
@@ -202,7 +196,6 @@ export const sidebarMenu: SidebarEntry[] = [
     icon: SetUp,
     children: [
       { index: '/tool/retrieval', label: '调用候选检索', requiredPermissions: [PLATFORM_PERMISSION_READ] },
-      { index: '/retrieval', label: '知识检索测试', requiredPermissions: [PLATFORM_PERMISSION_KNOWLEDGE_READ] },
     ],
   },
 ]
@@ -219,6 +212,11 @@ export function filterSidebarMenu(
   const visibleEntries = entries.map((entry): SidebarEntry | null => {
     if (entry.kind === 'group') return entry
     if (!hasAllPlatformPermissions(grantedPermissions, entry.requiredPermissions ?? [])) {
+      return null
+    }
+    if (entry.anyPermissions && !entry.anyPermissions.some((permission) => (
+      hasPlatformPermission(grantedPermissions, permission)
+    ))) {
       return null
     }
     if (!entry.children) return entry
@@ -254,9 +252,9 @@ export function filterSidebarMenu(
  */
 export function resolveActiveMenu(path: string, metaActiveMenu?: unknown): string {
   if (typeof metaActiveMenu === 'string' && metaActiveMenu) return metaActiveMenu
-  if (path.startsWith('/knowledge/import')) return '/knowledge/import'
   if (path.startsWith('/knowledge')) return '/knowledge'
-  if (path.startsWith('/biz-index')) return '/biz-index'
+  // 业务索引按项目由 SDK 同步，从「项目接入 → 项目详情」进入。
+  if (path.startsWith('/biz-index')) return '/registry/projects'
   if (path.startsWith('/api-market')) return '/api-market'
   if (path.startsWith('/skill-market')) return '/skills'
   if (path.startsWith('/skills')) return '/skills'
@@ -276,8 +274,7 @@ export function resolveActiveMenu(path: string, metaActiveMenu?: unknown): strin
   if (path.startsWith('/settings/auth-providers')) return '/settings/auth-providers'
   if (path.startsWith('/settings/tool-acl')) return '/settings/tool-acl'
   if (path.startsWith('/registry/projects')) return '/registry/projects'
-  if (path.startsWith('/automations')) return '/automations'
-  if (path.startsWith('/runops')) return '/runops'
+  if (path.startsWith('/automations') || path.startsWith('/runops') || path.startsWith('/run-center')) return '/run-center'
   if (path.startsWith('/mcp-hub')) return '/mcp-hub'
   if (path.startsWith('/a2a-hub')) return '/a2a-hub'
   return path
@@ -288,16 +285,8 @@ export function resolveOpenGroups(path: string): string[] {
   const active = resolveActiveMenu(path)
   const open: string[] = []
 
-  if (active === '/knowledge' || active === '/knowledge/import' || active === '/biz-index') {
-    open.push('/knowledge-group')
-  }
-
   if (active === '/agent' || active === '/mcp-hub' || active === '/a2a-hub') {
     open.push('/agent-group')
-  }
-
-  if (active === '/runops' || active === '/automations') {
-    open.push('/runops-group')
   }
 
   if (active === '/settings/business-users' || active === '/settings/tool-acl') {
@@ -320,10 +309,7 @@ export function resolveOpenGroups(path: string): string[] {
     open.push('/model-group')
   }
 
-  if (
-    active === '/tool/retrieval'
-    || active === '/retrieval'
-  ) {
+  if (active === '/tool/retrieval') {
     open.push('/diagnostics-group')
   }
 

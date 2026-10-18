@@ -104,13 +104,48 @@ public class RuntimeRunOpsQueryService {
                                                  String keyword,
                                                  int limit,
                                                  int days) {
-        return findRecentRuns(projectCode, status, runType, entryType, agentId, userId, keyword, limit, days)
-                .stream().map(this::toSummary).toList();
+        return recent(projectCode, status, runType, entryType, agentId, userId, null, keyword, limit, days);
+    }
+
+    /** sessionId 精确匹配，供运行中心按对话查看每一轮运行。 */
+    public List<RuntimeRunOpsSummaryView> recent(String projectCode,
+                                                 String status,
+                                                 String runType,
+                                                 String entryType,
+                                                 String agentId,
+                                                 String userId,
+                                                 String sessionId,
+                                                 String keyword,
+                                                 int limit,
+                                                 int days) {
+        return findRecentRuns(projectCode, status, runType, entryType, agentId, userId, sessionId, keyword,
+                limit, days).stream().map(this::toSummary).toList();
+    }
+
+    /**
+     * 每个会话的运行统计（轮次、失败轮次、最近状态），供运行中心对话列表标出出错的对话。
+     * 只统计 Agent 根运行；会话 ID 最多 100 个。
+     */
+    public List<RuntimeSessionRunStatsView> sessionStats(List<String> sessionIds, int days) {
+        List<String> ids = sessionIds == null ? List.of() : sessionIds.stream()
+                .filter(StringUtils::hasText)
+                .map(String::trim)
+                .distinct()
+                .limit(100)
+                .toList();
+        if (ids.isEmpty()) return List.of();
+        return safeList(runMapper.selectSessionRunStats(ids, LocalDateTime.now().minusDays(safeDays(days))));
     }
 
     private List<RuntimeRunEntity> findRecentRuns(String projectCode, String status, String runType,
                                                  String entryType, String agentId, String userId,
                                                  String keyword, int limit, int days) {
+        return findRecentRuns(projectCode, status, runType, entryType, agentId, userId, null, keyword, limit, days);
+    }
+
+    private List<RuntimeRunEntity> findRecentRuns(String projectCode, String status, String runType,
+                                                 String entryType, String agentId, String userId,
+                                                 String sessionId, String keyword, int limit, int days) {
         int safeLimit = safeLimit(limit);
         int safeDays = safeDays(days);
         String canonicalStatus = StringUtils.hasText(status)
@@ -124,6 +159,7 @@ public class RuntimeRunOpsQueryService {
                 .eq(StringUtils.hasText(entryType), RuntimeRunEntity::getEntryType, upper(entryType))
                 .eq(StringUtils.hasText(agentId), RuntimeRunEntity::getAgentId, trim(agentId))
                 .eq(StringUtils.hasText(userId), RuntimeRunEntity::getUserId, trim(userId))
+                .eq(StringUtils.hasText(sessionId), RuntimeRunEntity::getSessionId, trim(sessionId))
                 .and(StringUtils.hasText(keyword), search -> search
                         .like(RuntimeRunEntity::getTraceId, trim(keyword))
                         .or().like(RuntimeRunEntity::getAgentId, trim(keyword))
@@ -134,7 +170,9 @@ public class RuntimeRunOpsQueryService {
                         .or().like(RuntimeRunEntity::getWorkflowName, trim(keyword))
                         .or().like(RuntimeRunEntity::getErrorCode, trim(keyword))
                         .or().like(RuntimeRunEntity::getErrorMessage, trim(keyword))
-                        .or().like(RuntimeRunEntity::getUserId, trim(keyword)))
+                        .or().like(RuntimeRunEntity::getUserId, trim(keyword))
+                        .or().like(RuntimeRunEntity::getExternalUserId, trim(keyword))
+                        .or().eq(RuntimeRunEntity::getSessionId, trim(keyword)))
                 .orderByDesc(RuntimeRunEntity::getStartedAt)
                 .orderByDesc(RuntimeRunEntity::getId)
                 .last("limit " + safeLimit);

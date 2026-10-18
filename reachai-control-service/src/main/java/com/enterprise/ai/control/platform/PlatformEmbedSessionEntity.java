@@ -19,6 +19,7 @@ public class PlatformEmbedSessionEntity {
     private String projectCode;
     private String agentId;
     private String externalUserId;
+    private String externalUserName;
     private String globalUserId;
     private String pageKey;
     private String pageInstanceId;

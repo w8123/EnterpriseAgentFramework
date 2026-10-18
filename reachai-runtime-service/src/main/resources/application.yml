@@ -55,6 +55,9 @@ reachai:
       nonce-max-entries: ${REACHAI_INTERNAL_AUTH_NONCE_MAX_ENTRIES:100000}
       max-body-bytes: ${REACHAI_INTERNAL_AUTH_MAX_BODY_BYTES:1048576}
   runtime:
+    eval:
+      # Off by default: experiments stay QUEUED and the admin console says the worker is off.
+      worker-enabled: ${REACHAI_EVAL_WORKER_ENABLED:false}
     automation:
       # Fail closed until the Runtime Automation upgrade has been applied.
       enabled: ${REACHAI_AUTOMATION_ENABLED:false}

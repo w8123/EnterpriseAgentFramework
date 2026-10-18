@@ -64,6 +64,14 @@ class ReachAiRegistryAutoConfigurationTest {
     }
 
     @Test
+    void exposesEmbedTokenEndpointOnlyWhenHostProvidesPrincipalResolver() {
+        contextRunner.run(context -> assertTrue(context.getBeansOfType(ReachAiEmbedTokenEndpoint.class).isEmpty()));
+        contextRunner
+                .withBean(ReachAiEmbedPrincipalResolver.class, () -> agentId -> null)
+                .run(context -> assertNotNull(context.getBean(ReachAiEmbedTokenEndpoint.class)));
+    }
+
+    @Test
     void publishesSpringBoot3AutoConfigurationImports() {
         String resource = "META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports";
         try (InputStream input = getClass().getClassLoader().getResourceAsStream(resource)) {

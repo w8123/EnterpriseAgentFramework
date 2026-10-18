@@ -41,7 +41,7 @@ class MetadataPersistStepTest {
         existing.setKnowledgeBaseId(7L);
         when(files.selectOne(any())).thenReturn(existing);
 
-        new MetadataPersistStep(knowledgeBases, files, chunks, new ObjectMapper(), mock(com.enterprise.ai.pipeline.document.job.DocumentImportPublicationGuard.class), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeTagService.class), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeQuestionService.class)).process(context("job_1"));
+        new MetadataPersistStep(knowledgeBases, files, chunks, new ObjectMapper(), mock(com.enterprise.ai.pipeline.document.job.DocumentImportPublicationGuard.class)).process(context("job_1"));
 
         InOrder order = inOrder(chunks, files);
         order.verify(chunks).delete(any());
@@ -64,7 +64,7 @@ class MetadataPersistStepTest {
         when(files.selectOne(any())).thenReturn(existing);
 
         assertThrows(PipelineException.class,
-                () -> new MetadataPersistStep(knowledgeBases, files, chunks, new ObjectMapper(), mock(com.enterprise.ai.pipeline.document.job.DocumentImportPublicationGuard.class), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeTagService.class), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeQuestionService.class))
+                () -> new MetadataPersistStep(knowledgeBases, files, chunks, new ObjectMapper(), mock(com.enterprise.ai.pipeline.document.job.DocumentImportPublicationGuard.class))
                         .process(context("job_1")));
 
         verify(chunks, never()).delete(any());
@@ -86,7 +86,7 @@ class MetadataPersistStepTest {
         when(files.selectOne(any())).thenReturn(existing);
 
         assertThrows(PipelineException.class,
-                () -> new MetadataPersistStep(knowledgeBases, files, chunks, new ObjectMapper(), mock(com.enterprise.ai.pipeline.document.job.DocumentImportPublicationGuard.class), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeTagService.class), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeQuestionService.class)).process(context(jobId)));
+                () -> new MetadataPersistStep(knowledgeBases, files, chunks, new ObjectMapper(), mock(com.enterprise.ai.pipeline.document.job.DocumentImportPublicationGuard.class)).process(context(jobId)));
 
         verify(chunks, never()).delete(any());
         verify(files, never()).delete(any());

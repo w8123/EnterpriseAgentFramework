@@ -995,7 +995,7 @@ function normalizeVariableOption(item: string | StudioVariableOption): StudioVar
   display: none;
 }
 
-@media (max-width: 720px) {
+@container studio-config (max-width: 600px) {
   .http-api-mobile-state {
     display: block;
     overflow-wrap: anywhere;

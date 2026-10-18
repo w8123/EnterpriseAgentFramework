@@ -39,8 +39,6 @@ class KnowledgeFileRetirementIT {
             assertEquals(List.of("file"),permissions.getAccessibleFileIds("测试用户"));
             f.deletion.deleteFileById("file");
             assertTrue(permissions.getAccessibleFileIds("测试用户").isEmpty());
-            assertNull(f.jdbc.queryForObject("SELECT chunk_id FROM knowledge_question",Long.class));
-            assertEquals("保留的问题正文",f.jdbc.queryForObject("SELECT question FROM knowledge_question",String.class));
             f.importFile("file", "重新创建后的正文");
             String current=f.jdbc.queryForObject("SELECT vector_id FROM knowledge_chunk",String.class);
             assertNotEquals(retired,current);
@@ -70,7 +68,6 @@ class KnowledgeFileRetirementIT {
             assertFalse(first.isImportPublished());
             assertEquals("替换前原始正文",f.jdbc.queryForObject("SELECT content FROM knowledge_chunk",String.class));
             assertEquals(1,f.jdbc.queryForObject("SELECT COUNT(*) FROM knowledge_user_file_permission",Integer.class));
-            assertNotNull(f.jdbc.queryForObject("SELECT chunk_id FROM knowledge_question",Long.class));
             f.tx.executeWithoutResult(status->f.metadata.process(first));
             assertTrue(first.isImportPublished());
             assertThrows(PipelineException.class,()->f.tx.executeWithoutResult(status->f.metadata.process(second)));
@@ -138,13 +135,13 @@ class KnowledgeFileRetirementIT {
         final DocumentIndexExecutionStore store;final KnowledgeFileDeletionService deletion;final MetadataPersistStep metadata;final KnowledgeIndexWriteService writer;
         Fixture(KnowledgePublicationMysqlDatabase source,String collection,MilvusServiceClient client,MilvusVectorService remote)throws Exception {
             this.collection=collection;this.client=client;this.remote=remote;jdbc=new JdbcTemplate(source);session=KnowledgeWriteLifecycleIT.session(source);
-            session.getConfiguration().addMapper(UserFilePermissionRepository.class);session.getConfiguration().addMapper(KnowledgeQuestionRepository.class);
+            session.getConfiguration().addMapper(UserFilePermissionRepository.class);
             manager=new DataSourceTransactionManager(source);tx=new TransactionTemplate(manager);store=KnowledgeIndexTestSupport.executions(session,manager);
             deletion=new KnowledgeFileDeletionService(session.getMapper(KnowledgeBaseRepository.class),session.getMapper(FileInfoRepository.class),session.getMapper(ChunkRepository.class),
                     session.getMapper(DocumentImportJobRepository.class),session.getMapper(DocumentIndexExecutionRepository.class),store,mock(DocumentArtifactStore.class),
-                    session.getMapper(UserFilePermissionRepository.class), new com.enterprise.ai.service.impl.KnowledgeQuestionService(session.getMapper(KnowledgeBaseRepository.class), session.getMapper(ChunkRepository.class), session.getMapper(KnowledgeQuestionRepository.class), manager),manager, org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeTagService.class));
+                    session.getMapper(UserFilePermissionRepository.class),manager);
             metadata=new MetadataPersistStep(session.getMapper(KnowledgeBaseRepository.class),session.getMapper(FileInfoRepository.class),session.getMapper(ChunkRepository.class),
-                    new ObjectMapper(),new DocumentImportPublicationGuard(session.getMapper(DocumentImportJobRepository.class),store,deletion, org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeFileReadAccessService.class)), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeTagService.class), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeQuestionService.class));
+                    new ObjectMapper(),new DocumentImportPublicationGuard(session.getMapper(DocumentImportJobRepository.class),store,deletion, org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeFileReadAccessService.class)));
             var embedding=mock(EmbeddingService.class);when(embedding.embedBatch(anyString(),anyList())).thenReturn(List.of(List.of(1f,0f)));
             writer=new KnowledgeIndexWriteService(new KnowledgeBaseLookup(session.getMapper(KnowledgeBaseRepository.class)),session.getMapper(FileInfoRepository.class),session.getMapper(ChunkRepository.class),
                     embedding,new VectorStoreStep(remote,store),metadata,store,manager);
@@ -154,7 +151,6 @@ class KnowledgeFileRetirementIT {
         void importFile(String file,String content) {var request=new KnowledgeImportRequest();request.setKnowledgeBaseCode("kb");request.setFileId(file);request.setFileName("文件退场测试.txt");request.setChunks(List.of(content));writer.importChunks(request);}
         void associations() {
             jdbc.update("INSERT INTO knowledge_user_file_permission(user_id,file_id) VALUES ('测试用户','file')");
-            jdbc.update("INSERT INTO knowledge_question(knowledge_base_id,chunk_id,question) SELECT 7,id,'保留的问题正文' FROM knowledge_chunk WHERE file_id='file'");
         }
         PipelineContext replacement(String job) {
             String lease=UUID.randomUUID().toString(),file="new-"+job;Long original=jdbc.queryForObject("SELECT id FROM knowledge_file_info WHERE file_id='file'",Long.class);

@@ -37,6 +37,10 @@ public class RuntimeWorkflowManagementService {
         return definitions.findById(workflowId).map(RuntimeWorkflowDefinitionView::fromEntity);
     }
 
+    public Optional<RuntimeWorkflowDefinitionView> findByKeySlug(String keySlug) {
+        return definitions.findByKeySlug(keySlug).map(RuntimeWorkflowDefinitionView::fromEntity);
+    }
+
     @Transactional
     public RuntimeWorkflowDefinitionView create(RuntimeWorkflowWriteCommand command) {
         requireCommand(command);

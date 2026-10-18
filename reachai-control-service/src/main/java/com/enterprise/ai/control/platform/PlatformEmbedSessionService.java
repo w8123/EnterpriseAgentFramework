@@ -51,6 +51,7 @@ public class PlatformEmbedSessionService {
         entity.setProjectCode(claims.getProjectCode());
         entity.setAgentId(claims.getAgentId());
         entity.setExternalUserId(claims.getExternalUserId());
+        entity.setExternalUserName(StringUtils.hasText(claims.getUserName()) ? claims.getUserName().trim() : null);
         entity.setGlobalUserId(claims.getGlobalUserId());
         entity.setPageKey(StringUtils.hasText(pageKey) ? pageKey : claims.getPageKey());
         entity.setPageInstanceId(pageInstanceId);

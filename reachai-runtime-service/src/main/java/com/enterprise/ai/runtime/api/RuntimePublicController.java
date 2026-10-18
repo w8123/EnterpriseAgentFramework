@@ -5,6 +5,7 @@ import com.enterprise.ai.runtime.route.RuntimeRouteEvaluationView;
 import com.enterprise.ai.runtime.execution.RuntimeAgentExecutionCancellation;
 import com.enterprise.ai.runtime.supervisor.RuntimeAgentExecutionService;
 import com.enterprise.ai.runtime.runops.RuntimeRunOpsQueryService;
+import com.enterprise.ai.runtime.runops.RuntimeSessionRunStatsView;
 import com.enterprise.ai.runtime.runops.RuntimeRunOpsReplayService;
 import com.enterprise.ai.runtime.runops.RuntimeRunOpsViews.RuntimeRunOpsComparisonView;
 import com.enterprise.ai.runtime.runops.RuntimeRunOpsViews.RuntimeRunOpsDiagnosticsView;
@@ -178,11 +179,19 @@ public class RuntimePublicController {
             @RequestParam(required = false) String entryType,
             @RequestParam(required = false) String agentId,
             @RequestParam(required = false) String userId,
+            @RequestParam(required = false) String sessionId,
             @RequestParam(required = false) String keyword,
             @RequestParam(defaultValue = "50") int limit,
             @RequestParam(defaultValue = "7") int days) {
         return ResponseEntity.ok(runOpsQueryService.recent(
-                projectCode, status, runType, entryType, agentId, userId, keyword, limit, days));
+                projectCode, status, runType, entryType, agentId, userId, sessionId, keyword, limit, days));
+    }
+
+    @GetMapping("/api/runops/sessions/stats")
+    public ResponseEntity<List<RuntimeSessionRunStatsView>> runOpsSessionStats(
+            @RequestParam List<String> sessionIds,
+            @RequestParam(defaultValue = "30") int days) {
+        return ResponseEntity.ok(runOpsQueryService.sessionStats(sessionIds, days));
     }
 
     @GetMapping("/api/runops/diagnostics")

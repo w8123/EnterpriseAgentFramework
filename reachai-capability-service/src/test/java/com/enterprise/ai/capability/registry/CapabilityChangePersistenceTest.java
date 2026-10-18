@@ -281,7 +281,9 @@ class CapabilityChangePersistenceTest {
         assertEquals(1, sent.get());
         tx.executeWithoutResult(status -> security.updateEmbedPolicy("orders", "binding-app", List.of("https://orders.test"), List.of(), 600));
         long policyRevision = security.findPrimaryActiveCredential("orders").orElseThrow().getRevision();
-        assertEquals(changed.getRevision() + 1, policyRevision);
+        assertEquals(changed.getRevision(), policyRevision, "embed policy edits must not invalidate published bindings");
+        execution.execute("orders:read", Map.of("constraints", constraints));
+        assertEquals(2, sent.get());
         tx.executeWithoutResult(status -> security.updateEmbedPolicy("orders", "binding-app", List.of("https://orders.test"), List.of(), 600));
         assertEquals(policyRevision, security.findPrimaryActiveCredential("orders").orElseThrow().getRevision());
         assertEquals(1L, methodAssetMapper.selectCount(null));

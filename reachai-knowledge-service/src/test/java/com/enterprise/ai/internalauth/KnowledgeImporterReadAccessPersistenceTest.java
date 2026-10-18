@@ -59,8 +59,7 @@ class KnowledgeImporterReadAccessPersistenceTest {
                 db.mapper(KnowledgeBaseRepository.class), db.mapper(FileInfoRepository.class), db.mapper(ChunkRepository.class), manager);
         metadata = new MetadataPersistStep(db.mapper(KnowledgeBaseRepository.class), db.mapper(FileInfoRepository.class),
                 db.mapper(ChunkRepository.class), new ObjectMapper(),
-                new DocumentImportPublicationGuard(jobs, store, mock(KnowledgeFileDeletionService.class), access),
-                mock(KnowledgeTagService.class), mock(KnowledgeQuestionService.class));
+                new DocumentImportPublicationGuard(jobs, store, mock(KnowledgeFileDeletionService.class), access));
         context = new PipelineContext(); context.setFileId("file"); context.setFileName("公开实验.txt");
         context.setKnowledgeBaseId(7L); context.setKnowledgeBaseCode("kb"); context.setVectorCollectionName("physical");
         context.setImportJobId("job"); context.setImportLeaseOwner("lease"); context.setChunks(List.of("青竹晨会实验"));

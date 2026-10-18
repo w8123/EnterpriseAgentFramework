@@ -18,11 +18,11 @@ public class KnowledgeRetrievalCoreRequest {
     private Float scoreThreshold;
     private String searchMode;
     private Boolean rerankEnabled;
-    private Boolean directReturnEnabled;
-    private Float directReturnThreshold;
     private Float vectorWeight;
     private Float keywordWeight;
     private Boolean recordHit;
+    /** RUNTIME / CONSOLE; written to knowledge_hit_log.source. */
+    private String hitSource;
     private String traceId;
     private String userId;
     private List<String> accessibleFileIds;

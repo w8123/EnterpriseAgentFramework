@@ -57,20 +57,25 @@ public class KnowledgeRetrievalInternalController {
     public ApiResult<RetrievalData> retrieve(@Valid @RequestBody RetrievalRequest request) {
         String userId = request.userId().trim();
 
-        int topK = request.topK() == null ? 5 : Math.max(1, Math.min(MAX_TOP_K, request.topK()));
-        String searchMode = normalizeSearchMode(request.searchMode());
-        boolean rerankEnabled = request.rerankEnabled() == null || Boolean.TRUE.equals(request.rerankEnabled());
+        // Unset node values fall back to the knowledge base's own retrieval settings inside the engine.
+        Integer requestedTopK = request.topK() == null ? null : Math.max(1, Math.min(MAX_TOP_K, request.topK()));
+        int topK = requestedTopK == null ? MAX_TOP_K : requestedTopK;
+        String requestedSearchMode = StringUtils.hasText(request.searchMode()) ? normalizeSearchMode(request.searchMode()) : null;
+        Boolean rerankEnabled = request.rerankEnabled();
 
         KnowledgeRetrievalCoreResponse response = knowledgeRetrievalCore.retrieve(KnowledgeRetrievalCoreRequest.builder()
                 .query(request.query().trim())
                 .knowledgeBaseCodes(request.knowledgeBaseCodes())
                 .userId(userId)
-                .topK(topK)
+                .topK(requestedTopK)
                 .scoreThreshold(request.similarityThreshold())
-                .searchMode(searchMode)
+                .searchMode(requestedSearchMode)
                 .rerankEnabled(rerankEnabled)
-                .recordHit(false)
+                .recordHit(true)
+                .hitSource("RUNTIME")
                 .build());
+        String searchMode = response != null && StringUtils.hasText(response.getSearchMode())
+                ? response.getSearchMode() : normalizeSearchMode(requestedSearchMode);
 
         List<KnowledgeRetrievalCoreResponse.RetrievalItem> items = response == null || response.getItems() == null
                 ? List.of()
@@ -106,7 +111,7 @@ public class KnowledgeRetrievalInternalController {
                 metadata.put("fileId", item.getFileId());
             }
             metadata.put("searchMode", searchMode);
-            metadata.put("rerankApplied", rerankEnabled && item.getRerankScore() != null);
+            metadata.put("rerankApplied", !Boolean.FALSE.equals(rerankEnabled) && item.getRerankScore() != null);
             hits.add(new RetrievalHit(
                     item.getChunkId(),
                     item.getChunkId(),

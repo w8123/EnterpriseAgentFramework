@@ -27,15 +27,15 @@ public class RetrievalTestRequest {
 
     private Boolean rerankEnabled;
 
-    private Boolean directReturnEnabled;
-
-    private Float directReturnThreshold;
-
     private Float vectorWeight;
 
     private Float keywordWeight;
 
     private Boolean recordHit;
+
+    /** Hit log source set by the server (RUNTIME / CONSOLE); never accepted from an HTTP request. */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private String hitSource;
 
     private String traceId;
 

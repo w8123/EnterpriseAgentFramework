@@ -53,12 +53,16 @@ public class DefaultKnowledgeRetrievalEngine implements KnowledgeRetrievalEngine
     @Override
     public RetrievalTestResponse execute(RetrievalTestRequest request) {
         long start = System.currentTimeMillis();
-        int topK = request.getTopK() != null ? request.getTopK() : defaultTopK;
-        float threshold = request.getScoreThreshold() != null ? request.getScoreThreshold() : defaultScoreThreshold;
-        String searchMode = normalizeSearchMode(request.getSearchMode(), "hybrid");
         Set<String> allowedFiles = request.getAccessibleFileIds() == null ? null : new HashSet<>(request.getAccessibleFileIds());
+        var accessSnapshot = request.getAccessSnapshot();
 
         List<KnowledgeBase> knowledgeBases = knowledgeBaseLookup.resolveActive(request.getKnowledgeBaseCodes());
+        // Values the caller left empty come from the knowledge base's own retrieval settings.
+        int topK = request.getTopK() != null ? request.getTopK()
+                : knowledgeBases.stream().map(KnowledgeBase::getTopK).filter(java.util.Objects::nonNull)
+                        .max(Integer::compare).orElse(defaultTopK);
+        String searchMode = normalizeSearchMode(request.getSearchMode(),
+                knowledgeBases.size() == 1 ? normalizeSearchMode(knowledgeBases.get(0).getSearchMode(), "hybrid") : "hybrid");
 
         List<RetrievalTestResponse.RetrievalItem> allItems = new ArrayList<>();
         int vectorRawCandidateCount = 0;
@@ -68,15 +72,21 @@ public class DefaultKnowledgeRetrievalEngine implements KnowledgeRetrievalEngine
         int failedKnowledgeBaseCount = 0;
         long retrievalStageStartedAt = System.currentTimeMillis();
         for (KnowledgeBase kb : knowledgeBases) {
+            float threshold = request.getScoreThreshold() != null ? request.getScoreThreshold()
+                    : valueOrDefault(kb.getSimilarityThreshold(), defaultScoreThreshold);
+            int kbTopK = request.getTopK() != null ? request.getTopK() : (kb.getTopK() != null ? kb.getTopK() : topK);
+            // ALL_CALLERS bases are readable by any trusted caller; FILE_GRANTS bases keep the per-file filter.
+            boolean openBase = accessSnapshot != null && accessSnapshot.isOpen(kb.getId());
+            Set<String> kbAllowedFiles = openBase ? null : allowedFiles;
             try {
                 if (!"keyword".equals(searchMode)) {
                     List<Float> queryVector = embeddingService.embed(requireEmbeddingModelInstanceId(kb), request.getQuery());
                     VectorSearchRequest.VectorSearchRequestBuilder searchBuilder = VectorSearchRequest.builder()
                             .collectionName(requireVectorCollectionName(kb))
                             .queryVector(queryVector)
-                            .topK(topK)
+                            .topK(kbTopK)
                             .outputFields(List.of("id", "file_id", "content"));
-                    if (StringUtils.hasText(request.getFileIdFilterExpression())) {
+                    if (!openBase && StringUtils.hasText(request.getFileIdFilterExpression())) {
                         searchBuilder.filterExpression(request.getFileIdFilterExpression());
                     }
                     List<VectorSearchResult> results = vectorService.search(searchBuilder.build());
@@ -91,7 +101,7 @@ public class DefaultKnowledgeRetrievalEngine implements KnowledgeRetrievalEngine
                             if (chunk == null || (chunk.getEnabled() != null && chunk.getEnabled() == 0)) {
                                 continue;
                             }
-                            if (allowedFiles != null && !allowedFiles.contains(chunk.getFileId())) continue;
+                            if (kbAllowedFiles != null && !kbAllowedFiles.contains(chunk.getFileId())) continue;
                             RetrievalTestResponse.RetrievalItem item = buildRetrievalItem(kb, chunk);
                             item.setVectorScore(sr.getScore());
                             item.setScore(sr.getScore());
@@ -102,14 +112,14 @@ public class DefaultKnowledgeRetrievalEngine implements KnowledgeRetrievalEngine
                     }
                 }
                 if (!"vector".equals(searchMode)) {
-                    List<Chunk> keywordCandidates = keywordSearch(kb.getId(), request.getQuery(), topK * 3);
+                    List<Chunk> keywordCandidates = keywordSearch(kb.getId(), request.getQuery(), kbTopK * 3);
                     if (keywordCandidates == null) {
                         keywordCandidates = List.of();
                     }
                     keywordRawCandidateCount += keywordCandidates.size();
                     for (Chunk chunk : keywordCandidates) {
-                        if (allowedFiles != null
-                                && (chunk.getFileId() == null || !allowedFiles.contains(String.valueOf(chunk.getFileId())))) {
+                        if (kbAllowedFiles != null
+                                && (chunk.getFileId() == null || !kbAllowedFiles.contains(String.valueOf(chunk.getFileId())))) {
                             continue;
                         }
                         float keywordScore = keywordScore(request.getQuery(), chunk.getContent());
@@ -181,16 +191,11 @@ public class DefaultKnowledgeRetrievalEngine implements KnowledgeRetrievalEngine
         topItems = authorization.retain(request.getAccessSnapshot(), topItems);
         if (Boolean.TRUE.equals(request.getRecordHit())) {
             if (topItems.isEmpty()) {
-                recordMisses(request, knowledgeBases);
+                recordMisses(request, knowledgeBases, searchMode);
             } else {
-                recordHits(request, topItems);
+                recordHits(request, topItems, searchMode);
             }
         }
-        RetrievalTestResponse.RetrievalItem direct = topItems.stream()
-                .filter(item -> Boolean.TRUE.equals(item.getDirectReturn()))
-                .findFirst()
-                .orElse(null);
-
         long costMs = System.currentTimeMillis() - start;
         Map<String, Object> diagnostics = new LinkedHashMap<>();
         diagnostics.put("knowledgeBaseCount", knowledgeBases.size());
@@ -216,8 +221,6 @@ public class DefaultKnowledgeRetrievalEngine implements KnowledgeRetrievalEngine
                 .searchMode(searchMode)
                 .totalResults(topItems.size())
                 .costMs(costMs)
-                .directReturn(direct != null)
-                .directReturnContent(direct != null ? direct.getContent() : null)
                 .items(topItems)
                 .diagnostics(diagnostics)
                 .build();
@@ -327,7 +330,6 @@ public class DefaultKnowledgeRetrievalEngine implements KnowledgeRetrievalEngine
         }
         item.setScore(score);
         item.setReason(reasonFor(item, searchMode, useRerank));
-        item.setDirectReturn(isDirectReturn(request, kb, score));
     }
 
     private String reasonFor(RetrievalTestResponse.RetrievalItem item, String searchMode, boolean useRerank) {
@@ -340,35 +342,23 @@ public class DefaultKnowledgeRetrievalEngine implements KnowledgeRetrievalEngine
         return score == null ? "0.000" : String.format(Locale.ROOT, "%.3f", score);
     }
 
-    private boolean isDirectReturn(RetrievalTestRequest request, KnowledgeBase kb, float score) {
-        boolean enabled = request.getDirectReturnEnabled() != null
-                ? request.getDirectReturnEnabled()
-                : kb == null || Boolean.TRUE.equals(kb.getDirectReturnEnabled());
-        float threshold = request.getDirectReturnThreshold() != null
-                ? request.getDirectReturnThreshold()
-                : (kb != null ? valueOrDefault(kb.getDirectReturnThreshold(), 0.9f) : 0.9f);
-        return enabled && score >= threshold;
-    }
-
-    private void recordHits(RetrievalTestRequest request, List<RetrievalTestResponse.RetrievalItem> items) {
+    private void recordHits(RetrievalTestRequest request, List<RetrievalTestResponse.RetrievalItem> items, String searchMode) {
         for (RetrievalTestResponse.RetrievalItem item : items) {
             if (item.getChunkDbId() == null) {
                 continue;
             }
-            Chunk chunk = chunkRepository.selectById(item.getChunkDbId());
             KnowledgeBase kb = knowledgeBaseLookup.requireByCode(item.getKnowledgeBaseCode());
-            if (chunk != null) {
-                chunk.setHitCount((chunk.getHitCount() != null ? chunk.getHitCount() : 0) + 1);
-                chunkRepository.updateById(chunk);
-                item.setHitCount(chunk.getHitCount());
+            // Increment in place: never write a previously read chunk row (vector reference) back.
+            if (chunkRepository.incrementHitCount(item.getChunkDbId()) == 1) {
+                item.setHitCount((item.getHitCount() != null ? item.getHitCount() : 0) + 1);
             }
             KnowledgeHitLog log = new KnowledgeHitLog();
             log.setKnowledgeBaseId(kb.getId());
             log.setChunkId(item.getChunkDbId());
             log.setQueryText(request.getQuery());
-            log.setSearchMode(request.getSearchMode());
+            log.setSearchMode(searchMode);
             log.setScore(item.getScore());
-            log.setDirectReturn(Boolean.TRUE.equals(item.getDirectReturn()) ? 1 : 0);
+            log.setSource(hitSource(request));
             log.setTraceId(request.getTraceId());
             log.setUserId(request.getUserId());
             knowledgeHitLogRepository.insert(log);
@@ -420,14 +410,18 @@ public class DefaultKnowledgeRetrievalEngine implements KnowledgeRetrievalEngine
         });
     }
 
-    private void recordMisses(RetrievalTestRequest request, List<KnowledgeBase> knowledgeBases) {
+    private static String hitSource(RetrievalTestRequest request) {
+        return StringUtils.hasText(request.getHitSource()) ? request.getHitSource() : "CONSOLE";
+    }
+
+    private void recordMisses(RetrievalTestRequest request, List<KnowledgeBase> knowledgeBases, String searchMode) {
         for (KnowledgeBase kb : knowledgeBases) {
             KnowledgeHitLog log = new KnowledgeHitLog();
             log.setKnowledgeBaseId(kb.getId());
             log.setQueryText(request.getQuery());
-            log.setSearchMode(request.getSearchMode());
+            log.setSearchMode(searchMode);
             log.setScore(0f);
-            log.setDirectReturn(0);
+            log.setSource(hitSource(request));
             log.setTraceId(request.getTraceId());
             log.setUserId(request.getUserId());
             knowledgeHitLogRepository.insert(log);

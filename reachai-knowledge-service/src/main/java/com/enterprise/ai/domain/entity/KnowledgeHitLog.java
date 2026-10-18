@@ -26,7 +26,8 @@ public class KnowledgeHitLog {
 
     private Float score;
 
-    private Integer directReturn;
+    /** RUNTIME（真实对话）/ CONSOLE（管理端检索测试）。 */
+    private String source;
 
     private String traceId;
 

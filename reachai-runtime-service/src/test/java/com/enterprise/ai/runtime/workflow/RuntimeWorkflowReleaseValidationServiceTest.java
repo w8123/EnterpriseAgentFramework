@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 import java.util.Map;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
@@ -52,6 +53,36 @@ class RuntimeWorkflowReleaseValidationServiceTest {
 
         assertFalse(result.valid());
         assertTrue(hasError(result, "GRAPH_ENTRY_MISSING"));
+    }
+
+    @Test
+    void edgeConditionTheEngineIgnoresIsRejected() {
+        RuntimeWorkflowReleaseValidationService service = service(mock(RuntimeControlCatalogClient.class));
+        RuntimeWorkflowDefinitionEntity workflow = workflow("""
+                {
+                  "schemaVersion":2,
+                  "nodes":[
+                    {"id":"tpl","type":"TEMPLATE","config":{"template":"hi"}},
+                    {"id":"ok","type":"ANSWER","config":{"template":"ok"}},
+                    {"id":"oops","type":"ANSWER","config":{"template":"oops"}},
+                    {"id":"weird","type":"ANSWER","config":{"template":"weird"}}
+                  ],
+                  "edges":[
+                    {"from":"tpl","to":"ok","condition":"not_empty"},
+                    {"from":"tpl","to":"oops","condition":"error"},
+                    {"from":"tpl","to":"weird","condition":"contains"}
+                  ],
+                  "entryNodeId":"tpl",
+                  "exitNodeIds":["ok","oops","weird"]
+                }
+                """);
+
+        RuntimeWorkflowReleaseValidationResult result = service.validate(workflow);
+
+        assertTrue(hasError(result, "GRAPH_EDGE_CONDITION_UNSUPPORTED"));
+        assertEquals(1, result.errors().stream()
+                .filter(issue -> "GRAPH_EDGE_CONDITION_UNSUPPORTED".equals(issue.code()))
+                .count());
     }
 
     @Test

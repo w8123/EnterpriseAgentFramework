@@ -2,6 +2,10 @@
 
 ## 当前基线
 
+2026-10-18 知识模块整理（[知识模块整理方案](../docs/plans/知识模块整理方案.md)）：`knowledge_base` 新增 `access_mode`（谁能检索：`ALL_CALLERS` 所有调用方 / `FILE_GRANTS` 仅逐文件授权用户），已有知识库设为 `ALL_CALLERS`，执行后调用该 Agent 的所有用户都能在对话中查到知识库内容；删除从未生效的「直接返回」列 `direct_return_enabled`、`direct_return_threshold`；`knowledge_hit_log` 用 `source`（`RUNTIME` 真实对话 / `CONSOLE` 检索测试）替换 `direct_return`，并加索引 `idx_kb_source_time`；删除检索从不读取的标签表 `knowledge_tag` 和问题映射表 `knowledge_question`（线上为空表）。新库基线已包含；已有开发/测试库备份 reach_ai 后执行 [升级脚本](./upgrade-20261018-knowledge-cleanup.sql)，可重复执行，执行后紧接着部署新版 Knowledge。
+
+2026-10-17 运行中心清理（[运行中心整理方案](../docs/plans/运行中心整理方案.md) C4）：删除旧版评测 v1 的 `runtime_agent_eval_dataset`、`runtime_agent_eval_case`、`runtime_agent_eval_run`、`runtime_agent_eval_case_result` 四张表（旧数据丢弃，管理端只用 EvalOps v2 `runtime_eval_*`），`runtime_run` 新增 `idx_runtime_run_session_time (session_id, started_at)` 供运行中心「对话」按会话查询；`control_embed_session` 新增可空列 `external_user_name`（业务用户显示名）；补建线上缺失的自动化表 `runtime_automation`、`runtime_automation_attempt`、`runtime_automation_event`、`runtime_automation_engine_command`（`IF NOT EXISTS`）。新库基线已包含；已有开发/测试库备份 reach_ai 后执行 [升级脚本](./upgrade-20261017-run-center-cleanup.sql)，可重复执行，需在部署读取 `external_user_name` 的新版 Control 之前执行。
+
 2026-10-17 平台角色收口（[人员角色与权限重设计方案](../docs/plans/人员角色与权限重设计方案.md) R1）：内置角色改为平台管理员 `PLATFORM_ADMIN`、开发人员 `DEVELOPER`、运营人员 `OPERATOR`、审计员 `AUDITOR`。`AGENT_DESIGNER` 的账号绑定迁到 `OPERATOR`，`PROJECT_OWNER` 迁到 `OPERATOR` + `DEVELOPER`（保留原授权范围）后删除这两个角色；原 `OPERATOR`（运维操作员）就地改为运营人员，权限扩大。新增 `knowledge:*`、`model:*`、`tool-acl:*`、`embed:*` 权限码，知识库、模型、调用权限和嵌入配置不再由 `platform:read/write` 放行；删除无代码使用的 `workspace:*` 和 `context:runtime-user:review`。四个内置角色权限整体重置，自定义角色若需要知识库、模型等功能须重新勾选。不改表结构。新库基线已包含；已有开发/测试库备份四张平台角色表后执行 [升级脚本](./upgrade-20261017-platform-roles-redesign.sql)，可重复执行，需在部署新版 Control 之前执行，执行后用户重新登录生效。
 
 2026-10-17 业务索引回源改名（[记忆模块重设计方案](../docs/plans/记忆模块重设计方案.md) M4）：`knowledge_business_index.agent_memory_enabled` 改名为 `agent_reference_enabled`，索引 `idx_biz_agent_memory` 改名为 `idx_biz_agent_reference`，数据保留。新库基线已包含；已有开发/测试库执行 [升级脚本](./upgrade-20261017-business-index-reference-naming.sql)，可重复执行，需在部署新版 Knowledge 之前执行。
@@ -196,7 +200,7 @@ Workflow 恢复期限需要 [恢复期限升级](./upgrade-20260906-workflow-res
 - Context Governance 相关表。
 - Runtime 企业会话状态目录、完整会话事件账本、租户保留策略和无正文生命周期审计：`runtime_conversation_session`、`runtime_conversation_event`、`runtime_session_retention_policy`、`runtime_session_retention_audit`；AgentScope 状态正文仍由 JSON（开发）或 Redis（生产）保存。
 - Runtime 上下文工程短期工件：`runtime_tool_result_artifact` 只保存作用域摘要与 AES-GCM 密文，过期或清空会话后擦除，不作为个人长期记忆。
-- EvalOps：服务端目标快照、不可变数据集/评分器版本、基线与候选实验、逐项 Score，以及 MySQL 5.7 兼容的可恢复任务租约。旧 `runtime_agent_eval_*` 只保留兼容入口。
+- EvalOps：服务端目标快照、不可变数据集/评分器版本、基线与候选实验、逐项 Score，以及 MySQL 5.7 兼容的可恢复任务租约。旧 `runtime_agent_eval_*` 已于 2026-10-17 删除。
 - Managed Executor：Runtime-owned execution、严格顺序事件、对象存储 Artifact 元数据与 durable outbox；Worker 只持有单 execution 短期 token，不获得共享服务 Secret 或数据库账号。
 - 个人长期记忆使用 Control 自有 `control_personal_memory*` 表；`control_personal_memory_outbox` 将变更可靠投影到 Knowledge-owned `knowledge_personal_memory_index` 和幂等事件账本。Knowledge 可异步生成版本化 float32 embedding，并在 owner 配额边界内执行精确向量/混合排序；该投影仍不是事实源。
 - 企业擦除使用 Control-owned `control_memory_erasure_request` / `control_memory_erasure_domain` 持久协调九个责任域。五个自动域完成后擦除 raw Runtime user，四个人工域必须提交外部证据；Legal Hold 和 `RETAINED_LEGAL` 保持显式，不能把部分成功报告为全部删除。

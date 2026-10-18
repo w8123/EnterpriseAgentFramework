@@ -993,6 +993,23 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
         return messages;
     }
 
+    /**
+     * The platform, not the model, saves personal memory after the turn. Tell the model what this
+     * Agent's policy allows so it never confirms a "remember this" request that will not be saved.
+     */
+    static String personalMemoryInstruction(RuntimeAgentMemoryPolicy policy) {
+        RuntimeAgentMemoryPolicy effective = policy == null ? RuntimeAgentMemoryPolicy.DEFAULT : policy;
+        if (RuntimeAgentMemoryPolicy.WRITE_OFF.equals(effective.personalMemoryWrite())) {
+            return "Personal memory saving is disabled for this Agent. If the user asks you to remember something "
+                    + "for later conversations, do not claim it was saved; say that this assistant cannot keep personal "
+                    + "memories and that an administrator can enable it in the Agent memory settings. "
+                    + "You may still use it within the current conversation.\n";
+        }
+        return "When the user explicitly asks you to remember something (for example 请记住…), the platform saves it "
+                + "to the user's personal memory after this reply; confirm briefly and mention that it can be viewed or "
+                + "deleted in 我的记忆.\n";
+    }
+
     private String systemPrompt(SupervisorRequest request, List<RuntimeResolvedWorkflowTarget> targets, RunState state) {
         RuntimeAgentConfigSnapshot config = request.config();
         StringBuilder prompt = new StringBuilder();
@@ -1014,6 +1031,8 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                 .append("A non-read-only Workflow or A2A delegation is never automatically retryable after failure because its side-effect outcome may be ambiguous. Never include that same tool in a revised plan; explain the outcome or use a different safe read-only tool.\n")
                 .append("Use page navigation or page actions for page requests. A request for data, counts, filters, visible rows, or details belonging to the current page is a page request even when the user does not explicitly say open, navigate, or operate; natural-language phrases such as 查、查询、统计、多少、哪些、筛选 are sufficient. If a matching page Workflow is permitted, use it instead of refusing the request. Only prefer an API/data Workflow for a page-independent factual query when such an API/data Workflow is actually permitted; never refuse solely because the user did not describe the internal page action.\n")
                 .append("Never invent tool results. If required arguments are missing, ask one concise clarification question.\n")
+                .append("Check that the records a tool returned are about the exact thing the user asked for (product, customer, order, name). If they are about something else, or the tool found nothing, say plainly that no matching record was found and name what the user asked for; never present a different item as the answer.\n")
+                .append(personalMemoryInstruction(RuntimeAgentMemoryPolicy.of(config)))
                 .append("A2A tools are governed delegations, not local Workflows. Use only a declared protocol AgentSkill. Never invent contextId or taskId: send them only when an earlier A2A tool result supplied those exact ReachAI ids for continuation. WORKING, INPUT_REQUIRED, and AUTH_REQUIRED are not completed results; report the state and required next action accurately.\n")
                 .append("Workflow tool results may include resultSummary.pageAction. Treat that as verified evidence: when empty=true or total=0, explicitly say that no matching records were found; when total is present, use that count. When userConfirmed=true, the end user accepted ReachAI's confirmation before execution, so never claim that confirmation was skipped. Never claim that matching records are displayed when the verified result is empty. If outcomeClass=BUSINESS_TERMINAL, explain the supplied message or businessOutcome plainly and never claim that the requested page operation completed.\n")
                 .append("After execution tools (or when a planned path needs a gated final answer), call begin_final_answer exactly once, then produce the final plain-text answer. ")

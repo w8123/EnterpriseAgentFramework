@@ -47,11 +47,10 @@ class DocumentArtifactLifecycleTest {
     @BeforeEach
     void setUp() throws Exception {
         db = new KnowledgeQueryTestDatabase(List.of("knowledge_base", "knowledge_file_info", "knowledge_chunk",
-                "knowledge_document_import_job", "knowledge_document_index_execution", "knowledge_user_file_permission",
-                "knowledge_question", "knowledge_document_artifact_lifecycle"),
+                "knowledge_document_import_job", "knowledge_document_index_execution", "knowledge_user_file_permission", "knowledge_document_artifact_lifecycle"),
                 KnowledgeBaseRepository.class, FileInfoRepository.class, ChunkRepository.class,
                 DocumentImportJobRepository.class, DocumentIndexExecutionRepository.class,
-                UserFilePermissionRepository.class, KnowledgeQuestionRepository.class, DocumentArtifactLifecycleRepository.class);
+                UserFilePermissionRepository.class, DocumentArtifactLifecycleRepository.class);
         manager = new DataSourceTransactionManager(db.jdbc().getDataSource());
         var kb = new KnowledgeBase();
         kb.setId(7L); kb.setCode("kb"); kb.setName("工件生命周期验证");
@@ -358,7 +357,7 @@ class DocumentArtifactLifecycleTest {
         return new KnowledgeFileDeletionService(db.mapper(KnowledgeBaseRepository.class), db.mapper(FileInfoRepository.class),
                 db.mapper(ChunkRepository.class), db.mapper(DocumentImportJobRepository.class),
                 db.mapper(DocumentIndexExecutionRepository.class), mock(DocumentIndexExecutionStore.class), store,
-                db.mapper(UserFilePermissionRepository.class), new com.enterprise.ai.service.impl.KnowledgeQuestionService(db.mapper(KnowledgeBaseRepository.class), db.mapper(ChunkRepository.class), db.mapper(KnowledgeQuestionRepository.class), manager), manager, org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeTagService.class));
+                db.mapper(UserFilePermissionRepository.class), manager);
     }
 
     private DocumentArtifactLifecycleStore journal() {

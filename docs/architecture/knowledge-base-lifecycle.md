@@ -4,15 +4,15 @@ S3 未完成分片的回收由 [MinioDocumentArtifactStore](../../reachai-knowle
 
 知识库的创建、删除、目录编辑和配置更新归属 [KnowledgeBaseLifecycleService](../../reachai-knowledge-service/src/main/java/com/enterprise/ai/service/impl/KnowledgeBaseLifecycleService.java)。[KnowledgeServiceImpl](../../reachai-knowledge-service/src/main/java/com/enterprise/ai/service/impl/KnowledgeServiceImpl.java) 作为应用入口转交这些命令，不再直接依赖 KnowledgeBaseRepository 或维护第二份配置写入逻辑。
 
-目录编辑只写请求提供的名称、描述、模型、归属及检索选项；配置更新只写提供的切分与检索选项。两个入口共用检索选项的赋值规则和既有模型校验，省略的字段保持原值，false 和 0 仍是有效设置。可空字段沿用 MyBatis 的非 null 更新语义，此整理没有把省略字段解释为清空命令。
+目录编辑只写请求提供的名称、描述、模型、归属及检索选项；配置更新只写提供的切分、谁能检索（`access_mode`）与检索选项。两个入口共用检索选项的赋值规则和既有模型校验，省略的字段保持原值，false 和 0 仍是有效设置。可空字段沿用 MyBatis 的非 null 更新语义，此整理没有把省略字段解释为清空命令。
 
 每次更新在短事务中读取原知识库，写入时同时匹配行 ID、业务编码和不可复用的物理集合身份。只提交本命令的字段，不把读取快照整行写回。并发修改未涉及的字段得以保留；目标已删除或已变为另一代知识库时返回冲突。相同字段的合法并发修改仍按数据库提交顺序生效，此规则不提供编辑版本号或人工合并功能。
 
-创建继续通过集合生命周期存储登记外部创建和补偿依据，向量服务调用在元数据事务外；删除继续按知识库、文件和集合既有顺序退休资源。导入、重新向量化、检索、标签、问题与运营查询仍各自使用已经建立的负责人组件。该边界不改变同库阶段的表所有权，也没有新增 schema。
+创建继续通过集合生命周期存储登记外部创建和补偿依据，向量服务调用在元数据事务外；删除继续按知识库、文件和集合既有顺序退休资源。导入、重新向量化、检索与运营查询仍各自使用已经建立的负责人组件（标签与问题映射已于 2026-10-18 删除）。该边界不改变同库阶段的表所有权，也没有新增 schema。
 
 反例、数据库验证和运行环境证据见 [知识库命令整理记录](../../output/tasks/architecture-audit-20260905/knowledge-base-commands-notes.md)。
 
-文件名称补充、文件列表、片段列表和标签筛选由 [KnowledgeContentQuery](../../reachai-knowledge-service/src/main/java/com/enterprise/ai/service/impl/KnowledgeContentQuery.java) 负责。片段排序、关键词匹配、启用筛选、标签数值 ID 解释和 1–500 条限制沿用原规则；查询不触发索引写入。人工标题／正文／启停修改由 [KnowledgeChunkEditingService](../../reachai-knowledge-service/src/main/java/com/enterprise/ai/service/impl/KnowledgeChunkEditingService.java) 负责，继续在事务中只更新指定字段，并匹配原片段的知识库与文件归属。空修改保留原行，空白正文拒绝；启停沿用 0 为禁用、其他值为启用。
+文件名称补充、文件列表和片段列表由 [KnowledgeContentQuery](../../reachai-knowledge-service/src/main/java/com/enterprise/ai/service/impl/KnowledgeContentQuery.java) 负责。片段排序、关键词匹配、启用筛选和 1–500 条限制沿用原规则；查询不触发索引写入。人工标题／正文／启停修改由 [KnowledgeChunkEditingService](../../reachai-knowledge-service/src/main/java/com/enterprise/ai/service/impl/KnowledgeChunkEditingService.java) 负责，继续在事务中只更新指定字段，并匹配原片段的知识库与文件归属。空修改保留原行，空白正文拒绝；启停沿用 0 为禁用、其他值为启用。
 
 导入和重新向量化仍归索引写入组件，人工编辑不得把读取时的向量引用、统计或其他无关字段整行写回。门面保留事务入口并转交命令；查询与编辑组件共用现有片段视图映射，没有新增表或另一套索引生命周期。方法体保留证据、回归和部署读取见 [内容管理整理记录](../../output/tasks/architecture-audit-20260905/knowledge-content-management-notes.md)。
 

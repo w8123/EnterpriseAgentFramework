@@ -8,6 +8,7 @@ import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import org.junit.jupiter.api.Test;
+import org.springframework.web.server.ResponseStatusException;
 import org.mockito.ArgumentCaptor;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -20,14 +21,24 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class PlatformEmbedCatalogControllerTest {
+
+    private static final PlatformEmbedTokenService TOKEN_SERVICE = tokenService();
+
+    private static PlatformEmbedTokenService tokenService() {
+        PlatformEmbedTokenProperties properties = new PlatformEmbedTokenProperties();
+        properties.setSecret("test-embed-token-secret");
+        return new PlatformEmbedTokenService(new ObjectMapper(), properties);
+    }
 
     @Test
     void exposesPublicPageCatalogReadRoutesFromControl() throws Exception {
@@ -160,12 +171,12 @@ class PlatformEmbedCatalogControllerTest {
                         List.of(),
                         "ACTIVE"));
         var sdk = fixture.controller.registerPageCatalog(
-                "bzjs12",
+                bearer("bzjs12", "contract-list", "http://localhost:5173"),
                 new PlatformEmbedCatalogController.PageCatalogRegisterPayload(
                         "contract-list",
                         "Contract List",
                         "/contracts",
-                        "http://localhost:5173",
+                        "https://forged.example.com",
                         "page-instance-1",
                         true,
                         List.of(),
@@ -187,9 +198,9 @@ class PlatformEmbedCatalogControllerTest {
         when(fixture.sessionMapper.selectOne(any())).thenReturn(null);
 
         fixture.controller.registerPageCatalog(
-                "mall",
+                bearer("mall", "mall.oms.order", "http://localhost:5174"),
                 new PlatformEmbedCatalogController.PageCatalogRegisterPayload(
-                        "mall.oms.order", "订单列表", "/oms/order", "http://localhost:5174",
+                        "mall.oms.order", "订单列表", "/oms/order", "https://forged.example.com",
                         "page-1", true, List.of(), Map.of()));
 
         ArgumentCaptor<PageReport> reportCaptor = ArgumentCaptor.forClass(PageReport.class);
@@ -198,6 +209,41 @@ class PlatformEmbedCatalogControllerTest {
         assertEquals(
                 "http://localhost:5174/oms/order",
                 reportCaptor.getValue().businessPageUrl());
+    }
+
+    @Test
+    void sdkRegistrationRejectsMissingTokenAndForeignPage() {
+        Fixture fixture = fixture();
+        var payload = new PlatformEmbedCatalogController.PageCatalogRegisterPayload(
+                "mall.oms.order", "订单列表", "/oms/order", null, "page-1", true, List.of(), Map.of());
+
+        ResponseStatusException anonymous = assertThrows(ResponseStatusException.class,
+                () -> fixture.controller.registerPageCatalog(null, payload));
+        ResponseStatusException forged = assertThrows(ResponseStatusException.class,
+                () -> fixture.controller.registerPageCatalog("Bearer not-a-token", payload));
+        ResponseStatusException otherPage = assertThrows(ResponseStatusException.class,
+                () -> fixture.controller.registerPageCatalog(
+                        bearer("mall", "mall.oms.refund", "http://localhost:5174"), payload));
+
+        assertEquals(401, anonymous.getStatusCode().value());
+        assertEquals(401, forged.getStatusCode().value());
+        assertEquals(403, otherPage.getStatusCode().value());
+        verifyNoInteractions(fixture.pageCatalog);
+    }
+
+    private static String bearer(String projectCode, String pageKey, String origin) {
+        return "Bearer " + TOKEN_SERVICE.issue(PlatformEmbedTokenIssueCommand.builder()
+                .tenantId("default")
+                .appId(projectCode)
+                .projectCode(projectCode)
+                .agentId("agent-1")
+                .pageKey(pageKey)
+                .pageInstanceId("page-1")
+                .route("/")
+                .origin(origin)
+                .principal(new PlatformEmbedTokenIssueCommand.BusinessPrincipal(
+                        "u-1", "u-1", "User", List.of(), Map.of()))
+                .build()).token();
     }
 
     @Test
@@ -249,7 +295,8 @@ class PlatformEmbedCatalogControllerTest {
                 eventMapper,
                 chatMapper,
                 rendererMapper,
-                new ObjectMapper());
+                new ObjectMapper(),
+                TOKEN_SERVICE);
         return new Fixture(
                 controller,
                 pageCatalog,

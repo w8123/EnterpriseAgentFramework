@@ -141,4 +141,36 @@ class RuntimeEvalDatasetServiceTest {
 
         assertTrue(error.getMessage().contains("not attributable to an Agent"));
     }
+
+    @Test
+    void traceCasesNeedTheRealQuestionInsteadOfTheSanitizedInputSummary() {
+        RuntimeEvalDatasetMapper datasetMapper = mock(RuntimeEvalDatasetMapper.class);
+        RuntimeEvalDatasetItemMapper itemMapper = mock(RuntimeEvalDatasetItemMapper.class);
+        RuntimeRunOpsQueryService runOps = mock(RuntimeRunOpsQueryService.class);
+        RuntimeEvalDatasetService service = new RuntimeEvalDatasetService(
+                datasetMapper,
+                mock(RuntimeEvalDatasetVersionMapper.class),
+                itemMapper,
+                mock(RuntimeAgentIdentityQuery.class),
+                runOps,
+                new RuntimeEvalJsonSupport(new ObjectMapper()));
+        RuntimeEvalDatasetEntity dataset = new RuntimeEvalDatasetEntity();
+        dataset.setId(1L);
+        dataset.setTargetId("agent-1");
+        dataset.setStatus("ACTIVE");
+        dataset.setCurrentVersionId(10L);
+        when(datasetMapper.selectByIdForUpdate(1L)).thenReturn(dataset);
+        RuntimeRunOpsDetailView detail = mock(RuntimeRunOpsDetailView.class);
+        RuntimeRunOpsSummaryView summary = mock(RuntimeRunOpsSummaryView.class);
+        when(detail.summary()).thenReturn(summary);
+        when(summary.agentId()).thenReturn("agent-1");
+        when(summary.inputSummary()).thenReturn("{\"inputType\":\"message\",\"hasMessage\":true}");
+        when(runOps.detail("trace-1")).thenReturn(detail);
+        when(itemMapper.selectList(org.mockito.ArgumentMatchers.any())).thenReturn(List.of());
+
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> service.createVersionFromTrace(1L, Map.of("traceId", "trace-1")));
+
+        assertTrue(error.getMessage().contains("message is required"));
+    }
 }

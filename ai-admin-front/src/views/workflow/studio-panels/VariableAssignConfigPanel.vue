@@ -190,7 +190,7 @@ function removeAssignment(index: number) {
   white-space: normal;
   overflow-wrap: anywhere;
 }
-@media (max-width: 760px) {
+@container studio-config (max-width: 640px) {
   .assign-row {
     grid-template-columns: minmax(0, 1fr);
   }

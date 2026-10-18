@@ -1,6 +1,7 @@
 package com.enterprise.ai.runtime.eval;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.core.env.Environment;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -20,6 +21,15 @@ public class RuntimeEvalOpsController {
     private final RuntimeEvalDatasetService datasetService;
     private final RuntimeEvalEvaluatorSuiteService suiteService;
     private final RuntimeEvalExperimentService experimentService;
+    private final Environment environment;
+
+    /** 评测执行器默认关闭；关闭时实验只会排队，管理端据此提示并禁止发起实验。 */
+    @GetMapping("/api/runtime/evals/v2/readiness")
+    public Map<String, Object> readiness() {
+        boolean workerEnabled = environment.getProperty(
+                RuntimeEvalTaskWorker.ENABLED_PROPERTY, Boolean.class, false);
+        return Map.of("workerEnabled", workerEnabled);
+    }
 
     @GetMapping("/api/runtime/evals/v2/datasets")
     public List<RuntimeEvalDatasetSummaryView> listDatasets(

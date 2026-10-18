@@ -14,6 +14,7 @@ export default defineConfig({
     include: [
       'src/views/workflow/**/*.test.ts',
       'src/views/agent/**/*.test.ts',
+      'src/components/agent/**/*.test.ts',
     ],
     css: false,
   },

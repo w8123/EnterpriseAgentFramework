@@ -261,34 +261,6 @@ class ControlProxyClientContractTest {
         assertMapping(deleteWorkflowCredential, RequestMethod.DELETE, "/api/workflows/credentials/{id}");
         assertEquals(ResponseEntity.class, deleteWorkflowCredential.getReturnType());
 
-        Method listEvalDatasets = RuntimeProxyClient.class.getMethod("listEvalDatasets", String.class);
-        assertMapping(listEvalDatasets, RequestMethod.GET, "/api/runtime/evals/datasets");
-        assertEquals(ResponseEntity.class, listEvalDatasets.getReturnType());
-
-        Method createEvalDataset = RuntimeProxyClient.class.getMethod("createEvalDataset", Map.class);
-        assertMapping(createEvalDataset, RequestMethod.POST, "/api/runtime/evals/datasets");
-        assertEquals(ResponseEntity.class, createEvalDataset.getReturnType());
-
-        Method importEvalCases = RuntimeProxyClient.class.getMethod("importEvalCases", Long.class, Map.class);
-        assertMapping(importEvalCases, RequestMethod.POST, "/api/runtime/evals/datasets/{datasetId}/cases/import");
-        assertEquals(ResponseEntity.class, importEvalCases.getReturnType());
-
-        Method listEvalCases = RuntimeProxyClient.class.getMethod("listEvalCases", Long.class);
-        assertMapping(listEvalCases, RequestMethod.GET, "/api/runtime/evals/datasets/{datasetId}/cases");
-        assertEquals(ResponseEntity.class, listEvalCases.getReturnType());
-
-        Method startEvalRun = RuntimeProxyClient.class.getMethod("startEvalRun", Map.class);
-        assertMapping(startEvalRun, RequestMethod.POST, "/api/runtime/evals/runs");
-        assertEquals(ResponseEntity.class, startEvalRun.getReturnType());
-
-        Method getEvalRun = RuntimeProxyClient.class.getMethod("getEvalRun", Long.class);
-        assertMapping(getEvalRun, RequestMethod.GET, "/api/runtime/evals/runs/{runId}");
-        assertEquals(ResponseEntity.class, getEvalRun.getReturnType());
-
-        Method listEvalRunResults = RuntimeProxyClient.class.getMethod("listEvalRunResults", Long.class);
-        assertMapping(listEvalRunResults, RequestMethod.GET, "/api/runtime/evals/runs/{runId}/results");
-        assertEquals(ResponseEntity.class, listEvalRunResults.getReturnType());
-
         Method listAgents = RuntimeProxyClient.class.getMethod("listAgents", Long.class, String.class);
         assertMapping(listAgents, RequestMethod.GET, "/api/agents");
         assertEquals(ResponseEntity.class, listAgents.getReturnType());
@@ -337,7 +309,7 @@ class ControlProxyClientContractTest {
         assertMapping(listHumanApprovals, RequestMethod.GET, "/api/runtime/interactions/human-approvals");
         assertEquals(ResponseEntity.class, listHumanApprovals.getReturnType());
 
-        Method syncAgentGraphs = RuntimeProxyClient.class.getMethod("syncAgentGraphs", String.class, Map.class);
+        Method syncAgentGraphs = RuntimeProxyClient.class.getMethod("syncAgentGraphs", String.class, Map.class, byte[].class);
         assertMapping(syncAgentGraphs, RequestMethod.POST, "/api/registry/projects/{projectCode}/agent-graphs/sync");
         assertEquals(ResponseEntity.class, syncAgentGraphs.getReturnType());
     }

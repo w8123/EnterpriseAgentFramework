@@ -52,7 +52,7 @@ public class CapabilityProjectRequestVerificationGateway {
         this.capabilityServiceUrl = normalizeBaseUrl(capabilityServiceUrl);
     }
 
-    VerifiedProject verify(ProjectRequest request) {
+    public VerifiedProject verify(ProjectRequest request) {
         validate(request);
         try {
             Map<String, Object> body = new LinkedHashMap<>();
@@ -146,7 +146,7 @@ public class CapabilityProjectRequestVerificationGateway {
         return normalized;
     }
 
-    record ProjectRequest(
+    public record ProjectRequest(
             String projectCode,
             String appKey,
             String method,
@@ -158,13 +158,13 @@ public class CapabilityProjectRequestVerificationGateway {
     ) {
     }
 
-    record VerifiedProject(
+    public record VerifiedProject(
             Long projectId,
             String projectCode,
             long credentialId,
             String appKeyHash
     ) {
-        String internalActorId() {
+        public String internalActorId() {
             return "credential:" + credentialId;
         }
     }

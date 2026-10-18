@@ -1,3 +1,5 @@
+export type KnowledgeAccessMode = 'ALL_CALLERS' | 'FILE_GRANTS'
+
 /** 知识库实体 */
 export interface KnowledgeBase {
   id: number
@@ -10,6 +12,8 @@ export interface KnowledgeBase {
   workspaceId: string
   projectCode: string
   scope: string
+  /** ALL_CALLERS：调用方都能检索；FILE_GRANTS：仅逐文件授权的用户。 */
+  accessMode: KnowledgeAccessMode
   dimension: number
   chunkSize: number
   chunkOverlap: number
@@ -17,16 +21,12 @@ export interface KnowledgeBase {
   searchMode: string
   topK: number
   similarityThreshold: number
-  directReturnEnabled: boolean
-  directReturnThreshold: number
   rerankEnabled: boolean
   vectorWeight: number
   keywordWeight: number
   status: number
   fileCount: number
   chunkCount: number
-  questionCount: number
-  tagCount: number
   hitCount: number
   createTime: string
   updateTime: string
@@ -43,11 +43,10 @@ export interface KnowledgeBaseForm {
   workspaceId?: string
   projectCode?: string
   scope?: string
+  accessMode?: KnowledgeAccessMode
   searchMode?: string
   topK?: number
   similarityThreshold?: number
-  directReturnEnabled?: boolean
-  directReturnThreshold?: number
   rerankEnabled?: boolean
   vectorWeight?: number
   keywordWeight?: number
@@ -91,11 +90,10 @@ export interface KbConfig {
   chunkSize: number
   chunkOverlap: number
   splitType: string
+  accessMode?: KnowledgeAccessMode
   searchMode?: string
   topK?: number
   similarityThreshold?: number
-  directReturnEnabled?: boolean
-  directReturnThreshold?: number
   rerankEnabled?: boolean
   vectorWeight?: number
   keywordWeight?: number
@@ -109,8 +107,6 @@ export interface RetrievalTestRequest {
   scoreThreshold?: number
   searchMode?: string
   rerankEnabled?: boolean
-  directReturnEnabled?: boolean
-  directReturnThreshold?: number
   vectorWeight?: number
   keywordWeight?: number
   recordHit?: boolean
@@ -130,7 +126,6 @@ export interface RetrievalItem {
   knowledgeBaseCode: string
   chunkIndex: number
   hitCount: number
-  directReturn: boolean
   reason: string
 }
 
@@ -140,8 +135,6 @@ export interface RetrievalTestResponse {
   searchMode: string
   totalResults: number
   costMs: number
-  directReturn: boolean
-  directReturnContent?: string
   items: RetrievalItem[]
 }
 
@@ -156,77 +149,7 @@ export interface KnowledgeStats {
   fileCount: number
   chunkCount: number
   activeChunkCount: number
-  questionCount: number
-  tagCount: number
   hitCount: number
-}
-
-export interface KnowledgeTag {
-  id: number
-  targetType: string
-  targetId: string
-  tagKey: string
-  tagValue: string
-  tagGroup: string
-  color: string
-  description?: string
-  parentId?: number
-  sortOrder?: number
-  createTime: string
-}
-
-export interface KnowledgeTagForm {
-  targetType?: string
-  targetId?: string
-  tagKey: string
-  tagValue: string
-  tagGroup?: string
-  color?: string
-  description?: string
-  parentId?: number
-  sortOrder?: number
-}
-
-export interface KnowledgeTagBatchForm {
-  targetType: string
-  targetIds: string[]
-  tagKey: string
-  tagValue: string
-  tagGroup?: string
-  color?: string
-  description?: string
-  parentId?: number
-  sortOrder?: number
-}
-
-export interface KnowledgeTagStats {
-  tagKey: string
-  tagValue: string
-  tagGroup: string
-  color: string
-  description?: string
-  parentId?: number
-  sortOrder?: number
-  totalCount: number
-  knowledgeCount: number
-  fileCount: number
-  chunkCount: number
-}
-
-export interface KnowledgeQuestion {
-  id: number
-  chunkId?: number
-  question: string
-  hitCount: number
-  source: string
-  createTime: string
-  updateTime: string
-}
-
-export interface KnowledgeQuestionForm {
-  chunkId?: number
-  question: string
-  source?: string
 }
 
 export interface KnowledgeHitLog {
@@ -235,7 +158,8 @@ export interface KnowledgeHitLog {
   queryText: string
   searchMode?: string
   score?: number
-  directReturn: boolean
+  /** RUNTIME：真实对话；CONSOLE：管理端检索测试。 */
+  source?: 'RUNTIME' | 'CONSOLE'
   fileId?: string
   fileName?: string
   chunkIndex?: number
@@ -266,4 +190,35 @@ export interface KnowledgeOpsDashboard {
   zeroHitChunks: ChunkDetail[]
   recentHits: KnowledgeHitLog[]
   lowConfidenceHits: KnowledgeHitLog[]
+}
+
+/** 一个用到某知识库的 Workflow，以及当前运行它的 Agent。 */
+export interface KnowledgeWorkflowUsage {
+  id: string
+  name: string
+  keySlug: string
+  status: string
+  projectId?: number
+  projectCode?: string
+  agents: Array<{ id: string; name: string; projectCode?: string }>
+}
+
+export interface KnowledgeUsage {
+  knowledgeBaseCode: string
+  workflows: KnowledgeWorkflowUsage[]
+  /** 调用方没有读取权限的项目里的 Workflow 数量。 */
+  hiddenWorkflowCount?: number
+}
+
+export interface KnowledgeQaAttachResult {
+  knowledgeBaseCode: string
+  workflowId: string
+  workflowKeySlug: string
+  workflowName: string
+  workflowCreated: boolean
+  agentId: string
+  agentName: string
+  agentConfigVersion?: number
+  toolName: string
+  alreadyAttached: boolean
 }

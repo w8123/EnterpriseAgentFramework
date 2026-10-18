@@ -40,8 +40,6 @@ class KnowledgeRetrievalWiringTest {
                         KnowledgeServiceImpl.class, KnowledgeOperationsQuery.class, KnowledgeRetrievalCore.class,
                         com.enterprise.ai.service.impl.KnowledgeContentQuery.class,
                         com.enterprise.ai.service.impl.KnowledgeChunkEditingService.class,
-                        com.enterprise.ai.service.impl.KnowledgeTagService.class,
-                        com.enterprise.ai.service.impl.KnowledgeQuestionService.class,
                         KnowledgeRetrievalAuthorization.class, com.enterprise.ai.security.impl.PermissionServiceImpl.class)
                 .withBean(org.springframework.transaction.PlatformTransactionManager.class,
                         com.enterprise.ai.support.ArtifactLifecycleTestSupport::transactions)
@@ -55,8 +53,6 @@ class KnowledgeRetrievalWiringTest {
                 .withBean(KnowledgeBaseRepository.class, () -> bases)
                 .withBean(ChunkRepository.class, () -> chunks)
                 .withBean(FileInfoRepository.class, () -> mock(FileInfoRepository.class))
-                .withBean(KnowledgeTagRepository.class, () -> mock(KnowledgeTagRepository.class))
-                .withBean(KnowledgeQuestionRepository.class, () -> mock(KnowledgeQuestionRepository.class))
                 .withBean(UserFilePermissionRepository.class, () -> permissions)
                 .withBean(KnowledgeHitLogRepository.class, () -> mock(KnowledgeHitLogRepository.class))
                 .withBean(EmbeddingService.class, () -> embedding)

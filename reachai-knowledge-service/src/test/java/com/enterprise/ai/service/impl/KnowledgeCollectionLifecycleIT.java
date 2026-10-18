@@ -35,11 +35,9 @@ class KnowledgeCollectionLifecycleIT {
         withStores(f->{
             var old=f.create("kb");f.importFile();
             f.jdbc.update("INSERT INTO knowledge_user_file_permission(user_id,file_id) VALUES ('测试用户','file')");
-            f.jdbc.update("INSERT INTO knowledge_question(knowledge_base_id,question) VALUES (?,'原问题正文')",old.getId());
-            f.jdbc.update("INSERT INTO knowledge_tag(knowledge_base_id,target_type,target_id,tag_key,tag_value) VALUES (?,'FILE','file','分类','原标签')",old.getId());
             f.lifecycle.deleteByCode("kb");assertEquals(0,f.count("knowledge_base"));
             assertEquals("RECLAIMING",f.state(old.getVectorCollectionName()));assertTrue(f.exists(old.getVectorCollectionName()));
-            for(String table:List.of("knowledge_file_info","knowledge_chunk","knowledge_question","knowledge_tag","knowledge_user_file_permission"))assertEquals(0,f.count(table),table);
+            for(String table:List.of("knowledge_file_info","knowledge_chunk","knowledge_user_file_permission"))assertEquals(0,f.count(table),table);
             var current=f.create("kb");assertNotEquals(old.getId(),current.getId());assertNotEquals(old.getVectorCollectionName(),current.getVectorCollectionName());
             f.reclaimer().reclaimPending();assertFalse(f.exists(old.getVectorCollectionName()));assertTrue(f.exists(current.getVectorCollectionName()));
             assertEquals("RECLAIMED",f.state(old.getVectorCollectionName()));assertEquals("READY",f.state(current.getVectorCollectionName()));
@@ -127,7 +125,7 @@ class KnowledgeCollectionLifecycleIT {
         final Set<String> owned=new LinkedHashSet<>();boolean failAfterCreate;
         Fixture(KnowledgePublicationMysqlDatabase source)throws Exception {
             jdbc=new JdbcTemplate(source);session=KnowledgeWriteLifecycleIT.session(source);manager=new DataSourceTransactionManager(source);
-            for(var type:List.of(KnowledgeCollectionLifecycleRepository.class,KnowledgeQuestionRepository.class,KnowledgeTagRepository.class,UserFilePermissionRepository.class))session.getConfiguration().addMapper(type);
+            for(var type:List.of(KnowledgeCollectionLifecycleRepository.class,UserFilePermissionRepository.class))session.getConfiguration().addMapper(type);
             var connect=ConnectParam.newBuilder().withHost(System.getenv("MILVUS_HOST")).withPort(Integer.parseInt(System.getenv("MILVUS_PORT")))
                     .withAuthorization(System.getenv("MILVUS_USERNAME"),System.getenv("MILVUS_PASSWORD"));
             client=new MilvusServiceClient(connect.build());remote=new MilvusVectorService(client);guarded=spy(remote);
@@ -140,10 +138,10 @@ class KnowledgeCollectionLifecycleIT {
             var bases=session.getMapper(KnowledgeBaseRepository.class);var chunks=session.getMapper(ChunkRepository.class);
             executions=KnowledgeIndexTestSupport.executions(session,manager);
             var files=new KnowledgeFileDeletionService(bases,session.getMapper(FileInfoRepository.class),chunks,session.getMapper(DocumentImportJobRepository.class),
-                    session.getMapper(DocumentIndexExecutionRepository.class),executions,mock(DocumentArtifactStore.class),session.getMapper(UserFilePermissionRepository.class), new com.enterprise.ai.service.impl.KnowledgeQuestionService(bases, chunks, session.getMapper(KnowledgeQuestionRepository.class), manager),manager, org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeTagService.class));
+                    session.getMapper(DocumentIndexExecutionRepository.class),executions,mock(DocumentArtifactStore.class),session.getMapper(UserFilePermissionRepository.class),manager);
             store=new KnowledgeCollectionLifecycleStore(session.getMapper(KnowledgeCollectionLifecycleRepository.class),bases,chunks,manager);
-            lifecycle=new KnowledgeBaseLifecycleService(bases,session.getMapper(KnowledgeTagRepository.class), new com.enterprise.ai.service.impl.KnowledgeQuestionService(bases, org.mockito.Mockito.mock(com.enterprise.ai.repository.ChunkRepository.class), session.getMapper(KnowledgeQuestionRepository.class), manager),files,store,guarded,org.mockito.Mockito.mock(EmbeddingService.class),manager);
-            var metadata=new MetadataPersistStep(bases,session.getMapper(FileInfoRepository.class),chunks,new ObjectMapper(),new DocumentImportPublicationGuard(session.getMapper(DocumentImportJobRepository.class),executions,files, org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeFileReadAccessService.class)), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeTagService.class), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeQuestionService.class));
+            lifecycle=new KnowledgeBaseLifecycleService(bases,files,store,guarded,org.mockito.Mockito.mock(EmbeddingService.class),manager);
+            var metadata=new MetadataPersistStep(bases,session.getMapper(FileInfoRepository.class),chunks,new ObjectMapper(),new DocumentImportPublicationGuard(session.getMapper(DocumentImportJobRepository.class),executions,files, org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeFileReadAccessService.class)));
             var embedding=mock(EmbeddingService.class);when(embedding.embedBatch(anyString(),anyList())).thenReturn(List.of(List.of(1f,0f)));
             writer=new KnowledgeIndexWriteService(new KnowledgeBaseLookup(bases),session.getMapper(FileInfoRepository.class),chunks,embedding,new VectorStoreStep(remote,executions),metadata,executions,manager);
         }

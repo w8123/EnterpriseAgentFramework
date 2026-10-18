@@ -3,12 +3,16 @@
     <PageHeader
       variant="entity"
       domain="agent"
-      eyebrow="EvalOps"
+      eyebrow="运行中心 · 评测"
       :title="`${agentName || agentId} · 对比实验`"
       description="固定数据集版本、评分器版本与服务端目标指纹，对 DRAFT 候选和 ACTIVE 基线执行可恢复的只读回归实验。"
       show-back
-      @back="router.push('/agent')"
+      back-label="返回评测"
+      @back="router.push('/runops/evals')"
     >
+      <template #meta>
+        <RunCenterNav />
+      </template>
       <template #tags>
         <el-tag effect="light">服务端快照</el-tag>
         <el-tag type="success" effect="light">异步可恢复</el-tag>
@@ -20,6 +24,8 @@
         <el-button type="primary" @click="openDatasetDialog(false)">新建数据集</el-button>
       </template>
     </PageHeader>
+
+    <EvalWorkerNotice @ready="value => (evalWorkerEnabled = value)" />
 
     <div class="eval-layout">
       <aside class="eval-sidebar">
@@ -106,7 +112,7 @@
             <el-button
               type="primary"
               :loading="creatingExperiment"
-              :disabled="!canStartExperiment"
+              :disabled="!canStartExperiment || evalWorkerEnabled === false"
               @click="startExperiment"
             >
               创建并入队
@@ -357,6 +363,8 @@ import WorkbenchPanel from '@/components/common/WorkbenchPanel.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import AppDialog from '@/components/common/AppDialog.vue'
 import { getAgent } from '@/api/agent'
+import RunCenterNav from '@/views/runops/components/RunCenterNav.vue'
+import EvalWorkerNotice from '@/views/runops/components/EvalWorkerNotice.vue'
 import { listAgentConfigVersions } from '@/api/workflow'
 import {
   cancelEvalOpsExperiment,
@@ -383,6 +391,7 @@ const route = useRoute()
 const router = useRouter()
 const agentId = String(route.params.id)
 const agentName = ref('')
+const evalWorkerEnabled = ref<boolean>()
 const projectCode = ref('')
 const configVersions = ref<AgentConfigVersion[]>([])
 const datasets = ref<EvalOpsDatasetSummary[]>([])
@@ -790,7 +799,9 @@ onMounted(async () => {
   try {
     await loadAgentAndConfigs()
     await Promise.all([loadDatasets(), loadExperiments()])
-    if (experiments.value.length) await selectExperiment(experiments.value[0].id)
+    const requestedExperimentId = Number(route.query.experimentId)
+    const initialExperiment = experiments.value.find(item => item.id === requestedExperimentId) ?? experiments.value[0]
+    if (initialExperiment) await selectExperiment(initialExperiment.id)
   } catch (error) {
     ElMessage.error(errorMessage(error, 'EvalOps 数据加载失败'))
   } finally {

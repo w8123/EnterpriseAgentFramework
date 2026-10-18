@@ -21,15 +21,14 @@ public class KbConfigRequest {
     /** 切分策略: FIXED / PARAGRAPH / SEMANTIC */
     private String splitType;
 
+    /** ALL_CALLERS / FILE_GRANTS；为空时新建为 ALL_CALLERS，更新时保持不变。 */
+    private String accessMode;
+
     private String searchMode;
 
     private Integer topK;
 
     private Float similarityThreshold;
-
-    private Boolean directReturnEnabled;
-
-    private Float directReturnThreshold;
 
     private Boolean rerankEnabled;
 

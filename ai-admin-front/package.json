@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vue-tsc && vite build",
+    "build": "vue-tsc && vite build && npm run build:sdk && node scripts/copy-embed-chat-to-dist.mjs",
+    "build:admin": "vue-tsc && vite build",
     "check:glass-theme": "node scripts/check-glass-theme-contract.mjs",
     "check:glass-components": "node scripts/check-glass-components-contract.mjs",
     "check:dark-theme-compatibility": "node scripts/check-dark-theme-compatibility.mjs",

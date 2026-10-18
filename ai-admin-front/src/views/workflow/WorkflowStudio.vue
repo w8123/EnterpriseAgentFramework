@@ -1,147 +1,49 @@
 <template>
   <div class="studio-page">
-    <header class="studio-header">
-      <div class="header-left">
-        <el-tooltip content="返回 Workflow 列表" placement="bottom">
-          <button class="studio-back-btn" type="button" @click="router.push('/workflows')">
-            <el-icon><ArrowLeft /></el-icon>
-            <span>返回</span>
-          </button>
-        </el-tooltip>
-        <div class="studio-title-wrap">
-          <div class="studio-title-row">
-            <span class="studio-eyebrow">Workflow 编排</span>
-            <el-tooltip :content="studioDisplayName" placement="bottom" :show-after="400">
-              <h1>{{ studioDisplayName }}</h1>
-            </el-tooltip>
-          </div>
-          <div class="studio-meta-row">
-            <el-tag size="small" effect="plain">{{ workflowVisibilityLabel }}</el-tag>
-            <el-tag
-              size="small"
-              :type="studioValidationTagType"
-              effect="plain"
-            >
-              {{ studioValidationLabel }}
-            </el-tag>
-            <el-tooltip
-              v-if="studioKeySlug"
-              :content="studioKeySlug"
-              placement="bottom"
-              :show-after="400"
-            >
-              <el-tag size="small" type="info" class="studio-slug-tag">{{ studioKeySlug }}</el-tag>
-            </el-tooltip>
-            <el-tag size="small" type="success">{{ studio?.projectCode || '全局' }}</el-tag>
-          </div>
-        </div>
-      </div>
-      <div class="header-right">
-        <span class="save-state" :class="saveStateClass">
-          <i></i>
-          <span>{{ saveBadgeText }}</span>
-        </span>
-        <el-button :icon="VideoPlay" :loading="debugLoading" @click="handleStudioRun"
-          :title="hasReadOnlyTrialTarget ? '草稿含业务方法或 API：以只读试运行真实执行整个已保存草稿' : undefined">调试</el-button>
-        <el-button :icon="CircleCheck" :loading="validating" @click="validateRuntime()">校验</el-button>
-        <el-dropdown trigger="click" @command="handleHeaderCommand">
-          <el-button :icon="MoreFilled">更多</el-button>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item command="eval" :icon="Finished">批量评测</el-dropdown-item>
-              <el-dropdown-item command="json" :icon="DocumentChecked">Workflow 源码</el-dropdown-item>
-              <el-dropdown-item command="fit" :icon="Aim">聚焦画布</el-dropdown-item>
-              <el-dropdown-item command="layout" :icon="Rank">自动整理</el-dropdown-item>
-              <el-dropdown-item command="versions" :icon="Tickets">版本记录</el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
-        <el-button :loading="saving" :disabled="studioReadOnly" @click="handleSaveStudio">保存</el-button>
-        <el-button
-          v-if="isPageAssistantWorkflow && studio?.activeVersion"
-          :loading="pageAssistantSyncing"
-          :disabled="studioReadOnly"
-          @click="syncPublishedPageAssistant()"
-        >
-          同步页面副驾驶
-        </el-button>
-        <el-button type="primary" :loading="releaseChecking" :disabled="studioReadOnly" @click="publishWorkflow">发布</el-button>
-      </div>
-    </header>
+    <StudioHeader
+      :display-name="studioDisplayName"
+      :visibility-label="workflowVisibilityLabel"
+      :validation-label="studioValidationLabel"
+      :validation-tag-type="studioValidationTagType"
+      :key-slug="studioKeySlug"
+      :project-code="studio?.projectCode || ''"
+      :save-state-class="saveStateClass"
+      :save-badge-text="saveBadgeText"
+      :read-only="studioReadOnly"
+      :debug-loading="debugLoading"
+      :read-only-trial="hasReadOnlyTrialTarget"
+      :validating="validating"
+      :saving="saving"
+      :release-checking="releaseChecking"
+      :show-page-assistant-sync="isPageAssistantWorkflow && !!studio?.activeVersion"
+      :page-assistant-syncing="pageAssistantSyncing"
+      @back="router.push('/workflows')"
+      @run="handleStudioRun"
+      @validate="validateRuntime()"
+      @command="handleHeaderCommand"
+      @save="handleSaveStudio"
+      @sync-page-assistant="syncPublishedPageAssistant()"
+      @publish="publishWorkflow"
+    />
 
     <div
       class="studio-body"
       :class="{ 'palette-open': paletteExpanded, 'property-collapsed': propertyPanelCollapsed }"
+      :style="{ '--studio-property-width': `${propertyPanelWidth}px` }"
     >
-      <aside class="palette">
-        <div class="palette-rail">
-          <el-tooltip content="添加节点" placement="right">
-            <button class="rail-primary" type="button" :disabled="studioReadOnly" @click="nodeSearchOpen = true">
-              <el-icon><Plus /></el-icon>
-            </button>
-          </el-tooltip>
-          <button
-            v-for="group in paletteGroups"
-            :key="group.title"
-            class="rail-item"
-            :class="{ active: paletteExpanded && activePaletteGroup === group.title }"
-            type="button"
-            @click="openPaletteGroup(group.title)"
-          >
-            <span class="rail-icon">
-              <el-icon><component :is="group.icon" /></el-icon>
-            </span>
-            <em>{{ group.title.slice(0, 2) }}</em>
-          </button>
-        </div>
-        <div class="palette-content">
-          <div class="panel-title-row">
-            <div>
-              <div class="palette-title">节点库</div>
-              <div class="palette-subtitle">搜索或拖入节点，保存后写入图规范。</div>
-            </div>
-            <el-button text :icon="ArrowLeft" @click="paletteExpanded = false" />
-          </div>
-          <el-input
-            v-model="nodeSearchKeyword"
-            class="node-search"
-            :prefix-icon="Search"
-            clearable
-            placeholder="搜索节点、用途或类型"
-            size="small"
-          />
-          <div v-for="group in filteredPaletteGroups" :key="group.title" class="palette-group">
-            <div class="palette-group-title">{{ group.title }}</div>
-            <div
-              v-for="item in group.items"
-              :key="item.kind"
-              class="palette-item"
-              :class="{ disabled: studioReadOnly }"
-              :style="{ borderLeftColor: kindColor(item.kind).border }"
-              :draggable="!studioReadOnly"
-              @dragstart="onDragStart($event, item.kind)"
-              @dblclick="handleAddNode(item.kind)"
-            >
-              <div class="palette-item-head">
-                <div class="palette-item-icon" :style="{ background: kindColor(item.kind).bg, color: kindColor(item.kind).border }">
-                  <el-icon><component :is="item.icon" /></el-icon>
-                </div>
-                <div>
-                  <div class="palette-item-title">{{ item.label }}</div>
-                  <div class="palette-item-meta">{{ item.meta }}</div>
-                </div>
-              </div>
-              <div class="palette-item-desc">{{ item.hint }}</div>
-            </div>
-          </div>
-          <el-divider>画布规则</el-divider>
-          <div class="palette-tips">
-            - 连接线条件会进入图规范<br />
-            - 双击节点可快速选中属性<br />
-            - 保存后写入 Workflow GraphSpec
-          </div>
-        </div>
-      </aside>
+      <StudioPalette
+        v-model:expanded="paletteExpanded"
+        v-model:keyword="nodeSearchKeyword"
+        :read-only="studioReadOnly"
+        :groups="paletteGroups"
+        :filtered-groups="filteredPaletteGroups"
+        :active-group="activePaletteGroup"
+        :kind-color="kindColor"
+        @open-search="nodeSearchOpen = true"
+        @open-group="openPaletteGroup"
+        @drag-start="onDragStart"
+        @add="handleAddNode"
+      />
 
       <section class="canvas-wrap" @dragover.prevent @drop="onDrop">
         <VueFlow
@@ -169,689 +71,60 @@
           <Background />
           <MiniMap />
 
-          <template #node-start="nodeProps">
-            <div class="studio-node start-node" :class="[nodeRunClass(nodeProps.id), { collapsed: nodeProps.data.collapsed }]">
-              <Handle type="source" :position="Position.Right" />
-              <div class="node-icon"><el-icon><VideoPlay /></el-icon></div>
-              <div class="node-kicker">入口</div>
-              <div class="node-label">{{ nodeProps.data.label }}</div>
-              <div class="node-desc">用户输入 / 上下文入口</div>
-              <div class="node-port-row">{{ portSummary(nodeProps.data.outputs, '输出') }}</div>
-              <button v-if="nodeDebugState(nodeProps.id)" class="node-runtime" type="button" @click.stop="openNodeTrace(nodeProps.id)">
-                <span class="runtime-dot"></span>
-                <span>{{ nodeRunLabel(nodeProps.id) }}</span>
-              </button>
-            </div>
-          </template>
-
-          <template #node-end="nodeProps">
-            <div class="studio-node end-node" :class="[nodeRunClass(nodeProps.id), { collapsed: nodeProps.data.collapsed }]">
-              <Handle type="target" :position="Position.Left" />
-              <div class="node-icon"><el-icon><Finished /></el-icon></div>
-              <div class="node-kicker">结束</div>
-              <div class="node-label">{{ nodeProps.data.label }}</div>
-              <div class="node-desc">响应输出 / 流程结束</div>
-              <div class="node-port-row">{{ portSummary(nodeProps.data.inputs, '输入') }}</div>
-              <button v-if="nodeDebugState(nodeProps.id)" class="node-runtime" type="button" @click.stop="openNodeTrace(nodeProps.id)">
-                <span class="runtime-dot"></span>
-                <span>{{ nodeRunLabel(nodeProps.id) }}</span>
-              </button>
-            </div>
-          </template>
-
-          <template #node-classifier="nodeProps">
-            <div
-              class="studio-node classifier-node"
-              :class="[nodeRunClass(nodeProps.id), { collapsed: nodeProps.data.collapsed }]"
-            >
-              <Handle type="target" :position="Position.Left" />
-              <div class="node-icon">
-                <el-icon><Switch /></el-icon>
-              </div>
-              <div class="node-head">
-                <span class="node-kind">意图</span>
-                <span class="node-state">分类</span>
-              </div>
-              <div class="node-label">{{ nodeProps.data.label || nodeProps.id }}</div>
-              <div class="classifier-routes">
-                <div
-                  v-for="route in classifierRouteRows(nodeProps.data)"
-                  :key="route.id"
-                  class="classifier-route-row"
-                  :class="{ 'is-default': route.isDefault }"
-                >
-                  <div class="classifier-route-copy">
-                    <strong>{{ route.label }}</strong>
-                    <span>{{ route.meta }}</span>
-                  </div>
-                  <Handle
-                    type="source"
-                    :id="route.handleId"
-                    :position="Position.Right"
-                    class="classifier-route-handle"
-                  />
-                </div>
-              </div>
-              <div class="node-port-row">{{ portSummary(nodeProps.data.outputs, '分支') }}</div>
-              <button v-if="nodeDebugState(nodeProps.id)" class="node-runtime" type="button" @click.stop="openNodeTrace(nodeProps.id)">
-                <span class="runtime-dot"></span>
-                <span>{{ nodeRunLabel(nodeProps.id) }}</span>
-              </button>
-            </div>
-          </template>
-
-          <template #node-userInput="nodeProps">
-            <div class="studio-node user-input-node" :class="[nodeRunClass(nodeProps.id), { collapsed: nodeProps.data.collapsed }]">
-              <Handle type="target" :position="Position.Left" />
-              <Handle type="source" :position="Position.Right" />
-              <div class="node-icon"><el-icon><SetUp /></el-icon></div>
-              <div class="node-head">
-                <span class="node-kind">用户输入</span>
-                <span class="node-state">{{ nodeProps.data.userInputConfig?.outputAlias || nodeProps.data.outputAlias || 'params' }}</span>
-              </div>
-              <div class="node-label">{{ nodeProps.data.label || nodeProps.id }}</div>
-              <div class="node-desc">{{ userInputFieldCount(nodeProps.data) }} 个输入字段，写入 params</div>
-              <div class="node-port-row">{{ portSummary(nodeProps.data.outputs, '变量') }}</div>
-              <div v-if="nodeProps.data.outputAlias" class="node-alias">输出别名：{{ nodeProps.data.outputAlias }}</div>
-              <button v-if="nodeDebugState(nodeProps.id)" class="node-runtime" type="button" @click.stop="openNodeTrace(nodeProps.id)">
-                <span class="runtime-dot"></span>
-                <span>{{ nodeRunLabel(nodeProps.id) }}</span>
-              </button>
-            </div>
-          </template>
-          <template #node-interaction="nodeProps">
-            <div class="studio-node interaction-node" :class="[nodeRunClass(nodeProps.id), { collapsed: nodeProps.data.collapsed }]">
-              <Handle type="target" :position="Position.Left" />
-              <Handle type="source" :position="Position.Right" />
-              <div class="node-icon"><el-icon><SetUp /></el-icon></div>
-              <div class="node-head">
-                <span class="node-kind">交互</span>
-                <span class="node-state">{{ interactionTypeLabel(nodeProps.data.interactionConfig?.interactionType) }}</span>
-              </div>
-              <div class="node-label">{{ nodeProps.data.interactionConfig?.title || nodeProps.data.label || nodeProps.id }}</div>
-              <div class="node-desc">{{ interactionFieldCount(nodeProps.data) }} 个字段，写入 {{ nodeProps.data.interactionConfig?.outputAlias || nodeProps.data.outputAlias || 'interaction_output' }}</div>
-              <div class="node-port-row">{{ portSummary(nodeProps.data.outputs, '变量') }}</div>
-              <div v-if="nodeProps.data.outputAlias" class="node-alias">输出别名：{{ nodeProps.data.outputAlias }}</div>
-              <button v-if="nodeDebugState(nodeProps.id)" class="node-runtime" type="button" @click.stop="openNodeTrace(nodeProps.id)">
-                <span class="runtime-dot"></span>
-                <span>{{ nodeRunLabel(nodeProps.id) }}</span>
-              </button>
-            </div>
-          </template>
-          <template #node-pageAction="nodeProps">
-            <div class="studio-node page-action-node" :class="[nodeRunClass(nodeProps.id), { collapsed: nodeProps.data.collapsed }]">
-              <Handle type="target" :position="Position.Left" />
-              <Handle type="source" :position="Position.Right" />
-              <div class="node-icon"><el-icon><Link /></el-icon></div>
-              <div class="node-head">
-                <span class="node-kind">页面动作</span>
-                <span class="node-state">{{ nodeProps.data.pageActionConfig?.confirm ? '需确认' : '直接触发' }}</span>
-              </div>
-              <div class="node-label">{{ nodeProps.data.pageActionConfig?.title || nodeProps.data.label || nodeProps.id }}</div>
-              <div class="node-desc">{{ nodeProps.data.pageActionConfig?.actionKey || '未配置 actionKey' }}</div>
-              <div class="node-port-row">{{ portSummary(nodeProps.data.inputs, '输入') }} · {{ portSummary(nodeProps.data.outputs, '输出') }}</div>
-              <div v-if="nodeProps.data.outputAlias" class="node-alias">输出别名：{{ nodeProps.data.outputAlias }}</div>
-              <button v-if="nodeDebugState(nodeProps.id)" class="node-runtime" type="button" @click.stop="openNodeTrace(nodeProps.id)">
-                <span class="runtime-dot"></span>
-                <span>{{ nodeRunLabel(nodeProps.id) }}</span>
-              </button>
-            </div>
-          </template>
-          <template #node-llm="nodeProps">
-            <div class="studio-node llm-node" :class="[nodeRunClass(nodeProps.id), { collapsed: nodeProps.data.collapsed }]">
-              <Handle type="target" :position="Position.Left" />
-              <Handle type="source" :position="Position.Right" />
-              <div class="node-icon"><el-icon><LlmModelIcon /></el-icon></div>
-              <div class="node-head">
-                <span class="node-kind">大模型</span>
-                <span class="node-state">推理</span>
-              </div>
-              <div class="node-label">{{ nodeProps.data.label || nodeProps.id }}</div>
-              <div class="node-desc">模型实例 · {{ nodeProps.data.llmConfig?.modelInstanceId || workflowMeta.defaultModelInstanceId || studio?.defaultModelInstanceId || '未选择' }}</div>
-              <div class="node-port-row">{{ portSummary(nodeProps.data.inputs, '入') }} · {{ portSummary(nodeProps.data.outputs, '出') }}</div>
-              <button v-if="nodeDebugState(nodeProps.id)" class="node-runtime" type="button" @click.stop="openNodeTrace(nodeProps.id)">
-                <span class="runtime-dot"></span>
-                <span>{{ nodeRunLabel(nodeProps.id) }}</span>
-              </button>
-            </div>
-          </template>
-          <template #node-tool="nodeProps">
-            <div class="studio-node tool-node" :class="[nodeRunClass(nodeProps.id), { collapsed: nodeProps.data.collapsed, 'needs-config': nodeProps.data.needsConfiguration }]">
-              <Handle type="target" :position="Position.Left" />
-              <Handle type="source" :position="Position.Right" />
-              <div class="node-icon"><el-icon><Briefcase /></el-icon></div>
-              <div class="node-head">
-                <span class="node-kind">{{ nodeProps.data.toolConfig?.httpApiAssetId ? 'API' : '能力' }}</span>
-                <span class="node-state">{{ nodeProps.data.toolConfig?.projectCode || studio?.projectCode || '全局' }}</span>
-              </div>
-              <div class="node-label">{{ nodeProps.data.toolConfig?.httpApiAssetId
-                ? nodeProps.data.label : nodeProps.data.toolConfig?.ref || '未选择能力' }}</div>
-              <div class="node-desc">{{ nodeProps.data.toolConfig?.httpApiAssetId
-                ? 'API 调用 · 作者配置' : nodeProps.data.description || '业务能力调用' }}</div>
-              <div class="node-port-row">{{ portSummary(nodeProps.data.inputs, '入') }} · {{ portSummary(nodeProps.data.outputs, '出') }}</div>
-              <div v-if="nodeProps.data.outputAlias" class="node-alias">输出别名：{{ nodeProps.data.outputAlias }}</div>
-              <button v-if="nodeDebugState(nodeProps.id)" class="node-runtime" type="button" @click.stop="openNodeTrace(nodeProps.id)">
-                <span class="runtime-dot"></span>
-                <span>{{ nodeRunLabel(nodeProps.id) }}</span>
-              </button>
-            </div>
-          </template>
-          <template #node-knowledge="nodeProps">
-            <div class="studio-node knowledge-node" :class="[nodeRunClass(nodeProps.id), { collapsed: nodeProps.data.collapsed }]">
-              <Handle type="target" :position="Position.Left" />
-              <Handle
-                v-if="nodeProps.data.knowledgeConfig?.evidencePolicy !== 'REQUIRED'"
-                type="source"
-                :position="Position.Right"
-              />
-              <div class="node-icon"><el-icon><Coin /></el-icon></div>
-              <div class="node-head">
-                <span class="node-kind">知识</span>
-                <span class="node-state">{{ nodeProps.data.knowledgeConfig?.evidencePolicy === 'REQUIRED' ? '必须证据' : '可回退' }}</span>
-              </div>
-              <div class="node-label">{{ nodeProps.data.knowledgeConfig?.knowledgeBaseCodes?.join(', ') || '未选择知识库' }}</div>
-              <div class="node-desc">查询：{{ nodeProps.data.knowledgeConfig?.query || '输入' }} / 返回数 {{ nodeProps.data.knowledgeConfig?.topK || 5 }}</div>
-              <div v-if="nodeProps.data.knowledgeConfig?.evidencePolicy === 'REQUIRED'" class="classifier-routes">
-                <div
-                  v-for="route in knowledgeEvidenceRouteRows()"
-                  :key="route.id"
-                  class="classifier-route-row"
-                  :class="{ 'is-default': route.isDefault }"
-                >
-                  <div class="classifier-route-copy">
-                    <strong>{{ route.label }}</strong>
-                    <span>{{ route.meta }}</span>
-                  </div>
-                  <Handle
-                    type="source"
-                    :id="route.handleId"
-                    :position="Position.Right"
-                    class="classifier-route-handle"
-                  />
-                </div>
-              </div>
-              <div class="node-port-row">{{ portSummary(nodeProps.data.inputs, '入') }} · {{ portSummary(nodeProps.data.outputs, '出') }}</div>
-              <div v-if="nodeProps.data.outputAlias" class="node-alias">输出别名：{{ nodeProps.data.outputAlias }}</div>
-              <button v-if="nodeDebugState(nodeProps.id)" class="node-runtime" type="button" @click.stop="openNodeTrace(nodeProps.id)">
-                <span class="runtime-dot"></span>
-                <span>{{ nodeRunLabel(nodeProps.id) }}</span>
-              </button>
-            </div>
-          </template>
-          <template #node-condition="nodeProps">
-            <div class="studio-node condition-node" :class="[nodeRunClass(nodeProps.id), { collapsed: nodeProps.data.collapsed }]">
-              <Handle type="target" :position="Position.Left" />
-              <div class="node-icon"><el-icon><Switch /></el-icon></div>
-              <div class="node-head">
-                <span class="node-kind">条件</span>
-                <span class="node-state">路由</span>
-              </div>
-              <div class="node-label">{{ nodeProps.data.label || nodeProps.id }}</div>
-              <div class="node-desc">{{ nodeProps.data.description || '按连线条件分流' }}</div>
-              <div class="classifier-routes">
-                <div
-                  v-for="route in conditionRouteRows(nodeProps.data)"
-                  :key="route.id"
-                  class="classifier-route-row"
-                  :class="{ 'is-default': route.isDefault }"
-                >
-                  <div class="classifier-route-copy">
-                    <strong>{{ route.label }}</strong>
-                    <span>{{ route.meta }}</span>
-                  </div>
-                  <Handle
-                    type="source"
-                    :id="route.handleId"
-                    :position="Position.Right"
-                    class="classifier-route-handle"
-                  />
-                </div>
-              </div>
-              <div class="node-port-row">{{ portSummary(nodeProps.data.outputs, '分支') }}</div>
-              <button v-if="nodeDebugState(nodeProps.id)" class="node-runtime" type="button" @click.stop="openNodeTrace(nodeProps.id)">
-                <span class="runtime-dot"></span>
-                <span>{{ nodeRunLabel(nodeProps.id) }}</span>
-              </button>
-            </div>
-          </template>
-          <template #node-variable="nodeProps">
-            <div class="studio-node variable-node" :class="[nodeRunClass(nodeProps.id), { collapsed: nodeProps.data.collapsed }]">
-              <Handle type="target" :position="Position.Left" />
-              <Handle type="source" :position="Position.Right" />
-              <div class="node-icon"><el-icon><SetUp /></el-icon></div>
-              <div class="node-head">
-                <span class="node-kind">变量</span>
-                <span class="node-state">状态</span>
-              </div>
-              <div class="node-label">{{ nodeProps.data.label || nodeProps.id }}</div>
-              <div class="node-desc">{{ assignmentCount(nodeProps.data.assignments) }} 个变量赋值</div>
-              <div class="node-port-row">{{ portSummary(nodeProps.data.inputs, '入') }} · {{ portSummary(nodeProps.data.outputs, '出') }}</div>
-              <div v-if="nodeProps.data.outputAlias" class="node-alias">输出别名：{{ nodeProps.data.outputAlias }}</div>
-              <button v-if="nodeDebugState(nodeProps.id)" class="node-runtime" type="button" @click.stop="openNodeTrace(nodeProps.id)">
-                <span class="runtime-dot"></span>
-                <span>{{ nodeRunLabel(nodeProps.id) }}</span>
-              </button>
-            </div>
-          </template>
-          <template #node-template="nodeProps">
-            <div class="studio-node template-node" :class="[nodeRunClass(nodeProps.id), { collapsed: nodeProps.data.collapsed }]">
-              <Handle type="target" :position="Position.Left" />
-              <Handle type="source" :position="Position.Right" />
-              <div class="node-icon"><el-icon><Document /></el-icon></div>
-              <div class="node-head">
-                <span class="node-kind">模板</span>
-                <span class="node-state">渲染</span>
-              </div>
-              <div class="node-label">{{ nodeProps.data.label || nodeProps.id }}</div>
-              <div class="node-desc">{{ nodeProps.data.description || '模板转换与响应组装' }}</div>
-              <div class="node-port-row">{{ portSummary(nodeProps.data.inputs, '入') }} · {{ portSummary(nodeProps.data.outputs, '出') }}</div>
-              <div v-if="nodeProps.data.outputAlias" class="node-alias">输出别名：{{ nodeProps.data.outputAlias }}</div>
-              <button v-if="nodeDebugState(nodeProps.id)" class="node-runtime" type="button" @click.stop="openNodeTrace(nodeProps.id)">
-                <span class="runtime-dot"></span>
-                <span>{{ nodeRunLabel(nodeProps.id) }}</span>
-              </button>
-            </div>
-          </template>
-          <template #node-parameter="nodeProps">
-            <div class="studio-node parameter-node" :class="[nodeRunClass(nodeProps.id), { collapsed: nodeProps.data.collapsed }]">
-              <Handle type="target" :position="Position.Left" />
-              <Handle type="source" :position="Position.Right" />
-              <div class="node-icon"><el-icon><MagicStick /></el-icon></div>
-              <div class="node-head">
-                <span class="node-kind">参数</span>
-                <span class="node-state">提取</span>
-              </div>
-              <div class="node-label">{{ nodeProps.data.label || nodeProps.id }}</div>
-              <div class="node-desc">{{ nodeProps.data.parameterConfig?.fields?.length || 0 }} 个参数字段</div>
-              <div class="node-port-row">{{ portSummary(nodeProps.data.inputs, '入') }} · {{ portSummary(nodeProps.data.outputs, '出') }}</div>
-              <div v-if="nodeProps.data.outputAlias" class="node-alias">输出别名：{{ nodeProps.data.outputAlias }}</div>
-              <button v-if="nodeDebugState(nodeProps.id)" class="node-runtime" type="button" @click.stop="openNodeTrace(nodeProps.id)">
-                <span class="runtime-dot"></span>
-                <span>{{ nodeRunLabel(nodeProps.id) }}</span>
-              </button>
-            </div>
-          </template>
-          <template #node-http="nodeProps">
-            <div class="studio-node http-node" :class="[nodeRunClass(nodeProps.id), { collapsed: nodeProps.data.collapsed }]">
-              <Handle type="target" :position="Position.Left" />
-              <Handle type="source" :position="Position.Right" />
-              <div class="node-icon"><el-icon><Link /></el-icon></div>
-              <div class="node-head">
-                <span class="node-kind">接口</span>
-                <span class="node-state">{{ nodeProps.data.httpConfig?.method || 'GET' }}</span>
-              </div>
-              <div class="node-label">{{ nodeProps.data.label || nodeProps.id }}</div>
-              <div class="node-desc">{{ nodeProps.data.httpConfig?.url || '未配置 URL' }}</div>
-              <div class="node-port-row">{{ portSummary(nodeProps.data.inputs, '入') }} · {{ portSummary(nodeProps.data.outputs, '出') }}</div>
-              <div v-if="nodeProps.data.outputAlias" class="node-alias">输出别名：{{ nodeProps.data.outputAlias }}</div>
-              <button v-if="nodeDebugState(nodeProps.id)" class="node-runtime" type="button" @click.stop="openNodeTrace(nodeProps.id)">
-                <span class="runtime-dot"></span>
-                <span>{{ nodeRunLabel(nodeProps.id) }}</span>
-              </button>
-            </div>
-          </template>
-          <template #node-answer="nodeProps">
-            <div class="studio-node answer-node" :class="[nodeRunClass(nodeProps.id), { collapsed: nodeProps.data.collapsed }]">
-              <Handle type="target" :position="Position.Left" />
-              <Handle type="source" :position="Position.Right" />
-              <div class="node-icon"><el-icon><Finished /></el-icon></div>
-              <div class="node-head">
-                <span class="node-kind">回复</span>
-                <span class="node-state">输出</span>
-              </div>
-              <div class="node-label">{{ nodeProps.data.label || nodeProps.id }}</div>
-              <div class="node-desc">{{ nodeProps.data.answerConfig?.template || nodeProps.data.template || '未配置回复模板' }}</div>
-              <div class="node-port-row">{{ portSummary(nodeProps.data.inputs, '入') }} · 写入 answer</div>
-              <button v-if="nodeDebugState(nodeProps.id)" class="node-runtime" type="button" @click.stop="openNodeTrace(nodeProps.id)">
-                <span class="runtime-dot"></span>
-                <span>{{ nodeRunLabel(nodeProps.id) }}</span>
-              </button>
-            </div>
-          </template>
-          <template #node-code="nodeProps">
-            <div class="studio-node code-node" :class="[nodeRunClass(nodeProps.id), { collapsed: nodeProps.data.collapsed }]">
-              <Handle type="target" :position="Position.Left" />
-              <Handle type="source" :position="Position.Right" />
-              <div class="node-icon"><el-icon><Document /></el-icon></div>
-              <div class="node-head">
-                <span class="node-kind">代码</span>
-                <span class="node-state">表达式</span>
-              </div>
-              <div class="node-label">{{ nodeProps.data.label || nodeProps.id }}</div>
-              <div class="node-desc">{{ Object.keys(nodeProps.data.codeConfig?.outputs || {}).length }} 个输出字段</div>
-              <div class="node-port-row">{{ portSummary(nodeProps.data.inputs, '入') }} · {{ portSummary(nodeProps.data.outputs, '出') }}</div>
-              <div v-if="nodeProps.data.outputAlias" class="node-alias">输出别名：{{ nodeProps.data.outputAlias }}</div>
-              <button v-if="nodeDebugState(nodeProps.id)" class="node-runtime" type="button" @click.stop="openNodeTrace(nodeProps.id)">
-                <span class="runtime-dot"></span>
-                <span>{{ nodeRunLabel(nodeProps.id) }}</span>
-              </button>
-            </div>
-          </template>
-          <template #node-aggregate="nodeProps">
-            <div class="studio-node aggregate-node" :class="[nodeRunClass(nodeProps.id), { collapsed: nodeProps.data.collapsed }]">
-              <Handle type="target" :position="Position.Left" />
-              <Handle type="source" :position="Position.Right" />
-              <div class="node-icon"><el-icon><SetUp /></el-icon></div>
-              <div class="node-head">
-                <span class="node-kind">聚合</span>
-                <span class="node-state">{{ nodeProps.data.aggregateConfig?.mode || 'object' }}</span>
-              </div>
-              <div class="node-label">{{ nodeProps.data.label || nodeProps.id }}</div>
-              <div class="node-desc">{{ nodeProps.data.aggregateConfig?.items?.length || 0 }} 个变量聚合项</div>
-              <div class="node-port-row">{{ portSummary(nodeProps.data.inputs, '入') }} · {{ portSummary(nodeProps.data.outputs, '出') }}</div>
-              <div v-if="nodeProps.data.outputAlias" class="node-alias">输出别名：{{ nodeProps.data.outputAlias }}</div>
-              <button v-if="nodeDebugState(nodeProps.id)" class="node-runtime" type="button" @click.stop="openNodeTrace(nodeProps.id)">
-                <span class="runtime-dot"></span>
-                <span>{{ nodeRunLabel(nodeProps.id) }}</span>
-              </button>
-            </div>
-          </template>
-          <template #node-approval="nodeProps">
-            <div class="studio-node approval-node" :class="[nodeRunClass(nodeProps.id), { collapsed: nodeProps.data.collapsed }]">
-              <Handle type="target" :position="Position.Left" />
-              <div class="node-icon"><el-icon><Finished /></el-icon></div>
-              <div class="node-head">
-                <span class="node-kind">人工</span>
-                <span class="node-state">确认</span>
-              </div>
-              <div class="node-label">{{ nodeProps.data.label || nodeProps.id }}</div>
-              <div class="node-desc">{{ nodeProps.data.approvalConfig?.title || '人工确认' }}</div>
-              <div class="classifier-routes">
-                <div
-                  v-for="route in approvalRouteRows()"
-                  :key="route.id"
-                  class="classifier-route-row"
-                >
-                  <div class="classifier-route-copy">
-                    <strong>{{ route.label }}</strong>
-                    <span>{{ route.meta }}</span>
-                  </div>
-                  <Handle
-                    type="source"
-                    :id="route.handleId"
-                    :position="Position.Right"
-                    class="classifier-route-handle"
-                  />
-                </div>
-              </div>
-              <div class="node-port-row">{{ portSummary(nodeProps.data.outputs, '分支') }}</div>
-              <button v-if="nodeDebugState(nodeProps.id)" class="node-runtime" type="button" @click.stop="openNodeTrace(nodeProps.id)">
-                <span class="runtime-dot"></span>
-                <span>{{ nodeRunLabel(nodeProps.id) }}</span>
-              </button>
-            </div>
-          </template>
-          <template #node-loop="nodeProps">
-            <div class="studio-node loop-node" :class="[nodeRunClass(nodeProps.id), { collapsed: nodeProps.data.collapsed }]">
-              <Handle type="target" :position="Position.Left" />
-              <Handle type="source" :position="Position.Right" />
-              <div class="node-icon"><el-icon><RefreshRight /></el-icon></div>
-              <div class="node-head">
-                <span class="node-kind">循环</span>
-                <span class="node-state">{{ nodeProps.data.loopConfig?.maxIterations || 100 }} 次</span>
-              </div>
-              <div class="node-label">{{ nodeProps.data.label || nodeProps.id }}</div>
-              <div class="node-desc">{{ loopNodeSummary(nodeProps.data.loopConfig) }}</div>
-              <div class="node-port-row">{{ portSummary(nodeProps.data.outputs, '输出') }}</div>
-              <button v-if="nodeDebugState(nodeProps.id)" class="node-runtime" type="button" @click.stop="openNodeTrace(nodeProps.id)">
-                <span class="runtime-dot"></span>
-                <span>{{ nodeRunLabel(nodeProps.id) }}</span>
-              </button>
-            </div>
-          </template>
-          <template #node-knowledgeWrite="nodeProps">
-            <div class="studio-node knowledge-write-node" :class="[nodeRunClass(nodeProps.id), { collapsed: nodeProps.data.collapsed }]">
-              <Handle type="target" :position="Position.Left" />
-              <Handle type="source" :position="Position.Right" />
-              <div class="node-icon"><el-icon><Collection /></el-icon></div>
-              <div class="node-head">
-                <span class="node-kind">知识</span>
-                <span class="node-state">写入</span>
-              </div>
-              <div class="node-label">{{ nodeProps.data.label || nodeProps.id }}</div>
-              <div class="node-desc">{{ nodeProps.data.knowledgeWriteConfig?.knowledgeBaseCode || '未选择知识库' }}</div>
-              <div class="node-port-row">{{ portSummary(nodeProps.data.inputs, '入') }} · {{ portSummary(nodeProps.data.outputs, '出') }}</div>
-              <button v-if="nodeDebugState(nodeProps.id)" class="node-runtime" type="button" @click.stop="openNodeTrace(nodeProps.id)">
-                <span class="runtime-dot"></span>
-                <span>{{ nodeRunLabel(nodeProps.id) }}</span>
-              </button>
-            </div>
-          </template>
-          <template #node-documentExtract="nodeProps">
-            <div class="studio-node document-extract-node" :class="[nodeRunClass(nodeProps.id), { collapsed: nodeProps.data.collapsed }]">
-              <Handle type="target" :position="Position.Left" />
-              <Handle type="source" :position="Position.Right" />
-              <div class="node-icon"><el-icon><Files /></el-icon></div>
-              <div class="node-head">
-                <span class="node-kind">文档</span>
-                <span class="node-state">{{ nodeProps.data.documentExtractConfig?.format || 'text' }}</span>
-              </div>
-              <div class="node-label">{{ nodeProps.data.label || nodeProps.id }}</div>
-              <div class="node-desc">{{ nodeProps.data.documentExtractConfig?.fields?.length || 0 }} 个抽取字段</div>
-              <div class="node-port-row">{{ portSummary(nodeProps.data.inputs, '入') }} · {{ portSummary(nodeProps.data.outputs, '出') }}</div>
-              <button v-if="nodeDebugState(nodeProps.id)" class="node-runtime" type="button" @click.stop="openNodeTrace(nodeProps.id)">
-                <span class="runtime-dot"></span>
-                <span>{{ nodeRunLabel(nodeProps.id) }}</span>
-              </button>
-            </div>
-          </template>
-          <template #node-mcp="nodeProps">
-            <div class="studio-node mcp-node" :class="[nodeRunClass(nodeProps.id), { collapsed: nodeProps.data.collapsed }]">
-              <Handle type="target" :position="Position.Left" />
-              <Handle type="source" :position="Position.Right" />
-              <div class="node-icon"><el-icon><Connection /></el-icon></div>
-              <div class="node-head">
-                <span class="node-kind">MCP</span>
-                <span class="node-state">调用</span>
-              </div>
-              <div class="node-label">{{ nodeProps.data.label || nodeProps.id }}</div>
-              <div class="node-desc">{{ nodeProps.data.mcpConfig?.toolName || '未配置工具' }}</div>
-              <div class="node-port-row">{{ portSummary(nodeProps.data.inputs, '入') }} · {{ portSummary(nodeProps.data.outputs, '出') }}</div>
-              <button v-if="nodeDebugState(nodeProps.id)" class="node-runtime" type="button" @click.stop="openNodeTrace(nodeProps.id)">
-                <span class="runtime-dot"></span>
-                <span>{{ nodeRunLabel(nodeProps.id) }}</span>
-              </button>
-            </div>
+          <template v-for="kind in studioCanvasNodeKinds" :key="kind" #[`node-${kind}`]="nodeProps">
+            <StudioNodeCard
+              :model="studioNodeCardModel(kind, nodeProps.id, nodeProps.data, nodeCardContext)"
+              :collapsed="nodeProps.data.collapsed"
+              :output-alias="nodeProps.data.outputAlias"
+              :run-class="nodeRunClass(nodeProps.id)"
+              :run-label="nodeDebugState(nodeProps.id) ? nodeRunLabel(nodeProps.id) : ''"
+              @open-trace="openNodeTrace(nodeProps.id)"
+            />
           </template>
         </VueFlow>
 
-        <div
+        <StudioCanvasToolbar
           v-if="!canvasOperatorCollapsed"
-          class="canvas-operator-panel"
-          aria-label="画布工具"
-          @mousedown.stop
-          @click.stop
-        >
-          <el-tooltip content="搜索节点 Ctrl+F" placement="top">
-            <el-button :icon="Search" circle aria-label="搜索节点" @click="openCanvasSearch" />
-          </el-tooltip>
-          <el-divider direction="vertical" />
-          <el-tooltip content="撤销 Ctrl+Z" placement="top">
-            <el-button :icon="RefreshLeft" circle :disabled="studioReadOnly || !canUndo" @click="undoCanvas" />
-          </el-tooltip>
-          <el-tooltip content="重做 Ctrl+Y" placement="top">
-            <el-button :icon="RefreshRight" circle :disabled="studioReadOnly || !canRedo" @click="redoCanvas" />
-          </el-tooltip>
-          <el-divider direction="vertical" />
-          <el-tooltip content="复制 Ctrl+C" placement="top">
-            <el-button :icon="CopyDocument" circle :disabled="!canCopySelectedNode" @click="copySelectedNode" />
-          </el-tooltip>
-          <el-tooltip content="粘贴 Ctrl+V" placement="top">
-            <el-button :icon="Files" circle :disabled="studioReadOnly || !copiedNode" @click="pasteCopiedNode" />
-          </el-tooltip>
-          <el-tooltip content="折叠/展开节点" placement="top">
-            <el-button :icon="Operation" circle :disabled="!selectedNode" @click="toggleSelectedNodeCollapsed" />
-          </el-tooltip>
-          <el-divider direction="vertical" />
-          <el-tooltip content="自动整理 Ctrl+O" placement="top">
-            <el-button :icon="Rank" circle :loading="layoutRunning" @click="handleAutoLayout" />
-          </el-tooltip>
-          <el-tooltip content="聚焦画布 Ctrl+1" placement="top">
-            <el-button :icon="Aim" circle @click="handleFitView" />
-          </el-tooltip>
-          <el-tooltip content="缩小" placement="top">
-            <el-button :icon="ZoomOut" circle @click="handleZoomOut" />
-          </el-tooltip>
-          <el-tooltip content="放大" placement="top">
-            <el-button :icon="ZoomIn" circle @click="handleZoomIn" />
-          </el-tooltip>
-        </div>
+          :read-only="studioReadOnly"
+          :can-undo="canUndo"
+          :can-redo="canRedo"
+          :can-copy="canCopySelectedNode"
+          :can-paste="!!copiedNode"
+          :has-selected-node="!!selectedNode"
+          :layout-running="layoutRunning"
+          @search="openCanvasSearch"
+          @undo="undoCanvas"
+          @redo="redoCanvas"
+          @copy="copySelectedNode"
+          @paste="pasteCopiedNode"
+          @toggle-collapse="toggleSelectedNodeCollapsed"
+          @layout="handleAutoLayout"
+          @fit="handleFitView"
+          @zoom-out="handleZoomOut"
+          @zoom-in="handleZoomIn"
+        />
 
-        <div
+        <StudioAiEditBar
           v-if="!aiEditMinimized"
-          class="ai-edit-bar"
-          :class="{ 'debug-drawer-open': debugOpen, 'is-generating': aiEditLoading }"
-          @mousedown.stop
-          @click.stop
-        >
-          <div class="ai-edit-input-row">
-            <el-input
-              v-model="aiEditInstruction"
-              :disabled="studioReadOnly || aiEditLoading"
-              clearable
-              class="ai-edit-main-input"
-              type="textarea"
-              resize="none"
-              :autosize="{ minRows: 2, maxRows: 4 }"
-              placeholder="描述你想创建、修改或修复的 Workflow，AI 会结合当前画布理解意图"
-              @keydown.enter.exact.prevent="runAiAuthoring()"
-            />
-            <div class="ai-edit-toolbar">
-              <div class="ai-edit-toolbar-left">
-                <el-tooltip content="AI 会结合 GraphSpec、已选节点、校验结果和可用资源生成候选方案" placement="top">
-                  <el-button text circle :icon="MagicStick" disabled />
-                </el-tooltip>
-              </div>
-              <div class="ai-edit-toolbar-right">
-                <el-tooltip content="最小化 AI 编排" placement="top">
-                  <el-button
-                    class="ai-edit-minimize"
-                    circle
-                    :icon="Minus"
-                    aria-label="最小化 AI 编排"
-                    @click="aiEditMinimized = true"
-                  />
-                </el-tooltip>
-                <el-popover trigger="click" placement="top-end" width="360" popper-class="ai-edit-model-popover">
-                  <template #reference>
-                    <el-button
-                      class="ai-edit-model-trigger"
-                      :class="{ active: !!selectedAiEditModelLabel }"
-                      :disabled="aiEditLoading"
-                      circle
-                      aria-label="选择 AI 编排模型"
-                    >
-                      <el-icon><LlmModelIcon /></el-icon>
-                    </el-button>
-                  </template>
-                  <div class="ai-edit-model-panel">
-                    <div class="ai-edit-model-title">选择 AI 编排模型</div>
-                    <el-select
-                      v-model="aiModelInstanceId"
-                      filterable
-                      clearable
-                      placeholder="选择用于创建和修改的模型"
-                      :disabled="aiEditLoading"
-                      :loading="modelOptionsLoading"
-                      @visible-change="handleModelOptionsVisible"
-                    >
-                      <el-option
-                        v-for="item in authoringModelOptions"
-                        :key="item.id"
-                        :label="modelOptionLabel(item)"
-                        :value="item.id"
-                      />
-                      <template #empty>
-                        <ModelSelectEmptyState
-                          model-type="LLM"
-                          :option-count="authoringModelOptions.length"
-                          :loading="modelOptionsLoading"
-                          :load-error="modelOptionsLoadError"
-                          @retry="loadModelOptions"
-                        />
-                      </template>
-                    </el-select>
-                    <div class="ai-edit-model-hint">{{ selectedAiEditModelLabel || '未选择模型时会使用 Workflow 默认模型' }}</div>
-                  </div>
-                </el-popover>
-                <el-tooltip content="生成编排方案" placement="top">
-                  <el-button
-                    class="ai-edit-send"
-                    type="primary"
-                    circle
-                    :icon="SendIcon"
-                    :loading="aiEditLoading"
-                    :disabled="!aiEditInstruction.trim()"
-                    aria-label="生成编排方案"
-                    @click="runAiAuthoring()"
-                  />
-                </el-tooltip>
-              </div>
-            </div>
-          </div>
-          <div
-            v-if="aiEditPreview"
-            class="ai-edit-preview"
-            :class="{ 'is-failed': aiEditPreviewFailed }"
-          >
-            <div class="ai-edit-preview-head">
-              <strong>
-                {{ aiEditPreviewFailed ? 'AI 编排生成失败' : (aiEditPreview.summary || 'AI 编排预览') }}
-              </strong>
-              <span>
-                {{ aiEditPreview.provider }}
-                · {{ aiEditPreview.status || (aiEditPreviewFailed ? 'FAILED' : 'SUCCEEDED') }}
-                · {{ aiEditPreview.operations.length }} 项变更
-                <template v-if="aiEditPreview.attempts != null"> · {{ aiEditPreview.attempts }} 次 mutation</template>
-              </span>
-            </div>
-            <div v-if="aiEditPreviewFailed" class="ai-edit-alert error">
-              <span>{{ aiEditPreview.summary || 'AI 编排生成失败，Agent 已尝试自动修正，但仍未生成合法 Workflow。' }}</span>
-              <span v-if="aiEditPreview.authoringId">错误编号：{{ aiEditPreview.authoringId }}</span>
-              <span v-if="aiEditPreview.failureCode">失败码：{{ aiEditPreview.failureCode }}</span>
-              <span>当前 Proposal 未通过校验，不能应用到工作副本。</span>
-              <span v-for="item in aiEditPreview.validationErrors || []" :key="item">{{ item }}</span>
-            </div>
-            <div v-else-if="aiEditPreview.validationErrors?.length" class="ai-edit-alert error">
-              <span v-for="item in aiEditPreview.validationErrors" :key="item">{{ item }}</span>
-            </div>
-            <div v-if="aiEditPreview.warnings?.length" class="ai-edit-alert warning">
-              <span v-for="item in aiEditPreview.warnings" :key="item">{{ item }}</span>
-            </div>
-            <div class="ai-edit-operation-grid">
-              <div
-                v-for="group in aiEditOperationGroups"
-                :key="group.type"
-                class="ai-edit-operation-group"
-              >
-                <strong>{{ group.label }}</strong>
-                <span v-for="item in group.items" :key="operationKey(item)">
-                  {{ operationTarget(item) }}{{ item.reason ? `：${item.reason}` : '' }}
-                </span>
-              </div>
-            </div>
-            <div class="ai-edit-actions">
-              <el-button text @click="clearAiEditPreview">取消</el-button>
-              <el-button
-                v-if="aiEditPreviewFailed"
-                type="primary"
-                :loading="aiEditLoading"
-                :disabled="aiEditLoading"
-                @click="regenerateAiAuthoring"
-              >
-                重新生成
-              </el-button>
-              <el-button
-                v-else
-                type="primary"
-                :disabled="aiEditPreviewFailed || !!aiEditPreview.validationErrors?.length"
-                @click="applyAiEditPreview"
-              >
-                应用到工作副本
-              </el-button>
-            </div>
-          </div>
-        </div>
+          v-model:instruction="aiEditInstruction"
+          v-model:model-instance-id="aiModelInstanceId"
+          :read-only="studioReadOnly"
+          :loading="aiEditLoading"
+          :debug-open="debugOpen"
+          :preview="aiEditPreview"
+          :preview-failed="aiEditPreviewFailed"
+          :operation-groups="aiEditOperationGroups"
+          :model-options="authoringModelOptions"
+          :model-options-loading="modelOptionsLoading"
+          :model-options-load-error="modelOptionsLoadError"
+          :selected-model-label="selectedAiEditModelLabel"
+          @run="runAiAuthoring()"
+          @apply="applyAiEditPreview"
+          @clear="clearAiEditPreview"
+          @regenerate="regenerateAiAuthoring"
+          @minimize="aiEditMinimized = true"
+          @load-models="loadModelOptions"
+        />
 
         <div v-if="canvasSearchOpen" class="canvas-search-panel">
           <el-input
@@ -871,555 +144,92 @@
           <el-button text :icon="Close" @click="closeCanvasSearch" />
         </div>
 
-        <div
+        <StudioInspector
           v-if="activeInspectorPanel"
-          class="workflow-inspector"
-          :class="`is-${activeInspectorPanel}`"
-          role="region"
-          :aria-label="activeInspectorPanel === 'validation' ? '草稿检查' : '流程变量'"
-          @mousedown.stop
-          @click.stop
-        >
-          <section v-if="activeInspectorPanel === 'validation'" class="inspector-section">
-            <div class="inspector-head">
-              <div class="inspector-title">
-                <span class="inspector-title-icon is-validation">
-                  <el-icon><CircleCheck /></el-icon>
-                </span>
-                <div>
-                  <strong>草稿检查</strong>
-                  <small>画布结构与运行时发布门禁</small>
-                </div>
-              </div>
-              <div class="inspector-head-actions">
-                <el-tag size="small" round :type="studioValidationTagType">
-                  {{ studioValidationLabel }}
-                </el-tag>
-                <button class="inspector-close" type="button" aria-label="关闭草稿检查" @click="activeInspectorPanel = null">
-                  <el-icon><Close /></el-icon>
-                </button>
-              </div>
-            </div>
-            <div class="inspector-body">
-              <div v-if="graphLintItems.length" class="inspector-list">
-                <button
-                  v-for="item in graphLintItems.slice(0, 5)"
-                  :key="item.level + '-' + (item.nodeId || item.edgeId || item.message)"
-                  class="inspector-item"
-                  :class="item.level"
-                  type="button"
-                  @click="focusLintItem(item)"
-                >
-                  <span>{{ item.level === 'error' ? '阻断' : '提醒' }}</span>
-                  <em>{{ item.message }}</em>
-                  <el-icon class="inspector-item-arrow"><ArrowRight /></el-icon>
-                </button>
-              </div>
-              <div v-if="runtimeValidationItems.length" class="inspector-list runtime-validation-list">
-                <button
-                  v-for="item in runtimeValidationItems.slice(0, 5)"
-                  :key="item.level + '-' + item.code + '-' + (item.target || item.message)"
-                  class="inspector-item"
-                  :class="item.level"
-                  type="button"
-                  @click="focusRuntimeValidationItem(item.target)"
-                >
-                  <span>{{ item.level === 'error' ? '发布阻断' : '运行提醒' }}</span>
-                  <em>{{ item.message }}</em>
-                  <el-icon class="inspector-item-arrow"><ArrowRight /></el-icon>
-                </button>
-              </div>
-              <div v-if="validationRequestError" class="inspector-empty-state is-error">
-                <span class="inspector-empty-icon"><Close /></span>
-                <div>
-                  <strong>发布校验暂不可用</strong>
-                  <span>{{ validationRequestError }}</span>
-                </div>
-              </div>
-              <div v-else-if="!graphLintItems.length && !runtimeValidationItems.length" class="inspector-empty-state">
-                <span class="inspector-empty-icon"><CircleCheck /></span>
-                <div>
-                  <strong>{{ validation?.valid ? '当前工作副本检查通过' : '画布结构检查通过' }}</strong>
-                  <span>{{ validation?.valid
-                    ? '画布与运行时配置均已满足发布要求。'
-                    : '运行“校验”可继续确认模型、资源与运行时配置。' }}</span>
-                </div>
-              </div>
-            </div>
-          </section>
-          <section v-else class="inspector-section">
-            <div class="inspector-head">
-              <div class="inspector-title">
-                <span class="inspector-title-icon is-variable">
-                  <el-icon><Coin /></el-icon>
-                </span>
-                <div>
-                  <strong>流程变量</strong>
-                  <small>可在节点表达式和输入映射中引用</small>
-                </div>
-              </div>
-              <div class="inspector-head-actions">
-                <span class="inspector-count">{{ graphVariables.length }} 个</span>
-                <button class="inspector-close" type="button" aria-label="关闭变量面板" @click="activeInspectorPanel = null">
-                  <el-icon><Close /></el-icon>
-                </button>
-              </div>
-            </div>
-            <div class="inspector-body">
-              <div v-if="graphVariables.length" class="variable-chips">
-                <button
-                  v-for="item in graphVariables.slice(0, 12)"
-                  :key="item.name"
-                  class="variable-chip"
-                  type="button"
-                  :title="`${item.name} · ${item.source}`"
-                  @click="selectedNodeId = item.nodeId"
-                >
-                  <span class="variable-chip-icon"><Coin /></span>
-                  <span class="variable-chip-content">
-                    <code>{{ item.name }}</code>
-                    <small>来源：{{ item.source }}</small>
-                  </span>
-                  <el-icon><ArrowRight /></el-icon>
-                </button>
-              </div>
-              <div v-else class="inspector-empty-state">
-                <span class="inspector-empty-icon"><Coin /></span>
-                <div>
-                  <strong>暂无流程变量</strong>
-                  <span>配置节点输出别名后，可在后续节点中直接引用。</span>
-                </div>
-              </div>
-              <div v-if="graphVariables.length > 12" class="inspector-more-hint">
-                当前展示前 12 个变量，共 {{ graphVariables.length }} 个
-              </div>
-            </div>
-          </section>
-        </div>
-        <div class="canvas-statusbar">
-          <div class="status-left">
-            <el-tooltip :content="canvasOperatorCollapsed ? '展开画布工具' : '收起画布工具'" placement="top">
-              <button
-                class="status-pill canvas-tools-pill"
-                :class="{ active: !canvasOperatorCollapsed }"
-                type="button"
-                :aria-expanded="!canvasOperatorCollapsed"
-                @click="toggleCanvasOperator"
-              >
-                <el-icon><Operation /></el-icon>
-                <strong>工具</strong>
-                <el-icon class="operator-caret">
-                  <ArrowUp v-if="canvasOperatorCollapsed" />
-                  <ArrowDown v-else />
-                </el-icon>
-              </button>
-            </el-tooltip>
-            <button
-              class="status-pill"
-              :class="{
-                active: activeInspectorPanel === 'validation',
-                danger: studioValidationTagType === 'danger',
-                warning: studioValidationTagType === 'warning',
-              }"
-              type="button"
-              :aria-expanded="activeInspectorPanel === 'validation'"
-              @click="toggleInspectorPanel('validation')"
-            >
-              <span class="status-dot"></span>
-              <strong>{{ studioValidationLabel }}</strong>
-              <em>草稿检查</em>
-            </button>
-            <button
-              class="status-pill"
-              :class="{ active: activeInspectorPanel === 'variables' }"
-              type="button"
-              :aria-expanded="activeInspectorPanel === 'variables'"
-              @click="toggleInspectorPanel('variables')"
-            >
-              <strong>变量</strong>
-              <em>{{ graphVariables.length }}</em>
-            </button>
-            <button
-              class="status-pill smart-edit-pill"
-              :class="{ active: !aiEditMinimized }"
-              type="button"
-              :aria-expanded="!aiEditMinimized"
-              @click="toggleAiEditBar"
-            >
-              <el-icon><MagicStick /></el-icon>
-              <strong>AI 编排</strong>
-            </button>
-          </div>
-        </div>
+          :panel="activeInspectorPanel"
+          :validation-label="studioValidationLabel"
+          :validation-tag-type="studioValidationTagType"
+          :validation-valid="!!validation?.valid"
+          :validation-request-error="validationRequestError"
+          :graph-lint-items="graphLintItems"
+          :runtime-validation-items="runtimeValidationItems"
+          :graph-variables="graphVariables"
+          @close="activeInspectorPanel = null"
+          @focus-lint="focusLintItem"
+          @focus-runtime="focusRuntimeValidationItem"
+          @select-node="selectedNodeId = $event"
+        />
+        <StudioStatusBar
+          :tools-open="!canvasOperatorCollapsed"
+          :inspector-panel="activeInspectorPanel"
+          :validation-label="studioValidationLabel"
+          :validation-tag-type="studioValidationTagType"
+          :variable-count="graphVariables.length"
+          :ai-open="!aiEditMinimized"
+          @toggle-tools="toggleCanvasOperator"
+          @toggle-inspector="toggleInspectorPanel"
+          @toggle-ai="toggleAiEditBar"
+        />
       </section>
 
-      <aside class="property-panel">
-        <button class="property-toggle" type="button" @click="propertyPanelCollapsed = !propertyPanelCollapsed">
-          <el-icon><ArrowRight v-if="!propertyPanelCollapsed" /><ArrowLeft v-else /></el-icon>
-        </button>
-        <div v-if="propertyPanelCollapsed" class="property-compact">
-          <strong>{{ selectedNode?.data.label || edgeDisplayLabel(selectedEdge?.condition || selectedEdge?.label, selectedEdge) || '画布摘要' }}</strong>
-          <span>{{ selectedNode ? nodeKindLabel(selectedNode.data.kind) : selectedEdge ? '连线' : `${canvasStats.nodes} 节点` }}</span>
-        </div>
-        <div v-else class="property-content">
-        <el-alert
-          v-if="studioReadOnly"
-          class="readonly-alert"
-          title="此 Workflow 由其他入口维护，只读展示。请从原创建入口更新。"
-          type="warning"
-          :closable="false"
-        />
-        <div v-if="selectedEdge">
-            <el-divider>连线条件</el-divider>
-            <el-form label-width="100px" size="small">
-              <el-form-item label="来源">
-                <el-input :model-value="selectedEdge.source" disabled />
-              </el-form-item>
-              <el-form-item label="目标">
-                <el-input :model-value="selectedEdge.target" disabled />
-              </el-form-item>
-              <el-form-item label="条件">
-                <el-select
-                  v-model="selectedEdge.condition"
-                  :disabled="studioReadOnly"
-                  filterable
-                  allow-create
-                  default-first-option
-                  placeholder="选择或输入条件"
-                  style="width: 100%"
-                  @change="syncSelectedEdgeLabel"
-                >
-                  <el-option
-                    v-for="item in selectedEdgeConditionOptions"
-                    :key="item.value"
-                    :label="item.label"
-                    :value="item.value"
-                  />
-                </el-select>
-              </el-form-item>
-              <div v-if="selectedEdgeRouteOptions.length" class="route-quick-picks">
-                <el-button
-                  v-for="item in selectedEdgeRouteOptions"
-                  :key="item.value"
-                  size="small"
-                  text
-                  type="primary"
-                  :disabled="studioReadOnly"
-                  @click="applySelectedEdgeCondition(item.value)"
-                >
-                  {{ item.label }}
-                </el-button>
-              </div>
-              <div class="condition-help">
-                支持：默认、成功、失败、为空、非空、包含、等于；条件节点出边可使用“路由: 分组ID”。
-              </div>
-            </el-form>
-          </div>
-          <div v-else-if="!selectedNode">
-            <div class="property-empty-state">
-              <div class="empty-state-icon">
-                <el-icon><Aim /></el-icon>
-              </div>
-              <strong>选择画布中的节点</strong>
-              <span>在这里编辑配置、调试节点，或查看连线条件。</span>
-            </div>
-            <el-divider>Workflow 元数据</el-divider>
-            <el-form label-width="100px" size="small" class="property-form" :disabled="studioReadOnly">
-              <el-form-item label="名称">
-                <el-input v-model="workflowMeta.name" @change="markCanvasDirty" />
-              </el-form-item>
-              <el-form-item label="keySlug">
-                <el-input v-model="workflowMeta.keySlug" placeholder="默认使用 workflowId" @change="markCanvasDirty" />
-              </el-form-item>
-              <el-form-item label="类型">
-                <el-input v-model="workflowMeta.workflowKind" @change="markCanvasDirty" />
-              </el-form-item>
-              <el-form-item label="说明">
-                <el-input v-model="workflowMeta.description" type="textarea" :rows="4" @change="markCanvasDirty" />
-              </el-form-item>
-              <el-form-item label="默认模型">
-                <el-select
-                  v-model="workflowMeta.defaultModelInstanceId"
-                  filterable
-                  clearable
-                  placeholder="选择默认 LLM 模型"
-                  style="width: 100%"
-                  :loading="modelOptionsLoading"
-                  @visible-change="handleModelOptionsVisible"
-                >
-                  <el-option
-                    v-for="item in authoringModelOptions"
-                    :key="item.id"
-                    :label="modelOptionLabel(item)"
-                    :value="item.id"
-                  />
-                  <template #empty>
-                    <ModelSelectEmptyState
-                      model-type="LLM"
-                      :option-count="authoringModelOptions.length"
-                      :loading="modelOptionsLoading"
-                      :load-error="modelOptionsLoadError"
-                      @retry="loadModelOptions"
-                    />
-                  </template>
-                </el-select>
-              </el-form-item>
-            </el-form>
-          </div>
-
-          <div v-else class="node-property-overview">
-            <div class="node-property-head">
-              <div class="node-property-icon" :style="{ background: kindColor(selectedNode!.data.kind).bg, color: kindColor(selectedNode!.data.kind).border }">
-                <el-icon><component :is="nodeIcon(selectedNode!.data.kind) || Operation" /></el-icon>
-              </div>
-              <div class="node-property-title">
-                <div>
-                  <strong>{{ selectedNode!.data.label || selectedNode!.id }}</strong>
-                  <el-tag size="small" effect="plain">{{ nodeKindLabel(selectedNode!.data.kind) }}</el-tag>
-                </div>
-                <span>{{ selectedNode!.data.description || '配置该节点的运行行为、变量、输出与测试。' }}</span>
-              </div>
-              <el-button
-                class="node-property-delete"
-                size="small"
-                plain
-                :icon="Delete"
-                type="danger"
-                @click="deleteSelectedNode"
-                :disabled="selectedNode!.data.kind === 'start' || selectedNode!.data.kind === 'end'"
-              >
-                删除
-              </el-button>
-            </div>
-
-            <button class="property-section-card" type="button" @click="openPropertyDetail('base')">
-              <span class="section-card-icon"><el-icon><Operation /></el-icon></span>
-              <span class="section-card-main">
-                <strong>基础</strong>
-                <em>节点名称、描述、状态等</em>
-              </span>
-              <span class="section-card-meta">
-                <el-tag size="small" :type="selectedNode!.data.source === 'SDK' ? 'warning' : 'success'">
-                  {{ sourceLabel(selectedNode!.data.source) }}
-                </el-tag>
-                <el-icon><ArrowRight /></el-icon>
-              </span>
-            </button>
-
-            <button class="property-section-card" type="button" @click="openPropertyDetail('node')">
-              <span class="section-card-icon"><el-icon><SetUp /></el-icon></span>
-              <span class="section-card-main">
-                <strong>节点配置</strong>
-                <em>{{ nodeKindLabel(selectedNode!.data.kind) }} 专属参数、变量与输出</em>
-              </span>
-              <span class="section-card-meta">
-                <el-tag size="small">{{ portSummary(selectedNode!.data.inputs, '输入') }}</el-tag>
-                <el-tag size="small">{{ portSummary(selectedNode!.data.outputs, '输出') }}</el-tag>
-                <el-icon><ArrowRight /></el-icon>
-              </span>
-            </button>
-
-            <button
-              v-if="selectedNode!.data.kind !== 'start' && selectedNode!.data.kind !== 'end'"
-              class="property-section-card"
-              type="button"
-              @click="openPropertyDetail('debug')"
-            >
-              <span class="section-card-icon"><el-icon><VideoPlay /></el-icon></span>
-              <span class="section-card-main">
-                <strong>节点测试</strong>
-                <em>测试消息、模拟状态与输出状态</em>
-              </span>
-              <span class="section-card-meta">
-                <el-tag
-                  v-if="nodeDebugResult?.nodeId === selectedNode!.id"
-                  size="small"
-                  :type="nodeDebugResult.success ? 'success' : 'danger'"
-                >
-                  {{ nodeDebugResult.success ? '通过' : '失败' }}
-                </el-tag>
-                <el-icon><ArrowRight /></el-icon>
-              </span>
-            </button>
-
-            <button class="property-section-card" type="button" @click="openPropertyDetail('trace')">
-              <span class="section-card-icon"><el-icon><Document /></el-icon></span>
-              <span class="section-card-main">
-                <strong>Studio 调试记录</strong>
-                <em>{{ selectedNodeTrace ? '查看本次 Studio 调试输入、输出与状态' : '尚无本次调试结果；已发布运行请到 RunOps 查看' }}</em>
-              </span>
-              <span class="section-card-meta">
-                <el-tag v-if="selectedNodeTrace" size="small" :type="nodeTraceTagType(selectedNodeTrace.status)">
-                  {{ nodeTraceStatusText(selectedNodeTrace.status) }}
-                </el-tag>
-                <el-icon><ArrowRight /></el-icon>
-              </span>
-            </button>
-          </div>
-        </div>
-      </aside>
+      <StudioPropertyPanel
+        v-model:collapsed="propertyPanelCollapsed"
+        v-model:width="propertyPanelWidth"
+        v-model:tab="propertyPanelTab"
+        v-model:debug-message="nodeDebugMessage"
+        v-model:debug-state-text="nodeDebugStateText"
+        :read-only="studioReadOnly"
+        :node="selectedNode"
+        :edge="selectedEdge"
+        :edge-label="edgeDisplayLabel(selectedEdge?.condition || selectedEdge?.label, selectedEdge) || ''"
+        :edge-condition-options="selectedEdgeConditionOptions"
+        :edge-allows-custom-route="selectedEdgeAllowsCustomRoute"
+        :canvas-nodes="nodes"
+        :meta="workflowMeta"
+        :model-options="authoringModelOptions"
+        :model-options-loading="modelOptionsLoading"
+        :model-options-load-error="modelOptionsLoadError"
+        :kind-color="kindColor"
+        :node-icon="nodeIcon"
+        :debug-loading="nodeDebugLoading"
+        :debug-result="nodeDebugResult"
+        :trace="selectedNodeTrace"
+        :can-read-published-runs="canReadPublishedRuns"
+        @mark-dirty="markCanvasDirty"
+        @edge-condition-change="syncSelectedEdgeLabel"
+        @delete-node="deleteSelectedNode"
+        @load-model-options="loadModelOptions"
+        @run-node-debug="handleRunNodeDebug"
+        @open-published-runs="openPublishedRuns"
+      >
+        <template #node-config="{ node }">
+          <NodeConfigPanel
+            :key="node.id"
+            :data="node.data"
+            :node-id="node.id"
+            :canvas-nodes="nodes"
+            :model-options="modelOptions"
+            :model-options-loading="modelOptionsLoading"
+            :model-options-load-error="modelOptionsLoadError"
+            :knowledge-options="knowledgeOptions"
+            :tool-options="availableTools"
+            :tool-options-loading="toolOptionsLoading"
+            :tool-options-load-error="toolOptionsLoadError"
+            :variable-options="variableOptions"
+            :credential-options="credentialOptions"
+            :project-id="studio?.projectId || null"
+            :project-code="studio?.projectCode || null"
+            :request-scope-key="businessMethodRequestScope"
+            :node-type-options="nodeTypes"
+            @credential-created="handleCredentialCreated"
+            @create-call-node="handleCreateInteractionCallNode"
+            @retry-methods="loadToolOptions()"
+            @validation-change="handlePanelValidationChange"
+            @reload-model-options="loadModelOptions"
+          />
+        </template>
+      </StudioPropertyPanel>
     </div>
-
-    <AppDialog
-      v-model="propertyDetailOpen"
-      class="node-property-dialog"
-      :title="`${selectedNode?.data.label || selectedNode?.id || '节点'} · ${propertyDetailSectionLabel}`"
-      width="920px"
-      align-center
-      destroy-on-close
-    >
-      <template #header>
-        <div class="node-dialog-header">
-          <div class="node-dialog-icon" :style="{ '--node-accent': selectedNode ? kindColor(selectedNode.data.kind).border : '#4f46e5' }">
-            <el-icon v-if="selectedNode"><component :is="nodeIcon(selectedNode.data.kind) || Operation" /></el-icon>
-            <el-icon v-else><SetUp /></el-icon>
-          </div>
-          <div class="node-dialog-title">
-            <strong>{{ selectedNode?.data.label || selectedNode?.id || '节点' }}</strong>
-            <span>{{ propertyDetailSectionLabel }} · {{ selectedNode ? nodeKindLabel(selectedNode.data.kind) : '节点配置' }}</span>
-          </div>
-          <div v-if="selectedNode" class="node-dialog-tags">
-            <el-tag size="small" :type="selectedNode.data.source === 'SDK' ? 'warning' : 'success'">
-              {{ sourceLabel(selectedNode.data.source) }}
-            </el-tag>
-            <el-tag size="small" effect="plain">{{ categoryLabel(selectedNode.data.category) }}</el-tag>
-          </div>
-        </div>
-      </template>
-      <template v-if="selectedNode">
-        <el-form v-if="propertyDetailSection === 'base'" class="node-base-form" label-width="88px" size="small">
-          <section class="node-detail-card">
-            <div class="node-detail-card-head">
-              <div>
-                <strong>身份信息</strong>
-                <span>用于画布展示、运行日志和上游节点引用</span>
-              </div>
-              <el-tag size="small" effect="plain">{{ nodeKindLabel(selectedNode.data.kind) }}</el-tag>
-            </div>
-            <el-form-item label="节点 ID">
-              <el-input v-model="selectedNode.id" disabled />
-            </el-form-item>
-            <el-form-item label="名称">
-              <el-input v-model="selectedNode.data.label" placeholder="给节点起一个清晰的业务名称" @change="markCanvasDirty" />
-            </el-form-item>
-            <el-form-item label="描述">
-              <el-input v-model="selectedNode.data.description" type="textarea" :rows="4" placeholder="说明这个节点在流程中的职责" @change="markCanvasDirty" />
-            </el-form-item>
-            <el-form-item v-if="selectedNode.data.kind !== 'start' && selectedNode.data.kind !== 'end'" label="输出别名">
-              <el-input v-model="selectedNode.data.outputAlias" placeholder="如 customer / params / context" @change="markCanvasDirty" />
-            </el-form-item>
-          </section>
-
-          <section class="node-detail-card compact-card">
-            <div class="node-detail-card-head">
-              <div>
-                <strong>节点契约</strong>
-                <span>展示节点来源、类别和输入输出端口</span>
-              </div>
-            </div>
-            <div class="node-contract-grid">
-              <div class="contract-chip">
-                <span>来源</span>
-                <el-tag size="small" :type="selectedNode.data.source === 'SDK' ? 'warning' : 'success'">
-                  {{ sourceLabel(selectedNode.data.source) }}
-                </el-tag>
-              </div>
-              <div class="contract-chip">
-                <span>类别</span>
-                <el-tag size="small">{{ categoryLabel(selectedNode.data.category) }}</el-tag>
-              </div>
-              <div class="contract-chip">
-                <span>输入</span>
-                <el-tag size="small" effect="plain">{{ portSummary(selectedNode.data.inputs, '输入') }}</el-tag>
-              </div>
-              <div class="contract-chip">
-                <span>输出</span>
-                <el-tag size="small" effect="plain">{{ portSummary(selectedNode.data.outputs, '输出') }}</el-tag>
-              </div>
-            </div>
-          </section>
-        </el-form>
-
-        <NodeConfigPanel
-          v-else-if="propertyDetailSection === 'node'"
-          :data="selectedNode.data"
-          :node-id="selectedNode.id"
-          :canvas-nodes="nodes"
-          :model-options="modelOptions"
-          :model-options-loading="modelOptionsLoading"
-          :model-options-load-error="modelOptionsLoadError"
-          :knowledge-options="knowledgeOptions"
-          :tool-options="availableTools"
-          :tool-options-loading="toolOptionsLoading"
-          :tool-options-load-error="toolOptionsLoadError"
-          :variable-options="variableOptions"
-          :credential-options="credentialOptions"
-          :project-id="studio?.projectId || null"
-          :project-code="studio?.projectCode || null"
-          :request-scope-key="businessMethodRequestScope"
-          :node-type-options="nodeTypes"
-          @credential-created="handleCredentialCreated"
-          @create-call-node="handleCreateInteractionCallNode"
-          @retry-methods="loadToolOptions()"
-          @validation-change="handlePanelValidationChange"
-          @reload-model-options="loadModelOptions"
-        />
-
-        <el-form v-else-if="propertyDetailSection === 'debug'" label-width="100px" size="small">
-          <div class="node-debug-box">
-            <div class="node-debug-head">
-              <strong>节点测试</strong>
-              <el-tag v-if="nodeDebugResult?.nodeId === selectedNode.id" size="small" :type="nodeDebugResult.success ? 'success' : 'danger'">
-                {{ nodeDebugResult.success ? '通过' : '失败' }}
-              </el-tag>
-            </div>
-            <el-form-item label="测试消息">
-              <el-input v-model="nodeDebugMessage" />
-            </el-form-item>
-            <el-form-item label="模拟状态">
-              <el-input v-model="nodeDebugStateText" type="textarea" :rows="5" />
-            </el-form-item>
-            <el-button type="primary" size="small" :loading="nodeDebugLoading" @click="handleRunNodeDebug">
-              测试此节点
-            </el-button>
-            <div v-if="nodeDebugResult?.nodeId === selectedNode.id" class="node-trace-block">
-              <span>输出状态</span>
-              <pre>{{ formatDebugResult(nodeDebugResult.outputState || nodeDebugResult.nodeOutput || {}) }}</pre>
-            </div>
-          </div>
-        </el-form>
-
-        <div v-else>
-          <div v-if="selectedNodeTrace" class="node-trace-panel">
-            <div class="node-trace-head">
-              <strong>本次 Studio 调试</strong>
-              <el-tag size="small" :type="nodeTraceTagType(selectedNodeTrace.status)">
-                {{ nodeTraceStatusText(selectedNodeTrace.status) }}
-              </el-tag>
-            </div>
-            <div class="node-trace-meta">
-              <span>{{ selectedNodeTrace.nodeId }}</span>
-              <span>{{ formatElapsed(selectedNodeTrace.elapsedMs) }}</span>
-              <span v-if="selectedNodeTrace.errorCode">{{ selectedNodeTrace.errorCode }}</span>
-              <span v-if="selectedNodeTrace.route">route: {{ selectedNodeTrace.route }}</span>
-            </div>
-            <div v-if="selectedNodeTrace.input" class="node-trace-block">
-              <span>输入</span>
-              <pre>{{ selectedNodeTrace.input }}</pre>
-            </div>
-            <div v-if="selectedNodeTrace.output" class="node-trace-block">
-              <span>输出</span>
-              <pre>{{ selectedNodeTrace.output }}</pre>
-            </div>
-          </div>
-          <el-alert v-else title="暂无本次 Studio 调试结果" type="info" :closable="false" show-icon
-            description="此处只展示当前 Studio 调试，不读取已发布历史结果。写 API 不用于 Studio 调试；没有预览不表示已发布数据丢失。" />
-          <el-button v-if="canReadPublishedRuns" class="published-run-entry" @click="openPublishedRuns">
-            查看已发布运行记录
-          </el-button>
-        </div>
-      </template>
-    </AppDialog>
 
     <el-dialog v-model="nodeSearchOpen" title="添加节点" width="620px" class="node-search-dialog">
       <el-input
@@ -1504,22 +314,13 @@
       @select-step="selectDebugStep"
     />
 
-    <WorkflowStudioEvalDrawer
-      v-model:open="evalOpen"
-      v-model:repeat-count="evalRepeatCount"
-      :cases="evalCases"
-      :results="evalResults"
-      :enabled-case-count="enabledEvalCases.length"
-      :summary="evalSummary"
-      :run-name="evalRunName"
-      :validating="validating"
-      :running="evalRunning"
-      :format-rate="formatEvalRate"
-      @add-case="addEvalCase"
-      @reset-cases="resetEvalCases"
-      @remove-case="removeEvalCase"
-      @validate-runtime="validateRuntime"
-      @run="runWorkflowEval"
+    <WorkflowStudioEvalTargetDialog
+      v-model:open="evalTargetOpen"
+      :targets="evalTargets"
+      :hidden-count="hiddenEvalTargetCount"
+      :load-error="evalTargetsLoadError"
+      @select="openAgentEval"
+      @open-overview="openEvalOverview"
     />
 
     <WorkflowStudioSourceDrawer
@@ -1552,47 +353,18 @@
 </template>
 <script setup lang="ts">
 import { useWorkflowStudioTraceProjection } from '@/views/workflow/composables/useWorkflowStudioTraceProjection'
-import AppDialog from '@/components/common/AppDialog.vue'
-import { debugWaitingOutput, formatElapsed, type WorkflowNodeTraceState } from '@/views/workflow/composables/workflowStudioTrace'
+import { debugWaitingOutput } from '@/views/workflow/composables/workflowStudioTrace'
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
-  Aim,
-  ArrowLeft,
-  ArrowRight,
   ArrowDown,
   ArrowUp,
-  Briefcase,
-  CircleCheck,
   Close,
-  Coin,
-  Collection,
-  Connection,
-  CopyDocument,
   Delete,
-  Document,
-  DocumentChecked,
-  Files,
-  Finished,
-  Link,
-  MagicStick,
-  MoreFilled,
-  Minus,
-  Operation,
-  Plus,
-  Rank,
-  RefreshLeft,
-  RefreshRight,
   Search,
-  SetUp,
-  Switch,
-  Tickets,
-  VideoPlay,
-  ZoomIn,
-  ZoomOut,
 } from '@element-plus/icons-vue'
-import { Handle, Position, VueFlow, useVueFlow, ConnectionLineType } from '@vue-flow/core'
+import { VueFlow, useVueFlow, ConnectionLineType } from '@vue-flow/core'
 import type { EdgeMouseEvent, NodeMouseEvent } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
 import { MiniMap } from '@vue-flow/minimap'
@@ -1633,9 +405,23 @@ import {
 } from '@/utils/workflowStudio'
 import { resolveStudioNodeCreation } from '@/utils/studioNodeRegistry'
 import { runMatchesCurrentWorkflow } from '@/utils/workflowRunOps'
-import LlmModelIcon from '@/components/icons/LlmModelIcon.vue'
-import SendIcon from '@/components/icons/SendIcon.vue'
-import ModelSelectEmptyState from '@/components/model/ModelSelectEmptyState.vue'
+import StudioNodeCard from '@/views/workflow/studio-canvas/StudioNodeCard.vue'
+import StudioAiEditBar from '@/views/workflow/studio-canvas/StudioAiEditBar.vue'
+import StudioInspector from '@/views/workflow/studio-canvas/StudioInspector.vue'
+import StudioHeader from '@/views/workflow/studio-canvas/StudioHeader.vue'
+import StudioPalette from '@/views/workflow/studio-canvas/StudioPalette.vue'
+import StudioCanvasToolbar from '@/views/workflow/studio-canvas/StudioCanvasToolbar.vue'
+import StudioPropertyPanel from '@/views/workflow/studio-canvas/StudioPropertyPanel.vue'
+import {
+  loadPropertyWidth,
+  savePropertyWidth,
+  type StudioPropertyTab,
+} from '@/views/workflow/studio-canvas/studioPropertyPanel'
+import StudioStatusBar from '@/views/workflow/studio-canvas/StudioStatusBar.vue'
+import {
+  studioNodeCardModel,
+  type StudioNodeCardContext,
+} from '@/views/workflow/studio-canvas/studioNodeCardModel'
 import type { StudioFieldSchema } from '@/types/studio'
 import {
   WORKFLOW_LAYOUT_DEFAULT_HANDLE_KEY,
@@ -1647,7 +433,7 @@ import WorkflowStudioReadOnlyTrialDrawer from '@/views/workflow/studio-overlays/
 import { hasReadOnlyTrialTarget as graphHasReadOnlyTrialTarget } from '@/views/workflow/composables/useWorkflowStudioReadOnlyTrial'
 import { hasPlatformResourcePermission, PLATFORM_PERMISSION_WORKFLOW_DEBUG, PLATFORM_PERMISSION_RUNOPS_READ,
   PLATFORM_PERMISSION_CAPABILITY_INVOKE } from '@/auth/platformAccess'
-import WorkflowStudioEvalDrawer from '@/views/workflow/studio-overlays/WorkflowStudioEvalDrawer.vue'
+import WorkflowStudioEvalTargetDialog from '@/views/workflow/studio-overlays/WorkflowStudioEvalTargetDialog.vue'
 import WorkflowStudioPublishDialog from '@/views/workflow/studio-overlays/WorkflowStudioPublishDialog.vue'
 import WorkflowStudioSourceDrawer from '@/views/workflow/studio-overlays/WorkflowStudioSourceDrawer.vue'
 import { useWorkflowStudioNodeMetadata } from '@/views/workflow/composables/useWorkflowStudioNodeMetadata'
@@ -1669,7 +455,7 @@ import {
 } from '@/views/workflow/composables/useWorkflowStudioDebugRun'
 import { useWorkflowStudioProposalContext } from '@/views/workflow/composables/useWorkflowStudioProposalContext'
 import { useWorkflowStudioProposalActions } from '@/views/workflow/composables/useWorkflowStudioProposalActions'
-import { useWorkflowStudioEval } from '@/views/workflow/composables/useWorkflowStudioEval'
+import { useWorkflowStudioEvalLink } from '@/views/workflow/composables/useWorkflowStudioEvalLink'
 import { useWorkflowStudioHistory } from '@/views/workflow/composables/useWorkflowStudioHistory'
 import { useWorkflowStudioResources } from '@/views/workflow/composables/useWorkflowStudioResources'
 import {
@@ -1777,9 +563,9 @@ function toggleCanvasOperator() {
 
 const nodeSearchOpen = ref(false)
 const nodeSearchKeyword = ref('')
-const propertyDetailOpen = ref(false)
-type PropertyDetailSection = 'base' | 'node' | 'debug' | 'trace'
-const propertyDetailSection = ref<PropertyDetailSection>('base')
+const propertyPanelTab = ref<StudioPropertyTab>('config')
+const propertyPanelWidth = ref(loadPropertyWidth())
+watch(propertyPanelWidth, savePropertyWidth)
 const jsonDrawerVisible = ref(false)
 const graphSpecSourceBuffer = ref('')
 const canvasSourceBuffer = ref('')
@@ -1904,18 +690,6 @@ const saveStateClass = computed(() => ({
     && !studio.value?.hasUnpublishedChanges,
 }))
 
-function categoryLabel(value?: string | null) {
-  const normalized = String(value || '').toLowerCase()
-  const labels: Record<string, string> = {
-    system: '系统',
-    custom: '自定义',
-    sdk: 'SDK',
-    action: '执行',
-    flow: '流程',
-    integration: '集成',
-  }
-  return labels[normalized] || value || '系统'
-}
 
 const defaultEdgeOptions = {
   type: 'smoothstep',
@@ -1972,16 +746,6 @@ const studioDisplayName = computed(() => studio.value?.name || workflowMeta.name
 
 const studioKeySlug = computed(() => studio.value?.keySlug || workflowMeta.keySlug || '')
 
-const propertyDetailSectionLabel = computed(() => {
-  const sectionLabel: Record<PropertyDetailSection, string> = {
-    base: '基础信息',
-    node: '节点配置',
-    debug: '节点测试',
-    trace: '运行记录',
-  }
-  return sectionLabel[propertyDetailSection.value]
-})
-
 const {
   paletteGroups,
   filteredPaletteGroups,
@@ -1997,13 +761,18 @@ const {
   graphNodeTypeCapabilitiesLoaded,
 })
 
-const {
-  nodeKindLabel,
-  assignmentCount,
-  userInputFieldCount,
-  interactionFieldCount,
-  interactionTypeLabel,
-} = useWorkflowStudioNodeMetadata()
+const { nodeKindLabel } = useWorkflowStudioNodeMetadata()
+
+// Every node kind renders through StudioNodeCard; VueFlow still needs one slot per node type.
+const studioCanvasNodeKinds: CanvasNodeKind[] = [
+  'start', 'end', 'userInput', 'interaction', 'pageAction', 'llm', 'tool', 'knowledge', 'condition',
+  'variable', 'template', 'parameter', 'http', 'answer', 'code', 'classifier', 'aggregate', 'approval',
+  'loop', 'knowledgeWrite', 'documentExtract', 'mcp',
+]
+const nodeCardContext = computed<StudioNodeCardContext>(() => ({
+  defaultModelInstanceId: workflowMeta.defaultModelInstanceId || studio.value?.defaultModelInstanceId,
+  projectCode: studio.value?.projectCode,
+}))
 
 const {
   forgetDebugSession,
@@ -2178,16 +947,22 @@ const selectedEdgeConditionOptions = computed(() => {
     && selectedEdgeSourceNode.value.data.knowledgeConfig?.evidencePolicy === 'REQUIRED') {
     return selectedEdgeRouteOptions.value
   }
+  // Only conditions the Runtime evaluates; release validation rejects anything else on non-branch nodes.
+  const routes = selectedEdgeRouteOptions.value
   return [
-    { value: 'always', label: '默认 / always' },
-    { value: 'success', label: '成功' },
-    { value: 'error', label: '失败' },
-    { value: 'else', label: '否则 / else' },
-    { value: 'empty', label: '为空' },
-    { value: 'not_empty', label: '非空' },
-    ...selectedEdgeRouteOptions.value,
+    { value: 'always', label: '默认' },
+    { value: 'error', label: '失败时' },
+    { value: 'empty', label: '结果为空' },
+    { value: 'not_empty', label: '有结果' },
+    ...(routes.length ? [{ value: 'else', label: '其他分支' }] : []),
+    ...routes,
   ]
 })
+
+// Interaction, page-action and loop nodes emit routes Studio cannot list ahead of time.
+const selectedEdgeAllowsCustomRoute = computed(() =>
+  ['interaction', 'pageAction', 'loop'].includes(selectedEdgeSourceNode.value?.data.kind || ''),
+)
 
 const canCopySelectedNode = computed(() =>
   !!selectedNode.value && !['start', 'end'].includes(selectedNode.value.data.kind),
@@ -2333,7 +1108,6 @@ const {
   markCanvasDirty,
   syncJsonFromCanvas: () => syncJsonFromCanvas(),
   activeTab,
-  propertyDetailOpen,
   fitView,
   nextTick,
   nodeTypes,
@@ -2560,25 +1334,21 @@ const {
 })
 
 const {
-  evalOpen,
-  evalRunning,
-  evalRepeatCount,
-  evalRunName,
-  evalCases,
-  evalResults,
-  enabledEvalCases,
-  evalSummary,
-  openEvalDrawer,
-  addEvalCase,
-  removeEvalCase,
-  resetEvalCases,
-  formatEvalRate,
-  runWorkflowEval,
-} = useWorkflowStudioEval({
-  studio,
-  buildDebugBaseRequest,
-  parseOptionalObject,
+  evalTargetOpen,
+  evalTargetsLoadError,
+  evalTargets,
+  hiddenEvalTargetCount,
+  openWorkflowEval,
+  openAgentEval,
+} = useWorkflowStudioEvalLink({
+  workflowId,
+  openPath: (path) => { void router.push(path) },
 })
+
+function openEvalOverview() {
+  evalTargetOpen.value = false
+  void router.push('/runops/evals')
+}
 
 const {
   aiEditOperationGroups,
@@ -2693,7 +1463,7 @@ function handlePublishDialogBeforeClose(done: () => void) {
 
 const primaryOverlayRefs = [
   debugOpen,
-  evalOpen,
+  evalTargetOpen,
   jsonDrawerVisible,
   publishDialogOpen,
 ]
@@ -2949,12 +1719,6 @@ function addNodeFromSearch(kind: CanvasNodeKind) {
   nodeSearchOpen.value = false
 }
 
-function openPropertyDetail(section: PropertyDetailSection) {
-  if (!selectedNode.value) return
-  propertyDetailSection.value = section
-  propertyDetailOpen.value = true
-}
-
 function refreshCanvasFromJson() {
   if (!studio.value) return
   const state: WorkflowWorkingCopyState = {
@@ -3072,6 +1836,7 @@ function onNodeClick(event: NodeMouseEvent) {
   selectedEdgeId.value = null
   if (selectedNodeId.value) {
     debugNodeId.value = selectedNodeId.value
+    propertyPanelCollapsed.value = false
   }
 }
 
@@ -3081,14 +1846,13 @@ function onNodeDoubleClick(event: NodeMouseEvent) {
   propertyPanelCollapsed.value = false
   if (selectedNodeId.value) {
     debugNodeId.value = selectedNodeId.value
-    openPropertyDetail('node')
+    propertyPanelTab.value = 'config'
   }
 }
 
 function clearSelection() {
   selectedNodeId.value = null
   selectedEdgeId.value = null
-  propertyDetailOpen.value = false
 }
 
 async function handleFitView() {
@@ -3287,144 +2051,10 @@ function normalizeCanvasKind(type: string): CanvasNodeKind {
   return normalized as CanvasNodeKind
 }
 
-function sourceLabel(value?: string | null) {
-  const normalized = String(value || 'CANVAS').toUpperCase()
-  if (normalized === 'SDK') return 'SDK 托管'
-  if (normalized === 'CANVAS') return '画布创建'
-  return value || '画布创建'
-}
-
-function nodeTraceStatusText(status: WorkflowNodeTraceState['status']) {
-  if (status === 'running') return '运行中'
-  if (status === 'waiting') return '等待'
-  return status === 'success' ? '成功' : '失败'
-}
-
-function nodeTraceTagType(status: WorkflowNodeTraceState['status']) {
-  if (status === 'running') return 'primary'
-  if (status === 'waiting') return 'warning'
-  return status === 'success' ? 'success' : 'danger'
-}
-
-function conditionRouteRows(data: CanvasNode['data']) {
-  const config = data.conditionConfig
-  const rows = (config?.groups || [])
-    .filter((group) => group.id?.trim())
-    .map((group) => ({
-      id: group.id.trim(),
-      handleId: group.id.trim(),
-      label: group.label || group.id,
-      meta: `${group.logic || 'AND'} · ${group.conditions?.length || 0} 条条件`,
-      isDefault: false,
-    }))
-  const defaultRoute = (config?.defaultRoute || 'else').trim()
-  if (defaultRoute && !rows.some((row) => row.handleId === defaultRoute)) {
-    rows.push({
-      id: `default-${defaultRoute}`,
-      handleId: defaultRoute,
-      label: defaultRoute === 'else' ? '默认分支' : defaultRoute,
-      meta: '未命中条件时进入',
-      isDefault: true,
-    })
-  }
-  if (!rows.length) {
-    for (const port of data.outputs || []) {
-      const extended = port as { id?: string; name?: string; key?: string; label?: string }
-      const id = String(extended.id || extended.name || extended.key || '').trim()
-      if (!id) continue
-      rows.push({
-        id,
-        handleId: id,
-        label: String(extended.label || extended.name || id),
-        meta: '条件分支',
-        isDefault: id === 'else',
-      })
-    }
-  }
-  return rows.length ? rows : [{
-    id: 'default-else',
-    handleId: 'else',
-    label: '默认分支',
-    meta: '未命中条件时进入',
-    isDefault: true,
-  }]
-}
-
-function approvalRouteRows() {
-  return [
-    { id: 'approved', handleId: 'approved', label: '批准', meta: '审批通过' },
-    { id: 'rejected', handleId: 'rejected', label: '拒绝', meta: '审批驳回' },
-    { id: 'timeout', handleId: 'timeout', label: '超时', meta: '等待超时' },
-  ]
-}
-
-function knowledgeEvidenceRouteRows() {
-  return [
-    { id: 'evidence', handleId: 'evidence', label: '有证据', meta: '检索命中，可基于证据回答', isDefault: false },
-    { id: 'no_evidence', handleId: 'no_evidence', label: '无证据', meta: '固定回复，不进入 LLM 生成', isDefault: true },
-  ]
-}
-
-function loopNodeSummary(loopConfig?: {
-  collection?: string
-  outputAlias?: string
-  maxIterations?: number
-  bodyNodeIds?: string[]
-} | null) {
-  const collection = loopConfig?.collection?.trim() || '未配置集合'
-  const outputAlias = loopConfig?.outputAlias?.trim() || 'loop_results'
-  const maxIterations = loopConfig?.maxIterations && loopConfig.maxIterations > 0
-    ? loopConfig.maxIterations
-    : 100
-  const bodyCount = Array.isArray(loopConfig?.bodyNodeIds) ? loopConfig.bodyNodeIds.length : 0
-  return `${collection} → var.${outputAlias} · max ${maxIterations} · body ${bodyCount}`
-}
-
-function classifierRouteRows(data: CanvasNode['data']) {
-  const config = data.classifierConfig
-  const rows = (config?.classes || [])
-    .filter((item) => item.id?.trim())
-    .map((item) => {
-      const keywords = (item.keywords || []).filter(Boolean)
-      return {
-        id: item.id.trim(),
-        handleId: item.id.trim(),
-        label: item.label || item.id,
-        meta: keywords.length ? keywords.slice(0, 3).join(' / ') : item.id,
-        isDefault: false,
-      }
-    })
-  const defaultRoute = (config?.defaultRoute || 'else').trim()
-  if (defaultRoute && !rows.some((row) => row.handleId === defaultRoute)) {
-    rows.push({
-      id: `default-${defaultRoute}`,
-      handleId: defaultRoute,
-      label: defaultRoute === 'else' ? '默认分支' : defaultRoute,
-      meta: '未命中分类时进入',
-      isDefault: true,
-    })
-  }
-  return rows.length ? rows : [{
-    id: 'default-else',
-    handleId: 'else',
-    label: '默认分支',
-    meta: '未命中分类时进入',
-    isDefault: true,
-  }]
-}
-
-function portSummary(ports: CanvasNode['data']['inputs'] | CanvasNode['data']['outputs'], fallback: string) {
-  if (!ports?.length) return fallback
-  const labels = ports
-    .map((port) => port.name || port.id)
-    .filter(Boolean)
-    .slice(0, 2)
-  return labels.length ? labels.join(', ') : fallback
-}
 
 function handleHeaderCommand(command: string | number | object) {
   if (command === 'eval') {
-    openEvalDrawer()
+    void openWorkflowEval()
     return
   }
   if (command === 'json') {
@@ -3441,6 +2071,7 @@ function handleHeaderCommand(command: string | number | object) {
   }
   if (command === 'node-debug') {
     propertyPanelCollapsed.value = false
+    propertyPanelTab.value = 'test'
     if (selectedNodeId.value) {
       debugNodeId.value = selectedNodeId.value
     }
@@ -3464,53 +2095,10 @@ function modelOptionLabel(item: ModelInstance) {
   return `${item.name || item.id} / ${item.provider || '-'} / ${item.modelName || '-'}`
 }
 
-function handleModelOptionsVisible(visible: boolean) {
-  if (visible) void loadModelOptions()
-}
 
-function formatDebugResult(value: unknown) {
-  return JSON.stringify(value, null, 2)
-}
 </script>
 
 <style scoped lang="scss">
-.workflow-studio {
-  min-height: calc(100vh - 56px);
-  background: var(--el-bg-color-page);
-  color: var(--el-text-color-primary);
-}
-
-.studio-topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 14px 18px;
-  border-bottom: 1px solid var(--el-border-color-lighter);
-  background: var(--el-bg-color);
-}
-
-.topbar-main,
-.topbar-actions,
-.meta-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.topbar-main h1 {
-  margin: 0 0 6px;
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: 0;
-}
-
-.studio-shell {
-  display: grid;
-  grid-template-columns: minmax(220px, 260px) minmax(0, 1fr) minmax(260px, 320px);
-  min-height: calc(100vh - 122px);
-}
-
 .node-panel,
 .inspect-panel {
   padding: 16px;
@@ -3519,87 +2107,6 @@ function formatDebugResult(value: unknown) {
 
 .node-panel {
   border-right: 1px solid var(--el-border-color-lighter);
-}
-
-.inspect-panel {
-  border-left: 1px solid var(--el-border-color-lighter);
-}
-
-.editor-panel {
-  min-width: 0;
-  padding: 12px 16px 18px;
-}
-
-.panel-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 12px;
-}
-
-.panel-heading h2 {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 700;
-  letter-spacing: 0;
-}
-
-.node-list {
-  display: grid;
-  gap: 8px;
-  margin-top: 12px;
-}
-
-.node-type {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  width: 100%;
-  min-height: 38px;
-  padding: 8px 10px;
-  border: 1px solid var(--el-border-color-light);
-  border-radius: 6px;
-  background: var(--el-fill-color-blank);
-  color: var(--el-text-color-primary);
-  cursor: pointer;
-  text-align: left;
-}
-
-.node-type:hover {
-  border-color: var(--el-color-primary);
-}
-
-.node-type span {
-  overflow: hidden;
-  font-size: 12px;
-  font-weight: 700;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.node-type em {
-  flex: none;
-  color: var(--el-text-color-secondary);
-  font-size: 11px;
-  font-style: normal;
-}
-
-.canvas-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 10px;
-  color: var(--el-text-color-secondary);
-  font-size: 12px;
-}
-
-.canvas-tool-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-left: auto;
 }
 
 .canvas-search-panel {
@@ -3630,84 +2137,6 @@ function formatDebugResult(value: unknown) {
   background: var(--el-fill-color-blank);
 }
 
-.workflow-canvas {
-  width: 100%;
-  height: 100%;
-}
-
-.workflow-canvas :deep(.vue-flow__node) {
-  min-width: 148px;
-  max-width: 220px;
-  padding: 9px 11px;
-  border: 1px solid var(--el-border-color);
-  border-radius: 6px;
-  background: var(--el-bg-color);
-  color: var(--el-text-color-primary);
-  box-shadow: var(--el-box-shadow-light);
-  font-size: 12px;
-}
-
-.workflow-canvas :deep(.vue-flow__node.selected) {
-  border-color: var(--el-color-primary);
-  box-shadow: 0 0 0 2px var(--el-color-primary-light-8);
-}
-
-.workflow-canvas :deep(.vue-flow__node.run-success) {
-  border-color: var(--el-color-success);
-  box-shadow: 0 0 0 2px var(--el-color-success-light-8);
-}
-
-.workflow-canvas :deep(.vue-flow__node.run-error) {
-  border-color: var(--el-color-danger);
-  box-shadow: 0 0 0 2px var(--el-color-danger-light-8);
-}
-
-.workflow-canvas :deep(.vue-flow__node.run-waiting) {
-  border-color: var(--el-color-warning);
-  box-shadow: 0 0 0 2px var(--el-color-warning-light-8);
-}
-
-.workflow-canvas :deep(.vue-flow__node.run-running) {
-  border-color: var(--el-color-primary);
-  box-shadow: 0 0 0 2px var(--el-color-primary-light-8);
-}
-
-.workflow-canvas :deep(.vue-flow__node.run-current) {
-  box-shadow: 0 0 0 3px var(--el-color-primary-light-7), var(--el-box-shadow-light);
-}
-
-.workflow-canvas :deep(.vue-flow__node.workflow-node-collapsed) {
-  min-width: 122px;
-  max-width: 150px;
-  min-height: 36px;
-  padding: 7px 9px;
-  overflow: hidden;
-  color: var(--el-text-color-primary);
-  font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.workflow-canvas :deep(.vue-flow__edge-path) {
-  stroke: var(--el-color-primary);
-}
-
-.node-config-form {
-  display: grid;
-  gap: 10px;
-}
-
-.node-config-form :deep(textarea) {
-  font-family: Consolas, Monaco, 'Courier New', monospace;
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.issue-list {
-  display: grid;
-  gap: 10px;
-}
-
 .issue {
   padding: 10px;
   border: 1px solid var(--el-color-danger-light-5);
@@ -3729,92 +2158,7 @@ function formatDebugResult(value: unknown) {
   line-height: 1.45;
 }
 
-.ai-edit-preview {
-  display: grid;
-  gap: 10px;
-  min-width: 0;
-  margin-bottom: 12px;
-}
-
-.ai-edit-preview.is-failed {
-  padding: 10px 12px;
-  border: 1px solid color-mix(in srgb, var(--el-color-danger) 35%, transparent);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--el-color-danger) 8%, transparent);
-}
-
-.ai-edit-preview-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  min-width: 0;
-}
-
-.ai-edit-preview-head strong {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--el-text-color-primary);
-  font-size: 12px;
-  font-weight: 800;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.ai-edit-preview-head span {
-  flex-shrink: 0;
-  color: var(--el-text-color-secondary);
-  font-size: 12px;
-}
-
-.ai-edit-operation-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 8px;
-}
-
-.ai-edit-operation-group {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-  padding: 8px 10px;
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 8px;
-  background: var(--el-fill-color-extra-light);
-}
-
-.ai-edit-operation-group strong {
-  color: var(--el-text-color-primary);
-  font-size: 12px;
-}
-
-.ai-edit-operation-group span {
-  overflow: hidden;
-  color: var(--el-text-color-secondary);
-  font-size: 12px;
-  line-height: 1.45;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.ai-preview-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 10px;
-}
-
 @media (max-width: 1080px) {
-  .studio-topbar {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .studio-shell {
-    grid-template-columns: 1fr;
-  }
-
   .node-panel,
   .inspect-panel {
     border: 0;
@@ -3831,215 +2175,23 @@ function formatDebugResult(value: unknown) {
   color: #172033;
 }
 
-.studio-page .studio-header {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  padding: 12px 20px;
-  border-bottom: 1px solid #e6ebf3;
-  background: rgba(255, 255, 255, 0.96);
-}
-
-.header-left {
-  min-width: 0;
-  flex: 1 1 auto;
-  gap: 12px;
-}
-
-.header-right {
-  flex: 0 0 auto;
-  gap: 10px;
-}
-
-.studio-title-wrap {
-  min-width: 0;
-  flex: 1 1 auto;
-}
-
-.studio-title-row {
-  gap: 10px;
-  min-width: 0;
-}
-
-.studio-eyebrow {
-  flex: 0 0 auto;
-  color: #64748b;
-  font-size: 12px;
-  font-weight: 700;
-  line-height: 1.2;
-  white-space: nowrap;
-}
-
-.studio-title-row h1 {
-  overflow: hidden;
-  min-width: 0;
-  flex: 1 1 auto;
-  max-width: min(520px, calc(100vw - 760px));
-  margin: 0;
-  font-size: 17px;
-  font-weight: 800;
-  letter-spacing: 0;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.studio-title-row :deep(.el-tooltip__trigger) {
-  display: block;
-  min-width: 0;
-  flex: 1 1 auto;
-  overflow: hidden;
-}
-
-.studio-meta-row {
-  gap: 8px;
-  margin-top: 6px;
-  flex-wrap: wrap;
-}
-
-.studio-slug-tag {
-  max-width: 180px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.header-left,
-.header-right,
-.studio-title-row,
-.studio-meta-row {
-  display: flex;
-  align-items: center;
-}
-
-.studio-back-btn {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  min-width: 82px;
-  min-height: 40px;
-  padding: 0 14px 0 10px;
-  border: 1px solid #cdd9ec;
-  border-radius: 10px;
-  background: linear-gradient(180deg, #ffffff 0%, #f6f9ff 100%);
-  color: #1e3a8a;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 700;
-  line-height: 1;
-  white-space: nowrap;
-  box-shadow: 0 10px 24px rgba(30, 58, 138, 0.12);
-  transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
-}
-
-.studio-back-btn span {
-  white-space: nowrap;
-}
-
-.studio-back-btn .el-icon {
-  flex: 0 0 24px;
-  display: grid;
-  place-items: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 999px;
-  background: #e9f0ff;
-  color: #3157ff;
-  font-size: 16px;
-}
-
-.studio-back-btn:hover {
-  transform: translateY(-1px);
-  border-color: #9db5ff;
-  box-shadow: 0 14px 30px rgba(49, 87, 255, 0.18);
-}
-
-.studio-back-btn:active {
-  transform: translateY(0);
-}
-
-.save-state {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  min-height: 30px;
-  padding: 0 10px;
-  border: 1px solid #e2e8f0;
-  border-radius: 999px;
-  background: rgba(248, 250, 252, 0.9);
-  color: #64748b;
-  font-size: 12px;
-  font-weight: 700;
-  line-height: 1;
-  white-space: nowrap;
-}
-
-.save-state i {
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
-  background: #94a3b8;
-  box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.12);
-}
-
-.save-state.is-pending i {
-  background: #f97316;
-  box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.16);
-}
-
-.save-state.is-pending {
-  border-color: #fed7aa;
-  background: #fff7ed;
-  color: #c2410c;
-}
-
-.save-state.is-saving i {
-  background: #3b82f6;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
-}
-
-.save-state.is-saving {
-  border-color: #bfdbfe;
-  background: #eff6ff;
-  color: #1d4ed8;
-}
-
-.save-state.is-unpublished i {
-  background: #d97706;
-  box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.14);
-}
-
-.save-state.is-unpublished {
-  border-color: #fde68a;
-  background: #fffbeb;
-  color: #b45309;
-}
-
-.save-state.is-saved i {
-  background: #22c55e;
-  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.14);
-}
-
-.save-state.is-saved {
-  border-color: #bbf7d0;
-  background: #f0fdf4;
-  color: #15803d;
-}
-
 .studio-body {
   flex: 1;
   min-height: 0;
   position: relative;
   display: grid;
-  grid-template-columns: 72px minmax(0, 1fr) 430px;
+  grid-template-columns: 72px minmax(0, 1fr) var(--studio-property-width, 480px);
   overflow: hidden;
   transition: grid-template-columns 0.2s ease;
 }
 
+.studio-body:has(.property-panel.resizing) {
+  transition: none;
+  user-select: none;
+}
+
 .studio-body.palette-open {
-  grid-template-columns: 320px minmax(0, 1fr) 430px;
+  grid-template-columns: 320px minmax(0, 1fr) var(--studio-property-width, 480px);
 }
 
 .studio-body.property-collapsed {
@@ -4050,236 +2202,8 @@ function formatDebugResult(value: unknown) {
   grid-template-columns: 320px minmax(0, 1fr) 58px;
 }
 
-.palette {
-  display: flex;
-  min-width: 0;
-  overflow: hidden;
-  border-right: 1px solid #e5edf7;
-  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
-}
-
-.palette-rail {
-  display: flex;
-  flex: 0 0 72px;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  padding: 14px 10px;
-  border-right: 1px solid #edf2f7;
-  background: rgba(255, 255, 255, 0.82);
-}
-
-.rail-primary,
-.rail-item {
-  border: 0;
-  cursor: pointer;
-  transition: transform 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
-}
-
-.rail-primary {
-  display: grid;
-  place-items: center;
-  width: 46px;
-  height: 46px;
-  border-radius: 8px;
-  background: linear-gradient(135deg, #4776ff, #6846f6);
-  color: #fff;
-  box-shadow: 0 12px 24px rgba(75, 97, 255, 0.28);
-}
-
-.rail-item {
-  display: grid;
-  place-items: center;
-  width: 48px;
-  min-height: 54px;
-  border-radius: 8px;
-  background: transparent;
-  color: #64748b;
-}
-
-.rail-item .rail-icon {
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-  background: #eef4ff;
-  color: #3157ff;
-  font-size: 16px;
-}
-
-.rail-item em {
-  margin-top: 3px;
-  font-size: 11px;
-  font-style: normal;
-  line-height: 1;
-}
-
-.rail-item:hover,
-.rail-item.active {
-  background: #f0f5ff;
-  color: #3157ff;
-  box-shadow: inset 3px 0 0 #3157ff;
-}
-
-.palette-content {
-  display: none;
-  flex: 1;
-  min-width: 0;
-  padding: 16px 14px;
-  overflow-y: auto;
-}
-
-.studio-body.palette-open .palette-content {
+.studio-body.palette-open :deep(.palette-content) {
   display: block;
-}
-
-.panel-title-row {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 14px;
-}
-
-.palette-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 14px;
-}
-
-.palette-head h2 {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 800;
-}
-
-.palette-title {
-  font-size: 16px;
-  font-weight: 700;
-  margin-bottom: 4px;
-  color: #111827;
-}
-
-.palette-subtitle {
-  color: #64748b;
-  font-size: 12px;
-  line-height: 1.5;
-  margin-bottom: 12px;
-}
-
-.palette-search {
-  margin-bottom: 12px;
-}
-
-.node-search {
-  margin-bottom: 12px;
-}
-
-.palette-group {
-  margin-bottom: 14px;
-}
-
-.palette-group-title {
-  color: #475569;
-  font-size: 12px;
-  font-weight: 700;
-  margin-bottom: 8px;
-}
-
-.palette-item {
-  border: 1px solid #e6edf7;
-  border-left-width: 3px;
-  border-radius: 8px;
-  padding: 10px 11px;
-  margin-bottom: 8px;
-  cursor: grab;
-  background: rgba(255, 255, 255, 0.92);
-  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.045);
-  transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
-}
-
-.palette-item:hover {
-  transform: translateY(-1px);
-  border-color: #cbd5e1;
-  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.08);
-}
-
-.palette-item:active {
-  cursor: grabbing;
-}
-
-.palette-item-head {
-  display: grid;
-  grid-template-columns: 32px 1fr;
-  gap: 9px;
-  align-items: center;
-  min-width: 0;
-}
-
-.palette-item-icon,
-.palette-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border: 1px solid var(--node-border);
-  border-radius: 8px;
-  background: var(--node-bg);
-  color: var(--node-border);
-}
-
-.palette-item-desc {
-  display: -webkit-box;
-  overflow: hidden;
-  color: #64748b;
-  font-size: 11px;
-  line-height: 1.45;
-  margin-top: 6px;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
-.palette-item-main {
-  min-width: 0;
-}
-
-.palette-item-title,
-.palette-item-meta,
-.palette-item-hint {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.palette-item-title {
-  color: #1f2937;
-  font-weight: 700;
-  font-size: 13px;
-}
-
-.palette-item-meta {
-  color: #94a3b8;
-  font-size: 11px;
-  margin-top: 2px;
-}
-
-.palette-tips {
-  color: #64748b;
-  font-size: 12px;
-  line-height: 1.8;
-}
-
-.palette-empty {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 160px;
-  color: #94a3b8;
-  font-size: 12px;
 }
 
 .studio-page .canvas-wrap {
@@ -4350,30 +2274,6 @@ function formatDebugResult(value: unknown) {
   background: #1f2937;
 }
 
-.canvas-operator-panel {
-  position: absolute;
-  left: 18px;
-  right: auto;
-  bottom: 68px;
-  z-index: 8;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 10px;
-  border: 1px solid rgba(148, 163, 184, 0.35);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.92);
-  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.16);
-  backdrop-filter: blur(12px);
-  max-width: calc(100% - 36px);
-  overflow-x: auto;
-  transition: padding 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
-}
-
-.canvas-operator-panel .el-button {
-  margin-left: 0;
-}
-
 .canvas-search-panel {
   position: absolute;
   top: 76px;
@@ -4384,866 +2284,6 @@ function formatDebugResult(value: unknown) {
   width: min(620px, calc(100% - 48px));
   margin: 0;
   box-shadow: 0 14px 36px rgba(31, 41, 55, 0.12);
-}
-
-.workflow-inspector {
-  position: absolute;
-  left: 18px;
-  right: auto;
-  bottom: 72px;
-  z-index: 6;
-  width: min(760px, calc(100% - 36px));
-  pointer-events: none;
-}
-
-.workflow-inspector.is-variables {
-  width: min(860px, calc(100% - 36px));
-}
-
-.inspector-section {
-  min-width: 0;
-  overflow: hidden;
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 14px;
-  background: var(--el-bg-color-overlay, #fff);
-  box-shadow: 0 20px 52px rgba(15, 23, 42, 0.14);
-  pointer-events: auto;
-  backdrop-filter: blur(16px);
-}
-
-.inspector-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  min-height: 66px;
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--el-border-color-lighter);
-  background: linear-gradient(135deg, var(--el-fill-color-blank) 0%, var(--el-color-primary-light-9) 100%);
-}
-
-.inspector-title,
-.inspector-head-actions {
-  display: flex;
-  align-items: center;
-}
-
-.inspector-title {
-  min-width: 0;
-  gap: 10px;
-}
-
-.inspector-title > div {
-  display: grid;
-  min-width: 0;
-  gap: 3px;
-}
-
-.inspector-title strong {
-  color: var(--el-text-color-primary);
-  font-size: 15px;
-  line-height: 1.2;
-}
-
-.inspector-title small {
-  overflow: hidden;
-  color: var(--el-text-color-secondary);
-  font-size: 11px;
-  line-height: 1.35;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.inspector-title-icon {
-  display: grid;
-  flex: 0 0 auto;
-  width: 36px;
-  height: 36px;
-  place-items: center;
-  border-radius: 10px;
-  font-size: 17px;
-}
-
-.inspector-title-icon.is-validation {
-  background: var(--el-color-danger-light-9);
-  color: var(--el-color-danger);
-}
-
-.inspector-title-icon.is-variable {
-  background: var(--el-color-primary-light-9);
-  color: var(--el-color-primary);
-}
-
-.inspector-head-actions {
-  flex: 0 0 auto;
-  gap: 8px;
-}
-
-.inspector-count {
-  padding: 4px 9px;
-  border-radius: 999px;
-  background: var(--el-color-primary-light-9);
-  color: var(--el-color-primary);
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.inspector-close {
-  display: grid;
-  width: 30px;
-  height: 30px;
-  padding: 0;
-  place-items: center;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--el-text-color-secondary);
-  cursor: pointer;
-}
-
-.inspector-close:hover {
-  background: var(--el-fill-color-light);
-  color: var(--el-text-color-primary);
-}
-
-.inspector-body {
-  max-height: min(300px, calc(100vh - 230px));
-  padding: 12px 14px 14px;
-  overflow-y: auto;
-}
-
-.inspector-list {
-  display: grid;
-  gap: 8px;
-}
-
-.runtime-validation-list {
-  margin-top: 8px;
-}
-
-.inspector-item {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) 16px;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  min-width: 0;
-  padding: 10px 11px;
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 10px;
-  background: var(--el-fill-color-blank);
-  color: var(--el-text-color-primary);
-  cursor: pointer;
-  text-align: left;
-  transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
-}
-
-.inspector-item:hover {
-  transform: translateY(-1px);
-  border-color: var(--el-color-primary-light-5);
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
-}
-
-.inspector-item > span {
-  min-width: 48px;
-  padding: 3px 7px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 1.3;
-  text-align: center;
-  white-space: nowrap;
-}
-
-.inspector-item em {
-  min-width: 0;
-  color: var(--el-text-color-regular);
-  font-size: 12px;
-  font-style: normal;
-  line-height: 1.45;
-  overflow-wrap: anywhere;
-}
-
-.inspector-item-arrow {
-  color: var(--el-text-color-placeholder);
-  font-size: 13px;
-}
-
-.inspector-item.error {
-  border-color: var(--el-color-danger-light-7);
-  background: var(--el-color-danger-light-9);
-}
-
-.inspector-item.error > span {
-  background: var(--el-color-danger-light-8);
-  color: var(--el-color-danger);
-}
-
-.inspector-item.warning {
-  border-color: var(--el-color-warning-light-7);
-  background: var(--el-color-warning-light-9);
-}
-
-.inspector-item.warning > span {
-  background: var(--el-color-warning-light-8);
-  color: var(--el-color-warning-dark-2);
-}
-
-.inspector-empty-state {
-  display: flex;
-  align-items: center;
-  gap: 11px;
-  min-height: 64px;
-  padding: 12px;
-  border: 1px dashed var(--el-border-color);
-  border-radius: 10px;
-  background: var(--el-fill-color-lighter);
-}
-
-.inspector-empty-state.is-error {
-  border-color: var(--el-color-danger-light-7);
-  background: var(--el-color-danger-light-9);
-}
-
-.inspector-empty-icon {
-  display: grid;
-  flex: 0 0 auto;
-  width: 34px;
-  height: 34px;
-  place-items: center;
-  border-radius: 10px;
-  background: var(--el-color-success-light-8);
-  color: var(--el-color-success);
-  font-size: 16px;
-}
-
-.inspector-empty-state.is-error .inspector-empty-icon {
-  background: var(--el-color-danger-light-8);
-  color: var(--el-color-danger);
-}
-
-.inspector-empty-state > div {
-  display: grid;
-  min-width: 0;
-  gap: 3px;
-}
-
-.inspector-empty-state strong {
-  color: var(--el-text-color-primary);
-  font-size: 13px;
-}
-
-.inspector-empty-state > div > span {
-  color: var(--el-text-color-secondary);
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.variable-chips {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 8px;
-}
-
-.variable-chip {
-  display: grid;
-  grid-template-columns: 32px minmax(0, 1fr) 16px;
-  align-items: center;
-  gap: 9px;
-  min-width: 0;
-  min-height: 58px;
-  padding: 9px 10px;
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 10px;
-  background: var(--el-fill-color-blank);
-  color: var(--el-text-color-primary);
-  cursor: pointer;
-  text-align: left;
-  transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
-}
-
-.variable-chip:hover {
-  transform: translateY(-1px);
-  border-color: var(--el-color-primary-light-5);
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
-}
-
-.variable-chip-icon {
-  display: grid;
-  width: 32px;
-  height: 32px;
-  place-items: center;
-  border-radius: 9px;
-  background: var(--el-color-primary-light-9);
-  color: var(--el-color-primary);
-  font-size: 14px;
-}
-
-.variable-chip-content {
-  display: grid;
-  min-width: 0;
-  gap: 4px;
-}
-
-.variable-chip code {
-  overflow: hidden;
-  color: var(--el-text-color-primary);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 12px;
-  font-weight: 700;
-  line-height: 1.35;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.variable-chip small {
-  overflow: hidden;
-  color: var(--el-text-color-secondary);
-  font-size: 11px;
-  line-height: 1.3;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.variable-chip > .el-icon {
-  color: var(--el-text-color-placeholder);
-  font-size: 13px;
-}
-
-.inspector-more-hint {
-  margin-top: 10px;
-  color: var(--el-text-color-secondary);
-  font-size: 11px;
-  text-align: right;
-}
-
-.inspector-close:focus-visible,
-.inspector-item:focus-visible,
-.variable-chip:focus-visible {
-  outline: 2px solid var(--el-color-primary-light-5);
-  outline-offset: 2px;
-}
-
-.canvas-statusbar {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 7;
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 10px;
-  min-height: 56px;
-  padding: 8px 18px;
-  border-top: 1px solid rgba(148, 163, 184, 0.28);
-  background: rgba(255, 255, 255, 0.88);
-  backdrop-filter: blur(12px);
-}
-
-.status-left {
-  display: inline-flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
-  min-width: 0;
-}
-
-.status-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 34px;
-  padding: 0 12px;
-  border: 1px solid #dbe5f2;
-  border-radius: 8px;
-  background: #fff;
-  color: #334155;
-  cursor: pointer;
-  font-size: 12px;
-}
-
-.status-pill strong,
-.status-pill em {
-  font-style: normal;
-  line-height: 1;
-}
-
-.status-pill strong {
-  font-weight: 700;
-}
-
-.status-pill em {
-  color: #64748b;
-}
-
-.status-pill.danger {
-  border-color: #fecaca;
-  color: #b91c1c;
-}
-
-.status-pill.warning {
-  border-color: #fed7aa;
-  color: #c2410c;
-}
-
-.status-pill.active {
-  border-color: var(--el-color-primary-light-5);
-  background: var(--el-color-primary-light-9);
-  box-shadow: 0 8px 20px rgba(79, 70, 229, 0.1);
-}
-
-.status-pill.danger.active {
-  border-color: var(--el-color-danger-light-5);
-  background: var(--el-color-danger-light-9);
-}
-
-.status-pill.warning.active {
-  border-color: var(--el-color-warning-light-5);
-  background: var(--el-color-warning-light-9);
-}
-
-.canvas-tools-pill {
-  color: #4f46e5;
-}
-
-.canvas-tools-pill.active {
-  border-color: rgba(99, 102, 241, 0.38);
-  background: linear-gradient(135deg, rgba(238, 242, 255, 0.98), rgba(240, 253, 250, 0.9));
-  box-shadow: 0 8px 20px rgba(79, 70, 229, 0.12);
-}
-
-.smart-edit-pill {
-  border-color: rgba(99, 102, 241, 0.3);
-  color: #4338ca;
-  background: linear-gradient(135deg, rgba(238, 242, 255, 0.96), rgba(240, 253, 250, 0.86));
-  box-shadow: 0 10px 24px rgba(79, 70, 229, 0.1);
-}
-
-.property-empty-state {
-  display: grid;
-  gap: 8px;
-  padding: 20px 18px;
-  border: 1px dashed #c8d5e8;
-  border-radius: 12px;
-  background:
-    radial-gradient(circle at top left, rgba(49, 87, 255, 0.08), transparent 36%),
-    linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
-  color: #64748b;
-  text-align: center;
-}
-
-.property-empty-state .empty-state-icon {
-  display: grid;
-  width: 40px;
-  height: 40px;
-  margin: 0 auto 2px;
-  place-items: center;
-  border-radius: 12px;
-  background: #eef4ff;
-  color: #3157ff;
-  font-size: 18px;
-}
-
-.property-empty-state strong {
-  color: #0f172a;
-  font-size: 14px;
-}
-
-.property-empty-state span {
-  font-size: 12px;
-  line-height: 1.55;
-}
-
-.status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: #22c55e;
-}
-
-.status-pill.danger .status-dot {
-  background: #ef4444;
-}
-
-.status-pill.warning .status-dot {
-  background: #f59e0b;
-}
-
-.condition-help {
-  color: var(--el-text-color-secondary);
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.route-quick-picks {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 4px;
-}
-
-.inspector-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 34px;
-  padding: 0 12px;
-  border: 1px solid #e5eaf2;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.9);
-  color: #334155;
-  box-shadow: 0 10px 26px rgba(31, 41, 55, 0.08);
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.ai-edit-bar {
-  position: absolute;
-  right: 22px;
-  bottom: 72px;
-  left: 22px;
-  z-index: 10;
-  display: grid;
-  gap: 10px;
-  max-width: 860px;
-  margin: 0 auto;
-  padding: 18px 20px 16px;
-  border: 1px solid transparent;
-  border-radius: 28px;
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.74), rgba(241, 245, 249, 0.44)) padding-box,
-    linear-gradient(135deg, rgba(255, 255, 255, 0.92), rgba(129, 140, 248, 0.28)) border-box;
-  box-shadow:
-    0 24px 70px rgba(15, 23, 42, 0.16),
-    inset 0 1px 0 rgba(255, 255, 255, 0.68);
-  backdrop-filter: blur(22px) saturate(1.18);
-  isolation: isolate;
-  overflow: hidden;
-}
-
-.ai-edit-bar::before,
-.ai-edit-bar::after {
-  content: '';
-  position: absolute;
-  pointer-events: none;
-}
-
-.ai-edit-bar::before {
-  inset: -2px;
-  z-index: 0;
-  border-radius: inherit;
-  background: conic-gradient(from 140deg, #7c3aed, #06b6d4, #22c55e, #f472b6, #7c3aed);
-  opacity: 0;
-  filter: blur(1px);
-}
-
-.ai-edit-bar::after {
-  inset: 1px;
-  z-index: 1;
-  border-radius: 27px;
-  background:
-    radial-gradient(circle at 12% 0%, rgba(129, 140, 248, 0.12), transparent 30%),
-    radial-gradient(circle at 88% 12%, rgba(34, 211, 238, 0.12), transparent 30%),
-    linear-gradient(135deg, rgba(255, 255, 255, 0.68), rgba(248, 250, 252, 0.5));
-  backdrop-filter: blur(22px) saturate(1.18);
-}
-
-.ai-edit-bar > * {
-  position: relative;
-  z-index: 2;
-}
-
-.ai-edit-bar.is-generating::before {
-  opacity: 0.78;
-  animation: debugAuraSpin 5.8s linear infinite, debugPulseGlow 2.4s ease-in-out infinite;
-}
-
-.ai-edit-bar.debug-drawer-open {
-  right: calc(min(960px, 58vw) + 22px);
-  max-width: none;
-  margin-left: 0;
-}
-
-.ai-edit-input-row {
-  display: grid;
-  gap: 10px;
-  min-width: 0;
-}
-
-.ai-edit-main-input :deep(.el-textarea__inner) {
-  min-height: 56px !important;
-  padding: 4px 4px 0;
-  border: 0;
-  background: transparent;
-  box-shadow: none;
-  color: #0f172a;
-  font-size: 17px;
-  line-height: 1.55;
-}
-
-.ai-edit-main-input :deep(.el-textarea__inner::placeholder) {
-  color: rgba(51, 65, 85, 0.58);
-}
-
-.ai-edit-toolbar,
-.ai-edit-toolbar-left,
-.ai-edit-toolbar-right {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.ai-edit-toolbar {
-  justify-content: space-between;
-}
-
-.ai-edit-minimize,
-.ai-edit-model-trigger,
-.ai-edit-send {
-  width: 38px;
-  height: 38px;
-  border: 0;
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
-}
-
-.ai-edit-minimize,
-.ai-edit-model-trigger {
-  background: rgba(248, 250, 252, 0.86);
-  color: #1f2937;
-}
-
-.ai-edit-model-trigger.active {
-  color: #2563eb;
-  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15), 0 12px 24px rgba(37, 99, 235, 0.12);
-}
-
-.ai-edit-send:not(.is-disabled) {
-  background: #2563eb;
-  color: #ffffff;
-  box-shadow: 0 16px 32px rgba(37, 99, 235, 0.24);
-}
-
-.ai-edit-model-panel {
-  display: grid;
-  gap: 10px;
-}
-
-.ai-edit-model-panel .el-select {
-  width: 100%;
-}
-
-.ai-edit-model-title {
-  color: #0f172a;
-  font-size: 13px;
-  font-weight: 800;
-}
-
-.ai-edit-model-hint {
-  overflow: hidden;
-  color: #64748b;
-  font-size: 12px;
-  line-height: 1.5;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.property-panel {
-  position: relative;
-  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
-  border-left: 1px solid #e5edf7;
-  overflow: hidden;
-}
-
-.property-toggle {
-  position: absolute;
-  top: 14px;
-  right: 14px;
-  z-index: 2;
-  display: grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  border: 1px solid #dbe5f2;
-  border-radius: 999px;
-  background: #fff;
-  color: #64748b;
-  cursor: pointer;
-  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
-  transition: border-color 0.16s ease, color 0.16s ease, transform 0.16s ease;
-}
-
-.property-toggle:hover {
-  transform: translateX(-1px);
-  border-color: #bfd0ff;
-  color: #3157ff;
-}
-
-.property-content {
-  height: 100%;
-  padding: 18px 16px;
-  overflow-y: auto;
-}
-
-.property-compact {
-  display: flex;
-  height: 100%;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  padding: 54px 8px 14px;
-  color: #64748b;
-  writing-mode: vertical-rl;
-  text-orientation: mixed;
-}
-
-.property-compact strong,
-.property-compact span {
-  overflow: hidden;
-  max-height: 220px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.property-compact strong {
-  color: #0f172a;
-  font-size: 13px;
-}
-
-.property-compact span {
-  font-size: 12px;
-}
-
-.node-property-overview {
-  display: grid;
-  gap: 16px;
-}
-
-.node-property-head {
-  display: grid;
-  grid-template-columns: 42px minmax(0, 1fr) auto;
-  gap: 12px;
-  align-items: center;
-  padding: 8px 48px 14px 2px;
-  border-bottom: 1px solid #eef2f7;
-}
-
-.node-property-icon {
-  display: grid;
-  width: 38px;
-  height: 38px;
-  place-items: center;
-  border-radius: 10px;
-  font-size: 18px;
-}
-
-.node-property-title {
-  min-width: 0;
-}
-
-.node-property-title > div {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 8px;
-}
-
-.node-property-title strong {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: #0f172a;
-  font-size: 16px;
-  font-weight: 800;
-  white-space: nowrap;
-}
-
-.node-property-title span {
-  display: block;
-  margin-top: 6px;
-  overflow: hidden;
-  color: #64748b;
-  font-size: 12px;
-  line-height: 1.5;
-  text-overflow: ellipsis;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  white-space: normal;
-}
-
-.node-property-delete {
-  align-self: start;
-  margin-top: 1px;
-}
-
-.property-section-card {
-  display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) auto;
-  gap: 12px;
-  align-items: center;
-  width: 100%;
-  min-height: 74px;
-  padding: 14px 12px;
-  border: 1px solid #e4eaf3;
-  border-radius: 8px;
-  background: #fff;
-  color: inherit;
-  cursor: pointer;
-  text-align: left;
-  transition: border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
-}
-
-.property-section-card:hover {
-  transform: translateY(-1px);
-  border-color: #bfd0ff;
-  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.08);
-}
-
-.section-card-icon {
-  display: grid;
-  width: 30px;
-  height: 30px;
-  place-items: center;
-  border: 1px solid #e1e8f5;
-  border-radius: 8px;
-  background: #f8fbff;
-  color: #3157ff;
-  font-size: 16px;
-}
-
-.section-card-main {
-  min-width: 0;
-}
-
-.section-card-main strong {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: #0f172a;
-  font-size: 14px;
-  font-weight: 800;
-  white-space: nowrap;
-}
-
-.section-card-main em {
-  display: block;
-  margin-top: 6px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: #64748b;
-  font-size: 12px;
-  font-style: normal;
-  white-space: nowrap;
-}
-
-.section-card-meta {
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
-  min-width: 0;
-  color: #64748b;
 }
 
 .node-search-grid {
@@ -5285,588 +2325,6 @@ function formatDebugResult(value: unknown) {
   line-height: 1.45;
 }
 
-.node-dialog-header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 14px;
-  min-width: 0;
-}
-
-.node-dialog-icon {
-  display: grid;
-  flex: 0 0 42px;
-  width: 42px;
-  height: 42px;
-  place-items: center;
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--node-accent, #4f46e5) 12%, white);
-  color: var(--node-accent, #4f46e5);
-  font-size: 20px;
-}
-
-.node-dialog-title {
-  flex: 1;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.node-dialog-title strong {
-  display: block;
-  color: var(--text-primary);
-  font-size: 18px;
-  font-weight: 800;
-}
-
-.node-dialog-title span {
-  color: var(--text-secondary);
-  font-size: 12px;
-}
-
-.node-dialog-tags {
-  display: flex;
-  flex-wrap: wrap;
-  min-width: 0;
-  gap: 8px;
-  margin-left: auto;
-}
-
-.node-detail-card {
-  padding: 16px;
-  border: 1px solid #e5eaf2;
-  border-radius: 12px;
-  background: #fff;
-}
-
-.node-detail-card-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-
-.node-detail-card-head strong {
-  display: block;
-  color: #0f172a;
-  font-size: 14px;
-  font-weight: 800;
-}
-
-.node-detail-card-head span {
-  display: block;
-  margin-top: 4px;
-  color: #64748b;
-  font-size: 12px;
-}
-
-.node-contract-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.contract-chip {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 10px 12px;
-  border: 1px solid #e8edf5;
-  border-radius: 10px;
-  background: #f8fafc;
-  font-size: 12px;
-  color: #64748b;
-}
-
-.node-debug-box,
-.node-trace-panel {
-  display: grid;
-  gap: 12px;
-}
-
-.node-debug-head,
-.node-trace-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.node-trace-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  color: #64748b;
-  font-size: 12px;
-}
-
-.node-trace-block {
-  display: grid;
-  gap: 6px;
-}
-
-.node-trace-block span {
-  color: #64748b;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.node-trace-block pre {
-  margin: 0;
-  padding: 12px;
-  border-radius: 10px;
-  background: #0f172a;
-  color: #e2e8f0;
-  font-size: 12px;
-  line-height: 1.5;
-  overflow: auto;
-}
-
-.empty-property-card,
-.section-card {
-  padding: 16px;
-  border: 1px solid #e5eaf2;
-  border-radius: 8px;
-  background: #ffffff;
-}
-
-.empty-property-card {
-  display: grid;
-  place-items: center;
-  min-height: 138px;
-  color: #64748b;
-  text-align: center;
-}
-
-.empty-property-card .el-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  margin-bottom: 12px;
-  border-radius: 12px;
-  background: #eef2ff;
-  color: #5b6cff;
-}
-
-.empty-property-card strong,
-.section-title strong {
-  color: #111827;
-  font-size: 14px;
-  font-weight: 900;
-}
-
-.empty-property-card p,
-.section-title span {
-  margin: 6px 0 0;
-  color: #64748b;
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.property-section {
-  margin-top: 18px;
-}
-
-.property-section h3 {
-  margin: 0 0 10px;
-  color: #111827;
-  font-size: 14px;
-  font-weight: 900;
-}
-
-.node-meta-grid,
-.workflow-meta-grid {
-  display: grid;
-  grid-template-columns: 84px minmax(0, 1fr);
-  gap: 8px 10px;
-  align-items: center;
-  color: #475569;
-  font-size: 12px;
-}
-
-.node-meta-grid span,
-.workflow-meta-grid span {
-  color: #64748b;
-}
-
-.node-meta-grid strong,
-.workflow-meta-grid strong {
-  overflow: hidden;
-  color: #172033;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.ai-preview-section {
-  margin-top: 18px;
-}
-
-.studio-page .studio-node {
-  --node-color: #2563eb;
-  --node-soft: rgba(37, 99, 235, 0.1);
-  --node-line: rgba(37, 99, 235, 0.2);
-  position: relative;
-  box-sizing: border-box;
-  width: 240px;
-  min-width: 240px;
-  max-width: 240px;
-  min-height: 118px;
-  padding: 20px 14px 0;
-  overflow: hidden;
-  border: 1px solid rgba(148, 163, 184, 0.28);
-  border-radius: 12px;
-  border-top: 1px solid rgba(148, 163, 184, 0.28);
-  background:
-    radial-gradient(circle at 82% 0%, var(--node-soft), transparent 34%),
-    linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
-  color: #0f172a;
-  font-size: 13px;
-  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.11);
-  transition:
-    border-color 0.16s ease,
-    box-shadow 0.16s ease,
-    transform 0.16s ease;
-}
-
-.studio-page .studio-node::before {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 4px;
-  background: linear-gradient(90deg, var(--node-color), color-mix(in srgb, var(--node-color) 56%, #ffffff));
-  content: '';
-}
-
-.studio-page .studio-node:hover {
-  transform: translateY(-1px);
-  border-color: color-mix(in srgb, var(--node-color) 52%, #dbe5f0);
-  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.14);
-}
-
-.studio-page .studio-node .node-icon {
-  position: absolute;
-  top: 20px;
-  left: 14px;
-  display: grid;
-  width: 30px;
-  height: 30px;
-  place-items: center;
-  border: 1px solid var(--node-line);
-  border-radius: 9px;
-  background: var(--node-soft);
-  color: var(--node-color);
-  font-size: 17px;
-  line-height: 1;
-}
-
-.studio-page .studio-node .node-icon .el-icon {
-  font-size: 17px;
-}
-
-.studio-page .studio-node .node-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 8px;
-  min-height: 30px;
-  margin: 0 0 8px 42px;
-}
-
-.studio-page .studio-node .node-kind {
-  display: inline-flex;
-  align-items: center;
-  max-width: 104px;
-  min-height: 22px;
-  padding: 0 8px;
-  border-radius: 999px;
-  background: rgba(15, 23, 42, 0.045);
-  color: #475569;
-  font-size: 11px;
-  font-weight: 800;
-  line-height: 22px;
-  white-space: nowrap;
-}
-
-.studio-page .studio-node .node-state,
-.studio-page .studio-node .node-kicker {
-  display: inline-flex;
-  align-items: center;
-  min-height: 22px;
-  padding: 0 8px;
-  border: 1px solid var(--node-line);
-  border-radius: 999px;
-  background: var(--node-soft);
-  color: var(--node-color);
-  font-size: 11px;
-  font-weight: 800;
-  line-height: 22px;
-  white-space: nowrap;
-}
-
-.studio-page .studio-node .node-kicker {
-  margin-left: 42px;
-  margin-bottom: 8px;
-}
-
-.studio-page .studio-node .node-label {
-  overflow: visible;
-  color: #0f172a;
-  font-size: 15px;
-  font-weight: 800;
-  line-height: 1.35;
-  text-overflow: clip;
-  white-space: normal;
-  word-break: break-all;
-}
-
-.studio-page .studio-node .node-kicker + .node-label,
-.studio-page .studio-node .node-head + .node-label {
-  margin-left: 42px;
-}
-
-.studio-page .studio-node .node-desc {
-  display: -webkit-box;
-  min-height: 34px;
-  margin-top: 9px;
-  padding: 8px 10px;
-  overflow: hidden;
-  border-radius: 8px;
-  background: rgba(248, 250, 252, 0.86);
-  color: #475569;
-  font-size: 11px;
-  line-height: 1.45;
-  text-overflow: ellipsis;
-  white-space: normal;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-}
-
-.studio-page .studio-node .node-alias {
-  display: inline-flex;
-  max-width: 100%;
-  margin-top: 8px;
-  padding: 3px 7px;
-  border: 1px solid rgba(14, 165, 233, 0.18);
-  border-radius: 6px;
-  background: rgba(14, 165, 233, 0.08);
-  color: #0369a1;
-  font-family: 'Cascadia Code', 'Fira Code', monospace;
-  font-size: 11px;
-}
-
-.studio-page .node-port-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin: 10px -14px 0;
-  padding: 8px 14px;
-  border-top: 1px solid rgba(226, 232, 240, 0.9);
-  background: rgba(248, 250, 252, 0.76);
-  color: #64748b;
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 1.35;
-}
-
-.studio-page .studio-node.collapsed {
-  width: 190px;
-  min-width: 190px;
-  max-width: 190px;
-  min-height: 64px;
-  padding: 18px 14px 14px 58px;
-}
-
-.studio-page .studio-node.collapsed .node-desc,
-.studio-page .studio-node.collapsed .node-port-row,
-.studio-page .studio-node.collapsed .node-alias {
-  display: none;
-}
-
-.studio-page .studio-node.collapsed .node-head,
-.studio-page .studio-node.collapsed .node-kicker,
-.studio-page .studio-node.collapsed .node-label {
-  margin-left: 0;
-}
-
-.studio-page .studio-node.collapsed .node-head {
-  min-height: 0;
-  margin-bottom: 4px;
-}
-
-.studio-page .studio-node.collapsed .node-label {
-  font-size: 14px;
-}
-
-.studio-page .studio-node.collapsed .node-icon {
-  top: 18px;
-  left: 14px;
-}
-
-.studio-page .node-runtime {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  width: auto;
-  margin-top: 9px;
-  padding: 3px 7px;
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.7);
-  color: #334155;
-  cursor: pointer;
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.studio-page .runtime-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
-  background: #22c55e;
-}
-
-.studio-page .run-error .node-runtime .runtime-dot {
-  background: #ef4444;
-}
-
-.studio-page .run-waiting .node-runtime .runtime-dot {
-  background: #f59e0b;
-}
-
-.studio-page .run-running .node-runtime .runtime-dot {
-  background: #6366f1;
-}
-
-.studio-page .studio-node.run-success {
-  border-color: rgba(34, 197, 94, 0.58);
-  box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.18), 0 16px 38px rgba(15, 23, 42, 0.12);
-}
-
-.studio-page .studio-node.run-running {
-  --node-color: #6366f1;
-  --node-soft: rgba(99, 102, 241, 0.08);
-  --node-line: rgba(99, 102, 241, 0.22);
-  border-color: rgba(99, 102, 241, 0.62);
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2), 0 16px 38px rgba(15, 23, 42, 0.13);
-}
-
-.studio-page .studio-node.run-error {
-  --node-color: #ef4444;
-  --node-soft: rgba(239, 68, 68, 0.08);
-  --node-line: rgba(239, 68, 68, 0.24);
-  border-color: rgba(239, 68, 68, 0.58);
-  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2), 0 16px 38px rgba(15, 23, 42, 0.13);
-}
-
-.studio-page .studio-node.run-waiting {
-  --node-color: #f59e0b;
-  --node-soft: rgba(245, 158, 11, 0.1);
-  --node-line: rgba(245, 158, 11, 0.26);
-  border-color: rgba(245, 158, 11, 0.62);
-  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.2), 0 16px 38px rgba(15, 23, 42, 0.13);
-}
-
-.studio-page .studio-node.run-current {
-  border-color: rgba(99, 102, 241, 0.76);
-  box-shadow:
-    0 0 0 3px rgba(99, 102, 241, 0.22),
-    0 18px 42px rgba(15, 23, 42, 0.16);
-  transform: translateY(-2px);
-}
-
-.studio-page .start-node {
-  --node-color: #22c55e;
-  --node-soft: rgba(34, 197, 94, 0.1);
-  --node-line: rgba(34, 197, 94, 0.24);
-}
-
-.studio-page .condition-routes {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 9px;
-}
-
-.studio-page .condition-route {
-  display: inline-flex;
-  min-height: 22px;
-  align-items: center;
-  padding: 0 8px;
-  border: 1px solid rgba(249, 115, 22, 0.2);
-  border-radius: 999px;
-  background: rgba(255, 247, 237, 0.86);
-  color: #c2410c;
-  font-size: 11px;
-  font-weight: 800;
-  line-height: 22px;
-}
-
-.studio-page .classifier-routes {
-  display: grid;
-  gap: 8px;
-  margin-top: 12px;
-}
-
-.studio-page .classifier-route-row {
-  position: relative;
-  display: flex;
-  min-height: 42px;
-  align-items: center;
-  padding: 8px 28px 8px 10px;
-  border: 1px solid rgba(249, 115, 22, 0.22);
-  border-radius: 10px;
-  background: rgba(255, 247, 237, 0.88);
-}
-
-.studio-page .classifier-route-row.is-default {
-  border-style: dashed;
-  background: rgba(248, 250, 252, 0.94);
-}
-
-.studio-page .knowledge-node .classifier-route-row {
-  border-color: rgba(13, 148, 136, 0.24);
-  background: rgba(240, 253, 250, 0.9);
-}
-
-.studio-page .knowledge-node .classifier-route-row.is-default {
-  background: rgba(248, 250, 252, 0.94);
-}
-
-.studio-page .knowledge-node .classifier-route-copy strong {
-  color: #0f766e;
-}
-
-.studio-page .classifier-route-copy {
-  display: grid;
-  min-width: 0;
-  gap: 2px;
-}
-
-.studio-page .classifier-route-copy strong {
-  overflow: hidden;
-  color: #9a3412;
-  font-size: 12px;
-  font-weight: 850;
-  line-height: 1.2;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.studio-page .classifier-route-copy span {
-  overflow: hidden;
-  color: #64748b;
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 1.25;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .studio-canvas :deep(.vue-flow__handle.classifier-route-handle) {
   top: 50%;
   right: -9px;
@@ -5875,114 +2333,6 @@ function formatDebugResult(value: unknown) {
   border: 3px solid #dbeafe;
   background: #2563eb;
   transform: translateY(-50%);
-}
-
-.studio-page .end-node,
-.studio-page .answer-node {
-  --node-color: #16a34a;
-  --node-soft: rgba(22, 163, 74, 0.1);
-  --node-line: rgba(22, 163, 74, 0.24);
-}
-
-.studio-page .llm-node {
-  --node-color: #635bff;
-  --node-soft: rgba(99, 91, 255, 0.1);
-  --node-line: rgba(99, 91, 255, 0.24);
-}
-
-.studio-page .tool-node {
-  --node-color: #d97706;
-  --node-soft: rgba(217, 119, 6, 0.1);
-  --node-line: rgba(217, 119, 6, 0.24);
-}
-
-.studio-page .knowledge-node {
-  --node-color: #0d9488;
-  --node-soft: rgba(13, 148, 136, 0.1);
-  --node-line: rgba(13, 148, 136, 0.24);
-}
-
-.studio-page .user-input-node {
-  --node-color: #10b981;
-  --node-soft: rgba(16, 185, 129, 0.1);
-  --node-line: rgba(16, 185, 129, 0.24);
-}
-
-.studio-page .interaction-node {
-  --node-color: #14b8a6;
-  --node-soft: rgba(20, 184, 166, 0.1);
-  --node-line: rgba(20, 184, 166, 0.24);
-}
-
-.studio-page .page-action-node {
-  --node-color: #8b5cf6;
-  --node-soft: rgba(139, 92, 246, 0.1);
-  --node-line: rgba(139, 92, 246, 0.24);
-}
-
-.studio-page .condition-node {
-  --node-color: #f97316;
-  --node-soft: rgba(249, 115, 22, 0.11);
-  --node-line: rgba(249, 115, 22, 0.26);
-}
-
-.studio-page .variable-node {
-  --node-color: #64748b;
-  --node-soft: rgba(100, 116, 139, 0.1);
-  --node-line: rgba(100, 116, 139, 0.24);
-}
-
-.studio-page .template-node {
-  --node-color: #a21caf;
-  --node-soft: rgba(162, 28, 175, 0.1);
-  --node-line: rgba(162, 28, 175, 0.24);
-}
-
-.studio-page .parameter-node {
-  --node-color: #db2777;
-  --node-soft: rgba(219, 39, 119, 0.09);
-  --node-line: rgba(219, 39, 119, 0.22);
-}
-
-.studio-page .http-node,
-.studio-page .mcp-node {
-  --node-color: #4f46e5;
-  --node-soft: rgba(79, 70, 229, 0.1);
-  --node-line: rgba(79, 70, 229, 0.24);
-}
-
-.studio-page .code-node,
-.studio-page .document-extract-node {
-  --node-color: #475569;
-  --node-soft: rgba(71, 85, 105, 0.1);
-  --node-line: rgba(71, 85, 105, 0.24);
-}
-
-.studio-page .classifier-node {
-  --node-color: #ea580c;
-  --node-soft: rgba(234, 88, 12, 0.1);
-  --node-line: rgba(234, 88, 12, 0.24);
-  width: 300px;
-  min-width: 300px;
-  max-width: 300px;
-}
-
-.studio-page .aggregate-node {
-  --node-color: #0891b2;
-  --node-soft: rgba(8, 145, 178, 0.1);
-  --node-line: rgba(8, 145, 178, 0.24);
-}
-
-.studio-page .approval-node {
-  --node-color: #ca8a04;
-  --node-soft: rgba(202, 138, 4, 0.1);
-  --node-line: rgba(202, 138, 4, 0.24);
-}
-
-.studio-page .loop-node {
-  --node-color: #0284c7;
-  --node-soft: rgba(2, 132, 199, 0.1);
-  --node-line: rgba(2, 132, 199, 0.24);
 }
 
 .studio-canvas :deep(.vue-flow__node.loop-body-member .studio-node) {
@@ -6002,18 +2352,6 @@ function formatDebugResult(value: unknown) {
   color: #0369a1;
   background: rgba(2, 132, 199, 0.12);
   pointer-events: none;
-}
-
-.studio-page .knowledge-write-node {
-  --node-color: #e11d48;
-  --node-soft: rgba(225, 29, 72, 0.09);
-  --node-line: rgba(225, 29, 72, 0.22);
-}
-
-.studio-page .studio-node.needs-config {
-  border-style: dashed;
-  border-color: #f59e0b;
-  background: #fffbeb;
 }
 
 .studio-canvas :deep(.vue-flow__node.selected .studio-node) {
@@ -6038,10 +2376,6 @@ function formatDebugResult(value: unknown) {
   box-shadow: 0 0 0 2px #2563eb, 0 0 0 6px rgba(37, 99, 235, 0.12);
 }
 
-.published-run-entry {
-  margin-top: var(--section-gap);
-}
-
 :global(.vue-flow__edge.edge-route-hit .vue-flow__edge-path) {
   stroke: #16a34a;
   stroke-width: 3;
@@ -6057,37 +2391,7 @@ function formatDebugResult(value: unknown) {
   font-weight: 700;
 }
 
-@keyframes debugAuraSpin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@keyframes debugPulseGlow {
-  0%,
-  100% {
-    opacity: 0.58;
-  }
-
-  50% {
-    opacity: 0.9;
-  }
-}
-
 @media (max-width: 1120px) {
-  .studio-page .studio-header {
-    height: auto;
-    min-height: 66px;
-    align-items: flex-start;
-    flex-direction: column;
-    padding: 12px 16px;
-  }
-
-  .header-right {
-    width: 100%;
-    flex-wrap: wrap;
-  }
-
   .studio-body,
   .studio-body.palette-open,
   .studio-body.property-collapsed,
@@ -6101,7 +2405,7 @@ function formatDebugResult(value: unknown) {
     top: 0;
     right: 0;
     z-index: 8;
-    width: min(430px, 90vw);
+    width: min(var(--studio-property-width, 480px), 90vw);
     height: 100%;
     box-shadow: -16px 0 42px rgba(31, 41, 55, 0.12);
   }
@@ -6116,21 +2420,6 @@ function formatDebugResult(value: unknown) {
 }
 
 @media (max-width: 760px) {
-  .node-dialog-header {
-    display: grid;
-    grid-template-columns: 42px minmax(0, 1fr);
-    gap: 8px 14px;
-  }
-
-  .node-dialog-tags {
-    grid-column: 2;
-    margin-left: 0;
-  }
-
-  .studio-title-row h1 {
-    max-width: calc(100vw - 120px);
-  }
-
   .studio-body,
   .studio-body.palette-open,
   .studio-body.property-collapsed,

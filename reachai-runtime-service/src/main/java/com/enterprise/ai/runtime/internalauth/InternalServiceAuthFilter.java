@@ -30,6 +30,9 @@ public class InternalServiceAuthFilter extends OncePerRequestFilter {
             "/internal/runtime/agents/execute",
             "/internal/runtime/agents/execute/stream");
 
+    private static final java.util.regex.Pattern AGENT_GRAPH_SYNC_PATH =
+            java.util.regex.Pattern.compile("^/api/registry/projects/([^/]+)/agent-graphs/sync$");
+
     private final InternalServiceAuthVerifier verifier;
     private final InternalServiceAuthProperties properties;
 
@@ -55,6 +58,7 @@ public class InternalServiceAuthFilter extends OncePerRequestFilter {
                 && !isConsoleCapabilityInvocationPath(path)
                 && !isHttpApiConsolePath(path)
                 && !isRunOpsReplayPath(path)
+                && agentGraphSyncProjectCode(path) == null
                 && !("DELETE".equalsIgnoreCase(request.getMethod())
                 && path.startsWith("/internal/runtime/agents/sessions/"));
     }
@@ -93,6 +97,16 @@ public class InternalServiceAuthFilter extends OncePerRequestFilter {
             writeUnauthorized(response);
             return;
         }
+        String graphSyncProject = agentGraphSyncProjectCode(path);
+        boolean projectCredential =
+                InternalServiceAuthHeaders.IDENTITY_SOURCE_PROJECT_CREDENTIAL.equals(verified.get().identitySource());
+        // A project credential identity is only valid for that project's own Agent Graph sync.
+        if ((graphSyncProject != null || projectCredential)
+                && (!projectCredential || graphSyncProject == null
+                || !graphSyncProject.equals(verified.get().identityTenantId()))) {
+            writeUnauthorized(response);
+            return;
+        }
         cached.setAttribute(VerifiedInternalServiceAuth.REQUEST_ATTR, verified.get());
         filterChain.doFilter(cached, response);
     }
@@ -108,6 +122,15 @@ public class InternalServiceAuthFilter extends OncePerRequestFilter {
 
     private static boolean isRunOpsReplayPath(String path) {
         return path.startsWith("/internal/runtime/runops/traces/") && path.endsWith("/replay");
+    }
+
+    /** SDK Agent Graph sync writes Workflows; Control forwards it only after verifying the project signature. */
+    private static String agentGraphSyncProjectCode(String path) {
+        if (path == null) {
+            return null;
+        }
+        java.util.regex.Matcher matcher = AGENT_GRAPH_SYNC_PATH.matcher(path);
+        return matcher.matches() ? matcher.group(1) : null;
     }
 
     private static boolean isWorkflowReleasePath(String path) {

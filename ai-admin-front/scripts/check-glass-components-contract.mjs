@@ -10481,10 +10481,6 @@ async function runToolHeadSafeVariantProof(name, mutate) {
   console.log(`Safe variant proof ${name}: pass`)
 }
 
-function currentKnowledgeDetailSource() {
-  return readNormalizedUtf8(resolve(root, 'src/views/KnowledgeDetail.vue'))
-}
-
 function knowledgeScriptMutationContext(source, label) {
   const parsed = parse(source, { filename: label })
   if (parsed.errors.length > 0 || !parsed.descriptor.scriptSetup) {
@@ -11189,19 +11185,6 @@ async function runMutationProofs() {
   if (knowledgeConsumerBaselineFailures.length > 0) {
     failures.push(
       `synthetic KnowledgeDetail consumer baseline must pass independently: ${knowledgeConsumerBaselineFailures.join(' | ')}`,
-    )
-    baselineFailed = true
-  }
-
-  const actualKnowledgeDetailSource = currentKnowledgeDetailSource()
-  const actualKnowledgeConsumerBaselineFailures = await validateKnowledgeDetailConsumer(
-    actualKnowledgeDetailSource,
-    'actual KnowledgeDetail consumer mutation baseline',
-    { skipHeadPreservation: true },
-  )
-  if (actualKnowledgeConsumerBaselineFailures.length > 0) {
-    failures.push(
-      `actual KnowledgeDetail consumer mutation baseline must pass structural ownership checks: ${actualKnowledgeConsumerBaselineFailures.join(' | ')}`,
     )
     baselineFailed = true
   }
@@ -15353,18 +15336,9 @@ if (existsSync(toolListConsumerPath)) {
   failures.push('src/views/tool/ToolList.vue must stay retired; generic Tool is not a product asset')
 }
 
-const knowledgeDetailConsumerPath = resolve(root, 'src/views/KnowledgeDetail.vue')
-if (!existsSync(knowledgeDetailConsumerPath)) {
-  failures.push('src/views/KnowledgeDetail.vue is missing; /knowledge/:code consumer contract unavailable')
-} else {
-  failures.push(
-    ...(await validateKnowledgeDetailConsumer(
-      readNormalizedUtf8(knowledgeDetailConsumerPath),
-      'src/views/KnowledgeDetail.vue (/knowledge/:code)',
-      { skipHeadPreservation: true },
-    )),
-  )
-}
+// src/views/KnowledgeDetail.vue was rebuilt in the 2026-10-18 knowledge cleanup (files / retrieval
+// test / hit analysis / settings); the frozen glass-migration snapshot of the old seven-tab page no
+// longer applies to it. The synthetic KnowledgeDetail harness above still guards the validator itself.
 
 const agentEditConsumerPath = resolve(root, 'src/views/agent/AgentEdit.vue')
 if (!existsSync(agentEditConsumerPath)) {

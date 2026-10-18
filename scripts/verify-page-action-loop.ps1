@@ -62,6 +62,32 @@ $removedActionKeyValue = if ($RemovedActionKey) { $RemovedActionKey } else { "$A
 $step = "init"
 
 try {
+  $step = "exchange embed token"
+  $principal = @{
+    externalUserId = "page-action-verify-user"
+    globalUserId = "page-action-verify-user"
+    tenantId = "default"
+    userName = "Page Action Verify User"
+    roles = @("tester")
+  }
+  $tokenResponse = Unwrap-ApiResult (Invoke-JsonPost `
+    "$base/api/embed/token/exchange" `
+    @{
+      projectCode = $ProjectCode
+      agentId = $AgentId
+      pageKey = $PageKey
+      pageInstanceId = $pageInstanceId
+      route = $Route
+      origin = $Origin
+      principal = $principal
+    } `
+    (New-ReachAiSignatureHeaders $ProjectCode $AppKey $AppSecret))
+  if (-not $tokenResponse.token) {
+    throw "token exchange returned no token"
+  }
+
+  $embedHeaders = @{ Authorization = "Bearer " + $tokenResponse.token }
+
   $step = "register page catalog with added action"
   $registerBody = @{
     pageKey = $PageKey
@@ -124,9 +150,9 @@ try {
     )
   }
   $register = Unwrap-ApiResult (Invoke-JsonPost `
-    "$base/api/registry/projects/$ProjectCode/pages/register" `
+    "$base/api/embed/pages/register" `
     $registerBody `
-    (New-ReachAiSignatureHeaders $ProjectCode $AppKey $AppSecret))
+    $embedHeaders)
 
   $step = "replace page catalog and remove missing action"
   $replaceBody = $registerBody.Clone()
@@ -159,35 +185,10 @@ try {
     }
   )
   $register = Unwrap-ApiResult (Invoke-JsonPost `
-    "$base/api/registry/projects/$ProjectCode/pages/register" `
+    "$base/api/embed/pages/register" `
     $replaceBody `
-    (New-ReachAiSignatureHeaders $ProjectCode $AppKey $AppSecret))
+    $embedHeaders)
 
-  $step = "exchange embed token"
-  $principal = @{
-    externalUserId = "page-action-verify-user"
-    globalUserId = "page-action-verify-user"
-    tenantId = "default"
-    userName = "Page Action Verify User"
-    roles = @("tester")
-  }
-  $tokenResponse = Unwrap-ApiResult (Invoke-JsonPost `
-    "$base/api/embed/token/exchange" `
-    @{
-      projectCode = $ProjectCode
-      agentId = $AgentId
-      pageKey = $PageKey
-      pageInstanceId = $pageInstanceId
-      route = $Route
-      origin = $Origin
-      principal = $principal
-    } `
-    (New-ReachAiSignatureHeaders $ProjectCode $AppKey $AppSecret))
-  if (-not $tokenResponse.token) {
-    throw "token exchange returned no token"
-  }
-
-  $embedHeaders = @{ Authorization = "Bearer " + $tokenResponse.token }
 
   $step = "create embed session"
   $session = Unwrap-ApiResult (Invoke-JsonPost `

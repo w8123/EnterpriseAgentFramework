@@ -39,7 +39,6 @@ public final class KnowledgePublicationMysqlDatabase extends AbstractDataSource 
     static KnowledgePublicationMysqlDatabase withFileAssociations(int lockWaitSeconds) throws SQLException {
         var originals = new java.util.ArrayList<>(ORIGINALS);
         originals.add("knowledge_user_file_permission");
-        originals.add("knowledge_question");
         return new KnowledgePublicationMysqlDatabase(lockWaitSeconds, null, originals);
     }
 
@@ -49,28 +48,18 @@ public final class KnowledgePublicationMysqlDatabase extends AbstractDataSource 
 
     static KnowledgePublicationMysqlDatabase withContentManagement(int lockWaitSeconds) throws SQLException {
         return new KnowledgePublicationMysqlDatabase(lockWaitSeconds, null,
-                java.util.List.of("knowledge_base", "knowledge_file_info", "knowledge_chunk", "knowledge_tag"));
+                java.util.List.of("knowledge_base", "knowledge_file_info", "knowledge_chunk"));
     }
 
     static KnowledgePublicationMysqlDatabase withCollectionLifecycle(int lockWaitSeconds) throws SQLException {
         var originals = new java.util.ArrayList<>(ORIGINALS);
         originals.add("knowledge_user_file_permission");
-        originals.add("knowledge_question");
-        originals.add("knowledge_tag");
         originals.add("knowledge_collection_lifecycle");
         return new KnowledgePublicationMysqlDatabase(lockWaitSeconds, null, originals);
     }
 
     public static KnowledgePublicationMysqlDatabase withArtifactLifecycle(int lockWaitSeconds) throws SQLException {
         return new KnowledgePublicationMysqlDatabase(lockWaitSeconds, null, artifactTables());
-    }
-
-    static KnowledgePublicationMysqlDatabase withTagLifecycle(int lockWaitSeconds) throws SQLException {
-        var originals = new java.util.ArrayList<>(ORIGINALS);
-        originals.add("knowledge_user_file_permission");
-        originals.add("knowledge_question");
-        originals.add("knowledge_tag");
-        return new KnowledgePublicationMysqlDatabase(lockWaitSeconds, null, originals);
     }
 
     public static KnowledgePublicationMysqlDatabase attachArtifactLifecycle(String prefix) throws SQLException {
@@ -83,7 +72,6 @@ public final class KnowledgePublicationMysqlDatabase extends AbstractDataSource 
     private static java.util.List<String> artifactTables() {
         var originals = new java.util.ArrayList<>(ORIGINALS);
         originals.add("knowledge_user_file_permission");
-        originals.add("knowledge_question");
         originals.add("knowledge_document_artifact_lifecycle");
         return originals;
     }

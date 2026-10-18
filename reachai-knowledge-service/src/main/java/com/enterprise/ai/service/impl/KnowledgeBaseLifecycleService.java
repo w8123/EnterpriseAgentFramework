@@ -7,10 +7,8 @@ import com.enterprise.ai.domain.dto.KnowledgeBaseRequest;
 import com.enterprise.ai.embedding.EmbeddingService;
 import com.enterprise.ai.embedding.EmbeddingDimensions;
 import com.enterprise.ai.domain.entity.KnowledgeBase;
-import com.enterprise.ai.domain.entity.KnowledgeTag;
 import com.enterprise.ai.repository.KnowledgeBaseLookup;
 import com.enterprise.ai.repository.KnowledgeBaseRepository;
-import com.enterprise.ai.repository.KnowledgeTagRepository;
 import com.enterprise.ai.vector.VectorService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -30,8 +28,6 @@ import static com.enterprise.ai.domain.KnowledgeBaseSettings.normalizeSearchMode
 public class KnowledgeBaseLifecycleService {
     private final KnowledgeBaseRepository knowledgeBaseRepository;
     private final KnowledgeBaseLookup lookup;
-    private final KnowledgeTagRepository tags;
-    private final KnowledgeQuestionService questions;
     private final KnowledgeFileDeletionService files;
     private final KnowledgeCollectionLifecycleStore collections;
     private final VectorService vectors;
@@ -44,8 +40,6 @@ public class KnowledgeBaseLifecycleService {
     private float defaultScoreThreshold = 0.5f;
 
     public KnowledgeBaseLifecycleService(KnowledgeBaseRepository bases,
-                                         KnowledgeTagRepository tags,
-                                         KnowledgeQuestionService questions,
                                          KnowledgeFileDeletionService files,
                                          KnowledgeCollectionLifecycleStore collections,
                                          VectorService vectors,
@@ -53,8 +47,6 @@ public class KnowledgeBaseLifecycleService {
                                          PlatformTransactionManager manager) {
         this.knowledgeBaseRepository = bases;
         this.lookup = new KnowledgeBaseLookup(bases);
-        this.tags = tags;
-        this.questions = questions;
         this.files = files;
         this.collections = collections;
         this.vectors = vectors;
@@ -83,6 +75,7 @@ public class KnowledgeBaseLifecycleService {
             kb.setWorkspaceId(defaultString(request.getWorkspaceId(), "default"));
             kb.setProjectCode(request.getProjectCode());
             kb.setScope(defaultString(request.getScope(), "WORKSPACE"));
+            kb.setAccessMode(normalizeAccessMode(request.getAccessMode(), ACCESS_MODE_ALL_CALLERS));
             kb.setDimension(EmbeddingDimensions.resolve(request.getDimension(), embeddingModelInstanceId, embeddings));
             kb.setChunkSize(500);
             kb.setChunkOverlap(50);
@@ -90,8 +83,6 @@ public class KnowledgeBaseLifecycleService {
             kb.setSearchMode(defaultString(request.getSearchMode(), "hybrid"));
             kb.setTopK(request.getTopK() != null ? request.getTopK() : defaultTopK);
             kb.setSimilarityThreshold(request.getSimilarityThreshold() != null ? request.getSimilarityThreshold() : defaultScoreThreshold);
-            kb.setDirectReturnEnabled(request.getDirectReturnEnabled() != null ? request.getDirectReturnEnabled() : Boolean.TRUE);
-            kb.setDirectReturnThreshold(request.getDirectReturnThreshold() != null ? request.getDirectReturnThreshold() : 0.9f);
             kb.setRerankEnabled(request.getRerankEnabled() != null ? request.getRerankEnabled() : Boolean.TRUE);
             kb.setVectorWeight(request.getVectorWeight() != null ? request.getVectorWeight() : 0.7f);
             kb.setKeywordWeight(request.getKeywordWeight() != null ? request.getKeywordWeight() : 0.3f);
@@ -131,8 +122,11 @@ public class KnowledgeBaseLifecycleService {
             change.setWorkspaceId(request.getWorkspaceId());
             change.setProjectCode(request.getProjectCode());
             change.setScope(request.getScope());
+            if (request.getAccessMode() != null) {
+                change.setAccessMode(normalizeAccessMode(request.getAccessMode(), current.getAccessMode()));
+            }
             applySearchConfig(change, current.getSearchMode(), request.getSearchMode(), request.getTopK(),
-                    request.getSimilarityThreshold(), request.getDirectReturnEnabled(), request.getDirectReturnThreshold(),
+                    request.getSimilarityThreshold(),
                     request.getRerankEnabled(), request.getVectorWeight(), request.getKeywordWeight());
             updateCurrent(current, change);
         });
@@ -145,8 +139,11 @@ public class KnowledgeBaseLifecycleService {
             change.setChunkSize(request.getChunkSize());
             change.setChunkOverlap(request.getChunkOverlap());
             change.setSplitType(request.getSplitType());
+            if (request.getAccessMode() != null) {
+                change.setAccessMode(normalizeAccessMode(request.getAccessMode(), current.getAccessMode()));
+            }
             applySearchConfig(change, current.getSearchMode(), request.getSearchMode(), request.getTopK(),
-                    request.getSimilarityThreshold(), request.getDirectReturnEnabled(), request.getDirectReturnThreshold(),
+                    request.getSimilarityThreshold(),
                     request.getRerankEnabled(), request.getVectorWeight(), request.getKeywordWeight());
             updateCurrent(current, change);
         });
@@ -163,17 +160,24 @@ public class KnowledgeBaseLifecycleService {
     }
 
     private void applySearchConfig(KnowledgeBase change, String fallbackMode, String searchMode,
-                                   Integer topK, Float similarityThreshold, Boolean directReturnEnabled,
-                                   Float directReturnThreshold, Boolean rerankEnabled,
+                                   Integer topK, Float similarityThreshold, Boolean rerankEnabled,
                                    Float vectorWeight, Float keywordWeight) {
         if (searchMode != null) change.setSearchMode(normalizeSearchMode(searchMode, fallbackMode));
         change.setTopK(topK);
         change.setSimilarityThreshold(similarityThreshold);
-        change.setDirectReturnEnabled(directReturnEnabled);
-        change.setDirectReturnThreshold(directReturnThreshold);
         change.setRerankEnabled(rerankEnabled);
         change.setVectorWeight(vectorWeight);
         change.setKeywordWeight(keywordWeight);
+    }
+
+    static final String ACCESS_MODE_ALL_CALLERS = "ALL_CALLERS";
+    static final String ACCESS_MODE_FILE_GRANTS = "FILE_GRANTS";
+
+    static String normalizeAccessMode(String requested, String fallback) {
+        String value = requested == null ? null : requested.trim().toUpperCase(java.util.Locale.ROOT);
+        if (ACCESS_MODE_ALL_CALLERS.equals(value) || ACCESS_MODE_FILE_GRANTS.equals(value)) return value;
+        if (value != null && !value.isEmpty()) throw new IllegalArgumentException("谁能检索只能是 ALL_CALLERS 或 FILE_GRANTS");
+        return fallback == null ? ACCESS_MODE_ALL_CALLERS : fallback;
     }
 
     public void deleteByCode(String code) {
@@ -185,8 +189,6 @@ public class KnowledgeBaseLifecycleService {
                 throw new IllegalStateException("原知识库身份已失效");
             }
             files.deleteAllInKnowledgeBase(kb);
-            tags.delete(new LambdaQueryWrapper<KnowledgeTag>().eq(KnowledgeTag::getKnowledgeBaseId, kb.getId()));
-            questions.deleteAllInKnowledgeBase(kb.getId());
             collections.retire(kb);
             if (knowledgeBaseRepository.deleteById(kb.getId()) != 1) {
                 throw new IllegalStateException("无法删除知识库");

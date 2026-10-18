@@ -10,7 +10,6 @@ import {
   PLATFORM_PERMISSION_AUTOMATION_READ,
   PLATFORM_PERMISSION_BUSINESS_USER_READ,
   PLATFORM_PERMISSION_KNOWLEDGE_READ,
-  PLATFORM_PERMISSION_KNOWLEDGE_WRITE,
   PLATFORM_PERMISSION_MCP_HUB_READ,
   PLATFORM_PERMISSION_MEMORY_ERASURE_MANAGE,
   PLATFORM_PERMISSION_MODEL_READ,
@@ -23,6 +22,8 @@ import {
   PLATFORM_PERMISSION_WORKFLOW_WRITE,
 } from '@/auth/platformAccess'
 import { resolvePlatformNavigation } from '@/auth/platformNavigation'
+import { platformSessionUser } from '@/auth/platformSession'
+import { firstRunCenterPath } from '@/views/runops/runCenterTabs'
 import { BUSINESS_CAPABILITY_SCOPE_QUERY_KEYS, businessCapabilityWorkspaceLocation, legacyCatalogQuery } from '@/views/capability/businessCapabilityRoutes'
 
 /** 项目详情动态面包屑目标：从当前路由取 projectCode。 */
@@ -116,13 +117,7 @@ export const routes: RouteRecordRaw[] = [
       },
       {
         path: 'agent/:id/evals',
-        name: 'AgentEval',
-        component: () => import('@/views/agent/AgentEval.vue'),
-        meta: {
-          title: 'Agent 评测',
-          layoutMode: 'standard',
-          requiredPermissions: [PLATFORM_PERMISSION_AGENT_EVALUATE],
-        },
+        redirect: to => ({ path: `/runops/evals/${to.params.id}`, query: to.query }),
       },
       {
         path: 'skill-market',
@@ -176,19 +171,68 @@ export const routes: RouteRecordRaw[] = [
         name: 'RunOpsList',
         component: () => import('@/views/runops/RunOpsList.vue'),
         meta: {
-          title: '运行中心',
+          title: '运行中心 · 运行记录',
           layoutMode: 'standard',
+          activeMenu: '/run-center',
+          breadcrumb: [{ title: '运营' }, { title: '运行中心' }, { title: '运行记录' }],
+          requiredPermissions: [PLATFORM_PERMISSION_RUNOPS_READ],
+        },
+      },
+      // ── 运行中心：运行记录 / 自动化 / 评测 共用一个入口，页签见 views/runops/runCenterTabs.ts ──
+      {
+        path: 'run-center',
+        redirect: () => firstRunCenterPath(platformSessionUser.value?.permissions),
+      },
+      {
+        path: 'runops/conversations',
+        name: 'RunConversations',
+        component: () => import('@/views/runops/RunConversations.vue'),
+        meta: {
+          title: '运行中心 · 对话',
+          layoutMode: 'standard',
+          activeMenu: '/run-center',
+          breadcrumb: [{ title: '运营' }, { title: '运行中心' }, { title: '对话' }],
           requiredPermissions: [PLATFORM_PERMISSION_RUNOPS_READ],
         },
       },
       {
-        path: 'automations',
+        path: 'runops/automations',
         name: 'AutomationCenter',
         component: () => import('@/views/automation/AutomationCenter.vue'),
         meta: {
-          title: '自动化中心',
+          title: '运行中心 · 自动化',
           layoutMode: 'standard',
+          activeMenu: '/run-center',
+          breadcrumb: [{ title: '运营' }, { title: '运行中心' }, { title: '自动化' }],
           requiredPermissions: [PLATFORM_PERMISSION_AUTOMATION_READ],
+        },
+      },
+      {
+        path: 'automations',
+        redirect: to => ({ path: '/runops/automations', query: to.query }),
+      },
+      {
+        path: 'runops/evals',
+        name: 'EvalOverview',
+        component: () => import('@/views/runops/EvalOverview.vue'),
+        meta: {
+          title: '运行中心 · 评测',
+          layoutMode: 'standard',
+          activeMenu: '/run-center',
+          breadcrumb: [{ title: '运营' }, { title: '运行中心' }, { title: '评测' }],
+          requiredPermissions: [PLATFORM_PERMISSION_AGENT_EVALUATE],
+        },
+      },
+      {
+        path: 'runops/evals/:id',
+        name: 'AgentEval',
+        component: () => import('@/views/agent/AgentEval.vue'),
+        meta: {
+          title: 'Agent 评测',
+          layoutMode: 'standard',
+          activeMenu: '/run-center',
+          breadcrumb: [{ title: '运营' }, { title: '运行中心' }, { title: '评测', to: '/runops/evals' }, { title: 'Agent 评测' }],
+          requiredPermissions: [PLATFORM_PERMISSION_AGENT_EVALUATE],
         },
       },
       {
@@ -198,6 +242,8 @@ export const routes: RouteRecordRaw[] = [
         meta: {
           title: '运行详情',
           layoutMode: 'standard',
+          activeMenu: '/run-center',
+          breadcrumb: [{ title: '运营' }, { title: '运行中心' }, { title: '运行记录', to: '/runops' }, { title: '运行详情' }],
           requiredPermissions: [PLATFORM_PERMISSION_RUNOPS_READ],
         },
       },
@@ -210,10 +256,11 @@ export const routes: RouteRecordRaw[] = [
         meta: { title: '知识库管理', layoutMode: 'standard', requiredPermissions: [PLATFORM_PERMISSION_KNOWLEDGE_READ] },
       },
       {
+        // 文件入库并入知识库详情的「文件」页签；旧链接带 ?kb= 时直接打开该知识库。
         path: 'knowledge/import',
-        name: 'KnowledgeImport',
-        component: () => import('@/views/KnowledgeImport.vue'),
-        meta: { title: '文件入库', layoutMode: 'standard', requiredPermissions: [PLATFORM_PERMISSION_KNOWLEDGE_WRITE] },
+        redirect: (to) => typeof to.query.kb === 'string' && to.query.kb
+          ? { path: `/knowledge/${to.query.kb}`, query: { tab: 'files' } }
+          : { path: '/knowledge' },
       },
       {
         path: 'knowledge/:code',
@@ -228,10 +275,11 @@ export const routes: RouteRecordRaw[] = [
         meta: { title: '文件详情', layoutMode: 'standard', requiredPermissions: [PLATFORM_PERMISSION_KNOWLEDGE_READ] },
       },
       {
+        // 知识检索测试并入知识库详情的「检索测试」页签。
         path: 'retrieval',
-        name: 'RetrievalTest',
-        component: () => import('@/views/RetrievalTest.vue'),
-        meta: { title: '检索测试', layoutMode: 'standard', requiredPermissions: [PLATFORM_PERMISSION_KNOWLEDGE_READ] },
+        redirect: (to) => typeof to.query.kb === 'string' && to.query.kb
+          ? { path: `/knowledge/${to.query.kb}`, query: { tab: 'retrieval' } }
+          : { path: '/knowledge' },
       },
       {
         path: 'biz-index',

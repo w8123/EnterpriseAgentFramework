@@ -1,5 +1,7 @@
 package com.enterprise.ai.runtime.agentscope;
 
+import com.enterprise.ai.runtime.runops.RuntimeRunLifecycleService;
+
 import com.enterprise.ai.runtime.client.model.ModelStreamSubscription;
 import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient;
 import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient.ModelChatData;
@@ -384,6 +386,43 @@ class ReachAiAgentScopeChatModelTest {
         assertEquals(ModelStreamFailure.MODEL_STREAM_INTERRUPTED, failure.code());
         assertEquals(0, syncCalls.get());
         assertFalse(String.valueOf(failure.toSafeMetadata()).contains("secret-reasoning-body"));
+    }
+
+    @Test
+    void sumsProviderUsageOverRoundsIntoRunTokenCost() {
+        ObjectMapper objectMapper = new ObjectMapper();
+        RuntimeModelStreamHttpClient streamClient = new RuntimeModelStreamHttpClient(objectMapper, "http://localhost") {
+            @Override
+            public void streamChatEvents(ModelChatRequest request, Consumer<ModelStreamEventDto> onEvent) {
+                ModelStreamEventDto content = new ModelStreamEventDto();
+                content.type = "content.delta";
+                content.text = "ok";
+                onEvent.accept(content);
+                ModelStreamEventDto usage = new ModelStreamEventDto();
+                usage.type = "usage";
+                usage.usage = Map.of("promptTokens", 100, "completionTokens", 20, "totalTokens", 120);
+                onEvent.accept(usage);
+                ModelStreamEventDto done = new ModelStreamEventDto();
+                done.type = "completed";
+                done.finishReason = "stop";
+                onEvent.accept(done);
+            }
+        };
+        RuntimeModelServiceClient syncClient = request -> {
+            throw new AssertionError("sync fallback must not be used");
+        };
+        ReachAiAgentScopeChatModel model = new ReachAiAgentScopeChatModel(
+                "seed-deepseek-v4-flash", syncClient, streamClient, objectMapper, text -> {
+        });
+
+        assertTrue(model.safeRoundDiagnostics().get("tokenCost") == null);
+        for (int round = 0; round < 2; round++) {
+            model.stream(List.of(Msg.builder().name("user").role(MsgRole.USER).textContent("q").build()),
+                    List.of(), null).collectList().block();
+        }
+
+        assertEquals(240L, model.safeRoundDiagnostics().get("tokenCost"));
+        assertEquals(240, RuntimeRunLifecycleService.resolveTokenCost(model.safeRoundDiagnostics()));
     }
 
     @Test

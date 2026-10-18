@@ -18,7 +18,8 @@ public class InternalServiceAuthVerifier {
             "EMBED_SESSION",
             InternalServiceAuthHeaders.IDENTITY_SOURCE_A2A_REMOTE_AGENT,
             InternalServiceAuthHeaders.IDENTITY_SOURCE_MCP_REMOTE_CLIENT,
-            InternalServiceAuthHeaders.IDENTITY_SOURCE_PLATFORM_SESSION);
+            InternalServiceAuthHeaders.IDENTITY_SOURCE_PLATFORM_SESSION,
+            InternalServiceAuthHeaders.IDENTITY_SOURCE_PROJECT_CREDENTIAL);
 
     private final InternalServiceAuthProperties properties;
     private final InternalAuthNonceStore nonceStore;
@@ -76,7 +77,8 @@ public class InternalServiceAuthVerifier {
         if ("EMBED_SESSION".equals(source) && !StringUtils.hasText(userId)) {
             return Optional.empty();
         }
-        if (InternalServiceAuthHeaders.IDENTITY_SOURCE_PLATFORM_SESSION.equals(source)
+        if ((InternalServiceAuthHeaders.IDENTITY_SOURCE_PLATFORM_SESSION.equals(source)
+                || InternalServiceAuthHeaders.IDENTITY_SOURCE_PROJECT_CREDENTIAL.equals(source))
                 && !StringUtils.hasText(userId)) {
             return Optional.empty();
         }

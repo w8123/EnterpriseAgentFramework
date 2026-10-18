@@ -252,3 +252,22 @@ export function updateEmbedRenderer(id: number, payload: EmbedRendererPayload) {
 export function disableEmbedRenderer(id: number) {
   return controlRequest.post<void>(`/api/platform/embed/renderers/${id}/disable`)
 }
+
+export interface EmbedReadinessCheck {
+  key: 'credential' | 'origin' | 'agentAllowed' | 'agentAvailable' | 'cors' | string
+  ok: boolean
+  message: string
+}
+
+export interface EmbedReadinessView {
+  projectCode: string
+  agentId: string
+  origin?: string
+  ready: boolean
+  checks: EmbedReadinessCheck[]
+}
+
+/** Step-by-step answer to "will this Agent open on that business page?" */
+export function getEmbedReadiness(params: { projectCode: string; agentId: string; origin: string }) {
+  return controlRequest.get<EmbedReadinessView>('/api/platform/embed/readiness', { params })
+}

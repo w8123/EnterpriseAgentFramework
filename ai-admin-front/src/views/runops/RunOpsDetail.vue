@@ -50,6 +50,12 @@
           </template>
         </el-dropdown>
         <el-button
+          v-if="canAddToEval"
+          @click="addToEvalVisible = true"
+        >
+          加入评测集
+        </el-button>
+        <el-button
           v-if="canOperateRun && canReplayRunType(summary?.runType)"
           type="primary"
           :icon="VideoPlay"
@@ -98,6 +104,14 @@
           <span>项目 <strong>{{ summary.projectCode || '-' }}</strong></span>
           <span>发布版本 <strong>{{ runVersionLabel(summary) }}</strong></span>
           <span>入口 <strong>{{ entryTypeLabel(summary.entryType) }}</strong></span>
+          <el-button
+            v-if="summary.entryType === 'EMBED' && summary.sessionId"
+            link
+            type="primary"
+            @click="router.push({ name: 'RunConversations', query: { sessionId: summary.sessionId } })"
+          >
+            所属对话 ›
+          </el-button>
           <span class="trace-context">
             Trace
             <el-tooltip :content="traceId" placement="top" :show-after="400">
@@ -357,6 +371,13 @@
         @cancel="cancelCandidateTask"
       />
     </AppDrawer>
+    <AddToEvalDialog
+      v-if="canAddToEval && summary?.agentId"
+      v-model="addToEvalVisible"
+      :trace-id="traceId"
+      :agent-id="summary.agentId"
+      :session-id="summary.entryType === 'EMBED' ? summary.sessionId : null"
+    />
   </WorkbenchPage>
 </template>
 
@@ -371,6 +392,7 @@ import { CopyDocument, MoreFilled, Refresh, VideoPlay } from '@element-plus/icon
 import PageHeader from '@/components/common/PageHeader.vue'
 import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
 import RunOpsInvestigationWorkbench from './components/RunOpsInvestigationWorkbench.vue'
+import AddToEvalDialog from './components/AddToEvalDialog.vue'
 import { toolCallFailed, toolCallStatus } from './toolCallOutcome'
 import { HTTP_API_WRITE_UNCONFIRMED_GUIDANCE, runHasUnconfirmedHttpApiWrite } from './httpApiWriteOutcome'
 import { consoleHttpApiAuditLabel, consoleHttpApiTransportMessage } from './consoleHttpApiDiagnostics'
@@ -397,11 +419,14 @@ import type {
   TraceWorkflowCandidateEligibility,
 } from '@/types/runops'
 import {
+  hasPlatformPermission,
   hasPlatformResourcePermission,
+  PLATFORM_PERMISSION_AGENT_EVALUATE,
   PLATFORM_PERMISSION_RUNOPS_OPERATE,
   PLATFORM_PERMISSION_WORKFLOW_WRITE,
 } from '@/auth/platformAccess'
 import { platformSessionUser } from '@/auth/platformSession'
+import { runErrorHint } from './conversationView'
 
 type DiagnosticTone = 'success' | 'danger' | 'warning' | 'primary' | 'info'
 type RunOpsMoreCommand = 'context' | 'candidate' | 'compare'
@@ -448,6 +473,13 @@ const replayRoles = ref<string[]>([])
 const investigationWorkbenchRef = ref<InstanceType<typeof RunOpsInvestigationWorkbench> | null>(null)
 const summary = computed(() => detail.value?.summary)
 const runResultUnconfirmed = computed(() => runHasUnconfirmedHttpApiWrite(detail.value))
+const addToEvalVisible = ref(false)
+const canAddToEval = computed(() => Boolean(
+  summary.value?.runType === 'AGENT'
+  && summary.value.agentId
+  && summary.value.entryType !== 'EVAL'
+  && hasPlatformPermission(platformSessionUser.value?.permissions, PLATFORM_PERMISSION_AGENT_EVALUATE),
+))
 const canOperateRun = computed(() => hasPlatformResourcePermission(
   platformSessionUser.value?.permissionGrants,
   PLATFORM_PERMISSION_RUNOPS_OPERATE,
@@ -515,7 +547,7 @@ const failureFocus = computed<FailureFocus | null>(() => {
       code: failedSpan.errorCode,
       message: compactMessage(
         consoleHttpApiTransportMessage(run, failedSpan) || failedSpan.errorMessage || failedSpan.outputSummary,
-        `${phaseLabel(failedSpan.spanType)}“${title}”未成功完成${codeSuffix}。`,
+        runErrorHint(failedSpan.errorCode) || `${phaseLabel(failedSpan.spanType)}“${title}”未成功完成${codeSuffix}。`,
       ),
     }
   }
@@ -550,7 +582,7 @@ const failureFocus = computed<FailureFocus | null>(() => {
       title: runObjectLabel(run),
       status: run.status,
       code: run.errorCode,
-      message: compactMessage(run.errorMessage, '根运行失败，但没有记录更具体的错误信息。'),
+      message: compactMessage(run.errorMessage, runErrorHint(run.errorCode) || '根运行失败，但没有记录更具体的错误信息。'),
     }
   }
 

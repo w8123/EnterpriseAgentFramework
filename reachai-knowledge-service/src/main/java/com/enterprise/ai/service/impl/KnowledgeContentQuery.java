@@ -6,19 +6,16 @@ import com.enterprise.ai.domain.dto.FileInfoVO;
 import com.enterprise.ai.domain.entity.Chunk;
 import com.enterprise.ai.domain.entity.FileInfo;
 import com.enterprise.ai.domain.entity.KnowledgeBase;
-import com.enterprise.ai.domain.entity.KnowledgeTag;
 import com.enterprise.ai.domain.vo.SimilarItem;
 import com.enterprise.ai.repository.ChunkRepository;
 import com.enterprise.ai.repository.FileInfoRepository;
 import com.enterprise.ai.repository.KnowledgeBaseLookup;
-import com.enterprise.ai.repository.KnowledgeTagRepository;
 import org.springframework.beans.BeanUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -28,7 +25,6 @@ import java.util.stream.Collectors;
 public class KnowledgeContentQuery {
     private final FileInfoRepository fileInfoRepository;
     private final ChunkRepository chunkRepository;
-    private final KnowledgeTagRepository knowledgeTagRepository;
     private final KnowledgeBaseLookup knowledgeBaseLookup;
 
     public void enrichFileName(List<SimilarItem> items) {
@@ -58,7 +54,7 @@ public class KnowledgeContentQuery {
         return chunks.stream().map(KnowledgeChunkProjection::toChunkVO).collect(Collectors.toList());
     }
 
-    public List<ChunkVO> listChunks(String kbCode, String keyword, Integer enabled, String tagKey, String tagValue, Integer limit) {
+    public List<ChunkVO> listChunks(String kbCode, String keyword, Integer enabled, Integer limit) {
         KnowledgeBase kb = knowledgeBaseLookup.requireByCode(kbCode);
         LambdaQueryWrapper<Chunk> query = new LambdaQueryWrapper<Chunk>()
                 .eq(Chunk::getKnowledgeBaseId, kb.getId())
@@ -70,38 +66,8 @@ public class KnowledgeContentQuery {
         if (enabled != null) {
             query.eq(Chunk::getEnabled, enabled);
         }
-        if ((tagKey != null && !tagKey.isBlank()) || (tagValue != null && !tagValue.isBlank())) {
-            LambdaQueryWrapper<KnowledgeTag> tagQuery = new LambdaQueryWrapper<KnowledgeTag>()
-                    .eq(KnowledgeTag::getKnowledgeBaseId, kb.getId())
-                    .eq(KnowledgeTag::getTargetType, "CHUNK");
-            if (tagKey != null && !tagKey.isBlank()) {
-                tagQuery.eq(KnowledgeTag::getTagKey, tagKey);
-            }
-            if (tagValue != null && !tagValue.isBlank()) {
-                tagQuery.eq(KnowledgeTag::getTagValue, tagValue);
-            }
-            List<Long> chunkIds = knowledgeTagRepository.selectList(tagQuery).stream()
-                    .map(KnowledgeTag::getTargetId)
-                    .filter(Objects::nonNull)
-                    .map(this::parseLongOrNull)
-                    .filter(Objects::nonNull)
-                    .distinct()
-                    .collect(Collectors.toList());
-            if (chunkIds.isEmpty()) {
-                return List.of();
-            }
-            query.in(Chunk::getId, chunkIds);
-        }
         query.last("LIMIT " + Math.max(1, Math.min(limit != null ? limit : 200, 500)));
         return chunkRepository.selectList(query).stream().map(KnowledgeChunkProjection::toChunkVO).collect(Collectors.toList());
-    }
-
-    private Long parseLongOrNull(String value) {
-        try {
-            return value == null || value.isBlank() ? null : Long.parseLong(value);
-        } catch (NumberFormatException e) {
-            return null;
-        }
     }
 
     private FileInfoVO toFileInfoVO(FileInfo file) {

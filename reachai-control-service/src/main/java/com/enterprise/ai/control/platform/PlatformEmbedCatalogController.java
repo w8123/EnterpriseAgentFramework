@@ -11,6 +11,7 @@ import com.enterprise.ai.control.pageworkbench.domain.PageWorkbenchValues.PageSo
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -19,8 +20,10 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -39,6 +42,7 @@ public class PlatformEmbedCatalogController {
     private final PlatformEmbedChatEventMapper chatEventMapper;
     private final PlatformEmbedRendererMapper rendererMapper;
     private final ObjectMapper objectMapper;
+    private final PlatformEmbedTokenService embedTokenService;
 
     @GetMapping("/api/platform/embed/sessions")
     public ResponseEntity<List<EmbedSessionView>> listSessions(@RequestParam(required = false) String appId,
@@ -182,12 +186,21 @@ public class PlatformEmbedCatalogController {
                 "MANUAL", toPageView(page), toActionView(page, action)));
     }
 
-    @PostMapping("/api/registry/projects/{projectCode}/pages/register")
+    /**
+     * Page catalog registration from the embedded chat SDK. The browser holds
+     * no project secret: the short-lived Embed Token minted by the business
+     * backend decides the project, the page and the business origin.
+     */
+    @PostMapping("/api/embed/pages/register")
     public ResponseEntity<PageCatalogRegisterResponse> registerPageCatalog(
-            @PathVariable String projectCode,
+            @RequestHeader(value = "Authorization", required = false) String authorization,
             @RequestBody PageCatalogRegisterPayload request) {
-        String normalizedProjectCode = requireText(projectCode, "projectCode");
+        PlatformEmbedTokenClaims claims = verifyEmbedBearer(authorization);
+        String normalizedProjectCode = requireText(claims.getProjectCode(), "projectCode");
         String pageKey = requireText(request == null ? null : request.pageKey(), "pageKey");
+        if (StringUtils.hasText(claims.getPageKey()) && !claims.getPageKey().equals(pageKey)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "pageKey does not match the embed token");
+        }
         Map<String, Object> metadata = request.metadata() == null ? Map.of() : request.metadata();
         List<ActionInput> actionInputs = (request.actions() == null
                 ? List.<PageCatalogActionPayload>of()
@@ -202,7 +215,7 @@ public class PlatformEmbedCatalogController {
                         request.name(),
                         stringValue(metadata.get("description")),
                         request.routePattern(),
-                        businessPageUrl(request.origin(), request.routePattern()),
+                        businessPageUrl(claims.getOrigin(), request.routePattern()),
                         stringValue(metadata.get("componentPath")),
                         null,
                         actionInputs),
@@ -212,6 +225,17 @@ public class PlatformEmbedCatalogController {
                 "SDK",
                 toPageView(page),
                 page.actions().stream().map(action -> toActionView(page, action)).toList()));
+    }
+
+    private PlatformEmbedTokenClaims verifyEmbedBearer(String authorization) {
+        if (!StringUtils.hasText(authorization) || !authorization.startsWith("Bearer ")) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authorization Bearer embed token is required");
+        }
+        try {
+            return embedTokenService.verify(authorization.substring("Bearer ".length()).trim());
+        } catch (PlatformEmbedTokenException ex) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, ex.getMessage());
+        }
     }
 
     @PostMapping("/api/platform/embed/page-actions/catalog/{id}/debug")

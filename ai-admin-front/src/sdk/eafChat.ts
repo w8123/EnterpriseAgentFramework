@@ -92,7 +92,7 @@ export interface EafChatOptions {
   /** 单次 tokenProvider 调用超时，默认 10000ms；仅影响等待，Provider 应响应 signal 主动取消请求。 */
   tokenTimeoutMs?: number
   bridge?: EafPageBridge
-  /** @deprecated 浏览器不得保存 appSecret；页面目录注册应由业务后端或接入工具完成。 */
+  /** 把当前页面及其页面动作登记到 ReachAI 页面目录；用当前 Embed Token 鉴权，浏览器不持有项目密钥。 */
   pageRegistry?: EafPageRegistryOptions
   page?: EafPageDescriptor
   apiBase?: string
@@ -142,9 +142,7 @@ export interface EafChatPageBinding {
 }
 
 export interface EafPageRegistryOptions {
-  projectCode: string
-  appKey: string
-  appSecret: string
+  /** 拿到 Embed Token 后自动登记，默认 true。 */
   registerOnStart?: boolean
 }
 
@@ -238,7 +236,6 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
   let activeBridge = options.bridge || createEafPageBridge({ route: location.pathname })
   let activePage = options.page
   const apiBase = resolveEafChatEmbedApiRoot(options.apiBase, options.embedPathPrefix)
-  const platformBase = resolveEafChatPlatformBase(options.apiBase)
   const locale = options.locale || 'zh-CN'
   let token = ''
   let context: Record<string, unknown> = { ...(options.context || {}) }
@@ -248,6 +245,7 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
   const pendingPageActionResults = new Map<string, PageActionResult>()
   const emittedPageActionEventIds = new Set<string>()
   let pageCatalogTimer: number | undefined
+  let pageCatalogTokenSeen = false
   let destroyed = false
   let chatApp: App | null = null
   let hostInstance: EmbedChatHostInstance | null = null
@@ -530,6 +528,10 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
     onAuthStateChange: handleAuthState,
     onTokenChanged: (nextToken: string) => {
       token = nextToken
+      if (nextToken && !pageCatalogTokenSeen) {
+        pageCatalogTokenSeen = true
+        schedulePageCatalogRegistration(0)
+      }
     },
     onSessionChanged: () => {
       pendingPollScheduler.notifyActivity()
@@ -557,7 +559,7 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
   }
 
   function schedulePageCatalogRegistration(delay = 250) {
-    if (!options.pageRegistry || options.pageRegistry.registerOnStart === false || !activePage) return
+    if (!options.pageRegistry || options.pageRegistry.registerOnStart === false || !activePage || !token) return
     if (pageCatalogTimer) window.clearTimeout(pageCatalogTimer)
     pageCatalogTimer = window.setTimeout(() => {
       pageCatalogTimer = undefined
@@ -567,7 +569,7 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
 
   async function registerPageCatalog() {
     if (destroyed) return
-    await registerPageCatalogIfConfigured(platformBase, options, activeBridge, activePage)
+    await registerPageCatalogIfConfigured(apiBase, token, options, activeBridge, activePage)
   }
 
   async function refreshTokenForCurrentSession() {
@@ -674,28 +676,33 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
 }
 
 async function registerPageCatalogIfConfigured(
-  apiBase: string,
+  embedApiRoot: string,
+  token: string,
   options: EafChatOptions,
   bridge: EafPageBridge,
   page: EafPageDescriptor | undefined,
 ) {
-  const registry = options.pageRegistry
-  if (!registry || registry.registerOnStart === false || !page) return
-  if (!registry.projectCode || !registry.appKey || !registry.appSecret) return
-  await postJsonWithSignature(
-    `${apiBase}/api/registry/projects/${encodeURIComponent(registry.projectCode)}/pages/register`,
-    {
+  if (!options.pageRegistry || !page || !token) return
+  const response = await fetch(`${embedApiRoot}/pages/register`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
       pageKey: page.pageKey,
       name: page.name || page.pageKey,
       routePattern: page.routePattern || bridge.route || location.pathname,
-      origin: page.origin || location.origin,
       pageInstanceId: bridge.pageInstanceId,
       replaceActions: true,
       actions: bridge.actionDefinitions.map(toCatalogAction),
       metadata: page.metadata || {},
-    },
-    registry,
-  )
+    }),
+  })
+  const payload = await response.json().catch(() => ({}))
+  if (!response.ok || (payload.code && payload.code !== 200 && payload.code !== 0)) {
+    throw requestError(payload.message || `Page catalog registration failed: ${response.status}`, response.status)
+  }
 }
 
 function toCatalogAction(action: EafPageActionDefinition) {
@@ -710,53 +717,6 @@ function toCatalogAction(action: EafPageActionDefinition) {
     allowedAgentIds: action.allowedAgentIds || [],
     metadata: action.metadata || {},
   }
-}
-
-async function postJsonWithSignature<T>(url: string, body: unknown, registry: EafPageRegistryOptions): Promise<T> {
-  const timestamp = String(Date.now())
-  const nonce = createNonce()
-  const signature = await hmacSha256Hex(registry.appSecret, `${registry.projectCode}\n${timestamp}\n${nonce}`)
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-ReachAI-App-Key': registry.appKey,
-      'X-ReachAI-Timestamp': timestamp,
-      'X-ReachAI-Nonce': nonce,
-      'X-ReachAI-Signature': signature,
-    },
-    body: JSON.stringify(body),
-  })
-  const payload = await response.json().catch(() => ({}))
-  if (!response.ok || (payload.code && payload.code !== 200 && payload.code !== 0)) {
-    throw requestError(payload.message || `Page catalog registration failed: ${response.status}`, response.status)
-  }
-  return (payload.data ?? payload) as T
-}
-
-async function hmacSha256Hex(secret: string, message: string): Promise<string> {
-  if (!crypto?.subtle) {
-    throw new Error('Web Crypto API is required for ReachAI page catalog registration')
-  }
-  const encoder = new TextEncoder()
-  const key = await crypto.subtle.importKey(
-    'raw',
-    encoder.encode(secret),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign'],
-  )
-  const digest = await crypto.subtle.sign('HMAC', key, encoder.encode(message))
-  return Array.from(new Uint8Array(digest))
-    .map((item) => item.toString(16).padStart(2, '0'))
-    .join('')
-}
-
-function createNonce(): string {
-  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
-    return crypto.randomUUID()
-  }
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
 }
 
 function requestError(message: string, status: number): Error & { status?: number } {

@@ -99,7 +99,7 @@ describe('AppSidebar real Element Plus vertical keyboard navigation', () => {
     expect(focus()).toBe(parent)
     expect(parent.getAttribute('aria-expanded')).toBe('false')
     await key(parent, 'ArrowDown')
-    expect(focus()).toBe(group('/knowledge-group'))
+    expect(focus()).toBe(leaf('/knowledge'))
     parent.focus()
     await key(parent, 'Enter')
     expect(parent.getAttribute('aria-expanded')).toBe('true')

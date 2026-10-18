@@ -12,6 +12,8 @@ export function submitDocumentImportJob(params: {
   chunkStrategy: string
   chunkSize: number
   chunkOverlap: number
+  /** true：解析完成后直接入库（知识库详情页上传）；false：先预览再确认。 */
+  autoCommit?: boolean
   extraParams?: Record<string, unknown>
 }) {
   const formData = new FormData()
@@ -20,7 +22,7 @@ export function submitDocumentImportJob(params: {
   formData.append('chunkStrategy', params.chunkStrategy)
   formData.append('chunkSize', String(params.chunkSize))
   formData.append('chunkOverlap', String(params.chunkOverlap))
-  formData.append('autoCommit', 'false')
+  formData.append('autoCommit', params.autoCommit ? 'true' : 'false')
   if (params.extraParams) {
     formData.append('extraParams', JSON.stringify(params.extraParams))
   }

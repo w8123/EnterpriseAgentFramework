@@ -25,19 +25,15 @@ public class KnowledgeFileDeletionService {
     private final DocumentIndexExecutionStore indexStore;
     private final DocumentArtifactStore artifacts;
     private final UserFilePermissionRepository permissions;
-    private final KnowledgeQuestionService questions;
-    private final KnowledgeTagService tags;
     private final TransactionTemplate transactions;
 
     public KnowledgeFileDeletionService(KnowledgeBaseRepository bases, FileInfoRepository files,
             ChunkRepository chunks, DocumentImportJobRepository jobs, DocumentIndexExecutionRepository executions,
             DocumentIndexExecutionStore indexStore, DocumentArtifactStore artifacts,
-            UserFilePermissionRepository permissions, KnowledgeQuestionService questions, PlatformTransactionManager manager,
-            KnowledgeTagService tags) {
+            UserFilePermissionRepository permissions, PlatformTransactionManager manager) {
         this.bases = bases; this.files = files; this.chunks = chunks; this.jobs = jobs;
         this.executions = executions; this.indexStore = indexStore; this.artifacts = artifacts;
-        this.permissions = permissions; this.questions = questions;
-        this.tags = tags;
+        this.permissions = permissions;
         this.transactions = new TransactionTemplate(manager);
     }
 
@@ -103,8 +99,6 @@ public class KnowledgeFileDeletionService {
         var references = chunks.selectList(new LambdaQueryWrapper<Chunk>().eq(Chunk::getKnowledgeBaseId, kb.getId())
                 .eq(Chunk::getFileId, fileId).orderByAsc(Chunk::getId).last("FOR UPDATE"));
         retireExecutionsAndJobs(kb, references, oldExecutions, cancelled);
-        questions.unlinkFileChunks(kb.getId(), fileId);
-        tags.retireFile(kb.getId(), fileId);
         chunks.delete(new LambdaQueryWrapper<Chunk>().eq(Chunk::getKnowledgeBaseId, kb.getId()).eq(Chunk::getFileId, fileId));
         if (file != null) {
             permissions.delete(new LambdaQueryWrapper<UserFilePermission>().eq(UserFilePermission::getFileId, fileId));

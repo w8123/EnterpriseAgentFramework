@@ -120,7 +120,6 @@ function createActions(overrides: Record<string, unknown> = {}) {
     markCanvasDirty,
     syncJsonFromCanvas,
     activeTab: ref('visual'),
-    propertyDetailOpen: ref(false),
     fitView,
     nextTick,
     nodeTypes,

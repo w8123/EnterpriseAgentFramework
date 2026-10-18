@@ -45,8 +45,8 @@ class KnowledgeRetrievalAuthorizationTest {
     void open() throws Exception {
         db = new KnowledgeQueryTestDatabase(List.of("knowledge_base", "knowledge_file_info", "knowledge_chunk", "knowledge_user_file_permission"),
                 KnowledgeBaseRepository.class, FileInfoRepository.class, ChunkRepository.class, UserFilePermissionRepository.class);
-        db.jdbc().update("INSERT INTO knowledge_base(id,code,name,status,vector_collection_name,embedding_model_instance_id,rerank_model_instance_id,llm_model_instance_id,rerank_enabled) "
-                + "VALUES (7,'kb','授权检索',1,'physical','embedding','rerank','answer',1)");
+        db.jdbc().update("INSERT INTO knowledge_base(id,code,name,status,vector_collection_name,embedding_model_instance_id,rerank_model_instance_id,llm_model_instance_id,rerank_enabled,access_mode) "
+                + "VALUES (7,'kb','授权检索',1,'physical','embedding','rerank','answer',1,'FILE_GRANTS')");
         db.jdbc().update("INSERT INTO knowledge_file_info(id,file_id,knowledge_base_id,file_name,record_generation) VALUES (11,'file',7,'原文件',REPEAT('a',32))");
         db.jdbc().update("INSERT INTO knowledge_chunk(id,file_id,knowledge_base_id,chunk_index,content,vector_id,enabled) VALUES (101,'file',7,0,'原文件内容','old-vector',1)");
         db.jdbc().update("INSERT INTO knowledge_user_file_permission(id,user_id,file_id,record_generation) VALUES (1,'actor','file',REPEAT('c',32))");
@@ -126,6 +126,37 @@ class KnowledgeRetrievalAuthorizationTest {
                     .query("文件").userId(actor).knowledgeBaseCodes(List.of("kb")).build()));
         }
         verifyNoInteractions(embedding, vectors, model);
+    }
+
+    @Test
+    void anAllCallersBaseIsReadableWithoutAFileGrant() {
+        db.jdbc().update("DELETE FROM knowledge_user_file_permission");
+        db.jdbc().update("UPDATE knowledge_base SET access_mode='ALL_CALLERS' WHERE id=7");
+        var response = controller.retrieve(new KnowledgeRetrievalInternalController.RetrievalRequest(
+                "文件", List.of("kb"), "any-business-user", 5, 0.1f, "vector", false)).getData();
+        assertEquals(1, response.hitCount());
+        assertEquals("原文件内容", response.hits().get(0).content());
+    }
+
+    @Test
+    void switchingABaseToFileGrantsDuringRetrievalWithdrawsOpenAccess() {
+        db.jdbc().update("DELETE FROM knowledge_user_file_permission");
+        db.jdbc().update("UPDATE knowledge_base SET access_mode='ALL_CALLERS' WHERE id=7");
+        when(vectors.search(any())).thenAnswer(inv -> {
+            db.jdbc().update("UPDATE knowledge_base SET access_mode='FILE_GRANTS' WHERE id=7");
+            return List.of(hit("old-vector", "原文件内容"));
+        });
+        assertTrue(controller.retrieve(new KnowledgeRetrievalInternalController.RetrievalRequest(
+                "文件", List.of("kb"), "any-business-user", 5, 0.1f, "vector", false)).getData().hits().isEmpty());
+    }
+
+    @Test
+    void aDisabledChunkInAnAllCallersBaseStaysHidden() {
+        db.jdbc().update("DELETE FROM knowledge_user_file_permission");
+        db.jdbc().update("UPDATE knowledge_base SET access_mode='ALL_CALLERS' WHERE id=7");
+        db.jdbc().update("UPDATE knowledge_chunk SET enabled=0 WHERE id=101");
+        assertTrue(controller.retrieve(new KnowledgeRetrievalInternalController.RetrievalRequest(
+                "文件", List.of("kb"), "any-business-user", 5, 0.1f, "vector", false)).getData().hits().isEmpty());
     }
 
     @Test

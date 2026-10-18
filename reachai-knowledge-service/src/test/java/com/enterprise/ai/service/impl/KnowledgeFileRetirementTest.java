@@ -34,8 +34,8 @@ class KnowledgeFileRetirementTest {
 
     @BeforeEach
     void setup() throws Exception {
-        db = new KnowledgeQueryTestDatabase(List.of("knowledge_base", "knowledge_file_info", "knowledge_chunk", "knowledge_document_import_job", "knowledge_document_index_execution", "knowledge_user_file_permission", "knowledge_question"),
-                KnowledgeBaseRepository.class, FileInfoRepository.class, ChunkRepository.class, DocumentImportJobRepository.class, DocumentIndexExecutionRepository.class, UserFilePermissionRepository.class, KnowledgeQuestionRepository.class);
+        db = new KnowledgeQueryTestDatabase(List.of("knowledge_base", "knowledge_file_info", "knowledge_chunk", "knowledge_document_import_job", "knowledge_document_index_execution", "knowledge_user_file_permission"),
+                KnowledgeBaseRepository.class, FileInfoRepository.class, ChunkRepository.class, DocumentImportJobRepository.class, DocumentIndexExecutionRepository.class, UserFilePermissionRepository.class);
         db.jdbc().update("INSERT INTO knowledge_base(id,name,code,vector_collection_name,dimension,embedding_model_instance_id) VALUES (7,'删除测试知识库','kb','physical_kb',2,'model')");
         vectors = mock(VectorService.class); artifacts = mock(DocumentArtifactStore.class);
         var embedding = mock(EmbeddingService.class);
@@ -44,8 +44,8 @@ class KnowledgeFileRetirementTest {
                 .when(vectors).upsert(anyString(), anyList(), anyList(), anyList(), anyList());
         doAnswer(call -> { remote.remove(call.getArgument(1)); return null; }).when(vectors).deleteById(anyString(), anyString());
         var bases = db.mapper(KnowledgeBaseRepository.class);
-        deletion = KnowledgeIndexTestSupport.deletion(db, artifacts, db.mapper(UserFilePermissionRepository.class), db.mapper(KnowledgeQuestionRepository.class));
-        service = KnowledgeManagementTestServices.create(db.mapper(FileInfoRepository.class), db.mapper(ChunkRepository.class), mock(KnowledgeTagRepository.class), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeQuestionService.class), mock(KnowledgeOperationsQuery.class), KnowledgeIndexTestSupport.writer(db, embedding, vectors), new KnowledgeBaseLookup(bases), mock(KnowledgeRetrievalEngine.class), deletion, org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeBaseLifecycleService.class), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeTagService.class));
+        deletion = KnowledgeIndexTestSupport.deletion(db, artifacts, db.mapper(UserFilePermissionRepository.class));
+        service = KnowledgeManagementTestServices.create(db.mapper(FileInfoRepository.class), db.mapper(ChunkRepository.class), mock(KnowledgeOperationsQuery.class), KnowledgeIndexTestSupport.writer(db, embedding, vectors), new KnowledgeBaseLookup(bases), mock(KnowledgeRetrievalEngine.class), deletion, org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeBaseLifecycleService.class));
         tx = new TransactionTemplate(new DataSourceTransactionManager(db.jdbc().getDataSource()));
         executions = KnowledgeIndexTestSupport.executions(db);
     }
@@ -88,7 +88,6 @@ class KnowledgeFileRetirementTest {
     void aRolledBackDeletionPreservesThePublishedVectorAndMetadata() {
         importFile("file", "回滚后保留正文");
         seedAssociations();
-        Long originalChunk = db.jdbc().queryForObject("SELECT chunk_id FROM knowledge_question", Long.class);
         Set<String> old = Set.copyOf(remote);
         db.addInterceptor(new FailAfterFileDelete());
         assertThrows(RuntimeException.class, () -> tx.executeWithoutResult(status -> service.deleteByFileId("kb", "file")));
@@ -96,7 +95,6 @@ class KnowledgeFileRetirementTest {
         assertEquals(1, count("knowledge_file_info")); assertEquals(1, count("knowledge_chunk"));
         assertEquals("PUBLISHED", db.jdbc().queryForObject("SELECT state FROM knowledge_document_index_execution", String.class));
         assertEquals(1, count("knowledge_user_file_permission"));
-        assertEquals(originalChunk, db.jdbc().queryForObject("SELECT chunk_id FROM knowledge_question", Long.class));
         verifyNoInteractions(artifacts);
     }
 
@@ -148,16 +146,13 @@ class KnowledgeFileRetirementTest {
     }
 
     @Test
-    void deletionRevokesFilePermissionsAndUnlinksQuestionsWithoutDroppingQuestionText() {
+    void deletionRevokesFilePermissions() {
         importFile("file", "原始正文"); seedAssociations();
         var permissionService = new com.enterprise.ai.security.impl.PermissionServiceImpl(db.mapper(UserFilePermissionRepository.class), new DataSourceTransactionManager(db.jdbc().getDataSource()));
         assertEquals(List.of("file"), permissionService.getAccessibleFileIds("actor"));
         service.deleteByFileId("kb", "file");
         importFile("file", "重建正文");
         assertEquals(List.of(), permissionService.getAccessibleFileIds("actor"));
-        assertEquals(1, count("knowledge_question"));
-        assertNull(db.jdbc().queryForObject("SELECT chunk_id FROM knowledge_question", Long.class));
-        assertEquals("保留的问题正文", db.jdbc().queryForObject("SELECT question FROM knowledge_question", String.class));
     }
 
     @ParameterizedTest
@@ -183,7 +178,6 @@ class KnowledgeFileRetirementTest {
         assertEquals("new-replace", db.jdbc().queryForObject("SELECT file_id FROM knowledge_file_info", String.class));
         assertEquals("RECLAIMING", db.jdbc().queryForObject("SELECT state FROM knowledge_document_index_execution WHERE file_id='file'", String.class));
         assertEquals(0, count("knowledge_user_file_permission"));
-        assertNull(db.jdbc().queryForObject("SELECT chunk_id FROM knowledge_question", Long.class));
         reclaimer().reclaimPending(); assertEquals(Set.copyOf(context.getVectorIds()), remote);
     }
 
@@ -200,7 +194,6 @@ class KnowledgeFileRetirementTest {
         assertEquals("PUBLISHED", db.jdbc().queryForObject("SELECT state FROM knowledge_document_index_execution WHERE file_id='file'", String.class));
         assertEquals("REGISTERED", db.jdbc().queryForObject("SELECT state FROM knowledge_document_index_execution WHERE file_id='new-replace'", String.class));
         assertEquals(1, count("knowledge_user_file_permission"));
-        assertNotNull(db.jdbc().queryForObject("SELECT chunk_id FROM knowledge_question", Long.class));
         verifyNoInteractions(artifacts);
     }
 
@@ -311,13 +304,12 @@ class KnowledgeFileRetirementTest {
     private void publish(PipelineContext context) {
         var metadata = new com.enterprise.ai.pipeline.step.MetadataPersistStep(db.mapper(KnowledgeBaseRepository.class), db.mapper(FileInfoRepository.class),
                 db.mapper(ChunkRepository.class), new com.fasterxml.jackson.databind.ObjectMapper(),
-                new DocumentImportPublicationGuard(db.mapper(DocumentImportJobRepository.class), executions, deletion, org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeFileReadAccessService.class)), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeTagService.class), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeQuestionService.class));
+                new DocumentImportPublicationGuard(db.mapper(DocumentImportJobRepository.class), executions, deletion, org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeFileReadAccessService.class)));
         tx.executeWithoutResult(status -> metadata.process(context));
     }
 
     private void seedAssociations() {
         db.jdbc().update("INSERT INTO knowledge_user_file_permission(user_id,file_id) VALUES ('actor','file')");
-        db.jdbc().update("INSERT INTO knowledge_question(knowledge_base_id,chunk_id,question) SELECT 7,id,'保留的问题正文' FROM knowledge_chunk WHERE file_id='file'");
     }
 
     private void makeDue() { db.jdbc().update("UPDATE knowledge_document_index_execution SET next_cleanup_at='2000-01-01 00:00:00' WHERE state='RECLAIMING'"); }

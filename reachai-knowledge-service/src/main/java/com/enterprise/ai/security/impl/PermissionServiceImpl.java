@@ -37,19 +37,28 @@ public class PermissionServiceImpl implements PermissionService {
         return currentReads.execute(status -> new FileAccessSnapshot(actor,
                 permissionRepository.selectFileGrantsByUserId(actor).stream()
                         .filter(FileAccessSnapshot.Grant::hasRecordGenerations)
-                        .collect(Collectors.toMap(FileAccessSnapshot.Grant::grantId, grant -> grant))));
+                        .collect(Collectors.toMap(FileAccessSnapshot.Grant::grantId, grant -> grant)),
+                new java.util.HashSet<>(permissionRepository.selectOpenKnowledgeBaseIds())));
     }
 
     @Override
     public List<AuthorizedKnowledgeChunk> resolveAuthorizedChunks(FileAccessSnapshot snapshot, List<Long> chunkIds) {
         Objects.requireNonNull(snapshot, "File permission snapshot is required");
-        if (snapshot.grants().isEmpty() || chunkIds == null || chunkIds.isEmpty()) return List.of();
+        if (!snapshot.hasAccess() || chunkIds == null || chunkIds.isEmpty()) return List.of();
         List<Long> ids = chunkIds.stream().filter(Objects::nonNull).filter(id -> id > 0).distinct().toList();
         return currentReads.execute(status -> {
             List<AuthorizedKnowledgeChunk> authorized = new ArrayList<>();
+            java.util.Set<Long> seen = new java.util.HashSet<>();
             for (int start = 0; start < ids.size(); start += 500) {
-                permissionRepository.selectAuthorizedChunks(snapshot.userId(), ids.subList(start, Math.min(start + 500, ids.size())))
-                        .stream().filter(snapshot::includes).forEach(authorized::add);
+                List<Long> page = ids.subList(start, Math.min(start + 500, ids.size()));
+                if (!snapshot.grants().isEmpty()) {
+                    permissionRepository.selectAuthorizedChunks(snapshot.userId(), page)
+                            .stream().filter(snapshot::includes).filter(chunk -> seen.add(chunk.chunkId())).forEach(authorized::add);
+                }
+                if (!snapshot.openKnowledgeBaseIds().isEmpty()) {
+                    permissionRepository.selectOpenChunks(snapshot.openKnowledgeBaseIds(), page)
+                            .stream().filter(snapshot::includes).filter(chunk -> seen.add(chunk.chunkId())).forEach(authorized::add);
+                }
             }
             return List.copyOf(authorized);
         });

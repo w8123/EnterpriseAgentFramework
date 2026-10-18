@@ -26,6 +26,8 @@ import java.util.regex.Pattern;
 /** Executes GraphSpec nodes whose business semantics are backed by the Model service. */
 final class RuntimeModelNodeHandlers {
 
+    private static final int MAX_PARAMETER_OPTIONS = 200;
+
     private final ObjectMapper objectMapper;
     private final RuntimeModelServiceClient modelServiceClient;
     private final RuntimeNodeValueResolver valueResolver;
@@ -122,6 +124,16 @@ final class RuntimeModelNodeHandlers {
                     "PARAMETER_EXTRACT requires at least one target field",
                     node.getId(), "PARAMETER_EXTRACT");
         }
+        for (Map<String, Object> field : fields) {
+            String optionsFrom = text(field.get("optionsFrom"));
+            if (StringUtils.hasText(optionsFrom)
+                    && optionList(valueResolver.resolveContextValue(optionsFrom, context)) == null) {
+                // A wrong list expression would otherwise reject every value and always look like "not found".
+                return failure("RUNTIME_GRAPH_PARAMETER_OPTIONS_INVALID",
+                        "PARAMETER_EXTRACT optionsFrom did not resolve to a list: " + text(field.get("name")),
+                        node.getId(), "PARAMETER_EXTRACT");
+            }
+        }
 
         Map<String, Object> extracted;
         String modelOutput = null;
@@ -142,7 +154,10 @@ final class RuntimeModelNodeHandlers {
                 String systemPrompt = firstText(
                         text(config.get("systemPrompt")),
                         "Extract parameters from the user input according to this field catalog: " + fieldCatalog
-                                + ". Return one JSON object only. Do not invent values that are absent.");
+                                + ". Return one JSON object only. Use only values the input states explicitly."
+                                + " Never substitute the closest or most similar value: when the input names"
+                                + " something that is not available, set that field to null.")
+                        + parameterOptionsPrompt(fields, context);
                 String userPrompt = firstText(
                         valueResolver.renderTemplate(text(config.get("userPrompt")), context), input);
                 ModelChatResult result = modelServiceClient.chat(ModelChatRequest.builder()
@@ -287,6 +302,7 @@ final class RuntimeModelNodeHandlers {
                 value = field.get("defaultValue");
             }
             value = convertParameterValue(value, text(field.get("type")));
+            value = restrictToOptions(field, value, context);
             boolean required = Boolean.TRUE.equals(field.get("required"))
                     || "true".equalsIgnoreCase(text(field.get("required")));
             if (required && isEmptyValue(value)) {
@@ -297,6 +313,89 @@ final class RuntimeModelNodeHandlers {
             }
         }
         return extracted;
+    }
+
+    /**
+     * Fields with {@code optionsFrom} only accept a value present in that upstream list (matched on
+     * {@code optionValueKey}, or the item itself for scalar lists). Anything else counts as not extracted,
+     * so a model can never swap the user's "keyboard" for the nearest product it saw.
+     */
+    private Object restrictToOptions(Map<String, Object> field, Object value, Map<String, Object> context) {
+        if (value == null || !StringUtils.hasText(text(field.get("optionsFrom")))) {
+            return value;
+        }
+        List<Object> optionValues = parameterOptions(field, context).stream()
+                .map(option -> option.get("value"))
+                .toList();
+        String candidate = String.valueOf(value).trim();
+        for (Object option : optionValues) {
+            if (option != null && String.valueOf(option).trim().equals(candidate)) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private List<Map<String, Object>> parameterOptions(Map<String, Object> field, Map<String, Object> context) {
+        Collection<?> items = optionList(valueResolver.resolveContextValue(text(field.get("optionsFrom")), context));
+        if (items == null) {
+            return List.of();
+        }
+        String valueKey = text(field.get("optionValueKey"));
+        String labelKey = text(field.get("optionLabelKey"));
+        List<Map<String, Object>> options = new ArrayList<>();
+        for (Object item : items) {
+            Object optionValue = item;
+            Object label = null;
+            if (item instanceof Map<?, ?> row) {
+                optionValue = StringUtils.hasText(valueKey) ? row.get(valueKey) : null;
+                label = StringUtils.hasText(labelKey) ? row.get(labelKey) : null;
+            }
+            if (optionValue == null || optionValue instanceof Map<?, ?> || optionValue instanceof Collection<?>) {
+                continue;
+            }
+            Map<String, Object> option = new LinkedHashMap<>();
+            option.put("value", optionValue);
+            if (label != null) {
+                option.put("label", label);
+            }
+            options.add(option);
+            if (options.size() >= MAX_PARAMETER_OPTIONS) {
+                break;
+            }
+        }
+        return options;
+    }
+
+    /**
+     * Accepts a list, a page object ({@code list/records/rows/items}) or a business response wrapping either
+     * under {@code data}, e.g. {@code {"code":0,"data":[...]}}. Returns null when no list is found.
+     */
+    private static Collection<?> optionList(Object raw) {
+        for (int depth = 0; depth < 3 && raw instanceof Map<?, ?> wrapper; depth++) {
+            raw = firstPresent(firstPresent(firstPresent(wrapper.get("list"), wrapper.get("records")),
+                    firstPresent(wrapper.get("rows"), wrapper.get("items"))), wrapper.get("data"));
+        }
+        return raw instanceof Collection<?> items ? items : null;
+    }
+
+    private String parameterOptionsPrompt(List<Map<String, Object>> fields, Map<String, Object> context) {
+        StringBuilder prompt = new StringBuilder();
+        for (Map<String, Object> field : fields) {
+            if (!StringUtils.hasText(text(field.get("optionsFrom")))) {
+                continue;
+            }
+            List<Map<String, Object>> options = parameterOptions(field, context);
+            try {
+                prompt.append(" Field ").append(text(field.get("name")))
+                        .append(" must be exactly one \"value\" from these options, or null when none of them is"
+                                + " what the input asks for: ")
+                        .append(objectMapper.writeValueAsString(options)).append('.');
+            } catch (Exception ignored) {
+                // Options are plain scalars; serialization failure only drops the hint, the value check still applies.
+            }
+        }
+        return prompt.toString();
     }
 
     private Object convertParameterValue(Object value, String type) {
@@ -659,7 +758,7 @@ final class RuntimeModelNodeHandlers {
         return value instanceof Map<?, ?> map ? (Map<String, Object>) map : null;
     }
 
-    private Object firstPresent(Object first, Object fallback) {
+    private static Object firstPresent(Object first, Object fallback) {
         return first != null ? first : fallback;
     }
 

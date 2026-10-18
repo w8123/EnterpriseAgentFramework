@@ -6,6 +6,7 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Options;
+import org.apache.ibatis.annotations.Update;
 
 @Mapper
 public interface ChunkRepository extends BaseMapper<Chunk> {
@@ -15,4 +16,7 @@ public interface ChunkRepository extends BaseMapper<Chunk> {
 
     @Select("SELECT COALESCE(SUM(hit_count), 0) FROM knowledge_chunk WHERE knowledge_base_id = #{knowledgeBaseId}")
     Long sumHitCount(@Param("knowledgeBaseId") Long knowledgeBaseId);
+
+    @Update("UPDATE knowledge_chunk SET hit_count = COALESCE(hit_count, 0) + 1 WHERE id = #{id}")
+    int incrementHitCount(@Param("id") Long id);
 }

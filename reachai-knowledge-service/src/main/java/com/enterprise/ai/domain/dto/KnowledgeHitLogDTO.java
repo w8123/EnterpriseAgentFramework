@@ -13,7 +13,7 @@ public class KnowledgeHitLogDTO {
     private String queryText;
     private String searchMode;
     private Float score;
-    private Boolean directReturn;
+    private String source;
     private String fileId;
     private String fileName;
     private Integer chunkIndex;

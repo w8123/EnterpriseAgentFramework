@@ -9,22 +9,31 @@
     <el-form-item label="查询表达式">
       <el-input v-model="config.query" placeholder="例如：用户输入 / 上游输出 / params.question" />
     </el-form-item>
-    <el-form-item label="返回数量">
-      <el-input-number v-model="config.topK" :min="1" :max="20" />
+    <el-form-item label="检索设置">
+      <el-switch
+        :model-value="followKnowledgeBase"
+        active-text="使用知识库设置"
+        @update:model-value="setFollowKnowledgeBase(Boolean($event))"
+      />
     </el-form-item>
-    <el-form-item label="相似度">
-      <el-slider v-model="config.similarityThreshold" :min="0" :max="1" :step="0.01" show-input />
-    </el-form-item>
-    <el-form-item label="检索模式">
-      <el-select v-model="config.searchMode" style="width: 100%">
-        <el-option label="hybrid" value="hybrid" />
-        <el-option label="vector" value="vector" />
-        <el-option label="keyword" value="keyword" />
-      </el-select>
-    </el-form-item>
-    <el-form-item label="重排">
-      <el-switch v-model="config.rerankEnabled" />
-    </el-form-item>
+    <template v-if="!followKnowledgeBase">
+      <el-form-item label="返回数量">
+        <el-input-number v-model="config.topK" :min="1" :max="20" />
+      </el-form-item>
+      <el-form-item label="相似度">
+        <el-slider v-model="config.similarityThreshold" :min="0" :max="1" :step="0.01" show-input />
+      </el-form-item>
+      <el-form-item label="检索模式">
+        <el-select v-model="config.searchMode" style="width: 100%">
+          <el-option label="混合（向量 + 关键词）" value="hybrid" />
+          <el-option label="向量" value="vector" />
+          <el-option label="关键词" value="keyword" />
+        </el-select>
+      </el-form-item>
+      <el-form-item label="重排">
+        <el-switch v-model="config.rerankEnabled" />
+      </el-form-item>
+    </template>
     <el-form-item label="证据策略">
       <el-select v-model="config.evidencePolicy" style="width: 100%">
         <el-option label="必须有证据（推荐）" value="REQUIRED" />
@@ -54,10 +63,6 @@ const config = computed<KnowledgeNodeConfig>(() => {
   props.data.knowledgeConfig ||= {
     knowledgeBaseCodes: [],
     query: 'input',
-    topK: 5,
-    similarityThreshold: 0.5,
-    searchMode: 'hybrid',
-    rerankEnabled: true,
     evidencePolicy: 'REQUIRED',
   }
   const cfg = props.data.knowledgeConfig as KnowledgeNodeConfig & {
@@ -72,6 +77,26 @@ const config = computed<KnowledgeNodeConfig>(() => {
   delete cfg.directReturnThreshold
   return cfg
 })
+
+const followKnowledgeBase = computed(() => config.value.topK == null
+  && config.value.similarityThreshold == null
+  && !config.value.searchMode
+  && config.value.rerankEnabled == null)
+
+function setFollowKnowledgeBase(follow: boolean) {
+  const cfg = config.value
+  if (follow) {
+    delete cfg.topK
+    delete cfg.similarityThreshold
+    delete cfg.searchMode
+    delete cfg.rerankEnabled
+    return
+  }
+  cfg.topK = 5
+  cfg.similarityThreshold = 0.5
+  cfg.searchMode = 'hybrid'
+  cfg.rerankEnabled = true
+}
 
 const evidencePolicyHint = computed(() => config.value.evidencePolicy === 'REQUIRED'
   ? '必须连接“有证据”和“无证据”两个分支；无证据分支应使用固定回复，禁止继续交给 LLM 凭空生成。'

@@ -1,6 +1,6 @@
 # Managed Executor 路由评测
 
-`managed-executor-explicit-routing-v1.json` 可直接作为 `/api/runtime/evals/datasets` 的创建请求体，运行时通过 `/api/runtime/evals/runs` 指定 `agentId` 与待测 `configVersionId`。目标配置应设置 `managedExecutor.enabled=true`、`autoRouteEnabled=false`。
+`managed-executor-explicit-routing-v1.json` 的 `cases` 可直接作为 `POST /api/runtime/evals/v2/datasets/{datasetId}/versions` 的请求体（先在运行中心「评测」为目标 Agent 建数据集），再在评测页发起对比实验，指定待测 `configVersionId`。旧版 `/api/runtime/evals/datasets`、`/api/runtime/evals/runs` 已于 2026-10-17 删除。目标配置应设置 `managedExecutor.enabled=true`、`autoRouteEnabled=false`。
 
 `managed-executor-auto-route-shadow-v1.json` 用于自动路由放量前的影子评测。目标 DRAFT/PUBLISHED 配置可设置 `autoRouteEnabled=true`，即使生产全局自动路由开关仍为 `false`，Eval 也只调用模拟 `start`：不会创建 `runtime_managed_execution`、Kubernetes Job、审批或 Artifact。
 

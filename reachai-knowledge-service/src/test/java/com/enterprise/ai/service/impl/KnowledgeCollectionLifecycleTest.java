@@ -27,15 +27,15 @@ class KnowledgeCollectionLifecycleTest {
 
     @BeforeEach
     void setup()throws Exception {
-        db=new KnowledgeQueryTestDatabase(List.of("knowledge_base","knowledge_file_info","knowledge_chunk","knowledge_document_import_job","knowledge_document_index_execution","knowledge_user_file_permission","knowledge_question","knowledge_tag","knowledge_collection_lifecycle"),
-                KnowledgeCollectionLifecycleRepository.class, KnowledgeBaseRepository.class,FileInfoRepository.class,ChunkRepository.class,DocumentImportJobRepository.class,DocumentIndexExecutionRepository.class,UserFilePermissionRepository.class,KnowledgeQuestionRepository.class,KnowledgeTagRepository.class);
+        db=new KnowledgeQueryTestDatabase(List.of("knowledge_base","knowledge_file_info","knowledge_chunk","knowledge_document_import_job","knowledge_document_index_execution","knowledge_user_file_permission","knowledge_collection_lifecycle"),
+                KnowledgeCollectionLifecycleRepository.class, KnowledgeBaseRepository.class,FileInfoRepository.class,ChunkRepository.class,DocumentImportJobRepository.class,DocumentIndexExecutionRepository.class,UserFilePermissionRepository.class);
         vectors=mock(VectorService.class);
         doAnswer(call->{remote.add(call.getArgument(0));return null;}).when(vectors).ensureCollection(anyString(),anyInt());
         doAnswer(call->{remote.remove(call.getArgument(0));return null;}).when(vectors).dropCollection(anyString());
         doAnswer(call->{if(!remote.contains(call.getArgument(0)))throw new IllegalStateException("Collection missing");return null;}).when(vectors).upsert(anyString(),anyList(),anyList(),anyList(),anyList());
         tx=new TransactionTemplate(new DataSourceTransactionManager(db.jdbc().getDataSource()));
         var bases=db.mapper(KnowledgeBaseRepository.class);var artifacts=mock(DocumentArtifactStore.class);
-        service=KnowledgeManagementTestServices.create(db.mapper(FileInfoRepository.class), db.mapper(ChunkRepository.class), db.mapper(KnowledgeTagRepository.class), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeQuestionService.class), mock(KnowledgeOperationsQuery.class), KnowledgeIndexTestSupport.writer(db,mock(EmbeddingService.class),vectors), new KnowledgeBaseLookup(bases), mock(KnowledgeRetrievalEngine.class), KnowledgeIndexTestSupport.deletion(db,artifacts,db.mapper(UserFilePermissionRepository.class),db.mapper(KnowledgeQuestionRepository.class)), KnowledgeIndexTestSupport.baseLifecycle(db,vectors,KnowledgeIndexTestSupport.deletion(db,artifacts,db.mapper(UserFilePermissionRepository.class),db.mapper(KnowledgeQuestionRepository.class)),db.mapper(KnowledgeTagRepository.class),db.mapper(KnowledgeQuestionRepository.class)), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeTagService.class));
+        service=KnowledgeManagementTestServices.create(db.mapper(FileInfoRepository.class), db.mapper(ChunkRepository.class), mock(KnowledgeOperationsQuery.class), KnowledgeIndexTestSupport.writer(db,mock(EmbeddingService.class),vectors), new KnowledgeBaseLookup(bases), mock(KnowledgeRetrievalEngine.class), KnowledgeIndexTestSupport.deletion(db,artifacts,db.mapper(UserFilePermissionRepository.class)), KnowledgeIndexTestSupport.baseLifecycle(db,vectors,KnowledgeIndexTestSupport.deletion(db,artifacts,db.mapper(UserFilePermissionRepository.class))));
     }
     @AfterEach void close(){if(db!=null)db.close();}
 
@@ -80,12 +80,10 @@ class KnowledgeCollectionLifecycleTest {
         db.jdbc().update("INSERT INTO knowledge_file_info(file_id,knowledge_base_id,file_name) VALUES ('file',?,'原文件.txt')",kb);
         db.jdbc().update("INSERT INTO knowledge_chunk(file_id,knowledge_base_id,content,chunk_index,vector_id,collection_name) VALUES ('file',?,'保留边界测试',0,'legacy',?)",kb,physical());
         db.jdbc().update("INSERT INTO knowledge_user_file_permission(user_id,file_id) VALUES ('测试用户','file')");
-        db.jdbc().update("INSERT INTO knowledge_question(knowledge_base_id,question) VALUES (?,'原问题')",kb);
-        db.jdbc().update("INSERT INTO knowledge_tag(knowledge_base_id,target_type,target_id,tag_key,tag_value) VALUES (?,'FILE','file','分类','原标签')",kb);
         db.jdbc().update("INSERT INTO knowledge_document_import_job(job_id,file_id,knowledge_base_id,knowledge_base_code,file_name,file_type,source_object_key,provider_type,status,stage) VALUES ('old-job','pending',?,'kb','任务.txt','txt','source','JAVA_FAST','QUEUED','QUEUED')",kb);
         tx.executeWithoutResult(status->service.deleteByCode("kb"));
         assertEquals("CANCELLED",db.jdbc().queryForObject("SELECT status FROM knowledge_document_import_job",String.class),"Knowledge-base deletion must revoke every pending import");
-        for(String table:List.of("knowledge_base","knowledge_file_info","knowledge_chunk","knowledge_user_file_permission","knowledge_question","knowledge_tag"))assertEquals(0,count(table),table);
+        for(String table:List.of("knowledge_base","knowledge_file_info","knowledge_chunk","knowledge_user_file_permission"))assertEquals(0,count(table),table);
     }
 
     @Test

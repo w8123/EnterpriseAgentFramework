@@ -311,3 +311,57 @@ export interface RunComparison {
   toolDiffs: ToolDiff[]
   guardDiffs: GuardDiff[]
 }
+
+/** 运行中心「对话」视角：嵌入式对话的一次会话。 */
+export interface ConversationSummary {
+  sessionId: string
+  projectCode?: string | null
+  agentId?: string | null
+  externalUserId?: string | null
+  externalUserName?: string | null
+  pageKey?: string | null
+  route?: string | null
+  origin?: string | null
+  questionCount: number
+  lastQuestion?: string | null
+  startedAt?: string | null
+  lastActiveAt?: string | null
+  /** Runtime 不可用时为空。 */
+  runCount?: number | null
+  failedRunCount?: number | null
+  openRunCount?: number | null
+}
+
+export interface ConversationRun {
+  traceId: string
+  status?: RunStatus | null
+  suspensionReason?: RunSuspensionReason | null
+  errorCode?: string | null
+  errorMessage?: string | null
+  latencyMs?: number | null
+  startedAt?: string | null
+}
+
+export interface ConversationTurn {
+  turnNo: number
+  question?: string | null
+  askedAt?: string | null
+  answer?: string | null
+  answeredAt?: string | null
+  run?: ConversationRun | null
+}
+
+export interface ConversationDetail {
+  conversation: ConversationSummary
+  turns: ConversationTurn[]
+  runsAvailable: boolean
+}
+
+export interface ConversationQueryParams {
+  projectCode?: string
+  agentId?: string
+  keyword?: string
+  problemsOnly?: boolean
+  days?: number
+  limit?: number
+}

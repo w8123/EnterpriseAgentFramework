@@ -6,6 +6,7 @@ import com.enterprise.ai.runtime.runops.RuntimeRunMapper;
 import com.enterprise.ai.runtime.runops.RuntimeRunQuery;
 import com.enterprise.ai.runtime.runops.RuntimeRunReader;
 import com.enterprise.ai.runtime.runops.RuntimeRunOpsQueryService;
+import com.enterprise.ai.runtime.runops.RuntimeSessionRunStatsView;
 import com.enterprise.ai.runtime.trace.RuntimeToolCallLogEntity;
 import com.enterprise.ai.runtime.trace.RuntimeToolCallLogMapper;
 import com.enterprise.ai.runtime.trace.RuntimeTraceNodeView;
@@ -144,6 +145,41 @@ class RuntimeTraceRunOpsQueryPersistenceTest {
         assertTrue(runOps.listRecentTraces("history-user", 10, 0).isEmpty());
         assertEquals(100, runOps.recent(null, null, null, null, null, "user-1", 999, 999).size());
         assertEquals(3, runOps.recent(null, null, null, null, null, "history-user", 10, 999).size());
+    }
+
+    @Test
+    void conversationViewsFilterRunsBySessionAndSummarizeEachSession() {
+        runs.insert(agentRun("turn-1", "chat-a", "COMPLETED", now.minusMinutes(5)));
+        runs.insert(agentRun("turn-2", "chat-a", "FAILED", now.minusMinutes(3)));
+        runs.insert(agentRun("turn-3", "chat-b", "SUSPENDED", now.minusMinutes(1)));
+        runs.insert(agentRun("old-turn", "chat-b", "FAILED", now.minusDays(40)));
+        runs.insert(run("workflow-in-chat", "user-9", now));
+
+        var turns = runOps.recent(null, null, null, null, null, null, "chat-a", null, 50, 7);
+        assertEquals(List.of("turn-2", "turn-1"), turns.stream().map(item -> item.traceId()).toList());
+        assertEquals(List.of("turn-2"), runOps.recent(null, null, null, null, null, null, null, "chat-a", 50, 7)
+                .stream().filter(item -> "FAILED".equals(item.status())).map(item -> item.traceId()).toList());
+
+        var stats = runOps.sessionStats(List.of("chat-a", " chat-b ", "missing", ""), 30);
+        var bySession = new java.util.HashMap<String, RuntimeSessionRunStatsView>();
+        stats.forEach(item -> bySession.put(item.getSessionId(), item));
+        assertEquals(2, bySession.size());
+        assertEquals(2, bySession.get("chat-a").getRunCount());
+        assertEquals(1, bySession.get("chat-a").getFailedCount());
+        assertEquals(1, bySession.get("chat-b").getRunCount());
+        assertEquals(1, bySession.get("chat-b").getOpenCount());
+        assertEquals(0, bySession.get("chat-b").getFailedCount());
+        assertTrue(runOps.sessionStats(List.of(), 30).isEmpty());
+    }
+
+    private RuntimeRunEntity agentRun(String traceId, String sessionId, String status, LocalDateTime startedAt) {
+        var run = run(traceId, "embed-user", startedAt);
+        run.setRunType("AGENT");
+        run.setEntryType("EMBED");
+        run.setAgentId("agent-1");
+        run.setStatus(status);
+        run.setSessionId(sessionId);
+        return run;
     }
 
     @Test

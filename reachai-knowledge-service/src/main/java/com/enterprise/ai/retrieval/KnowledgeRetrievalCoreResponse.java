@@ -21,8 +21,6 @@ public class KnowledgeRetrievalCoreResponse {
     private String searchMode;
     private Integer totalResults;
     private Long costMs;
-    private Boolean directReturn;
-    private String directReturnContent;
     private List<RetrievalItem> items;
     /** Non-sensitive retrieval counters/timings for Runtime trace projection. */
     private Map<String, Object> diagnostics;
@@ -53,7 +51,6 @@ public class KnowledgeRetrievalCoreResponse {
         private String knowledgeBaseCode;
         private Integer chunkIndex;
         private Integer hitCount;
-        private Boolean directReturn;
         private String reason;
     }
 }

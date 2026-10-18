@@ -82,7 +82,7 @@ public final class KnowledgeIndexProcessProbe {
                 } else {
                     var metadata = new MetadataPersistStep(session.getMapper(KnowledgeBaseRepository.class),
                             session.getMapper(FileInfoRepository.class), session.getMapper(ChunkRepository.class),
-                            new com.fasterxml.jackson.databind.ObjectMapper(), new DocumentImportPublicationGuard(jobs, store, org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeFileDeletionService.class), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeFileReadAccessService.class)), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeTagService.class), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeQuestionService.class));
+                            new com.fasterxml.jackson.databind.ObjectMapper(), new DocumentImportPublicationGuard(jobs, store, org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeFileDeletionService.class), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeFileReadAccessService.class)));
                     new TransactionTemplate(manager).executeWithoutResult(status -> {
                         metadata.process(context);
                         if (stage.equals("publication-open")) barrier(stage, signal);

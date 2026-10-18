@@ -47,6 +47,7 @@
       <button type="button" :class="{ 'is-active': activeSection === 'overview' }" @click="activeSection = 'overview'">概览</button>
       <button type="button" :class="{ 'is-active': activeSection === 'config' }" @click="activeSection = 'config'">配置</button>
       <button type="button" :class="{ 'is-active': activeSection === 'versions' }" @click="showVersionSection">版本记录</button>
+      <button v-if="canReadEmbed" type="button" :class="{ 'is-active': activeSection === 'embed' }" @click="activeSection = 'embed'">嵌入</button>
     </nav>
 
     <el-alert
@@ -100,6 +101,14 @@
       @add-skill="openSkillPicker()"
       @debug="openDebug"
       @show-versions="showVersionSection"
+    />
+
+    <AgentEmbedPanel
+      v-if="!isNew && canReadEmbed && activeSection === 'embed'"
+      class="agent-overview-scroll"
+      :agent-id="agentId"
+      :agent-key-slug="form.keySlug"
+      :can-manage="canManageEmbed"
     />
 
     <section v-if="!isNew && activeSection === 'versions'" class="agent-version-section">
@@ -1043,6 +1052,7 @@ import {
   VideoPlay,
 } from '@element-plus/icons-vue'
 import AgentDetailOverview from '@/components/agent/AgentDetailOverview.vue'
+import AgentEmbedPanel from '@/components/agent/AgentEmbedPanel.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import AppDialog from '@/components/common/AppDialog.vue'
 import AppDrawer from '@/components/common/AppDrawer.vue'
@@ -1098,10 +1108,13 @@ import { formatWorkflowKindLabel } from '@/utils/workflowLabels'
 import { normalizeActiveModelInstances } from '@/utils/modelSelection'
 import { platformSessionUser } from '@/auth/platformSession'
 import {
+  hasPlatformPermission,
   hasPlatformResourcePermission,
   PLATFORM_PERMISSION_AGENT_DEBUG,
   PLATFORM_PERMISSION_AGENT_PUBLISH,
   PLATFORM_PERMISSION_AGENT_WRITE,
+  PLATFORM_PERMISSION_EMBED_MANAGE,
+  PLATFORM_PERMISSION_EMBED_READ,
 } from '@/auth/platformAccess'
 
 const route = useRoute()
@@ -1120,13 +1133,15 @@ const workflowPickerLoading = ref(false)
 const projectStore = useProjectStore()
 const agentId = route.params.id as string
 const isNew = agentId === 'new'
-type AgentPageSection = 'overview' | 'config' | 'versions'
+type AgentPageSection = 'overview' | 'config' | 'versions' | 'embed'
 type AgentConfigSection = 'basic' | 'decision' | 'workflows' | 'remote' | 'skills' | 'memory'
 const initialSection: AgentPageSection = route.query.tab === 'config'
   ? 'config'
   : route.query.tab === 'versions'
     ? 'versions'
-    : 'overview'
+    : route.query.tab === 'embed'
+      ? 'embed'
+      : 'overview'
 const activeSection = ref<AgentPageSection>(isNew ? 'config' : initialSection)
 const activeConfigSection = ref<AgentConfigSection>('basic')
 
@@ -1275,6 +1290,14 @@ const canPublishAgent = computed(() => hasPlatformResourcePermission(
   'PROJECT',
   null,
   form.projectCode,
+))
+const canReadEmbed = computed(() => hasPlatformPermission(
+  platformSessionUser.value?.permissions,
+  PLATFORM_PERMISSION_EMBED_READ,
+))
+const canManageEmbed = computed(() => hasPlatformPermission(
+  platformSessionUser.value?.permissions,
+  PLATFORM_PERMISSION_EMBED_MANAGE,
 ))
 const canBindSkills = computed(() => {
   const permissions = platformSessionUser.value?.permissions || []

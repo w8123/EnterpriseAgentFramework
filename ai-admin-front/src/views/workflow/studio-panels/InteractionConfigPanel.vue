@@ -1193,7 +1193,7 @@ function assetLabel(item: BusinessMethodInfo) {
   }
 }
 
-@media (max-width: 900px) {
+@container studio-config (max-width: 760px) {
   .interaction-form-grid,
   .binding-grid,
   .field-basic-grid,

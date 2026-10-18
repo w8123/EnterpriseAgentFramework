@@ -123,6 +123,36 @@ describe('createEafChat facade', () => {
     chat.destroy()
   })
 
+  it('registers the page catalog with the embed token instead of a project secret', async () => {
+    ;(globalThis.fetch as any).mockResolvedValue(new Response(JSON.stringify({ data: {} }), { status: 200 }))
+    const bridge = createEafPageBridge({ pageInstanceId: 'page-1', route: '/erp/stock' })
+
+    const chat = await createEafChat({
+      agentId: 'agent-1',
+      mount: mountEl,
+      tokenProvider: () => 'tok-page',
+      apiBase: 'https://reachai.example.com',
+      bridge,
+      pageRegistry: {},
+      page: { pageKey: 'erp.stock', name: '库存', origin: 'https://forged.example.com' },
+    })
+    await flushMicrotasks()
+    await vi.advanceTimersByTimeAsync(0)
+    await flushMicrotasks()
+
+    const call = (globalThis.fetch as any).mock.calls.find((args: unknown[]) =>
+      String(args[0]).endsWith('/pages/register'))
+    expect(call?.[0]).toBe('https://reachai.example.com/api/embed/pages/register')
+    const init = call?.[1] as RequestInit
+    const headers = init.headers as Record<string, string>
+    expect(headers.Authorization).toBe('Bearer tok-page')
+    expect(Object.keys(headers).some((name) => name.startsWith('X-ReachAI'))).toBe(false)
+    const body = JSON.parse(String(init.body))
+    expect(body).toEqual(expect.objectContaining({ pageKey: 'erp.stock', pageInstanceId: 'page-1' }))
+    expect(body.origin).toBeUndefined()
+    chat.destroy()
+  })
+
   it('keeps the dynamic launcher and conversation panel mutually exclusive', async () => {
     const chat = await createEafChat({
       agentId: 'agent-1',

@@ -11,7 +11,7 @@ describe('roleShortcutGroups', () => {
   it('shows an operator the operations shortcuts it can use', () => {
     const groups = roleShortcutGroups(['platform:read', 'workflow:write', 'agent:write', 'runops:read', 'tool-acl:read'])
     expect(groups.map(group => group.title)).toEqual(['运营'])
-    expect(groups[0].shortcuts.map(shortcut => shortcut.to)).toEqual(['/workflows', '/agent', '/settings/tool-acl'])
+    expect(groups[0].shortcuts.map(shortcut => shortcut.to)).toEqual(['/workflows', '/agent', '/settings/tool-acl', '/runops'])
   })
 
   it('shows the administrator every group except the read-only one', () => {

@@ -7,6 +7,9 @@
       title="运行中心"
       description="观测智能体决策、工作流调用与运行异常"
     >
+      <template #meta>
+        <RunCenterNav />
+      </template>
       <template #actions>
         <el-button
           :icon="Refresh"
@@ -427,6 +430,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Refresh, Search } from '@element-plus/icons-vue'
 import { getRecentRunOps, getRunOpsDiagnostics } from '@/api/runops'
+import RunCenterNav from './components/RunCenterNav.vue'
 import { isHttpApiWriteResultUnconfirmed } from './httpApiWriteOutcome'
 import type {
   FailureCluster,

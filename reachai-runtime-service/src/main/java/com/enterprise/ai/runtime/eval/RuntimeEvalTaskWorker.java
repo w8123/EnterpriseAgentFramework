@@ -24,8 +24,10 @@ import static com.enterprise.ai.common.util.Texts.firstText;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-@ConditionalOnProperty(name = "reachai.runtime.eval.worker-enabled", havingValue = "true")
+@ConditionalOnProperty(name = RuntimeEvalTaskWorker.ENABLED_PROPERTY, havingValue = "true")
 public class RuntimeEvalTaskWorker {
+
+    static final String ENABLED_PROPERTY = "reachai.runtime.eval.worker-enabled";
 
     private final RuntimeEvalTaskMapper taskMapper;
     private final RuntimeEvalExperimentMapper experimentMapper;

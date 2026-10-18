@@ -21,8 +21,6 @@ public class RetrievalTestResponse {
     private String searchMode;
     private Integer totalResults;
     private Long costMs;
-    private Boolean directReturn;
-    private String directReturnContent;
     private List<RetrievalItem> items;
     /**
      * Non-sensitive retrieval counters and stage timings. Query text, hit content,
@@ -47,7 +45,6 @@ public class RetrievalTestResponse {
         private String knowledgeBaseCode;
         private Integer chunkIndex;
         private Integer hitCount;
-        private Boolean directReturn;
         private String reason;
     }
 }

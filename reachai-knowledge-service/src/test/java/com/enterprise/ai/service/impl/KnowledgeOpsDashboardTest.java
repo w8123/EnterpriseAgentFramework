@@ -29,8 +29,7 @@ class KnowledgeOpsDashboardTest {
         when(files.selectList(any())).thenReturn(List.of(file));
         when(chunks.selectList(any())).thenReturn(List.of());
         when(hits.selectList(any())).thenReturn(List.of());
-        var service = KnowledgeManagementTestServices.create(files, chunks, mock(KnowledgeTagRepository.class), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeQuestionService.class), new KnowledgeOperationsQuery(mock(KnowledgeBaseRepository.class), files, chunks,
-                        mock(KnowledgeTagRepository.class), mock(KnowledgeQuestionRepository.class), hits, lookup), mock(KnowledgeIndexWriteService.class), lookup, mock(KnowledgeRetrievalEngine.class), org.mockito.Mockito.mock(KnowledgeFileDeletionService.class), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeBaseLifecycleService.class), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeTagService.class));
+        var service = KnowledgeManagementTestServices.create(files, chunks, new KnowledgeOperationsQuery(mock(KnowledgeBaseRepository.class), files, chunks, hits, lookup), mock(KnowledgeIndexWriteService.class), lookup, mock(KnowledgeRetrievalEngine.class), org.mockito.Mockito.mock(KnowledgeFileDeletionService.class), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeBaseLifecycleService.class));
 
         var dashboard = service.getOpsDashboard("orders");
 

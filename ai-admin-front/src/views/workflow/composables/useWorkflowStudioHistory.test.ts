@@ -40,7 +40,6 @@ function editingSession() {
     markCanvasDirty: vi.fn(),
     syncJsonFromCanvas: vi.fn(),
     activeTab: ref('visual'),
-    propertyDetailOpen: ref(false),
     fitView: vi.fn(),
     nextTick,
     nodeTypes: ref([]),

@@ -1,6 +1,9 @@
 import { controlRequest } from './request'
 import type { AxiosRequestConfig } from 'axios'
 import type {
+  ConversationDetail,
+  ConversationQueryParams,
+  ConversationSummary,
   ReplayRequest,
   ReplayResult,
   RunComparison,
@@ -56,4 +59,12 @@ export function createTraceWorkflowCandidateTask(
     `/api/runops/traces/${encodeURIComponent(traceId)}/workflow-candidate/tasks`,
     data,
   )
+}
+
+export function listRunCenterConversations(params?: ConversationQueryParams) {
+  return controlRequest.get<ConversationSummary[]>('/api/runops/conversations', { params })
+}
+
+export function getRunCenterConversation(sessionId: string) {
+  return controlRequest.get<ConversationDetail>(`/api/runops/conversations/${encodeURIComponent(sessionId)}`)
 }

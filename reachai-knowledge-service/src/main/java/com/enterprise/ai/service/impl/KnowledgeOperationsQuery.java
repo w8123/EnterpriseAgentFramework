@@ -18,8 +18,6 @@ public class KnowledgeOperationsQuery {
     private final KnowledgeBaseRepository knowledgeBaseRepository;
     private final FileInfoRepository fileInfoRepository;
     private final ChunkRepository chunkRepository;
-    private final KnowledgeTagRepository knowledgeTagRepository;
-    private final KnowledgeQuestionRepository knowledgeQuestionRepository;
     private final KnowledgeHitLogRepository knowledgeHitLogRepository;
     private final KnowledgeBaseLookup knowledgeBaseLookup;
 
@@ -37,23 +35,20 @@ public class KnowledgeOperationsQuery {
             Long chunkCount = chunkRepository.selectCount(
                     new LambdaQueryWrapper<Chunk>().eq(Chunk::getKnowledgeBaseId, kb.getId()));
             vo.setChunkCount(chunkCount != null ? chunkCount.intValue() : 0);
-            Long questionCount = knowledgeQuestionRepository.selectCount(
-                    new LambdaQueryWrapper<KnowledgeQuestion>().eq(KnowledgeQuestion::getKnowledgeBaseId, kb.getId()));
-            vo.setQuestionCount(questionCount != null ? questionCount.intValue() : 0);
-            Long tagCount = knowledgeTagRepository.selectCount(
-                    new LambdaQueryWrapper<KnowledgeTag>().eq(KnowledgeTag::getKnowledgeBaseId, kb.getId()));
-            vo.setTagCount(tagCount != null ? tagCount.intValue() : 0);
             vo.setHitCount(sumHitCount(kb.getId()));
             return vo;
         }).collect(Collectors.toList());
     }
 
-    public List<KnowledgeHitLogDTO> listHitLogs(String kbCode, Integer limit, Boolean lowConfidenceOnly) {
+    public List<KnowledgeHitLogDTO> listHitLogs(String kbCode, Integer limit, Boolean lowConfidenceOnly, String source) {
         KnowledgeBase kb = knowledgeBaseLookup.requireByCode(kbCode);
         LambdaQueryWrapper<KnowledgeHitLog> query = new LambdaQueryWrapper<KnowledgeHitLog>()
                 .eq(KnowledgeHitLog::getKnowledgeBaseId, kb.getId())
                 .orderByDesc(KnowledgeHitLog::getCreateTime)
                 .last("LIMIT " + Math.max(1, Math.min(limit != null ? limit : 50, 200)));
+        if (source != null && !source.isBlank()) {
+            query.eq(KnowledgeHitLog::getSource, source.trim().toUpperCase(java.util.Locale.ROOT));
+        }
         if (Boolean.TRUE.equals(lowConfidenceOnly)) {
             query.lt(KnowledgeHitLog::getScore, valueOrDefault(kb.getSimilarityThreshold(), defaultScoreThreshold));
         }
@@ -83,8 +78,8 @@ public class KnowledgeOperationsQuery {
                 .recentFiles(recentFiles.stream().map(this::toPipelineFileStatus).collect(Collectors.toList()))
                 .hotChunks(hotChunks)
                 .zeroHitChunks(zeroHitChunks)
-                .recentHits(listHitLogs(kbCode, 8, false))
-                .lowConfidenceHits(listHitLogs(kbCode, 8, true))
+                .recentHits(listHitLogs(kbCode, 8, false, null))
+                .lowConfidenceHits(listHitLogs(kbCode, 8, true, null))
                 .build();
     }
 
@@ -95,8 +90,6 @@ public class KnowledgeOperationsQuery {
                 .fileCount(countFiles(kb.getId()))
                 .chunkCount(countChunks(kb.getId()))
                 .activeChunkCount(countActiveChunks(kb.getId()))
-                .questionCount(countQuestions(kb.getId()))
-                .tagCount(countTags(kb.getId()))
                 .hitCount(sumHitCount(kb.getId()))
                 .build();
     }
@@ -129,7 +122,7 @@ public class KnowledgeOperationsQuery {
                     .queryText(log.getQueryText())
                     .searchMode(log.getSearchMode())
                     .score(log.getScore())
-                    .directReturn(log.getDirectReturn() != null && log.getDirectReturn() == 1)
+                    .source(log.getSource())
                     .fileId(chunk != null ? chunk.getFileId() : null)
                     .fileName(chunk != null ? fileNameMap.get(chunk.getFileId()) : null)
                     .chunkIndex(chunk != null ? chunk.getChunkIndex() : null)
@@ -166,16 +159,6 @@ public class KnowledgeOperationsQuery {
         Long count = chunkRepository.selectCount(new LambdaQueryWrapper<Chunk>()
                 .eq(Chunk::getKnowledgeBaseId, kbId)
                 .ne(Chunk::getEnabled, 0));
-        return count != null ? count.intValue() : 0;
-    }
-
-    private int countQuestions(Long kbId) {
-        Long count = knowledgeQuestionRepository.selectCount(new LambdaQueryWrapper<KnowledgeQuestion>().eq(KnowledgeQuestion::getKnowledgeBaseId, kbId));
-        return count != null ? count.intValue() : 0;
-    }
-
-    private int countTags(Long kbId) {
-        Long count = knowledgeTagRepository.selectCount(new LambdaQueryWrapper<KnowledgeTag>().eq(KnowledgeTag::getKnowledgeBaseId, kbId));
         return count != null ? count.intValue() : 0;
     }
 

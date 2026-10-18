@@ -39,7 +39,7 @@ import static org.mockito.Mockito.*;
 class KnowledgeRetrievalAuthorizationIT {
     @Test
     void realFileRetirementAndRegrantCannotAuthorizeAPausedRetrieval() throws Exception {
-        try (var source = KnowledgePublicationMysqlDatabase.withTagLifecycle(10)) {
+        try (var source = KnowledgePublicationMysqlDatabase.withFileAssociations(10)) {
             var context = new Context(source);
             var held = new CountDownLatch(1); var resume = new CountDownLatch(1);
             when(context.embedding.embed(anyString(), anyString())).thenAnswer(inv -> {
@@ -70,7 +70,7 @@ class KnowledgeRetrievalAuthorizationIT {
 
     @Test
     void revokeAndRegrantKeepTheSameFileButRequireANewSnapshot() throws Exception {
-        try (var source = KnowledgePublicationMysqlDatabase.withTagLifecycle(10)) {
+        try (var source = KnowledgePublicationMysqlDatabase.withFileAssociations(10)) {
             var context = new Context(source);
             var original = context.permissions.capture("actor");
             new TransactionTemplate(context.manager).executeWithoutResult(status -> {
@@ -86,7 +86,7 @@ class KnowledgeRetrievalAuthorizationIT {
 
     @Test
     void currentGrantReadsEscapeAnOuterRepeatableReadSnapshot() throws Exception {
-        try (var source = KnowledgePublicationMysqlDatabase.withTagLifecycle(10)) {
+        try (var source = KnowledgePublicationMysqlDatabase.withFileAssociations(10)) {
             var context = new Context(source);
             var original = context.permissions.capture("actor");
             var transaction = new TransactionTemplate(context.manager);
@@ -110,7 +110,7 @@ class KnowledgeRetrievalAuthorizationIT {
 
     @Test
     void ragDiscardsGeneratedAnswerAfterARealGrantRevocation() throws Exception {
-        try (var source = KnowledgePublicationMysqlDatabase.withTagLifecycle(10)) {
+        try (var source = KnowledgePublicationMysqlDatabase.withFileAssociations(10)) {
             var context = new Context(source);
             when(context.llm.chat(anyString(), eq("answer"))).thenAnswer(inv -> {
                 assertFalse(TransactionSynchronizationManager.isActualTransactionActive());
@@ -125,7 +125,7 @@ class KnowledgeRetrievalAuthorizationIT {
 
     @Test
     void unchangedGrantAllowsAllThreeEntrancesToReadPublishedContent() throws Exception {
-        try (var source = KnowledgePublicationMysqlDatabase.withTagLifecycle(10)) {
+        try (var source = KnowledgePublicationMysqlDatabase.withFileAssociations(10)) {
             var context = new Context(source);
             for (String mode : List.of("vector", "keyword", "hybrid")) {
                 var response = context.controller.retrieve(request(mode)).getData();
@@ -165,7 +165,7 @@ class KnowledgeRetrievalAuthorizationIT {
         Context(KnowledgePublicationMysqlDatabase source) throws Exception {
             jdbc = new JdbcTemplate(source); manager = new DataSourceTransactionManager(source);
             SqlSessionTemplate session = ArtifactLifecycleTestSupport.session(source, KnowledgeBaseRepository.class, FileInfoRepository.class,
-                    ChunkRepository.class, UserFilePermissionRepository.class, KnowledgeTagRepository.class, KnowledgeQuestionRepository.class,
+                    ChunkRepository.class, UserFilePermissionRepository.class,
                     DocumentImportJobRepository.class, DocumentIndexExecutionRepository.class);
             var bases = session.getMapper(KnowledgeBaseRepository.class); var chunks = session.getMapper(ChunkRepository.class);
             var fileRepository = session.getMapper(FileInfoRepository.class); var grantRepository = session.getMapper(UserFilePermissionRepository.class);
@@ -174,11 +174,9 @@ class KnowledgeRetrievalAuthorizationIT {
             core = new KnowledgeRetrievalCore(new DefaultKnowledgeRetrievalEngine(new KnowledgeBaseLookup(bases), fileRepository, chunks,
                     mock(KnowledgeHitLogRepository.class), embedding, mock(ModelServiceClient.class), vectors, authorization), authorization);
             controller = new KnowledgeRetrievalInternalController(core);
-            var tags = new KnowledgeTagService(bases, fileRepository, chunks, session.getMapper(KnowledgeTagRepository.class), manager);
-            var questions = new KnowledgeQuestionService(bases, chunks, session.getMapper(KnowledgeQuestionRepository.class), manager);
             files = new KnowledgeFileDeletionService(bases, fileRepository, chunks,
                     session.getMapper(DocumentImportJobRepository.class), session.getMapper(DocumentIndexExecutionRepository.class),
-                    mock(DocumentIndexExecutionStore.class), mock(DocumentArtifactStore.class), grantRepository, questions, manager, tags);
+                    mock(DocumentIndexExecutionStore.class), mock(DocumentArtifactStore.class), grantRepository, manager);
             var knowledge = mock(KnowledgeService.class); var prompt = mock(PromptBuilder.class);
             when(knowledge.resolveKnowledgeBases(any())).thenAnswer(inv -> List.of(bases.selectById(7L)));
             when(prompt.build(anyString(), anyList())).thenReturn("已授权上下文");

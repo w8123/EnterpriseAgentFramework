@@ -10,6 +10,8 @@ export interface FieldDef {
 /** 业务索引实体 */
 export interface BizIndex {
   id: number
+  projectId?: number
+  projectCode?: string
   indexCode: string
   indexName: string
   sourceSystem: string

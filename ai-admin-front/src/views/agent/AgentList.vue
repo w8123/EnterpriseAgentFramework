@@ -775,7 +775,7 @@ function handleAgentAction(agent: Agent, actionId: AgentListActionId) {
   if (!visibleAgentActions(agent).some((action) => action.id === actionId)) return
   if (actionId === 'edit') return handleEdit(agent.id)
   if (actionId === 'debug') return router.push(`/agent/${agent.id}/debug`)
-  if (actionId === 'eval') return router.push(`/agent/${agent.id}/evals`)
+  if (actionId === 'eval') return router.push(`/runops/evals/${agent.id}`)
   if (actionId === 'runops') return router.push({ path: '/runops', query: { agentId: agent.id } })
   return handleDelete(agent.id)
 }

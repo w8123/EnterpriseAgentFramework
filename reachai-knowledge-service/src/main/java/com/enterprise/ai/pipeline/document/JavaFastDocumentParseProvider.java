@@ -8,13 +8,19 @@ import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /** UTF-8-only fast parser for TXT, Markdown and ordinary CSV. */
 @Component
 @RequiredArgsConstructor
 public class JavaFastDocumentParseProvider implements DocumentParseProvider {
+
+    private static final Pattern MARKDOWN_HEADING = Pattern.compile("^ {0,3}(#{1,6})\\s+(.+?)\\s*#*\\s*$");
+    private static final Pattern CODE_FENCE = Pattern.compile("^ {0,3}(```|~~~)");
 
     private final DocumentParseProperties properties;
 
@@ -43,26 +49,97 @@ public class JavaFastDocumentParseProvider implements DocumentParseProvider {
         }
 
         int lineCount = (int) text.lines().count();
-        String elementType = request.getFormat() == DocumentFormat.CSV ? "CSV" : "TEXT";
-        ParsedDocumentElement element = ParsedDocumentElement.builder()
-                .order(0)
-                .type(elementType)
-                .text(text)
-                .sourceLocator(DocumentSourceLocator.builder()
-                        .lineStart(1)
-                        .lineEnd(Math.max(1, lineCount))
-                        .build())
-                .metadata(Map.of("charset", "UTF-8"))
-                .build();
+        List<ParsedDocumentElement> elements = request.getFormat() == DocumentFormat.MARKDOWN
+                ? markdownSections(text) : List.of();
+        if (elements.isEmpty()) {
+            String elementType = request.getFormat() == DocumentFormat.CSV ? "CSV" : "TEXT";
+            elements = List.of(ParsedDocumentElement.builder()
+                    .order(0)
+                    .type(elementType)
+                    .text(text)
+                    .sourceLocator(DocumentSourceLocator.builder()
+                            .lineStart(1)
+                            .lineEnd(Math.max(1, lineCount))
+                            .build())
+                    .metadata(Map.of("charset", "UTF-8"))
+                    .build());
+        }
 
         return DocumentParseResult.builder()
                 .providerType(DocumentProviderType.JAVA_FAST)
                 .providerVersion("java-fast-v1")
                 .normalizedText(text)
                 .markdown(request.getFormat() == DocumentFormat.MARKDOWN ? text : null)
-                .elements(List.of(element))
+                .elements(elements)
                 .metadata(Map.of("lineCount", lineCount, "characterCount", text.length()))
                 .build();
+    }
+
+    /**
+     * One element per Markdown heading section (heading line included, sectionPath = heading chain),
+     * so chunks follow the document structure. Headings inside fenced code are text; sections with
+     * no body only contribute to the path. A document without headings yields no sections.
+     */
+    static List<ParsedDocumentElement> markdownSections(String text) {
+        String[] lines = text.split("\\R", -1);
+        List<ParsedDocumentElement> sections = new ArrayList<>();
+        List<String> path = new ArrayList<>();
+        List<Integer> levels = new ArrayList<>();
+        StringBuilder body = new StringBuilder();
+        String heading = null;
+        String sectionPath = null;
+        int sectionStart = 1;
+        boolean inFence = false;
+        boolean sawHeading = false;
+        for (int index = 0; index < lines.length; index++) {
+            String line = lines[index];
+            if (CODE_FENCE.matcher(line).find()) {
+                inFence = !inFence;
+            }
+            Matcher matcher = inFence ? null : MARKDOWN_HEADING.matcher(line);
+            if (matcher != null && matcher.matches()) {
+                sawHeading = true;
+                addSection(sections, heading, body, sectionPath, sectionStart, index);
+                int level = matcher.group(1).length();
+                while (!levels.isEmpty() && levels.get(levels.size() - 1) >= level) {
+                    levels.remove(levels.size() - 1);
+                    path.remove(path.size() - 1);
+                }
+                levels.add(level);
+                path.add(matcher.group(2).trim());
+                heading = line.trim();
+                sectionPath = String.join(" > ", path);
+                sectionStart = index + 1;
+                body.setLength(0);
+                continue;
+            }
+            body.append(line).append('\n');
+        }
+        if (!sawHeading) {
+            return List.of();
+        }
+        addSection(sections, heading, body, sectionPath, sectionStart, lines.length);
+        return sections;
+    }
+
+    private static void addSection(List<ParsedDocumentElement> sections, String heading, StringBuilder body,
+                                   String sectionPath, int lineStart, int lineEnd) {
+        String content = body.toString().strip();
+        if (content.isEmpty()) {
+            return;
+        }
+        String sectionText = heading == null ? content : heading + "\n" + content;
+        sections.add(ParsedDocumentElement.builder()
+                .order(sections.size())
+                .type(heading == null ? "TEXT" : "SECTION")
+                .text(sectionText)
+                .sectionPath(sectionPath)
+                .sourceLocator(DocumentSourceLocator.builder()
+                        .lineStart(lineStart)
+                        .lineEnd(Math.max(lineStart, lineEnd))
+                        .build())
+                .metadata(Map.of("charset", "UTF-8"))
+                .build());
     }
 
     private static byte[] readBytes(DocumentParseRequest request) {

@@ -304,6 +304,15 @@ public class ControlRuntimePublicController {
                 projectCode, status, runType, entryType, agentId, userId, keyword, limit, days);
     }
 
+    @GetMapping("/api/runops/sessions/stats")
+    public ResponseEntity<List<Map<String, Object>>> runOpsSessionStats(
+            @RequestParam List<String> sessionIds,
+            @RequestParam(defaultValue = "30") int days) {
+        // Session ids carry no project; the project-scoped view is /api/runops/conversations.
+        requireRuntimeProject(PlatformPermissions.RUNOPS_READ, null, null);
+        return runtimeProxyClient.runOpsSessionStats(sessionIds, days);
+    }
+
     @GetMapping("/api/trace-center/guard-decisions")
     public ResponseEntity<Object> listGuardDecisions(
             @RequestParam(required = false) String traceId,
@@ -682,59 +691,10 @@ public class ControlRuntimePublicController {
         return runtimeProxyClient.deleteWorkflowCredential(id);
     }
 
-    @GetMapping("/api/runtime/evals/datasets")
-    public ResponseEntity<Object> listEvalDatasets(@RequestParam(required = false) String agentId) {
-        if (StringUtils.hasText(agentId) && runtimeManagementAccess != null) {
-            PlatformAuthenticatedSession session = requireRuntimePermission(PlatformPermissions.AGENT_EVALUATE);
-            requireRuntimeResponseProject(
-                    session, PlatformPermissions.AGENT_EVALUATE, runtimeProxyClient.getAgent(agentId));
-        } else {
-            // The legacy collection has no project filter. Do not expose a cross-project list
-            // to a project-scoped role when the target Agent is unknown.
-            requireRuntimeProject(PlatformPermissions.AGENT_EVALUATE, null, null);
-        }
-        return runtimeProxyClient.listEvalDatasets(agentId);
-    }
-
-    @PostMapping("/api/runtime/evals/datasets")
-    public ResponseEntity<Object> createEvalDataset(@RequestBody Map<String, Object> body) {
-        PlatformAuthenticatedSession session = requireRuntimePermission(PlatformPermissions.AGENT_EVALUATE);
-        requireAgentPayload(session, PlatformPermissions.AGENT_EVALUATE, body);
-        return runtimeProxyClient.createEvalDataset(body);
-    }
-
-    @PostMapping("/api/runtime/evals/datasets/{datasetId}/cases/import")
-    public ResponseEntity<Object> importEvalCases(@PathVariable Long datasetId,
-                                                  @RequestBody Map<String, Object> body) {
-        // Legacy dataset responses do not carry a canonical project. Keep opaque-id
-        // mutations global-only until the compatibility API is retired.
-        requireRuntimeProject(PlatformPermissions.AGENT_EVALUATE, null, null);
-        return runtimeProxyClient.importEvalCases(datasetId, body);
-    }
-
-    @GetMapping("/api/runtime/evals/datasets/{datasetId}/cases")
-    public ResponseEntity<Object> listEvalCases(@PathVariable Long datasetId) {
-        requireRuntimeProject(PlatformPermissions.AGENT_EVALUATE, null, null);
-        return runtimeProxyClient.listEvalCases(datasetId);
-    }
-
-    @PostMapping("/api/runtime/evals/runs")
-    public ResponseEntity<Object> startEvalRun(@RequestBody Map<String, Object> body) {
-        PlatformAuthenticatedSession session = requireRuntimePermission(PlatformPermissions.AGENT_EVALUATE);
-        requireAgentPayload(session, PlatformPermissions.AGENT_EVALUATE, body);
-        return runtimeProxyClient.startEvalRun(body);
-    }
-
-    @GetMapping("/api/runtime/evals/runs/{runId}")
-    public ResponseEntity<Object> getEvalRun(@PathVariable Long runId) {
-        requireRuntimeProject(PlatformPermissions.AGENT_EVALUATE, null, null);
-        return runtimeProxyClient.getEvalRun(runId);
-    }
-
-    @GetMapping("/api/runtime/evals/runs/{runId}/results")
-    public ResponseEntity<Object> listEvalRunResults(@PathVariable Long runId) {
-        requireRuntimeProject(PlatformPermissions.AGENT_EVALUATE, null, null);
-        return runtimeProxyClient.listEvalRunResults(runId);
+    @GetMapping("/api/runtime/evals/v2/readiness")
+    public ResponseEntity<Map<String, Object>> evalOpsReadiness() {
+        requireRuntimePermission(PlatformPermissions.AGENT_EVALUATE);
+        return runtimeProxyClient.evalOpsReadiness();
     }
 
     @GetMapping("/api/runtime/evals/v2/datasets")
@@ -1225,6 +1185,75 @@ public class ControlRuntimePublicController {
             revalidateAgentSkillBindingsForPublish(request, agentId, expected);
         }
         return runtimeProxyClient.publishLatestAgentWorkflowVersions(agentId, runtimeBody);
+    }
+
+    /**
+     * Knowledge base → Agent in one step: Runtime creates and publishes the template
+     * knowledge Q&A Workflow in the Agent's project and publishes the Agent with it.
+     * Needs Agent and Workflow publish on that project plus knowledge read.
+     */
+    @PostMapping("/api/agents/{agentId}/knowledge-qa")
+    public ResponseEntity<Object> attachKnowledgeQaWorkflow(@PathVariable String agentId,
+                                                            @RequestBody Map<String, Object> body) {
+        if (runtimeManagementAccess != null) {
+            PlatformAuthenticatedSession session = requireRuntimePermission(PlatformPermissions.AGENT_PUBLISH);
+            ResponseEntity<Object> agent = runtimeProxyClient.getAgent(agentId);
+            requireRuntimeResponseProject(session, PlatformPermissions.AGENT_PUBLISH, agent);
+            requireRuntimeResponseProject(session, PlatformPermissions.WORKFLOW_PUBLISH, agent);
+            requireRuntimePermission(PlatformPermissions.KNOWLEDGE_READ);
+        }
+        Map<String, Object> runtimeBody = new LinkedHashMap<>();
+        runtimeBody.put("knowledgeBaseCode", normalizedText(body == null ? null : body.get("knowledgeBaseCode")));
+        runtimeBody.put("knowledgeBaseName", normalizedText(body == null ? null : body.get("knowledgeBaseName")));
+        runtimeBody.put("modelInstanceId", normalizedText(body == null ? null : body.get("modelInstanceId")));
+        runtimeBody.put("publishedBy", normalizedText(body == null ? null : body.get("publishedBy")));
+        return runtimeProxyClient.attachKnowledgeQaWorkflow(agentId, runtimeBody);
+    }
+
+    /**
+     * Workflows retrieving from the given knowledge bases. Workflows and Agents
+     * outside the caller's readable projects are withheld and only counted.
+     */
+    @GetMapping("/api/workflows/knowledge-usage")
+    public ResponseEntity<Object> listKnowledgeUsage(@RequestParam List<String> knowledgeBaseCodes) {
+        PlatformAuthenticatedSession session = requireRuntimePermission(PlatformPermissions.WORKFLOW_READ);
+        ResponseEntity<Object> response = runtimeProxyClient.listKnowledgeUsage(knowledgeBaseCodes);
+        if (runtimeManagementAccess == null || response == null || !response.getStatusCode().is2xxSuccessful()
+                || !(response.getBody() instanceof Collection<?> usages)) {
+            return response;
+        }
+        List<Object> filtered = new java.util.ArrayList<>();
+        for (Object usage : usages) {
+            if (!(usage instanceof Map<?, ?> row)) continue;
+            Map<String, Object> visibleUsage = stringKeyMap(row);
+            List<Object> workflows = new java.util.ArrayList<>();
+            int hidden = 0;
+            if (row.get("workflows") instanceof Collection<?> rows) {
+                for (Object candidate : rows) {
+                    if (!(candidate instanceof Map<?, ?> workflow) || !runtimeManagementAccess.allowsProject(
+                            session, PlatformPermissions.WORKFLOW_READ, normalizedText(workflow.get("projectCode")))) {
+                        hidden++;
+                        continue;
+                    }
+                    Map<String, Object> visibleWorkflow = stringKeyMap(workflow);
+                    List<Object> agents = new java.util.ArrayList<>();
+                    if (workflow.get("agents") instanceof Collection<?> agentRows) {
+                        for (Object agent : agentRows) {
+                            if (agent instanceof Map<?, ?> agentRow && runtimeManagementAccess.allowsProject(
+                                    session, PlatformPermissions.AGENT_READ, normalizedText(agentRow.get("projectCode")))) {
+                                agents.add(agentRow);
+                            }
+                        }
+                    }
+                    visibleWorkflow.put("agents", agents);
+                    workflows.add(visibleWorkflow);
+                }
+            }
+            visibleUsage.put("workflows", workflows);
+            visibleUsage.put("hiddenWorkflowCount", hidden);
+            filtered.add(visibleUsage);
+        }
+        return ResponseEntity.status(response.getStatusCode()).body(filtered);
     }
 
     /**

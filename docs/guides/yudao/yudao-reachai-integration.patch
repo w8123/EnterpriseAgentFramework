@@ -1,5 +1,5 @@
 diff --git a/pom.xml b/pom.xml
-index 3e8c815..c29f315 100644
+index 3e8c815ec5..c29f31533a 100644
 --- a/pom.xml
 +++ b/pom.xml
 @@ -22,7 +22,7 @@
@@ -12,7 +12,7 @@ index 3e8c815..c29f315 100644
  <!--        <module>yudao-module-mes</module>-->
  <!--        <module>yudao-module-wms</module>-->
 diff --git a/yudao-module-erp/pom.xml b/yudao-module-erp/pom.xml
-index ce377ff..d2de3c9 100644
+index ce377fff12..d2de3c9a53 100644
 --- a/yudao-module-erp/pom.xml
 +++ b/yudao-module-erp/pom.xml
 @@ -17,7 +17,18 @@
@@ -35,7 +35,7 @@ index ce377ff..d2de3c9 100644
              <groupId>cn.iocoder.boot</groupId>
              <artifactId>yudao-module-system</artifactId>
 diff --git a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/product/ErpProductController.java b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/product/ErpProductController.java
-index aba64d8..8adadd3 100644
+index aba64d8d80..8adadd3106 100644
 --- a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/product/ErpProductController.java
 +++ b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/product/ErpProductController.java
 @@ -1,5 +1,8 @@
@@ -70,7 +70,7 @@ index aba64d8..8adadd3 100644
      @Operation(summary = "获得产品精简列表", description = "只包含被开启的产品，主要用于前端的下拉选项")
      public CommonResult<List<ErpProductRespVO>> getProductSimpleList() {
 diff --git a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/product/vo/product/ErpProductPageReqVO.java b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/product/vo/product/ErpProductPageReqVO.java
-index de4f814..8496fb8 100644
+index de4f8142a6..8496fb87c3 100644
 --- a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/product/vo/product/ErpProductPageReqVO.java
 +++ b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/product/vo/product/ErpProductPageReqVO.java
 @@ -1,5 +1,7 @@
@@ -94,7 +94,7 @@ index de4f814..8496fb8 100644
      private Long categoryId;
  
 diff --git a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/purchase/ErpPurchaseOrderController.java b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/purchase/ErpPurchaseOrderController.java
-index c3d36e9..397bb6e 100644
+index c3d36e97b4..397bb6e579 100644
 --- a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/purchase/ErpPurchaseOrderController.java
 +++ b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/purchase/ErpPurchaseOrderController.java
 @@ -1,5 +1,8 @@
@@ -118,7 +118,7 @@ index c3d36e9..397bb6e 100644
      @Operation(summary = "获得采购订单分页")
      @PreAuthorize("@ss.hasPermission('erp:purchase-order:query')")
 diff --git a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/purchase/ErpSupplierController.java b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/purchase/ErpSupplierController.java
-index affc0ca..16aea9a 100644
+index affc0cadb0..16aea9a524 100644
 --- a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/purchase/ErpSupplierController.java
 +++ b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/purchase/ErpSupplierController.java
 @@ -1,5 +1,8 @@
@@ -142,7 +142,7 @@ index affc0ca..16aea9a 100644
      @Operation(summary = "获得供应商分页")
      @PreAuthorize("@ss.hasPermission('erp:supplier:query')")
 diff --git a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/purchase/vo/order/ErpPurchaseOrderPageReqVO.java b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/purchase/vo/order/ErpPurchaseOrderPageReqVO.java
-index 8bf70d4..c89dee6 100644
+index 8bf70d4275..c89dee6342 100644
 --- a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/purchase/vo/order/ErpPurchaseOrderPageReqVO.java
 +++ b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/purchase/vo/order/ErpPurchaseOrderPageReqVO.java
 @@ -1,5 +1,7 @@
@@ -185,7 +185,7 @@ index 8bf70d4..c89dee6 100644
      private Integer inStatus;
  
 diff --git a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/purchase/vo/supplier/ErpSupplierPageReqVO.java b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/purchase/vo/supplier/ErpSupplierPageReqVO.java
-index 229ab63..efbc138 100644
+index 229ab63d9b..efbc138836 100644
 --- a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/purchase/vo/supplier/ErpSupplierPageReqVO.java
 +++ b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/purchase/vo/supplier/ErpSupplierPageReqVO.java
 @@ -1,5 +1,7 @@
@@ -213,7 +213,7 @@ index 229ab63..efbc138 100644
      private String telephone;
  
 diff --git a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/sale/ErpCustomerController.java b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/sale/ErpCustomerController.java
-index 5a1c4a8..1f789ef 100644
+index 5a1c4a8914..1f789ef66f 100644
 --- a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/sale/ErpCustomerController.java
 +++ b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/sale/ErpCustomerController.java
 @@ -1,5 +1,8 @@
@@ -248,7 +248,7 @@ index 5a1c4a8..1f789ef 100644
      @Operation(summary = "获得客户分页")
      @PreAuthorize("@ss.hasPermission('erp:customer:query')")
 diff --git a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/sale/ErpSaleOrderController.java b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/sale/ErpSaleOrderController.java
-index 0e4d286..c97dba8 100644
+index 0e4d28661a..c97dba8deb 100644
 --- a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/sale/ErpSaleOrderController.java
 +++ b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/sale/ErpSaleOrderController.java
 @@ -1,5 +1,8 @@
@@ -272,7 +272,7 @@ index 0e4d286..c97dba8 100644
      @Operation(summary = "获得销售订单分页")
      @PreAuthorize("@ss.hasPermission('erp:sale-order:query')")
 diff --git a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/sale/vo/customer/ErpCustomerPageReqVO.java b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/sale/vo/customer/ErpCustomerPageReqVO.java
-index e790cb9..1404343 100644
+index e790cb9581..14043433fd 100644
 --- a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/sale/vo/customer/ErpCustomerPageReqVO.java
 +++ b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/sale/vo/customer/ErpCustomerPageReqVO.java
 @@ -1,5 +1,7 @@
@@ -300,7 +300,7 @@ index e790cb9..1404343 100644
      private String telephone;
  
 diff --git a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/sale/vo/customer/ErpCustomerSaveReqVO.java b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/sale/vo/customer/ErpCustomerSaveReqVO.java
-index bff1547..1fba762 100644
+index bff15474bc..1fba762776 100644
 --- a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/sale/vo/customer/ErpCustomerSaveReqVO.java
 +++ b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/sale/vo/customer/ErpCustomerSaveReqVO.java
 @@ -1,5 +1,7 @@
@@ -358,7 +358,7 @@ index bff1547..1fba762 100644
      private String taxNo;
  
 diff --git a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/sale/vo/order/ErpSaleOrderPageReqVO.java b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/sale/vo/order/ErpSaleOrderPageReqVO.java
-index 84d92fb..8a83146 100644
+index 84d92fb673..8a83146dcb 100644
 --- a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/sale/vo/order/ErpSaleOrderPageReqVO.java
 +++ b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/sale/vo/order/ErpSaleOrderPageReqVO.java
 @@ -1,5 +1,7 @@
@@ -401,7 +401,7 @@ index 84d92fb..8a83146 100644
      private Integer outStatus;
  
 diff --git a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/statistics/ErpPurchaseStatisticsController.java b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/statistics/ErpPurchaseStatisticsController.java
-index be0258d..22d83d4 100644
+index be0258dabe..22d83d4b4e 100644
 --- a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/statistics/ErpPurchaseStatisticsController.java
 +++ b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/statistics/ErpPurchaseStatisticsController.java
 @@ -1,5 +1,8 @@
@@ -425,7 +425,7 @@ index be0258d..22d83d4 100644
      @Operation(summary = "获得采购统计")
      @PreAuthorize("@ss.hasPermission('erp:statistics:query')")
 diff --git a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/statistics/ErpSaleStatisticsController.java b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/statistics/ErpSaleStatisticsController.java
-index c43c971..e457e4d 100644
+index c43c971fe8..e457e4d3eb 100644
 --- a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/statistics/ErpSaleStatisticsController.java
 +++ b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/statistics/ErpSaleStatisticsController.java
 @@ -1,5 +1,8 @@
@@ -449,7 +449,7 @@ index c43c971..e457e4d 100644
      @Operation(summary = "获得销售统计")
      @PreAuthorize("@ss.hasPermission('erp:statistics:query')")
 diff --git a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/stock/ErpStockController.java b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/stock/ErpStockController.java
-index b63f82d..bf66792 100644
+index b63f82d7df..bf66792c77 100644
 --- a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/stock/ErpStockController.java
 +++ b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/stock/ErpStockController.java
 @@ -1,5 +1,8 @@
@@ -473,7 +473,7 @@ index b63f82d..bf66792 100644
      @Operation(summary = "获得产品库存分页")
      @PreAuthorize("@ss.hasPermission('erp:stock:query')")
 diff --git a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/stock/ErpWarehouseController.java b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/stock/ErpWarehouseController.java
-index 9de214b..6688671 100644
+index 9de214b80c..6688671ae3 100644
 --- a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/stock/ErpWarehouseController.java
 +++ b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/stock/ErpWarehouseController.java
 @@ -1,5 +1,8 @@
@@ -497,7 +497,7 @@ index 9de214b..6688671 100644
      @Operation(summary = "获得仓库精简列表", description = "只包含被开启的仓库，主要用于前端的下拉选项")
      public CommonResult<List<ErpWarehouseRespVO>> getWarehouseSimpleList() {
 diff --git a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/stock/vo/stock/ErpStockPageReqVO.java b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/stock/vo/stock/ErpStockPageReqVO.java
-index f7f3fa3..cf1a104 100644
+index f7f3fa3439..cf1a104dd9 100644
 --- a/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/stock/vo/stock/ErpStockPageReqVO.java
 +++ b/yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/controller/admin/stock/vo/stock/ErpStockPageReqVO.java
 @@ -1,5 +1,7 @@
@@ -521,7 +521,7 @@ index f7f3fa3..cf1a104 100644
      private Long warehouseId;
  
 diff --git a/yudao-server/pom.xml b/yudao-server/pom.xml
-index 88ebde5..f9a715c 100644
+index 88ebde578b..f9a715c686 100644
 --- a/yudao-server/pom.xml
 +++ b/yudao-server/pom.xml
 @@ -95,11 +95,18 @@
@@ -550,13 +550,15 @@ index 88ebde5..f9a715c 100644
  <!--        <dependency>-->
 diff --git a/yudao-server/src/main/java/cn/iocoder/yudao/server/reachai/YudaoReachAiConfiguration.java b/yudao-server/src/main/java/cn/iocoder/yudao/server/reachai/YudaoReachAiConfiguration.java
 new file mode 100644
-index 0000000..33ca03c
+index 0000000000..47e77e5df1
 --- /dev/null
 +++ b/yudao-server/src/main/java/cn/iocoder/yudao/server/reachai/YudaoReachAiConfiguration.java
-@@ -0,0 +1,40 @@
+@@ -0,0 +1,49 @@
 +package cn.iocoder.yudao.server.reachai;
 +
 +import cn.iocoder.yudao.framework.security.config.AuthorizeRequestsCustomizer;
++import cn.iocoder.yudao.module.system.service.permission.PermissionService;
++import cn.iocoder.yudao.module.system.service.permission.RoleService;
 +import cn.iocoder.yudao.module.system.service.user.AdminUserService;
 +import org.springframework.beans.factory.annotation.Value;
 +import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
@@ -593,10 +595,100 @@ index 0000000..33ca03c
 +        return new YudaoReachAiSecurityBridge(adminUserService, defaultTenantId, defaultUserId);
 +    }
 +
++    /** 提供后 Starter 自动暴露 POST /reachai/embed/token，供嵌入式对话用当前登录用户换取令牌。 */
++    @Bean
++    public YudaoReachAiEmbedPrincipalResolver yudaoReachAiEmbedPrincipalResolver(
++            AdminUserService adminUserService, PermissionService permissionService, RoleService roleService) {
++        return new YudaoReachAiEmbedPrincipalResolver(adminUserService, permissionService, roleService);
++    }
++
++}
+diff --git a/yudao-server/src/main/java/cn/iocoder/yudao/server/reachai/YudaoReachAiEmbedPrincipalResolver.java b/yudao-server/src/main/java/cn/iocoder/yudao/server/reachai/YudaoReachAiEmbedPrincipalResolver.java
+new file mode 100644
+index 0000000000..24ce67f817
+--- /dev/null
++++ b/yudao-server/src/main/java/cn/iocoder/yudao/server/reachai/YudaoReachAiEmbedPrincipalResolver.java
+@@ -0,0 +1,77 @@
++package cn.iocoder.yudao.server.reachai;
++
++import cn.hutool.core.collection.CollUtil;
++import cn.hutool.core.util.StrUtil;
++import cn.iocoder.yudao.framework.common.enums.CommonStatusEnum;
++import cn.iocoder.yudao.framework.security.core.LoginUser;
++import cn.iocoder.yudao.framework.security.core.util.SecurityFrameworkUtils;
++import cn.iocoder.yudao.framework.tenant.core.util.TenantUtils;
++import cn.iocoder.yudao.module.system.dal.dataobject.permission.RoleDO;
++import cn.iocoder.yudao.module.system.dal.dataobject.user.AdminUserDO;
++import cn.iocoder.yudao.module.system.service.permission.PermissionService;
++import cn.iocoder.yudao.module.system.service.permission.RoleService;
++import cn.iocoder.yudao.module.system.service.user.AdminUserService;
++import com.enterprise.ai.reach.spring.ReachAiEmbedPrincipal;
++import com.enterprise.ai.reach.spring.ReachAiEmbedPrincipalResolver;
++
++import java.util.Collections;
++import java.util.HashMap;
++import java.util.List;
++import java.util.Map;
++import java.util.Set;
++import java.util.stream.Collectors;
++
++/**
++ * 嵌入式对话换取 ReachAI 嵌入令牌时，把当前登录的芋道用户交给 ReachAI。
++ *
++ * <p>Starter 据此暴露 {@code POST /reachai/embed/token}。{@code /reachai/**} 在芋道里是 permitAll，
++ * 但芋道的令牌过滤器仍会解析请求里的 {@code Authorization}，所以这里能拿到登录用户；未登录返回 null，Starter 回 401。
++ * 角色编码用于 ReachAI 的「调用权限」。</p>
++ */
++public class YudaoReachAiEmbedPrincipalResolver implements ReachAiEmbedPrincipalResolver {
++
++    private final AdminUserService adminUserService;
++    private final PermissionService permissionService;
++    private final RoleService roleService;
++
++    public YudaoReachAiEmbedPrincipalResolver(AdminUserService adminUserService,
++                                              PermissionService permissionService,
++                                              RoleService roleService) {
++        this.adminUserService = adminUserService;
++        this.permissionService = permissionService;
++        this.roleService = roleService;
++    }
++
++    @Override
++    public ReachAiEmbedPrincipal resolve(String agentId) {
++        LoginUser loginUser = SecurityFrameworkUtils.getLoginUser();
++        if (loginUser == null || loginUser.getId() == null || loginUser.getTenantId() == null) {
++            return null;
++        }
++        return TenantUtils.execute(loginUser.getTenantId(), () -> {
++            AdminUserDO user = adminUserService.getUser(loginUser.getId());
++            if (user == null || !CommonStatusEnum.ENABLE.getStatus().equals(user.getStatus())) {
++                return null;
++            }
++            Map<String, Object> attributes = new HashMap<>();
++            attributes.put("tenantId", String.valueOf(loginUser.getTenantId()));
++            attributes.put("nickname", user.getNickname());
++            attributes.put("username", user.getUsername());
++            String userId = String.valueOf(user.getId());
++            String displayName = StrUtil.isNotBlank(user.getNickname()) ? user.getNickname() : user.getUsername();
++            return new ReachAiEmbedPrincipal(userId, userId, displayName, roleCodes(user.getId()), attributes);
++        });
++    }
++
++    private List<String> roleCodes(Long userId) {
++        Set<Long> roleIds = permissionService.getUserRoleIdListByUserIdFromCache(userId);
++        if (CollUtil.isEmpty(roleIds)) {
++            return Collections.emptyList();
++        }
++        return roleService.getRoleListFromCache(roleIds).stream()
++                .filter(role -> CommonStatusEnum.ENABLE.getStatus().equals(role.getStatus()))
++                .map(RoleDO::getCode)
++                .collect(Collectors.toList());
++    }
++
 +}
 diff --git a/yudao-server/src/main/java/cn/iocoder/yudao/server/reachai/YudaoReachAiSecurityBridge.java b/yudao-server/src/main/java/cn/iocoder/yudao/server/reachai/YudaoReachAiSecurityBridge.java
 new file mode 100644
-index 0000000..fedc0e8
+index 0000000000..fedc0e879a
 --- /dev/null
 +++ b/yudao-server/src/main/java/cn/iocoder/yudao/server/reachai/YudaoReachAiSecurityBridge.java
 @@ -0,0 +1,98 @@

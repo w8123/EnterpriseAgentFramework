@@ -13,13 +13,13 @@ import java.util.List;
 public class PlatformEmbedCorsProperties {
 
     /**
-     * Disabled by default because most production deployments put /api/embed/**
-     * behind a gateway that owns CORS headers.
+     * Browser origins normally come from the project embed policies. Enable this
+     * only to allow extra origins (for example a gateway) on top of them.
      */
     private boolean enabled = false;
     private List<String> allowedOrigins = new ArrayList<>();
-    private List<String> allowedOriginPatterns = new ArrayList<>(List.of("*"));
-    private List<String> allowedMethods = new ArrayList<>(List.of("GET", "POST", "OPTIONS"));
+    private List<String> allowedOriginPatterns = new ArrayList<>();
+    private List<String> allowedMethods = new ArrayList<>(List.of("GET", "POST", "DELETE", "OPTIONS"));
     private List<String> allowedHeaders = new ArrayList<>(List.of("*"));
     private List<String> exposedHeaders = new ArrayList<>();
     private Boolean allowCredentials = true;

@@ -579,7 +579,7 @@ public final class RuntimeGraphSpecExecutionEngine {
                 break;
             }
         }
-        return applyErrorPolicy(node, nodeType, last, nodesById, context);
+        return applyErrorPolicy(node, nodeType, last, graph, nodesById, context);
     }
 
     private RuntimeGraphSpecExecutionResult resolveBusinessIndexReferences(
@@ -723,6 +723,7 @@ public final class RuntimeGraphSpecExecutionEngine {
     private RuntimeGraphSpecExecutionResult applyErrorPolicy(GraphSpec.Node node,
                                                              String nodeType,
                                                              RuntimeGraphSpecExecutionResult failed,
+                                                             GraphSpec graph,
                                                              Map<String, GraphSpec.Node> nodesById,
                                                              Map<String, Object> context) {
         GraphSpec.ErrorPolicy policy = node.getErrorPolicy();
@@ -736,6 +737,12 @@ public final class RuntimeGraphSpecExecutionEngine {
             Map<String, Object> metadata = new LinkedHashMap<>(base.metadata());
             metadata.put("errorPolicyDecision", "TERMINATE_WRITE");
             return base.withMetadata(metadata);
+        }
+        if ("TERMINATE".equals(strategy)) {
+            RuntimeGraphSpecExecutionResult routed = routeFailureAlongEdge(node, nodeType, base, graph, context);
+            if (routed != null) {
+                return routed;
+            }
         }
         if ("CONTINUE".equals(strategy)) {
             Object defaultOutput = policy == null ? null : policy.getDefaultOutput();
@@ -800,6 +807,74 @@ public final class RuntimeGraphSpecExecutionEngine {
                     base.resumeCheckpoint());
         }
         return withPolicyDecision(base, "TERMINATE", base.code(), base.answer());
+    }
+
+    /**
+     * A failed node follows an explicit outgoing "error" edge instead of ending the run. A missing required
+     * parameter counts as "nothing found" and prefers an "empty" edge. The failure stays visible through
+     * {@code recoveredFromCode} and the {@code lastError} variable so a downstream ANSWER can explain it.
+     */
+    private RuntimeGraphSpecExecutionResult routeFailureAlongEdge(GraphSpec.Node node,
+                                                                  String nodeType,
+                                                                  RuntimeGraphSpecExecutionResult base,
+                                                                  GraphSpec graph,
+                                                                  Map<String, Object> context) {
+        if (graph == null || graph.getEdges() == null) {
+            return null;
+        }
+        String target = null;
+        String decision = null;
+        if ("RUNTIME_GRAPH_PARAMETER_REQUIRED".equals(base.code())) {
+            target = conditionEdgeTarget(graph, node.getId(), EdgeConditions.EMPTY);
+            decision = "EMPTY_EDGE";
+        }
+        if (!StringUtils.hasText(target)) {
+            target = conditionEdgeTarget(graph, node.getId(), EdgeConditions.ERROR);
+            decision = "ERROR_EDGE";
+        }
+        if (!StringUtils.hasText(target)) {
+            return null;
+        }
+        Map<String, Object> lastError = new LinkedHashMap<>();
+        lastError.put("nodeId", node.getId());
+        lastError.put("nodeName", firstText(node.getName(), node.getId()));
+        lastError.put("code", firstText(base.code(), "RUNTIME_GRAPH_NODE_FAILED"));
+        // Only the fixed Chinese reason is exposed; raw upstream messages stay in the trace.
+        lastError.put("message", firstText(
+                RuntimeNodeFailureReasons.safeReason(base.code(), base.answer()), "节点执行失败"));
+        context.put("lastError", lastError);
+        Map<String, Object> metadata = new LinkedHashMap<>(base.metadata() == null ? Map.of() : base.metadata());
+        metadata.put("errorPolicyDecision", decision);
+        metadata.put("forceNextNodeId", target);
+        metadata.put("recoveredFromCode", base.code());
+        metadata.put("structuredOutput", Map.copyOf(lastError));
+        // A failed node carries no step of its own; record one so traces and trials show the routed node.
+        List<Map<String, Object>> steps = base.steps() == null || base.steps().isEmpty()
+                ? new ArrayList<>(List.of(step("execute-node", node.getId())))
+                : new ArrayList<>(base.steps());
+        Map<String, Object> routedStep = new LinkedHashMap<>(steps.get(steps.size() - 1));
+        routedStep.put("route", "EMPTY_EDGE".equals(decision) ? "empty" : "error");
+        steps.set(steps.size() - 1, routedStep);
+        return new RuntimeGraphSpecExecutionResult(
+                true,
+                "EMPTY_EDGE".equals(decision) ? "RUNTIME_GRAPH_EMPTY_ROUTED" : "RUNTIME_GRAPH_ERROR_ROUTED",
+                firstText(base.answer(), ""),
+                node.getId(),
+                nodeType,
+                steps,
+                metadata,
+                base.resumeCheckpoint());
+    }
+
+    private String conditionEdgeTarget(GraphSpec graph, String nodeId, Set<String> conditions) {
+        return graph.getEdges().stream()
+                .filter(edge -> edge != null && nodeId.equals(text(edge.getFrom())))
+                .filter(edge -> EdgeConditions.matches(edge.getCondition(), conditions))
+                .sorted(Comparator.comparing(edge -> edge.getPriority() == null ? Integer.MAX_VALUE : edge.getPriority()))
+                .map(GraphSpec.Edge::getTo)
+                .filter(StringUtils::hasText)
+                .findFirst()
+                .orElse(null);
     }
 
     private RuntimeGraphSpecExecutionResult withPolicyDecision(RuntimeGraphSpecExecutionResult base,
@@ -1073,11 +1148,12 @@ public final class RuntimeGraphSpecExecutionEngine {
             return NextNodeResolution.unmatched();
         }
         String route = resultRoute(nodeResult);
+        boolean outputEmpty = RuntimeOutputEmptiness.isEmpty(nodeResult);
         String target = graph.getEdges().stream()
                 .filter(edge -> edge != null && nodeId.equals(text(edge.getFrom())))
-                .filter(edge -> edgeMatchRank(edge, route) < Integer.MAX_VALUE)
+                .filter(edge -> edgeMatchRank(edge, route, outputEmpty) < Integer.MAX_VALUE)
                 .sorted(Comparator
-                        .comparingInt((GraphSpec.Edge edge) -> edgeMatchRank(edge, route))
+                        .comparingInt((GraphSpec.Edge edge) -> edgeMatchRank(edge, route, outputEmpty))
                         .thenComparing(edge -> edge.getPriority() == null ? Integer.MAX_VALUE : edge.getPriority()))
                 .map(GraphSpec.Edge::getTo)
                 .filter(StringUtils::hasText)
@@ -1154,11 +1230,19 @@ public final class RuntimeGraphSpecExecutionEngine {
         return false;
     }
 
-    private int edgeMatchRank(GraphSpec.Edge edge, String route) {
+    private int edgeMatchRank(GraphSpec.Edge edge, String route, boolean outputEmpty) {
         String condition = text(edge.getCondition());
         boolean unconditional = !StringUtils.hasText(condition)
                 || "always".equalsIgnoreCase(condition)
                 || "success".equalsIgnoreCase(condition);
+        if (!StringUtils.hasText(route) || !route.equalsIgnoreCase(condition)) {
+            if (EdgeConditions.matches(condition, EdgeConditions.EMPTY)) {
+                return outputEmpty ? 0 : Integer.MAX_VALUE;
+            }
+            if (EdgeConditions.matches(condition, EdgeConditions.NOT_EMPTY)) {
+                return outputEmpty ? Integer.MAX_VALUE : 0;
+            }
+        }
         if (StringUtils.hasText(route) && StringUtils.hasText(condition)) {
             String expectedRoute = condition.regionMatches(true, 0, "route:", 0, "route:".length())
                     ? condition.substring("route:".length()).trim()
@@ -1171,7 +1255,8 @@ public final class RuntimeGraphSpecExecutionEngine {
                 return 0;
             }
         }
-        return unconditional ? (StringUtils.hasText(route) ? 1 : 0) : Integer.MAX_VALUE;
+        // Unconditional edges always rank after a matching route or emptiness condition.
+        return unconditional ? 1 : Integer.MAX_VALUE;
     }
 
     private record NextNodeResolution(boolean matched, String nodeId) {

@@ -7,11 +7,10 @@ import com.enterprise.ai.retrieval.KnowledgeRetrievalEngine;
 final class KnowledgeManagementTestServices {
     private KnowledgeManagementTestServices() { }
 
-    static KnowledgeServiceImpl create(FileInfoRepository files, ChunkRepository chunks, KnowledgeTagRepository tagRows,
-            KnowledgeQuestionService questions, KnowledgeOperationsQuery operations, KnowledgeIndexWriteService indexWrites,
+    static KnowledgeServiceImpl create(FileInfoRepository files, ChunkRepository chunks, KnowledgeOperationsQuery operations, KnowledgeIndexWriteService indexWrites,
             KnowledgeBaseLookup lookup, KnowledgeRetrievalEngine retrieval, KnowledgeFileDeletionService deletion,
-            KnowledgeBaseLifecycleService bases, KnowledgeTagService tags) {
-        return new KnowledgeServiceImpl(questions, operations, indexWrites, lookup, retrieval, deletion, bases, tags,
-                new KnowledgeContentQuery(files, chunks, tagRows, lookup), new KnowledgeChunkEditingService(chunks));
+            KnowledgeBaseLifecycleService bases) {
+        return new KnowledgeServiceImpl(operations, indexWrites, lookup, retrieval, deletion, bases,
+                new KnowledgeContentQuery(files, chunks, lookup), new KnowledgeChunkEditingService(chunks));
     }
 }

@@ -63,6 +63,8 @@ public final class ReachAiAgentScopeChatModel extends ChatModelBase {
     private final AtomicReference<ModelStreamSubscription> activeSubscription = new AtomicReference<>();
     private final AtomicInteger modelRoundCount = new AtomicInteger(0);
     private final List<Map<String, Object>> modelRounds = new CopyOnWriteArrayList<>();
+    /** Sum of provider-reported tokens over all rounds; null until a round reports usage. */
+    private final AtomicReference<Long> reportedTokenTotal = new AtomicReference<>();
     private final AtomicReference<Long> firstPublicDeltaAtMs = new AtomicReference<>();
     private final long createdAtMs = System.currentTimeMillis();
 
@@ -135,6 +137,11 @@ public final class ReachAiAgentScopeChatModel extends ChatModelBase {
         Map<String, Object> metadata = new LinkedHashMap<>();
         metadata.put("supervisor.modelRounds", List.copyOf(modelRounds));
         metadata.put("supervisor.modelRoundCount", modelRoundCount.get());
+        // Run-level total for runtime_run.token_cost; per-round copies above are skipped when totalling.
+        Long tokens = reportedTokenTotal.get();
+        if (tokens != null) {
+            metadata.put("tokenCost", tokens);
+        }
         if (firstPublicDeltaAtMs.get() != null) {
             metadata.put("supervisor.firstPublicDeltaMs", firstPublicDeltaAtMs.get());
         }
@@ -579,6 +586,10 @@ public final class ReachAiAgentScopeChatModel extends ChatModelBase {
         }
         if (completionTokens != null) {
             round.put("completionTokens", completionTokens);
+        }
+        if (promptTokens != null || completionTokens != null) {
+            long roundTokens = (promptTokens == null ? 0L : promptTokens) + (completionTokens == null ? 0L : completionTokens);
+            reportedTokenTotal.accumulateAndGet(roundTokens, (current, add) -> current == null ? add : current + add);
         }
         modelRounds.add(round);
     }

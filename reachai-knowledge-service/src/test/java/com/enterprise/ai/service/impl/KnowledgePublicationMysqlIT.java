@@ -101,7 +101,7 @@ class KnowledgePublicationMysqlIT {
             var step = new com.enterprise.ai.pipeline.step.MetadataPersistStep(
                     session.getMapper(com.enterprise.ai.repository.KnowledgeBaseRepository.class),
                     session.getMapper(com.enterprise.ai.repository.FileInfoRepository.class),
-                    session.getMapper(com.enterprise.ai.repository.ChunkRepository.class), new com.fasterxml.jackson.databind.ObjectMapper(), guard, org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeTagService.class), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeQuestionService.class));
+                    session.getMapper(com.enterprise.ai.repository.ChunkRepository.class), new com.fasterxml.jackson.databind.ObjectMapper(), guard);
             var context = new PipelineContext();
             context.setFileId("file"); context.setImportJobId("job"); context.setImportLeaseOwner("current");
             context.setKnowledgeBaseCode("kb"); context.setKnowledgeBaseId(7L); context.setVectorCollectionName("kb"); context.setFileName("测试文档.pdf");

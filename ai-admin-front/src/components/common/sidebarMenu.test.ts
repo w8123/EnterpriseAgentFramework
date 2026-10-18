@@ -35,7 +35,18 @@ describe('sidebarMenu information architecture', () => {
 
     expect(targets.some(path => path === '/domain' || path.startsWith('/domain/'))).toBe(false)
     expect(targets.some(path => path.startsWith('/context/'))).toBe(false)
-    expect(targets).toEqual(expect.arrayContaining(['/settings/runtime-user-mappings', '/tool/retrieval', '/retrieval']))
+    expect(targets).toEqual(expect.arrayContaining(['/settings/runtime-user-mappings', '/tool/retrieval']))
+  })
+
+  it('keeps only 知识库 for knowledge; file upload, retrieval test and biz index live elsewhere', () => {
+    const targets = sidebarMenu.flatMap((entry) => (
+      entry.kind === 'item' ? [entry.index, ...(entry.children ?? []).map(child => child.index)] : []
+    ))
+
+    expect(targets).toContain('/knowledge')
+    expect(targets).not.toContain('/knowledge/import')
+    expect(targets).not.toContain('/retrieval')
+    expect(targets).not.toContain('/biz-index')
   })
 
   it('does not expose a generic Tool catalog as a product asset', () => {
@@ -110,9 +121,12 @@ describe('sidebarMenu information architecture', () => {
     expect(visible.some((entry) => entry.kind === 'item' && entry.index === '/identity-group')).toBe(false)
   })
 
-  it('shows Automation only to principals with Automation read access', () => {
-    expect(visibleTargets(['platform:read'])).not.toContain('/automations')
-    expect(visibleTargets(['automation:read'])).toContain('/automations')
+  it('shows one run center entry to anyone who can open one of its tabs', () => {
+    expect(visibleTargets(['platform:read'])).not.toContain('/run-center')
+    expect(visibleTargets(['automation:read'])).toContain('/run-center')
+    expect(visibleTargets(['agent:evaluate'])).toContain('/run-center')
+    const runCenter = sidebarMenu.find(entry => entry.kind === 'item' && entry.index === '/run-center')
+    expect(runCenter?.kind === 'item' ? runCenter.children : 'missing').toBeUndefined()
   })
 
   it('separates Build assets from RunOps navigation permissions', () => {
@@ -120,9 +134,9 @@ describe('sidebarMenu information architecture', () => {
     const operator = visibleTargets(['runops:read'])
 
     expect(builder).toContain('/agent')
-    expect(builder).not.toContain('/runops')
+    expect(builder).not.toContain('/run-center')
     expect(operator).not.toContain('/agent')
-    expect(operator).toContain('/runops')
+    expect(operator).toContain('/run-center')
   })
 })
 
@@ -134,8 +148,8 @@ function visibleTargets(permissions: string[]): string[] {
 
 describe('resolveActiveMenu', () => {
   it.each([
-    ['/knowledge/import', '/knowledge/import'],
     ['/knowledge/demo', '/knowledge'],
+    ['/biz-index/orders', '/registry/projects'],
     ['/skill-market', '/skills'],
     ['/business-capabilities/java-methods', '/business-capabilities'],
     ['/business-capabilities/http-apis', '/business-capabilities'],
@@ -143,7 +157,9 @@ describe('resolveActiveMenu', () => {
     ['/business-methods', '/business-capabilities'],
     ['/apis/17', '/business-capabilities'],
     ['/model', '/model/instances'],
-    ['/automations/demo', '/automations'],
+    ['/automations/demo', '/run-center'],
+    ['/runops/trace-1', '/run-center'],
+    ['/runops/evals/agent-1', '/run-center'],
     ['/tool/retrieval', '/tool/retrieval'],
   ])('maps %s to %s', (path, expected) => {
     expect(resolveActiveMenu(path)).toBe(expected)

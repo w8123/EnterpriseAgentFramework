@@ -5,7 +5,7 @@
       domain="knowledge"
       eyebrow="Knowledge Hub"
       title="知识库管理"
-      description="统一管理知识源、向量化模型、文件资产与检索状态。"
+      description="上传制度、手册等文件，检索设置好后一键接入 Agent，让 Agent 按资料回答。"
     >
       <template #summary>
         <HeaderMiniStat label="知识库总数" :value="knowledgeStore.knowledgeList.length" hint="统一知识源" />
@@ -56,8 +56,8 @@
               <el-option label="已禁用" value="disabled" />
             </el-select>
           </el-form-item>
-          <el-form-item label="模型配置">
-            <el-select v-model="embeddingFilter" clearable placeholder="Embedding 配置">
+          <el-form-item label="向量模型">
+            <el-select v-model="embeddingFilter" clearable placeholder="是否已配置">
               <el-option label="已配置" value="configured" />
               <el-option label="未配置" value="unconfigured" />
             </el-select>
@@ -95,14 +95,14 @@
             </span>
             <span>
               <strong>{{ kb.chunkCount ?? 0 }}</strong>
-              <small>知识片段</small>
+              <small>段落</small>
             </span>
           </div>
 
           <div class="project-list-card__meta">
             <el-icon><Coin /></el-icon>
-            <span>Embedding</span>
-            <strong>{{ kb.embeddingModelInstanceId || '未配置模型实例' }}</strong>
+            <span>使用情况</span>
+            <strong>{{ usageSummary(usageFor(usages, kb.code)) }}</strong>
           </div>
 
           <div class="project-list-card__footer">
@@ -140,14 +140,26 @@
             <el-tag effect="plain" size="small">{{ row.code }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="embeddingModelInstanceId" label="Embedding 实例" min-width="160">
+        <el-table-column label="向量模型" min-width="170" show-overflow-tooltip>
           <template #default="{ row }">
-            {{ row.embeddingModelInstanceId || '-' }}
+            {{ modelName(row.embeddingModelInstanceId) }}
           </template>
         </el-table-column>
-        <el-table-column prop="fileCount" label="文件数" width="90" align="center">
+        <el-table-column prop="fileCount" label="文件" width="80" align="center">
           <template #default="{ row }">
             <el-tag size="small" effect="plain">{{ row.fileCount ?? 0 }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="chunkCount" label="段落" width="80" align="center">
+          <template #default="{ row }">
+            <el-tag size="small" effect="plain">{{ row.chunkCount ?? 0 }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="使用中的 Workflow" min-width="200" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span :class="{ 'usage-muted': usageFor(usages, row.code).workflows.length === 0 }">
+              {{ usageSummary(usageFor(usages, row.code)) }}
+            </span>
           </template>
         </el-table-column>
         <el-table-column prop="description" label="描述" min-width="180" show-overflow-tooltip />
@@ -259,7 +271,7 @@
           </GlassSectionHeader>
 
           <div class="glass-dialog-grid">
-            <el-form-item label="Embedding 实例" prop="embeddingModelInstanceId">
+            <el-form-item label="向量模型" prop="embeddingModelInstanceId">
               <el-select
                 v-model="form.embeddingModelInstanceId"
                 filterable
@@ -284,7 +296,7 @@
                 </template>
               </el-select>
             </el-form-item>
-            <el-form-item label="LLM 实例" prop="llmModelInstanceId">
+            <el-form-item label="回答模型" prop="llmModelInstanceId">
               <el-select
                 v-model="form.llmModelInstanceId"
                 filterable
@@ -309,12 +321,12 @@
                 </template>
               </el-select>
             </el-form-item>
-            <el-form-item class="is-wide" label="Rerank 实例（可选）">
+            <el-form-item class="is-wide" label="重排模型（可选）">
               <el-select
                 v-model="form.rerankModelInstanceId"
                 clearable
                 filterable
-                placeholder="需要提升结果排序质量时，可选择 Reranker 模型实例"
+                placeholder="需要提升结果排序质量时，可选择重排模型"
                 :loading="rerankInstancesLoading"
                 @visible-change="handleRerankSelectVisible"
               >
@@ -341,7 +353,7 @@
 
       <template #hint>
         <el-icon><InfoFilled /></el-icon>
-        Embedding 与 LLM 为必选项，创建后仍可继续调整。
+        向量模型与回答模型为必选项，创建后仍可继续调整；更换向量模型需要重新解析已有文件。
       </template>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
@@ -369,14 +381,28 @@ import HeaderMiniStat from '@/components/common/HeaderMiniStat.vue'
 import DataTableShell from '@/components/common/DataTableShell.vue'
 import FilterBar from '@/components/common/FilterBar.vue'
 import { useKnowledgeStore } from '@/store/knowledge'
-import { createKnowledge, updateKnowledge, deleteKnowledge } from '@/api/knowledge'
+import { createKnowledge, updateKnowledge, deleteKnowledge, getKnowledgeUsage } from '@/api/knowledge'
 import { getModelInstances } from '@/api/model'
-import type { KnowledgeBase, KnowledgeBaseForm } from '@/types/knowledge'
+import type { KnowledgeBase, KnowledgeBaseForm, KnowledgeUsage } from '@/types/knowledge'
+import { usageFor, usageSummary } from './knowledge/knowledgeDetailModel'
+import { useModelNames } from './knowledge/useModelNames'
 import type { ModelInstance } from '@/types/model'
 import { normalizeActiveModelInstances } from '@/utils/modelSelection'
 
 const router = useRouter()
 const knowledgeStore = useKnowledgeStore()
+const usages = ref<KnowledgeUsage[]>([])
+const { loadModelNames, modelName } = useModelNames()
+
+async function fetchUsages(codes: string[]) {
+  if (codes.length === 0) return
+  try {
+    const { data } = await getKnowledgeUsage(codes)
+    usages.value = Array.isArray(data) ? data : []
+  } catch {
+    usages.value = []
+  }
+}
 const viewMode = ref<'table' | 'card'>('table')
 const keyword = ref('')
 const statusFilter = ref<'' | 'enabled' | 'disabled'>('')
@@ -445,8 +471,8 @@ const formRules: FormRules = {
     { required: true, message: '请输入知识库编码', trigger: 'blur' },
     { pattern: /^[a-zA-Z][a-zA-Z0-9_]*$/, message: '编码只能包含字母、数字和下划线，且以字母开头', trigger: 'blur' },
   ],
-  embeddingModelInstanceId: [{ required: true, message: '请选择 Embedding 模型实例', trigger: 'change' }],
-  llmModelInstanceId: [{ required: true, message: '请选择 LLM 模型实例', trigger: 'change' }],
+  embeddingModelInstanceId: [{ required: true, message: '请选择向量模型', trigger: 'change' }],
+  llmModelInstanceId: [{ required: true, message: '请选择回答模型', trigger: 'change' }],
 }
 
 function resetForm() {
@@ -598,8 +624,14 @@ watch(
   },
 )
 
+watch(
+  () => knowledgeStore.knowledgeList.map((item) => item.code).join(','),
+  (codes) => { void fetchUsages(codes ? codes.split(',') : []) },
+)
+
 onMounted(() => {
   knowledgeStore.fetchList()
+  void loadModelNames()
   fetchEmbeddingInstances()
   fetchRerankInstances()
   fetchLlmInstances()
@@ -609,5 +641,9 @@ onMounted(() => {
 <style scoped lang="scss">
 .knowledge-list-surface {
   margin-bottom: 0;
+}
+
+.usage-muted {
+  color: var(--text-muted);
 }
 </style>

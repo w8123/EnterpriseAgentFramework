@@ -32,10 +32,10 @@ class KnowledgeContentManagementTest {
                 assertEquals(java.sql.Connection.TRANSACTION_REPEATABLE_READ, connection.getTransactionIsolation());
             }
             db = new KnowledgeQueryTestDatabase(mysql,
-                    KnowledgeBaseRepository.class, FileInfoRepository.class, ChunkRepository.class, KnowledgeTagRepository.class);
+                    KnowledgeBaseRepository.class, FileInfoRepository.class, ChunkRepository.class);
         } else {
-            db = new KnowledgeQueryTestDatabase(List.of("knowledge_base", "knowledge_file_info", "knowledge_chunk", "knowledge_tag"),
-                    KnowledgeBaseRepository.class, FileInfoRepository.class, ChunkRepository.class, KnowledgeTagRepository.class);
+            db = new KnowledgeQueryTestDatabase(List.of("knowledge_base", "knowledge_file_info", "knowledge_chunk"),
+                    KnowledgeBaseRepository.class, FileInfoRepository.class, ChunkRepository.class);
         }
         db.jdbc().update("INSERT INTO knowledge_base(id,name,code,vector_collection_name) VALUES (7,'知识库','kb','physical_kb'),(8,'其他库','other','physical_other')");
         db.jdbc().update("INSERT INTO knowledge_file_info(file_id,knowledge_base_id,file_name) VALUES ('file',7,'资料.txt'),('other-file',8,'其他.txt')");
@@ -44,10 +44,9 @@ class KnowledgeContentManagementTest {
                 + "(12,'file',7,'其他正文','匹配标题',0,8,0,'vector-12','physical_kb'),"
                 + "(13,'file',7,'第三正文','第三标题',2,1,1,'vector-13','physical_kb'),"
                 + "(21,'other-file',8,'匹配其他库','其他标题',0,99,1,'vector-21','physical_other')");
-        service = KnowledgeManagementTestServices.create(db.mapper(FileInfoRepository.class), db.mapper(ChunkRepository.class), db.mapper(KnowledgeTagRepository.class),
-                mock(KnowledgeQuestionService.class), mock(KnowledgeOperationsQuery.class), mock(KnowledgeIndexWriteService.class),
+        service = KnowledgeManagementTestServices.create(db.mapper(FileInfoRepository.class), db.mapper(ChunkRepository.class), mock(KnowledgeOperationsQuery.class), mock(KnowledgeIndexWriteService.class),
                 new KnowledgeBaseLookup(db.mapper(KnowledgeBaseRepository.class)), mock(KnowledgeRetrievalEngine.class),
-                mock(KnowledgeFileDeletionService.class), mock(KnowledgeBaseLifecycleService.class), mock(KnowledgeTagService.class));
+                mock(KnowledgeFileDeletionService.class), mock(KnowledgeBaseLifecycleService.class));
         transaction = new TransactionTemplate(new DataSourceTransactionManager(db.jdbc().getDataSource()));
     }
 
@@ -67,19 +66,9 @@ class KnowledgeContentManagementTest {
 
     @Test
     void chunkSearchKeepsKeywordEnabledRankingAndMinimumLimit() {
-        assertEquals(List.of(12L, 11L), ids(service.listChunks("kb", "匹配", null, null, null, 20)));
-        assertEquals(List.of(11L), ids(service.listChunks("kb", "匹配", 1, null, null, 20)));
-        assertEquals(List.of(12L), ids(service.listChunks("kb", null, null, null, null, 0)));
-    }
-
-    @Test
-    void tagSearchIgnoresInvalidTargetNumbersAndOtherOwners() {
-        db.jdbc().update("INSERT INTO knowledge_tag(knowledge_base_id,target_type,target_id,tag_key,tag_value) VALUES "
-                + "(7,'CHUNK','0011','类别','保留'),(7,'CHUNK','11x','类别','保留'),"
-                + "(7,'CHUNK','9223372036854775808','类别','保留'),(8,'CHUNK','12','类别','保留'),"
-                + "(7,'FILE','13','类别','保留')");
-        assertEquals(List.of(11L), ids(service.listChunks("kb", null, null, "类别", "保留", 20)));
-        assertTrue(service.listChunks("kb", null, null, "不存在", null, 20).isEmpty());
+        assertEquals(List.of(12L, 11L), ids(service.listChunks("kb", "匹配", null, 20)));
+        assertEquals(List.of(11L), ids(service.listChunks("kb", "匹配", 1, 20)));
+        assertEquals(List.of(12L), ids(service.listChunks("kb", null, null, 0)));
     }
 
     @Test

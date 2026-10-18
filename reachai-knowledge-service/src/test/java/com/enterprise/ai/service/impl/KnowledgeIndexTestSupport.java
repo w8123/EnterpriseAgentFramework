@@ -13,16 +13,15 @@ import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 
 final class KnowledgeIndexTestSupport {
     static KnowledgeBaseLifecycleService baseLifecycle(KnowledgeQueryTestDatabase db,VectorService vectors,
-            KnowledgeFileDeletionService deletion,KnowledgeTagRepository tags,KnowledgeQuestionRepository questions) {
-        return baseLifecycle(db, vectors, org.mockito.Mockito.mock(EmbeddingService.class), deletion, tags, questions);
+            KnowledgeFileDeletionService deletion) {
+        return baseLifecycle(db, vectors, org.mockito.Mockito.mock(EmbeddingService.class), deletion);
     }
 
     static KnowledgeBaseLifecycleService baseLifecycle(KnowledgeQueryTestDatabase db, VectorService vectors,
-            EmbeddingService embeddings, KnowledgeFileDeletionService deletion,
-            KnowledgeTagRepository tags, KnowledgeQuestionRepository questions) {
+            EmbeddingService embeddings, KnowledgeFileDeletionService deletion) {
         var manager=new DataSourceTransactionManager(db.jdbc().getDataSource());
         var store=collectionStore(db);
-        return new KnowledgeBaseLifecycleService(db.mapper(KnowledgeBaseRepository.class),tags, new com.enterprise.ai.service.impl.KnowledgeQuestionService(db.mapper(KnowledgeBaseRepository.class), org.mockito.Mockito.mock(com.enterprise.ai.repository.ChunkRepository.class), questions, manager),deletion,store,vectors,embeddings,manager);
+        return new KnowledgeBaseLifecycleService(db.mapper(KnowledgeBaseRepository.class),deletion,store,vectors,embeddings,manager);
     }
 
     static KnowledgeCollectionLifecycleStore collectionStore(KnowledgeQueryTestDatabase db) {
@@ -46,7 +45,7 @@ final class KnowledgeIndexTestSupport {
 
     static MetadataPersistStep metadata(KnowledgeQueryTestDatabase db,DocumentIndexExecutionStore store) {
         return new MetadataPersistStep(db.mapper(KnowledgeBaseRepository.class),db.mapper(FileInfoRepository.class),
-                db.mapper(ChunkRepository.class),new ObjectMapper(),new DocumentImportPublicationGuard(db.mapper(DocumentImportJobRepository.class),store, deletion(db), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeFileReadAccessService.class)), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeTagService.class), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeQuestionService.class));
+                db.mapper(ChunkRepository.class),new ObjectMapper(),new DocumentImportPublicationGuard(db.mapper(DocumentImportJobRepository.class),store, deletion(db), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeFileReadAccessService.class)));
     }
 
     static KnowledgeFileDeletionService deletion(KnowledgeQueryTestDatabase db) {
@@ -54,14 +53,14 @@ final class KnowledgeIndexTestSupport {
     }
 
     static KnowledgeFileDeletionService deletion(KnowledgeQueryTestDatabase db,com.enterprise.ai.pipeline.document.artifact.DocumentArtifactStore artifacts) {
-        return deletion(db,artifacts,org.mockito.Mockito.mock(UserFilePermissionRepository.class),org.mockito.Mockito.mock(KnowledgeQuestionRepository.class));
+        return deletion(db,artifacts,org.mockito.Mockito.mock(UserFilePermissionRepository.class));
     }
 
     static KnowledgeFileDeletionService deletion(KnowledgeQueryTestDatabase db,com.enterprise.ai.pipeline.document.artifact.DocumentArtifactStore artifacts,
-            UserFilePermissionRepository permissions,KnowledgeQuestionRepository questions) {
+            UserFilePermissionRepository permissions) {
         return new KnowledgeFileDeletionService(db.mapper(KnowledgeBaseRepository.class),db.mapper(FileInfoRepository.class),
                 db.mapper(ChunkRepository.class),db.mapper(DocumentImportJobRepository.class),db.mapper(DocumentIndexExecutionRepository.class),
-                executions(db),artifacts,permissions, new com.enterprise.ai.service.impl.KnowledgeQuestionService(db.mapper(KnowledgeBaseRepository.class), db.mapper(ChunkRepository.class), questions, new DataSourceTransactionManager(db.jdbc().getDataSource())),new DataSourceTransactionManager(db.jdbc().getDataSource()), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeTagService.class));
+                executions(db),artifacts,permissions,new DataSourceTransactionManager(db.jdbc().getDataSource()));
     }
 
     static KnowledgeIndexWriteService writer(KnowledgeQueryTestDatabase db,EmbeddingService embedding,VectorService vectors) {

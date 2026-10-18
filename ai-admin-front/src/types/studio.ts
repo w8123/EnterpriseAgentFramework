@@ -50,6 +50,10 @@ export interface StudioFieldSchema {
   component?: string
   datasource?: string
   options?: Array<{ label: string; value: string | number | boolean }>
+  /** Parameter extraction only: upstream list expression the value must come from. */
+  optionsFrom?: string
+  optionValueKey?: string
+  optionLabelKey?: string
   slotFilling?: StudioSlotFillingConfig
 }
 
@@ -137,10 +141,11 @@ export interface LlmPromptMessage {
 export interface KnowledgeNodeConfig {
   knowledgeBaseCodes: string[]
   query: string
-  topK: number
+  /** Unset retrieval knobs use the knowledge base's own settings at run time. */
+  topK?: number
   similarityThreshold?: number
-  searchMode: string
-  rerankEnabled: boolean
+  searchMode?: string
+  rerankEnabled?: boolean
   /** REQUIRED routes empty retrieval to no_evidence; OPTIONAL keeps legacy linear fallback. */
   evidencePolicy: 'REQUIRED' | 'OPTIONAL'
 }

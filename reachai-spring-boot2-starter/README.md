@@ -95,6 +95,38 @@ explicit task/API Management action; it does not run automatically at startup.
 
 ## Server-side Embed Token broker
 
+### Built-in broker (recommended)
+
+Provide one `ReachAiEmbedPrincipalResolver` bean and the starter exposes
+`POST {context-path}/reachai/embed/token`. The resolver runs inside the host's
+authenticated request; return `null` when nobody is logged in and the endpoint
+answers 401.
+
+```java
+@Bean
+public ReachAiEmbedPrincipalResolver reachAiEmbedPrincipalResolver() {
+    return agentId -> {
+        BusinessUser user = currentUser.get();          // the host's own login state
+        if (user == null) {
+            return null;
+        }
+        return new ReachAiEmbedPrincipal(user.id(), user.id(), user.name(),
+                user.roleCodes(), Collections.<String, Object>emptyMap());
+    };
+}
+```
+
+The browser `tokenProvider` posts the SDK context (`pageKey`,
+`pageInstanceId`, `route`, `origin`) plus `agentId` and receives
+`{token, expiresIn, sessionHint}`. The request `Origin` header wins over the
+body `origin`; a mismatch is rejected with 400. If ReachAI refuses the exchange
+(origin or Agent not allowed in the Agent「嵌入」page) the endpoint answers 502
+without leaking upstream details. `/reachai/**` is usually excluded from the
+host's login filter for the registry callback; the host's token filter must
+still populate its security context so the resolver can see the user.
+
+### Custom broker
+
 Resolve the current user with the business application's own authentication,
 then call the starter client. Never accept `principal` from the browser.
 
@@ -135,6 +167,14 @@ public class ReachAiEmbedTokenController {
 The broker stays behind normal business authentication. The separate
 `/api/reachai/embed/**` proxy must preserve the Embed Bearer and must not pass it
 through the business OAuth2 resource-server parser.
+
+## Code-defined Agent graphs
+
+Beans of type `ReachAgentGraph` (built with `ReachGraph.agent(...)`) are pushed
+to ReachAI as Workflows after startup registration when
+`reachai.agent-graph.sync-on-startup` is `true` (default). The request uses the
+request-bound project signature; failures are logged and do not stop startup.
+Without such beans nothing is sent.
 
 ## Registry callback boundary
 

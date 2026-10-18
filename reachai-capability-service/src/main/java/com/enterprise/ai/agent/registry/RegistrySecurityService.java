@@ -77,21 +77,31 @@ public class RegistrySecurityService {
         return requireCredential(entity.getId());
     }
 
-    /** Full administrative policy replacement; credential identity is owned by rotation. */
+    /**
+     * Full administrative policy replacement; credential identity is owned by rotation.
+     *
+     * <p>The credential revision is part of every published business-method execution binding
+     * ({@code BusinessMethodExecutionRevision}). Embed origins, allowed Agents and token TTL do not
+     * change how business methods are signed or called, so editing them must not invalidate published
+     * Workflows; only a status change bumps the revision.</p>
+     */
     @Transactional
     public RegistryCredentialEntity updateAdministrativePolicy(Long credentialId,
                                                                List<String> allowedOrigins,
                                                                List<String> allowedAgentIds,
                                                                int tokenTtlSeconds,
                                                                String status) {
+        RegistryCredentialEntity current = requireCredential(credentialId);
         var update = Wrappers.<RegistryCredentialEntity>lambdaUpdate()
                 .eq(RegistryCredentialEntity::getId, credentialId)
                 .set(RegistryCredentialEntity::getAllowedOriginsJson, writeJson(allowedOrigins))
                 .set(RegistryCredentialEntity::getAllowedAgentIdsJson, writeJson(allowedAgentIds))
                 .set(RegistryCredentialEntity::getTokenTtlSeconds, tokenTtlSeconds)
-                .setSql("revision = revision + 1")
                 .set(RegistryCredentialEntity::getUpdatedAt, LocalDateTime.now());
-        if (StringUtils.hasText(status)) update.set(RegistryCredentialEntity::getStatus, status.trim());
+        if (StringUtils.hasText(status) && !status.trim().equals(current.getStatus())) {
+            update.set(RegistryCredentialEntity::getStatus, status.trim());
+            update.setSql("revision = revision + 1");
+        }
         if (credentialMapper.update(null, update) != 1) {
             throw new IllegalArgumentException("Credential not found: " + credentialId);
         }
@@ -136,8 +146,8 @@ public class RegistrySecurityService {
             changed = true;
         }
         if (changed) {
+            // Embed-only change: keep the revision so published business-method bindings stay valid.
             update.set(RegistryCredentialEntity::getUpdatedAt, LocalDateTime.now());
-            update.setSql("revision = revision + 1");
             if (credentialMapper.update(null, update) != 1) throw new IllegalArgumentException("registry credential policy changed concurrently");
         }
     }

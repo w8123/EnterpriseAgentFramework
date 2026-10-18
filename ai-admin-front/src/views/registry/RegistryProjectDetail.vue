@@ -243,6 +243,7 @@
         </div>
       </el-card>
 
+      <ProjectBizIndexCard v-if="projectSection === 'overview'" :project-code="project?.projectCode || projectCode" />
     </template>
 
     <GlassDialog
@@ -720,6 +721,7 @@ import { useRegistryProjectDetailUiState } from '@/views/registry/composables/us
 import { useRegistryProjectWorkbench } from '@/views/registry/composables/useRegistryProjectWorkbench'
 import ProjectRouteMissingState from '@/views/registry/components/ProjectRouteMissingState.vue'
 import ProjectWorkbenchLoadErrorState from '@/views/registry/components/ProjectWorkbenchLoadErrorState.vue'
+import ProjectBizIndexCard from '@/views/registry/components/ProjectBizIndexCard.vue'
 
 const { theme } = useTheme()
 

@@ -70,3 +70,7 @@ export function cancelEvalOpsExperiment(experimentId: number) {
     `/api/runtime/evals/v2/experiments/${experimentId}/cancel`,
   )
 }
+
+export function getEvalOpsReadiness() {
+  return controlRequest.get<{ workerEnabled: boolean }>('/api/runtime/evals/v2/readiness')
+}

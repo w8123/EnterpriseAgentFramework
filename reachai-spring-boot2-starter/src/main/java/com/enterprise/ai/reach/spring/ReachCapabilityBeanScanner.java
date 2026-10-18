@@ -153,6 +153,7 @@ public class ReachCapabilityBeanScanner {
                 || bean instanceof ReachAiRegistryHeartbeatScheduler
                 || bean instanceof ReachCapabilityEndpoint
                 || bean instanceof ReachCapabilitySyncEndpoint
+                || bean instanceof ReachAiEmbedTokenEndpoint
                 || bean instanceof ReachAiInvocationExceptionHandler;
     }
 

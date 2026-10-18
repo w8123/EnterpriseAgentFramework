@@ -25,9 +25,9 @@ public class KnowledgeRetrievalCore {
     public KnowledgeRetrievalCoreResponse retrieve(KnowledgeRetrievalCoreRequest request) {
         if (request == null) throw new IllegalArgumentException("检索请求不能为空");
         var snapshot = authorization.capture(request.getUserId());
-        if (snapshot.grants().isEmpty()) {
+        if (!snapshot.hasAccess()) {
             return KnowledgeRetrievalCoreResponse.builder().query(request.getQuery()).searchMode(request.getSearchMode())
-                    .totalResults(0).costMs(0L).directReturn(false).items(List.of()).diagnostics(Map.of())
+                    .totalResults(0).costMs(0L).items(List.of()).diagnostics(Map.of())
                     .accessSnapshot(snapshot).build();
         }
         var internal = toInternal(request);
@@ -57,11 +57,10 @@ public class KnowledgeRetrievalCore {
         internal.setScoreThreshold(request.getScoreThreshold());
         internal.setSearchMode(request.getSearchMode());
         internal.setRerankEnabled(request.getRerankEnabled());
-        internal.setDirectReturnEnabled(request.getDirectReturnEnabled());
-        internal.setDirectReturnThreshold(request.getDirectReturnThreshold());
         internal.setVectorWeight(request.getVectorWeight());
         internal.setKeywordWeight(request.getKeywordWeight());
         internal.setRecordHit(request.getRecordHit());
+        internal.setHitSource(request.getHitSource());
         internal.setTraceId(request.getTraceId());
         internal.setUserId(request.getUserId());
         internal.setAccessibleFileIds(request.getAccessibleFileIds());
@@ -76,7 +75,6 @@ public class KnowledgeRetrievalCore {
                     .searchMode("hybrid")
                     .totalResults(0)
                     .costMs(0L)
-                    .directReturn(false)
                     .items(List.of())
                     .diagnostics(Map.of())
                     .build();
@@ -100,7 +98,6 @@ public class KnowledgeRetrievalCore {
                         .knowledgeBaseCode(item.getKnowledgeBaseCode())
                         .chunkIndex(item.getChunkIndex())
                         .hitCount(item.getHitCount())
-                        .directReturn(item.getDirectReturn())
                         .reason(item.getReason())
                         .build());
             }
@@ -110,8 +107,6 @@ public class KnowledgeRetrievalCore {
                 .searchMode(response.getSearchMode())
                 .totalResults(response.getTotalResults())
                 .costMs(response.getCostMs())
-                .directReturn(response.getDirectReturn())
-                .directReturnContent(response.getDirectReturnContent())
                 .items(items)
                 .diagnostics(response.getDiagnostics() == null
                         ? Map.of()

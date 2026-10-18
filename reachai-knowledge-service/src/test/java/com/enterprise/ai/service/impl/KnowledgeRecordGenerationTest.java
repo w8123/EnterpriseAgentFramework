@@ -61,7 +61,7 @@ class KnowledgeRecordGenerationTest {
                     session.getMapper(DocumentIndexExecutionRepository.class), session.getMapper(KnowledgeBaseRepository.class),
                     session.getMapper(FileInfoRepository.class), session.getMapper(ChunkRepository.class), manager);
             permissions = new PermissionServiceImpl(session.getMapper(UserFilePermissionRepository.class), manager);
-            jdbc.update("INSERT INTO knowledge_base(id,code,name,status,vector_collection_name) VALUES (7,'kb','记录身份验证',1,'generation_physical')");
+            jdbc.update("INSERT INTO knowledge_base(id,code,name,status,vector_collection_name,access_mode) VALUES (7,'kb','记录身份验证',1,'generation_physical','FILE_GRANTS')");
             insertFile(); insertGrant();
             jdbc.update("INSERT INTO knowledge_chunk(id,file_id,knowledge_base_id,chunk_index,content,vector_id,collection_name,enabled) VALUES (101,'file',7,0,'身份校验正文','old-vector','generation_physical',1)");
             assertEquals("记录身份验证", jdbc.queryForObject("SELECT name FROM knowledge_base", String.class));

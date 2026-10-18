@@ -1,7 +1,12 @@
 package com.enterprise.ai.reach.spring;
 
+import com.enterprise.ai.reach.sdk.graph.ReachAgentGraph;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -12,10 +17,13 @@ import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Configuration
 @EnableConfigurationProperties(ReachAiRegistryProperties.class)
 public class ReachAiRegistryAutoConfiguration {
+
+    private static final Logger log = LoggerFactory.getLogger(ReachAiRegistryAutoConfiguration.class);
 
     @Bean
     @ConditionalOnMissingBean
@@ -47,6 +55,23 @@ public class ReachAiRegistryAutoConfiguration {
             ReachAiRegistryProperties properties,
             ReachAiRegistryTransport transport) {
         return new ReachAiEmbedTokenClient(properties, transport);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnBean(ReachAiEmbedPrincipalResolver.class)
+    @ConditionalOnClass(name = "org.springframework.web.bind.annotation.RestController")
+    public ReachAiEmbedTokenEndpoint reachAiEmbedTokenEndpoint(ReachAiEmbedPrincipalResolver principalResolver,
+                                                               ReachAiEmbedTokenClient tokenClient) {
+        return new ReachAiEmbedTokenEndpoint(principalResolver, tokenClient);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ReachAiAgentGraphClient reachAiAgentGraphClient(
+            ReachAiRegistryProperties properties,
+            ReachAiRegistryTransport transport) {
+        return new ReachAiAgentGraphClient(properties, transport);
     }
 
     @Bean
@@ -120,10 +145,24 @@ public class ReachAiRegistryAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean(name = "reachAiRegistryStartupRunner")
     public ApplicationRunner reachAiRegistryStartupRunner(ReachAiRegistryProperties properties,
-                                                          ReachAiRegistryClient registryClient) {
+                                                          ReachAiRegistryClient registryClient,
+                                                          ReachAiAgentGraphClient agentGraphClient,
+                                                          ObjectProvider<ReachAgentGraph> agentGraphs) {
         return args -> {
-            if (properties.getRegistry().isEnabled()) {
-                registryClient.registerAndSync();
+            if (!properties.getRegistry().isEnabled()) {
+                return;
+            }
+            registryClient.registerAndSync();
+            List<ReachAgentGraph> graphs = agentGraphs.orderedStream().collect(Collectors.toList());
+            if (properties.getAgentGraph().isSyncOnStartup() && !graphs.isEmpty()) {
+                try {
+                    agentGraphClient.sync(graphs);
+                    log.info("[ReachAI Registry] synced {} agent graph(s) project={}",
+                            graphs.size(), properties.getProject().getCode());
+                } catch (Exception e) {
+                    log.warn("[ReachAI Registry] agent graph sync failed project={} error={}",
+                            properties.getProject().getCode(), e.toString());
+                }
             }
         };
     }

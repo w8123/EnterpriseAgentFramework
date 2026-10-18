@@ -51,6 +51,43 @@ class InternalServiceAuthFilterTest {
         }
     }
 
+    @Test void agentGraphSyncRequiresProjectCredentialForTheSameProject() throws Exception {
+        String secret = "agent-graph-sync-test-secret-at-least-32-bytes";
+        var properties = new InternalServiceAuthProperties(secret, "", 300, 600, 1000, 1024 * 1024);
+        var filter = new InternalServiceAuthFilter(new InternalServiceAuthVerifier(properties,
+                new InMemoryInternalAuthNonceStore()), properties);
+        String path = "/api/registry/projects/yudao-erp/agent-graphs/sync";
+        byte[] body = "{\"graphs\":[]}".getBytes(StandardCharsets.UTF_8);
+
+        var unsigned = new MockHttpServletResponse();
+        filter.doFilter(new MockHttpServletRequest("POST", path), unsigned, new MockFilterChain());
+        assertEquals(401, unsigned.getStatus());
+
+        var accepted = new MockHttpServletResponse();
+        filter.doFilter(signedRequest(secret, path, body, "graph-ok", "POST",
+                InternalServiceAuthHeaders.IDENTITY_SOURCE_PROJECT_CREDENTIAL, "yudao-erp", "credential:1"),
+                accepted, new MockFilterChain());
+        assertEquals(200, accepted.getStatus());
+
+        var otherProject = new MockHttpServletResponse();
+        filter.doFilter(signedRequest(secret, path, body, "graph-other", "POST",
+                InternalServiceAuthHeaders.IDENTITY_SOURCE_PROJECT_CREDENTIAL, "orders", "credential:2"),
+                otherProject, new MockFilterChain());
+        assertEquals(401, otherProject.getStatus());
+
+        var platform = new MockHttpServletResponse();
+        filter.doFilter(signedRequest(secret, path, body, "graph-platform", "POST",
+                InternalServiceAuthHeaders.IDENTITY_SOURCE_PLATFORM_SESSION, "yudao-erp", "42"),
+                platform, new MockFilterChain());
+        assertEquals(401, platform.getStatus());
+
+        var projectElsewhere = new MockHttpServletResponse();
+        filter.doFilter(signedRequest(secret, "/api/workflows/wf-1/versions/publish", body, "graph-elsewhere", "POST",
+                InternalServiceAuthHeaders.IDENTITY_SOURCE_PROJECT_CREDENTIAL, "yudao-erp", "credential:1"),
+                projectElsewhere, new MockFilterChain());
+        assertEquals(401, projectElsewhere.getStatus());
+    }
+
     @Test void capabilityReferencesRequireAttestedPlatformSession() throws Exception {
         String secret = "runtime-capability-reference-secret-at-least-32bytes";
         var properties = new InternalServiceAuthProperties(secret, "", 300, 600, 1000, 1024 * 1024);

@@ -36,6 +36,7 @@ const elementLabels: Record<string, string> = {
   TEXT: '文本',
   LIST_ITEM: '列表项',
   CODE: '代码',
+  SECTION: '章节',
 }
 
 export function documentProviderLabel(provider?: string | null): string {

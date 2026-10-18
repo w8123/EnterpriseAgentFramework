@@ -44,4 +44,30 @@ public interface UserFilePermissionRepository extends BaseMapper<UserFilePermiss
             """)
     @Options(useCache = false, flushCache = Options.FlushCachePolicy.TRUE)
     List<AuthorizedKnowledgeChunk> selectAuthorizedChunks(@Param("userId") String userId, @Param("chunkIds") List<Long> chunkIds);
+
+    @Select("""
+            SELECT id FROM knowledge_base
+             WHERE status=1 AND access_mode='ALL_CALLERS'
+               AND vector_collection_name IS NOT NULL AND vector_collection_name<>''
+            """)
+    @Options(useCache = false, flushCache = Options.FlushCachePolicy.TRUE)
+    List<Long> selectOpenKnowledgeBaseIds();
+
+    /** Current enabled chunks of ALL_CALLERS bases; grant columns stay null. */
+    @Select("""
+            <script>
+            SELECT c.id AS chunk_id,NULL AS grant_id,NULL AS grant_generation,f.id AS file_record_id,
+                   f.record_generation AS file_generation,f.knowledge_base_id,f.file_id,
+                   k.vector_collection_name AS collection_name,k.code AS knowledge_base_code,c.vector_id,c.content,f.file_name
+              FROM knowledge_chunk c
+              JOIN knowledge_file_info f ON f.file_id=c.file_id AND f.knowledge_base_id=c.knowledge_base_id
+              JOIN knowledge_base k ON k.id=f.knowledge_base_id
+             WHERE k.status=1 AND k.access_mode='ALL_CALLERS' AND (c.enabled IS NULL OR c.enabled!=0)
+               AND k.id IN <foreach collection="baseIds" item="id" open="(" separator="," close=")">#{id}</foreach>
+               AND c.id IN <foreach collection="chunkIds" item="id" open="(" separator="," close=")">#{id}</foreach>
+            </script>
+            """)
+    @Options(useCache = false, flushCache = Options.FlushCachePolicy.TRUE)
+    List<AuthorizedKnowledgeChunk> selectOpenChunks(@Param("baseIds") java.util.Collection<Long> baseIds,
+                                                    @Param("chunkIds") List<Long> chunkIds);
 }

@@ -52,7 +52,7 @@ class KnowledgeCombinedPublicationIT {
                 var transactionManager = new DataSourceTransactionManager(source);
                 var executions = KnowledgeIndexTestSupport.executions(session, transactionManager);
                 var metadata = new MetadataPersistStep(bases, files, chunks, new com.fasterxml.jackson.databind.ObjectMapper(),
-                        new DocumentImportPublicationGuard(jobs, executions, org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeFileDeletionService.class), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeFileReadAccessService.class)), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeTagService.class), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeQuestionService.class));
+                        new DocumentImportPublicationGuard(jobs, executions, org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeFileDeletionService.class), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeFileReadAccessService.class)));
                 var current = context(collection, "current", "当前发布正文");
                 var stale = context(collection, "stale", "旧执行正文");
                 var vectorStep = new VectorStoreStep(vectors, executions);

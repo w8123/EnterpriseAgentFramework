@@ -768,16 +768,15 @@ CREATE TABLE IF NOT EXISTS `knowledge_user_file_permission` (
     KEY `idx_user_id` (`user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户文件权限';
 
--- Knowledge operations upgrade: enterprise scope, retrieval policy, direct return and rerank switches.
+-- Knowledge operations upgrade: enterprise scope, caller access, retrieval policy and rerank switch.
 CALL add_col_if_absent('knowledge_base', 'workspace_id', 'VARCHAR(64) NOT NULL DEFAULT ''default'' COMMENT ''workspace isolation key'' AFTER `description`');
 CALL add_col_if_absent('knowledge_base', 'project_code', 'VARCHAR(64) DEFAULT NULL COMMENT ''owning ReachAI project code'' AFTER `workspace_id`');
 CALL add_col_if_absent('knowledge_base', 'scope', 'VARCHAR(20) NOT NULL DEFAULT ''WORKSPACE'' COMMENT ''SHARED / WORKSPACE / PROJECT'' AFTER `project_code`');
+CALL add_col_if_absent('knowledge_base', 'access_mode', 'VARCHAR(16) NOT NULL DEFAULT ''ALL_CALLERS'' COMMENT ''谁能检索: ALL_CALLERS 所有调用方 / FILE_GRANTS 仅逐文件授权用户'' AFTER `scope`');
 CALL add_col_if_absent('knowledge_base', 'search_mode', 'VARCHAR(20) NOT NULL DEFAULT ''hybrid'' COMMENT ''vector / keyword / hybrid'' AFTER `split_type`');
 CALL add_col_if_absent('knowledge_base', 'top_k', 'INT NOT NULL DEFAULT 5 COMMENT ''default retrieval topK'' AFTER `search_mode`');
 CALL add_col_if_absent('knowledge_base', 'similarity_threshold', 'FLOAT NOT NULL DEFAULT 0.5 COMMENT ''default retrieval threshold'' AFTER `top_k`');
-CALL add_col_if_absent('knowledge_base', 'direct_return_enabled', 'TINYINT(1) NOT NULL DEFAULT 1 COMMENT ''enable direct paragraph return'' AFTER `similarity_threshold`');
-CALL add_col_if_absent('knowledge_base', 'direct_return_threshold', 'FLOAT NOT NULL DEFAULT 0.9 COMMENT ''direct return threshold'' AFTER `direct_return_enabled`');
-CALL add_col_if_absent('knowledge_base', 'rerank_enabled', 'TINYINT(1) NOT NULL DEFAULT 1 COMMENT ''enable rerank'' AFTER `direct_return_threshold`');
+CALL add_col_if_absent('knowledge_base', 'rerank_enabled', 'TINYINT(1) NOT NULL DEFAULT 1 COMMENT ''enable rerank'' AFTER `similarity_threshold`');
 CALL add_col_if_absent('knowledge_base', 'vector_weight', 'FLOAT NOT NULL DEFAULT 0.7 COMMENT ''hybrid vector weight'' AFTER `rerank_enabled`');
 CALL add_col_if_absent('knowledge_base', 'keyword_weight', 'FLOAT NOT NULL DEFAULT 0.3 COMMENT ''hybrid keyword weight'' AFTER `vector_weight`');
 CALL add_col_if_absent('knowledge_chunk', 'title', 'VARCHAR(256) DEFAULT NULL COMMENT ''paragraph title'' AFTER `content`');
@@ -803,50 +802,6 @@ CALL add_idx_if_absent('knowledge_chunk', 'idx_kb_created', '`knowledge_base_id`
 CALL add_idx_if_absent('knowledge_file_info', 'idx_kb_file_created', '`knowledge_base_id`, `create_time`');
 CALL add_idx_if_absent('knowledge_file_info', 'idx_knowledge_file_import_job', '`import_job_id`');
 
-CREATE TABLE IF NOT EXISTS `knowledge_tag` (
-    `id` BIGINT NOT NULL AUTO_INCREMENT,
-    `knowledge_base_id` BIGINT NOT NULL,
-    `target_type` VARCHAR(32) NOT NULL DEFAULT 'KNOWLEDGE',
-    `target_id` VARCHAR(128) DEFAULT NULL,
-    `tag_key` VARCHAR(64) NOT NULL,
-    `tag_value` VARCHAR(128) NOT NULL,
-    `tag_group` VARCHAR(64) NOT NULL DEFAULT '默认',
-    `color` VARCHAR(32) NOT NULL DEFAULT '#409EFF',
-    `description` VARCHAR(512) DEFAULT NULL,
-    `parent_id` BIGINT DEFAULT NULL,
-    `sort_order` INT NOT NULL DEFAULT 0,
-    `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (`id`),
-    KEY `idx_kb_target` (`knowledge_base_id`, `target_type`, `target_id`),
-    KEY `idx_tag` (`tag_key`, `tag_value`),
-    KEY `idx_kb_tag_library` (`knowledge_base_id`, `tag_group`, `tag_key`, `tag_value`),
-    KEY `idx_kb_target_tag` (`knowledge_base_id`, `target_type`, `tag_key`, `tag_value`),
-    KEY `idx_parent` (`parent_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='knowledge operation tags';
-
-CALL add_col_if_absent('knowledge_tag', 'tag_group', 'VARCHAR(64) NOT NULL DEFAULT ''默认'' COMMENT ''tag group'' AFTER `tag_value`');
-CALL add_col_if_absent('knowledge_tag', 'color', 'VARCHAR(32) NOT NULL DEFAULT ''#409EFF'' COMMENT ''display color'' AFTER `tag_group`');
-CALL add_col_if_absent('knowledge_tag', 'description', 'VARCHAR(512) DEFAULT NULL COMMENT ''tag description'' AFTER `color`');
-CALL add_col_if_absent('knowledge_tag', 'parent_id', 'BIGINT DEFAULT NULL COMMENT ''parent tag id'' AFTER `description`');
-CALL add_col_if_absent('knowledge_tag', 'sort_order', 'INT NOT NULL DEFAULT 0 COMMENT ''display order'' AFTER `parent_id`');
-CALL add_idx_if_absent('knowledge_tag', 'idx_kb_tag_library', '`knowledge_base_id`, `tag_group`, `tag_key`, `tag_value`');
-CALL add_idx_if_absent('knowledge_tag', 'idx_kb_target_tag', '`knowledge_base_id`, `target_type`, `tag_key`, `tag_value`');
-CALL add_idx_if_absent('knowledge_tag', 'idx_parent', '`parent_id`');
-
-CREATE TABLE IF NOT EXISTS `knowledge_question` (
-    `id` BIGINT NOT NULL AUTO_INCREMENT,
-    `knowledge_base_id` BIGINT NOT NULL,
-    `chunk_id` BIGINT DEFAULT NULL,
-    `question` VARCHAR(512) NOT NULL,
-    `hit_count` INT NOT NULL DEFAULT 0,
-    `source` VARCHAR(32) NOT NULL DEFAULT 'MANUAL',
-    `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (`id`),
-    KEY `idx_kb_chunk` (`knowledge_base_id`, `chunk_id`),
-    KEY `idx_question` (`question`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='knowledge question to paragraph mapping';
-
 CREATE TABLE IF NOT EXISTS `knowledge_hit_log` (
     `id` BIGINT NOT NULL AUTO_INCREMENT,
     `knowledge_base_id` BIGINT NOT NULL,
@@ -854,7 +809,7 @@ CREATE TABLE IF NOT EXISTS `knowledge_hit_log` (
     `query_text` VARCHAR(1024) NOT NULL,
     `search_mode` VARCHAR(20) DEFAULT NULL,
     `score` FLOAT DEFAULT NULL,
-    `direct_return` TINYINT(1) NOT NULL DEFAULT 0,
+    `source` VARCHAR(16) NOT NULL DEFAULT 'CONSOLE' COMMENT 'RUNTIME 真实对话 / CONSOLE 管理端检索测试',
     `trace_id` VARCHAR(128) DEFAULT NULL,
     `user_id` VARCHAR(128) DEFAULT NULL,
     `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -865,6 +820,7 @@ CREATE TABLE IF NOT EXISTS `knowledge_hit_log` (
 
 CALL add_idx_if_absent('knowledge_hit_log', 'idx_chunk_time', '`chunk_id`, `create_time`');
 CALL add_idx_if_absent('knowledge_hit_log', 'idx_kb_score_time', '`knowledge_base_id`, `score`, `create_time`');
+CALL add_idx_if_absent('knowledge_hit_log', 'idx_kb_source_time', '`knowledge_base_id`, `source`, `create_time`');
 
 
 -- ============================================================================
@@ -1316,6 +1272,7 @@ CREATE TABLE IF NOT EXISTS `runtime_run` (
     KEY `idx_runtime_run_workflow_version_time` (`workflow_id`, `workflow_version_id`, `started_at`),
     KEY `idx_runtime_run_entry_time` (`entry_type`, `started_at`),
     KEY `idx_runtime_run_user_time` (`user_id`, `started_at`),
+    KEY `idx_runtime_run_session_time` (`session_id`, `started_at`),
     KEY `idx_runtime_run_replay` (`replay_of_trace_id`, `started_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='RunOps 根运行事实；每次用户或外部入口执行一行';
 
@@ -2086,86 +2043,6 @@ CREATE TABLE IF NOT EXISTS `control_managed_execution_inbox` (
   KEY `idx_control_managed_inbox_source` (`source_type`, `source_ref`, `received_at`),
   KEY `idx_control_managed_inbox_projection` (`projection_status`, `projection_available_at`, `received_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Idempotent Runtime Managed Execution event inbox and Control projection receipt';
-
-
-CREATE TABLE IF NOT EXISTS `runtime_agent_eval_dataset` (
-  `id` BIGINT PRIMARY KEY AUTO_INCREMENT,
-  `agent_id` VARCHAR(64) DEFAULT NULL COMMENT '关联 runtime_agent.id；Workflow Working Copy 评测可为空',
-  `agent_name` VARCHAR(128) DEFAULT NULL,
-  `name` VARCHAR(128) NOT NULL,
-  `description` VARCHAR(512) DEFAULT NULL,
-  `source` VARCHAR(32) NOT NULL DEFAULT 'IMPORT',
-  `case_count` INT NOT NULL DEFAULT 0,
-  `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  KEY `idx_eval_dataset_agent` (`agent_id`, `create_time`),
-  KEY `idx_eval_dataset_name` (`name`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent Supervisor 评测数据集';
-
-CREATE TABLE IF NOT EXISTS `runtime_agent_eval_case` (
-  `id` BIGINT PRIMARY KEY AUTO_INCREMENT,
-  `dataset_id` BIGINT NOT NULL,
-  `case_no` VARCHAR(64) NOT NULL,
-  `message` TEXT DEFAULT NULL,
-  `input_params_json` MEDIUMTEXT DEFAULT NULL,
-  `expected_json` MEDIUMTEXT DEFAULT NULL,
-  `judge_config_json` MEDIUMTEXT DEFAULT NULL,
-  `tags` VARCHAR(512) DEFAULT NULL,
-  `enabled` TINYINT(1) NOT NULL DEFAULT 1,
-  `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  KEY `idx_eval_case_dataset` (`dataset_id`, `enabled`, `id`),
-  UNIQUE KEY `uk_eval_case_no` (`dataset_id`, `case_no`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent Supervisor 评测用例';
-
-CREATE TABLE IF NOT EXISTS `runtime_agent_eval_run` (
-  `id` BIGINT PRIMARY KEY AUTO_INCREMENT,
-  `dataset_id` BIGINT NOT NULL,
-  `agent_id` VARCHAR(64) DEFAULT NULL,
-  `agent_name` VARCHAR(128) DEFAULT NULL,
-  `run_name` VARCHAR(128) DEFAULT NULL,
-  `repeat_count` INT NOT NULL DEFAULT 1,
-  `status` VARCHAR(32) NOT NULL DEFAULT 'PENDING',
-  `target_snapshot_id` BIGINT DEFAULT NULL,
-  `target_config_version_id` BIGINT DEFAULT NULL,
-  `target_config_status` VARCHAR(24) DEFAULT NULL,
-  `target_fingerprint` CHAR(64) DEFAULT NULL,
-  `canvas_snapshot_json` MEDIUMTEXT DEFAULT NULL,
-  `graph_spec_json` MEDIUMTEXT DEFAULT NULL,
-  `summary_json` MEDIUMTEXT DEFAULT NULL,
-  `suggestion_json` MEDIUMTEXT DEFAULT NULL,
-  `started_at` DATETIME DEFAULT NULL,
-  `finished_at` DATETIME DEFAULT NULL,
-  `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  KEY `idx_eval_run_dataset` (`dataset_id`, `create_time`),
-  KEY `idx_eval_run_agent` (`agent_id`, `create_time`),
-  KEY `idx_eval_run_status` (`status`, `create_time`),
-  KEY `idx_eval_run_target_snapshot` (`target_snapshot_id`, `create_time`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent Supervisor 真实运行时评测任务';
-
-CREATE TABLE IF NOT EXISTS `runtime_agent_eval_case_result` (
-  `id` BIGINT PRIMARY KEY AUTO_INCREMENT,
-  `run_id` BIGINT NOT NULL,
-  `dataset_id` BIGINT NOT NULL,
-  `case_id` BIGINT NOT NULL,
-  `case_no` VARCHAR(64) NOT NULL,
-  `round_no` INT NOT NULL DEFAULT 1,
-  `status` VARCHAR(32) NOT NULL DEFAULT 'PENDING',
-  `runtime_success` TINYINT(1) NOT NULL DEFAULT 0,
-  `assertion_passed` TINYINT(1) NOT NULL DEFAULT 0,
-  `semantic_score` DOUBLE DEFAULT NULL,
-  `score` DOUBLE NOT NULL DEFAULT 0,
-  `elapsed_ms` INT NOT NULL DEFAULT 0,
-  `answer` MEDIUMTEXT DEFAULT NULL,
-  `trace_id` VARCHAR(96) DEFAULT NULL,
-  `step_results_json` MEDIUMTEXT DEFAULT NULL,
-  `judge_result_json` MEDIUMTEXT DEFAULT NULL,
-  `error_code` VARCHAR(128) DEFAULT NULL,
-  `error_message` TEXT DEFAULT NULL,
-  `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  KEY `idx_eval_result_run` (`run_id`, `case_id`, `round_no`),
-  KEY `idx_eval_result_case` (`case_id`, `create_time`),
-  KEY `idx_eval_result_status` (`run_id`, `status`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent Supervisor 运行时评测用例结果';
 
 
 -- ============================================================================
@@ -3474,6 +3351,7 @@ CREATE TABLE IF NOT EXISTS `control_embed_session` (
     `project_code`        VARCHAR(96)  NOT NULL,
     `agent_id`            VARCHAR(128) NOT NULL,
     `external_user_id`    VARCHAR(128) NOT NULL,
+    `external_user_name`  VARCHAR(128) DEFAULT NULL COMMENT '嵌入令牌里的业务用户显示名，仅用于运行中心展示',
     `global_user_id`      VARCHAR(128) DEFAULT NULL,
     `page_key`            VARCHAR(160) DEFAULT NULL,
     `page_instance_id`    VARCHAR(128) NOT NULL,

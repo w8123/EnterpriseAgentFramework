@@ -167,7 +167,6 @@ export interface UseWorkflowStudioCanvasActionsDeps {
   markCanvasDirty: () => void
   syncJsonFromCanvas: () => void
   activeTab: Ref<string>
-  propertyDetailOpen: Ref<boolean>
   fitView: (options?: { padding?: number; duration?: number }) => Promise<boolean> | void
   nextTick: (fn?: () => void) => Promise<void>
   nodeTypes: Ref<WorkflowGraphNodeTypeDescriptor[]>
@@ -195,7 +194,6 @@ export function useWorkflowStudioCanvasActions({
   markCanvasDirty,
   syncJsonFromCanvas,
   activeTab,
-  propertyDetailOpen,
   fitView,
   nextTick,
   nodeTypes,
@@ -220,11 +218,11 @@ export function useWorkflowStudioCanvasActions({
     }
     const labels: Record<string, string> = {
       success: '成功',
-      error: '失败',
-      failure: '失败',
-      else: '否则',
-      empty: '为空',
-      not_empty: '非空',
+      error: '失败时',
+      failure: '失败时',
+      else: '其他分支',
+      empty: '结果为空',
+      not_empty: '有结果',
     }
     if (labels[normalized]) return labels[normalized]
     if (normalized.startsWith('route:')) return raw.slice('route:'.length).trim() || '分支'
@@ -450,7 +448,6 @@ export function useWorkflowStudioCanvasActions({
     edges.value = edges.value.filter((edge) => edge.source !== id && edge.target !== id)
     selectedNodeId.value = null
     selectedEdgeId.value = null
-    propertyDetailOpen.value = false
     markCanvasDirty()
     syncJsonFromCanvas()
   }

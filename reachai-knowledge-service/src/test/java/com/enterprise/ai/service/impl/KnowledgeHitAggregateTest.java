@@ -20,8 +20,7 @@ class KnowledgeHitAggregateTest {
             db.jdbc().update("INSERT INTO knowledge_base(id,name,code,vector_collection_name) VALUES (7,'target','target','target'),(8,'other','other','other'),(9,'empty','empty','empty')");
             String body = "长文本".repeat(1000);
             db.jdbc().update("INSERT INTO knowledge_chunk(file_id,knowledge_base_id,content,hit_count) VALUES ('a',7,?,7),('b',7,?,0),('c',7,?,11),('d',8,?,999)", body, body, body, body);
-            var query = new KnowledgeOperationsQuery(bases, db.mapper(FileInfoRepository.class), chunks,
-                    mock(KnowledgeTagRepository.class), mock(KnowledgeQuestionRepository.class), mock(KnowledgeHitLogRepository.class), new KnowledgeBaseLookup(bases));
+            var query = new KnowledgeOperationsQuery(bases, db.mapper(FileInfoRepository.class), chunks, mock(KnowledgeHitLogRepository.class), new KnowledgeBaseLookup(bases));
             if (catalog) {
                 var all = query.listAll();
                 assertEquals(18, all.stream().filter(kb -> kb.getCode().equals("target")).findFirst().orElseThrow().getHitCount());

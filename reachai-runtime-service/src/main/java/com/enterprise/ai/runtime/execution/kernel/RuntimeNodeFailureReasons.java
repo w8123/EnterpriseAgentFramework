@@ -17,6 +17,7 @@ public final class RuntimeNodeFailureReasons {
     private static final Map<String, String> BY_CODE = Map.ofEntries(
             Map.entry("RUNTIME_GRAPH_PARAMETER_FIELDS_REQUIRED", "参数提取节点没有配置要提取的字段"),
             Map.entry("RUNTIME_GRAPH_PARAMETER_EXTRACT_FAILED", "参数提取节点调用模型失败"),
+            Map.entry("RUNTIME_GRAPH_PARAMETER_OPTIONS_INVALID", "参数提取的「取值必须来自列表」没有拿到列表，请检查列表表达式"),
             Map.entry("RUNTIME_GRAPH_MODEL_REQUIRED", "节点没有可用的模型，请在节点或 Workflow 上选择模型"),
             Map.entry("RUNTIME_GRAPH_LLM_EMPTY", "模型返回了空内容"),
             Map.entry("RUNTIME_GRAPH_LLM_FAILED", "模型调用失败"),

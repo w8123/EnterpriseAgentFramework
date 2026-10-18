@@ -92,25 +92,29 @@ class OpenAiCompatibleRuntimeClientTest {
     }
 
     @Test
-    void finishReasonStopsReadLoopWithoutWaitingForDoneOrConnectionClose() throws Exception {
+    void finishReasonWithoutUsageEndsNormallyWhenTheGraceTimerClosesTheConnection() throws Exception {
         AtomicInteger readCount = new AtomicInteger();
         BufferedReader reader = new BufferedReader(new StringReader("")) {
             @Override
-            public String readLine() {
+            public String readLine() throws java.io.IOException {
                 if (readCount.getAndIncrement() == 0) {
                     return "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}";
                 }
-                throw new AssertionError("finish_reason must terminate the SSE read loop");
+                // the caller's grace timer closed a provider connection that sends neither usage nor [DONE]
+                throw new java.io.IOException("closed");
             }
         };
         List<ModelStreamEvent> events = new ArrayList<>();
+        AtomicInteger graceTimers = new AtomicInteger();
 
         OpenAiCompatibleRuntimeClient.SseTerminal terminal = OpenAiCompatibleRuntimeClient.drainOpenAiSse(
                 reader,
                 objectMapper,
-                events::add);
+                events::add,
+                graceTimers::incrementAndGet);
 
-        assertEquals(1, readCount.get());
+        assertEquals(2, readCount.get());
+        assertEquals(1, graceTimers.get());
         assertTrue(terminal.hasFinishReason());
         assertEquals("stop", terminal.finishReason());
         assertEquals(List.of(ModelStreamEvent.CONTENT_DELTA), events.stream().map(ModelStreamEvent::getType).toList());
@@ -130,11 +134,22 @@ class OpenAiCompatibleRuntimeClientTest {
                 ModelStreamEvent.COMPLETED), capture.types);
         assertEquals(1, capture.types.stream().filter(ModelStreamEvent.COMPLETED::equals).count());
         assertFalse(capture.types.contains(ModelStreamEvent.ERROR));
-        // A non-empty finish_reason is terminal on its own. The reader must not
-        // wait for a following [DONE], because some compatible providers keep
-        // that connection open after the terminal chunk.
-        assertFalse(capture.terminal.receivedDone());
+        assertTrue(capture.terminal.receivedDone());
         assertTrue(capture.terminal.hasFinishReason());
+    }
+
+    @Test
+    void usageChunkAfterFinishReasonIsStillEmitted() throws Exception {
+        String sse = ""
+                + "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n"
+                + "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":12,\"completion_tokens\":3,\"total_tokens\":15}}\n"
+                + "data: [DONE]\n";
+        TerminalCapture capture = drainAndEmit(sse);
+
+        assertEquals(List.of(
+                ModelStreamEvent.CONTENT_DELTA,
+                ModelStreamEvent.USAGE,
+                ModelStreamEvent.COMPLETED), capture.types);
     }
 
     @Test

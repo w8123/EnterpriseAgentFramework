@@ -1,0 +1,154 @@
+diff --git a/.env.prod b/.env.prod
+index 8bcb1f9..5c3dcab 100644
+--- a/.env.prod
++++ b/.env.prod
+@@ -35,3 +35,7 @@ VITE_MALL_H5_DOMAIN='http://mall.yudao.iocoder.cn'
+ 
+ # GoView域名
+ VITE_GOVIEW_URL='http://127.0.0.1:3000'
++
++# ReachAI 嵌入式对话（留空则不加载）
++VITE_REACHAI_BASE_URL=
++VITE_REACHAI_AGENT_ID=
+diff --git a/src/layout/Layout.vue b/src/layout/Layout.vue
+index 1cb4635..7d9dcd4 100644
+--- a/src/layout/Layout.vue
++++ b/src/layout/Layout.vue
+@@ -3,6 +3,7 @@ import { computed, defineComponent, unref } from 'vue'
+ import { useAppStore } from '@/store/modules/app'
+ import { Backtop } from '@/components/Backtop'
+ import { Setting } from '@/layout/components/Setting'
++import ReachAiChat from '@/layout/components/ReachAiChat/index.vue'
+ import { useRenderLayout } from './components/useRenderLayout'
+ import { useDesign } from '@/hooks/web/useDesign'
+ import { getLayoutRenderMode } from '@/utils/layout'
+@@ -68,6 +69,8 @@ export default defineComponent({
+         <Backtop></Backtop>
+ 
+         <Setting></Setting>
++
++        <ReachAiChat></ReachAiChat>
+       </section>
+     )
+   }
+diff --git a/src/layout/components/ReachAiChat/index.vue b/src/layout/components/ReachAiChat/index.vue
+new file mode 100644
+index 0000000..e1c4dfb
+--- /dev/null
++++ b/src/layout/components/ReachAiChat/index.vue
+@@ -0,0 +1,102 @@
++<script lang="ts" setup>
++/**
++ * ReachAI 嵌入式对话：登录后在右下角挂一个对话入口。
++ * 脚本由 ReachAI 站点提供（/sdk/embed-chat/），芋道不打包 SDK；
++ * 令牌由芋道后端 POST /reachai/embed/token 用当前登录用户换取，浏览器不接触项目密钥。
++ * 未配置 VITE_REACHAI_BASE_URL / VITE_REACHAI_AGENT_ID 时不加载。
++ */
++import { onBeforeUnmount, onMounted } from 'vue'
++import { getAccessToken, getTenantId } from '@/utils/auth'
++
++defineOptions({ name: 'ReachAiChat' })
++
++interface ReachAiChatClient {
++  destroy(): void
++}
++interface ReachAiGlobal {
++  createEafChat(options: Record<string, unknown>): ReachAiChatClient
++}
++
++const reachAiBase = (import.meta.env.VITE_REACHAI_BASE_URL || '').replace(/\/+$/, '')
++const agentId = import.meta.env.VITE_REACHAI_AGENT_ID || ''
++const tokenUrl = `${import.meta.env.VITE_BASE_URL || ''}/reachai/embed/token`
++const SCRIPT_ID = 'reachai-chat-embed-sdk'
++
++let client: ReachAiChatClient | null = null
++let mountEl: HTMLElement | null = null
++let disposed = false
++
++const loadSdk = (): Promise<ReachAiGlobal> => {
++  const existing = (window as unknown as { ReachAI?: ReachAiGlobal }).ReachAI
++  if (existing) return Promise.resolve(existing)
++  return new Promise((resolve, reject) => {
++    if (!document.getElementById(`${SCRIPT_ID}-css`)) {
++      const link = document.createElement('link')
++      link.id = `${SCRIPT_ID}-css`
++      link.rel = 'stylesheet'
++      link.href = `${reachAiBase}/sdk/embed-chat/style.css`
++      document.head.appendChild(link)
++    }
++    const script = document.createElement('script')
++    script.id = SCRIPT_ID
++    script.src = `${reachAiBase}/sdk/embed-chat/reachai-chat-embed.umd.js`
++    script.onload = () => {
++      const loaded = (window as unknown as { ReachAI?: ReachAiGlobal }).ReachAI
++      loaded ? resolve(loaded) : reject(new Error('ReachAI SDK 未加载'))
++    }
++    script.onerror = () => reject(new Error('ReachAI SDK 加载失败'))
++    document.head.appendChild(script)
++  })
++}
++
++const fetchToken = async (context: Record<string, unknown> = {}) => {
++  const { signal, ...page } = context as { signal?: AbortSignal } & Record<string, unknown>
++  const response = await fetch(tokenUrl, {
++    method: 'POST',
++    signal,
++    headers: {
++      'Content-Type': 'application/json',
++      Authorization: `Bearer ${getAccessToken()}`,
++      'tenant-id': String(getTenantId() ?? '')
++    },
++    body: JSON.stringify({ ...page, agentId })
++  })
++  const payload = await response.json().catch(() => ({}))
++  if (!response.ok || !payload.token) {
++    throw new Error(payload.message || `获取对话令牌失败（${response.status}）`)
++  }
++  return { token: payload.token as string, expiresIn: payload.expiresIn as number }
++}
++
++onMounted(async () => {
++  if (!reachAiBase || !agentId || !getAccessToken()) return
++  try {
++    const sdk = await loadSdk()
++    if (disposed) return
++    mountEl = document.createElement('div')
++    document.body.appendChild(mountEl)
++    client = sdk.createEafChat({
++      mount: mountEl,
++      agentId,
++      apiBase: reachAiBase,
++      position: 'bottom-right',
++      locale: 'zh-CN',
++      tokenProvider: fetchToken
++    })
++  } catch (error) {
++    console.warn('[ReachAI] 嵌入式对话初始化失败', error)
++  }
++})
++
++onBeforeUnmount(() => {
++  disposed = true
++  client?.destroy()
++  client = null
++  mountEl?.remove()
++  mountEl = null
++})
++</script>
++
++<template>
++  <!-- 对话窗口由 SDK 挂到 body 上 -->
++</template>
+diff --git a/types/env.d.ts b/types/env.d.ts
+index 17535ea..5bf0e80 100644
+--- a/types/env.d.ts
++++ b/types/env.d.ts
+@@ -19,6 +19,8 @@ interface ImportMetaEnv {
+   readonly VITE_APP_DEFAULT_LOGIN_PASSWORD: string
+   readonly VITE_APP_DOCALERT_ENABLE: string
+   readonly VITE_BASE_URL: string
++  readonly VITE_REACHAI_BASE_URL?: string
++  readonly VITE_REACHAI_AGENT_ID?: string
+   readonly VITE_API_URL: string
+   readonly VITE_BASE_PATH: string
+   readonly VITE_DROP_DEBUGGER: string

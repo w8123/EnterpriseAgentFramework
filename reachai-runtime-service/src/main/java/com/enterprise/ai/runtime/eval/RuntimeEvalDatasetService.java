@@ -142,9 +142,10 @@ public class RuntimeEvalDatasetService {
                     "sourceTraceId", value.getSourceTraceId(),
                     "enabled", value.getEnabled()));
         }
-        String message = firstText(text(request, "message"), trace.summary().inputSummary());
+        // 运行记录只保存脱敏后的输入元数据，不含用户原话，所以用例问题必须由调用方给出。
+        String message = text(request, "message");
         if (!StringUtils.hasText(message)) {
-            throw new IllegalArgumentException("RunOps trace has no usable input summary; provide message explicitly");
+            throw new IllegalArgumentException("message is required: RunOps traces do not keep the user's question");
         }
         Map<String, Object> input = request != null && request.containsKey("input")
                 ? json.map(request.get("input")) : Map.of("message", message);

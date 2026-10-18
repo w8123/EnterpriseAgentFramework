@@ -50,7 +50,7 @@ public interface KnowledgeService {
     /** 获取文件的 chunk 列表 */
     List<ChunkVO> getChunksByFileId(String fileId);
 
-    List<ChunkVO> listChunks(String kbCode, String keyword, Integer enabled, String tagKey, String tagValue, Integer limit);
+    List<ChunkVO> listChunks(String kbCode, String keyword, Integer enabled, Integer limit);
 
     ChunkVO updateChunk(Long chunkId, ChunkUpdateRequest request);
 
@@ -58,7 +58,7 @@ public interface KnowledgeService {
 
     void reembedChunk(Long chunkId);
 
-    List<KnowledgeHitLogDTO> listHitLogs(String kbCode, Integer limit, Boolean lowConfidenceOnly);
+    List<KnowledgeHitLogDTO> listHitLogs(String kbCode, Integer limit, Boolean lowConfidenceOnly, String source);
 
     KnowledgeOpsDashboardVO getOpsDashboard(String kbCode);
 
@@ -72,20 +72,4 @@ public interface KnowledgeService {
     RetrievalTestResponse retrievalTest(RetrievalTestRequest request);
 
     KnowledgeStatsVO getStats(String kbCode);
-
-    List<KnowledgeTagDTO> listTags(String kbCode, String targetType, String targetId);
-
-    List<KnowledgeTagStatsDTO> listTagStats(String kbCode);
-
-    KnowledgeTagDTO createTag(String kbCode, KnowledgeTagRequest request);
-
-    List<KnowledgeTagDTO> batchCreateTags(String kbCode, KnowledgeTagBatchRequest request);
-
-    void deleteTag(String kbCode, Long tagId);
-
-    List<KnowledgeQuestionDTO> listQuestions(String kbCode, Long chunkId);
-
-    KnowledgeQuestionDTO createQuestion(String kbCode, KnowledgeQuestionRequest request);
-
-    void deleteQuestion(String kbCode, Long questionId);
 }

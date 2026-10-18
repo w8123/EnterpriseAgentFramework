@@ -690,14 +690,19 @@ public class RuntimeWorkflowProposalGenerationService {
         }
         config.put("knowledgeBaseCodes", new ArrayList<>(resolvedCodes));
         config.put("query", firstText(text(config.get("query")), "input"));
-        config.put("topK", integer(config.get("topK"), 5));
-        config.put("similarityThreshold", doubleOr(config.get("similarityThreshold"), 0.5D));
-        String searchMode = firstText(text(config.get("searchMode")), "hybrid").toLowerCase(Locale.ROOT);
-        if (!Set.of("vector", "keyword", "hybrid").contains(searchMode)) {
-            searchMode = "hybrid";
+        // Retrieval knobs left empty use the knowledge base's own settings at run time.
+        if (config.get("topK") != null) config.put("topK", integer(config.get("topK"), 5));
+        if (config.get("similarityThreshold") != null) {
+            config.put("similarityThreshold", doubleOr(config.get("similarityThreshold"), 0.5D));
         }
-        config.put("searchMode", searchMode);
-        config.put("rerankEnabled", config.get("rerankEnabled") == null || bool(config.get("rerankEnabled")));
+        String searchMode = text(config.get("searchMode"));
+        if (StringUtils.hasText(searchMode)) {
+            searchMode = searchMode.toLowerCase(Locale.ROOT);
+            config.put("searchMode", Set.of("vector", "keyword", "hybrid").contains(searchMode) ? searchMode : "hybrid");
+        } else {
+            config.remove("searchMode");
+        }
+        if (config.get("rerankEnabled") != null) config.put("rerankEnabled", bool(config.get("rerankEnabled")));
         String evidencePolicy = firstText(text(config.get("evidencePolicy")), "REQUIRED")
                 .toUpperCase(Locale.ROOT);
         if (!Set.of("REQUIRED", "OPTIONAL").contains(evidencePolicy)) {
@@ -705,7 +710,7 @@ public class RuntimeWorkflowProposalGenerationService {
             evidencePolicy = "REQUIRED";
         }
         config.put("evidencePolicy", evidencePolicy);
-        // Workflow node no longer exposes directReturn*; KnowledgeBase admin may still keep those fields.
+        // Direct return is not a retrieval feature; drop stale knobs from model output.
         config.remove("directReturnEnabled");
         config.remove("directReturnThreshold");
     }
@@ -1190,10 +1195,12 @@ public class RuntimeWorkflowProposalGenerationService {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("knowledgeBaseCodes", arrayValue(config.get("knowledgeBaseCodes")));
         out.put("query", firstText(text(config.get("query")), "input"));
-        out.put("topK", integer(config.get("topK"), 5));
-        out.put("similarityThreshold", doubleOr(config.get("similarityThreshold"), 0.5D));
-        out.put("searchMode", firstText(text(config.get("searchMode")), "hybrid"));
-        out.put("rerankEnabled", config.get("rerankEnabled") == null || bool(config.get("rerankEnabled")));
+        if (config.get("topK") != null) out.put("topK", integer(config.get("topK"), 5));
+        if (config.get("similarityThreshold") != null) {
+            out.put("similarityThreshold", doubleOr(config.get("similarityThreshold"), 0.5D));
+        }
+        if (StringUtils.hasText(text(config.get("searchMode")))) out.put("searchMode", text(config.get("searchMode")));
+        if (config.get("rerankEnabled") != null) out.put("rerankEnabled", bool(config.get("rerankEnabled")));
         String evidencePolicy = firstText(text(config.get("evidencePolicy")), "REQUIRED")
                 .toUpperCase(Locale.ROOT);
         out.put("evidencePolicy", Set.of("REQUIRED", "OPTIONAL").contains(evidencePolicy)

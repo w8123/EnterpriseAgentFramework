@@ -28,7 +28,7 @@ class DocumentImportPublicationTest {
             var transactionManager = new DataSourceTransactionManager(db.jdbc().getDataSource());
             var executions = KnowledgeIndexTestSupport.executions(db);
             var step = new MetadataPersistStep(db.mapper(KnowledgeBaseRepository.class), db.mapper(FileInfoRepository.class),
-                    db.mapper(ChunkRepository.class), new ObjectMapper(), new DocumentImportPublicationGuard(jobs, executions, org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeFileDeletionService.class), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeFileReadAccessService.class)), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeTagService.class), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeQuestionService.class));
+                    db.mapper(ChunkRepository.class), new ObjectMapper(), new DocumentImportPublicationGuard(jobs, executions, org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeFileDeletionService.class), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeFileReadAccessService.class)));
             var context = new PipelineContext();
             context.setFileId("file"); context.setFileName("a.pdf"); context.setKnowledgeBaseCode("kb"); context.setKnowledgeBaseId(7L); context.setVectorCollectionName("kb");
             context.setImportJobId("job"); context.setImportLeaseOwner(lease);

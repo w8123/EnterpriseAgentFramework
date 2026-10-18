@@ -1,7 +1,7 @@
 # 芋道 ERP 接入 ReachAI 实施步骤
 
 > 2026-10-16 在宝塔测试环境按真实用户流程完成：芋道 `https://yudao.w8123.com`（ruoyi-vue-pro master，只开系统管理、基础设施、ERP），ReachAI `https://reachai.w8123.com`。
-> 芋道侧完整改动见 [yudao-reachai-integration.patch](./yudao/yudao-reachai-integration.patch)（基于 YunaiV/ruoyi-vue-pro `ac022b1`）。
+> 芋道侧完整改动见 [yudao-reachai-integration.patch](./yudao/yudao-reachai-integration.patch)（基于 YunaiV/ruoyi-vue-pro `ac022b1`）；前端对话入口见 [yudao-ui-reachai-chat.patch](./yudao/yudao-ui-reachai-chat.patch)（基于 yudaocode/yudao-ui-admin-vue3 `050bac1`）。
 
 芋道是多租户、Spring Security + `@PreAuthorize` 的典型国产 Java 后台，适合验证 ReachAI 对“已有业务系统”的接入体验。
 
@@ -91,7 +91,32 @@ description 里写清“按名称查库存要先用 erpProductPage 换产品编�
 4. API 连接的服务地址填公网地址 `https://yudao.w8123.com`。`127.0.0.1` 会被 Runtime 出站策略拒绝（防 SSRF）。
 5. 试调用 `pageNo=1&pageSize=3` 成功。
 
-## 7. 本次发现并修复的 ReachAI 问题
+## 7. 嵌入式对话：在芋道里直接用 ERP 助手
+
+2026-10-17 起，芋道用户登录后右下角出现 ReachAI 对话入口，以自己的芋道账号和角色使用 ERP 助手。
+
+**芋道后端**：`YudaoReachAiEmbedPrincipalResolver`（见 patch）实现 Starter 的 `ReachAiEmbedPrincipalResolver`，从芋道登录态取用户、租户和角色编码。提供这个 Bean 后，Starter 自动暴露 `POST /reachai/embed/token`，用当前登录用户换短期嵌入令牌；未登录返回 401。`/reachai/**` 在芋道是 permitAll，但芋道的令牌过滤器仍会解析 `Authorization`，所以解析器能拿到登录用户。
+
+**芋道前端**：`src/layout/components/ReachAiChat/index.vue` 挂在 `Layout.vue`。脚本直接引用 ReachAI 站点的 `/sdk/embed-chat/reachai-chat-embed.umd.js`，芋道不打包 SDK。`.env.prod` 配置：
+
+```env
+VITE_REACHAI_BASE_URL=https://reachai.w8123.com
+VITE_REACHAI_AGENT_ID=8e747bd7c1f1        # ERP 助手的 Agent ID
+```
+
+**Nginx**（芋道站点）：把 `/reachai/embed/` 转给芋道后端，其他 `/reachai/**` 不对公网开放：
+
+```nginx
+location ^~ /reachai/embed/ {
+    proxy_pass http://127.0.0.1:48080;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+}
+```
+
+**ReachAI**：打开 Agent「ERP 助手」→「嵌入」，在业务系统 `yudao-erp` 上设置来源 `https://yudao.w8123.com`，打开「允许本 Agent」，再用「检查能否打开」确认每一项都通过。来源白名单同时决定 ReachAI 对 `/api/embed/**` 的 CORS 放行，不需要改服务器配置。
+
+## 8. 本次发现并修复的 ReachAI 问题
 
 | 问题 | 影响 | 修复 |
 | --- | --- | --- |
@@ -101,7 +126,7 @@ description 里写清“按名称查库存要先用 erpProductPage 换产品编�
 | SDK 接入令牌的 Starter 配置把 registry url 写成 `localhost:18603` | 照抄配置的业务系统注册不上 | 默认填当前 ReachAI 访问地址 |
 | HTTP API 连接保存失败时只提示“当前条件已变化，请刷新后重试” | 认证方式不匹配、接口不支持试调用等真实原因被吞掉 | Control 透传 Runtime 的 `HTTP_API_*` 固定原因 |
 
-## 8. 仍待改进
+## 9. 仍待改进
 
 - HTTP API 连接按单个接口配置。芋道 146 个接口要一个个配服务地址和凭据，缺少按项目/环境复用。
 - 带数组查询参数的接口（芋道几乎所有分页接口都有 `createTime[]`）不能在控制台和 Workflow 里调用，提示“首批仅支持有明确类型的标量参数”。

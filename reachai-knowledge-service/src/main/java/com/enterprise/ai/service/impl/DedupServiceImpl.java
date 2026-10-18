@@ -19,7 +19,7 @@ public class DedupServiceImpl implements DedupService {
                 .query(request.getText()).knowledgeBaseCodes(request.getKnowledgeBaseCodes()).userId(request.getUserId())
                 .topK(request.getTopK() != null ? request.getTopK() : 10)
                 .scoreThreshold(request.getScoreThreshold() != null ? request.getScoreThreshold() : 0.7f)
-                .searchMode("vector").rerankEnabled(false).directReturnEnabled(false).recordHit(false).build());
+                .searchMode("vector").rerankEnabled(false).recordHit(false).build());
         return DedupResponse.of(result.toSimilarItems());
     }
 }

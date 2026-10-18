@@ -2,7 +2,7 @@
   <div class="node-specific-panel">
     <el-divider>参数提取</el-divider>
     <el-form-item label="模式">
-      <el-segmented v-model="config.mode" :options="['expression', 'llm']" />
+      <el-segmented v-model="config.mode" :options="modeOptions" />
     </el-form-item>
     <el-form-item v-if="config.mode === 'llm'" label="输入表达式">
       <el-input
@@ -83,6 +83,18 @@
       <el-input v-model="field.defaultValue" placeholder="默认值" />
       <el-input v-model="field.source" placeholder="来源表达式，如 lastOutput.id" />
       <el-button text type="danger" @click="fields.splice(index, 1)">删除</el-button>
+      <div class="field-options-row">
+        <el-input
+          v-model="field.optionsFrom"
+          clearable
+          placeholder="取值必须来自列表（可选），如 nodeOutput.products"
+        />
+        <el-input v-model="field.optionValueKey" :disabled="!field.optionsFrom" placeholder="取值字段，如 id" />
+        <el-input v-model="field.optionLabelKey" :disabled="!field.optionsFrom" placeholder="名称字段，如 name" />
+      </div>
+    </div>
+    <div class="field-options-hint">
+      设置「取值必须来自列表」后，提取结果不在列表里就当作没提取到，不会用相近的值代替。可在下游连线上选「结果为空」给出「没有找到」的回答。
     </div>
   </div>
 </template>
@@ -117,6 +129,10 @@ const config = computed<ParameterNodeConfig>(() => {
   }
   return props.data.parameterConfig
 })
+const modeOptions = [
+  { label: '按表达式', value: 'expression' },
+  { label: '用模型提取', value: 'llm' },
+]
 const fields = computed(() => ensureFieldList(props.data))
 const promptInputWarning = computed(() => parameterPromptInputWarning(config.value))
 
@@ -128,5 +144,19 @@ function handleModelSelectVisible(visible: boolean) {
 <style scoped>
 .parameter-prompt-alert {
   margin: 2px 0 16px;
+}
+
+.field-options-row {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+  grid-column: 1 / -1;
+  width: 100%;
+}
+
+.field-options-hint {
+  margin: 4px 0 12px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
 }
 </style>

@@ -1,3 +1,4 @@
+import type { AxiosRequestConfig } from 'axios'
 import { controlRequest as request } from './request'
 import type {
   BizIndex,
@@ -10,8 +11,8 @@ import type { ApiResult } from '@/types/import'
 
 // ==================== 索引管理 ====================
 
-export function getBizIndexList() {
-  return request.get<ApiResult<BizIndex[]>>('/api/knowledge/biz-index/list')
+export function getBizIndexList(config?: AxiosRequestConfig) {
+  return request.get<ApiResult<BizIndex[]>>('/api/knowledge/biz-index/list', config)
 }
 
 export function getBizIndexDetail(indexCode: string) {

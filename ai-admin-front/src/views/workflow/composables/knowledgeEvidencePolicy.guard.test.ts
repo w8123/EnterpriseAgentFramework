@@ -36,10 +36,11 @@ describe('knowledge REQUIRED evidence policy lint', () => {
       },
     })
 
-    expect(legacy.nodes.find((item) => item.id === 'knowledge')?.data.knowledgeConfig).toMatchObject({
-      evidencePolicy: 'OPTIONAL',
-      similarityThreshold: 0.5,
-    })
+    const legacyConfig = legacy.nodes.find((item) => item.id === 'knowledge')?.data.knowledgeConfig
+    expect(legacyConfig).toMatchObject({ evidencePolicy: 'OPTIONAL' })
+    // Unset retrieval knobs stay unset so the knowledge base settings apply.
+    expect(legacyConfig?.similarityThreshold).toBeUndefined()
+    expect(legacyConfig?.topK).toBeUndefined()
     expect(createDefaultNodeData('knowledge', 'new').knowledgeConfig?.evidencePolicy).toBe('REQUIRED')
   })
 

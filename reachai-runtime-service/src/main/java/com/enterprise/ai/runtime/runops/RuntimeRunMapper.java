@@ -6,6 +6,9 @@ import org.apache.ibatis.annotations.Options;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
+import java.time.LocalDateTime;
+import java.util.List;
+
 @Mapper
 public interface RuntimeRunMapper extends BaseMapper<RuntimeRunEntity> {
 
@@ -25,4 +28,22 @@ public interface RuntimeRunMapper extends BaseMapper<RuntimeRunEntity> {
     @Select("SELECT * FROM runtime_run WHERE trace_id = #{traceId} FOR UPDATE")
     @Options(flushCache = Options.FlushCachePolicy.TRUE, useCache = false)
     RuntimeRunEntity selectManagedProjectionForUpdate(@Param("traceId") String traceId);
+
+    @Select("""
+            <script>
+            SELECT r.session_id AS sessionId,
+                   COUNT(*) AS runCount,
+                   SUM(CASE WHEN r.status IN ('FAILED', 'TIMED_OUT') THEN 1 ELSE 0 END) AS failedCount,
+                   SUM(CASE WHEN r.status IN ('RUNNING', 'SUSPENDED') THEN 1 ELSE 0 END) AS openCount,
+                   MAX(r.started_at) AS lastStartedAt
+            FROM runtime_run r
+            WHERE r.run_type = 'AGENT'
+              AND r.started_at &gt;= #{since}
+              AND r.session_id IN
+              <foreach collection="sessionIds" item="sessionId" open="(" separator="," close=")">#{sessionId}</foreach>
+            GROUP BY r.session_id
+            </script>
+            """)
+    List<RuntimeSessionRunStatsView> selectSessionRunStats(@Param("sessionIds") List<String> sessionIds,
+                                                           @Param("since") LocalDateTime since);
 }

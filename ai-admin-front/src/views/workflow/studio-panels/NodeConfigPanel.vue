@@ -721,7 +721,7 @@ function syncOutputAlias() {
     }
   }
 
-  @media (max-width: 760px) {
+  @container studio-config (max-width: 640px) {
     > .el-form-item {
       flex-direction: column;
 
@@ -791,7 +791,7 @@ function syncOutputAlias() {
     word-break: break-word;
   }
 
-  @media (max-width: 760px) {
+  @container studio-config (max-width: 640px) {
     .contract-row,
     .output-row {
       grid-template-columns: 1fr;

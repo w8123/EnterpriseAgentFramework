@@ -90,10 +90,12 @@ final class RuntimeIoNodeHandlers {
         if (cancel.isCancelled()) {
             return cancelled(node.getId(), "KNOWLEDGE_RETRIEVAL");
         }
-        int topK = Math.max(1, Math.min(20, intValue(config.get("topK"), 5)));
+        // Unset values are left to the knowledge base's own retrieval settings.
+        Integer topK = config.get("topK") == null || String.valueOf(config.get("topK")).isBlank()
+                ? null : Math.max(1, Math.min(20, intValue(config.get("topK"), 5)));
         Float threshold = config.get("similarityThreshold") == null
                 ? null : (float) doubleValue(config.get("similarityThreshold"), 0.5D);
-        boolean rerankRequested = !(config.get("rerankEnabled") instanceof Boolean enabled) || enabled;
+        Boolean rerankRequested = config.get("rerankEnabled") instanceof Boolean enabled ? enabled : null;
         String evidencePolicy = normalizeKnowledgeEvidencePolicy(config.get("evidencePolicy"));
         WorkflowExecutionIdentity identity = RuntimeTrustedExecutionContexts.identity(context);
         if (!identity.canResolveUserAcl()) {
@@ -146,9 +148,10 @@ final class RuntimeIoNodeHandlers {
             Map<String, Object> knowledgeTrace = new LinkedHashMap<>();
             knowledgeTrace.put("queryLength", query.length());
             knowledgeTrace.put("hitCount", hits.size());
-            knowledgeTrace.put("topK", topK);
-            knowledgeTrace.put("searchMode", firstText(text(config.get("searchMode")), "hybrid"));
-            knowledgeTrace.put("rerankApplied", rerankRequested);
+            // KNOWLEDGE_BASE means the node left the value to the knowledge base settings.
+            knowledgeTrace.put("topK", topK == null ? "KNOWLEDGE_BASE" : topK);
+            knowledgeTrace.put("searchMode", firstText(text(config.get("searchMode")), "KNOWLEDGE_BASE"));
+            knowledgeTrace.put("rerankApplied", rerankRequested == null ? "KNOWLEDGE_BASE" : rerankRequested);
             knowledgeTrace.put("evidencePolicy", evidencePolicy);
             knowledgeTrace.put("outcome", outcome);
             knowledgeTrace.put("empty", empty);

@@ -552,10 +552,7 @@ function canvasNodeToGraphNode(node: CanvasNode, base: AgentForm): WorkflowGraph
       knowledgeBaseCodes: knowledge.knowledgeBaseCodes || [],
       knowledgeBaseGroupId: (knowledge.knowledgeBaseCodes || [])[0] || '',
       query: knowledge.query || 'input',
-      topK: Math.max(1, Math.min(20, knowledge.topK || 5)),
-      similarityThreshold: knowledge.similarityThreshold,
-      searchMode: knowledge.searchMode || 'hybrid',
-      rerankEnabled: knowledge.rerankEnabled ?? true,
+      ...knowledgeRetrievalOverrides(knowledge),
       evidencePolicy,
       knowledgeConfig: { ...knowledge, evidencePolicy },
     },
@@ -1102,10 +1099,12 @@ function graphConfigToNodeData(
       knowledgeConfig: {
         knowledgeBaseCodes: arrayValue(merged.knowledgeBaseCodes),
         query: stringValue(merged.query) || 'input',
-        topK: Math.max(1, Math.min(20, numberValue(merged.topK, 5))),
-        similarityThreshold: numberValue(merged.similarityThreshold, 0.5),
-        searchMode: stringValue(merged.searchMode) || 'hybrid',
-        rerankEnabled: merged.rerankEnabled !== false,
+        ...knowledgeRetrievalOverrides({
+          topK: merged.topK == null || merged.topK === '' ? undefined : numberValue(merged.topK, 5),
+          similarityThreshold: merged.similarityThreshold == null ? undefined : numberValue(merged.similarityThreshold, 0.5),
+          searchMode: stringValue(merged.searchMode) || undefined,
+          rerankEnabled: typeof merged.rerankEnabled === 'boolean' ? merged.rerankEnabled : undefined,
+        }),
         // Missing means a legacy graph. Keep its historical linear fallback semantics.
         evidencePolicy: rawEvidencePolicy === 'REQUIRED' ? 'REQUIRED' : 'OPTIONAL',
       } satisfies KnowledgeNodeConfig,
@@ -1220,15 +1219,24 @@ function defaultLlmMessages(systemPrompt: string, userPrompt: string): NonNullab
 }
 
 function defaultKnowledgeConfig(): KnowledgeNodeConfig {
+  // Retrieval knobs stay unset so the node follows the knowledge base settings.
   return {
     knowledgeBaseCodes: [],
     query: 'input',
-    topK: 5,
-    similarityThreshold: 0.5,
-    searchMode: 'hybrid',
-    rerankEnabled: true,
     evidencePolicy: 'REQUIRED',
   }
+}
+
+/** Only the knobs a node explicitly overrides; everything else comes from the knowledge base. */
+export function knowledgeRetrievalOverrides(config: Partial<KnowledgeNodeConfig>): Partial<KnowledgeNodeConfig> {
+  const out: Partial<KnowledgeNodeConfig> = {}
+  if (typeof config.topK === 'number' && Number.isFinite(config.topK)) out.topK = Math.max(1, Math.min(20, config.topK))
+  if (typeof config.similarityThreshold === 'number' && Number.isFinite(config.similarityThreshold)) {
+    out.similarityThreshold = config.similarityThreshold
+  }
+  if (config.searchMode) out.searchMode = config.searchMode
+  if (typeof config.rerankEnabled === 'boolean') out.rerankEnabled = config.rerankEnabled
+  return out
 }
 
 function defaultHttpConfig(): HttpNodeConfig {

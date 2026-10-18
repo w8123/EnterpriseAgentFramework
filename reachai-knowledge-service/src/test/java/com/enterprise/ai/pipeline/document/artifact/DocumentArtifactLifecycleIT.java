@@ -216,7 +216,7 @@ public class DocumentArtifactLifecycleIT {
             jdbc = new JdbcTemplate(source);
             session = ArtifactLifecycleTestSupport.session(source, KnowledgeBaseRepository.class, FileInfoRepository.class,
                     ChunkRepository.class, DocumentImportJobRepository.class, DocumentIndexExecutionRepository.class,
-                    UserFilePermissionRepository.class, KnowledgeQuestionRepository.class, DocumentArtifactLifecycleRepository.class);
+                    UserFilePermissionRepository.class, DocumentArtifactLifecycleRepository.class);
             manager = new DataSourceTransactionManager(source);
             var properties = new DocumentArtifactProperties(); properties.setLocalRoot(root.toString());
             backend = new LocalDocumentArtifactStore(properties); backend.initialize();
@@ -260,7 +260,7 @@ public class DocumentArtifactLifecycleIT {
             return new KnowledgeFileDeletionService(session.getMapper(KnowledgeBaseRepository.class),
                     session.getMapper(FileInfoRepository.class), session.getMapper(ChunkRepository.class),
                     session.getMapper(DocumentImportJobRepository.class), session.getMapper(DocumentIndexExecutionRepository.class),
-                    mock(DocumentIndexExecutionStore.class), store, session.getMapper(UserFilePermissionRepository.class), new com.enterprise.ai.service.impl.KnowledgeQuestionService(session.getMapper(KnowledgeBaseRepository.class), session.getMapper(ChunkRepository.class), session.getMapper(KnowledgeQuestionRepository.class), manager), manager, org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeTagService.class));
+                    mock(DocumentIndexExecutionStore.class), store, session.getMapper(UserFilePermissionRepository.class), manager);
         }
 
         DocumentArtifactReclaimer reclaimer() {

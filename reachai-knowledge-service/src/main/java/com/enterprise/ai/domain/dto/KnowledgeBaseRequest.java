@@ -33,15 +33,14 @@ public class KnowledgeBaseRequest {
 
     private Integer dimension;
 
+    /** ALL_CALLERS / FILE_GRANTS；为空时新建为 ALL_CALLERS，更新时保持不变。 */
+    private String accessMode;
+
     private String searchMode;
 
     private Integer topK;
 
     private Float similarityThreshold;
-
-    private Boolean directReturnEnabled;
-
-    private Float directReturnThreshold;
 
     private Boolean rerankEnabled;
 

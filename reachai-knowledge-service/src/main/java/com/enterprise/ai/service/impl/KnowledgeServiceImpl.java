@@ -17,14 +17,12 @@ import java.util.List;
 @RequiredArgsConstructor
 public class KnowledgeServiceImpl implements KnowledgeService {
 
-    private final KnowledgeQuestionService questions;
     private final KnowledgeOperationsQuery operations;
     private final KnowledgeIndexWriteService indexWrites;
     private final KnowledgeBaseLookup knowledgeBaseLookup;
     private final KnowledgeRetrievalEngine retrievalEngine;
     private final KnowledgeFileDeletionService fileDeletion;
     private final KnowledgeBaseLifecycleService baseLifecycle;
-    private final KnowledgeTagService tags;
     private final KnowledgeContentQuery contentQuery;
     private final KnowledgeChunkEditingService chunkEditing;
 
@@ -83,8 +81,8 @@ public class KnowledgeServiceImpl implements KnowledgeService {
     }
 
     @Override
-    public List<ChunkVO> listChunks(String kbCode, String keyword, Integer enabled, String tagKey, String tagValue, Integer limit) {
-        return contentQuery.listChunks(kbCode, keyword, enabled, tagKey, tagValue, limit);
+    public List<ChunkVO> listChunks(String kbCode, String keyword, Integer enabled, Integer limit) {
+        return contentQuery.listChunks(kbCode, keyword, enabled, limit);
     }
 
     @Override
@@ -105,8 +103,8 @@ public class KnowledgeServiceImpl implements KnowledgeService {
     }
 
     @Override
-    public List<KnowledgeHitLogDTO> listHitLogs(String kbCode, Integer limit, Boolean lowConfidenceOnly) {
-        return operations.listHitLogs(kbCode, limit, lowConfidenceOnly);
+    public List<KnowledgeHitLogDTO> listHitLogs(String kbCode, Integer limit, Boolean lowConfidenceOnly, String source) {
+        return operations.listHitLogs(kbCode, limit, lowConfidenceOnly, source);
     }
 
     @Override
@@ -129,56 +127,11 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         return retrievalEngine.execute(request);
     }
 
-    // ==================== 统计、标签与问题管理 ====================
+    // ==================== 统计 ====================
 
     @Override
     public KnowledgeStatsVO getStats(String kbCode) {
         return operations.getStats(kbCode);
-    }
-
-    @Override
-    public List<KnowledgeTagDTO> listTags(String kbCode, String targetType, String targetId) {
-        return tags.list(kbCode, targetType, targetId);
-    }
-
-    @Override
-    public List<KnowledgeTagStatsDTO> listTagStats(String kbCode) {
-        return tags.stats(kbCode);
-    }
-
-    @Override
-    @Transactional(rollbackFor = Exception.class)
-    public KnowledgeTagDTO createTag(String kbCode, KnowledgeTagRequest request) {
-        return tags.create(kbCode, request);
-    }
-
-    @Override
-    @Transactional(rollbackFor = Exception.class)
-    public List<KnowledgeTagDTO> batchCreateTags(String kbCode, KnowledgeTagBatchRequest request) {
-        return tags.createBatch(kbCode, request);
-    }
-
-    @Override
-    @Transactional(rollbackFor = Exception.class)
-    public void deleteTag(String kbCode, Long tagId) {
-        tags.delete(kbCode, tagId);
-    }
-
-    @Override
-    public List<KnowledgeQuestionDTO> listQuestions(String kbCode, Long chunkId) {
-        return questions.list(kbCode, chunkId);
-    }
-
-    @Override
-    @Transactional(rollbackFor = Exception.class)
-    public KnowledgeQuestionDTO createQuestion(String kbCode, KnowledgeQuestionRequest request) {
-        return questions.create(kbCode, request);
-    }
-
-    @Override
-    @Transactional(rollbackFor = Exception.class)
-    public void deleteQuestion(String kbCode, Long questionId) {
-        questions.delete(kbCode, questionId);
     }
 
 }

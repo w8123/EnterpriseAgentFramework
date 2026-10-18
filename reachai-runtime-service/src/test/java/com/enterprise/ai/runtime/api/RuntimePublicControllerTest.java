@@ -60,7 +60,7 @@ class RuntimePublicControllerTest {
         Method runOpsDetail = RuntimePublicController.class.getDeclaredMethod("runOpsDetail", String.class);
         Method runOpsRecent = RuntimePublicController.class
                 .getDeclaredMethod("runOpsRecent", String.class, String.class, String.class, String.class,
-                        String.class, String.class, String.class, int.class, int.class);
+                        String.class, String.class, String.class, String.class, int.class, int.class);
         Method runOpsDiagnostics = RuntimePublicController.class
                 .getDeclaredMethod("runOpsDiagnostics", String.class, String.class, String.class, String.class,
                         String.class, String.class, String.class, int.class, int.class);
@@ -466,16 +466,16 @@ class RuntimePublicControllerTest {
                 mock(RuntimeRunOpsReplayService.class));
         List<RuntimeRunOpsSummaryView> expected = List.of(runOpsSummary("trace-1"));
         when(runOpsQueryService.recent(
-                "qmssmp", "SUCCESS", "AGENT", "DEBUG", "agent-1", "user-1", null, 25, 14))
+                "qmssmp", "SUCCESS", "AGENT", "DEBUG", "agent-1", "user-1", "session-1", null, 25, 14))
                 .thenReturn(expected);
 
         ResponseEntity<List<RuntimeRunOpsSummaryView>> response = controller.runOpsRecent(
-                "qmssmp", "SUCCESS", "AGENT", "DEBUG", "agent-1", "user-1", null, 25, 14);
+                "qmssmp", "SUCCESS", "AGENT", "DEBUG", "agent-1", "user-1", "session-1", null, 25, 14);
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals(expected, response.getBody());
         verify(runOpsQueryService).recent(
-                "qmssmp", "SUCCESS", "AGENT", "DEBUG", "agent-1", "user-1", null, 25, 14);
+                "qmssmp", "SUCCESS", "AGENT", "DEBUG", "agent-1", "user-1", "session-1", null, 25, 14);
     }
 
     @Test

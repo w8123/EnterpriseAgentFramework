@@ -46,7 +46,7 @@ class KnowledgeCollectionIdentityTest {
         embedding = mock(EmbeddingService.class);
         when(embedding.embedBatch(anyString(), anyList())).thenAnswer(call -> Collections.nCopies(((List<?>) call.getArgument(1)).size(), List.of(1.0f, 0.0f)));
         when(embedding.embed(anyString(), anyString())).thenReturn(List.of(1.0f, 0.0f));
-        service = KnowledgeManagementTestServices.create(db.mapper(FileInfoRepository.class), db.mapper(ChunkRepository.class), mock(KnowledgeTagRepository.class), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeQuestionService.class), mock(KnowledgeOperationsQuery.class), KnowledgeIndexTestSupport.writer(db, embedding, vectors), new KnowledgeBaseLookup(bases), mock(KnowledgeRetrievalEngine.class), KnowledgeIndexTestSupport.deletion(db), KnowledgeIndexTestSupport.baseLifecycle(db,vectors,KnowledgeIndexTestSupport.deletion(db),mock(KnowledgeTagRepository.class),mock(KnowledgeQuestionRepository.class)), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeTagService.class));
+        service = KnowledgeManagementTestServices.create(db.mapper(FileInfoRepository.class), db.mapper(ChunkRepository.class), mock(KnowledgeOperationsQuery.class), KnowledgeIndexTestSupport.writer(db, embedding, vectors), new KnowledgeBaseLookup(bases), mock(KnowledgeRetrievalEngine.class), KnowledgeIndexTestSupport.deletion(db), KnowledgeIndexTestSupport.baseLifecycle(db,vectors,KnowledgeIndexTestSupport.deletion(db)));
         transactions = new TransactionTemplate(new DataSourceTransactionManager(db.jdbc().getDataSource()));
     }
 
@@ -132,7 +132,7 @@ class KnowledgeCollectionIdentityTest {
         assertEquals("FAILED", result.getStatus());
         verifyNoInteractions(factory);
         var metadata = new MetadataPersistStep(bases, db.mapper(FileInfoRepository.class), db.mapper(ChunkRepository.class),
-                new com.fasterxml.jackson.databind.ObjectMapper(), mock(DocumentImportPublicationGuard.class), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeTagService.class), org.mockito.Mockito.mock(com.enterprise.ai.service.impl.KnowledgeQuestionService.class));
+                new com.fasterxml.jackson.databind.ObjectMapper(), mock(DocumentImportPublicationGuard.class));
         assertThrows(PipelineException.class, () -> transactions.executeWithoutResult(status -> metadata.process(context)));
         assertEquals(0, db.jdbc().queryForObject("SELECT COUNT(*) FROM knowledge_file_info", Integer.class));
         assertEquals(0, db.jdbc().queryForObject("SELECT COUNT(*) FROM knowledge_chunk", Integer.class));

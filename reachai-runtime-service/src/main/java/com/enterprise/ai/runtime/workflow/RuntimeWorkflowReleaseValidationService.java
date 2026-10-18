@@ -4,6 +4,7 @@ import com.enterprise.ai.agent.graph.AgentGraphNodeType;
 import com.enterprise.ai.agent.graph.GraphSpec;
 import com.enterprise.ai.runtime.client.control.RuntimeControlCatalogClient;
 import com.enterprise.ai.runtime.execution.context.WorkflowVariableNamespaces;
+import com.enterprise.ai.runtime.execution.kernel.EdgeConditions;
 import com.enterprise.ai.runtime.execution.http.WorkflowHttpClient;
 import com.enterprise.ai.runtime.execution.interaction.WorkflowInteractionCustomRenderers;
 import com.enterprise.ai.runtime.execution.interaction.WorkflowInteractionPresentationPolicy;
@@ -33,6 +34,11 @@ import java.util.regex.Pattern;
 
 @Service
 public class RuntimeWorkflowReleaseValidationService {
+
+    /** Node types whose outgoing edges may carry their own branch route ids. */
+    private static final Set<String> ROUTE_EMITTING_NODE_TYPES = Set.of(
+            "INTENT_CLASSIFIER", "IF_ELSE", "INTERACTION", "KNOWLEDGE_RETRIEVAL",
+            "PAGE_ACTION", "HUMAN_APPROVAL", "LOOP");
 
     private static final Pattern PAGE_ACTION_DATA_WRAPPER_REFERENCE = Pattern.compile(
             "nodeOutput\\.([A-Za-z0-9_-]+)\\.data(?=\\.|\\b)");
@@ -337,8 +343,34 @@ public class RuntimeWorkflowReleaseValidationService {
             }
         }
 
+        validateEdgeConditions(byId, edges, report);
         if (entry != null && byId.containsKey(entry)) {
             validateGraphStructure(entry, byId, edges, report);
+        }
+    }
+
+    /**
+     * Nodes without branch routes only follow the engine's keyword conditions; any other text on their
+     * outgoing edges would be silently skipped at run time, so it is rejected before publish.
+     */
+    private void validateEdgeConditions(Map<String, GraphSpec.Node> byId,
+                                        List<GraphSpec.Edge> edges,
+                                        RuntimeWorkflowReleaseValidationResult.Builder report) {
+        for (GraphSpec.Edge edge : edges) {
+            if (edge == null || !StringUtils.hasText(edge.getCondition())) {
+                continue;
+            }
+            GraphSpec.Node source = byId.get(text(edge.getFrom()));
+            if (source == null) {
+                continue;
+            }
+            String type = AgentGraphNodeType.find(source.getType()).map(AgentGraphNodeType::type).orElse("");
+            if (ROUTE_EMITTING_NODE_TYPES.contains(type) || EdgeConditions.isKeyword(edge.getCondition())) {
+                continue;
+            }
+            report.error("GRAPH_EDGE_CONDITION_UNSUPPORTED", source.getId(),
+                    "Edge condition is not supported for this node: " + edge.getCondition()
+                            + "; use always, success, error, empty or not_empty");
         }
     }
 

@@ -47,6 +47,7 @@ const GROUPS: Array<RoleShortcutGroup & { entry: string }> = [
       { label: '配置 Agent', detail: '选择可调用的 Workflow，设置记忆和对外开放', to: '/agent', permission: PLATFORM_PERMISSION_AGENT_WRITE },
       { label: '维护知识库', detail: '上传文件、管理业务索引', to: '/knowledge', permission: PLATFORM_PERMISSION_KNOWLEDGE_WRITE },
       { label: '调用权限', detail: '控制业务系统用户能让 Agent 调用什么', to: '/settings/tool-acl', permission: PLATFORM_PERMISSION_TOOL_ACL_READ },
+      { label: '运行中心', detail: '查看运行记录、自动化和评测，定位出错的节点', to: '/runops', permission: PLATFORM_PERMISSION_RUNOPS_READ },
     ],
   },
   {

@@ -57,9 +57,6 @@ async function example() {
     tokenProvider: async () => 'token',
     bridge,
     pageRegistry: {
-      projectCode: 'qmssmp-teams-construction-service',
-      appKey: 'qmssmp-teams-construction-service',
-      appSecret: 'dev-secret',
       registerOnStart: true,
     },
     page: {

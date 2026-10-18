@@ -47,6 +47,8 @@ public class OpenAiCompatibleRuntimeClient {
 
     private static final Duration REQUEST_TIMEOUT = Duration.ofMinutes(8);
     private static final Duration MODEL_LIST_TIMEOUT = Duration.ofSeconds(20);
+    /** finish_reason 之后等待流末 usage 块 / [DONE] 的上限，超时即关闭连接按正常结束处理。 */
+    private static final Duration USAGE_TAIL_GRACE = Duration.ofMillis(1500);
     private static final int MODEL_LIST_MAX_BYTES = 4 * 1024 * 1024;
 
     private final ObjectMapper objectMapper;
@@ -72,8 +74,18 @@ public class OpenAiCompatibleRuntimeClient {
         try {
             long deadlineNanos = System.nanoTime() + timeout.toNanos();
             responseFuture = httpClient.sendAsync(httpRequest, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-            // Keep the original cancellable exchange: orTimeout would complete it before cancel can act.
-            HttpResponse<String> response = responseFuture.get(Math.max(1L, deadlineNanos - System.nanoTime()), TimeUnit.NANOSECONDS);
+            HttpResponse<String> response;
+            try {
+                // Keep the original cancellable exchange: orTimeout would complete it before cancel can act.
+                response = responseFuture.get(Math.max(1L, deadlineNanos - System.nanoTime()), TimeUnit.NANOSECONDS);
+            } catch (ExecutionException e) {
+                if (!isStaleConnectionFailure(e.getCause())) {
+                    throw e;
+                }
+                log.warn("Model instance {} chat call hit a reset pooled connection; retrying once", runtime.getId());
+                responseFuture = httpClient.sendAsync(httpRequest, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+                response = responseFuture.get(Math.max(1L, deadlineNanos - System.nanoTime()), TimeUnit.NANOSECONDS);
+            }
             ensureSuccess(response.statusCode(), response.body(), runtime);
             JsonNode root = objectMapper.readTree(response.body());
             JsonNode choice = firstChoice(root);
@@ -119,6 +131,44 @@ public class OpenAiCompatibleRuntimeClient {
         }
     }
 
+    /**
+     * Idle keep-alive connections are often closed by the provider or a proxy; the first request after a
+     * long idle period then fails with "Connection reset" before any response arrives. Such a failure carries
+     * no provider answer, so one retry on a fresh connection is safe. Timeouts are never retried.
+     */
+    private HttpResponse<java.io.InputStream> sendStreamRequest(ModelInstanceRuntime runtime, HttpRequest httpRequest)
+            throws java.io.IOException, InterruptedException {
+        try {
+            return httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofInputStream());
+        } catch (java.io.IOException e) {
+            if (!isStaleConnectionFailure(e)) {
+                throw e;
+            }
+            log.warn("Model instance {} stream call hit a reset pooled connection; retrying once", runtime.getId());
+            return httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofInputStream());
+        }
+    }
+
+    static boolean isStaleConnectionFailure(Throwable failure) {
+        Throwable cause = failure;
+        for (int depth = 0; depth < 8 && cause != null; depth++) {
+            if (cause instanceof HttpTimeoutException) {
+                return false;
+            }
+            if (cause instanceof java.io.IOException io) {
+                String message = io.getMessage();
+                if (cause instanceof java.net.SocketException
+                        || cause instanceof java.io.EOFException
+                        || (message != null && (message.contains("Connection reset")
+                        || message.contains("closed") || message.contains("EOF reached")))) {
+                    return true;
+                }
+            }
+            cause = cause.getCause();
+        }
+        return false;
+    }
+
     private BizException chatTimeout(Duration timeout) {
         return new BizException(504, "OpenAI-compatible model call timed out after " + timeout.toMillis() + " ms");
     }
@@ -134,7 +184,7 @@ public class OpenAiCompatibleRuntimeClient {
                     .POST(HttpRequest.BodyPublishers.ofString(json, StandardCharsets.UTF_8))
                     .build();
             try {
-                HttpResponse<java.io.InputStream> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofInputStream());
+                HttpResponse<java.io.InputStream> response = sendStreamRequest(runtime, httpRequest);
                 if (response.statusCode() < 200 || response.statusCode() >= 300) {
                     String errorBody = new String(response.body().readAllBytes(), StandardCharsets.UTF_8);
                     log.warn("Model instance {} stream call failed: HTTP {} body={}",
@@ -143,8 +193,11 @@ public class OpenAiCompatibleRuntimeClient {
                     sink.error(new BizException(response.statusCode(), providerErrorMessage(response.statusCode(), errorBody)));
                     return;
                 }
-                try (BufferedReader reader = new BufferedReader(new InputStreamReader(response.body(), StandardCharsets.UTF_8))) {
-                    SseTerminal terminal = drainOpenAiSse(reader, objectMapper, sink::next);
+                java.io.InputStream body = response.body();
+                try (BufferedReader reader = new BufferedReader(new InputStreamReader(body, StandardCharsets.UTF_8))) {
+                    SseTerminal terminal = drainOpenAiSse(reader, objectMapper, sink::next,
+                            () -> Schedulers.parallel().schedule(() -> closeQuietly(body),
+                                    USAGE_TAIL_GRACE.toMillis(), TimeUnit.MILLISECONDS));
                     emitSseTerminal(sink, terminal);
                 }
             } catch (Exception e) {
@@ -161,29 +214,61 @@ public class OpenAiCompatibleRuntimeClient {
     static SseTerminal drainOpenAiSse(BufferedReader reader,
                                       ObjectMapper objectMapper,
                                       java.util.function.Consumer<ModelStreamEvent> onEvent) throws Exception {
+        return drainOpenAiSse(reader, objectMapper, onEvent, () -> { });
+    }
+
+    /**
+     * stream_options.include_usage 时供应商在 finish_reason 块之后再发一个 choices 为空的 usage 块，
+     * 然后才是 [DONE]。所以 finish_reason 之后继续读到 usage 或 [DONE]；同时调用 onAwaitingUsage
+     * 让调用方限时关闭连接，避免不发 [DONE] 又不断开的供应商把调用方挂住。等待期间的读失败按正常结束处理。
+     */
+    static SseTerminal drainOpenAiSse(BufferedReader reader,
+                                      ObjectMapper objectMapper,
+                                      java.util.function.Consumer<ModelStreamEvent> onEvent,
+                                      Runnable onAwaitingUsage) throws Exception {
         OpenAiCompatibleStreamParser parser = new OpenAiCompatibleStreamParser(objectMapper);
         boolean receivedDone = false;
+        boolean usageSeen = false;
+        boolean awaitingUsage = false;
         String line;
-        while ((line = reader.readLine()) != null) {
-            if (!line.startsWith("data:")) {
-                continue;
+        try {
+            while ((line = reader.readLine()) != null) {
+                if (!line.startsWith("data:")) {
+                    continue;
+                }
+                String data = line.substring(line.indexOf(':') + 1).trim();
+                if ("[DONE]".equals(data)) {
+                    receivedDone = true;
+                    break;
+                }
+                JsonNode root = objectMapper.readTree(data);
+                usageSeen |= root.hasNonNull("usage");
+                parser.acceptChunk(root, onEvent);
+                if (parser.finishReason() != null && !parser.finishReason().isBlank()) {
+                    if (usageSeen) {
+                        break;
+                    }
+                    if (!awaitingUsage) {
+                        awaitingUsage = true;
+                        onAwaitingUsage.run();
+                    }
+                }
             }
-            String data = line.substring(line.indexOf(':') + 1).trim();
-            if ("[DONE]".equals(data)) {
-                receivedDone = true;
-                break;
+        } catch (java.io.IOException e) {
+            if (!awaitingUsage) {
+                throw e;
             }
-            JsonNode root = objectMapper.readTree(data);
-            parser.acceptChunk(root, onEvent);
-            // Some OpenAI-compatible providers send a non-empty finish_reason
-            // but keep the SSE connection open or delay [DONE]. A valid finish
-            // reason is already a terminal protocol signal; do not make callers
-            // wait for the transport to become idle before emitting completed.
-            if (parser.finishReason() != null && !parser.finishReason().isBlank()) {
-                break;
-            }
+            log.debug("Model stream tail closed after finish_reason without usage: {}", e.getMessage());
         }
         return SseTerminal.of(receivedDone, parser.finishReason());
+    }
+
+    private static void closeQuietly(java.io.InputStream body) {
+        try {
+            body.close();
+        } catch (java.io.IOException ignored) {
+            // already closed
+        }
     }
 
     static void emitSseTerminal(FluxSink<ModelStreamEvent> sink, SseTerminal terminal) {

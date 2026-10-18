@@ -41,8 +41,6 @@ public class MetadataPersistStep implements PipelineStep {
     private final ChunkRepository chunkRepository;
     private final ObjectMapper objectMapper;
     private final com.enterprise.ai.pipeline.document.job.DocumentImportPublicationGuard publicationGuard;
-    private final com.enterprise.ai.service.impl.KnowledgeTagService tags;
-    private final com.enterprise.ai.service.impl.KnowledgeQuestionService questions;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -71,8 +69,6 @@ public class MetadataPersistStep implements PipelineStep {
             throw new PipelineException(getName(), context.getFileId(),
                     "fileId 已被其他知识库或导入任务占用: " + context.getFileId());
         }
-        questions.unlinkFileChunks(kb.getId(), context.getFileId());
-        tags.retireFile(kb.getId(), context.getFileId());
         chunkRepository.delete(new LambdaQueryWrapper<Chunk>().eq(Chunk::getFileId, context.getFileId())
                 .eq(Chunk::getKnowledgeBaseId, kb.getId()));
         fileInfoRepository.delete(new LambdaQueryWrapper<FileInfo>().eq(FileInfo::getFileId, context.getFileId())

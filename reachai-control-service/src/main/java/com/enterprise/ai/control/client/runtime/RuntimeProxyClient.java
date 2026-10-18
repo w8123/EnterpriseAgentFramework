@@ -94,6 +94,16 @@ public interface RuntimeProxyClient {
                                                      @RequestParam("limit") int limit,
                                                      @RequestParam("days") int days);
 
+    /** 一个对话会话内的全部根运行，供运行中心按轮次展示。 */
+    @RequestMapping(method = RequestMethod.GET, path = "/api/runops/traces/recent")
+    ResponseEntity<List<Map<String, Object>>> runOpsSessionRuns(@RequestParam("sessionId") String sessionId,
+                                                                @RequestParam("limit") int limit,
+                                                                @RequestParam("days") int days);
+
+    @RequestMapping(method = RequestMethod.GET, path = "/api/runops/sessions/stats")
+    ResponseEntity<List<Map<String, Object>>> runOpsSessionStats(@RequestParam("sessionIds") List<String> sessionIds,
+                                                                 @RequestParam("days") int days);
+
     @RequestMapping(method = RequestMethod.GET, path = "/api/runops/diagnostics")
     ResponseEntity<Map<String, Object>> runOpsDiagnostics(
                                                           @RequestParam(value = "projectCode", required = false) String projectCode,
@@ -280,27 +290,8 @@ public interface RuntimeProxyClient {
     @RequestMapping(method = RequestMethod.DELETE, path = "/api/workflows/credentials/{id}")
     ResponseEntity<Object> deleteWorkflowCredential(@PathVariable("id") Long id);
 
-    @RequestMapping(method = RequestMethod.GET, path = "/api/runtime/evals/datasets")
-    ResponseEntity<Object> listEvalDatasets(@RequestParam(value = "agentId", required = false) String agentId);
-
-    @RequestMapping(method = RequestMethod.POST, path = "/api/runtime/evals/datasets")
-    ResponseEntity<Object> createEvalDataset(@RequestBody Map<String, Object> body);
-
-    @RequestMapping(method = RequestMethod.POST, path = "/api/runtime/evals/datasets/{datasetId}/cases/import")
-    ResponseEntity<Object> importEvalCases(@PathVariable("datasetId") Long datasetId,
-                                           @RequestBody Map<String, Object> body);
-
-    @RequestMapping(method = RequestMethod.GET, path = "/api/runtime/evals/datasets/{datasetId}/cases")
-    ResponseEntity<Object> listEvalCases(@PathVariable("datasetId") Long datasetId);
-
-    @RequestMapping(method = RequestMethod.POST, path = "/api/runtime/evals/runs")
-    ResponseEntity<Object> startEvalRun(@RequestBody Map<String, Object> body);
-
-    @RequestMapping(method = RequestMethod.GET, path = "/api/runtime/evals/runs/{runId}")
-    ResponseEntity<Object> getEvalRun(@PathVariable("runId") Long runId);
-
-    @RequestMapping(method = RequestMethod.GET, path = "/api/runtime/evals/runs/{runId}/results")
-    ResponseEntity<Object> listEvalRunResults(@PathVariable("runId") Long runId);
+    @RequestMapping(method = RequestMethod.GET, path = "/api/runtime/evals/v2/readiness")
+    ResponseEntity<Map<String, Object>> evalOpsReadiness();
 
     @RequestMapping(method = RequestMethod.GET, path = "/api/runtime/evals/v2/datasets")
     ResponseEntity<Object> listEvalOpsDatasets(@RequestParam("tenantId") String tenantId,
@@ -398,6 +389,13 @@ public interface RuntimeProxyClient {
     ResponseEntity<Object> publishLatestAgentWorkflowVersions(@PathVariable("agentId") String agentId,
                                                               @RequestBody Map<String, Object> body);
 
+    @RequestMapping(method = RequestMethod.POST, path = "/api/agents/{agentId}/knowledge-qa")
+    ResponseEntity<Object> attachKnowledgeQaWorkflow(@PathVariable("agentId") String agentId,
+                                                     @RequestBody Map<String, Object> body);
+
+    @RequestMapping(method = RequestMethod.GET, path = "/api/workflows/knowledge-usage")
+    ResponseEntity<Object> listKnowledgeUsage(@RequestParam("knowledgeBaseCodes") List<String> knowledgeBaseCodes);
+
     @RequestMapping(method = RequestMethod.GET, path = "/api/workflows/{workflowId}/agent-references")
     ResponseEntity<Object> listWorkflowAgentReferences(@PathVariable("workflowId") String workflowId);
 
@@ -422,7 +420,9 @@ public interface RuntimeProxyClient {
                                               @RequestParam(value = "userId", required = false) String userId,
                                               @RequestParam("limit") int limit);
 
-    @RequestMapping(method = RequestMethod.POST, path = "/api/registry/projects/{projectCode}/agent-graphs/sync")
+    @RequestMapping(method = RequestMethod.POST, path = "/api/registry/projects/{projectCode}/agent-graphs/sync",
+            consumes = "application/json")
     ResponseEntity<Object> syncAgentGraphs(@PathVariable("projectCode") String projectCode,
-                                           @RequestBody Map<String, Object> body);
+                                           @org.springframework.web.bind.annotation.RequestHeader Map<String, String> headers,
+                                           @RequestBody byte[] exactBody);
 }

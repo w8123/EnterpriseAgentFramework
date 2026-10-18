@@ -57,16 +57,13 @@ class KnowledgeBaseCommandsTest {
         }).when(bases).selectOne(any());
         var manager = new DataSourceTransactionManager(db.jdbc().getDataSource());
         transaction = new TransactionTemplate(manager);
-        var tags = mock(KnowledgeTagRepository.class);
-        var questions = mock(KnowledgeQuestionService.class);
         var deletion = mock(KnowledgeFileDeletionService.class);
-        var lifecycle = new KnowledgeBaseLifecycleService(bases, tags, questions, deletion,
+        var lifecycle = new KnowledgeBaseLifecycleService(bases, deletion,
                 mock(KnowledgeCollectionLifecycleStore.class), mock(VectorService.class),
                 mock(com.enterprise.ai.embedding.EmbeddingService.class), manager);
-        service = KnowledgeManagementTestServices.create(mock(FileInfoRepository.class), mock(ChunkRepository.class), tags,
-                questions, mock(KnowledgeOperationsQuery.class), mock(KnowledgeIndexWriteService.class),
-                new KnowledgeBaseLookup(bases), mock(KnowledgeRetrievalEngine.class), deletion, lifecycle,
-                mock(KnowledgeTagService.class));
+        service = KnowledgeManagementTestServices.create(mock(FileInfoRepository.class), mock(ChunkRepository.class),
+                mock(KnowledgeOperationsQuery.class), mock(KnowledgeIndexWriteService.class),
+                new KnowledgeBaseLookup(bases), mock(KnowledgeRetrievalEngine.class), deletion, lifecycle);
         db.jdbc().update("INSERT INTO knowledge_base(id,name,code,vector_collection_name,description,"
                 + "embedding_model_instance_id,llm_model_instance_id,chunk_size,chunk_overlap,split_type,"
                 + "status,search_mode,top_k) VALUES (7,'Original','kb','collection-a','Original description',"
@@ -145,7 +142,7 @@ class KnowledgeBaseCommandsTest {
         transaction.executeWithoutResult(ignored -> service.update(catalog));
         KbConfigRequest config = new KbConfigRequest();
         config.setChunkOverlap(0);
-        config.setDirectReturnEnabled(false);
+        config.setAccessMode("file_grants");
         transaction.executeWithoutResult(ignored -> service.updateKbConfig("kb", config));
         transaction.executeWithoutResult(ignored -> service.updateKbConfig("kb", config));
         Map<String, Object> row = row();
@@ -154,7 +151,7 @@ class KnowledgeBaseCommandsTest {
                 () -> assertEquals("embedding-c", row.get("embedding_model_instance_id")),
                 () -> assertEquals(800, ((Number) row.get("chunk_size")).intValue()),
                 () -> assertEquals(0, ((Number) row.get("chunk_overlap")).intValue()),
-                () -> assertFalse(db.jdbc().queryForObject("SELECT direct_return_enabled FROM knowledge_base WHERE id=7", Boolean.class)),
+                () -> assertEquals("FILE_GRANTS", row.get("access_mode")),
                 () -> assertEquals("collection-a", row.get("vector_collection_name")));
     }
 

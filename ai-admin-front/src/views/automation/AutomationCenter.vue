@@ -4,10 +4,14 @@
       <PageHeader
         variant="overview"
         domain="governance"
-        title="自动化中心"
+        eyebrow="运行中心"
+        title="自动化"
         description="设置好时间后，系统会自动运行指定的 Agent 或 Workflow。"
         :collapsed="isAutomationHeaderCollapsed"
       >
+        <template #meta>
+          <RunCenterNav />
+        </template>
         <template #tags>
           <el-tag type="success" effect="light">运行治理</el-tag>
           <el-tag type="success" effect="light">当前 {{ automations.length }} 个自动化</el-tag>
@@ -141,7 +145,7 @@
           </el-table-column>
           <el-table-column label="下次运行" min-width="156">
             <template #default="{ row }">
-              <span :class="{ muted: !row.nextFireAt }">{{ formatTime(row.nextFireAt) }}</span>
+              <span :class="{ muted: !row.nextFireAt }">{{ formatTime(row.nextFireAt, row.timeZone) }}</span>
               <div v-if="row.lastFireAt" class="cell-meta">上次 {{ formatRelative(row.lastFireAt) }}</div>
             </template>
           </el-table-column>
@@ -433,8 +437,18 @@
         </section>
 
         <section class="form-section">
-          <div class="section-title"><span>4</span><div><strong>版本化输入</strong><small>JSON 对象，最大 64 KiB；禁止保存任何凭据</small></div></div>
-          <el-form-item :error="inputError">
+          <div class="section-title"><span>4</span><div><strong>{{ form.targetType === 'AGENT' ? '提问内容' : '版本化输入' }}</strong><small>{{ form.targetType === 'AGENT' ? '每次执行时发给 Agent 的问题；附加参数可选' : 'JSON 对象，最大 64 KiB；禁止保存任何凭据' }}</small></div></div>
+          <el-form-item v-if="form.targetType === 'AGENT'" label="问题" required>
+            <el-input
+              v-model="form.agentMessage"
+              type="textarea"
+              :rows="3"
+              resize="vertical"
+              maxlength="4000"
+              placeholder="例如：今天有哪些库存预警？"
+            />
+          </el-form-item>
+          <el-form-item :label="form.targetType === 'AGENT' ? '附加参数（JSON，可选）' : undefined" :error="inputError">
             <el-input
               v-model="form.inputText"
               type="textarea"
@@ -442,7 +456,7 @@
               resize="vertical"
               class="json-input"
               spellcheck="false"
-              placeholder='{"reportDate":"today"}'
+              :placeholder="form.targetType === 'AGENT' ? '{}' : '{&quot;reportDate&quot;:&quot;today&quot;}'"
               @blur="validateInputJson"
             />
           </el-form-item>
@@ -518,7 +532,7 @@
                   <div v-for="attempt in row.attempts" :key="attempt.id" class="attempt-item">
                     <span class="attempt-index">#{{ attempt.attemptNo }}</span>
                     <el-tag size="small" :type="occurrenceTone(attempt.status)">{{ occurrenceStatusLabel(attempt.status) }}</el-tag>
-                    <span>{{ formatTime(attempt.startedAt) }} → {{ formatTime(attempt.endedAt) }}</span>
+                    <span>{{ formatTime(attempt.startedAt, detailTimeZone) }} → {{ formatTime(attempt.endedAt, detailTimeZone) }}</span>
                     <span class="attempt-worker">{{ attempt.workerId || '-' }}</span>
                     <button v-if="attempt.traceId" type="button" class="trace-link" @click="openTrace(attempt.traceId)">
                       查看 Trace
@@ -534,7 +548,7 @@
           </el-table-column>
           <el-table-column label="计划时刻" min-width="160">
             <template #default="{ row }">
-              <span>{{ formatTime(row.scheduledAt) }}</span>
+              <span>{{ formatTime(row.scheduledAt, detailTimeZone) }}</span>
               <div class="cell-meta">{{ sourceLabel(row.sourceType) }}</div>
             </template>
           </el-table-column>
@@ -593,6 +607,7 @@ import CollapsibleHeaderRegion from '@/components/common/CollapsibleHeaderRegion
 import MetricIconBg from '@/components/common/MetricIconBg.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
+import RunCenterNav from '@/views/runops/components/RunCenterNav.vue'
 import { useCollapsiblePageHeader } from '@/composables/useCollapsiblePageHeader'
 import {
   archiveAutomation,
@@ -671,6 +686,7 @@ const readiness = ref<Awaited<ReturnType<typeof getAutomationReadiness>>['data']
 const targetOptions = ref<TargetOption[]>([])
 const versionOptions = ref<VersionOption[]>([])
 const selectedDetail = ref<AutomationDetail>()
+const detailTimeZone = computed(() => selectedDetail.value?.currentVersion?.timeZone)
 const history = ref<AutomationOccurrence[]>([])
 const historyStatus = ref('')
 const inputError = ref('')
@@ -713,6 +729,7 @@ const form = reactive({
   initialBackoffSeconds: 10,
   maxBackoffSeconds: 300,
   inputText: '{}',
+  agentMessage: '',
   activate: true,
   expectedRevision: undefined as number | undefined,
 })
@@ -871,6 +888,7 @@ function resetForm() {
     initialBackoffSeconds: 10,
     maxBackoffSeconds: 300,
     inputText: '{}',
+    agentMessage: '',
     activate: true,
     expectedRevision: undefined,
   })
@@ -928,7 +946,7 @@ async function openEdit(row: AutomationSummary) {
       maxAttempts: version.maxAttempts,
       initialBackoffSeconds: version.initialBackoffSeconds,
       maxBackoffSeconds: version.maxBackoffSeconds,
-      inputText: JSON.stringify(version.input || {}, null, 2),
+      ...splitAgentMessage(version.targetType, version.input),
       activate: data.automation.status === 'ACTIVE',
       expectedRevision: data.automation.revision,
     })
@@ -1039,6 +1057,15 @@ function parseInputJson(): Record<string, unknown> | null {
   }
 }
 
+/** Agent 自动化的输入就是一次提问：把 message 拆到「问题」框，其余字段留在附加参数里。 */
+function splitAgentMessage(targetType: AutomationTargetType, input?: Record<string, unknown>) {
+  const value = { ...(input || {}) }
+  if (targetType !== 'AGENT') return { inputText: JSON.stringify(value, null, 2), agentMessage: '' }
+  const message = typeof value.message === 'string' ? value.message : ''
+  delete value.message
+  return { inputText: JSON.stringify(value, null, 2), agentMessage: message }
+}
+
 function validateInputJson() {
   parseInputJson()
 }
@@ -1057,8 +1084,12 @@ async function saveAutomation() {
   if (form.maxBackoffSeconds < form.initialBackoffSeconds) {
     return ElMessage.warning('最大退避不能小于初始退避')
   }
-  const input = parseInputJson()
-  if (!input) return
+  const extraInput = parseInputJson()
+  if (!extraInput) return
+  if (form.targetType === 'AGENT' && !form.agentMessage.trim()) {
+    return ElMessage.warning('请填写每次执行时发给 Agent 的问题')
+  }
+  const input = form.targetType === 'AGENT' ? { ...extraInput, message: form.agentMessage.trim() } : extraInput
   const project = projectOptions.value.find((item) => item.projectCode === form.projectCode)
   const payload: AutomationUpsertCommand = {
     name: form.name.trim(),
@@ -1219,16 +1250,22 @@ function shortKey(value: string) {
 
 function scheduleLabel(row: AutomationSummary) {
   if (!row.scheduleLabel) return '-'
-  return row.triggerType === 'ONCE' ? formatTime(row.scheduleLabel) : row.scheduleLabel
+  return row.triggerType === 'ONCE' ? formatTime(row.scheduleLabel, row.timeZone) : row.scheduleLabel
 }
 
-function formatTime(value?: string) {
+/** 调度相关时间按自动化自己的时区显示（与 cron 的时区一致），不跟随浏览器时区。 */
+function formatTime(value?: string, timeZone?: string) {
   if (!value) return '—'
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
-  return new Intl.DateTimeFormat('zh-CN', {
+  const options: Intl.DateTimeFormatOptions = {
     month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
-  }).format(date)
+  }
+  try {
+    return new Intl.DateTimeFormat('zh-CN', timeZone ? { ...options, timeZone } : options).format(date)
+  } catch {
+    return new Intl.DateTimeFormat('zh-CN', options).format(date)
+  }
 }
 
 function formatRelative(value?: string) {

@@ -8,15 +8,11 @@ import type {
   RetrievalTestRequest,
   RetrievalTestResponse,
   KnowledgeStats,
-  KnowledgeTag,
-  KnowledgeTagBatchForm,
-  KnowledgeTagForm,
-  KnowledgeTagStats,
-  KnowledgeQuestion,
-  KnowledgeQuestionForm,
   ChunkUpdateForm,
   KnowledgeHitLog,
   KnowledgeOpsDashboard,
+  KnowledgeQaAttachResult,
+  KnowledgeUsage,
 } from '@/types/knowledge'
 import type { ApiResult } from '@/types/import'
 import type { DocumentImportJob } from '@/types/import'
@@ -57,44 +53,12 @@ export function getKnowledgeOpsDashboard(kbCode: string) {
   return request.get<ApiResult<KnowledgeOpsDashboard>>(`/knowledge/kb/${kbCode}/ops-dashboard`)
 }
 
-export function getKbChunks(kbCode: string, params?: { keyword?: string; enabled?: number; tagKey?: string; tagValue?: string; limit?: number }) {
+export function getKbChunks(kbCode: string, params?: { keyword?: string; enabled?: number; limit?: number }) {
   return request.get<ApiResult<ChunkDetail[]>>(`/knowledge/kb/${kbCode}/chunks`, { params })
 }
 
-export function getKnowledgeHitLogs(kbCode: string, params?: { limit?: number; lowConfidenceOnly?: boolean }) {
+export function getKnowledgeHitLogs(kbCode: string, params?: { limit?: number; lowConfidenceOnly?: boolean; source?: 'RUNTIME' | 'CONSOLE' }) {
   return request.get<ApiResult<KnowledgeHitLog[]>>(`/knowledge/kb/${kbCode}/hit-logs`, { params })
-}
-
-export function getKnowledgeTags(kbCode: string, params?: { targetType?: string; targetId?: string }) {
-  return request.get<ApiResult<KnowledgeTag[]>>(`/knowledge/kb/${kbCode}/tags`, { params })
-}
-
-export function getKnowledgeTagStats(kbCode: string) {
-  return request.get<ApiResult<KnowledgeTagStats[]>>(`/knowledge/kb/${kbCode}/tag-stats`)
-}
-
-export function createKnowledgeTag(kbCode: string, data: KnowledgeTagForm) {
-  return request.post<ApiResult<KnowledgeTag>>(`/knowledge/kb/${kbCode}/tags`, data)
-}
-
-export function batchCreateKnowledgeTags(kbCode: string, data: KnowledgeTagBatchForm) {
-  return request.post<ApiResult<KnowledgeTag[]>>(`/knowledge/kb/${kbCode}/tags/batch`, data)
-}
-
-export function deleteKnowledgeTag(kbCode: string, tagId: number) {
-  return request.delete<ApiResult<void>>(`/knowledge/kb/${kbCode}/tags/${tagId}`)
-}
-
-export function getKnowledgeQuestions(kbCode: string, params?: { chunkId?: number }) {
-  return request.get<ApiResult<KnowledgeQuestion[]>>(`/knowledge/kb/${kbCode}/questions`, { params })
-}
-
-export function createKnowledgeQuestion(kbCode: string, data: KnowledgeQuestionForm) {
-  return request.post<ApiResult<KnowledgeQuestion>>(`/knowledge/kb/${kbCode}/questions`, data)
-}
-
-export function deleteKnowledgeQuestion(kbCode: string, questionId: number) {
-  return request.delete<ApiResult<void>>(`/knowledge/kb/${kbCode}/questions/${questionId}`)
 }
 
 // ==================== 文件管理 ====================
@@ -133,4 +97,26 @@ export function retrievalTest(data: RetrievalTestRequest) {
   return request.post<ApiResult<RetrievalTestResponse>>('/retrieval/test', data, {
     timeout: 120000,
   })
+}
+
+// ==================== 接入 Agent ====================
+
+/** 用到这些知识库的 Workflow 及运行它们的 Agent（Runtime 只读视图）。 */
+export function getKnowledgeUsage(knowledgeBaseCodes: string[]) {
+  // 没有 Workflow 读取权限时静默处理：页面只是不显示使用情况。
+  return controlRequest.get<KnowledgeUsage[]>('/api/workflows/knowledge-usage', {
+    params: { knowledgeBaseCodes: knowledgeBaseCodes.join(',') },
+    errorFeedback: 'local',
+  })
+}
+
+/** 生成并发布本知识库的知识问答 Workflow，再加入 Agent 的可调用 Workflow 并发布。 */
+export function attachKnowledgeToAgent(agentId: string, data: {
+  knowledgeBaseCode: string
+  knowledgeBaseName?: string
+  modelInstanceId?: string
+  publishedBy?: string
+}) {
+  return controlRequest.post<KnowledgeQaAttachResult>(
+    `/api/agents/${encodeURIComponent(agentId)}/knowledge-qa`, data, { timeout: 60000 })
 }
