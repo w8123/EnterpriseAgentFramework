@@ -72,5 +72,5 @@ export function usageSummary(usage: KnowledgeUsage): string {
 export type HitSourceFilter = 'RUNTIME' | 'CONSOLE' | 'ALL'
 
 export function hitSourceLabel(source?: KnowledgeHitLog['source']): string {
-  return source === 'RUNTIME' ? '真实对话' : '检索测试'
+  return source === 'RUNTIME' ? '真实对话' : '测试与评测'
 }

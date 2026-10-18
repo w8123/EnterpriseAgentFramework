@@ -36,10 +36,13 @@ public class ControlModelInstanceController {
     public ResponseEntity<Map<String, Object>> list(HttpServletRequest request,
                                                    @RequestParam Map<String, String> parameters) {
         var session = authorization.requirePermission(request, PlatformPermissions.MODEL_READ);
-        if (!Set.of("projectCode", "modelType", "provider").containsAll(parameters.keySet())) return invalid();
+        if (!Set.of("projectCode", "modelType", "provider", "includeArchived").containsAll(parameters.keySet())) return invalid();
+        String archived = parameters.get("includeArchived");
+        if (archived != null && !Set.of("true", "false").contains(archived)) return invalid();
         String project = projectCode(parameters.get("projectCode"));
         if (project != null) requireScope(request, PlatformPermissions.MODEL_READ, project);
-        var owner = models.list(project, parameters.get("modelType"), parameters.get("provider"));
+        var owner = models.list(project, parameters.get("modelType"), parameters.get("provider"),
+                Boolean.parseBoolean(archived));
         if (!owner.getStatusCode().is2xxSuccessful() || owner.getBody() == null) return owner;
         Object raw = owner.getBody().get("data");
         if (!(raw instanceof List<?> items)) return ownerFailure();

@@ -81,7 +81,6 @@ public final class PlatformConsoleRoutePolicy {
             "/api/apis/**",
             "/api/api-invocations/**",
             "/api/api-graph/**",
-            "/api/tool-retrieval/**",
             "/api/scan-projects/**");
 
     public static final List<String> EXCLUDED_PATH_PATTERNS = List.of(

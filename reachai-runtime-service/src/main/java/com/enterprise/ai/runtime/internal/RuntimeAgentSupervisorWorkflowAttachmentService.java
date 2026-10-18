@@ -38,7 +38,22 @@ public class RuntimeAgentSupervisorWorkflowAttachmentService implements RuntimeW
         if (request == null || !StringUtils.hasText(request.workflowId())) {
             throw new AiCodingAttachmentException("WORKFLOW_NOT_FOUND", "workflowId is required");
         }
-        ProjectRef project = resolveProject(pathProjectId, null);
+        return attach(resolveProject(pathProjectId, null), request);
+    }
+
+    @Override
+    public AttachmentResult attachInKnownProject(Long projectId, String projectCode, AttachRequest request) {
+        if (request == null || !StringUtils.hasText(request.workflowId())) {
+            throw new AiCodingAttachmentException("WORKFLOW_NOT_FOUND", "workflowId is required");
+        }
+        if (projectId == null || !StringUtils.hasText(projectCode)) {
+            throw new AiCodingAttachmentException(
+                    "WORKFLOW_PROJECT_MISSING", "projectId and projectCode are required");
+        }
+        return attach(new ProjectRef(projectId, projectCode.trim(), null), request);
+    }
+
+    private AttachmentResult attach(ProjectRef project, AttachRequest request) {
         RuntimeWorkflowDefinitionView workflow = workflowDefinitionService.findById(request.workflowId().trim())
                 .orElseThrow(() -> new AiCodingAttachmentException(
                         "WORKFLOW_NOT_FOUND", "workflow not found: " + request.workflowId(), HttpStatus.NOT_FOUND));

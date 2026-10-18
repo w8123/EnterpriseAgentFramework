@@ -106,8 +106,10 @@ public class RuntimeKnowledgeQaWorkflowService {
                     "知识库「" + kbName + "」接入 Agent", publishedBy, workflow.getUpdatedAt().toString());
         }
 
-        AttachmentResult attachment = attachmentPort.attach(agent.projectId(), new AttachRequest(
-                workflow.getId(), agent.id(), null, null, publishedBy));
+        // The tool description carries the Supervisor's relay rules, so re-attaching refreshes it.
+        AttachmentResult attachment = attachmentPort.attachInKnownProject(agent.projectId(), agent.projectCode(),
+                new AttachRequest(workflow.getId(), agent.id(), null, null, publishedBy,
+                        null, toolDescription(kbName), null, null, null, null, null, null));
         return new AttachView(
                 code,
                 workflow.getId(),
@@ -211,7 +213,9 @@ public class RuntimeKnowledgeQaWorkflowService {
 
     static String toolDescription(String kbName) {
         return "查询知识库《" + kbName + "》里的制度、流程、说明等资料并据此回答。"
-                + "用户问到这些资料涉及的内容时调用，question 传用户的完整问题；查不到时会如实说明资料里没有。";
+                + "用户问到这些资料涉及的内容时调用，question 传用户的完整问题。"
+                + "回答最后一行是「出处：《…》」，转述给用户时必须原样保留这一行；"
+                + "返回资料里没有时，如实告诉用户资料里没有，不要自行补充或猜测。";
     }
 
     static GraphSpec graphSpec(String code, String kbName, String model) {

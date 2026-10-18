@@ -140,6 +140,9 @@ public class RuntimeWorkflowDebugService {
                 : RuntimeEvalExecutionContext.none();
         long started = System.currentTimeMillis();
         Map<String, Object> context = inputContext(actual.message(), definition.modelInstanceId(), actual.inputParams());
+        // Server-owned run identity so nodes (e.g. knowledge hit logs) link back to this run; inputs cannot spoof it.
+        context.remove("supervisorTraceId");
+        context.put("traceId", traceId);
         GraphSpecResolution resolved = resolveGraphSpec(definition.graphSpecJson());
         WorkflowTraceHandle trace = resume
                 ? continueOrBeginWorkflowTrace(traceId, definition, context)

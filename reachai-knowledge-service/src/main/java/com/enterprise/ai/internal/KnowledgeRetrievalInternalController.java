@@ -55,7 +55,9 @@ public class KnowledgeRetrievalInternalController {
 
     @PostMapping("/retrieval/query")
     public ApiResult<RetrievalData> retrieve(@Valid @RequestBody RetrievalRequest request) {
-        String userId = request.userId().trim();
+        String userId = StringUtils.hasText(request.userId()) ? request.userId().trim() : null;
+        String traceId = StringUtils.hasText(request.traceId()) && request.traceId().trim().length() <= 128
+                ? request.traceId().trim() : null;
 
         // Unset node values fall back to the knowledge base's own retrieval settings inside the engine.
         Integer requestedTopK = request.topK() == null ? null : Math.max(1, Math.min(MAX_TOP_K, request.topK()));
@@ -72,7 +74,9 @@ public class KnowledgeRetrievalInternalController {
                 .searchMode(requestedSearchMode)
                 .rerankEnabled(rerankEnabled)
                 .recordHit(true)
-                .hitSource("RUNTIME")
+                // Identity-less runs (evaluation, Studio trial) are tests, not real conversations.
+                .hitSource(userId == null ? "CONSOLE" : "RUNTIME")
+                .traceId(traceId)
                 .build());
         String searchMode = response != null && StringUtils.hasText(response.getSearchMode())
                 ? response.getSearchMode() : normalizeSearchMode(requestedSearchMode);
@@ -178,12 +182,17 @@ public class KnowledgeRetrievalInternalController {
     public record RetrievalRequest(
             @NotBlank String query,
             @NotEmpty List<String> knowledgeBaseCodes,
-            @NotBlank String userId,
+            String userId,
             Integer topK,
             Float similarityThreshold,
             String searchMode,
-            Boolean rerankEnabled
+            Boolean rerankEnabled,
+            String traceId
     ) {
+        public RetrievalRequest(String query, List<String> knowledgeBaseCodes, String userId, Integer topK,
+                                Float similarityThreshold, String searchMode, Boolean rerankEnabled) {
+            this(query, knowledgeBaseCodes, userId, topK, similarityThreshold, searchMode, rerankEnabled, null);
+        }
     }
 
     public record RetrievalData(

@@ -19,7 +19,6 @@ const files = {
   pageWorkbench: 'src/views/registry/PageAssistantWizard.vue',
   agentList: 'src/views/agent/AgentList.vue',
   workflowList: 'src/views/workflow/WorkflowList.vue',
-  toolRetrieval: 'src/views/tool/ToolRetrievalTest.vue',
   toolAcl: 'src/views/settings/ToolAclList.vue',
   knowledgeList: 'src/views/KnowledgeList.vue',
   knowledgeImport: 'src/views/KnowledgeImport.vue',
@@ -448,7 +447,6 @@ function validate(sources, { validateAssets = true } = {}) {
     '.agent-page',
     '.agent-table .el-scrollbar__wrap',
   )
-  expectPageHeader(failures, sources.toolRetrieval, 'standard', 'tool', 'ToolRetrievalTest', { enriched: true })
   expectPageHeader(failures, sources.toolAcl, 'standard', 'governance', 'ToolAclList', { enriched: true, primaryLast: true })
   expectPageHeader(failures, sources.knowledgeList, 'overview', 'knowledge', 'KnowledgeList', { enriched: true, primaryLast: true })
   expectPageHeader(failures, sources.knowledgeImport, 'workbench', 'knowledge', 'KnowledgeImport', { enriched: true })
@@ -539,7 +537,6 @@ if (process.argv.includes('--self-test')) {
       ['height-token', 'layout', (value) => value.replace('--layout-page-header-height-compact: 60px;', '--layout-page-header-height-compact: 59px;'), 'layout token contract'],
       ['variant-union', 'header', (value) => value.replaceAll("'overview'", "'overview-disabled'"), 'PageHeader variant union'],
       ['page-class-override', 'projectList', (value) => value.replace('<PageHeader', '<PageHeader class="rogue-header"'), 'must not override PageHeader'],
-      ['tool-retrieval-compact', 'toolRetrieval', (value) => value.replace('title="Tool 检索测试"', 'title="Tool 检索测试"\n      compact'), 'ToolRetrievalTest PageHeader must not declare compact'],
       ['knowledge-wrong-variant', 'knowledgeList', (value) => value.replace('variant="overview"', 'variant="standard"'), 'KnowledgeList PageHeader is missing variant="overview"'],
       ['mcp-wrong-domain', 'mcpHub', (value) => value.replace('domain="platform"', 'domain="governance"'), 'McpHubLayout PageHeader is missing domain="platform"'],
       ['legacy-page-header', 'a2aHub', (value) => value.replace('<PageHeader', '<div class="page-header"></div>\n    <PageHeader'), 'A2aHubLayout must not retain a legacy page header'],

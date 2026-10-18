@@ -8,13 +8,19 @@ import java.util.Set;
 /**
  * Server-created identities for one retrieval; neither business IDs nor primary keys identify a generation.
  * {@code openKnowledgeBaseIds} are enabled ALL_CALLERS knowledge bases: every trusted caller may read their
- * current enabled chunks without a per-file grant.
+ * current enabled chunks without a per-file grant. A snapshot without {@code userId} has no grants and reads
+ * only those open bases.
  */
 public record FileAccessSnapshot(String userId, Map<Long, Grant> grants, Set<Long> openKnowledgeBaseIds) {
     public FileAccessSnapshot {
-        if (userId == null || userId.isBlank()) throw new IllegalArgumentException("检索用户不能为空");
-        userId = userId.trim();
         grants = Map.copyOf(grants);
+        if (userId == null || userId.isBlank()) {
+            // A caller without an end-user identity can only ever read ALL_CALLERS bases.
+            if (!grants.isEmpty()) throw new IllegalArgumentException("检索用户不能为空");
+            userId = null;
+        } else {
+            userId = userId.trim();
+        }
         openKnowledgeBaseIds = openKnowledgeBaseIds == null ? Set.of() : Set.copyOf(openKnowledgeBaseIds);
     }
 

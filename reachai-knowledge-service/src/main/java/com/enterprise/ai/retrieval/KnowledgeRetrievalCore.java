@@ -24,7 +24,9 @@ public class KnowledgeRetrievalCore {
 
     public KnowledgeRetrievalCoreResponse retrieve(KnowledgeRetrievalCoreRequest request) {
         if (request == null) throw new IllegalArgumentException("检索请求不能为空");
-        var snapshot = authorization.capture(request.getUserId());
+        // Without an end-user identity (evaluation, Studio trial runs) only ALL_CALLERS bases are readable.
+        var snapshot = request.getUserId() == null || request.getUserId().isBlank()
+                ? authorization.captureOpenOnly() : authorization.capture(request.getUserId());
         if (!snapshot.hasAccess()) {
             return KnowledgeRetrievalCoreResponse.builder().query(request.getQuery()).searchMode(request.getSearchMode())
                     .totalResults(0).costMs(0L).items(List.of()).diagnostics(Map.of())

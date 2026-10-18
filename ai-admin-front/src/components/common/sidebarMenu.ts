@@ -24,7 +24,6 @@ import {
   DataAnalysis,
   Grid,
   Lock,
-  SetUp,
   Share,
   Shop,
   Timer,
@@ -189,15 +188,6 @@ export const sidebarMenu: SidebarEntry[] = [
     icon: Collection,
     requiredPermissions: [PLATFORM_PERMISSION_SKILL_READ],
   },
-  {
-    kind: 'item',
-    index: '/diagnostics-group',
-    label: '实验室',
-    icon: SetUp,
-    children: [
-      { index: '/tool/retrieval', label: '调用候选检索', requiredPermissions: [PLATFORM_PERMISSION_READ] },
-    ],
-  },
 ]
 
 /**
@@ -264,7 +254,6 @@ export function resolveActiveMenu(path: string, metaActiveMenu?: unknown): strin
   if (path.startsWith('/model/playground')) return '/model/playground'
   if (path.startsWith('/model/instances')) return '/model/instances'
   if (path.startsWith('/model')) return '/model/instances'
-  if (path.startsWith('/tool/retrieval')) return '/tool/retrieval'
   if (path.startsWith('/business-capabilities') || path.startsWith('/business-methods') || path.startsWith('/apis')) return '/business-capabilities'
   if (path.startsWith('/settings/platform-users')) return '/settings/platform-users'
   if (path.startsWith('/me/memories')) return '/me/memories'
@@ -307,10 +296,6 @@ export function resolveOpenGroups(path: string): string[] {
 
   if (active === '/model/instances' || active === '/model/playground') {
     open.push('/model-group')
-  }
-
-  if (active === '/tool/retrieval') {
-    open.push('/diagnostics-group')
   }
 
   return open

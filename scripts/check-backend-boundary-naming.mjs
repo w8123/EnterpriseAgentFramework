@@ -655,7 +655,6 @@ const keyApiPaths = [
   ['reachai-capability-service/src/main/java/com/enterprise/ai/capability/catalog/enrichment/CapabilityCatalogEnrichmentController.java', '@RequestMapping("/internal/capability/business-capabilities/projects/{projectId}")'],
   ['reachai-capability-service/src/main/java/com/enterprise/ai/capability/catalog/scan/CapabilityScanProjectCatalogController.java', '@RequestMapping("/api/scan-projects")'],
   ['reachai-capability-service/src/main/java/com/enterprise/ai/capability/catalog/tool/CapabilityToolCatalogController.java', '@RequestMapping("/api/tools")'],
-  ['reachai-capability-service/src/main/java/com/enterprise/ai/capability/catalog/retrieval/CapabilityToolRetrievalController.java', '@RequestMapping("/api/tool-retrieval")'],
   ['reachai-runtime-service/src/main/java/com/enterprise/ai/runtime/api/RuntimePublicController.java', '@PostMapping("/api/runtime/agents/execute")'],
   ['reachai-runtime-service/src/main/java/com/enterprise/ai/runtime/api/RuntimeWorkflowPublicController.java', '@GetMapping("/api/workflows")'],
   ['reachai-runtime-service/src/main/java/com/enterprise/ai/runtime/api/RuntimeWorkflowCredentialPublicController.java', '@GetMapping("/api/workflows/credentials")'],

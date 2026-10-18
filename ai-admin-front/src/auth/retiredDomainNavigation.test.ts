@@ -3,15 +3,15 @@ import { describe, expect, it, vi } from 'vitest'
 import { routes } from '@/router'
 
 describe('retired domain navigation', () => {
-  it.each(['/domain', '/domain/board', '/domain/classifier-test'])('leaves %s unmatched like an unknown route', path => {
+  it.each(['/domain', '/domain/board', '/domain/classifier-test', '/tool/retrieval'])('sends retired %s to the dashboard like an unknown route', path => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     try {
       const router = createRouter({ history: createMemoryHistory(), routes })
       const unknown = router.resolve('/missing-page')
       const retired = router.resolve(path)
       expect(retired.matched).toEqual(unknown.matched)
-      expect(retired.matched).toEqual([])
-      expect(retired.name).toBeUndefined()
+      expect(retired.name).toBe('NotFound')
+      expect(retired.matched[retired.matched.length - 1]?.redirect).toBe('/dashboard')
     } finally {
       warn.mockRestore()
     }

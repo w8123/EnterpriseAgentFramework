@@ -28,14 +28,16 @@ describe('sidebarMenu information architecture', () => {
     expect(new Set(targets).size).toBe(targets.length)
   })
 
-  it('keeps retrieval navigation after retiring domain and context governance', () => {
+  it('keeps runtime user mappings after retiring domain, context governance and 实验室', () => {
     const targets = sidebarMenu.flatMap((entry) => (
       entry.kind === 'item' ? [entry.index, ...(entry.children ?? []).map(child => child.index)] : []
     ))
 
     expect(targets.some(path => path === '/domain' || path.startsWith('/domain/'))).toBe(false)
     expect(targets.some(path => path.startsWith('/context/'))).toBe(false)
-    expect(targets).toEqual(expect.arrayContaining(['/settings/runtime-user-mappings', '/tool/retrieval']))
+    expect(targets).toEqual(expect.arrayContaining(['/settings/runtime-user-mappings']))
+    expect(targets).not.toContain('/diagnostics-group')
+    expect(targets).not.toContain('/tool/retrieval')
   })
 
   it('keeps only 知识库 for knowledge; file upload, retrieval test and biz index live elsewhere', () => {
@@ -76,9 +78,7 @@ describe('sidebarMenu information architecture', () => {
     const visible = filterSidebarMenu(sidebarMenu, ['platform:read', 'platform:write', 'capability:invoke'])
     const groups = visible.filter((entry) => entry.kind === 'group').map((entry) => entry.label)
 
-    expect(groups).toEqual(['开发', '平台管理'])
-    const platformItems = visible.slice(visible.findIndex((entry) => entry.kind === 'group' && entry.label === '平台管理') + 1)
-    expect(platformItems.map((entry) => entry.kind === 'item' ? entry.index : '')).toEqual(['/diagnostics-group'])
+    expect(groups).toEqual(['开发'])
   })
 
   it('exposes one business capability workbench, with source changes owned by projects', () => {
@@ -160,7 +160,6 @@ describe('resolveActiveMenu', () => {
     ['/automations/demo', '/run-center'],
     ['/runops/trace-1', '/run-center'],
     ['/runops/evals/agent-1', '/run-center'],
-    ['/tool/retrieval', '/tool/retrieval'],
   ])('maps %s to %s', (path, expected) => {
     expect(resolveActiveMenu(path)).toBe(expected)
   })
@@ -181,7 +180,7 @@ describe('resolveOpenGroups', () => {
     ['/mcp-hub/call-logs', ['/agent-group']],
     ['/model/playground', ['/model-group']],
     ['/a2a-hub/overview', ['/agent-group']],
-    ['/tool/retrieval', ['/diagnostics-group']],
+    ['/tool/retrieval', []],
     ['/settings/runtime-user-mappings', ['/identity-group']],
     ['/domain', []],
     ['/domain/board', []],

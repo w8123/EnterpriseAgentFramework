@@ -27,6 +27,12 @@
         </el-table-column>
         <el-table-column prop="fileName" label="命中文件" min-width="180" show-overflow-tooltip />
         <el-table-column prop="createTime" label="时间" width="180" />
+        <el-table-column label="运行" width="90" align="center">
+          <template #default="{ row }">
+            <router-link v-if="row.traceId" :to="`/runops/${encodeURIComponent(row.traceId)}`">查看</router-link>
+            <span v-else class="muted">-</span>
+          </template>
+        </el-table-column>
       </el-table>
     </DataTableShell>
 
@@ -70,7 +76,7 @@ const props = defineProps<{
 
 const sourceOptions = [
   { label: '真实对话', value: 'RUNTIME' },
-  { label: '检索测试', value: 'CONSOLE' },
+  { label: '测试与评测', value: 'CONSOLE' },
   { label: '全部', value: 'ALL' },
 ]
 
@@ -126,6 +132,10 @@ onMounted(refresh)
   align-items: center;
   gap: 14px;
   margin-bottom: 10px;
+}
+
+.muted {
+  color: var(--text-muted);
 }
 
 .toolbar-hint {

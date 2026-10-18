@@ -73,7 +73,7 @@ class ControlModelInstanceControllerTest {
     }
 
     @Test void unscopedPickerFiltersOtherProjectAndGlobalModels() {
-        when(owner.list(null, "LLM", null)).thenReturn(ResponseEntity.ok(Map.of("code", 200, "data", List.of(
+        when(owner.list(null, "LLM", null, false)).thenReturn(ResponseEntity.ok(Map.of("code", 200, "data", List.of(
                 Map.of("id", "allowed", "projectCode", "orders"),
                 Map.of("id", "hidden-other", "projectCode", "finance", "connection", Map.of("apiKey", "masked")),
                 Map.of("id", "hidden-global")))));
@@ -84,8 +84,15 @@ class ControlModelInstanceControllerTest {
 
     @Test void globalReaderKeepsModelOwnerMaskedResponse() {
         var items = List.of(Map.of("id", "global-model", "connection", Map.of("apiKey", "***")));
-        when(owner.list(null, "LLM", null)).thenReturn(ResponseEntity.ok(Map.of("code", 200, "data", items)));
+        when(owner.list(null, "LLM", null, false)).thenReturn(ResponseEntity.ok(Map.of("code", 200, "data", items)));
         assertEquals(items, controller.list(request(true), Map.of("modelType", "LLM")).getBody().get("data"));
+    }
+
+    @Test void includeArchivedIsPassedToOwnerAndValidated() {
+        var items = List.of(Map.of("id", "archived-model", "status", "ARCHIVED"));
+        when(owner.list(null, null, null, true)).thenReturn(ResponseEntity.ok(Map.of("code", 200, "data", items)));
+        assertEquals(items, controller.list(request(true), Map.of("includeArchived", "true")).getBody().get("data"));
+        assertEquals(400, controller.list(request(true), Map.of("includeArchived", "yes")).getStatusCode().value());
     }
 
     @Test void forgedProjectQueryAndCreateNeverReachOwner() {
@@ -113,7 +120,7 @@ class ControlModelInstanceControllerTest {
     }
 
     @Test void incompleteOwnerResponseIsNotSuccessfulEmptyCatalog() {
-        when(owner.list(null, "LLM", null)).thenReturn(ResponseEntity.ok(Map.of("code", 200)));
+        when(owner.list(null, "LLM", null, false)).thenReturn(ResponseEntity.ok(Map.of("code", 200)));
         assertEquals(502, controller.list(request(false), Map.of("modelType", "LLM")).getStatusCode().value());
         when(owner.get("model-a")).thenReturn(ResponseEntity.ok(Map.of("code", 200)));
         assertEquals(502, controller.get(request(false), "model-a").getStatusCode().value());

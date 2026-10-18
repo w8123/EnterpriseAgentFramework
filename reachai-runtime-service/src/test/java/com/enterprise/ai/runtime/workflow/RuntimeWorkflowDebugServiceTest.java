@@ -117,6 +117,33 @@ class RuntimeWorkflowDebugServiceTest {
     }
 
     @Test
+    void debugRunExposesServerTraceIdToNodesAndIgnoresSpoofedInput() {
+        RuntimeWorkflowDebugService.DebugRunRequest request = new RuntimeWorkflowDebugService.DebugRunRequest(
+                null, "wf-trace", "Trace", "GENERAL", "orders", "GRAPH_SPEC", null,
+                """
+                        {
+                          "schemaVersion":2,
+                          "entryNodeId":"input",
+                          "exitNodeIds":["answer"],
+                          "nodes":[
+                            {"id":"input","type":"USER_INPUT","name":"Input"},
+                            {"id":"answer","type":"ANSWER","name":"Answer","config":{"template":"{{ traceId }}|{{ supervisorTraceId }}"}}
+                          ],
+                          "edges":[{"from":"input","to":"answer"}]
+                        }
+                        """,
+                null,
+                "hi",
+                Map.of("traceId", "spoofed", "supervisorTraceId", "spoofed"),
+                Map.of());
+
+        RuntimeWorkflowDebugService.DebugRunResult result = service.debugRun(request);
+
+        assertTrue(result.answer().startsWith(result.traceId() + "|"), result.answer());
+        assertFalse(result.answer().contains("spoofed"), result.answer());
+    }
+
+    @Test
     void evalDebugOptionCannotExecutePageAction() {
         RuntimeWorkflowDebugService.DebugRunRequest request =
                 new RuntimeWorkflowDebugService.DebugRunRequest(

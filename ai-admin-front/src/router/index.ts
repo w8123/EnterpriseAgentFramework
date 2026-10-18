@@ -328,13 +328,6 @@ export const routes: RouteRecordRaw[] = [
           projectScope: { permission: PLATFORM_PERMISSION_READ, resourceLabel: 'API 接入', requiresProjectCode: true } },
       },
 
-      // ── Runtime 调用诊断；通用 Tool 不再作为可编辑产品资产 ──
-      {
-        path: 'tool/retrieval',
-        name: 'ToolRetrievalTest',
-        component: () => import('@/views/tool/ToolRetrievalTest.vue'),
-        meta: { title: '调用候选检索', layoutMode: 'standard', requiredPermissions: [PLATFORM_PERMISSION_READ] },
-      },
       {
         path: 'business-capabilities',
         name: 'BusinessCapabilityWorkbench',
@@ -671,6 +664,8 @@ export const routes: RouteRecordRaw[] = [
       },
     ],
   },
+  // 已删除页面的旧书签和拼错的地址回到概览，不再显示空白页。
+  { path: '/:pathMatch(.*)*', name: 'NotFound', redirect: '/dashboard' },
 ]
 
 const router = createRouter({

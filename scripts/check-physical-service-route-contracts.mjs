@@ -253,8 +253,6 @@ const migratedCapabilityRoutes = [
   { method: 'POST', path: '/api/registry/projects/{projectCode}/capability-diff-items/{diffItemId}/rollback' },
   { method: 'GET', path: '/api/tools' },
   { method: 'GET', path: '/api/tools/{name}' },
-  { method: 'POST', path: '/api/tool-retrieval/search' },
-  { method: 'GET', path: '/api/tool-retrieval/health' },
   { method: 'GET', path: '/api/scan-projects' },
   { method: 'POST', path: '/api/scan-projects' },
   { method: 'GET', path: '/api/scan-projects/{id}' },
@@ -556,8 +554,6 @@ function isCapabilityOwnedPublicRoute(route) {
       path.startsWith('/api/api-graph/') ||
       path === '/api/business-capabilities' ||
       path.startsWith('/api/business-capabilities/') ||
-      path === '/api/tool-retrieval' ||
-      path.startsWith('/api/tool-retrieval/') ||
       path === '/api/skill-mining' ||
       path.startsWith('/api/skill-mining/') ||
       path === '/api/capability-mining' ||
@@ -921,13 +917,9 @@ const catalogPublicFacadeIssues = migratedCapabilityRoutes.filter(route => route
   .filter(route => !routeCoveredByControl(controlPublicRoutes, route))
   .map(route => ({ key: routeKey(route), targetRoot: 'project-authorized Control catalog facade' }))
 report('typed catalog public route must have a Control facade', catalogPublicFacadeIssues)
-const retiredToolRetrievalRebuildPaths = [
-  '/api/tool-retrieval/rebuild',
-  '/api/tool-retrieval/rebuild/status'
-]
-report('retired Tool retrieval rebuild routes must stay deleted', [...concreteCapabilityRoutes, ...controlPublicRoutes]
-  .filter(route => retiredToolRetrievalRebuildPaths.includes(route.path))
-  .map(route => ({ key: routeKey(route), sourceFile: route.file, targetRoot: 'Tool retrieval rebuild retirement' })))
+report('retired Tool retrieval routes must stay deleted', [...concreteCapabilityRoutes, ...controlPublicRoutes]
+  .filter(route => route.path === '/api/tool-retrieval' || route.path.startsWith('/api/tool-retrieval/'))
+  .map(route => ({ key: routeKey(route), sourceFile: route.file, targetRoot: 'Tool retrieval retirement' })))
 const retiredAdjunctRoutes = [
   { method: 'GET', path: '/api/semantic-docs' },
   { method: 'PUT', path: '/api/semantic-docs/{}' },

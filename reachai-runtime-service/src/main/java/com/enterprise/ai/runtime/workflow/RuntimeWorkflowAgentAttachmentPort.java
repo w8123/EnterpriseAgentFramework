@@ -5,6 +5,12 @@ import java.util.Map;
 /** Workflow delivery requests an Agent attachment without depending on Agent configuration storage. */
 public interface RuntimeWorkflowAgentAttachmentPort {
     AttachmentResult attach(Long projectId, AttachRequest request);
+
+    /**
+     * Attaches within a project the caller already read from Runtime-owned records (for example the
+     * Agent's own project), so no Capability project lookup is needed.
+     */
+    AttachmentResult attachInKnownProject(Long projectId, String projectCode, AttachRequest request);
     AttachmentResult attachPageAssistantOnly(String workflowId, PageAssistantAttachRequest request);
 
     public record AttachRequest(

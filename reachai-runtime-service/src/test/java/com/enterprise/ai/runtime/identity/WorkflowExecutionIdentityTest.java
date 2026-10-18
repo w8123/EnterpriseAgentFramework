@@ -24,6 +24,8 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -53,9 +55,11 @@ class WorkflowExecutionIdentityTest {
                 {"entryNodeId":"kr","exitNodeIds":["kr"],"nodes":[{"id":"kr","type":"KNOWLEDGE_RETRIEVAL","config":{
                   "knowledgeBaseCodes":["kb1"],"query":"input"}}]}
                 """, Map.of("message", "q", "userId", "forged-user"), identity);
-        assertFalse(retrieval.success());
-        assertEquals("RUNTIME_KNOWLEDGE_USER_IDENTITY_REQUIRED", retrieval.code());
-        org.mockito.Mockito.verifyNoInteractions(knowledgeClient);
+        assertNotNull(retrieval);
+        // The forged request userId never becomes the ACL user: Knowledge sees an identity-less, open-bases-only call.
+        var request = org.mockito.ArgumentCaptor.forClass(RuntimeKnowledgeRetrievalClient.KnowledgeRetrievalRequest.class);
+        org.mockito.Mockito.verify(knowledgeClient).retrieve(request.capture());
+        assertNull(request.getValue().getUserId());
     }
 
     private final ObjectMapper objectMapper = new ObjectMapper();

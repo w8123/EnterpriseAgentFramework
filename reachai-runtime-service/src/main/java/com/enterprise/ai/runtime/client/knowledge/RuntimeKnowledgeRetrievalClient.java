@@ -38,6 +38,8 @@ public interface RuntimeKnowledgeRetrievalClient {
         private Float similarityThreshold;
         private String searchMode;
         private Boolean rerankEnabled;
+        /** Conversation trace the hit log links back to. */
+        private String traceId;
     }
 
     @Data

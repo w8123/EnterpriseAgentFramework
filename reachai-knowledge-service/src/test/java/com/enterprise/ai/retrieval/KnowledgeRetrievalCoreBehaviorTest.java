@@ -86,7 +86,7 @@ class KnowledgeRetrievalCoreBehaviorTest {
         when(embeddingService.embed(anyString(), anyString())).thenReturn(List.of(0.1f));
         when(vectorService.search(any())).thenReturn(List.of(result("orphan", 0.9f, "f1", "unpublished")));
         when(chunkRepository.selectOne(any())).thenReturn(null);
-        var request = KnowledgeRetrievalCoreRequest.builder().query("text")
+        var request = KnowledgeRetrievalCoreRequest.builder().query("text").userId("u1")
                 .knowledgeBaseCodes(List.of("kb_orphan")).searchMode("vector").topK(5)
                 .scoreThreshold(0.1f).rerankEnabled(false).recordHit(false).build();
         assertTrue(core.retrieve(request).getItems().isEmpty());

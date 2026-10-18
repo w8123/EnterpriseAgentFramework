@@ -1064,24 +1064,6 @@ class CapabilityToolCatalogController {
     Object cancelAllPending() { return null; }
 }
 `)
-writeFile(allowedRoot, 'reachai-capability-service/src/main/java/com/enterprise/ai/capability/catalog/retrieval/CapabilityToolRetrievalController.java', `
-package com.enterprise.ai.capability.catalog.retrieval;
-
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
-
-@RestController
-@RequestMapping("/api/tool-retrieval")
-class CapabilityToolRetrievalController {
-    @PostMapping("/search")
-    Object search() { return null; }
-
-    @GetMapping("/health")
-    Object health() { return null; }
-}
-`)
 writeFile(allowedRoot, 'reachai-capability-service/src/main/java/com/enterprise/ai/capability/catalog/composition/CapabilityCompositionCatalogController.java', `
 package com.enterprise.ai.capability.catalog.composition;
 
@@ -1353,15 +1335,16 @@ for (const [name, mutate, expected] of [
     ['owner', 'reachai-capability-service/src/main/java/com/enterprise/ai/capability'],
     ['control', 'reachai-control-service/src/main/java/com/enterprise/ai/control']
   ].flatMap(([owner, directory]) => [
-    ['PostMapping', '/rebuild'],
-    ['GetMapping', '/rebuild/status']
+    ['PostMapping', '/search'],
+    ['GetMapping', '/health'],
+    ['PostMapping', '/rebuild']
   ].map(([annotation, suffix]) => [`retired-tool-retrieval-${owner}-${suffix.replaceAll('/', '-')}`,
     root => writeFile(root, `${directory}/RetiredToolRetrievalController.java`, `
 @RestController
 @RequestMapping("/api/tool-retrieval")
 class RetiredToolRetrievalController {
   @${annotation}("${suffix}") Object retired() { return null; }
-}`), /retired Tool retrieval rebuild routes must stay deleted/]))
+}`), /retired Tool retrieval routes must stay deleted/]))
 ]) {
   const mutated = fs.mkdtempSync(path.join(os.tmpdir(), `reachai-route-contracts-${name}-`))
   fs.cpSync(allowedRoot, mutated, { recursive: true }); mutate(mutated)

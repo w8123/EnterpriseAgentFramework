@@ -42,6 +42,12 @@ public class PermissionServiceImpl implements PermissionService {
     }
 
     @Override
+    public FileAccessSnapshot captureOpenOnly() {
+        return currentReads.execute(status -> new FileAccessSnapshot(null, java.util.Map.of(),
+                new java.util.HashSet<>(permissionRepository.selectOpenKnowledgeBaseIds())));
+    }
+
+    @Override
     public List<AuthorizedKnowledgeChunk> resolveAuthorizedChunks(FileAccessSnapshot snapshot, List<Long> chunkIds) {
         Objects.requireNonNull(snapshot, "File permission snapshot is required");
         if (!snapshot.hasAccess() || chunkIds == null || chunkIds.isEmpty()) return List.of();

@@ -25,7 +25,6 @@
 | `/api/scan-projects/**`、`/api/scan-modules/**` | 扫描项目与接口目录 |
 | `/api/semantic-docs/**`、`/api/api-graph/**` | 语义文档与 API 图谱 |
 | `GET /api/tools/**` | 能力目录与兼容的运行时调用投影；只读 |
-| `POST /api/tool-retrieval/search`、`GET /api/tool-retrieval/health` | 调用候选关键词检索诊断与健康检查；直接读取当前调用投影，无需索引重建 |
 | `/api/api-market/**` | 外部 API 发现、详情、统计和项目接入 |
 | `/internal/capability/**` | Control/Runtime 的 HMAC internal contract |
 
@@ -50,7 +49,6 @@ Runtime 通过 Capability internal API 获取/执行能力；不得直接读取 
 | `capability.catalog.scan` | 扫描项目/模块/接口目录 |
 | `capability.catalog.semantic` | 语义文档 |
 | `capability.catalog.graph` | API 图谱快照 |
-| `capability.catalog.retrieval` | 调用候选检索 |
 | `agent.capability.catalog` | 内部 Composition 兼容存储；无公共 Kernel CRUD |
 | `capability.externalapi` | API 市场目录和项目接入 |
 | `capability.internal` | Runtime/Control internal contract |

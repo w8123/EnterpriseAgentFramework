@@ -87,7 +87,6 @@ public final class PlatformConsolePermissionPolicy {
             rule("/api/apis/**", List.of(PLATFORM_READ), List.of(PLATFORM_READ)),
             rule("/api/api-invocations/**", List.of(PLATFORM_READ), List.of(PLATFORM_READ)),
             rule("/api/api-graph/**", List.of(PLATFORM_READ), List.of(PLATFORM_READ)),
-            rule("/api/tool-retrieval/**", List.of(PLATFORM_READ), List.of(PLATFORM_READ)),
 
             // Knowledge.
             rule("/api/knowledge/**", List.of(KNOWLEDGE_READ), List.of(KNOWLEDGE_WRITE)),

@@ -4,6 +4,8 @@ S3 未完成分片的回收由 [MinioDocumentArtifactStore](../../reachai-knowle
 
 知识库的创建、删除、目录编辑和配置更新归属 [KnowledgeBaseLifecycleService](../../reachai-knowledge-service/src/main/java/com/enterprise/ai/service/impl/KnowledgeBaseLifecycleService.java)。[KnowledgeServiceImpl](../../reachai-knowledge-service/src/main/java/com/enterprise/ai/service/impl/KnowledgeServiceImpl.java) 作为应用入口转交这些命令，不再直接依赖 KnowledgeBaseRepository 或维护第二份配置写入逻辑。
 
+谁能检索：`ALL_CALLERS` 的知识库对任何调用方开放，包括没有终端用户身份的运行（评测、Studio 只读试运行）；`FILE_GRANTS` 只对有逐文件授权的可信用户开放，没有用户身份时查不到。Runtime 只把可信用户 id 传给 Knowledge，请求参数里的 userId 永远不作为检索用户（2026-10-18 用户确认）。
+
 目录编辑只写请求提供的名称、描述、模型、归属及检索选项；配置更新只写提供的切分、谁能检索（`access_mode`）与检索选项。两个入口共用检索选项的赋值规则和既有模型校验，省略的字段保持原值，false 和 0 仍是有效设置。可空字段沿用 MyBatis 的非 null 更新语义，此整理没有把省略字段解释为清空命令。
 
 每次更新在短事务中读取原知识库，写入时同时匹配行 ID、业务编码和不可复用的物理集合身份。只提交本命令的字段，不把读取快照整行写回。并发修改未涉及的字段得以保留；目标已删除或已变为另一代知识库时返回冲突。相同字段的合法并发修改仍按数据库提交顺序生效，此规则不提供编辑版本号或人工合并功能。

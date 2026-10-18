@@ -11,6 +11,9 @@ public interface PermissionService {
     /** Capture current grant and physical file identities before retrieval begins. */
     FileAccessSnapshot capture(String userId);
 
+    /** Snapshot for a caller without an end-user identity: only ALL_CALLERS knowledge bases, no file grants. */
+    FileAccessSnapshot captureOpenOnly();
+
     /** Re-read current grants and metadata; only the original identities remain authorized. */
     List<AuthorizedKnowledgeChunk> resolveAuthorizedChunks(FileAccessSnapshot snapshot, List<Long> chunkIds);
 

@@ -120,10 +120,11 @@ class KnowledgeRetrievalAuthorizationTest {
     }
 
     @Test
-    void missingActorIsRejectedBeforeAnyExternalCall() {
+    void missingActorNeverReadsFileGrantBasesOrCallsOut() {
+        // Without an end user only ALL_CALLERS bases are readable; this FILE_GRANTS base returns nothing.
         for (String actor : new String[]{null, "", "  "}) {
-            assertThrows(IllegalArgumentException.class, () -> core.retrieve(com.enterprise.ai.retrieval.KnowledgeRetrievalCoreRequest.builder()
-                    .query("文件").userId(actor).knowledgeBaseCodes(List.of("kb")).build()));
+            assertTrue(core.retrieve(com.enterprise.ai.retrieval.KnowledgeRetrievalCoreRequest.builder()
+                    .query("文件").userId(actor).knowledgeBaseCodes(List.of("kb")).build()).getItems().isEmpty());
         }
         verifyNoInteractions(embedding, vectors, model);
     }

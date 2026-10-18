@@ -144,7 +144,7 @@ class KnowledgeRetrievalInternalControllerTest {
     }
 
     @Test
-    void rejectsBlankUserIdBeforeRetrievalIsCalled() throws Exception {
+    void blankUserIdRetrievesWithoutAUser() throws Exception {
         KnowledgeRetrievalCore core = mock(KnowledgeRetrievalCore.class);
         org.springframework.validation.beanvalidation.LocalValidatorFactoryBean validator =
                 new org.springframework.validation.beanvalidation.LocalValidatorFactoryBean();
@@ -156,13 +156,14 @@ class KnowledgeRetrievalInternalControllerTest {
                         .content("""
                                 {"query":"refund","knowledgeBaseCodes":["kb1"],"userId":"   "}
                                 """))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value(400));
-        verifyNoInteractions(core);
+                .andExpect(status().isOk());
+        var captor = org.mockito.ArgumentCaptor.forClass(com.enterprise.ai.retrieval.KnowledgeRetrievalCoreRequest.class);
+        org.mockito.Mockito.verify(core).retrieve(captor.capture());
+        org.junit.jupiter.api.Assertions.assertNull(captor.getValue().getUserId());
     }
 
     @Test
-    void rejectsAbsentUserIdBeforeRetrievalIsCalled() throws Exception {
+    void absentUserIdRetrievesWithoutAUser() throws Exception {
         KnowledgeRetrievalCore core = mock(KnowledgeRetrievalCore.class);
         org.springframework.validation.beanvalidation.LocalValidatorFactoryBean validator =
                 new org.springframework.validation.beanvalidation.LocalValidatorFactoryBean();
@@ -174,9 +175,10 @@ class KnowledgeRetrievalInternalControllerTest {
                         .content("""
                                 {"query":"refund","knowledgeBaseCodes":["kb1"]}
                                 """))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value(400));
-        verifyNoInteractions(core);
+                .andExpect(status().isOk());
+        var captor = org.mockito.ArgumentCaptor.forClass(com.enterprise.ai.retrieval.KnowledgeRetrievalCoreRequest.class);
+        org.mockito.Mockito.verify(core).retrieve(captor.capture());
+        org.junit.jupiter.api.Assertions.assertNull(captor.getValue().getUserId());
     }
 
     private static MockMvc mockMvc(KnowledgeRetrievalCore core,

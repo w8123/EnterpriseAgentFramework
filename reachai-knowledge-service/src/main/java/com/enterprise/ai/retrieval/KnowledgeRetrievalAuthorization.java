@@ -20,6 +20,8 @@ public class KnowledgeRetrievalAuthorization {
 
     public FileAccessSnapshot capture(String userId) { return permissions.capture(userId); }
 
+    public FileAccessSnapshot captureOpenOnly() { return permissions.captureOpenOnly(); }
+
     public String filter(FileAccessSnapshot snapshot) { return permissions.buildMilvusFilter(snapshot.fileIds()); }
 
     public List<RetrievalTestResponse.RetrievalItem> retain(FileAccessSnapshot snapshot, List<RetrievalTestResponse.RetrievalItem> items) {

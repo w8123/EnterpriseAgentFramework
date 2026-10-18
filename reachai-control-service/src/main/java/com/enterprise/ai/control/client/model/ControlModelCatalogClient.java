@@ -13,10 +13,15 @@ import java.util.Map;
 @FeignClient(name = "reachai-model-catalog", url = "${services.model-service.url:http://localhost:18601}")
 public interface ControlModelCatalogClient {
 
+    default ResponseEntity<Map<String, Object>> list(String projectCode, String modelType, String provider) {
+        return list(projectCode, modelType, provider, false);
+    }
+
     @RequestMapping(method = RequestMethod.GET, path = "/model/instances")
     ResponseEntity<Map<String, Object>> list(@RequestParam(value = "projectCode", required = false) String projectCode,
                                              @RequestParam(value = "modelType", required = false) String modelType,
-                                             @RequestParam(value = "provider", required = false) String provider);
+                                             @RequestParam(value = "provider", required = false) String provider,
+                                             @RequestParam(value = "includeArchived", defaultValue = "false") boolean includeArchived);
 
     @RequestMapping(method = RequestMethod.GET, path = "/model/instances/{id}")
     ResponseEntity<Map<String, Object>> get(@PathVariable("id") String id);

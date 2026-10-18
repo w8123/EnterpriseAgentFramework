@@ -36,8 +36,6 @@ const apiMarketIndex = sidebar.indexOf("{ index: '/api-market', label: 'API 市�
 const runtimeGovernanceGroupIndex = sidebar.indexOf("{ kind: 'group', label: '运行与治理' }")
 const runOpsIndex = sidebar.indexOf("index: '/runops'")
 const platformResourceGroupIndex = sidebar.indexOf("{ kind: 'group', label: '平台资源' }")
-const advancedLabGroupIndex = sidebar.indexOf("{ kind: 'group', label: '实验室' }")
-const diagnosticsGroupIndex = sidebar.indexOf("index: '/diagnostics-group'")
 
 if (
   transformationGroupIndex === -1
@@ -86,27 +84,21 @@ if (
   runtimeGovernanceGroupIndex === -1
   || runOpsIndex === -1
   || platformResourceGroupIndex === -1
-  || advancedLabGroupIndex === -1
   || !(
     assetGroupIndex < runtimeGovernanceGroupIndex
     && runtimeGovernanceGroupIndex < runOpsIndex
     && runOpsIndex < platformResourceGroupIndex
-    && platformResourceGroupIndex < advancedLabGroupIndex
   )
 ) {
-  failures.push('sidebar should surface 运行中心 and keep platform resources before the advanced lab')
+  failures.push('sidebar should surface 运行中心 before platform resources')
 }
 
 if (sidebar.includes('/registry/runtimes') || sidebar.includes('Runtime 纳管')) {
   failures.push('sidebar should not expose the retired Runtime registry')
 }
 
-if (
-  advancedLabGroupIndex === -1
-  || diagnosticsGroupIndex === -1
-  || !(advancedLabGroupIndex < diagnosticsGroupIndex)
-) {
-  failures.push('sidebar should keep platform diagnostics in 实验室')
+if (sidebar.includes("index: '/diagnostics-group'") || sidebar.includes('/tool/retrieval') || sidebar.includes("label: '实验室'")) {
+  failures.push('sidebar must not restore the retired 实验室 group or Tool retrieval page')
 }
 
 if (/index:\s*['"]\/(?:capability(?:\/[^'"]*)?|tools?|tools\/(?:compositions|interactions))['"]/.test(sidebar)

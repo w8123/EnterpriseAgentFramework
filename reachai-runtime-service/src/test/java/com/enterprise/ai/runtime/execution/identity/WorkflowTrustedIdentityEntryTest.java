@@ -158,7 +158,7 @@ class WorkflowTrustedIdentityEntryTest {
 
     @ParameterizedTest
     @MethodSource("withoutBusinessUser")
-    void callersWithoutBusinessUserCannotGetUserAclFromRequestMaps(WorkflowExecutionIdentity provided) {
+    void callersWithoutBusinessUserRetrieveOnlyWithoutAUserAcl(WorkflowExecutionIdentity provided) {
         run(provided, KNOWLEDGE, false);
         var actual = graphIdentity.get();
         assertFalse(actual.userTrusted());
@@ -167,8 +167,10 @@ class WorkflowTrustedIdentityEntryTest {
         assertEquals(tenant, actual.tenantId());
         assertEquals(provided == null || provided.projectTrusted() ? 1L : null, actual.projectId());
         assertEquals(provided == null ? WorkflowExecutionIdentity.Source.AGENT : provided.source(), actual.source());
-        assertEquals("RUNTIME_KNOWLEDGE_USER_IDENTITY_REQUIRED", graphResult.get().code());
-        verifyNoInteractions(knowledge);
+        // No user id reaches Knowledge, which then returns only ALL_CALLERS bases (never file grants).
+        var request = org.mockito.ArgumentCaptor.forClass(RuntimeKnowledgeRetrievalClient.KnowledgeRetrievalRequest.class);
+        verify(knowledge).retrieve(request.capture());
+        assertNull(request.getValue().getUserId());
         assertAudit("demo", tenant, null);
     }
 

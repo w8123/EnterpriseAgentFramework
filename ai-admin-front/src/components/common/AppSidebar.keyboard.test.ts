@@ -195,8 +195,8 @@ describe('AppSidebar real Element Plus vertical keyboard navigation', () => {
     expect(push).not.toHaveBeenCalled()
     const owner = wrapper.get('.el-scrollbar__wrap').element as HTMLElement
     vi.spyOn(owner, 'getBoundingClientRect').mockReturnValue({ top: 100, bottom: 300 } as DOMRect)
-    const last = group('/diagnostics-group')
-    vi.spyOn(last.querySelector<HTMLElement>('.el-sub-menu__title')!, 'getBoundingClientRect').mockReturnValue({ top: 350, bottom: 390 } as DOMRect)
+    const last = leaf('/skills')
+    vi.spyOn(last, 'getBoundingClientRect').mockReturnValue({ top: 350, bottom: 390 } as DOMRect)
     leaf('/dashboard').focus()
     await key(focus(), 'End')
     expect(focus()).toBe(last)

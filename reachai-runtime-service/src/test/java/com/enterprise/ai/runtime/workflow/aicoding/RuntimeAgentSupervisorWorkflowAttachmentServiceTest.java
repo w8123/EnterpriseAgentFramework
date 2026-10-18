@@ -77,6 +77,16 @@ class RuntimeAgentSupervisorWorkflowAttachmentServiceTest {
     }
 
     @Test
+    void knownProjectAttachSkipsTheCapabilityLookupButStillChecksWorkflowProject() {
+        reset(projects);
+        var result = service.attachInKnownProject(7L, "orders", request());
+        assertEquals("orders", result.projectCode());
+        verifyNoInteractions(projects);
+        assertThrows(AiCodingAttachmentException.class,
+                () -> service.attachInKnownProject(8L, "billing", request()));
+    }
+
+    @Test
     void normalizesWorkflowKeySlugWhenDefaultingToolName() {
         service.attach(7L, request());
         var command = command();

@@ -83,8 +83,6 @@ public class CapabilityCompatibilityProxyController {
      * PlatformConsoleAuthInterceptor before this proxy is entered.
      */
     @RequestMapping(path = {
-            "/api/tool-retrieval",
-            "/api/tool-retrieval/{*path}",
             "/api/scan-projects",
             "/api/scan-projects/{*path}"
     })

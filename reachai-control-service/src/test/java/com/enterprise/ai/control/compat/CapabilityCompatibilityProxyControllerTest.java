@@ -33,8 +33,6 @@ class CapabilityCompatibilityProxyControllerTest {
                 .getDeclaredMethod("proxyRegistry", RequestEntity.class, HttpServletRequest.class);
 
         assertArrayEquals(new String[] {
-                "/api/tool-retrieval",
-                "/api/tool-retrieval/{*path}",
                 "/api/scan-projects",
                 "/api/scan-projects/{*path}"
         }, method.getAnnotation(org.springframework.web.bind.annotation.RequestMapping.class).path());
