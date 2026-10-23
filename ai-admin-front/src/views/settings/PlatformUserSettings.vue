@@ -8,10 +8,6 @@
       title="账号与权限"
       description="管理平台账号、角色、项目授权与安全审计。"
     >
-      <template #tags>
-        <el-tag type="success" effect="light">RBAC</el-tag>
-        <el-tag type="info" effect="light">全局 / 项目范围</el-tag>
-      </template>
       <template #meta>
         <MetricStrip presentation="inline" source="wallpaper" :items="metrics" aria-label="身份治理概览" />
       </template>
@@ -24,9 +20,6 @@
     </PageHeader>
 
     <section class="identity-workbench workbench-list-surface" aria-label="账号与权限工作区">
-      <ol class="boundary-flow" aria-label="授权链路">
-        <li v-for="step in boundarySteps" :key="step.title"><strong>{{ step.title }}</strong><span>{{ step.text }}</span></li>
-      </ol>
       <LiquidGlassTabs v-model="activeTab" source="wallpaper" class="identity-tabs">
         <el-tab-pane name="accounts">
           <template #label>
@@ -87,20 +80,13 @@ import AuthorizationAuditPanel from './platform-identity/AuthorizationAuditPanel
 import RolePermissionPanel from './platform-identity/RolePermissionPanel.vue'
 
 const projectStore = useProjectStore()
-const activeTab = ref('accounts')
+const activeTab = ref('roles') // 保持用户默认关注的重点或可切换
 const loading = ref(false)
 const accounts = ref<PlatformAccountUserView[]>([])
 const roles = ref<PlatformRoleManagementView[]>([])
 const permissions = ref<PlatformPermissionView[]>([])
 const auditEvents = ref<PlatformAuthAuditEventView[]>([])
 const lastRefreshedAt = ref('')
-
-const boundarySteps = [
-  { title: '账号', text: '谁可以进入平台' },
-  { title: '角色', text: '可以执行哪些操作' },
-  { title: '作用域', text: '权限在哪些项目生效' },
-  { title: '审计', text: '谁在何时改变了什么' },
-]
 
 const metrics = computed<MetricStripItem[]>(() => {
   const activeAccounts = accounts.value.filter((account) => account.status === 'ACTIVE').length
@@ -162,40 +148,6 @@ onMounted(reload)
   flex-direction: column;
 }
 
-// 授权链路是一行说明文字，直接落在壁纸上，不再单独占一块面板。
-.boundary-flow {
-  position: absolute;
-  top: 0;
-  right: 0;
-  display: flex;
-  align-items: center;
-  height: calc(var(--control-height) + 10px);
-  margin: 0;
-  padding: 0;
-  gap: 6px;
-  list-style: none;
-  color: var(--text-on-wallpaper-secondary);
-  font-size: 12px;
-  pointer-events: none;
-
-  li {
-    display: inline-flex;
-    align-items: baseline;
-    gap: 4px;
-  }
-
-  li + li::before {
-    content: '→';
-    margin-right: 6px;
-    opacity: 0.6;
-  }
-
-  strong {
-    color: var(--text-on-wallpaper);
-    font-weight: 600;
-  }
-}
-
 .identity-tabs {
   display: flex;
   flex: 1;
@@ -245,14 +197,7 @@ onMounted(reload)
   }
 }
 
-@media (max-width: 1180px) {
-  .boundary-flow {
-    display: none;
-  }
-}
-
 @media (max-width: 760px) {
-  // 窄屏由整页滚动，工作区不再自带一层滚动，避免表格被压成只剩表头。
   .identity-workbench,
   .identity-tabs,
   .identity-tabs :deep(.el-tabs__content) {
