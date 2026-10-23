@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { LiquidGlassButton } from '@/components/common/liquid-glass'
 import { CopyDocument, MagicStick } from '@element-plus/icons-vue'
 import AppDialog from '@/components/common/AppDialog.vue'
 import type { ProjectPage } from '@/types/pageWorkbench'
@@ -56,8 +57,8 @@ const emit = defineEmits<{
     </section>
 
     <template #footer>
-      <el-button @click="emit('update:modelValue', false)">暂不补充</el-button>
-      <el-button
+      <LiquidGlassButton @click="emit('update:modelValue', false)">暂不补充</LiquidGlassButton>
+      <LiquidGlassButton
         v-if="page"
         type="primary"
         :icon="CopyDocument"
@@ -65,7 +66,7 @@ const emit = defineEmits<{
         @click="emit('create', page)"
       >
         创建并生成分析交接包
-      </el-button>
+      </LiquidGlassButton>
     </template>
   </AppDialog>
 </template>

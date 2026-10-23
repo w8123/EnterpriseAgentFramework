@@ -28,24 +28,15 @@
 
     <div
       class="studio-body"
-      :class="{ 'palette-open': paletteExpanded, 'property-collapsed': propertyPanelCollapsed }"
+      :class="{ 'property-collapsed': propertyPanelCollapsed }"
       :style="{ '--studio-property-width': `${propertyPanelWidth}px` }"
     >
       <StudioPalette
-        v-model:expanded="paletteExpanded"
-        v-model:keyword="nodeSearchKeyword"
         :read-only="studioReadOnly"
-        :groups="paletteGroups"
-        :filtered-groups="filteredPaletteGroups"
-        :active-group="activePaletteGroup"
-        :kind-color="kindColor"
         @open-search="nodeSearchOpen = true"
-        @open-group="openPaletteGroup"
-        @drag-start="onDragStart"
-        @add="handleAddNode"
       />
 
-      <section class="canvas-wrap" @dragover.prevent @drop="onDrop">
+      <section class="canvas-wrap">
         <VueFlow
           v-model:nodes="nodes"
           v-model:edges="edges"
@@ -118,6 +109,7 @@
           :model-options-loading="modelOptionsLoading"
           :model-options-load-error="modelOptionsLoadError"
           :selected-model-label="selectedAiEditModelLabel"
+          :resolved-model-provider="selectedAiEditModel?.provider || ''"
           @run="runAiAuthoring()"
           @apply="applyAiEditPreview"
           @clear="clearAiEditPreview"
@@ -231,31 +223,126 @@
       </StudioPropertyPanel>
     </div>
 
-    <el-dialog v-model="nodeSearchOpen" title="添加节点" width="620px" class="node-search-dialog">
-      <el-input
-        v-model="nodeSearchKeyword"
-        :prefix-icon="Search"
-        clearable
-        autofocus
-        placeholder="输入大模型、接口、变量、知识库、条件..."
-      />
-      <div class="node-search-grid">
-        <button
-          v-for="item in flatFilteredPalette"
-          :key="item.kind"
-          class="node-search-card"
-          type="button"
-          :style="{ borderColor: kindColor(item.kind).border }"
-          @click="addNodeFromSearch(item.kind)"
-        >
-          <span :style="{ background: kindColor(item.kind).bg, color: kindColor(item.kind).border }">
-            <el-icon><component :is="item.icon" /></el-icon>
-          </span>
-          <strong>{{ item.label }}</strong>
-          <em>{{ item.hint }}</em>
-        </button>
+    <AppDialog
+      v-model="nodeSearchOpen"
+      title="添加节点"
+      width="840px"
+      class="node-picker-dialog"
+      destroy-on-close
+    >
+      <div class="node-picker-container">
+        <!-- 顶部通栏搜索 -->
+        <div class="node-picker-search-bar">
+          <el-input
+            v-model="nodeSearchKeyword"
+            :prefix-icon="Search"
+            clearable
+            autofocus
+            placeholder="搜索节点名称、功能或场景（例如：大模型、接口、条件、审批）..."
+            class="node-picker-search-input"
+          />
+        </div>
+
+        <!-- 主体：左侧分类导航 + 右侧内容面板 -->
+        <div class="node-picker-body">
+          <!-- 左侧分类侧边栏 -->
+          <aside class="node-picker-sidebar">
+            <div class="sidebar-category-list">
+              <button
+                class="sidebar-nav-item"
+                :class="{ active: selectedCategoryFilter === 'ALL' }"
+                type="button"
+                @click="selectedCategoryFilter = 'ALL'"
+              >
+                <span class="nav-item-icon">
+                  <el-icon><Grid /></el-icon>
+                </span>
+                <span class="nav-item-label">全部节点</span>
+                <span class="nav-item-count">{{ totalNodeCount }}</span>
+              </button>
+
+              <div class="sidebar-divider"></div>
+
+              <button
+                v-for="group in paletteGroups"
+                :key="group.title"
+                class="sidebar-nav-item"
+                :class="{ active: selectedCategoryFilter === group.title }"
+                type="button"
+                @click="selectedCategoryFilter = group.title"
+              >
+                <span class="nav-item-icon">
+                  <el-icon><component :is="group.icon" /></el-icon>
+                </span>
+                <span class="nav-item-label">{{ group.title }}</span>
+                <span class="nav-item-count">{{ group.items.length }}</span>
+              </button>
+            </div>
+          </aside>
+
+          <!-- 右侧卡片内容区 -->
+          <main class="node-picker-content">
+            <div v-if="displayedPaletteGroups.length === 0" class="node-picker-empty">
+              <el-empty description="未找到匹配的节点，请更换搜索词" :image-size="72" />
+            </div>
+
+            <div
+              v-for="group in displayedPaletteGroups"
+              :key="group.title"
+              class="node-group-section"
+            >
+              <!-- 极简现代分组标题行 -->
+              <div
+                class="node-group-header"
+                @click="toggleGroupCollapse(group.title)"
+              >
+                <div class="group-title-left">
+                  <el-icon
+                    class="group-collapse-arrow"
+                    :class="{ rotated: isGroupExpanded(group.title) }"
+                  >
+                    <ArrowRight />
+                  </el-icon>
+                  <span class="group-title-text">{{ group.title }}</span>
+                  <span class="group-title-count">{{ group.items.length }}</span>
+                </div>
+                <div class="group-title-action">
+                  {{ isGroupExpanded(group.title) ? '收起' : '展开' }}
+                </div>
+              </div>
+
+              <!-- 组内卡片网格 -->
+              <div
+                v-show="isGroupExpanded(group.title)"
+                class="node-card-grid"
+              >
+                <button
+                  v-for="item in group.items"
+                  :key="item.kind"
+                  class="node-card"
+                  type="button"
+                  @click="addNodeFromSearch(item.kind)"
+                >
+                  <div
+                    class="node-icon-box"
+                    :style="{ background: kindColor(item.kind).bg, color: kindColor(item.kind).border }"
+                  >
+                    <el-icon><component :is="item.icon" /></el-icon>
+                  </div>
+                  <div class="node-details">
+                    <div class="node-title-row">
+                      <span class="node-name">{{ item.label }}</span>
+                      <span class="node-tag">{{ item.meta }}</span>
+                    </div>
+                    <div class="node-desc" :title="item.hint">{{ item.hint }}</div>
+                  </div>
+                </button>
+              </div>
+            </div>
+          </main>
+        </div>
       </div>
-    </el-dialog>
+    </AppDialog>
 
     <WorkflowStudioReadOnlyTrialDrawer
       v-model:open="readOnlyTrialOpen"
@@ -349,9 +436,19 @@
       :release-validation-key="releaseValidationKey"
       @publish="handlePublishWorkflow"
     />
+
+    <WorkflowStudioVersionsDialog
+      v-model="versionsDialogOpen"
+      :workflow-id="workflowId"
+      :workflow-name="studioDisplayName"
+      :project-code="studio?.projectCode || ''"
+      :base-revision="studio?.updatedAt"
+      @rollback-success="handleRollbackSuccess"
+    />
   </div>
 </template>
 <script setup lang="ts">
+import AppDialog from '@/components/common/AppDialog.vue'
 import { useWorkflowStudioTraceProjection } from '@/views/workflow/composables/useWorkflowStudioTraceProjection'
 import { debugWaitingOutput } from '@/views/workflow/composables/workflowStudioTrace'
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
@@ -359,9 +456,11 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
   ArrowDown,
+  ArrowRight,
   ArrowUp,
   Close,
   Delete,
+  Grid,
   Search,
 } from '@element-plus/icons-vue'
 import { VueFlow, useVueFlow, ConnectionLineType } from '@vue-flow/core'
@@ -436,6 +535,7 @@ import { hasPlatformResourcePermission, PLATFORM_PERMISSION_WORKFLOW_DEBUG, PLAT
 import WorkflowStudioEvalTargetDialog from '@/views/workflow/studio-overlays/WorkflowStudioEvalTargetDialog.vue'
 import WorkflowStudioPublishDialog from '@/views/workflow/studio-overlays/WorkflowStudioPublishDialog.vue'
 import WorkflowStudioSourceDrawer from '@/views/workflow/studio-overlays/WorkflowStudioSourceDrawer.vue'
+import WorkflowStudioVersionsDialog from '@/views/workflow/studio-overlays/WorkflowStudioVersionsDialog.vue'
 import { useWorkflowStudioNodeMetadata } from '@/views/workflow/composables/useWorkflowStudioNodeMetadata'
 import { useWorkflowStudioPalette } from '@/views/workflow/composables/useWorkflowStudioPalette'
 import { useWorkflowStudioDebugSession } from '@/views/workflow/composables/useWorkflowStudioDebugSession'
@@ -466,7 +566,7 @@ import { formatJson, normalizeJson } from '@/views/workflow/composables/workflow
 
 const route = useRoute()
 const router = useRouter()
-const { fitView, screenToFlowCoordinate, setCenter, zoomIn, zoomOut, getViewport, findNode } = useVueFlow()
+const { fitView, setCenter, zoomIn, zoomOut, getViewport, findNode } = useVueFlow()
 const workflowId = computed(() => String(route.params.workflowId || route.params.id || ''))
 const studio = ref<WorkflowWorkingCopyState | null>(null)
 const graphSpecJson = ref('')
@@ -527,8 +627,6 @@ const aiEditInstruction = ref('')
 const aiEditLoading = ref(false)
 const aiEditMinimized = ref(false)
 const aiEditPreview = ref<WorkflowProposalEditResult | null>(null)
-const paletteExpanded = ref(false)
-const activePaletteGroup = ref('推理')
 const propertyPanelCollapsed = ref(true)
 const canvasOperatorCollapsed = ref(true)
 type InspectorPanel = 'validation' | 'variables'
@@ -581,6 +679,7 @@ const readOnlyTrialAuthorized = computed(() => [PLATFORM_PERMISSION_WORKFLOW_DEB
   platformSessionUser.value?.permissionGrants, permission, 'PROJECT', 'BUILD', studio.value?.projectCode,
 )))
 const publishDialogOpen = ref(false)
+const versionsDialogOpen = ref(false)
 const releaseErrors = ref<WorkflowReleaseValidationItem[]>([])
 const releaseWarnings = ref<WorkflowReleaseValidationItem[]>([])
 const viewportWidth = ref(typeof window === 'undefined' ? 1440 : window.innerWidth)
@@ -749,14 +848,10 @@ const studioKeySlug = computed(() => studio.value?.keySlug || workflowMeta.keySl
 const {
   paletteGroups,
   filteredPaletteGroups,
-  flatFilteredPalette,
-  openPaletteGroup,
   kindColor,
   nodeIcon,
 } = useWorkflowStudioPalette({
   nodeSearchKeyword,
-  activePaletteGroup,
-  paletteExpanded,
   nodeTypes,
   graphNodeTypeCapabilitiesLoaded,
 })
@@ -770,7 +865,8 @@ const studioCanvasNodeKinds: CanvasNodeKind[] = [
   'loop', 'knowledgeWrite', 'documentExtract', 'mcp',
 ]
 const nodeCardContext = computed<StudioNodeCardContext>(() => ({
-  defaultModelInstanceId: workflowMeta.defaultModelInstanceId || studio.value?.defaultModelInstanceId,
+  defaultModelInstanceId: workflowMeta.defaultModelInstanceId,
+  modelOptions: modelOptions.value,
   projectCode: studio.value?.projectCode,
 }))
 
@@ -1453,7 +1549,7 @@ const {
   syncPublishedPageAssistant: () => syncPublishedPageAssistant({ silent: true }),
   afterPublished: (publishedWorkflowId) => notifyStaleAgentReferences(
     publishedWorkflowId,
-    () => router.push(`/workflows/${publishedWorkflowId}/versions`),
+    () => { versionsDialogOpen.value = true },
   ),
 })
 
@@ -1466,6 +1562,7 @@ const primaryOverlayRefs = [
   evalTargetOpen,
   jsonDrawerVisible,
   publishDialogOpen,
+  versionsDialogOpen,
 ]
 
 watch(
@@ -1664,26 +1761,7 @@ const { validateRuntime } = useWorkflowStudioRuntimeValidation({
   editGeneration, nodes, validating, validation, validationRequestError, syncJsonFromCanvas,
 })
 
-function onDragStart(event: DragEvent, kind: CanvasNodeKind) {
-  if (studioReadOnly.value) {
-    event.preventDefault()
-    return
-  }
-  event.dataTransfer?.setData('application/vueflow', kind)
-  if (event.dataTransfer) {
-    event.dataTransfer.effectAllowed = 'move'
-  }
-}
-
-function onDrop(event: DragEvent) {
-  if (studioReadOnly.value) return
-  const kind = event.dataTransfer?.getData('application/vueflow') as CanvasNodeKind | undefined
-  if (!kind) return
-  const position = screenToFlowCoordinate({ x: event.clientX, y: event.clientY })
-  insertNodeTemplate(kind, position)
-}
-
-function insertNodeTemplate(type: string, position?: { x: number; y: number }) {
+function insertNodeTemplate(type: string) {
   if (!studio.value) {
     ElMessage.warning('请先加载 Workflow')
     return
@@ -1694,7 +1772,7 @@ function insertNodeTemplate(type: string, position?: { x: number; y: number }) {
     ElMessage.warning(decision.reason || '当前节点类型不可新增')
     return
   }
-  const node = createWorkflowCanvasNode(kind, position || {
+  const node = createWorkflowCanvasNode(kind, {
     x: 180 + nodes.value.length * 32,
     y: 160 + nodes.value.length * 18,
   }, studio.value)
@@ -1718,6 +1796,42 @@ function addNodeFromSearch(kind: CanvasNodeKind) {
   handleAddNode(kind)
   nodeSearchOpen.value = false
 }
+
+const selectedCategoryFilter = ref('ALL')
+const collapsedGroupTitles = ref<string[]>([])
+
+const totalNodeCount = computed(() => {
+  return paletteGroups.value.reduce((acc, g) => acc + g.items.length, 0)
+})
+
+const displayedPaletteGroups = computed(() => {
+  const groups = filteredPaletteGroups.value
+  if (selectedCategoryFilter.value === 'ALL') {
+    return groups
+  }
+  return groups.filter((g) => g.title === selectedCategoryFilter.value)
+})
+
+function isGroupExpanded(title: string) {
+  if (nodeSearchKeyword.value.trim()) return true
+  return !collapsedGroupTitles.value.includes(title)
+}
+
+function toggleGroupCollapse(title: string) {
+  const index = collapsedGroupTitles.value.indexOf(title)
+  if (index >= 0) {
+    collapsedGroupTitles.value.splice(index, 1)
+  } else {
+    collapsedGroupTitles.value.push(title)
+  }
+}
+
+watch(nodeSearchOpen, (open) => {
+  if (open) {
+    nodeSearchKeyword.value = ''
+    selectedCategoryFilter.value = 'ALL'
+  }
+})
 
 function refreshCanvasFromJson() {
   if (!studio.value) return
@@ -2078,8 +2192,13 @@ function handleHeaderCommand(command: string | number | object) {
     return
   }
   if (command === 'versions') {
-    router.push(`/workflows/${workflowId.value}/versions`)
+    versionsDialogOpen.value = true
+    return
   }
+}
+
+async function handleRollbackSuccess() {
+  await loadStudio()
 }
 
 function parseOptionalObject(value: string, label: string) {
@@ -2102,7 +2221,7 @@ function modelOptionLabel(item: ModelInstance) {
 .node-panel,
 .inspect-panel {
   padding: 16px;
-  background: var(--el-bg-color);
+  background: var(--surface-glass-panel);
 }
 
 .node-panel {
@@ -2171,8 +2290,12 @@ function modelOptionLabel(item: ModelInstance) {
   flex-direction: column;
   height: 100%;
   overflow: hidden;
-  background: #f5f7fa;
-  color: #172033;
+  // Studio 也铺主题壁纸；画布、工具层和配置面板各自是磨砂玻璃，节点与连线仍落在高白纱的画布上。
+  background: var(--surface-page-background);
+  background-size: cover;
+  background-position: var(--theme-wallpaper-position, center);
+  background-repeat: no-repeat;
+  color: var(--text-primary);
 }
 
 .studio-body {
@@ -2190,20 +2313,8 @@ function modelOptionLabel(item: ModelInstance) {
   user-select: none;
 }
 
-.studio-body.palette-open {
-  grid-template-columns: 320px minmax(0, 1fr) var(--studio-property-width, 480px);
-}
-
 .studio-body.property-collapsed {
   grid-template-columns: 72px minmax(0, 1fr) 58px;
-}
-
-.studio-body.palette-open.property-collapsed {
-  grid-template-columns: 320px minmax(0, 1fr) 58px;
-}
-
-.studio-body.palette-open :deep(.palette-content) {
-  display: block;
 }
 
 .studio-page .canvas-wrap {
@@ -2213,7 +2324,7 @@ function modelOptionLabel(item: ModelInstance) {
   overflow: hidden;
   border: 0;
   border-radius: 0;
-  background: #f8fbff;
+  background: var(--surface-glass-canvas);
 }
 
 .studio-canvas {
@@ -2236,7 +2347,7 @@ function modelOptionLabel(item: ModelInstance) {
 }
 
 .studio-canvas :deep(.vue-flow__node.selected .studio-node) {
-  box-shadow: 0 0 0 3px rgba(111, 99, 255, 0.18), 0 12px 28px rgba(46, 54, 80, 0.12);
+  box-shadow: 0 0 0 3px rgb(var(--brand-primary-rgb) / 0.18), 0 12px 28px rgba(46, 54, 80, 0.12);
 }
 
 .studio-canvas :deep(.vue-flow__edge-path) {
@@ -2245,14 +2356,14 @@ function modelOptionLabel(item: ModelInstance) {
 }
 
 .studio-canvas :deep(.vue-flow__edge.selected .vue-flow__edge-path) {
-  stroke: #6157ff;
+  stroke: var(--brand-primary);
   stroke-width: 2.5;
 }
 
 .studio-canvas :deep(.vue-flow__controls) {
   left: 22px;
   bottom: 28px;
-  border: 1px solid #e5eaf2;
+  border: 1px solid var(--border-divider);
   border-radius: 12px;
   overflow: hidden;
   box-shadow: 0 12px 32px rgba(31, 41, 55, 0.12);
@@ -2261,17 +2372,29 @@ function modelOptionLabel(item: ModelInstance) {
 .studio-canvas :deep(.vue-flow__minimap) {
   right: 34px;
   bottom: 34px;
-  border: 1px solid #e5eaf2;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.9);
-  box-shadow: 0 12px 28px rgba(31, 41, 55, 0.1);
+  border: 1px solid var(--border-divider);
+  border-color: var(--border-glass-edge);
+  border-radius: 12px;
+  background: var(--surface-glass-frost);
+  box-shadow: var(--shadow-glass-frost);
+  -webkit-backdrop-filter: blur(var(--glass-blur-frost)) saturate(var(--glass-saturation));
+  backdrop-filter: blur(var(--glass-blur-frost)) saturate(var(--glass-saturation));
+}
+
+// MiniMap 的遮罩和节点默认是浅灰填充，随主题改用语义色。
+.studio-canvas :deep(.vue-flow__minimap-mask) {
+  fill: color-mix(in srgb, var(--surface-page-canvas) 62%, transparent);
+}
+
+.studio-canvas :deep(.vue-flow__minimap-node) {
+  fill: var(--surface-pressed);
 }
 
 .studio-canvas :deep(.vue-flow__handle) {
   width: 10px;
   height: 10px;
-  border: 2px solid #ffffff;
-  background: #1f2937;
+  border: 2px solid var(--border-divider);
+  background: var(--text-primary);
 }
 
 .canvas-search-panel {
@@ -2286,43 +2409,298 @@ function modelOptionLabel(item: ModelInstance) {
   box-shadow: 0 14px 36px rgba(31, 41, 55, 0.12);
 }
 
-.node-search-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  margin-top: 16px;
+/* 现代双栏节点选择面板 (Linear / Dify 风格) */
+:deep(.node-picker-dialog) {
+  overflow: hidden;
 }
 
-.node-search-card {
-  display: grid;
-  gap: 8px;
-  padding: 14px 12px;
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  background: #fff;
+:deep(.node-picker-dialog .el-dialog__header) {
+  margin-right: 0;
+  padding: 16px 20px 14px;
+  border-bottom: 1px solid var(--border-glass-edge);
+}
+
+:deep(.node-picker-dialog .el-dialog__title) {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+:deep(.node-picker-dialog .el-dialog__body) {
+  padding: 0;
+}
+
+.node-picker-container {
+  display: flex;
+  flex-direction: column;
+  background: transparent;
+}
+
+.node-picker-search-bar {
+  padding: 14px 20px;
+  background: transparent;
+  border-bottom: 1px solid var(--border-glass-edge);
+}
+
+.node-picker-search-input :deep(.el-input__wrapper) {
+  background-color: var(--surface-glass-control);
+  box-shadow: none;
+  border: 1px solid var(--border-glass-edge);
+  border-radius: 10px;
+  padding: 4px 12px;
+  transition: all 0.2s ease;
+}
+
+.node-picker-search-input :deep(.el-input__wrapper.is-focus) {
+  background-color: var(--surface-glass-selected);
+  border-color: rgb(var(--brand-primary-rgb) / 0.4);
+  box-shadow: 0 0 0 3px rgb(var(--brand-primary-rgb) / 0.12);
+}
+
+.node-picker-body {
+  display: flex;
+  height: 480px;
+}
+
+/* 左侧分类导航 */
+.node-picker-sidebar {
+  width: 196px;
+  flex-shrink: 0;
+  background: var(--surface-glass-inset);
+  border-right: 1px solid var(--border-glass-edge);
+  padding: 12px 10px;
+  overflow-y: auto;
+}
+
+.sidebar-category-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sidebar-divider {
+  height: 1px;
+  background: var(--border-glass-edge);
+  margin: 6px 4px;
+}
+
+.sidebar-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
   cursor: pointer;
   text-align: left;
+  transition: all 0.15s ease;
 }
 
-.node-search-card span:first-child {
-  display: grid;
-  width: 34px;
-  height: 34px;
-  place-items: center;
+.sidebar-nav-item:hover {
+  background: var(--surface-glass-selected);
+  color: var(--text-primary);
+}
+
+.sidebar-nav-item.active {
+  background: var(--brand-soft-bg);
+  color: var(--brand-on-surface);
+  font-weight: 600;
+}
+
+.nav-item-icon {
+  display: flex;
+  align-items: center;
+  font-size: 15px;
+  color: inherit;
+}
+
+.nav-item-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nav-item-count {
+  display: inline-block;
+  padding: 1px 6px;
   border-radius: 10px;
-  font-size: 16px;
+  background: var(--surface-glass-inset);
+  box-shadow: var(--glass-rim-double);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 500;
 }
 
-.node-search-card strong {
-  color: #0f172a;
-  font-size: 14px;
+.sidebar-nav-item.active .nav-item-count {
+  background: var(--brand-soft-bg);
+  color: var(--brand-on-surface);
 }
 
-.node-search-card em {
-  color: #64748b;
+/* 右侧内容面板 */
+.node-picker-content {
+  flex: 1;
+  min-width: 0;
+  padding: 16px 20px;
+  overflow-y: auto;
+}
+
+.node-picker-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+}
+
+.node-group-section {
+  margin-bottom: 22px;
+}
+
+.node-group-section:last-child {
+  margin-bottom: 8px;
+}
+
+.node-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 2px 10px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.group-title-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.group-collapse-arrow {
   font-size: 12px;
-  font-style: normal;
+  color: var(--text-disabled);
+  transition: transform 0.18s ease;
+}
+
+.group-collapse-arrow.rotated {
+  transform: rotate(90deg);
+}
+
+.group-title-text {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  letter-spacing: 0.2px;
+}
+
+.group-title-count {
+  font-size: 11px;
+  color: var(--text-disabled);
+  font-weight: 500;
+}
+
+.group-title-action {
+  font-size: 11.5px;
+  color: var(--text-disabled);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.node-group-header:hover .group-title-action {
+  opacity: 1;
+  color: var(--brand-on-surface);
+}
+
+.node-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+/* 单个节点微卡片 */
+.node-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-glass-edge);
+  border-radius: 12px;
+  background: var(--surface-glass-inset);
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: var(--glass-rim-double);
+}
+
+.node-card:hover {
+  border-color: rgb(var(--brand-primary-rgb) / 0.34);
+  background: var(--surface-glass-selected);
+  box-shadow: 0 6px 16px -2px rgba(15, 23, 42, 0.08), 0 2px 6px -1px rgba(15, 23, 42, 0.03);
+  transform: translateY(-1.5px);
+}
+
+.node-card:active {
+  transform: translateY(0);
+}
+
+.node-icon-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  font-size: 18px;
+}
+
+.node-details {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.node-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.node-name {
+  color: var(--text-primary);
+  font-size: 13.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.node-tag {
+  flex-shrink: 0;
+  color: var(--text-secondary);
+  background: var(--surface-glass-inset);
+  border: 1px solid var(--border-glass-edge);
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.node-desc {
+  color: var(--text-muted);
+  font-size: 12px;
   line-height: 1.45;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
 .studio-canvas :deep(.vue-flow__handle.classifier-route-handle) {
@@ -2330,14 +2708,14 @@ function modelOptionLabel(item: ModelInstance) {
   right: -9px;
   width: 13px;
   height: 13px;
-  border: 3px solid #dbeafe;
-  background: #2563eb;
+  border: 3px solid rgb(var(--brand-primary-rgb) / 0.4);
+  background: var(--brand-primary);
   transform: translateY(-50%);
 }
 
 .studio-canvas :deep(.vue-flow__node.loop-body-member .studio-node) {
   position: relative;
-  box-shadow: inset 0 0 0 1px rgba(2, 132, 199, 0.45);
+  box-shadow: inset 0 0 0 1px rgb(var(--brand-primary-rgb) / 0.45), var(--shadow-glass-node), var(--glass-node-rim);
 }
 
 .studio-canvas :deep(.vue-flow__node.loop-body-member .studio-node)::after {
@@ -2349,14 +2727,14 @@ function modelOptionLabel(item: ModelInstance) {
   border-radius: 999px;
   font-size: 10px;
   line-height: 1.4;
-  color: #0369a1;
-  background: rgba(2, 132, 199, 0.12);
+  color: var(--brand-on-surface);
+  background: rgb(var(--brand-primary-rgb) / 0.12);
   pointer-events: none;
 }
 
 .studio-canvas :deep(.vue-flow__node.selected .studio-node) {
   border-color: var(--node-color);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--node-color) 24%, transparent), 0 22px 52px rgba(15, 23, 42, 0.18);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--node-color) 24%, transparent), var(--shadow-glass-node), var(--glass-node-rim);
 }
 
 .studio-canvas :deep(.vue-flow__node.selected .studio-node::before) {
@@ -2366,18 +2744,18 @@ function modelOptionLabel(item: ModelInstance) {
 .studio-canvas :deep(.vue-flow__handle) {
   width: 10px;
   height: 10px;
-  border: 2px solid #ffffff;
-  background: #94a3b8;
+  border: 2px solid var(--border-divider);
+  background: var(--surface-pressed);
   box-shadow: 0 0 0 1px #64748b, 0 2px 6px rgba(15, 23, 42, 0.16);
 }
 
 .studio-canvas :deep(.vue-flow__node.selected .vue-flow__handle) {
-  background: #ffffff;
-  box-shadow: 0 0 0 2px #2563eb, 0 0 0 6px rgba(37, 99, 235, 0.12);
+  background: var(--surface-solid-panel);
+  box-shadow: 0 0 0 2px rgb(var(--brand-primary-rgb) / 1.0), 0 0 0 6px rgb(var(--brand-primary-rgb) / 0.12);
 }
 
 :global(.vue-flow__edge.edge-route-hit .vue-flow__edge-path) {
-  stroke: #16a34a;
+  stroke: var(--status-success);
   stroke-width: 3;
 }
 
@@ -2387,15 +2765,13 @@ function modelOptionLabel(item: ModelInstance) {
 }
 
 :global(.vue-flow__edge.edge-route-hit .vue-flow__edge-text) {
-  fill: #166534;
+  fill: var(--status-success);
   font-weight: 700;
 }
 
 @media (max-width: 1120px) {
   .studio-body,
-  .studio-body.palette-open,
-  .studio-body.property-collapsed,
-  .studio-body.palette-open.property-collapsed {
+  .studio-body.property-collapsed {
     grid-template-columns: 74px minmax(0, 1fr);
     height: auto;
   }
@@ -2421,9 +2797,7 @@ function modelOptionLabel(item: ModelInstance) {
 
 @media (max-width: 760px) {
   .studio-body,
-  .studio-body.palette-open,
-  .studio-body.property-collapsed,
-  .studio-body.palette-open.property-collapsed {
+  .studio-body.property-collapsed {
     grid-template-columns: 1fr;
   }
 
@@ -2432,16 +2806,6 @@ function modelOptionLabel(item: ModelInstance) {
     z-index: 10;
     width: 74px;
     height: 100%;
-  }
-
-  .palette-open .palette {
-    width: min(340px, 86vw);
-  }
-
-  .canvas-operator-panel {
-    left: 12px;
-    bottom: 72px;
-    max-width: calc(100% - 24px);
   }
 
   .workflow-inspector {

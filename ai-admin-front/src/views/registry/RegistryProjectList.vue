@@ -1,27 +1,22 @@
 <template>
-  <div class="registry-project-page project-workbench-page workbench-page--list" :class="{ 'is-dark': theme === 'dark' }">
+  <div class="registry-project-page project-workbench-page workbench-page--list">
     <CollapsibleHeaderRegion :collapsed="isProjectHeaderCollapsed">
       <PageHeader
         variant="overview"
         domain="project"
+        presentation="plain"
+        action-presentation="inline"
         title="项目管理"
-        description="统一管理 AI 项目的注册、SDK 接入、API 接入与能力扫描。"
+        description="管理项目接入、SDK 注册与 API 扫描。"
         :collapsed="isProjectHeaderCollapsed"
       >
-        <template #tags>
-          <el-tag effect="light">项目接入</el-tag>
-          <el-tag type="success" effect="light">当前 {{ projects.length }} 个项目</el-tag>
-          <el-tag type="info" effect="light">SDK Starter 可用</el-tag>
-        </template>
         <template #actions>
-          <el-button type="primary" :icon="Plus" @click="openAccessDialog('sdk')">
-            接入项目
-          </el-button>
+          <LiquidGlassButton type="primary" :icon="Plus" source="wallpaper" @click="openAccessDialog('sdk')">接入项目</LiquidGlassButton>
         </template>
       </PageHeader>
 
       <template #summary>
-        <div class="metric-strip">
+        <div class="metric-strip glass-surface-frost glass-workspace-adaptive" role="region" aria-label="项目接入概况">
           <template v-for="(metric, index) in metrics" :key="metric.label">
             <div v-if="index > 0" class="metric-divider" aria-hidden="true" />
             <div class="metric-segment">
@@ -29,7 +24,7 @@
               <div class="metric-content">
                 <div class="metric-line">
                   <span class="metric-label">{{ metric.label }}</span>
-                  <em v-if="metric.delta" class="metric-delta" :class="metric.deltaTone">{{ metric.delta }}</em>
+                  <em v-if="metric.alert" class="metric-alert">{{ metric.alert }}</em>
                 </div>
                 <strong>{{ metric.value }}</strong>
               </div>
@@ -39,122 +34,131 @@
       </template>
     </CollapsibleHeaderRegion>
 
-    <el-card class="project-card workbench-list-surface" shadow="never">
-      <div class="toolbar">
-        <el-input
-          v-model="keyword"
-          class="search-input"
-          clearable
-          :prefix-icon="Search"
-          placeholder="搜索项目名称、描述、负责人"
-          @keyup.enter="handleSearch"
-        />
-        <el-select v-model="kindFilter" clearable placeholder="接入方式">
-          <el-option label="SDK 接入" value="REGISTERED" />
-          <el-option label="API / 扫描接入" value="SCAN" />
-          <el-option label="混合接入" value="HYBRID" />
-        </el-select>
-        <el-select v-model="statusFilter" clearable placeholder="项目状态">
-          <el-option label="已创建" value="created" />
-          <el-option label="扫描中" value="scanning" />
-          <el-option label="已接入" value="scanned" />
-          <el-option label="异常" value="failed" />
-        </el-select>
-        <el-button class="toolbar-reset" @click="resetFilters">重置</el-button>
-        <el-button class="toolbar-search" :icon="Search" :loading="loading" @click="handleSearch">搜索</el-button>
-      </div>
-
-      <div class="project-table-shell">
-        <el-table
-          v-loading="loading"
-          :data="pagedProjects"
-          row-key="id"
-          class="project-table"
-          :max-height="projectTableMaxHeight"
-        >
-          <el-table-column label="项目名称" min-width="190">
-            <template #default="{ row }">
-              <button type="button" class="project-name-cell project-name-cell-btn" @click="goDetail(row)">
-                <div class="project-avatar" :class="avatarClass(row.projectKind)">{{ projectInitial(row.name) }}</div>
-                <div>
-                  <strong>{{ row.name }}</strong>
-                  <span>{{ row.projectCode || `ID ${row.id}` }}</span>
-                </div>
-              </button>
-            </template>
-          </el-table-column>
-          <el-table-column label="项目描述" min-width="190" show-overflow-tooltip>
-            <template #default="{ row }">
-              <span class="muted">{{ projectDescription(row) }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="接入方式" width="100">
-            <template #default="{ row }">
-              <el-tag :type="kindTagType(row.projectKind)" effect="light">
-                {{ formatProjectKindLabel(row.projectKind || 'SCAN') }}
-              </el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column label="状态" width="96">
-            <template #default="{ row }">
-              <span class="status-pill" :class="`status-${row.status || 'created'}`">
-                <i />
-                {{ statusLabel(row) }}
-              </span>
-            </template>
-          </el-table-column>
-          <el-table-column label="API 数量" width="86" align="center">
-            <template #default="{ row }">{{ apiCountOf(row) }}</template>
-          </el-table-column>
-          <el-table-column label="SDK 版本" width="96" align="center">
-            <template #default="{ row }">{{ sdkVersionLabel(row) }}</template>
-          </el-table-column>
-          <el-table-column label="最近扫描时间" width="124">
-            <template #default="{ row }">
-              <span class="muted">{{ formatDate(row.lastScannedAt) }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="负责人" width="110">
-            <template #default="{ row }">
-              <div class="owner-cell">
-                <el-avatar :size="22">{{ projectInitial(row.owner || row.name) }}</el-avatar>
-                <span>{{ row.owner || '未分配' }}</span>
-              </div>
-            </template>
-          </el-table-column>
-        </el-table>
-
-        <div v-if="!loading && filteredProjects.length === 0" class="empty-state">
-          <div class="empty-main">
-            <div class="empty-illustration" aria-hidden="true">
-              <img class="empty-illustration-img" src="/智能化.svg" alt="" />
+    <section class="project-card workbench-list-surface" aria-label="项目列表">
+      <LiquidGlassTable
+        v-model:current-page="currentPage"
+        v-model:page-size="pageSize"
+        class="project-list-panel"
+        :loading="loading"
+        :total="filteredProjects.length"
+        :page-sizes="[5, 10, 20, 50]"
+        pagination-label="项目分页"
+      >
+        <template #toolbar>
+          <div class="toolbar">
+            <LiquidGlassInput
+              v-model="keyword"
+              class="search-input"
+              clearable
+              aria-label="搜索项目"
+              :prefix-icon="Search"
+              placeholder="搜索项目名称、描述、负责人"
+              @keyup.enter="handleSearch"
+            />
+            <LiquidGlassSelect v-model="kindFilter" dropdown-title="接入方式" clearable placeholder="接入方式" aria-label="接入方式">
+              <el-option label="SDK 接入" value="REGISTERED" />
+              <el-option label="API / 扫描接入" value="SCAN" />
+              <el-option label="混合接入" value="HYBRID" />
+            </LiquidGlassSelect>
+            <LiquidGlassSelect v-model="statusFilter" dropdown-title="项目状态" clearable placeholder="项目状态" aria-label="项目状态">
+              <el-option label="已创建" value="created" />
+              <el-option label="扫描中" value="scanning" />
+              <el-option label="已接入" value="scanned" />
+              <el-option label="异常" value="failed" />
+            </LiquidGlassSelect>
+            <div class="toolbar-actions">
+              <LiquidGlassButton
+                :icon="RefreshRight"
+                circle
+                aria-label="重置"
+                title="重置"
+                @click="resetFilters"
+              />
+              <LiquidGlassButton :icon="Search" :loading="loading" @click="handleSearch">搜索</LiquidGlassButton>
             </div>
-            <div class="empty-body">
-              <div class="empty-copy">
-                <h3>还没有接入任何 AI 项目</h3>
-                <p>你可以通过创建接入项目，选择 SDK 接入或扫描接入来发现 AI 能力。</p>
+          </div>
+        </template>
+
+        <div class="project-table-shell">
+          <el-table
+            :data="pagedProjects"
+            row-key="id"
+            class="project-table"
+            :max-height="projectTableMaxHeight"
+          >
+            <el-table-column label="项目名称" min-width="190">
+              <template #default="{ row }">
+                <button type="button" class="project-name-cell project-name-cell-btn" @click="goDetail(row)">
+                  <div class="project-avatar" :class="avatarClass(row.projectKind)">{{ projectInitial(row.name) }}</div>
+                  <div>
+                    <strong>{{ row.name }}</strong>
+                    <span>{{ row.projectCode || `ID ${row.id}` }}</span>
+                  </div>
+                </button>
+              </template>
+            </el-table-column>
+            <el-table-column label="项目描述" min-width="190" show-overflow-tooltip>
+              <template #default="{ row }">
+                <span class="muted">{{ projectDescription(row) }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="接入方式" width="112">
+              <template #default="{ row }">
+                <el-tag :type="kindTagType(row.projectKind)" effect="light">
+                  {{ formatProjectKindLabel(row.projectKind || 'SCAN') }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="状态" width="96">
+              <template #default="{ row }">
+                <span class="status-pill" :class="`status-${row.status || 'created'}`">
+                  <i />
+                  {{ statusLabel(row) }}
+                </span>
+              </template>
+            </el-table-column>
+            <el-table-column label="API 数量" width="86" align="center">
+              <template #default="{ row }">{{ apiCountOf(row) }}</template>
+            </el-table-column>
+            <el-table-column label="SDK 版本" width="96" align="center">
+              <template #default="{ row }">{{ sdkVersionLabel(row) }}</template>
+            </el-table-column>
+            <el-table-column label="最近扫描时间" width="124">
+              <template #default="{ row }">
+                <span class="muted">{{ formatDate(row.lastScannedAt) }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="负责人" width="110">
+              <template #default="{ row }">
+                <div class="owner-cell">
+                  <el-avatar :size="22">{{ projectInitial(row.owner || row.name) }}</el-avatar>
+                  <span>{{ row.owner || '未分配' }}</span>
+                </div>
+              </template>
+            </el-table-column>
+          </el-table>
+
+          <div v-if="!loading && filteredProjects.length === 0" class="empty-state" role="status">
+            <div class="empty-main">
+              <div class="empty-illustration" aria-hidden="true">
+                <img class="empty-illustration-img" src="/智能化.svg" alt="" />
               </div>
-              <div class="empty-actions">
-                <el-button type="primary" :icon="Plus" @click="openAccessDialog('sdk')">接入项目</el-button>
+              <div class="empty-body">
+                <div class="empty-copy">
+                  <h3>{{ hasActiveFilters ? '没有找到匹配项目' : '还没有接入任何 AI 项目' }}</h3>
+                  <p>{{ hasActiveFilters ? '试试其他关键词，或清除筛选查看全部项目。' : '通过 SDK 注册或 API 扫描接入你的第一个项目。' }}</p>
+                </div>
+                <div class="empty-actions">
+                  <el-button v-if="hasActiveFilters" @click="resetFilters">清除筛选</el-button>
+                  <el-button v-else type="primary" :icon="Plus" @click="openAccessDialog('sdk')">接入项目</el-button>
+                </div>
               </div>
             </div>
           </div>
         </div>
-      </div>
 
-      <div v-if="filteredProjects.length > 0" class="table-footer">
-        <span>共 {{ filteredProjects.length }} 条</span>
-        <el-pagination
-          v-model:current-page="currentPage"
-          v-model:page-size="pageSize"
-          class="registry-pagination"
-          background
-          layout="prev, pager, next, sizes"
-          :page-sizes="[5, 10, 20, 50]"
-          :total="filteredProjects.length"
-        />
-      </div>
-    </el-card>
+      </LiquidGlassTable>
+    </section>
 
     <AppDialog
       v-model="accessDialogVisible"
@@ -166,7 +170,7 @@
       :close-on-press-escape="!saving"
       :show-close="!saving"
     >
-      <el-tabs v-model="accessDialogTab" class="access-dialog-tabs">
+      <LiquidGlassTabs v-model="accessDialogTab" class="access-dialog-tabs">
         <el-tab-pane label="SDK 接入" name="sdk">
           <el-form :model="sdkForm" label-width="120px" :disabled="saving" novalidate>
             <el-form-item label="项目名称" required>
@@ -195,14 +199,18 @@
             <el-form-item label="Base URL" required>
               <el-input v-model="sdkForm.baseUrl" placeholder="http://localhost:8080" />
             </el-form-item>
-            <el-alert
+            <LiquidGlassNotice
               title="无需填写 App Key 或 App Secret"
               type="success"
-              :closable="false"
-              show-icon
               description="提交后会生成仅限当前项目、有效期 72 小时的一次性接入令牌和完整 Starter 配置。此时项目尚未注册；业务系统首次启动并注册成功后，项目才会出现在列表中，Starter 会自动保存长期凭据。"
+              source="backdrop"
             />
-            <el-alert v-if="enrollmentError" :title="enrollmentError" type="error" :closable="false" show-icon />
+            <LiquidGlassNotice
+              v-if="enrollmentError"
+              :title="enrollmentError"
+              type="error"
+              source="backdrop"
+            />
           </el-form>
         </el-tab-pane>
 
@@ -266,25 +274,25 @@
             </el-form-item>
           </el-form>
         </el-tab-pane>
-      </el-tabs>
+      </LiquidGlassTabs>
       <template #footer>
-        <el-button :disabled="saving" @click="accessDialogVisible = false">取消</el-button>
-        <el-button
+        <LiquidGlassButton :disabled="saving" @click="accessDialogVisible = false">取消</LiquidGlassButton>
+        <LiquidGlassButton
           v-if="accessDialogTab === 'sdk'"
           type="primary"
           :loading="saving"
           @click="saveSdkProject"
         >
           生成 72 小时接入令牌
-        </el-button>
-        <el-button
+        </LiquidGlassButton>
+        <LiquidGlassButton
           v-else
           type="primary"
           :loading="saving"
           @click="saveScanProject"
         >
           保存
-        </el-button>
+        </LiquidGlassButton>
       </template>
     </AppDialog>
 
@@ -296,7 +304,7 @@
       destroy-on-close
       @close="clearEnrollment"
     >
-      <el-form label-width="120px" novalidate>
+      <el-form label-width="120px" novalidate class="enrollment-dialog-form">
         <el-form-item label="项目编码">
           <el-input :model-value="issuedEnrollment?.projectCode" readonly />
         </el-form-item>
@@ -304,15 +312,22 @@
           <el-input :model-value="issuedEnrollment?.expiresAt" readonly />
         </el-form-item>
         <el-form-item label="Starter 配置">
-          <el-input type="textarea" :rows="12" resize="none" :model-value="visibleEnrollmentSnippet" readonly />
+          <el-input
+            type="textarea"
+            :rows="12"
+            resize="none"
+            :model-value="visibleEnrollmentSnippet"
+            readonly
+            class="enrollment-config-textarea"
+          />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="enrollmentTokenVisible = !enrollmentTokenVisible">
+        <LiquidGlassButton @click="enrollmentTokenVisible = !enrollmentTokenVisible">
           {{ enrollmentTokenVisible ? '隐藏接入令牌' : '显示接入令牌' }}
-        </el-button>
-        <el-button type="primary" @click="copyEnrollmentSnippet">复制完整 Starter 配置</el-button>
-        <el-button @click="enrollmentDialogVisible = false">关闭</el-button>
+        </LiquidGlassButton>
+        <LiquidGlassButton type="primary" @click="copyEnrollmentSnippet">复制完整 Starter 配置</LiquidGlassButton>
+        <LiquidGlassButton @click="enrollmentDialogVisible = false">关闭</LiquidGlassButton>
       </template>
     </AppDialog>
   </div>
@@ -325,10 +340,12 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
   Plus,
+  RefreshRight,
   Search,
 } from '@element-plus/icons-vue'
 import CollapsibleHeaderRegion from '@/components/common/CollapsibleHeaderRegion.vue'
 import MetricIconBg from '@/components/common/MetricIconBg.vue'
+import { LiquidGlassButton, LiquidGlassInput, LiquidGlassSelect, LiquidGlassTable, LiquidGlassNotice, LiquidGlassTabs } from '@/components/common/liquid-glass'
 import PageHeader from '@/components/common/PageHeader.vue'
 import { projectCapabilityWorkspaceLocation } from '@/views/capability/businessCapabilityRoutes'
 import { useCollapsiblePageHeader } from '@/composables/useCollapsiblePageHeader'
@@ -340,7 +357,6 @@ import {
 import { issueRegistryEnrollment } from '@/api/registry'
 import type { ScanProject, ScanProjectUpsertRequest } from '@/types/scanProject'
 import type { RegistryEnrollmentToken, RegistryProjectRegisterRequest } from '@/types/registry'
-import { useTheme } from '@/composables/useTheme'
 import {
   PROJECT_KIND_SELECT_OPTIONS,
   VISIBILITY_SELECT_OPTIONS,
@@ -349,7 +365,6 @@ import {
 } from '@/utils/projectLabels'
 
 const router = useRouter()
-const { theme } = useTheme()
 
 const loading = ref(false)
 const saving = ref(false)
@@ -396,7 +411,6 @@ const {
 function updateProjectTableMaxHeight() {
   if (typeof window === 'undefined') return
   const root = document.querySelector('.registry-project-page')
-  const cardEl = root?.querySelector('.project-card') as HTMLElement | undefined
   const tableEl = root?.querySelector('.project-table') as HTMLElement | undefined
   const footerEl = root?.querySelector('.table-footer') as HTMLElement | undefined
   if (!tableEl) {
@@ -404,20 +418,11 @@ function updateProjectTableMaxHeight() {
     return
   }
   const tableTop = tableEl.getBoundingClientRect().top
-  const viewportPad = 16
-  let bottomLimit = window.innerHeight - viewportPad
-  if (cardEl) {
-    const cardBottom = cardEl.getBoundingClientRect().bottom
-    if (cardBottom > tableTop && cardBottom <= window.innerHeight) {
-      bottomLimit = Math.min(bottomLimit, cardBottom - 12)
-    }
-  }
-  if (footerEl && footerEl.offsetParent !== null) {
-    const footerTop = footerEl.getBoundingClientRect().top
-    if (footerTop > tableTop && footerTop < bottomLimit) {
-      bottomLimit = footerTop - 12
-    }
-  }
+  const viewportPad = 14
+  // The footer follows the rows. Using its current top would lock a short list's
+  // height after a search; reserve only its height when computing available room.
+  const footerHeight = footerEl?.offsetHeight || 0
+  const bottomLimit = window.innerHeight - viewportPad - footerHeight
   const h = bottomLimit - tableTop
   projectTableMaxHeight.value = Math.max(260, Math.floor(h))
 }
@@ -435,6 +440,7 @@ const sdkForm = reactive<RegistryProjectRegisterRequest>({
 const scanForm = reactive<ScanProjectUpsertRequest>(createEmptyScanForm())
 
 const filteredProjects = computed(() => projects.value)
+const hasActiveFilters = computed(() => Boolean(keyword.value.trim() || kindFilter.value || statusFilter.value))
 
 const enrollmentSnippet = computed(() => {
   if (!issuedEnrollment.value || !issuedProject.value) return ''
@@ -503,14 +509,13 @@ const metrics = computed(() => {
   const failedCount = projects.value.filter((project) => project.status === 'failed').length
   const scannedCount = projects.value.filter((project) => project.lastScannedAt).length
   return [
-    { label: '已注册项目数', value: total, delta: total ? '已同步' : '待接入', deltaTone: 'brand', iconKey: 'project', tone: 'brand' },
-    { label: '已接入 API 数', value: apiCount, delta: apiCount ? '已同步' : '待接入', deltaTone: 'brand', iconKey: 'api', tone: 'brand' },
-    { label: '已生成 SDK 数', value: sdkCount, delta: sdkCount ? '可生成' : '待生成', deltaTone: 'success', iconKey: 'sdk', tone: 'brand' },
+    { label: '注册项目', value: total, iconKey: 'project', tone: 'brand', alert: '' },
+    { label: '已接入 API', value: apiCount, iconKey: 'api', tone: 'brand', alert: '' },
+    { label: 'SDK 接入项目', value: sdkCount, iconKey: 'sdk', tone: 'brand', alert: '' },
     {
-      label: '异常扫描项目',
+      label: '已扫描 / 异常',
       value: `${scannedCount} / ${failedCount}`,
-      delta: failedCount ? `异常 ${failedCount}` : '稳定',
-      deltaTone: failedCount ? 'warning' : 'warning',
+      alert: failedCount ? `异常 ${failedCount}` : '',
       iconKey: 'scan',
       tone: 'brand',
     },
@@ -764,66 +769,12 @@ function goDetail(project: ScanProject) {
 
 <style scoped lang="scss">
 .registry-project-page {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  min-height: 0;
-  min-height: 100%;
-  width: 100%;
   min-width: 0;
-  box-sizing: border-box;
   background: transparent;
-}
-
-.empty-actions,
-.toolbar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.empty-main {
-  display: flex;
-  align-items: stretch;
-  gap: 28px;
-  min-width: 0;
-}
-
-.empty-body {
+  flex: 1;
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  gap: 18px;
-  flex: 1;
-  min-width: 0;
-}
-
-.empty-copy {
-  flex: 0 0 auto;
-  min-width: 0;
-}
-
-.empty-illustration {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 240px;
-  width: 240px;
-  min-height: 140px;
-  align-self: stretch;
-  border-radius: 22px;
-  overflow: hidden;
-  background: linear-gradient(135deg, var(--brand-selected-bg), rgba(255, 255, 255, 0.88));
-}
-
-.empty-illustration-img {
-  max-width: 100%;
-  max-height: 100%;
-  width: auto;
-  height: auto;
-  object-fit: contain;
-  display: block;
+  min-height: 100%;
 }
 
 .metric-strip {
@@ -831,234 +782,195 @@ function goDetail(project: ScanProject) {
   align-items: stretch;
   width: 100%;
   min-width: 0;
-  margin: 0;
-  flex-shrink: 0;
-}
-
-.metric-divider {
-  flex: 0 0 1px;
-  align-self: center;
-  width: 1px;
-  height: var(--layout-metric-icon-size);
-  background: rgb(var(--brand-primary-rgb) / 0.18);
-  border-radius: 1px;
+  min-height: var(--layout-metric-strip-min-height);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
 }
 
 .metric-segment {
   display: flex;
   flex: 1 1 0;
-  gap: var(--layout-metric-gap);
   align-items: center;
+  gap: var(--layout-metric-gap);
   min-width: 0;
-  min-height: 0;
   padding: var(--layout-metric-padding-block) var(--layout-metric-padding-inline);
+}
 
-  .metric-label,
-  small {
-    display: block;
-    color: #64748b;
-  }
+.metric-divider {
+  flex: 0 0 1px;
+  align-self: center;
+  height: 28px;
+  background: var(--border-divider);
+}
 
-  .metric-label {
-    font-size: 13px;
-    font-weight: 500;
-    line-height: 17px;
-  }
+.metric-segment-icon {
+  --metric-icon-bg-size: calc(var(--layout-metric-icon-size) * 0.8);
+  --metric-icon-glyph-size: 20px;
+  color: var(--brand-on-surface);
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
 
-  strong {
-    display: block;
-    margin: 4px 0 2px;
-    color: #0f172a;
-    font-size: var(--layout-metric-value-size);
-    font-weight: 700;
-    line-height: 1.2;
-  }
+.metric-content {
+  flex: 1;
+  min-width: 0;
+}
 
-  small {
-    font-size: 12px;
-    line-height: 16px;
-  }
+.metric-line {
+  display: flex;
+  align-items: center;
+  gap: var(--layout-control-gap);
+  min-width: 0;
+}
+
+.metric-label {
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.metric-content strong {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-primary);
+  font-size: var(--layout-metric-value-size);
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+.metric-alert {
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  color: var(--status-warning);
+  background: var(--status-warning-soft);
+  font-size: 11px;
+  font-style: normal;
+  white-space: nowrap;
 }
 
 .project-card {
   display: flex;
   flex: 1;
   flex-direction: column;
-  width: 100%;
   min-width: 0;
   min-height: 0;
-  margin: 0;
-  border: 1px solid #eaecf5;
-  border-radius: 12px;
-  box-shadow: 0 14px 34px rgba(17, 24, 39, 0.045);
-
-  :deep(.el-card__body) {
-    display: flex;
-    flex: 1;
-    flex-direction: column;
-    min-height: 0;
-    padding: 0;
-  }
 }
 
 .toolbar {
   display: grid;
-  grid-template-columns: minmax(260px, 2fr) repeat(2, minmax(150px, 1fr)) 74px 74px;
+  grid-template-columns: minmax(200px, 1fr) repeat(2, minmax(136px, 170px)) auto;
   align-items: center;
   gap: var(--layout-control-gap);
-  padding: var(--layout-filter-padding-block) var(--layout-filter-padding-inline);
-  border-bottom: 1px solid #eef1f7;
-  background: #fff;
-  flex-shrink: 0;
-
-  .search-input {
-    width: 100%;
-    min-width: 0;
-  }
-
-  .el-select {
-    width: 100%;
-    min-width: 0;
-  }
-
-  :deep(.el-input__wrapper),
-  :deep(.el-select__wrapper) {
-    min-height: 34px;
-    border-radius: 7px;
-    box-shadow: 0 0 0 1px #d9deea inset;
-  }
-
-  :deep(.el-button) {
-    min-height: 34px;
-    border-radius: 7px;
-  }
 }
 
-.project-table {
+.toolbar .search-input,
+.toolbar .el-select {
   width: 100%;
+  min-width: 0;
+}
+
+.toolbar :deep(.el-input__wrapper),
+.toolbar :deep(.el-select__wrapper) {
+  min-height: var(--control-height);
+  padding-inline: 12px;
+  border-radius: var(--radius-pill);
+}
+
+.toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--layout-control-gap);
+}
+
+.toolbar-actions .el-button {
+  min-height: var(--control-height);
+  margin: 0;
+  border-radius: var(--radius-pill);
+}
+
+.project-table-shell {
+  display: flex;
   flex: 1;
+  flex-direction: column;
+  min-width: 0;
   min-height: 0;
+  overflow: hidden;
+  background: transparent;
+}
 
-  :deep(th.el-table__cell) {
-    height: 44px;
-    color: var(--brand-active);
-    background: rgb(var(--brand-selected-rgb) / 0.34);
-    font-size: 12px;
-    font-weight: 700;
-  }
-
-  :deep(td.el-table__cell) {
-    height: 58px;
-    color: #344054;
-    border-bottom-color: #f0f2f7;
-  }
-
-  :deep(.el-table__row:hover > td.el-table__cell) {
-    background: rgb(var(--brand-selected-rgb) / 0.22);
-  }
-
-  /* 固定操作列不透明，避免与下方行叠字 */
-  :deep(.el-table-fixed-column--right),
-  :deep(.el-table-fixed-column--left) {
-    background-color: #fff !important;
-  }
-
-  :deep(th.el-table-fixed-column--right),
-  :deep(th.el-table-fixed-column--left) {
-    background-color: rgb(var(--brand-selected-rgb) / 0.34) !important;
-  }
-
-  :deep(td.el-table-fixed-column--right),
-  :deep(td.el-table-fixed-column--left) {
-    background-color: #fff !important;
-  }
-
-  :deep(.el-table__row:hover > td.el-table-fixed-column--right),
-  :deep(.el-table__row:hover > td.el-table-fixed-column--left),
-  :deep(.el-table__body tr.hover-row > td.el-table-fixed-column--right),
-  :deep(.el-table__body tr.hover-row > td.el-table-fixed-column--left),
-  :deep(.el-table__body tr.current-row > td.el-table-fixed-column--right),
-  :deep(.el-table__body tr.current-row > td.el-table-fixed-column--left) {
-    background-color: rgb(var(--brand-selected-rgb) / 0.22) !important;
-  }
-
-  :deep(.el-table__fixed-right-patch) {
-    background-color: #fff !important;
-  }
+.project-table :deep(.el-table__empty-block) {
+  display: none;
 }
 
 .project-name-cell {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+}
 
-  strong,
-  span {
-    display: block;
-  }
+.project-name-cell strong,
+.project-name-cell span {
+  display: block;
+}
 
-  strong {
-    color: #101828;
-    font-weight: 700;
-  }
+.project-name-cell strong {
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 21px;
+}
 
-  span {
-    margin-top: 4px;
-    color: #667085;
-    font-size: 12px;
-  }
+.project-name-cell span {
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 18px;
 }
 
 .project-name-cell-btn {
-  border: none;
-  background: transparent;
-  padding: 0;
   margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
   font: inherit;
   text-align: left;
   cursor: pointer;
-  width: 100%;
-  min-width: 0;
 
   &:hover strong {
-    color: var(--brand-primary);
+    color: var(--brand-on-surface);
   }
 
   &:focus-visible {
-    outline: 2px solid rgb(var(--brand-primary-rgb) / 0.35);
-    outline-offset: 2px;
-    border-radius: 10px;
+    outline: 2px solid var(--border-focus);
+    outline-offset: 3px;
   }
 }
 
 .project-avatar {
   display: grid;
   place-items: center;
-  flex: 0 0 30px;
-  width: 30px;
-  height: 30px;
-  border: 1px solid rgb(var(--brand-primary-rgb) / 0.16);
-  border-radius: 8px;
-  color: var(--brand-active);
-  background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.94) 0%, rgb(var(--brand-selected-rgb) / 0.58) 100%),
-    rgba(255, 255, 255, 0.78);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.88),
-    0 8px 16px -14px rgb(var(--brand-primary-rgb) / 0.42);
+  flex: 0 0 32px;
+  height: 32px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  color: var(--brand-on-surface);
+  background: var(--surface-glass-inset);
+  box-shadow: var(--glass-rim-double);
   font-size: 14px;
-  font-weight: 700;
-  line-height: 1;
-  transition:
-    border-color 0.16s ease,
-    color 0.16s ease,
-    box-shadow 0.16s ease,
-    transform 0.16s ease;
+  font-weight: 600;
 }
 
 .muted,
 .form-hint {
-  color: #667085;
+  color: var(--text-muted);
 }
 
 .form-hint {
@@ -1071,44 +983,32 @@ function goDetail(project: ScanProject) {
   align-items: center;
   gap: 6px;
   font-size: 13px;
-  font-weight: 600;
 
   i {
-    width: 7px;
-    height: 7px;
-    border-radius: 999px;
+    width: 6px;
+    height: 6px;
+    border-radius: var(--radius-pill);
+    background: currentColor;
   }
 }
 
 .status-scanned,
 .status-created {
-  color: #16a34a;
-
-  i {
-    background: #22c55e;
-  }
+  color: var(--status-success);
 }
 
 .status-scanning {
-  color: var(--brand-primary);
-
-  i {
-    background: var(--brand-primary);
-  }
+  color: var(--brand-on-surface);
 }
 
 .status-failed {
-  color: #dc2626;
-
-  i {
-    background: #ef4444;
-  }
+  color: var(--status-danger);
 }
 
 .owner-cell {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
 }
 
@@ -1119,900 +1019,128 @@ function goDetail(project: ScanProject) {
   white-space: nowrap;
 }
 
+.owner-cell :deep(.el-avatar) {
+  color: var(--text-muted);
+  background: var(--surface-hover);
+  font-size: 11px;
+}
+
 .empty-state {
   display: flex;
   flex: 1;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 0;
-  margin: 20px;
-  padding: 28px 32px;
-  border: 1px dashed rgb(var(--brand-primary-rgb) / 0.28);
-  border-radius: 18px;
-  background: linear-gradient(135deg, rgb(var(--brand-primary-rgb) / 0.06), rgb(var(--brand-hover-rgb) / 0.03));
-  min-height: 0;
+  align-items: center;
+  justify-content: center;
+  padding: 28px var(--layout-panel-padding) 36px;
+}
 
-  h3 {
-    margin: 0 0 8px;
-    color: #101828;
-    font-size: 18px;
-    font-weight: 700;
-  }
+.empty-main {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+}
 
-  p {
-    margin: 0;
-    color: #667085;
-    line-height: 1.55;
-  }
+.empty-illustration {
+  flex: 0 0 160px;
+  width: 160px;
+}
+
+.empty-illustration-img {
+  display: block;
+  width: 100%;
+  height: 128px;
+  object-fit: contain;
+}
+
+.empty-body {
+  min-width: 0;
+}
+
+.empty-copy h3 {
+  margin: 0 0 8px;
+  color: var(--text-primary);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.empty-copy p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 .empty-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px;
-}
-
-.table-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--layout-section-gap);
-  padding: var(--layout-pagination-padding-block) var(--layout-panel-padding);
-  border-top: 1px solid #eef1f7;
-  color: #667085;
-  font-size: 13px;
-  flex-shrink: 0;
-  margin-top: auto;
-}
-
-/* Figma: 项目管理 / 项目列表 */
-.registry-project-page {
-  background: transparent;
-}
-
-.metric-strip {
-  align-items: stretch;
-  min-height: var(--layout-metric-strip-min-height);
-  max-height: none;
-  padding: 0;
-  gap: 0;
-  border: 1px solid rgb(var(--brand-primary-rgb) / 0.16);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.5);
-  box-shadow: 0 18px 42px rgb(var(--brand-primary-rgb) / 0.052);
-  backdrop-filter: blur(9px);
-  overflow: hidden;
-  transition:
-    min-height 0.2s ease,
-    max-height 0.22s ease,
-    padding 0.2s ease,
-    opacity 0.18s ease,
-    transform 0.2s ease;
-}
-
-.metric-segment {
-  position: relative;
-  min-height: 0;
-  padding: var(--layout-metric-padding-block) var(--layout-metric-padding-inline);
-  gap: var(--layout-metric-gap);
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-  backdrop-filter: none;
-  transition:
-    min-height 0.2s ease,
-    padding 0.2s ease,
-    opacity 0.16s ease,
-    transform 0.18s ease;
-}
-
-.metric-segment-icon {
-  flex-shrink: 0;
-  --metric-icon-bg-size: var(--layout-metric-icon-size);
-  --metric-icon-bg-radius: 12px;
-  --metric-icon-glyph-size: calc(var(--layout-metric-icon-size) * 0.55);
-}
-
-.metric-content {
-  flex: 1;
-  min-width: 0;
-}
-
-.metric-line {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--layout-control-gap);
-  min-width: 0;
-}
-
-.metric-segment .metric-label {
-  overflow: hidden;
-  color: #64748b;
-  font-size: 13px;
-  font-weight: 500;
-  line-height: 17px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.metric-delta {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: center;
-  min-width: 60px;
-  height: 20px;
-  padding: 0 var(--layout-control-gap);
-  font-size: 12px;
-  font-style: normal;
-  font-weight: 500;
-  line-height: 18px;
-  border-radius: 12px;
-}
-
-.metric-delta.brand {
-  color: var(--brand-active);
-  background: var(--brand-selected-bg);
-}
-
-.metric-delta.success {
-  color: #16a34a;
-  background: #dcfce7;
-}
-
-.metric-delta.warning {
-  color: #f97316;
-  background: #fff7ed;
-}
-
-.metric-segment strong {
-  margin: 2px 0 0;
-  color: #0f172a;
-  font-size: var(--layout-metric-value-size);
-  font-weight: 700;
-  line-height: 1.2;
-}
-
-.metric-segment small {
-  color: #64748b;
-  font-size: 12px;
-  line-height: 16px;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .registry-project-page,
-  .metric-strip,
-  .metric-segment,
-  .project-card,
-  .toolbar,
-  .project-table-shell {
-    transition: none !important;
-  }
-}
-
-.project-card {
-  overflow: hidden;
-  border: 1px solid rgb(var(--brand-primary-rgb) / 0.14);
-  border-radius: 16px;
-  background:
-    var(--brand-glass-card-bg, rgba(255, 255, 255, 0.76)),
-    rgba(255, 255, 255, 0.76);
-  box-shadow: 0 18px 42px -16px rgb(var(--brand-primary-rgb) / 0.08);
-  backdrop-filter: blur(18px);
-  transition:
-    box-shadow 0.2s ease,
-    border-color 0.2s ease;
-}
-
-.project-card :deep(.el-card__body) {
-  padding: 0;
-}
-
-.toolbar {
-  grid-template-columns: minmax(340px, 2.4fr) repeat(2, minmax(170px, 1fr)) 74px 88px;
-  gap: var(--layout-control-gap);
-  margin: var(--layout-panel-padding) var(--layout-panel-padding) 0;
-  padding: var(--layout-filter-padding-block) var(--layout-filter-padding-inline);
-  border: 1px solid rgb(var(--brand-primary-rgb) / 0.11);
-  border-radius: 12px;
-  background: var(--brand-soft-bg, rgba(238, 242, 255, 0.76));
-  transition:
-    margin 0.2s ease,
-    background 0.2s ease,
-    border-color 0.2s ease;
-}
-
-.toolbar :deep(.el-input__wrapper),
-.toolbar :deep(.el-select__wrapper) {
-  min-height: 38px;
-  padding: 0 14px;
-  border-radius: 9px;
-  background: rgba(255, 255, 255, 0.86);
-  box-shadow: 0 0 0 1px rgb(var(--brand-primary-rgb) / 0.18) inset;
-}
-
-.toolbar :deep(.el-input__inner),
-.toolbar :deep(.el-select__placeholder),
-.toolbar :deep(.el-select__selected-item) {
-  color: #8290a9;
-  font-size: 13px;
-  line-height: 17px;
-}
-
-.toolbar :deep(.el-input__prefix),
-.toolbar :deep(.el-input__suffix),
-.toolbar :deep(.el-select__suffix),
-.toolbar :deep(.el-select__caret) {
-  color: rgb(var(--brand-primary-rgb) / 0.42);
-}
-
-.toolbar-reset,
-.toolbar-search {
-  height: 40px;
-  min-height: 40px;
-  border: 1px solid rgb(var(--brand-primary-rgb) / 0.18);
-  border-radius: 10px;
-  font-weight: 700;
-  box-shadow: 0 6px 16px -8px rgba(100, 116, 139, 0.08);
-}
-
-.toolbar-reset {
-  color: #334155;
-  background: rgba(255, 255, 255, 0.86);
-}
-
-.toolbar-search {
-  color: #fff;
-  border-color: transparent;
-  background: var(--brand-primary-gradient);
-  box-shadow: 0 10px 18px -10px rgb(var(--brand-primary-rgb) / 0.24);
-}
-
-.toolbar-reset:hover,
-.toolbar-search:hover {
-  border-color: rgb(var(--brand-primary-rgb) / 0.24);
-}
-
-.toolbar-reset:hover {
-  color: var(--brand-active);
-  background: #f8fbff;
-}
-
-.toolbar-search:hover {
-  color: #fff;
-  background: linear-gradient(135deg, var(--brand-hover), var(--brand-primary));
-}
-
-.project-table-shell {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  min-height: 0;
-  margin: var(--layout-section-gap) var(--layout-panel-padding) 0;
-  overflow: hidden;
-  border: 1px solid rgb(var(--brand-primary-rgb) / 0.12);
-  border-radius: 13px;
-  background: rgba(255, 255, 255, 0.68);
-  transition:
-    margin 0.2s ease,
-    border-color 0.2s ease,
-    background 0.2s ease;
-}
-
-.project-table {
-  --el-table-header-bg-color: color-mix(in srgb, var(--brand-selected-bg) 42%, #f1f5fb);
-  --el-table-row-hover-bg-color: rgba(255, 255, 255, 0.72);
-  --el-table-border-color: rgb(var(--brand-primary-rgb) / 0.1);
-  background: transparent;
-}
-
-.project-table :deep(.el-table__inner-wrapper::before) {
-  height: 0;
-}
-
-.project-table :deep(.cell) {
-  padding: 0 8px;
-}
-
-.project-table :deep(th.el-table__cell) {
-  height: 44px;
-  color: var(--brand-active);
-  background: color-mix(in srgb, var(--brand-selected-bg) 42%, #f1f5fb) !important;
-  font-size: 12px;
-  font-weight: 700;
-  line-height: 16px;
-}
-
-.project-table :deep(td.el-table__cell) {
-  height: 58px;
-  color: #334155;
-  background: rgba(255, 255, 255, 0.72) !important;
-  border-bottom-color: rgb(var(--brand-primary-rgb) / 0.1);
-}
-
-.project-table :deep(.el-table__row:hover > td.el-table__cell),
-.project-table :deep(.el-table__body tr.hover-row > td.el-table__cell) {
-  background: rgba(255, 255, 255, 0.72) !important;
-}
-
-.project-table :deep(.el-table__empty-block) {
-  background: rgba(255, 255, 255, 0.46);
-}
-
-.project-table :deep(.el-table-fixed-column--right),
-.project-table :deep(.el-table-fixed-column--left) {
-  background-color: rgba(255, 255, 255, 0.88) !important;
-}
-
-.project-table :deep(th.el-table-fixed-column--right),
-.project-table :deep(th.el-table-fixed-column--left) {
-  background-color: rgb(var(--brand-selected-rgb) / 0.34) !important;
-}
-
-.project-table :deep(td.el-table-fixed-column--right),
-.project-table :deep(td.el-table-fixed-column--left) {
-  background-color: rgba(255, 255, 255, 0.88) !important;
-}
-
-.project-name-cell strong {
-  color: #0f172a;
-}
-
-.project-name-cell span,
-.muted,
-.form-hint {
-  color: #64748b;
-}
-
-.project-avatar {
-  color: var(--brand-active);
-  border-color: rgb(var(--brand-primary-rgb) / 0.28);
-  background:
-    linear-gradient(90deg, rgba(255, 255, 255, 0.96) 0%, rgb(var(--brand-selected-rgb) / 0.88) 100%);
-  box-shadow: 0 8px 16px -12px rgb(var(--brand-primary-rgb) / 0.16);
-}
-
-.project-name-cell-btn:hover .project-avatar {
-  color: var(--brand-primary);
-  border-color: rgb(var(--brand-primary-rgb) / 0.28);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.92),
-    0 10px 18px -14px rgb(var(--brand-primary-rgb) / 0.46);
-  transform: translateY(-1px);
-}
-
-.owner-cell :deep(.el-avatar) {
-  color: #94a3b8;
-  background: #e2e8f0;
-}
-
-.table-footer {
-  min-height: 0;
-  padding: var(--layout-pagination-padding-block) var(--layout-panel-padding);
-  border-top: 1px solid rgb(var(--brand-primary-rgb) / 0.12);
-  color: #64748b;
-  background: rgba(255, 255, 255, 0.34);
-}
-
-/* Figma: ReachAI/Pagination/CompactGlass */
-.table-footer :deep(.registry-pagination.el-pagination) {
-  --el-pagination-button-width: 34px;
-  --el-pagination-button-height: 34px;
-  --el-pagination-hover-color: var(--brand-active);
-  gap: 6px;
-}
-
-.table-footer :deep(.registry-pagination.is-background .btn-prev),
-.table-footer :deep(.registry-pagination.is-background .btn-next),
-.table-footer :deep(.registry-pagination.is-background .el-pager li:not(.is-active)) {
-  min-width: 34px;
-  height: 34px;
-  line-height: 34px;
-  margin: 0;
-  color: #cbd5e1 !important;
-  border: none !important;
-  border-radius: 8px;
-  background: #f3f7fc !important;
-  box-shadow: none !important;
-}
-
-.table-footer :deep(.registry-pagination.is-background .btn-prev .el-icon),
-.table-footer :deep(.registry-pagination.is-background .btn-next .el-icon) {
-  color: #cbd5e1;
-  font-size: 12px;
-}
-
-.table-footer :deep(.registry-pagination.is-background .btn-prev:hover:not(:disabled)),
-.table-footer :deep(.registry-pagination.is-background .btn-next:hover:not(:disabled)),
-.table-footer :deep(.registry-pagination.is-background .el-pager li:not(.is-active):hover) {
-  color: var(--brand-active) !important;
-  background: color-mix(in srgb, var(--brand-selected-bg) 42%, #f3f7fc) !important;
-}
-
-.table-footer :deep(.registry-pagination.is-background .el-pager li.is-active) {
-  color: var(--brand-active) !important;
-  font-size: 13px;
-  font-weight: 700;
-  line-height: 34px;
-  border: none !important;
-  border-radius: 8px;
-  background:
-    linear-gradient(90deg, rgb(var(--brand-selected-rgb) / 0.8) 0%, rgb(var(--brand-selected-rgb) / 0.64) 100%),
-    rgba(255, 255, 255, 0.72) !important;
-  background-color: rgba(255, 255, 255, 0.72) !important;
-  box-shadow:
-    0 5px 12px -7px rgb(var(--brand-primary-rgb) / 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 0.7) !important;
-}
-
-.table-footer :deep(.registry-pagination .el-pagination__sizes) {
-  margin-left: 2px;
-}
-
-.table-footer :deep(.registry-pagination .el-pagination__sizes .el-select) {
-  width: 94px;
-}
-
-.table-footer :deep(.registry-pagination .el-pagination__sizes .el-select .el-select__wrapper) {
-  min-height: 34px;
-  height: 34px;
-  padding: 0 8px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.86) !important;
-  box-shadow: 0 0 0 1px rgb(var(--brand-primary-rgb) / 0.12) inset !important;
-}
-
-.table-footer :deep(.registry-pagination .el-pagination__sizes .el-select .el-select__selected-item),
-.table-footer :deep(.registry-pagination .el-pagination__sizes .el-select .el-select__placeholder) {
-  color: #64748b;
-  font-size: 12px;
-}
-
-.empty-state {
-  margin: 20px;
-  border-color: rgb(var(--brand-primary-rgb) / 0.2);
-  background: linear-gradient(135deg, rgb(var(--brand-selected-rgb) / 0.55), rgba(255, 255, 255, 0.62));
-}
-
-.registry-project-page.is-dark {
-  background: transparent;
-
-  .empty-actions {
-    :deep(.el-button--default) {
-      color: #cbd5e1;
-      background: rgba(255, 255, 255, 0.04);
-      border-color: rgba(255, 255, 255, 0.1);
-
-      &:hover {
-        color: #e2e8f0;
-        background: rgb(var(--brand-primary-rgb) / 0.12);
-        border-color: rgb(var(--brand-primary-rgb) / 0.35);
-      }
-    }
-  }
-
-  .metric-strip,
-  .project-card {
-    border-color: rgba(255, 255, 255, 0.07);
-    background: rgba(255, 255, 255, 0.035);
-    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.22);
-    backdrop-filter: blur(12px);
-  }
-
-  .empty-illustration {
-    background: linear-gradient(135deg, rgb(var(--brand-primary-rgb) / 0.22), rgb(var(--brand-hover-rgb) / 0.08));
-  }
-
-  .metric-strip {
-    .metric-label,
-    small {
-      color: #94a3b8;
-    }
-
-    strong {
-      color: #e2e8f0;
-    }
-
-    small em {
-      color: var(--brand-hover);
-    }
-  }
-
-  .project-table-shell {
-    background: var(--surface-solid-panel);
-  }
-
-  .project-card {
-    --el-card-bg-color: transparent;
-
-    :deep(.el-card) {
-      background: transparent;
-      border: none;
-      box-shadow: none;
-    }
-
-    :deep(.el-card__body) {
-      background: transparent;
-    }
-  }
-
-  .toolbar {
-    background: rgba(255, 255, 255, 0.02);
-    border-bottom-color: rgba(255, 255, 255, 0.06);
-
-    :deep(.el-input__wrapper),
-    :deep(.el-select__wrapper) {
-      background: rgba(255, 255, 255, 0.035);
-      box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08) inset;
-    }
-
-    :deep(.el-input__inner),
-    :deep(.el-select__placeholder),
-    :deep(.el-select__selected-item) {
-      color: #cbd5e1;
-    }
-
-    :deep(.el-input__inner::placeholder) {
-      color: #64748b;
-    }
-
-    :deep(.el-input__prefix),
-    :deep(.el-input__suffix),
-    :deep(.el-select__suffix),
-    :deep(.el-select__caret) {
-      color: #94a3b8;
-    }
-
-    :deep(.el-button--default) {
-      color: #cbd5e1;
-      background: rgba(255, 255, 255, 0.04);
-      border-color: rgba(255, 255, 255, 0.1);
-
-      &:hover {
-        color: #e2e8f0;
-        background: rgb(var(--brand-primary-rgb) / 0.12);
-        border-color: rgb(var(--brand-primary-rgb) / 0.35);
-      }
-    }
-  }
-
-  .owner-cell span {
-    color: #cbd5e1;
-  }
-
-  .owner-cell :deep(.el-avatar) {
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    background: rgb(var(--brand-primary-rgb) / 0.22);
-    color: #e2e8f0;
-  }
-
-  .project-table {
-    --el-table-bg-color: transparent;
-    --el-table-tr-bg-color: transparent;
-    --el-table-header-bg-color: rgba(255, 255, 255, 0.045);
-    --el-table-row-hover-bg-color: rgb(var(--brand-primary-rgb) / 0.08);
-    --el-table-border-color: rgba(255, 255, 255, 0.06);
-    --el-table-text-color: #cbd5e1;
-    --el-table-header-text-color: #94a3b8;
-    background: transparent;
-
-    :deep(.el-table__inner-wrapper::before),
-    :deep(.el-table__border-left-patch),
-    :deep(.el-table__border-bottom-patch) {
-      background-color: rgba(255, 255, 255, 0.06);
-    }
-
-    :deep(th.el-table__cell) {
-      color: #94a3b8;
-      background: rgba(255, 255, 255, 0.045) !important;
-    }
-
-    :deep(td.el-table__cell) {
-      color: #cbd5e1;
-      background: rgba(255, 255, 255, 0.015) !important;
-      border-bottom-color: rgba(255, 255, 255, 0.06);
-    }
-
-    :deep(.el-table__row:hover > td.el-table__cell),
-    :deep(.el-table__body tr.hover-row > td.el-table__cell) {
-      background: rgb(var(--brand-primary-rgb) / 0.08) !important;
-    }
-
-    :deep(.el-table__inner-wrapper),
-    :deep(.el-table__header-wrapper),
-    :deep(.el-table__body-wrapper) {
-      background: transparent;
-    }
-
-    :deep(.el-table__empty-block) {
-      background: transparent;
-    }
-
-    :deep(.el-table__empty-text) {
-      color: #94a3b8;
-    }
-
-    /* 固定列必须用不透明底，否则滚动时下一行会透出 */
-    :deep(.el-table-fixed-column--right),
-    :deep(.el-table-fixed-column--left) {
-      background-color: var(--bg-secondary) !important;
-    }
-
-    :deep(th.el-table-fixed-column--right),
-    :deep(th.el-table-fixed-column--left) {
-      background-color: #1c1c2a !important;
-    }
-
-    :deep(td.el-table-fixed-column--right),
-    :deep(td.el-table-fixed-column--left) {
-      background-color: var(--bg-secondary) !important;
-    }
-
-    :deep(.el-table__row:hover > td.el-table-fixed-column--right),
-    :deep(.el-table__row:hover > td.el-table-fixed-column--left),
-    :deep(.el-table__body tr.hover-row > td.el-table-fixed-column--right),
-    :deep(.el-table__body tr.hover-row > td.el-table-fixed-column--left),
-    :deep(.el-table__body tr.current-row > td.el-table-fixed-column--right),
-    :deep(.el-table__body tr.current-row > td.el-table-fixed-column--left) {
-      background-color: #252538 !important;
-    }
-
-    :deep(.el-table__fixed-right-patch) {
-      background-color: var(--bg-secondary) !important;
-    }
-
-    :deep(.el-button.is-link) {
-      color: var(--brand-disabled);
-
-      &:hover {
-        color: var(--brand-selected-bg);
-      }
-
-      &.is-disabled {
-        color: rgba(148, 163, 184, 0.45);
-      }
-    }
-
-    /* 「更多」为默认 link；触发器外层可能是 span，勿用子选择器 */
-    :deep(.el-dropdown .el-button.is-link:not(.el-button--primary):not(.is-disabled)) {
-      color: #94a3b8;
-
-      &:hover {
-        color: var(--brand-selected-bg);
-      }
-    }
-
-    :deep(.el-tag.el-tag--light) {
-      border-width: 1px;
-      border-style: solid;
-    }
-
-    :deep(.el-tag--light.el-tag--success) {
-      background: rgba(34, 211, 238, 0.12) !important;
-      border-color: rgba(34, 211, 238, 0.22) !important;
-      color: #5eead4 !important;
-    }
-
-    :deep(.el-tag--light.el-tag--info) {
-      background: rgba(148, 163, 184, 0.14) !important;
-      border-color: rgba(148, 163, 184, 0.22) !important;
-      color: #cbd5e1 !important;
-    }
-
-    :deep(.el-tag--light.el-tag--warning) {
-      background: rgba(245, 158, 11, 0.14) !important;
-      border-color: rgba(245, 158, 11, 0.22) !important;
-      color: #fcd34d !important;
-    }
-
-    :deep(.el-tag--light.el-tag--danger) {
-      background: rgba(244, 63, 94, 0.12) !important;
-      border-color: rgba(244, 63, 94, 0.22) !important;
-      color: #fda4af !important;
-    }
-
-    :deep(.el-loading-mask) {
-      background-color: rgba(10, 10, 15, 0.72);
-      backdrop-filter: blur(4px);
-    }
-  }
-
-  .project-name-cell {
-    strong {
-      color: #e2e8f0;
-    }
-
-    span {
-      color: #64748b;
-    }
-  }
-
-  .project-name-cell-btn:hover strong {
-    color: var(--brand-disabled);
-  }
-
-  .project-name-cell-btn:focus-visible {
-    outline-color: rgba(165, 180, 252, 0.45);
-  }
-
-  .project-avatar {
-    color: var(--brand-disabled);
-    border-color: rgb(var(--brand-primary-rgb) / 0.26);
-    background:
-      linear-gradient(145deg, rgba(255, 255, 255, 0.1) 0%, rgb(var(--brand-primary-rgb) / 0.16) 100%),
-      rgba(15, 23, 42, 0.64);
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.1),
-      0 10px 20px -16px rgb(var(--brand-primary-rgb) / 0.55);
-  }
-
-  .project-name-cell-btn:hover .project-avatar {
-    color: #fff;
-    border-color: rgb(var(--brand-primary-rgb) / 0.42);
-  }
-
-  .muted,
-  .form-hint {
-    color: #94a3b8;
-  }
-
-  .empty-state {
-    border-color: rgb(var(--brand-primary-rgb) / 0.22);
-    background: linear-gradient(135deg, rgb(var(--brand-primary-rgb) / 0.1), rgb(var(--brand-hover-rgb) / 0.04));
-
-    h3 {
-      color: #e2e8f0;
-    }
-
-    p {
-      color: #94a3b8;
-    }
-  }
-
-  .table-footer {
-    color: #94a3b8;
-    border-top-color: rgba(255, 255, 255, 0.06);
-    background: color-mix(in srgb, var(--surface-solid-panel) 72%, transparent);
-
-    :deep(.registry-pagination.is-background .btn-prev),
-    :deep(.registry-pagination.is-background .btn-next),
-    :deep(.registry-pagination.is-background .el-pager li:not(.is-active)) {
-      color: #64748b !important;
-      background: rgba(255, 255, 255, 0.06) !important;
-    }
-
-    :deep(.registry-pagination.is-background .btn-prev .el-icon),
-    :deep(.registry-pagination.is-background .btn-next .el-icon) {
-      color: #94a3b8;
-    }
-
-    :deep(.registry-pagination.is-background .btn-prev:hover:not(:disabled)),
-    :deep(.registry-pagination.is-background .btn-next:hover:not(:disabled)),
-    :deep(.registry-pagination.is-background .el-pager li:not(.is-active):hover) {
-      color: var(--brand-selected-bg) !important;
-      background: rgb(var(--brand-primary-rgb) / 0.12) !important;
-    }
-
-    :deep(.registry-pagination.is-background .el-pager li.is-active) {
-      color: var(--brand-active) !important;
-      background:
-        linear-gradient(90deg, rgb(var(--brand-selected-rgb) / 0.42) 0%, rgb(var(--brand-selected-rgb) / 0.28) 100%),
-        rgba(255, 255, 255, 0.08) !important;
-      background-color: rgba(255, 255, 255, 0.08) !important;
-      box-shadow:
-        0 5px 12px -7px rgb(0 0 0 / 0.28),
-        inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
-    }
-
-    :deep(.registry-pagination .el-pagination__sizes .el-select .el-select__wrapper) {
-      background: rgba(255, 255, 255, 0.06) !important;
-      box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08) inset !important;
-    }
-
-    :deep(.el-pagination.is-background .btn-prev.is-disabled),
-    :deep(.el-pagination.is-background .btn-next.is-disabled),
-    :deep(.el-pagination.is-background .el-pager li.is-disabled) {
-      color: rgba(148, 163, 184, 0.35);
-      background: rgba(255, 255, 255, 0.02);
-    }
-
-    :deep(.el-select__wrapper) {
-      background: rgba(255, 255, 255, 0.035);
-      box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08) inset;
-    }
-
-    :deep(.el-pagination__sizes .el-select .el-select__wrapper) {
-      background: rgba(255, 255, 255, 0.035);
-      box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08) inset;
-    }
-
-    :deep(.el-pagination__sizes .el-select .el-select__selected-item),
-    :deep(.el-pagination__sizes .el-select .el-select__placeholder) {
-      color: #cbd5e1;
-    }
-  }
-
+  margin-top: 16px;
 }
 
 @media (max-width: 1200px) {
+  .toolbar {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+  }
+
+  .toolbar .search-input {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 960px) {
   .metric-strip {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    max-height: none;
   }
 
   .metric-divider {
     display: none;
   }
-
-  .empty-main {
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-  }
-
-  .empty-body {
-    align-items: center;
-    width: 100%;
-  }
-
-  .empty-actions {
-    justify-content: center;
-  }
-
-  /* 纵向堆叠时左侧插图单独一行，不再与右侧拉伸对齐 */
-  .empty-illustration {
-    align-self: center;
-    flex: 0 0 auto;
-    width: min(100%, 240px);
-    height: 200px;
-    min-height: 0;
-  }
-
-  .toolbar {
-    grid-template-columns: minmax(240px, 1fr) repeat(2, minmax(150px, 1fr));
-
-    .search-input {
-      min-width: 0;
-    }
-
-    .el-select {
-      min-width: 0;
-    }
-  }
 }
 
 @media (max-width: 760px) {
+  .toolbar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .toolbar-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+  }
+
+  .metric-segment {
+    gap: 6px;
+  }
+
+  .metric-segment-icon {
+    --metric-icon-bg-size: 24px;
+    --metric-icon-glyph-size: 18px;
+  }
+
   .metric-line {
     flex-wrap: wrap;
-    gap: 4px;
   }
 
-  .metric-segment .metric-label {
-    white-space: normal;
-  }
-
-  .toolbar {
-    grid-template-columns: 1fr;
+  .empty-main {
+    flex-direction: column;
+    gap: 16px;
+    text-align: center;
   }
 
   .empty-illustration {
-    width: min(100%, 240px);
-    height: 176px;
-  }
-
-  .table-footer {
-    align-items: flex-start;
-    flex-direction: column;
+    flex-basis: auto;
   }
 }
 
-@media (max-width: 480px) {
-  .metric-strip {
-    grid-template-columns: minmax(0, 1fr);
-  }
+.access-dialog-tabs {
+  margin-block-end: var(--layout-section-gap);
+}
+
+.enrollment-config-textarea :deep(.el-textarea__inner) {
+  font-family: var(--font-family-mono, monospace);
+  font-size: 12px;
+  line-height: 1.6;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  background: var(--surface-glass-inset);
+  box-shadow: 0 0 0 1px var(--border-glass-edge) inset;
 }
 </style>

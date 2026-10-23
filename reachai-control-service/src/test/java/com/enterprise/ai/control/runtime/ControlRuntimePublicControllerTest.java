@@ -313,6 +313,33 @@ class ControlRuntimePublicControllerTest {
     }
 
     @Test
+    void dropsClientSuppliedRuntimeDebugTargetKey() {
+        RuntimeProxyClient runtimeProxyClient = mock(RuntimeProxyClient.class);
+        ControlRuntimePublicController controller = new ControlRuntimePublicController(runtimeProxyClient);
+        Map<String, Object> request = new LinkedHashMap<>(Map.of("agentId", "agent-1", "input", "hello",
+                ControlRuntimePublicController.DEBUG_CONFIG_VERSION_KEY, 12));
+        when(runtimeProxyClient.executeAgent(any())).thenReturn(ResponseEntity.ok(Map.of()));
+
+        controller.executeAgent(null, request);
+
+        verify(runtimeProxyClient).executeAgent(Map.of("agentId", "agent-1", "input", "hello"));
+    }
+
+    @Test
+    void debuggingAConfigVersionRequiresConsoleLogin() {
+        RuntimeProxyClient runtimeProxyClient = mock(RuntimeProxyClient.class);
+        ControlRuntimePublicController controller = new ControlRuntimePublicController(runtimeProxyClient);
+        Map<String, Object> request = Map.of("agentId", "agent-1", "input", "hello", "debugConfigVersionId", 12);
+
+        org.springframework.web.server.ResponseStatusException denied = org.junit.jupiter.api.Assertions.assertThrows(
+                org.springframework.web.server.ResponseStatusException.class,
+                () -> controller.executeAgent(null, request));
+
+        assertEquals(HttpStatus.UNAUTHORIZED, denied.getStatusCode());
+        verify(runtimeProxyClient, never()).executeAgent(any());
+    }
+
+    @Test
     void delegatesDetailedAgentExecutionToRuntimeService() {
         RuntimeProxyClient runtimeProxyClient = mock(RuntimeProxyClient.class);
         ControlRuntimePublicController controller = new ControlRuntimePublicController(runtimeProxyClient);

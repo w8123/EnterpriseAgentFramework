@@ -11,6 +11,8 @@ export interface AgentDebugTransportOptions {
   setSessionId: (sessionId: string | undefined) => void
   entryType?: 'DEBUG' | 'EMBED' | 'GATEWAY' | 'API' | 'EVAL' | 'REPLAY' | 'WORKFLOW_STUDIO' | 'A2A'
   userId?: string
+  /** Exact config to debug (draft or published); omitted runs the published config. */
+  getDebugConfigVersionId?: () => number | undefined
   fetchImpl?: typeof fetch
 }
 
@@ -101,7 +103,9 @@ export function createAgentDebugTransport(options: AgentDebugTransportOptions): 
     },
 
     startTurn(input: ConversationTurnInput, signal?: AbortSignal): AsyncIterable<ConversationEventEnvelope> {
+      const debugConfigVersionId = options.getDebugConfigVersionId?.()
       return streamExecute({
+        ...(debugConfigVersionId ? { debugConfigVersionId } : {}),
         message: input.message,
         sessionId: options.getSessionId(),
         agentId: options.agentId,

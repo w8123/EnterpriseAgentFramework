@@ -57,7 +57,7 @@
 
 系统角色用于首次安装和常见分工，不是硬编码的唯一角色集合。后续可以增加自定义角色而不改业务代码。
 
-2026-10-17 起按[人员角色与权限重设计方案](../plans/人员角色与权限重设计方案.md)收口为四个系统角色（原 `AGENT_DESIGNER`、`PROJECT_OWNER` 已删除，绑定迁移见 `sql/upgrade-20261017-platform-roles-redesign.sql`）：
+2026-10-17 起按[人员角色与权限重设计方案](../plans/人员角色与权限重设计方案.md)收口为四个系统角色（原 `AGENT_DESIGNER`、`PROJECT_OWNER` 已删除，绑定迁移见 `sql/upgrade-20261019-consolidated.sql`）：
 
 | 系统角色 | 产品含义 | 默认授权范围 | 主要权限 |
 | --- | --- | --- | --- |

@@ -62,6 +62,23 @@ describe('createAgentDebugTransport', () => {
     globalThis.fetch = originalFetch
   })
 
+  it('sends the chosen debug config only on new turns', async () => {
+    ;(globalThis.fetch as any).mockImplementation(() => Promise.resolve(sseResponse([
+      'event: execution.completed\ndata: {"answer":"ok","sessionId":"sess-1"}\n\n',
+    ])))
+    const transport = createAgentDebugTransport({
+      agentId: 'agent-1',
+      getSessionId: () => undefined,
+      setSessionId: () => {},
+      getDebugConfigVersionId: () => 12,
+      fetchImpl: globalThis.fetch,
+    })
+    for await (const _ of transport.startTurn({ message: 'hi' } as any)) { /* drain */ }
+    const body = JSON.parse((globalThis.fetch as any).mock.calls[0][1].body)
+    expect(body.debugConfigVersionId).toBe(12)
+    expect(body.entryType).toBe('DEBUG')
+  })
+
   it('streams agent events through adapter', async () => {
     ;(globalThis.fetch as any).mockResolvedValue(
       sseResponse([

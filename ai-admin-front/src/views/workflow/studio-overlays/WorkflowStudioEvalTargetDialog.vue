@@ -6,11 +6,11 @@
     width="520px"
     @update:model-value="(value: boolean) => emit('update:open', value)"
   >
-    <el-alert
+    <LiquidGlassNotice
       v-if="loadError"
       type="error"
-      :closable="false"
       title="没能读取引用这个 Workflow 的 Agent，请稍后重试。"
+      source="backdrop"
     />
     <div v-else-if="targets.length" class="eval-target-list">
       <button
@@ -35,8 +35,8 @@
     />
     <p v-if="hiddenCount" class="eval-target-hidden">另有 {{ hiddenCount }} 个 Agent 在你无权查看的项目里。</p>
     <template #footer>
-      <el-button @click="emit('update:open', false)">关闭</el-button>
-      <el-button type="primary" plain @click="emit('open-overview')">打开评测总览</el-button>
+      <LiquidGlassButton @click="emit('update:open', false)">关闭</LiquidGlassButton>
+      <LiquidGlassButton type="primary" plain @click="emit('open-overview')">打开评测总览</LiquidGlassButton>
     </template>
   </AppDialog>
 </template>
@@ -44,6 +44,7 @@
 <script setup lang="ts">
 import AppDialog from '@/components/common/AppDialog.vue'
 import type { WorkflowAgentReference } from '@/types/agent'
+import { LiquidGlassNotice, LiquidGlassButton } from '@/components/common/liquid-glass'
 
 defineProps<{
   open: boolean
@@ -69,9 +70,9 @@ const emit = defineEmits<{
   display: grid;
   gap: 4px;
   padding: 12px 14px;
-  border: 1px solid var(--el-border-color-lighter);
+  border: 1px solid var(--border-glass-edge);
   border-radius: 10px;
-  background: var(--el-bg-color);
+  background: var(--surface-glass-inset);
   color: inherit;
   cursor: pointer;
   text-align: left;

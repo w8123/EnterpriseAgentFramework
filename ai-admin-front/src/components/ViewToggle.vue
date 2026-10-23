@@ -34,8 +34,8 @@ const emit = defineEmits<{
 <style scoped lang="scss">
 .view-toggle {
   display: inline-flex;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--surface-hover);
+  border: 1px solid var(--border-glass-edge);
   border-radius: 8px;
   padding: 3px;
   gap: 2px;
@@ -50,42 +50,42 @@ const emit = defineEmits<{
   border: none;
   border-radius: 6px;
   background: transparent;
-  color: #64748b;
+  color: var(--text-muted);
   cursor: pointer;
   transition: all 0.2s ease;
   font-size: 14px;
 
   &:hover {
-    color: #94a3b8;
-    background: rgba(255, 255, 255, 0.04);
+    color: var(--text-disabled);
+    background: var(--surface-hover);
   }
 
   &.active {
-    background: rgba(99, 102, 241, 0.15);
-    color: #a5b4fc;
-    box-shadow: 0 0 8px rgba(99, 102, 241, 0.15);
+    background: rgb(var(--brand-primary-rgb) / 0.15);
+    color: var(--brand-on-surface);
+    box-shadow: 0 0 8px rgb(var(--brand-primary-rgb) / 0.15);
   }
 }
 
 // ── 日间模式覆盖 ──
 :global([data-theme="light"]) {
   .view-toggle {
-    background: #f5f7fa;
-    border: 1px solid #e4e7ed;
+    background: var(--surface-solid-opaque-raised);
+    border: 1px solid var(--border-readable);
   }
 
   .toggle-btn {
-    color: #94a3b8;
+    color: var(--text-disabled);
 
     &:hover {
-      color: #64748b;
-      background: #ffffff;
+      color: var(--text-muted);
+      background: var(--surface-solid-panel);
     }
 
     &.active {
-      background: rgba(99, 102, 241, 0.1);
-      color: #6366f1;
-      box-shadow: 0 0 8px rgba(99, 102, 241, 0.1);
+      background: rgb(var(--brand-primary-rgb) / 0.1);
+      color: var(--brand-on-surface);
+      box-shadow: 0 0 8px rgb(var(--brand-primary-rgb) / 0.1);
     }
   }
 }

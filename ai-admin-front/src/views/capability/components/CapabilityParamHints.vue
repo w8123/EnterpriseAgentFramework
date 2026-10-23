@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import type { ApiGraphParamSourceHint } from '@/api/apiGraph'
 import type { CapabilityEnrichment } from '@/types/semanticDoc'
+import { LiquidGlassNotice } from '@/components/common/liquid-glass'
 
 const props = defineProps<{ projectId: number; subjectType: 'BUSINESS_METHOD' | 'HTTP_API'; subjectId: number;
   graphState: CapabilityEnrichment['graphState']; contractHash: string | null; hints?: ApiGraphParamSourceHint[] }>()
@@ -19,8 +20,12 @@ const hints = computed(() => valid.value ? props.hints! : [])
     <p v-else-if="graphState === 'NOT_BUILT'">当前资产尚未建立关系图谱。</p>
     <p v-else-if="graphState !== 'CURRENT' && graphState !== 'STALE'" role="alert">当前图谱状态无法确认，请重新加载业务说明与关系。</p>
     <template v-else>
-      <el-alert v-if="graphState === 'STALE'" title="图谱或已确认关系基于此前契约；请重建图谱并重新核对关系。过期提示已排除。"
-        type="warning" :closable="false" show-icon />
+      <LiquidGlassNotice
+        v-if="graphState === 'STALE'"
+        title="图谱或已确认关系基于此前契约；请重建图谱并重新核对关系。过期提示已排除。"
+        type="warning"
+        source="backdrop"
+      />
       <div v-if="!valid" role="alert"><p>已确认参数来源读取失败，当前无法判断是否有可用提示。</p><el-button @click="emit('retry')">重新加载参数来源</el-button></div>
       <ul v-else-if="hints.length">
         <li v-for="(hint, index) in hints" :key="index">

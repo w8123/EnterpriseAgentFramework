@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Static checks for the current Model Center SQL baseline and the Model Catalog
- * section of the single unpublished-release upgrade.
+ * Static checks for the current Model Center SQL baseline. Recent migration
+ * definitions are compared with the baseline by check-consolidated-upgrade-sql.mjs.
  */
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -9,9 +9,7 @@ import { fileURLToPath } from 'node:url'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const initPath = join(root, 'sql', 'initV2.sql')
-const upgradePath = join(root, 'sql', 'upgrade-20260830-platform-consolidated.sql')
 const init = readFileSync(initPath, 'utf8')
-const upgrade = readFileSync(upgradePath, 'utf8')
 
 let failed = 0
 
@@ -22,17 +20,6 @@ function fail(message) {
 
 function pass(message) {
   console.log(`ok: ${message}`)
-}
-
-function section(sql, number) {
-  const marker = `-- Section ${String(number).padStart(2, '0')}/14:`
-  const start = sql.indexOf(marker)
-  if (start < 0) {
-    fail(`consolidated upgrade is missing ${marker}`)
-    return ''
-  }
-  const next = sql.indexOf('-- Section ', start + marker.length)
-  return sql.slice(start, next < 0 ? sql.length : next)
 }
 
 function createTable(sql, table, label) {
@@ -54,23 +41,17 @@ function expect(sql, pattern, message) {
   else pass(message)
 }
 
-const catalog = section(upgrade, 10)
 const modelTables = [
   'model_catalog_source',
   'model_catalog_setting',
   'model_catalog_sync_run',
   'model_catalog_snapshot',
   'model_catalog_change',
+  'model_provider_account',
 ]
 
 for (const table of modelTables) {
-  const baseline = createTable(init, table, 'initV2.sql')
-  const migration = createTable(catalog, table, 'consolidated upgrade Section 10')
-  if (baseline && migration && baseline !== migration) {
-    fail(`${table} differs between initV2.sql and consolidated upgrade Section 10`)
-  } else if (baseline && migration) {
-    pass(`${table} matches between baseline and current upgrade`)
-  }
+  if (createTable(init, table, 'initV2.sql')) pass(`baseline contains ${table}`)
 }
 
 const templateIds = [...init.matchAll(/\('(tpl-[^']+)'/g)].map(match => match[1])
@@ -101,16 +82,10 @@ for (const column of [
   'recommendation_reason',
 ]) {
   expect(init, new RegExp('`' + column + '`', 'i'), `initV2.sql contains model_template.${column}`)
-  expect(
-    catalog,
-    new RegExp("add_col_if_absent\\('model_template',\\s*'" + column + "'", 'i'),
-    `consolidated upgrade adds model_template.${column} idempotently`,
-  )
 }
 
 for (const [label, sql] of [
   ['initV2.sql', init],
-  ['consolidated upgrade Section 10', catalog],
 ]) {
   expect(
     sql,
@@ -132,23 +107,19 @@ for (const [label, sql] of [
   }
 }
 
-const executableCatalog = catalog
+const executableCatalog = init
   .replace(/\/\*[\s\S]*?\*\//g, '')
   .replace(/--.*$/gm, '')
 if (/\bIS_GENERATED\b/i.test(executableCatalog)) {
-  fail('consolidated Model Catalog SQL contains MySQL-incompatible IS_GENERATED executable SQL')
+  fail('baseline Model Catalog SQL contains MySQL-incompatible IS_GENERATED executable SQL')
 } else {
-  pass('consolidated Model Catalog SQL avoids IS_GENERATED executable SQL')
+  pass('baseline Model Catalog SQL avoids IS_GENERATED executable SQL')
 }
 
-const section09 = upgrade.indexOf('-- Section 09/14:')
-const section10 = upgrade.indexOf('-- Section 10/14:')
-const section11 = upgrade.indexOf('-- Section 11/14:')
-if (section09 < 0 || section10 < section09 || section11 < section10) {
-  fail('Model Catalog section must remain between Runtime checkpoint and authorization P1')
-} else {
-  pass('Model Catalog section order is stable')
-}
+expect(createTable(init, 'model_instance', 'initV2.sql'), /`provider_account_id`\s+VARCHAR\(64\)\s+DEFAULT NULL/i,
+  'model instances retain the optional provider account reference')
+expect(createTable(init, 'model_catalog_setting', 'initV2.sql'), /`analyzer_model_instance_id`\s+VARCHAR\(64\)\s+DEFAULT NULL/i,
+  'catalog settings retain the optional analyzer model selection')
 
 if (failed > 0) {
   console.error(`\nmodel center SQL check failed: ${failed} issue(s)`)

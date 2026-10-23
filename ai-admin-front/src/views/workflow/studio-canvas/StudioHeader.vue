@@ -32,29 +32,44 @@
             <el-tag size="small" type="info" class="studio-slug-tag">{{ keySlug }}</el-tag>
           </el-tooltip>
           <el-tag size="small" type="success">{{ projectCode || '全局' }}</el-tag>
+          <span v-if="saveBadgeText !== visibilityLabel" class="save-state" :class="saveStateClass" role="status">
+            <i aria-hidden="true"></i>
+            <span>{{ saveBadgeText }}</span>
+          </span>
         </div>
       </div>
     </div>
     <div class="header-right">
-      <span class="save-state" :class="saveStateClass">
-        <i></i>
-        <span>{{ saveBadgeText }}</span>
-      </span>
-      <el-button
-        class="studio-run-button"
-        :icon="VideoPlay"
-        :loading="debugLoading"
-        :title="readOnlyTrial
-          ? '草稿调用了业务方法或 API：真实调用业务系统，只允许只读操作，先保存草稿再运行'
-          : '在沙箱里运行当前草稿，不调用业务系统'"
-        @click="emit('run')"
-      >
-        调试
-        <span class="run-mode" :class="{ 'is-trial': readOnlyTrial }">{{ readOnlyTrial ? '只读试运行' : '沙箱' }}</span>
-      </el-button>
-      <el-button :icon="CircleCheck" :loading="validating" @click="emit('validate')">校验</el-button>
-      <el-dropdown trigger="click" @command="(command: string | number | object) => emit('command', command)">
-        <el-button :icon="MoreFilled">更多</el-button>
+      <div class="header-action-group" role="group" aria-label="检查与调试">
+        <el-button
+          class="studio-run-button"
+          :icon="VideoPlay"
+          :loading="debugLoading"
+          :title="readOnlyTrial
+            ? '草稿调用了业务方法或 API：真实调用业务系统，只允许只读操作，先保存草稿再运行'
+            : '在沙箱里运行当前草稿，不调用业务系统'"
+          @click="emit('run')"
+        >
+          调试
+          <span class="run-mode" :class="{ 'is-trial': readOnlyTrial }">{{ readOnlyTrial ? '只读试运行' : '沙箱' }}</span>
+        </el-button>
+        <el-button class="studio-validate-button" :icon="CircleCheck" :loading="validating" @click="emit('validate')">校验</el-button>
+      </div>
+      <span class="header-action-divider" aria-hidden="true"></span>
+      <div class="header-action-group" role="group" aria-label="保存与发布">
+        <el-button class="studio-save-button" :icon="DocumentChecked" :loading="saving" :disabled="readOnly" @click="emit('save')">保存</el-button>
+        <el-button
+          v-if="showPageAssistantSync"
+          :loading="pageAssistantSyncing"
+          :disabled="readOnly"
+          @click="emit('sync-page-assistant')"
+        >
+          同步页面副驾驶
+        </el-button>
+        <el-button class="studio-publish-button" type="primary" :icon="Promotion" :loading="releaseChecking" :disabled="readOnly" @click="emit('publish')">发布</el-button>
+      </div>
+      <el-dropdown trigger="click" popper-class="studio-actions-menu" @command="(command: string | number | object) => emit('command', command)">
+        <el-button class="studio-more-button" :icon="MoreFilled" aria-label="更多操作" title="更多操作" />
         <template #dropdown>
           <el-dropdown-menu>
             <el-dropdown-item command="eval" :icon="Finished">到运行中心评测</el-dropdown-item>
@@ -65,16 +80,6 @@
           </el-dropdown-menu>
         </template>
       </el-dropdown>
-      <el-button :loading="saving" :disabled="readOnly" @click="emit('save')">保存</el-button>
-      <el-button
-        v-if="showPageAssistantSync"
-        :loading="pageAssistantSyncing"
-        :disabled="readOnly"
-        @click="emit('sync-page-assistant')"
-      >
-        同步页面副驾驶
-      </el-button>
-      <el-button type="primary" :loading="releaseChecking" :disabled="readOnly" @click="emit('publish')">发布</el-button>
     </div>
   </header>
 </template>
@@ -87,6 +92,7 @@ import {
   DocumentChecked,
   Finished,
   MoreFilled,
+  Promotion,
   Rank,
   Tickets,
   VideoPlay,
@@ -129,21 +135,119 @@ const emit = defineEmits<{
   flex: 0 0 auto;
   align-items: center;
   justify-content: space-between;
-  gap: 18px;
+  gap: 24px;
+  min-height: 76px;
   padding: 12px 20px;
-  border-bottom: 1px solid #e6ebf3;
-  background: rgba(255, 255, 255, 0.96);
+  border-bottom: 1px solid var(--border-glass-edge);
+  background: var(--surface-glass-shell);
+  box-shadow: var(--glass-rim-double);
+  -webkit-backdrop-filter: blur(var(--glass-blur-shell)) saturate(var(--glass-saturation));
+  backdrop-filter: blur(var(--glass-blur-shell)) saturate(var(--glass-saturation));
+  color: var(--text-primary);
 }
 
 .header-left {
   min-width: 0;
   flex: 1 1 auto;
-  gap: 12px;
+  gap: 16px;
 }
 
 .header-right {
   flex: 0 0 auto;
-  gap: 10px;
+  gap: 12px;
+}
+
+.header-action-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.header-right .el-button {
+  height: 36px;
+  margin: 0;
+  padding: 0 13px;
+  border-radius: 9px;
+  font-size: 13px;
+  font-weight: 600;
+  transition: background var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.header-right .el-button :deep(.el-icon) {
+  font-size: 16px;
+}
+
+.header-action-divider {
+  width: 1px;
+  height: 22px;
+  background: var(--border-divider);
+}
+
+.header-right .studio-run-button {
+  border-color: color-mix(in srgb, var(--brand-primary) 24%, var(--border-subtle));
+  background: color-mix(in srgb, var(--brand-primary) 5%, var(--surface-solid-overlay));
+  color: var(--text-primary);
+}
+
+.header-right .studio-run-button:not(.is-disabled):hover {
+  border-color: var(--border-focus);
+  background: color-mix(in srgb, var(--brand-primary) 10%, var(--surface-solid-overlay));
+}
+
+.header-right .studio-run-button :deep(.el-icon) {
+  color: var(--brand-primary);
+}
+
+.header-right .studio-validate-button,
+.header-right .studio-more-button {
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  box-shadow: none;
+}
+
+.header-right .studio-validate-button:not(.is-disabled):hover,
+.header-right .studio-more-button:hover {
+  background: var(--el-fill-color-light);
+  color: var(--text-primary);
+}
+
+.header-right .studio-save-button {
+  border-color: var(--border-readable);
+  background: var(--surface-solid-control);
+  color: var(--text-secondary);
+}
+
+.header-right .studio-save-button:not(.is-disabled):hover {
+  border-color: var(--border-focus);
+  color: var(--brand-primary);
+}
+
+.header-right .studio-publish-button {
+  padding: 0 17px;
+  border-color: transparent;
+  background: var(--brand-primary-gradient);
+  box-shadow: 0 3px 8px rgb(var(--brand-primary-rgb) / 0.2), inset 0 1px 0 rgb(255 255 255 / 0.16);
+}
+
+.header-right .studio-publish-button:not(.is-disabled):hover {
+  box-shadow: 0 4px 12px rgb(var(--brand-primary-rgb) / 0.32);
+}
+
+.header-right .studio-publish-button.is-disabled {
+  background: var(--el-button-disabled-bg-color);
+  box-shadow: none;
+}
+
+.header-right .studio-more-button {
+  width: 32px;
+  padding: 0;
+}
+
+.header-right .el-button:focus-visible,
+.studio-back-btn:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 3px;
 }
 
 .studio-title-wrap {
@@ -158,9 +262,9 @@ const emit = defineEmits<{
 
 .studio-eyebrow {
   flex: 0 0 auto;
-  color: #64748b;
-  font-size: 12px;
-  font-weight: 700;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
   line-height: 1.2;
   white-space: nowrap;
 }
@@ -169,10 +273,9 @@ const emit = defineEmits<{
   overflow: hidden;
   min-width: 0;
   flex: 1 1 auto;
-  max-width: min(520px, calc(100vw - 760px));
   margin: 0;
-  font-size: 17px;
-  font-weight: 800;
+  font-size: 16px;
+  font-weight: 650;
   letter-spacing: 0;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -186,15 +289,24 @@ const emit = defineEmits<{
 }
 
 .studio-meta-row {
-  gap: 8px;
+  gap: 6px;
   margin-top: 6px;
   flex-wrap: wrap;
 }
 
+.studio-meta-row :deep(.el-tag) {
+  height: 20px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 4px;
+  font-size: 11px;
+}
+
 .studio-slug-tag {
-  max-width: 180px;
+  max-width: 210px;
   overflow: hidden;
   text-overflow: ellipsis;
+  font-family: 'JetBrains Mono', 'Consolas', monospace;
 }
 
 .header-left,
@@ -210,21 +322,20 @@ const emit = defineEmits<{
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  min-width: 82px;
-  min-height: 40px;
-  padding: 0 14px 0 10px;
-  border: 1px solid #cdd9ec;
-  border-radius: 10px;
-  background: linear-gradient(180deg, #ffffff 0%, #f6f9ff 100%);
-  color: #1e3a8a;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 10px 0 6px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 9px;
+  background: var(--surface-solid-control);
+  color: var(--text-secondary);
   cursor: pointer;
-  font-size: 14px;
-  font-weight: 700;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
   line-height: 1;
   white-space: nowrap;
-  box-shadow: 0 10px 24px rgba(30, 58, 138, 0.12);
-  transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
 }
 
 .studio-back-btn span {
@@ -237,96 +348,58 @@ const emit = defineEmits<{
   place-items: center;
   width: 24px;
   height: 24px;
-  border-radius: 999px;
-  background: #e9f0ff;
-  color: #3157ff;
+  color: var(--text-muted);
   font-size: 16px;
 }
 
 .studio-back-btn:hover {
-  transform: translateY(-1px);
-  border-color: #9db5ff;
-  box-shadow: 0 14px 30px rgba(49, 87, 255, 0.18);
-}
-
-.studio-back-btn:active {
-  transform: translateY(0);
+  border-color: var(--border-focus);
+  background: var(--el-fill-color-light);
+  color: var(--brand-primary);
 }
 
 .save-state {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  min-height: 30px;
-  padding: 0 10px;
-  border: 1px solid #e2e8f0;
-  border-radius: 999px;
-  background: rgba(248, 250, 252, 0.9);
-  color: #64748b;
-  font-size: 12px;
-  font-weight: 700;
+  gap: 6px;
+  min-height: 20px;
+  margin-left: 4px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 500;
   line-height: 1;
   white-space: nowrap;
 }
 
 .save-state i {
-  width: 7px;
-  height: 7px;
+  width: 5px;
+  height: 5px;
   border-radius: 999px;
-  background: #94a3b8;
-  box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.12);
-}
-
-.save-state.is-pending i {
-  background: #f97316;
-  box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.16);
+  background: currentColor;
 }
 
 .save-state.is-pending {
-  border-color: #fed7aa;
-  background: #fff7ed;
-  color: #c2410c;
-}
-
-.save-state.is-saving i {
-  background: #3b82f6;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+  color: var(--status-warning);
 }
 
 .save-state.is-saving {
-  border-color: #bfdbfe;
-  background: #eff6ff;
-  color: #1d4ed8;
-}
-
-.save-state.is-unpublished i {
-  background: #d97706;
-  box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.14);
+  color: var(--status-info);
 }
 
 .save-state.is-unpublished {
-  border-color: #fde68a;
-  background: #fffbeb;
-  color: #b45309;
-}
-
-.save-state.is-saved i {
-  background: #22c55e;
-  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.14);
+  color: var(--status-warning);
 }
 
 .save-state.is-saved {
-  border-color: #bbf7d0;
-  background: #f0fdf4;
-  color: #15803d;
+  color: var(--status-success);
 }
 
-@media (max-width: 1120px) {
+@media (max-width: 1240px) {
   .studio-header {
     height: auto;
-    min-height: 66px;
     align-items: flex-start;
     flex-direction: column;
+    gap: 12px;
     padding: 12px 16px;
   }
 
@@ -334,26 +407,66 @@ const emit = defineEmits<{
     width: 100%;
     flex-wrap: wrap;
   }
+
+  .header-left {
+    width: 100%;
+  }
 }
 
 @media (max-width: 760px) {
-  .studio-title-row h1 {
-    max-width: calc(100vw - 120px);
+  .studio-header {
+    gap: 10px;
+    padding: 10px 12px;
+  }
+
+  .header-left {
+    gap: 10px;
+  }
+
+  .studio-eyebrow,
+  .studio-slug-tag {
+    display: none;
+  }
+
+  .header-right {
+    gap: 6px;
+  }
+
+  .header-action-group {
+    gap: 4px;
+  }
+
+  .header-right .el-button {
+    padding: 0 10px;
+  }
+
+  .header-right .studio-more-button {
+    padding: 0;
+  }
+
+  .run-mode {
+    display: none;
   }
 }
 
 .run-mode {
-  margin-left: 6px;
-  padding: 0 6px;
-  border-radius: 999px;
-  background: var(--el-color-info-light-9);
-  color: var(--el-text-color-secondary);
-  font-size: 11px;
-  line-height: 18px;
+  margin-left: 8px;
+  padding-left: 8px;
+  border-left: 1px solid var(--border-divider);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 14px;
 }
 
 .run-mode.is-trial {
-  background: var(--el-color-warning-light-9);
-  color: var(--el-color-warning-dark-2);
+  color: var(--status-warning);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .header-right .el-button,
+  .studio-back-btn {
+    transition: none;
+  }
 }
 </style>

@@ -4,8 +4,10 @@
 --
 -- 本脚本是当前唯一 SQL 基线，已合并历史服务目录和历史 upgrade 脚本中的表、
 -- 补列、补索引、种子数据和必要清理结果。根目录 sql/ 保留 initV2.sql、
--- README.md 与当前仍需应用的 upgrade 脚本；后续 schema/索引/种子变化仍需
--- 新增当次 upgrade 脚本，确认已并入基线且开发/测试库不再需要后再清理。
+-- README.md、upgrade-20261019-consolidated.sql（近期已有库升级）与
+-- upgrade-20261019-development-schema-reconcile.sql（已核对旧开发库的补充退场）。
+-- 2026-10-15 及以前的升级已并入本基线或由当前设计替代，历史脚本从 Git 查阅。
+-- 后续 schema/索引/种子变化仍需同步本基线，并按已有库需要新增当次 upgrade。
 --
 -- 幂等设计：
 --   - 建库 / 建表统一 IF NOT EXISTS；
@@ -15,8 +17,8 @@
 -- 执行方式：
 --   mysql -uroot -p < sql/initV2.sql
 --
--- 首次上线后，常规业务建议通过应用的 Liquibase/Flyway 管理后续增量，
--- 本脚本仍可重复执行用于"对齐基线"，但生产变更请先备份。
+-- 本脚本用于全新数据库；已有库按 sql/README.md 选择升级入口。
+-- 辅助语句的幂等判断不代表可用整份初始化脚本升级已有库，种子可能被重置。
 -- ============================================================================
 
 CREATE DATABASE IF NOT EXISTS `reach_ai`
@@ -1494,7 +1496,7 @@ CREATE TABLE IF NOT EXISTS `runtime_agent_config_version` (
     `workflow_timeout_ms`   INT          NOT NULL DEFAULT 180000,
     `page_bridge_timeout_ms` INT         NOT NULL DEFAULT 30000,
     `parallel_read_only`    TINYINT(1)   NOT NULL DEFAULT 1,
-    `policy_profile`        VARCHAR(64)  NOT NULL DEFAULT 'DEV_ALLOW_ALL',
+    `policy_profile`        VARCHAR(64)  NOT NULL DEFAULT 'STANDARD',
     `tool_catalog_mode`     VARCHAR(32)  NOT NULL DEFAULT 'ALLOW_LIST',
     `session_memory_enabled` TINYINT(1)  NOT NULL DEFAULT 1 COMMENT '会话记忆：同一对话的多轮上下文是否持久化',
     `session_memory_window` INT          NOT NULL DEFAULT 40 COMMENT '会话记忆窗口：保留最近 N 条消息（4-100）',
@@ -4965,8 +4967,7 @@ DROP PROCEDURE IF EXISTS add_col_if_absent;
 DROP PROCEDURE IF EXISTS add_idx_if_absent;
 DROP PROCEDURE IF EXISTS add_unique_idx_if_absent;
 
--- END OF initV2.sql
-
+-- BEGIN seed: open-meteo-official-version
 -- 2026-10-09 Open-Meteo immutable official scalar-query version
 -- Capability owner only. Add one immutable official profile; retain v1 and every existing binding/provider/credential.
 -- Source: https://raw.githubusercontent.com/open-meteo/open-meteo/930063f12047363861f775c685c16a98b52dbfe4/openapi/forecast.yml
@@ -4990,3 +4991,6 @@ SELECT v.id, 'forecast-coordinates', 'getForecastCoordinates', '官方天气位�
 FROM capability_external_api_version v JOIN capability_external_api_entry e ON e.id=v.entry_id
 WHERE e.entry_key='open-meteo' AND v.version_key='official-930063f12047-scalar-query-20261009' AND v.spec_hash='570d8f8258ee4b9d187cb9d2f3416ef098f75c2320c1406f0eee1600781f51fc'
   AND NOT EXISTS (SELECT 1 FROM capability_external_api_operation o WHERE o.version_id=v.id AND o.operation_key='forecast-coordinates');
+
+-- END seed: open-meteo-official-version
+-- END OF initV2.sql

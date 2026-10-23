@@ -8,7 +8,12 @@
       <template v-if="$slots.navigation" #navigation><slot name="navigation" /></template>
     </CapabilityGraphToolbar>
 
-    <el-alert v-if="loadError" :title="loadError" type="error" :closable="false" show-icon />
+    <LiquidGlassNotice
+      v-if="loadError"
+      :title="loadError"
+      type="error"
+      source="backdrop"
+    />
     <p v-else-if="requestedSubject && !loading && !focusedSubject" class="graph-hint" role="status">当前能力尚未形成可定位的关联关系，或关联主体已变化；可返回能力目录核对。</p>
     <p v-if="showCandidates && candidateLoading" class="graph-hint" role="status">正在读取候选关系…</p>
     <p v-else-if="showCandidates && candidateError" class="graph-hint" role="alert">{{ candidateError }} <el-button link @click="refreshCandidates">重读候选关系</el-button></p>
@@ -332,8 +337,8 @@
         <el-radio value="MODEL_REF">数据模型引用（紫色虚线）</el-radio>
       </el-radio-group>
       <template #footer>
-        <el-button @click="cancelPendingEdge">取消</el-button>
-        <el-button type="primary" :loading="creatingEdge" @click="submitPendingEdge">确定连线</el-button>
+        <LiquidGlassButton @click="cancelPendingEdge">取消</LiquidGlassButton>
+        <LiquidGlassButton type="primary" :loading="creatingEdge" @click="submitPendingEdge">确定连线</LiquidGlassButton>
       </template>
     </AppDialog>
 
@@ -472,6 +477,7 @@ import {
   type ParamCascaderOption,
   type ParamPathTreeNode,
 } from './apiGraphCanvasViewModel'
+import { LiquidGlassNotice, LiquidGlassButton } from '@/components/common/liquid-glass'
 
 const props = withDefaults(
   defineProps<{ projectId: number, panelExpanded?: boolean, canWrite?: boolean }>(),

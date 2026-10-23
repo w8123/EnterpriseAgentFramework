@@ -29,7 +29,7 @@ import java.util.regex.Pattern;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.mock;
 
-/** Execute the real owner migration twice, preserving the old public version and project selection. */
+/** Execute the current baseline owner seed twice, preserving the old public version and project selection. */
 class OpenMeteoOfficialVersionMigrationPersistenceTest {
     private DriverManagerDataSource source;
     private JdbcTemplate jdbc;
@@ -112,7 +112,13 @@ class OpenMeteoOfficialVersionMigrationPersistenceTest {
     }
 
     private void migrate() throws Exception {
-        byte[] sql = Files.readAllBytes(Path.of("../sql/upgrade-20261009-open-meteo-official-version.sql"));
+        String baseline = Files.readString(Path.of("../sql/initV2.sql"), StandardCharsets.UTF_8);
+        String begin = "-- BEGIN seed: open-meteo-official-version";
+        String end = "-- END seed: open-meteo-official-version";
+        int start = baseline.indexOf(begin);
+        int finish = baseline.indexOf(end, start + begin.length());
+        assertTrue(start >= 0 && finish > start, "Missing current Open-Meteo baseline seed section");
+        byte[] sql = baseline.substring(start + begin.length(), finish).getBytes(StandardCharsets.UTF_8);
         try (var connection = source.getConnection()) {
             ScriptUtils.executeSqlScript(connection, new EncodedResource(new ByteArrayResource(sql), StandardCharsets.UTF_8));
         }

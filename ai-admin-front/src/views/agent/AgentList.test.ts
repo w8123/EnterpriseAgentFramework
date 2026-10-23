@@ -251,6 +251,8 @@ async function mountAgentList(path: string, pinia = createPinia()) {
         ViewToggle: passthroughStub('ViewToggle', 'view-toggle-stub'),
         FilterBar: FilterBarStub,
         DataTableShell: DataTableShellStub,
+        LiquidGlassLayer: true,
+        LiquidGlassDropdownSurface: true,
         ElButton: ElButtonStub,
         ElTable: ElTableStub,
         ElTableColumn: ElTableColumnStub,

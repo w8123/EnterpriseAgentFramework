@@ -77,7 +77,7 @@ describe('business capability workbench', () => {
     await router.push({ path: BUSINESS_METHOD_CATALOG_PATH, query: projectQuery })
     const wrapper = mount(App, { global: { plugins: [router, ElementPlus] } }); wrappers.push(wrapper)
     await flushPromises()
-    expect(wrapper.find('.app-page-header .business-capability-catalog-actions').exists()).toBe(false)
+    expect(wrapper.find('.app-page-header .business-capability-catalog-actions').exists()).toBe(true)
     expect(wrapper.get('.business-capability-catalog-actions').text()).toBe('整理')
     expect(wrapper.findAllComponents({ name: 'ElDropdownItem' }).map(item => item.text())).toEqual(['调整分类', '批量整理说明', '关联分析'])
     expect(wrapper.findAllComponents({ name: 'ElDropdownItem' })[0].props('disabled')).toBe(true)

@@ -62,7 +62,7 @@ JSON 只用于结构化 schema、快照、证据列表和可扩展元数据。�
 
 Workflow 草稿的跨服务重试由 Runtime 的 [投递服务](../../reachai-runtime-service/src/main/java/com/enterprise/ai/runtime/workflow/RuntimeWorkflowDraftSubmissionService.java) 管理。`runtime_workflow_draft_submission` 保存任务作用域、规范化请求摘要及成功应用修订；相同请求重放只读取当前草稿，旧请求不会覆盖后来的自动修正或人工编辑。新内容只可替换上次自动应用后未经其他编辑的 DRAFT，否则返回修订冲突。Workflow ID 由来源、项目、任务与目标页面确定，修改请求中的展示键不会创建另一份草稿。已删除、移出项目或已发布的草稿不能被自动重建或替换。
 
-投递记录与草稿写入在同一个 Runtime 事务内完成，不能将 Control 的本地事务回滚解释为远端草稿也已回滚。已有环境部署前执行 [草稿投递表升级](../../sql/upgrade-20260906-workflow-draft-submissions.sql)；不根据旧草稿猜测历史请求摘要，旧任务遇到冲突时使用新任务或在 Studio 显式编辑。RunOps Trace 候选草稿共用该规则，仍保留自己的来源校验。[持久化回归](../../reachai-runtime-service/src/test/java/com/enterprise/ai/runtime/workflow/RuntimeWorkflowDraftSubmissionPersistenceTest.java) 使用 Spring/MyBatis/H2；真实 MySQL 与跨服务故障恢复尚未验收。
+投递记录与草稿写入在同一个 Runtime 事务内完成，不能将 Control 的本地事务回滚解释为远端草稿也已回滚。投递表已进入初始化基线，已有环境按 [SQL 说明](../../sql/README.md#历史版本) 核对结构；不根据旧草稿猜测历史请求摘要，旧任务遇到冲突时使用新任务或在 Studio 显式编辑。RunOps Trace 候选草稿共用该规则，仍保留自己的来源校验。[持久化回归](../../reachai-runtime-service/src/test/java/com/enterprise/ai/runtime/workflow/RuntimeWorkflowDraftSubmissionPersistenceTest.java) 使用 Spring/MyBatis/H2；真实 MySQL 与跨服务故障恢复尚未验收。
 
 页面地图中的“接入检查”是只读诊断，不是当前首轮接入的强制发布门禁。它只使用服务端已经观察到的页面信息、有效操作目录、带 `pageInstanceId`/SDK 版本的 Embed Session、Bridge 操作快照和真实 Page Action 终态结果；客户端自报或 HTTP 200 不能生成 PASS。
 

@@ -2,15 +2,18 @@
   <div class="page-container playground">
     <PageHeader
       variant="standard"
+      presentation="plain"
+      action-presentation="inline"
       domain="platform"
       title="模型调试台"
+      description="选择模型，调试对话、工具调用并查看用量。"
       compact
     />
 
     <div class="playground-body">
-      <div class="config-panel">
-        <el-card shadow="never">
-          <template #header>模型配置</template>
+      <LiquidGlassCard source="wallpaper" class="config-panel" aria-label="调试配置">
+        <section class="config-section">
+          <h2 class="config-section__title">模型配置</h2>
           <el-form label-width="80px" size="default">
             <el-form-item label="厂商">
               <el-select
@@ -74,10 +77,10 @@
               <el-switch v-model="config.stream" :disabled="streaming" />
             </el-form-item>
           </el-form>
-        </el-card>
+        </section>
 
-        <el-card shadow="never" class="system-prompt-card">
-          <template #header>System Prompt (可选)</template>
+        <section class="config-section system-prompt-card">
+          <h2 class="config-section__title">System Prompt（可选）</h2>
           <el-input
             v-model="config.systemPrompt"
             type="textarea"
@@ -85,19 +88,19 @@
             placeholder="输入系统提示语..."
             :disabled="streaming"
           />
-        </el-card>
+        </section>
 
-        <el-card v-if="displayUsage" shadow="never">
-          <template #header>Token 用量</template>
-          <el-descriptions :column="1" size="small" border>
-            <el-descriptions-item label="Prompt">{{ displayUsage.promptTokens }}</el-descriptions-item>
-            <el-descriptions-item label="Completion">{{ displayUsage.completionTokens }}</el-descriptions-item>
-            <el-descriptions-item label="Total">{{ displayUsage.totalTokens }}</el-descriptions-item>
-          </el-descriptions>
-        </el-card>
-      </div>
+        <section v-if="displayUsage" class="config-section">
+          <h2 class="config-section__title">Token 用量</h2>
+          <dl class="usage-list">
+            <div><dt>Prompt</dt><dd>{{ displayUsage.promptTokens }}</dd></div>
+            <div><dt>Completion</dt><dd>{{ displayUsage.completionTokens }}</dd></div>
+            <div><dt>Total</dt><dd>{{ displayUsage.totalTokens }}</dd></div>
+          </dl>
+        </section>
+      </LiquidGlassCard>
 
-      <div class="chat-area">
+      <LiquidGlassCard source="wallpaper" class="chat-area" aria-label="调试对话">
         <div class="messages-area" ref="messagesRef">
           <div v-if="messages.length === 0 && !streaming" class="chat-empty">
             <p>选择模型后发送消息开始调试</p>
@@ -163,17 +166,17 @@
             @keydown="handleKeydown"
           />
           <div class="input-actions">
-            <el-button @click="handleClear" :disabled="streaming || sending">清空</el-button>
-            <el-button v-if="streaming" type="danger" plain @click="handleStop">停止生成</el-button>
-            <el-button
+            <LiquidGlassButton :disabled="streaming || sending" @click="handleClear">清空</LiquidGlassButton>
+            <LiquidGlassButton v-if="streaming" @click="handleStop">停止生成</LiquidGlassButton>
+            <LiquidGlassButton
               type="primary"
-              @click="handleSend"
               :loading="sending"
               :disabled="streaming || sending || !config.modelInstanceId"
-            >发送</el-button>
+              @click="handleSend"
+            >发送</LiquidGlassButton>
           </div>
         </div>
-      </div>
+      </LiquidGlassCard>
     </div>
   </div>
 </template>
@@ -196,6 +199,7 @@ import { normalizeActiveModelInstances } from '@/utils/modelSelection'
 import { formatToolArguments } from './modelStream'
 import { useModelStream } from './useModelStream'
 import PageHeader from '@/components/common/PageHeader.vue'
+import { LiquidGlassButton, LiquidGlassCard } from '@/components/common/liquid-glass'
 
 const llmInstances = ref<ModelInstance[]>([])
 const llmInstancesLoading = ref(false)
@@ -463,8 +467,55 @@ onMounted(async () => {
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 18px;
   overflow-y: auto;
+}
+
+.config-section {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+
+  & + & {
+    padding-top: 16px;
+    border-top: 1px solid var(--border-divider);
+  }
+}
+
+.config-section__title {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.usage-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+
+  > div {
+    display: grid;
+    gap: 2px;
+    padding: 8px 10px;
+    border: 1px solid var(--border-glass-edge);
+    border-radius: var(--radius-md);
+    background: var(--surface-glass-inset);
+  }
+
+  dt {
+    color: var(--text-muted);
+    font-size: 11.5px;
+  }
+
+  dd {
+    margin: 0;
+    color: var(--text-primary);
+    font-size: 15px;
+    font-weight: 650;
+    font-variant-numeric: tabular-nums;
+  }
 }
 
 .system-prompt-card {
@@ -478,9 +529,8 @@ onMounted(async () => {
   flex: 1;
   display: flex;
   flex-direction: column;
-  background: var(--surface-glass-panel, #fff);
-  border-radius: 8px;
-  border: 1px solid var(--border-glass, #e5e6eb);
+  min-width: 0;
+  padding: 0;
   overflow: hidden;
 }
 
@@ -495,7 +545,7 @@ onMounted(async () => {
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: var(--text-secondary, #475569);
+  color: var(--text-secondary, var(--text-secondary));
   font-size: 14px;
 }
 
@@ -504,7 +554,7 @@ onMounted(async () => {
 
   .msg-role {
     font-size: 12px;
-    color: var(--text-muted, #64748b);
+    color: var(--text-muted, var(--text-muted));
     margin-bottom: 4px;
   }
 
@@ -518,31 +568,32 @@ onMounted(async () => {
   }
 
   .msg-text--pending {
-    color: var(--text-muted, #64748b);
+    color: var(--text-muted, var(--text-muted));
     font-style: italic;
   }
 
   &.user .msg-text {
-    background: color-mix(in srgb, var(--el-color-primary) 10%, #fff);
+    background: color-mix(in srgb, var(--brand-on-surface) 14%, var(--surface-glass-inset));
     color: var(--text-primary);
   }
 
   &.assistant .msg-text {
-    background: var(--surface-glass-control, #f4f4f5);
+    border: 1px solid var(--border-glass-edge);
+    background: var(--surface-glass-inset);
     color: var(--text-primary);
   }
 }
 
 .msg-reasoning {
   margin-bottom: 8px;
-  border: 1px solid var(--border-glass, #e5e6eb);
+  border: 1px solid var(--border-glass, var(--border-readable));
   border-radius: 8px;
-  background: color-mix(in srgb, var(--surface-glass-control, #f8fafc) 90%, #fff);
+  background: var(--surface-glass-inset);
   padding: 8px 10px;
 
   summary {
     cursor: pointer;
-    color: var(--text-secondary, #64748b);
+    color: var(--text-secondary, var(--text-muted));
     font-size: 12px;
     font-weight: 600;
   }
@@ -552,7 +603,7 @@ onMounted(async () => {
     white-space: pre-wrap;
     word-break: break-word;
     font-size: 12px;
-    color: var(--text-secondary, #64748b);
+    color: var(--text-secondary, var(--text-muted));
     line-height: 1.5;
   }
 }
@@ -564,17 +615,17 @@ onMounted(async () => {
 }
 
 .msg-tool {
-  border: 1px dashed var(--border-glass, #d0d5dd);
+  border: 1px dashed var(--border-glass, var(--border-readable));
   border-radius: 8px;
   padding: 8px 10px;
-  background: #fff;
+  background: var(--surface-glass-inset);
 
   &__meta {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
     font-size: 12px;
-    color: var(--text-secondary, #64748b);
+    color: var(--text-secondary, var(--text-muted));
   }
 
   pre {
@@ -594,7 +645,7 @@ onMounted(async () => {
 
 .input-area {
   padding: 16px;
-  border-top: 1px solid var(--border-glass, #e5e6eb);
+  border-top: 1px solid var(--border-divider);
 }
 
 .input-actions {
@@ -602,5 +653,25 @@ onMounted(async () => {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 8px;
+}
+
+@media (max-width: 860px) {
+  .playground {
+    overflow-y: auto;
+  }
+
+  .playground-body {
+    flex-direction: column;
+    flex: 0 0 auto;
+  }
+
+  .config-panel {
+    width: auto;
+    overflow: visible;
+  }
+
+  .chat-area {
+    min-height: 480px;
+  }
 }
 </style>

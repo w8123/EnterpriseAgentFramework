@@ -101,6 +101,7 @@
                 v-for="block in message.blocks"
                 :key="block.id"
                 :block="block"
+                markdown
                 @interaction-submit="(...args) => $emit('interaction-submit', ...args)"
                 @interaction-cancel="(id) => $emit('interaction-cancel', id)"
                 @retry="$emit('retry')"

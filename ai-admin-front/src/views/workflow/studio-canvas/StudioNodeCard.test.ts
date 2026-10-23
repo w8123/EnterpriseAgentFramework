@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import type { CanvasNode, CanvasNodeKind } from '@/types/studio'
 import StudioNodeCard from './StudioNodeCard.vue'
-import { studioNodeCardModel } from './studioNodeCardModel'
+import { studioNodeCardModel, type StudioNodeCardContext } from './studioNodeCardModel'
 
 const HandleStub = { name: 'Handle', props: ['id', 'type', 'position'], template: '<i class="handle-stub" :data-type="type" :data-id="id" />' }
 
@@ -10,14 +10,61 @@ function data(partial: Partial<CanvasNode['data']> = {}): CanvasNode['data'] {
   return { kind: 'tool', label: '查库存', inputs: [], outputs: [], ...partial } as CanvasNode['data']
 }
 
-function render(kind: CanvasNodeKind, nodeData: CanvasNode['data'], runLabel = '') {
+function render(kind: CanvasNodeKind, nodeData: CanvasNode['data'], runLabel = '', context: StudioNodeCardContext = {}) {
   return mount(StudioNodeCard, {
-    props: { model: studioNodeCardModel(kind, 'n1', nodeData, { projectCode: 'yudao-erp' }), runLabel },
+    props: { model: studioNodeCardModel(kind, 'n1', nodeData, { projectCode: 'yudao-erp', ...context }), runLabel },
     global: { stubs: { Handle: HandleStub, 'el-icon': { template: '<span><slot /></span>' } } },
   })
 }
 
 describe('StudioNodeCard', () => {
+  const modelOptions = [{ id: 'model-a', provider: 'deepseek' }, { id: 'model-b', provider: 'openai' }]
+
+  it.each([
+    { selected: 'model-a', defaultId: 'model-b', provider: 'deepseek' },
+    { selected: '', defaultId: 'model-b', provider: 'openai' },
+    { selected: '', defaultId: '', provider: '' },
+    { selected: 'missing-model', defaultId: 'model-b', provider: '' },
+    { selected: '', defaultId: 'missing-model', provider: '' },
+  ])('uses the effective LLM model vendor: $selected / $defaultId', ({ selected, defaultId, provider }) => {
+    const wrapper = render('llm', data({ kind: 'llm', llmConfig: { modelInstanceId: selected } }), '', {
+      defaultModelInstanceId: defaultId, modelOptions,
+    })
+    try {
+      const vendor = wrapper.find('.node-icon .model-provider-icon')
+      expect(vendor.exists()).toBe(Boolean(provider))
+      if (provider) {
+        expect(vendor.find('img').attributes('src')).toContain(`/${provider}.png`)
+      } else {
+        expect(wrapper.find('.node-icon svg').exists()).toBe(true)
+      }
+    } finally { wrapper.unmount() }
+  })
+
+  it('updates a model icon when the catalog arrives and removes it when the default is cleared', async () => {
+    const nodeData = data({ kind: 'llm' })
+    const wrapper = render('llm', nodeData, '', { defaultModelInstanceId: 'model-a' })
+    try {
+      expect(wrapper.find('.node-icon .model-provider-icon').exists()).toBe(false)
+      await wrapper.setProps({ model: studioNodeCardModel('llm', 'n1', nodeData, {
+        defaultModelInstanceId: 'model-a', modelOptions,
+      }) })
+      expect(wrapper.find('.node-icon img').attributes('src')).toContain('/deepseek.png')
+      await wrapper.setProps({ model: studioNodeCardModel('llm', 'n1', nodeData, {
+        defaultModelInstanceId: '', modelOptions,
+      }) })
+      expect(wrapper.find('.node-icon .model-provider-icon').exists()).toBe(false)
+      expect(wrapper.find('.node-icon svg').exists()).toBe(true)
+    } finally { wrapper.unmount() }
+  })
+
+  it('keeps other node kinds on their own icons even when a default model exists', () => {
+    const wrapper = render('tool', data(), '', { defaultModelInstanceId: 'model-a', modelOptions })
+    try {
+      expect(wrapper.find('.node-icon .model-provider-icon').exists()).toBe(false)
+    } finally { wrapper.unmount() }
+  })
+
   it('renders every canvas node kind with a label and kind class', () => {
     const kinds: CanvasNodeKind[] = [
       'start', 'end', 'userInput', 'interaction', 'pageAction', 'llm', 'tool', 'knowledge', 'condition',

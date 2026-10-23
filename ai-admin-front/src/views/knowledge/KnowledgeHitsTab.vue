@@ -1,20 +1,19 @@
 <template>
   <div class="knowledge-hits-tab">
-    <div class="toolbar">
-      <el-segmented v-model="sourceFilter" :options="sourceOptions" @change="fetchHits" />
-      <el-switch v-model="lowConfidenceOnly" active-text="只看低置信" @change="fetchHits" />
-      <span class="toolbar-hint">只记录问题和命中分数，不记录回答。</span>
-      <el-button :loading="hitsLoading" @click="refresh">
-        <el-icon><Refresh /></el-icon>
-        刷新
-      </el-button>
-    </div>
-    <DataTableShell
-      density="compact"
+    <LiquidGlassTable
       :empty="hitLogs.length === 0"
       :loading="hitsLoading"
       :empty-description="emptyDescription"
+      :show-pagination="false"
     >
+      <template #toolbar>
+        <div class="toolbar">
+          <el-segmented v-model="sourceFilter" :options="sourceOptions" @change="fetchHits" />
+          <el-switch v-model="lowConfidenceOnly" active-text="只看低置信" @change="fetchHits" />
+          <span class="toolbar-hint">只记录问题和命中分数，不记录回答。</span>
+          <LiquidGlassButton :icon="Refresh" :loading="hitsLoading" @click="refresh">刷新</LiquidGlassButton>
+        </div>
+      </template>
       <el-table :data="hitLogs" stripe empty-text=" " max-height="420">
         <el-table-column prop="queryText" label="用户问题" min-width="260" show-overflow-tooltip />
         <el-table-column label="来源" width="100" align="center">
@@ -26,7 +25,7 @@
           <template #default="{ row }">{{ formatScore(row.score) }}</template>
         </el-table-column>
         <el-table-column prop="fileName" label="命中文件" min-width="180" show-overflow-tooltip />
-        <el-table-column prop="createTime" label="时间" width="180" />
+        <el-table-column prop="createTime" label="时间" width="180" :formatter="formatTableDateTime" />
         <el-table-column label="运行" width="90" align="center">
           <template #default="{ row }">
             <router-link v-if="row.traceId" :to="`/runops/${encodeURIComponent(row.traceId)}`">查看</router-link>
@@ -34,38 +33,48 @@
           </template>
         </el-table-column>
       </el-table>
-    </DataTableShell>
+    </LiquidGlassTable>
 
     <div class="chunk-grid">
-      <WorkbenchPanel title="命中最多的段落" density="compact">
-        <DataTableShell density="compact" :empty="(dashboard?.hotChunks || []).length === 0">
-          <el-table :data="dashboard?.hotChunks || []" size="small" max-height="300" empty-text=" ">
-            <el-table-column label="段落" min-width="220" show-overflow-tooltip>
-              <template #default="{ row }">{{ row.sectionPath || row.title || truncate(row.content, 80) }}</template>
-            </el-table-column>
-            <el-table-column prop="hitCount" label="命中" width="80" align="center" />
-          </el-table>
-        </DataTableShell>
-      </WorkbenchPanel>
-      <WorkbenchPanel title="从未命中的段落" density="compact">
-        <DataTableShell density="compact" :empty="(dashboard?.zeroHitChunks || []).length === 0">
-          <el-table :data="dashboard?.zeroHitChunks || []" size="small" max-height="300" empty-text=" ">
-            <el-table-column label="段落" min-width="260" show-overflow-tooltip>
-              <template #default="{ row }">{{ row.sectionPath || row.title || truncate(row.content, 100) }}</template>
-            </el-table-column>
-          </el-table>
-        </DataTableShell>
-      </WorkbenchPanel>
+      <LiquidGlassTable
+        :empty="(dashboard?.hotChunks || []).length === 0"
+        empty-description="还没有命中记录"
+        :show-pagination="false"
+      >
+        <template #toolbar>
+          <h3 class="chunk-title">命中最多的段落</h3>
+        </template>
+        <el-table :data="dashboard?.hotChunks || []" size="small" max-height="300" empty-text=" ">
+          <el-table-column label="段落" min-width="220" show-overflow-tooltip>
+            <template #default="{ row }">{{ row.sectionPath || row.title || truncate(row.content, 80) }}</template>
+          </el-table-column>
+          <el-table-column prop="hitCount" label="命中" width="80" align="center" />
+        </el-table>
+      </LiquidGlassTable>
+      <LiquidGlassTable
+        :empty="(dashboard?.zeroHitChunks || []).length === 0"
+        empty-description="所有段落都被命中过"
+        :show-pagination="false"
+      >
+        <template #toolbar>
+          <h3 class="chunk-title">从未命中的段落</h3>
+        </template>
+        <el-table :data="dashboard?.zeroHitChunks || []" size="small" max-height="300" empty-text=" ">
+          <el-table-column label="段落" min-width="260" show-overflow-tooltip>
+            <template #default="{ row }">{{ row.sectionPath || row.title || truncate(row.content, 100) }}</template>
+          </el-table-column>
+        </el-table>
+      </LiquidGlassTable>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import { formatTableDateTime } from '@/utils/dateTime'
 import { computed, onMounted, ref } from 'vue'
 import { Refresh } from '@element-plus/icons-vue'
-import DataTableShell from '@/components/common/DataTableShell.vue'
 import StatusTag from '@/components/common/StatusTag.vue'
-import WorkbenchPanel from '@/components/common/WorkbenchPanel.vue'
+import { LiquidGlassButton, LiquidGlassTable } from '@/components/common/liquid-glass'
 import { getKnowledgeHitLogs, getKnowledgeOpsDashboard } from '@/api/knowledge'
 import type { KnowledgeHitLog, KnowledgeOpsDashboard } from '@/types/knowledge'
 import { hitSourceLabel, type HitSourceFilter } from './knowledgeDetailModel'
@@ -127,11 +136,23 @@ onMounted(refresh)
 </script>
 
 <style scoped lang="scss">
+.knowledge-hits-tab {
+  display: grid;
+  gap: var(--layout-section-gap);
+}
+
 .toolbar {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 14px;
-  margin-bottom: 10px;
+}
+
+.chunk-title {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 650;
 }
 
 .muted {
@@ -141,14 +162,13 @@ onMounted(refresh)
 .toolbar-hint {
   flex: 1;
   font-size: 12px;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .chunk-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 14px;
-  margin-top: 14px;
+  gap: var(--layout-section-gap);
 }
 
 @media (max-width: 960px) {

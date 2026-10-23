@@ -378,11 +378,8 @@ public class ControlAiCodingAgentAuthoringService {
                 "你是“" + agentName + "”。理解用户意图，从允许的 Skill 和 Workflow 中选择合适能力完成任务。"));
         config.put("modelInstanceId", modelInstanceId);
         copyConfigValues(input, config);
-        String policyProfile = firstText(optionalText(input.get("policyProfile")), "DEV_ALLOW_ALL");
-        if (!"DEV_ALLOW_ALL".equals(policyProfile)) {
-            throw invalid("AGENT_POLICY_NOT_SUPPORTED",
-                    "AI Coding currently supports policyProfile=DEV_ALLOW_ALL only");
-        }
+        String policyProfile = firstText(optionalText(input.get("policyProfile")), "STANDARD");
+        requireSupportedPolicy(policyProfile);
         config.put("policyProfile", policyProfile);
         config.put("toolCatalogMode", "ALLOW_LIST");
         Object extra = input.get("config");
@@ -393,6 +390,13 @@ public class ControlAiCodingAgentAuthoringService {
         config.put("skills", List.of());
         config.put("remoteAgents", List.of());
         return config;
+    }
+
+    private void requireSupportedPolicy(String policyProfile) {
+        if (!"STANDARD".equals(policyProfile) && !"DEV_ALLOW_ALL".equals(policyProfile)) {
+            throw invalid("AGENT_POLICY_NOT_SUPPORTED",
+                    "AI Coding supports policyProfile=STANDARD or DEV_ALLOW_ALL only");
+        }
     }
 
     private Map<String, Object> supervisorConfigUpdate(Map<String, ?> input) {
@@ -407,10 +411,7 @@ public class ControlAiCodingAgentAuthoringService {
         copyConfigValues(input, update);
         if (input.containsKey("policyProfile")) {
             String policy = requiredText(input.get("policyProfile"), "policyProfile");
-            if (!"DEV_ALLOW_ALL".equals(policy)) {
-                throw invalid("AGENT_POLICY_NOT_SUPPORTED",
-                        "AI Coding currently supports policyProfile=DEV_ALLOW_ALL only");
-            }
+            requireSupportedPolicy(policy);
             update.put("policyProfile", policy);
         }
         if (input.containsKey("config")) {

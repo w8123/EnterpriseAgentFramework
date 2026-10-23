@@ -307,7 +307,7 @@ Runtime-owned table：
 
 代码或构建通过不等于产品完成。目标环境至少需要验证：
 
-- 从 GitHub 基线 `ae9e1ce6` 升级时完整执行 `sql/upgrade-20260830-platform-consolidated.sql`，回读 Section 02/04 对应的 Skill 目录五张表、市场两张表、来源种子与权限；
+- 新库执行 `sql/initV2.sql`；已有库按 [SQL 说明](../../sql/README.md) 核对 Skill 目录五张表、市场两张表、来源种子与权限，历史建表升级从 Git 历史查阅；
 - 选择至少一个非 ReachAI 自建、包含 references/assets/scripts/agents 等真实结构的市场 Skill；同时用一个真实多 Skill 仓库或插件 ZIP 验证候选发现、明确选择、兄弟目录隔离和 Bundle→单 Skill 摘要追溯；确认未知扩展文件被保留、`agents/openai.yaml` 调用策略与依赖可见、脚本只标记不执行；
 - Control/Runtime 使用相同的 `REACHAI_INTERNAL_SERVICE_SECRET`；
 - Control 制品目录是可持久化路径，Runtime 缓存目录可写；

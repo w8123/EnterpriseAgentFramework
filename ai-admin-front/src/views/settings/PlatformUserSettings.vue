@@ -1,49 +1,33 @@
 <template>
-  <WorkbenchPage class="platform-identity-page" layout="list">
+  <LiquidGlassPage class="platform-identity-page">
     <PageHeader
       variant="overview"
+      presentation="plain"
+      action-presentation="inline"
       domain="platform"
-      eyebrow="Identity & Access Management"
       title="账号与权限"
-      description="管理平台人员账号、角色、项目范围与安全审计；业务终端用户保持独立身份域。"
+      description="管理平台账号、角色、项目授权与安全审计。"
     >
       <template #tags>
-        <el-tag type="success" effect="plain">RBAC</el-tag>
-        <el-tag effect="plain">全局 / 项目范围</el-tag>
+        <el-tag type="success" effect="light">RBAC</el-tag>
+        <el-tag type="info" effect="light">全局 / 项目范围</el-tag>
+      </template>
+      <template #meta>
+        <MetricStrip presentation="inline" source="wallpaper" :items="metrics" aria-label="身份治理概览" />
       </template>
       <template #actions>
         <span v-if="lastRefreshedAt" class="refresh-time">更新于 {{ lastRefreshedAt }}</span>
         <el-tooltip content="刷新账号、角色和审计数据" placement="top">
-          <el-button circle :icon="Refresh" :loading="loading" aria-label="刷新" @click="reload" />
+          <LiquidGlassButton source="wallpaper" circle :icon="Refresh" :loading="loading" aria-label="刷新" @click="reload" />
         </el-tooltip>
       </template>
     </PageHeader>
 
-    <section class="metric-grid" aria-label="身份治理概览">
-      <article v-for="metric in metrics" :key="metric.label" class="metric-card">
-        <span class="metric-card__icon" :class="metric.tone">
-          <el-icon><component :is="metric.icon" /></el-icon>
-        </span>
-        <div>
-          <strong>{{ metric.value }}</strong>
-          <span>{{ metric.label }}</span>
-        </div>
-        <small>{{ metric.caption }}</small>
-      </article>
-    </section>
-
-    <section class="boundary-note">
-      <div><strong>账号</strong><span>谁可以进入平台</span></div>
-      <el-icon><ArrowRight /></el-icon>
-      <div><strong>角色</strong><span>可以执行哪些操作</span></div>
-      <el-icon><ArrowRight /></el-icon>
-      <div><strong>作用域</strong><span>权限在哪些项目生效</span></div>
-      <el-icon><ArrowRight /></el-icon>
-      <div><strong>审计</strong><span>谁在何时改变了什么</span></div>
-    </section>
-
-    <section class="identity-workbench workbench-list-surface">
-      <el-tabs v-model="activeTab" class="identity-tabs">
+    <section class="identity-workbench workbench-list-surface" aria-label="账号与权限工作区">
+      <ol class="boundary-flow" aria-label="授权链路">
+        <li v-for="step in boundarySteps" :key="step.title"><strong>{{ step.title }}</strong><span>{{ step.text }}</span></li>
+      </ol>
+      <LiquidGlassTabs v-model="activeTab" source="wallpaper" class="identity-tabs">
         <el-tab-pane name="accounts">
           <template #label>
             <span class="tab-label"><el-icon><User /></el-icon>账号管理<em>{{ accounts.length }}</em></span>
@@ -74,26 +58,19 @@
           </template>
           <AuthorizationAuditPanel :events="auditEvents" :loading="loading" />
         </el-tab-pane>
-      </el-tabs>
+      </LiquidGlassTabs>
     </section>
-  </WorkbenchPage>
+  </LiquidGlassPage>
 </template>
 
 <script setup lang="ts">
-import { computed, markRaw, onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import {
-  ArrowRight,
-  Connection,
-  DocumentChecked,
-  Key,
-  Lock,
-  Refresh,
-  User,
-  UserFilled,
-} from '@element-plus/icons-vue'
+import { DocumentChecked, Lock, Refresh, User } from '@element-plus/icons-vue'
+import MetricStrip from '@/components/common/MetricStrip.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
-import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
+import type { MetricStripItem } from '@/components/common/glassWorkbench'
+import { LiquidGlassButton, LiquidGlassPage, LiquidGlassTabs } from '@/components/common/liquid-glass'
 import {
   listPlatformAccounts,
   listPlatformAuthAuditEvents,
@@ -118,7 +95,14 @@ const permissions = ref<PlatformPermissionView[]>([])
 const auditEvents = ref<PlatformAuthAuditEventView[]>([])
 const lastRefreshedAt = ref('')
 
-const metrics = computed(() => {
+const boundarySteps = [
+  { title: '账号', text: '谁可以进入平台' },
+  { title: '角色', text: '可以执行哪些操作' },
+  { title: '作用域', text: '权限在哪些项目生效' },
+  { title: '审计', text: '谁在何时改变了什么' },
+]
+
+const metrics = computed<MetricStripItem[]>(() => {
   const activeAccounts = accounts.value.filter((account) => account.status === 'ACTIVE').length
   const customRoles = roles.value.filter((role) => role.roleKind === 'CUSTOM').length
   const activeSessions = accounts.value.reduce((sum, account) => sum + account.activeSessionCount, 0)
@@ -126,10 +110,10 @@ const metrics = computed(() => {
     grant.roleCode === 'PLATFORM_ADMIN' && grant.scopeType === 'GLOBAL'
   ))).length
   return [
-    { label: '启用账号', value: activeAccounts, caption: `共 ${accounts.value.length} 个平台人员账号`, icon: markRaw(UserFilled), tone: 'blue' },
-    { label: '自定义角色', value: customRoles, caption: `另有 ${roles.value.length - customRoles} 个系统角色`, icon: markRaw(Lock), tone: 'violet' },
-    { label: '活跃会话', value: activeSessions, caption: '可按账号立即撤销', icon: markRaw(Connection), tone: 'green' },
-    { label: '全局管理员', value: globalAdmins, caption: '末位管理员受安全保护', icon: markRaw(Key), tone: 'amber' },
+    { key: 'accounts', label: '启用账号', value: activeAccounts, hint: `共 ${accounts.value.length} 个平台人员账号` },
+    { key: 'roles', label: '自定义角色', value: customRoles, hint: `另有 ${roles.value.length - customRoles} 个系统角色` },
+    { key: 'sessions', label: '活跃会话', value: activeSessions, hint: '可按账号立即撤销' },
+    { key: 'admins', label: '全局管理员', value: globalAdmins, hint: '末位管理员受安全保护' },
   ]
 })
 
@@ -160,109 +144,87 @@ onMounted(reload)
 
 <style scoped lang="scss">
 .platform-identity-page {
-  min-height: 100%;
   color: var(--text-primary);
 }
 
 .refresh-time {
-  color: var(--text-secondary);
+  color: var(--text-on-wallpaper-secondary);
   font-size: 12px;
   white-space: nowrap;
 }
 
-.metric-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
+.identity-workbench {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
 }
 
-.metric-card {
-  display: grid;
-  grid-template-columns: 42px minmax(0, 1fr);
+// 授权链路是一行说明文字，直接落在壁纸上，不再单独占一块面板。
+.boundary-flow {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 15px;
-  border: 1px solid var(--border-divider);
-  border-radius: var(--radius-lg);
-  background: var(--surface-glass-panel);
+  height: calc(var(--control-height) + 10px);
+  margin: 0;
+  padding: 0;
+  gap: 6px;
+  list-style: none;
+  color: var(--text-on-wallpaper-secondary);
+  font-size: 12px;
+  pointer-events: none;
 
-  > div {
-    display: grid;
-    gap: 1px;
+  li {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 4px;
+  }
+
+  li + li::before {
+    content: '→';
+    margin-right: 6px;
+    opacity: 0.6;
   }
 
   strong {
-    font-size: 23px;
-    line-height: 1;
-  }
-
-  span,
-  small {
-    color: var(--text-secondary);
-    font-size: 12px;
-  }
-
-  small {
-    grid-column: 1 / -1;
+    color: var(--text-on-wallpaper);
+    font-weight: 600;
   }
 }
 
-.metric-card__icon {
-  display: grid;
-  width: 40px;
-  height: 40px;
-  place-items: center;
-  border-radius: 12px;
-  font-size: 18px;
-
-  &.blue { color: #2563eb; background: rgba(37, 99, 235, 0.1); }
-  &.violet { color: #7c3aed; background: rgba(124, 58, 237, 0.1); }
-  &.green { color: #059669; background: rgba(5, 150, 105, 0.1); }
-  &.amber { color: #d97706; background: rgba(217, 119, 6, 0.1); }
-}
-
-.boundary-note {
+.identity-tabs {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 18px;
-  padding: 12px 18px;
-  border: 1px solid rgb(var(--brand-primary-rgb) / 0.2);
-  border-radius: var(--radius-lg);
-  background: rgb(var(--brand-selected-rgb) / 0.26);
-
-  > div {
-    display: grid;
-    gap: 1px;
-    text-align: center;
-  }
-
-  span {
-    color: var(--text-secondary);
-    font-size: 11px;
-  }
-
-  > .el-icon {
-    color: var(--text-secondary);
-  }
-}
-
-.identity-workbench {
-  min-width: 0;
-  padding: 0 var(--layout-panel-padding) var(--layout-panel-padding);
-  border: 1px solid var(--border-divider);
-  border-radius: var(--radius-xl);
-  background: var(--surface-glass-panel);
-  box-shadow: 0 18px 44px rgb(var(--brand-primary-rgb) / 0.08);
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
 }
 
 .identity-tabs :deep(.el-tabs__header) {
+  flex: 0 0 auto;
   margin-bottom: var(--layout-section-gap);
 }
 
-.identity-tabs :deep(.el-tabs__item) {
-  height: 44px;
-  padding: 0 var(--layout-panel-padding);
+.identity-tabs :deep(.el-tabs__content) {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  overflow-y: auto;
+  padding-bottom: var(--layout-list-page-end);
+}
+
+.identity-tabs :deep(.el-tab-pane) {
+  display: flex;
+  flex: 1 0 auto;
+  flex-direction: column;
+}
+
+.identity-tabs :deep(.el-tab-pane > *) {
+  flex: 1 0 auto;
 }
 
 .tab-label {
@@ -277,39 +239,39 @@ onMounted(reload)
     place-items: center;
     padding: 0 5px;
     border-radius: 10px;
-    background: var(--surface-glass-control);
+    background: color-mix(in srgb, currentColor 14%, transparent);
     font-size: 11px;
     font-style: normal;
   }
 }
 
-@media (max-width: 1050px) {
-  .metric-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+@media (max-width: 1180px) {
+  .boundary-flow {
+    display: none;
+  }
+}
+
+@media (max-width: 760px) {
+  // 窄屏由整页滚动，工作区不再自带一层滚动，避免表格被压成只剩表头。
+  .identity-workbench,
+  .identity-tabs,
+  .identity-tabs :deep(.el-tabs__content) {
+    flex: 0 0 auto;
+    overflow: visible;
+  }
+
+  .identity-tabs :deep(.el-tab-pane > *) {
+    min-height: 420px;
   }
 }
 
 @media (max-width: 720px) {
-  .metric-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .boundary-note {
-    align-items: stretch;
-    flex-direction: column;
-
-    > .el-icon {
-      align-self: center;
-      transform: rotate(90deg);
-    }
-  }
-
-  .identity-workbench {
-    padding-inline: 10px;
-  }
-
   .identity-tabs :deep(.el-tabs__item) {
-    padding: 0 8px;
+    padding: 0 10px !important;
+  }
+
+  .tab-label > .el-icon {
+    display: none;
   }
 }
 </style>

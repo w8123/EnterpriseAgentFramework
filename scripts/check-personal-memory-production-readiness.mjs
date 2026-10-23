@@ -6,7 +6,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 export const REQUIRED_MIGRATIONS = [
-  'sql/upgrade-20260830-platform-consolidated.sql',
+  'sql/upgrade-20261019-consolidated.sql',
 ]
 
 export const REQUIRED_ERASURE_DOMAINS = [

@@ -79,7 +79,9 @@ function mountProjectList() {
         CollapsibleHeaderRegion: true,
         MetricIconBg: true,
         PageHeader: true,
-        ElAlert: true,
+        LiquidGlassNotice: true,
+        LiquidGlassButton: true,
+        LiquidGlassTabs: true,
         ElAvatar: true,
         ElButton: true,
         ElCard: true,
@@ -222,7 +224,7 @@ describe('RegistryProjectList SDK enrollment handoff', () => {
 
     expect(mocks.issueRegistryEnrollment).toHaveBeenCalledWith('bzjs21')
     expect(mocks.createScanProject).not.toHaveBeenCalled()
-    expect(state.enrollmentSnippet).toContain('url: ${REACHAI_REGISTRY_URL:http://localhost:18603}')
+    expect(state.enrollmentSnippet).toContain(`url: \${REACHAI_REGISTRY_URL:${window.location.origin}}`)
     for (const line of [
       'code: "bzjs21"',
       'name: "班组建设21"',
@@ -309,6 +311,24 @@ describe('RegistryProjectList SDK enrollment handoff', () => {
     expect(state.enrollmentError).toContain('填写的信息已保留')
     expect(state.sdkForm.name).toBe(' 班组建设21 ')
     expect(state.issuedEnrollment).toBeNull()
+    wrapper.unmount()
+  })
+
+  it('structures project access dialog and enrollment dialog with shared liquid glass tabs and buttons', async () => {
+    const wrapper = mountProjectList()
+    const state = wrapper.vm as unknown as EnrollmentState
+    state.accessDialogVisible = true
+    state.enrollmentDialogVisible = true
+    await flushPromises()
+
+    const accessDialog = wrapper.findAllComponents({ name: 'AppDialog' })[0]
+    expect(accessDialog.findComponent({ name: 'LiquidGlassTabs' }).exists()).toBe(true)
+    const accessButtons = accessDialog.findAllComponents({ name: 'LiquidGlassButton' })
+    expect(accessButtons.length).toBeGreaterThanOrEqual(2)
+
+    const enrollmentDialog = wrapper.findAllComponents({ name: 'AppDialog' })[1]
+    const enrollmentButtons = enrollmentDialog.findAllComponents({ name: 'LiquidGlassButton' })
+    expect(enrollmentButtons.length).toBe(3)
     wrapper.unmount()
   })
 })

@@ -8,13 +8,14 @@ import type { ToolAclProjectScope, ToolAclRule } from '@/types/toolAcl'
 
 const mocks = vi.hoisted(() => ({
   list: vi.fn(), roles: vi.fn(), create: vi.fn(), update: vi.fn(), batch: vi.fn(), explain: vi.fn(),
-  remove: vi.fn(), toggle: vi.fn(), fetchProjects: vi.fn(), store: {} as any, scope: null as any,
+  remove: vi.fn(), toggle: vi.fn(), tools: vi.fn(), fetchProjects: vi.fn(), store: {} as any, scope: null as any,
 }))
 vi.mock('@/api/toolAcl', () => ({
   listToolAcl: mocks.list, listToolAclRoles: mocks.roles, createToolAcl: mocks.create,
   updateToolAcl: mocks.update, grantToolAclBatch: mocks.batch, explainToolAcl: mocks.explain,
   deleteToolAcl: mocks.remove, toggleToolAcl: mocks.toggle,
 }))
+vi.mock('@/api/tool', () => ({ listAllTools: mocks.tools }))
 vi.mock('@/store/project', () => ({ useProjectStore: () => mocks.store }))
 vi.mock('@/composables/usePageProjectScope', () => ({ usePageProjectScope: () => mocks.scope }))
 
@@ -45,11 +46,11 @@ async function setDiagnosisRoles(roles: string[]) {
   await flushPromises()
 }
 async function openDiagnosis() {
-  ;(document.querySelector('[aria-label="ACL 决策诊断"]') as HTMLButtonElement).click()
+  ;(document.querySelector('[aria-label="权限检查"]') as HTMLButtonElement).click()
   await flushPromises()
   await chooseScope(7)
   await setDiagnosisRoles(['ops'])
-  await fill('每行 `kind:name`，例如 `TOOL:delete_order`', 'TOOL:orders:lookup')
+  await fill('每行一个能力标识，例如 orders.search', 'TOOL:orders:lookup')
 }
 function diagnosisRows() {
   return wrapper!.findAllComponents({ name: 'ElTable' })
@@ -58,7 +59,7 @@ function diagnosisRows() {
 }
 function diagnosisLoading() {
   return wrapper!.findAllComponents({ name: 'ElButton' })
-    .find(button => button.text() === '查询决策')!.props('loading')
+    .find(button => button.text() === '开始检查')!.props('loading')
 }
 function pendingDiagnosis() {
   let resolve!: (value: { data: Record<string, string> }) => void
@@ -71,7 +72,7 @@ function pendingDiagnosis() {
 }
 function closeDiagnosis() {
   wrapper!.findAllComponents({ name: 'AppDialog' })
-    .find(dialog => dialog.props('title') === 'ACL 决策诊断')!.vm.$emit('update:modelValue', false)
+    .find(dialog => dialog.props('title') === '权限检查')!.vm.$emit('update:modelValue', false)
 }
 
 beforeEach(() => {
@@ -81,6 +82,7 @@ beforeEach(() => {
   mocks.store = reactive({ projects, currentProject: null, status: 'ready', loading: false, errorMessage: null,
     fetchProjects: mocks.fetchProjects, projectLabel: (project: any) => `${project.name} / ${project.projectCode}` })
   mocks.roles.mockResolvedValue({ data: ['ops'] })
+  mocks.tools.mockResolvedValue([])
   mocks.create.mockResolvedValue({ data: baseRule })
   mocks.update.mockResolvedValue({ data: baseRule })
   mocks.batch.mockResolvedValue({ data: { count: 2 } })
@@ -91,8 +93,8 @@ afterEach(() => { wrapper?.unmount(); wrapper = undefined; document.body.innerHT
 describe('Tool ACL project scope', () => {
   it('requires an explicit scope and creates an exact project rule without target wildcards', async () => {
     start(); await flushPromises(); button('新建规则').click(); await flushPromises()
-    await fill('admin / ops / customer-service', 'ops')
-    await fill('调用目标名，或 * 表示通配', 'orders.search')
+    await fill('业务系统传入的角色编码，如 sales_manager', 'ops')
+    await fill('能力的唯一标识，可在业务能力或 API 详情页复制', 'orders.search')
     button('保存').click(); await flushPromises()
     expect(mocks.create).not.toHaveBeenCalled()
     await chooseScope(7)
@@ -132,8 +134,8 @@ describe('Tool ACL project scope', () => {
   it('creates a platform rule only after explicit platform scope selection', async () => {
     start(); await flushPromises(); button('新建规则').click(); await flushPromises()
     await chooseScope('platform')
-    await fill('admin / ops / customer-service', 'ops')
-    await fill('调用目标名，或 * 表示通配', 'orders.search')
+    await fill('业务系统传入的角色编码，如 sales_manager', 'ops')
+    await fill('能力的唯一标识，可在业务能力或 API 详情页复制', 'orders.search')
     button('保存').click(); await flushPromises()
     expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ projectId: null, projectCode: null,
       targetKind: 'TOOL', targetName: 'orders.search' }))
@@ -144,7 +146,7 @@ describe('Tool ACL project scope', () => {
     ;(document.querySelector('[aria-label="批量授权"]') as HTMLButtonElement).click(); await flushPromises()
     await chooseScope(8)
     await fill('一次授权给一个角色', 'ops')
-    await fill('每行一个 tool 名，留空则跳过', 'billing.lookup\nbilling.summary')
+    await fill('每行一个能力标识', 'billing.lookup\nbilling.summary')
     button('提交').click(); await flushPromises()
     expect(mocks.batch).toHaveBeenCalledWith(expect.objectContaining({ projectId: 8, projectCode: 'billing',
       targets: [{ kind: 'TOOL', name: 'billing.lookup' }, { kind: 'TOOL', name: 'billing.summary' }] }))
@@ -152,12 +154,12 @@ describe('Tool ACL project scope', () => {
 
   it('diagnoses within the selected project and preserves the full target name', async () => {
     start(); await flushPromises()
-    ;(document.querySelector('[aria-label="ACL 决策诊断"]') as HTMLButtonElement).click(); await flushPromises()
+    ;(document.querySelector('[aria-label="权限检查"]') as HTMLButtonElement).click(); await flushPromises()
     await chooseScope(7)
     const roleSelect = wrapper!.findAllComponents({ name: 'ElSelect' }).find(select => select.props('multiple'))!
     roleSelect.vm.$emit('update:modelValue', ['ops']); await flushPromises()
-    await fill('每行 `kind:name`，例如 `TOOL:delete_order`', 'TOOL:orders:lookup')
-    button('查询决策').click(); await flushPromises()
+    await fill('每行一个能力标识，例如 orders.search', 'TOOL:orders:lookup')
+    button('开始检查').click(); await flushPromises()
     expect(mocks.explain).toHaveBeenCalledWith({ projectId: 7, projectCode: 'orders', roles: ['ops'],
       targets: [{ kind: 'TOOL', name: 'orders:lookup' }] })
     expect(document.body.textContent).not.toContain('不拦截，仅 warn')
@@ -168,8 +170,8 @@ describe('Tool ACL project scope', () => {
     mocks.create.mockImplementation(() => new Promise((_resolve, failure) => { reject = failure }))
     start(); await flushPromises(); button('新建规则').click(); await flushPromises()
     await chooseScope(7)
-    await fill('admin / ops / customer-service', 'ops')
-    await fill('调用目标名，或 * 表示通配', 'orders.search')
+    await fill('业务系统传入的角色编码，如 sales_manager', 'ops')
+    await fill('能力的唯一标识，可在业务能力或 API 详情页复制', 'orders.search')
     button('保存').click(); button('保存').click(); await flushPromises()
     expect(mocks.create).toHaveBeenCalledTimes(1)
     reject(new Error('test failure')); await flushPromises()
@@ -192,7 +194,7 @@ describe('Tool ACL project scope', () => {
   it.each(['projectId', 'projectCode', 'roles', 'targets'] as const)(
     'clears a completed ALLOW immediately when diagnosis %s changes', async criterion => {
       start(); await flushPromises(); await openDiagnosis()
-      button('查询决策').click(); await flushPromises()
+      button('开始检查').click(); await flushPromises()
       expect(diagnosisRows()).toEqual([{ kind: 'TOOL', name: 'orders:lookup', decision: 'ALLOW' }])
       if (criterion === 'projectId') await chooseScope(8)
       if (criterion === 'projectCode') {
@@ -200,7 +202,7 @@ describe('Tool ACL project scope', () => {
         await flushPromises()
       }
       if (criterion === 'roles') await setDiagnosisRoles(['auditor'])
-      if (criterion === 'targets') await fill('每行 `kind:name`，例如 `TOOL:delete_order`', '')
+      if (criterion === 'targets') await fill('每行一个能力标识，例如 orders.search', '')
       expect(diagnosisRows()).toEqual([])
       expect(mocks.explain).toHaveBeenCalledTimes(1)
     },
@@ -211,11 +213,11 @@ describe('Tool ACL project scope', () => {
     const currentRequest = pendingDiagnosis()
     mocks.explain.mockReturnValueOnce(oldRequest.promise).mockReturnValueOnce(currentRequest.promise)
     start(); await flushPromises(); await openDiagnosis()
-    button('查询决策').click(); await flushPromises()
+    button('开始检查').click(); await flushPromises()
     await chooseScope(8)
     expect(diagnosisRows()).toEqual([])
     expect(diagnosisLoading()).toBe(false)
-    button('查询决策').click(); await flushPromises()
+    button('开始检查').click(); await flushPromises()
     expect(mocks.explain).toHaveBeenNthCalledWith(2, expect.objectContaining({ projectId: 8, projectCode: 'billing' }))
     expect(diagnosisLoading()).toBe(true)
     if (oldFirst) {
@@ -235,7 +237,7 @@ describe('Tool ACL project scope', () => {
     const oldRequest = pendingDiagnosis()
     mocks.explain.mockReturnValueOnce(oldRequest.promise)
     start(); await flushPromises(); await openDiagnosis()
-    button('查询决策').click(); await flushPromises()
+    button('开始检查').click(); await flushPromises()
     closeDiagnosis(); await flushPromises()
     await openDiagnosis()
     oldRequest.resolve({ data: { 'orders:lookup': 'ALLOW' } }); await flushPromises()
@@ -248,9 +250,9 @@ describe('Tool ACL project scope', () => {
     const currentRequest = pendingDiagnosis()
     mocks.explain.mockReturnValueOnce(oldRequest.promise).mockReturnValueOnce(currentRequest.promise)
     start(); await flushPromises(); await openDiagnosis()
-    button('查询决策').click(); await flushPromises()
+    button('开始检查').click(); await flushPromises()
     await setDiagnosisRoles(['auditor'])
-    button('查询决策').click(); await flushPromises()
+    button('开始检查').click(); await flushPromises()
     expect(mocks.explain.mock.calls[0][0].roles).toEqual(['ops'])
     oldRequest.reject(new Error('stale diagnosis failure')); await flushPromises()
     expect(document.body.textContent).not.toContain('stale diagnosis failure')
@@ -263,9 +265,40 @@ describe('Tool ACL project scope', () => {
     const oldRequest = pendingDiagnosis()
     mocks.explain.mockReturnValueOnce(oldRequest.promise)
     start(); await flushPromises(); await openDiagnosis()
-    button('查询决策').click(); await flushPromises()
+    button('开始检查').click(); await flushPromises()
     wrapper!.unmount(); wrapper = undefined
     oldRequest.reject(new Error('unmounted diagnosis failure')); await flushPromises()
     expect(document.body.textContent).not.toContain('unmounted diagnosis failure')
+  })
+})
+
+describe('Tool ACL Chinese display', () => {
+  const apiName = 'http-api:bzjs21:dev:874a2a04c15dd584facb5e3d41dbc004a259e96ae451ff65d24b5156f5fde388'
+
+  it('shows readable role and capability names while keeping the raw codes', async () => {
+    mocks.roles.mockResolvedValue({ data: ['PLATFORM_ADMIN', 'c6e63675-b4f9-470c-9061-89bea1b24c66:班组成员'] })
+    mocks.tools.mockResolvedValue([{ name: apiName, qualifiedName: apiName, title: '查询班组成员' }])
+    start([
+      { ...baseRule, roleCode: 'PLATFORM_ADMIN', targetKind: 'ALL', targetName: '*' },
+      { ...baseRule, id: 2, roleCode: 'c6e63675-b4f9-470c-9061-89bea1b24c66:班组成员', targetName: apiName, permission: 'DENY' },
+    ])
+    await flushPromises()
+    const text = document.body.textContent ?? ''
+    expect(text).toContain('平台管理员')
+    expect(text).toContain('班组成员')
+    expect(text).toContain('全部能力')
+    expect(text).toContain('查询班组成员')
+    expect(text).toContain('接口 · dev · 874a2a04')
+    expect(text).toContain('允许')
+    expect(text).toContain('拒绝')
+    expect(text).not.toContain('ALLOW')
+    expect(mocks.list).toHaveBeenCalledWith({ current: 1, size: 1, roleCode: 'PLATFORM_ADMIN' })
+  })
+
+  it('checks a capability whose identifier contains colons as one target', async () => {
+    start(); await flushPromises(); await openDiagnosis()
+    await fill('每行一个能力标识，例如 orders.search', apiName)
+    button('开始检查').click(); await flushPromises()
+    expect(mocks.explain).toHaveBeenCalledWith(expect.objectContaining({ targets: [{ kind: 'TOOL', name: apiName }] }))
   })
 })

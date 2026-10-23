@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { LiquidGlassButton } from '@/components/common/liquid-glass'
 import AppDialog from '@/components/common/AppDialog.vue'
 import type { ProjectToolInfo } from '@/types/scanProject'
 
@@ -20,7 +21,7 @@ const visible = defineModel<boolean>('visible', { required: true })
       <el-empty v-else description="无结构化差异字段列表" :image-size="72" />
     </template>
     <template #footer>
-      <el-button type="primary" @click="visible = false">知道了</el-button>
+      <LiquidGlassButton type="primary" @click="visible = false">知道了</LiquidGlassButton>
     </template>
   </AppDialog>
 </template>

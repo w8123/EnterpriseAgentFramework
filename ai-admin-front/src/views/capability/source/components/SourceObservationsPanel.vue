@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { LiquidGlassNotice } from '@/components/common/liquid-glass'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { ArrowRight, Close, Search } from '@element-plus/icons-vue'
 import type { ProjectToolInfo, SourceModuleSummary } from '@/types/scanProject'
@@ -162,9 +163,15 @@ function semanticLabel(row: ProjectToolInfo) {
       </div>
     </header>
     <div v-if="$slots.status" class="source-observations__status"><slot name="status" /></div>
-    <el-alert v-if="sensitiveStatusError" :title="sensitiveStatusError" type="warning" :closable="false" show-icon class="source-observations__alert">
-      <template #default><el-button @click="emit('retrySensitiveStatus')">重试扫描状态</el-button></template>
-    </el-alert>
+    <LiquidGlassNotice
+      v-if="sensitiveStatusError"
+      :title="sensitiveStatusError"
+      type="warning"
+      class="source-observations__alert"
+      source="backdrop"
+    >
+      <template #actions><el-button @click="emit('retrySensitiveStatus')">重试扫描状态</el-button></template>
+    </LiquidGlassNotice>
     <div v-loading="loading" element-loading-text="正在读取来源记录…" class="tools-table-wrap" :aria-busy="loading">
       <div v-if="!loading && projectTotal === 0" class="empty-api-onboarding">
         <div class="empty-api-onboarding__copy">

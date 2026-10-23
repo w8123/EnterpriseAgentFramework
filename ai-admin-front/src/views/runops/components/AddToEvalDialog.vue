@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { LiquidGlassButton } from '@/components/common/liquid-glass'
 import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import AppDialog from '@/components/common/AppDialog.vue'
@@ -132,8 +133,8 @@ async function save() {
       </el-form>
     </div>
     <template #footer>
-      <el-button @click="visible = false">取消</el-button>
-      <el-button type="primary" :loading="saving" @click="save">{{ creatingDataset ? '新建并加入' : '加入' }}</el-button>
+      <LiquidGlassButton @click="visible = false">取消</LiquidGlassButton>
+      <LiquidGlassButton type="primary" :loading="saving" @click="save">{{ creatingDataset ? '新建并加入' : '加入' }}</LiquidGlassButton>
     </template>
   </AppDialog>
 </template>

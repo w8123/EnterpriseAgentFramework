@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type {
   DashboardLayoutDocument,
   DashboardWidgetConfig,
@@ -26,6 +26,7 @@ const props = withDefaults(
     saveError?: string | null
     layoutSourceLabel: string
     savedRevision: number
+    ownerKey?: number
   }>(),
   {
     saveError: null,
@@ -41,7 +42,7 @@ const emit = defineEmits<{
   redo: []
   tidy: []
   resetDefault: []
-  addWidget: [widgetKey: string]
+  addWidget: [widgetKey: string, config?: DashboardWidgetConfig]
   removeWidget: [id: string]
   moveWidget: [id: string, dx: number, dy: number]
   resizeWidget: [id: string, dw: number, dh: number]
@@ -56,6 +57,7 @@ const emit = defineEmits<{
   openRunTrace: [traceId: string]
   retryRuns: []
   retryAll: []
+  openShortcut: [path: string]
 }>()
 
 const NARROW_BREAKPOINT = 1000
@@ -113,6 +115,12 @@ const settingsInstance = computed(
   () => props.layout.items.find((item) => item.instanceId === settingsId.value) ?? null,
 )
 
+watch(() => props.ownerKey, () => {
+  settingsId.value = null
+  selectedId.value = null
+  catalogOpen.value = false
+})
+
 function onSelect(id: string) {
   selectedId.value = id
 }
@@ -168,14 +176,21 @@ function updateConfig(id: string, patch: Partial<DashboardWidgetConfig>) {
   emit('updateConfig', id, patch)
 }
 
+async function applySettings(patch: DashboardWidgetConfig) {
+  if (!settingsId.value || editPaused.value) return
+  updateConfig(settingsId.value, patch)
+  await nextTick()
+  if (props.editing || !props.saveError) settingsId.value = null
+}
+
 function openCatalog() {
   if (editPaused.value) return
   catalogOpen.value = true
 }
 
-function addWidget(widgetKey: string) {
+function addWidget(widgetKey: string, config?: DashboardWidgetConfig) {
   if (editPaused.value) return
-  emit('addWidget', widgetKey)
+  emit('addWidget', widgetKey, config)
 }
 
 function resetDefault() {
@@ -265,19 +280,24 @@ function addFromEmptyState() {
           @open-run-trace="(traceId) => emit('openRunTrace', traceId)"
           @retry-runs="emit('retryRuns')"
           @retry-all="emit('retryAll')"
+          @open-shortcut="path => emit('openShortcut', path)"
         />
       </template>
     </DashboardGrid>
     <DashboardWidgetCatalogDrawer
       :open="catalogOpen && editing && !editPaused"
       :items="layout.items"
+      :permissions="context.permissions ?? []"
       @close="catalogOpen = false"
       @add="addWidget"
     />
     <DashboardWidgetSettingsDialog
       :instance="settingsInstance"
+      :permissions="context.permissions ?? []"
+      :editing="editing"
+      :save-error="saveError"
       @close="settingsId = null"
-      @apply="(patch) => { if (settingsId) updateConfig(settingsId, patch) }"
+      @apply="applySettings"
     />
   </div>
 </template>

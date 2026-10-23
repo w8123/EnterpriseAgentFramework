@@ -4,7 +4,9 @@ import { densityClass, type WorkbenchDensity } from './glassWorkbench'
 const props = withDefaults(
   defineProps<{
     density?: WorkbenchDensity
+    surface?: 'panel' | 'none'
     loading?: boolean
+    loadingText?: string
     empty?: boolean
     preserveEmptyBody?: boolean
     emptyDescription?: string
@@ -16,7 +18,9 @@ const props = withDefaults(
   }>(),
   {
     density: 'comfortable',
+    surface: 'panel',
     loading: false,
+    loadingText: '正在加载',
     empty: false,
     preserveEmptyBody: false,
     emptyDescription: '暂无数据',
@@ -49,11 +53,15 @@ function handleSizeChange(size: number) {
 <template>
   <section
     v-loading="props.loading"
+    :element-loading-text="props.loadingText"
+    :aria-busy="props.loading"
     :class="[
       'data-table-shell',
-      'glass-surface-panel',
+      'glass-loading-surface',
+      { 'glass-surface-panel': props.surface === 'panel' },
       densityClass(props.density),
       { 'is-empty': props.empty && !props.loading },
+      { 'data-table-shell--loading-empty': props.empty && props.loading },
       { 'data-table-shell--preserve-empty-body': props.preserveEmptyBody },
     ]"
   >

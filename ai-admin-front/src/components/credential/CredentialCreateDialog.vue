@@ -45,13 +45,14 @@
       <p v-if="saveError" class="credential-error" role="alert">{{ saveError }}</p>
     </el-form>
     <template #footer>
-      <el-button :disabled="saving" @click="emit('update:modelValue', false)">取消</el-button>
-      <el-button type="primary" :loading="saving" @click="submit">保存并选中</el-button>
+      <LiquidGlassButton :disabled="saving" @click="emit('update:modelValue', false)">取消</LiquidGlassButton>
+      <LiquidGlassButton type="primary" :loading="saving" @click="submit">保存并选中</LiquidGlassButton>
     </template>
   </AppDialog>
 </template>
 
 <script setup lang="ts">
+import { LiquidGlassButton } from '@/components/common/liquid-glass'
 import { reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import AppDialog from '@/components/common/AppDialog.vue'

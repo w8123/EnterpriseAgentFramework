@@ -4,7 +4,7 @@ import {
   DASHBOARD_LAYOUT_SCHEMA_VERSION,
   parseLayoutDocument,
 } from './layoutEngine'
-import { migrateLegacyDefaultLayout, sanitizeLayoutItems } from './widgetRegistry'
+import { migrateLegacyDefaultLayout, migrateShortcutStripLayout, sanitizeLayoutItems } from './widgetRegistry'
 
 /**
  * Dashboard 布局仓储接口。当前唯一实现是浏览器 localStorage 的临时仓储；
@@ -39,43 +39,57 @@ const STORAGE_KEY = 'reachai.dashboard.consoleLayout.local.v1'
  * - 文档本身就是空 items：用户刻意清空布局，照常返回；
  * - 文档 items 非空但全部 widgetKey 未知或 DISABLED（收口后为空）：返回 null 回退默认。
  */
-export const dashboardLayoutLocalRepository: DashboardLayoutRepository = {
-  sourceLabel: '当前浏览器布局',
-  load(): DashboardLayoutDocument | null {
-    if (typeof localStorage === 'undefined') return null
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY)
-      if (!raw) return null
-      const parsed = parseLayoutDocument(JSON.parse(raw))
-      if (!parsed.ok) return null
-      if (parsed.document.items.length === 0) return parsed.document
-      const items = sanitizeLayoutItems(parsed.document.items)
-      if (!items.length) return null
-      return migrateLegacyDefaultLayout({ ...parsed.document, items })
-    } catch {
-      return null
-    }
-  },
-  save(document: DashboardLayoutDocument): DashboardLayoutDocument {
-    const next: DashboardLayoutDocument = {
-      ...cloneLayoutDocument(document),
-      schemaVersion: DASHBOARD_LAYOUT_SCHEMA_VERSION,
-      revision: document.revision + 1,
-    }
-    if (typeof localStorage !== 'undefined') {
+export function createDashboardLayoutLocalRepository(ownerId?: () => number | undefined): DashboardLayoutRepository {
+  function storageKey() {
+    if (!ownerId) return STORAGE_KEY
+    const id = ownerId()
+    return typeof id === 'number' && Number.isSafeInteger(id) && id > 0 ? `${STORAGE_KEY}.user.${id}` : null
+  }
+  return {
+    sourceLabel: ownerId ? '当前账号 · 此浏览器' : '当前浏览器布局',
+    load(): DashboardLayoutDocument | null {
+      if (typeof localStorage === 'undefined') return null
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
-      } catch (error) {
-        throw new DashboardLayoutSaveError(
-          error instanceof Error && error.message
-            ? `当前浏览器布局保存失败（${error.message}），草稿未丢失，可重试或取消`
-            : undefined,
-        )
+        const key = storageKey()
+        const raw = key ? localStorage.getItem(key) : null
+        if (!raw) return null
+        const parsed = parseLayoutDocument(JSON.parse(raw))
+        if (!parsed.ok) return null
+        if (parsed.document.items.length === 0) return migrateShortcutStripLayout(parsed.document)
+        const items = sanitizeLayoutItems(parsed.document.items)
+        if (!items.length) return null
+        return migrateShortcutStripLayout(migrateLegacyDefaultLayout({ ...parsed.document, items }))
+      } catch {
+        return null
       }
-    }
-    return next
-  },
-  clear() {
-    if (typeof localStorage !== 'undefined') localStorage.removeItem(STORAGE_KEY)
-  },
+    },
+    save(document: DashboardLayoutDocument): DashboardLayoutDocument {
+      const key = storageKey()
+      if (!key) throw new DashboardLayoutSaveError('登录后才能保存个人布局')
+      const next: DashboardLayoutDocument = {
+        ...cloneLayoutDocument(document),
+        schemaVersion: DASHBOARD_LAYOUT_SCHEMA_VERSION,
+        revision: document.revision + 1,
+      }
+      if (typeof localStorage !== 'undefined') {
+        try {
+          localStorage.setItem(key, JSON.stringify(next))
+        } catch (error) {
+          throw new DashboardLayoutSaveError(
+            error instanceof Error && error.message
+              ? `当前浏览器布局保存失败（${error.message}），草稿未丢失，可重试或取消`
+              : undefined,
+          )
+        }
+      }
+      return next
+    },
+    clear() {
+      const key = storageKey()
+      if (typeof localStorage !== 'undefined' && key) localStorage.removeItem(key)
+    },
+  }
 }
+
+/** 旧的未分账号仓储保留给布局迁移校验；管理端使用显式账号仓储。 */
+export const dashboardLayoutLocalRepository = createDashboardLayoutLocalRepository()

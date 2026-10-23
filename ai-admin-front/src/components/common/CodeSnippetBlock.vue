@@ -39,10 +39,11 @@ function escapeHtml(value: string) {
 </script>
 
 <style scoped lang="scss">
+// 代码片段固定为深色终端底：语法高亮色板只在本组件内使用，不随明暗主题切换。
 .code-shell {
   overflow: hidden;
   border: 1px solid rgba(96, 165, 250, 0.2);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: rgba(2, 6, 23, 0.72);
   box-shadow: 0 0 0 1px rgba(125, 211, 252, 0.05), 0 20px 52px rgba(0, 0, 0, 0.28);
 }
@@ -75,7 +76,7 @@ function escapeHtml(value: string) {
     linear-gradient(90deg, rgba(59, 130, 246, 0.05), transparent 16%),
     rgba(2, 6, 23, 0.78);
   color: #e5e7eb;
-  font-family: Consolas, "JetBrains Mono", monospace;
+  font-family: var(--font-family-mono);
   font-size: 13px;
   line-height: 1.6;
 

@@ -4,6 +4,7 @@ import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import AppDialog from '@/components/common/AppDialog.vue'
 import CapabilitySemanticDocument from './CapabilitySemanticDocument.vue'
 import { useCatalogClassificationEditor, type ClassificationEditorProps } from '../composables/useCatalogClassificationEditor'
+import { LiquidGlassNotice, LiquidGlassButton } from '@/components/common/liquid-glass'
 const props = defineProps<ClassificationEditorProps>()
 const emit = defineEmits<{ 'update:visible': [value: boolean]; updated: []; 'busy-change': [value: boolean]; 'close-auto-focus': [] }>()
 const { enrichment, loading, error, mutationError, status, busy, editing, draft, expectedUpdatedAt, conflict, renameValue,
@@ -55,7 +56,12 @@ onBeforeRouteUpdate(requestLeave)
         <div v-else-if="error" role="alert"><p>{{ error }}</p><el-button @click="load">重新加载</el-button></div>
         <template v-else-if="enrichment?.semanticDoc">
           <p class="classification-provenance">{{ enrichment.semanticDoc.status === 'edited' ? '人工编辑的分类说明' : 'AI 补充的分类说明' }}<span v-if="enrichment.semanticDoc.modelName"> · {{ enrichment.semanticDoc.modelName }}</span></p>
-          <el-alert v-if="enrichment.semanticStale" title="分类成员已经变化，请核对当前成员后更新说明。" type="warning" :closable="false" show-icon />
+          <LiquidGlassNotice
+            v-if="enrichment.semanticStale"
+            title="分类成员已经变化，请核对当前成员后更新说明。"
+            type="warning"
+            source="backdrop"
+          />
           <CapabilitySemanticDocument :content-md="enrichment.semanticDoc.contentMd" />
         </template>
         <p v-else-if="enrichment" class="classification-provenance">尚未补充分类说明。</p>
@@ -87,14 +93,14 @@ onBeforeRouteUpdate(requestLeave)
       <p v-if="status" role="status">{{ status }}</p>
     </div>
     <template #footer>
-      <el-button :disabled="busy" @click="requestClose">关闭</el-button>
-      <el-button v-if="mode === 'create' && canWrite" type="primary" :disabled="busy || !createValid" :loading="busy" @click="createGroup">新增分类</el-button>
-      <el-button v-if="mode === 'rename' && canWrite" type="primary" :disabled="busy || !validGroup || !renameValue.trim()" :loading="busy" @click="saveName">保存名称</el-button>
-      <el-button v-if="mode === 'assign' && canWrite" type="primary" :disabled="busy || !assignmentValid" :loading="busy" @click="assign">保存归类</el-button>
+      <LiquidGlassButton :disabled="busy" @click="requestClose">关闭</LiquidGlassButton>
+      <LiquidGlassButton v-if="mode === 'create' && canWrite" type="primary" :disabled="busy || !createValid" :loading="busy" @click="createGroup">新增分类</LiquidGlassButton>
+      <LiquidGlassButton v-if="mode === 'rename' && canWrite" type="primary" :disabled="busy || !validGroup || !renameValue.trim()" :loading="busy" @click="saveName">保存名称</LiquidGlassButton>
+      <LiquidGlassButton v-if="mode === 'assign' && canWrite" type="primary" :disabled="busy || !assignmentValid" :loading="busy" @click="assign">保存归类</LiquidGlassButton>
     </template>
   </AppDialog>
   <AppDialog v-model="leaveDialogOpen" title="还有未保存的分类整理" description="离开会丢弃当前输入。保留编辑可以继续核对和保存。" width="440px">
-    <template #footer><el-button @click="cancelLeave">保留编辑</el-button><el-button type="danger" @click="discardLeave">放弃输入并离开</el-button></template>
+    <template #footer><LiquidGlassButton @click="cancelLeave">保留编辑</LiquidGlassButton><LiquidGlassButton type="danger" @click="discardLeave">放弃输入并离开</LiquidGlassButton></template>
   </AppDialog>
 </template>
 

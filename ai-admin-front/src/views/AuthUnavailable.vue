@@ -1,6 +1,6 @@
 <template>
   <main class="auth-unavailable-page">
-    <section class="auth-unavailable-panel">
+    <section class="auth-unavailable-panel glass-surface-overlay">
       <div class="brand-mark">R</div>
       <h1>暂时无法验证登录状态</h1>
       <p>
@@ -59,22 +59,18 @@ async function startNewLogin() {
   display: grid;
   place-items: center;
   padding: 24px;
-  background:
-    radial-gradient(circle at top left, rgba(59, 130, 246, 0.16), transparent 30rem),
-    linear-gradient(135deg, #0f172a 0%, #111827 52%, #172554 100%);
+  background: var(--surface-page-background);
 }
 
 .auth-unavailable-panel {
   width: min(480px, 100%);
   padding: 36px;
-  border-radius: 8px;
-  color: #334155;
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: 0 24px 80px rgba(15, 23, 42, 0.35);
+  border-radius: var(--radius-xl);
+  color: var(--text-secondary);
 
   h1 {
     margin: 20px 0 12px;
-    color: #0f172a;
+    color: var(--text-primary);
     font-size: 24px;
   }
 
@@ -89,15 +85,16 @@ async function startNewLogin() {
   height: 48px;
   display: grid;
   place-items: center;
-  border-radius: 8px;
-  color: #fff;
+  border-radius: var(--radius-md);
+  color: var(--text-on-brand);
   font-weight: 800;
-  background: #2563eb;
+  background: var(--brand-primary-gradient);
+  box-shadow: var(--shadow-active);
 }
 
 .hint {
   margin-top: 12px !important;
-  color: #64748b;
+  color: var(--text-muted);
   font-size: 13px;
 }
 

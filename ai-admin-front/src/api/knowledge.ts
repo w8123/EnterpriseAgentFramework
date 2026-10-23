@@ -116,6 +116,8 @@ export function attachKnowledgeToAgent(agentId: string, data: {
   knowledgeBaseName?: string
   modelInstanceId?: string
   publishedBy?: string
+  /** false：只准备好知识问答 Workflow，不改 Agent 配置（配置页把它加入草稿）。 */
+  attachToAgent?: boolean
 }) {
   return controlRequest.post<KnowledgeQaAttachResult>(
     `/api/agents/${encodeURIComponent(agentId)}/knowledge-qa`, data, { timeout: 60000 })

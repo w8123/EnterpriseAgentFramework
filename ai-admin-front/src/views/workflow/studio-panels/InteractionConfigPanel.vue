@@ -6,7 +6,13 @@
           <strong>绑定来源</strong>
           <span>{{ bindingSummary }}</span>
         </div>
-        <el-button size="small" type="primary" plain :disabled="!selectedBindingAsset" @click="generateFieldsFromBinding">
+        <el-button
+          v-if="binding.sourceKind === 'TOOL'"
+          size="small"
+          text
+          :disabled="!selectedBindingAsset"
+          @click="generateFieldsFromBinding"
+        >
           从来源生成字段
         </el-button>
       </div>
@@ -20,6 +26,7 @@
               type="button"
               class="interaction-segmented-item"
               :class="{ active: binding.sourceKind === option.value }"
+              :disabled="formDisabled"
               @click="selectBindingKind(option.value)"
             >
               {{ option.label }}
@@ -27,15 +34,34 @@
           </div>
         </el-form-item>
         <el-form-item v-if="binding.sourceKind === 'TOOL'" label="选择业务方法">
-          <el-select v-model="binding.ref" filterable clearable :teleported="false" placeholder="选择本项目已接纳的业务方法" :loading="toolOptionsLoading" :disabled="toolOptionsLoadError" @change="handleBindingRefChange">
-            <el-option v-for="item in toolOptions" :key="item.assetId" :label="assetLabel(item)" :value="item.qualifiedName" />
+          <el-select
+            v-model="binding.ref"
+            filterable
+            clearable
+            :teleported="false"
+            placeholder="选择本项目已接纳的业务方法"
+            :loading="toolOptionsLoading"
+            :disabled="toolOptionsLoadError"
+            @change="handleBindingRefChange"
+          >
+            <el-option
+              v-for="item in toolOptions"
+              :key="item.assetId"
+              :label="assetLabel(item)"
+              :value="item.qualifiedName"
+            />
           </el-select>
         </el-form-item>
       </div>
 
-      <el-alert v-if="toolOptionsLoadError" title="业务方法加载失败。请重新加载后选择。" type="error" :closable="false">
-        <template #default><el-button size="small" @click="$emit('retryMethods')">重新加载业务方法</el-button></template>
-      </el-alert>
+      <LiquidGlassNotice
+        v-if="toolOptionsLoadError"
+        title="业务方法加载失败。请重新加载后选择。"
+        type="error"
+        source="backdrop"
+      >
+        <template #actions><el-button size="small" @click="$emit('retryMethods')">重新加载业务方法</el-button></template>
+      </LiquidGlassNotice>
       <div v-if="binding.sourceKind === 'TOOL'" class="interaction-inline-option">
         <div>
           <strong>调用节点</strong>
@@ -50,7 +76,9 @@
       <div v-if="binding.sourceKind === 'TOOL'" class="interaction-inline-option">
         <div>
           <strong>展示节点</strong>
-          <span>{{ binding.autoCreateDisplayNode ? '已开启自动创建工具结果展示' : '仅创建调用节点，展示可手动调整' }}</span>
+          <span>{{
+            binding.autoCreateDisplayNode ? '已开启自动创建工具结果展示' : '仅创建调用节点，展示可手动调整'
+          }}</span>
         </div>
         <el-switch
           v-model="binding.autoCreateDisplayNode"
@@ -60,7 +88,6 @@
         />
       </div>
     </section>
-
 
     <section class="interaction-section">
       <div class="interaction-section-head">
@@ -78,18 +105,18 @@
               type="button"
               class="interaction-segmented-item"
               :class="{ active: config.interactionType === option.value }"
-              :disabled="!isInteractionTypeEnabled(option.value)"
+              :disabled="formDisabled || !isInteractionTypeEnabled(option.value)"
               @click="selectInteractionType(option.value)"
             >
               {{ option.label }}{{ isInteractionTypeEnabled(option.value) ? '' : '（未开放）' }}
             </button>
           </div>
         </el-form-item>
-        <el-alert
+        <LiquidGlassNotice
           v-if="!isInteractionTypeEnabled(config.interactionType)"
           title="当前草稿使用了尚未开放的暂停/恢复交互类型；可以查看，但必须改为“展示输出”后才能发布。"
           type="warning"
-          :closable="false"
+          source="backdrop"
         />
         <el-form-item label="渲染组件">
           <el-select v-model="config.component" :teleported="false">
@@ -294,7 +321,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox, useFormDisabled } from 'element-plus'
 import type {
   CanvasNodeData,
   InteractionCallNodeRequest,
@@ -312,6 +339,9 @@ import { isAssetInputParameter, type AssetParameter } from '@/types/assetParamet
 import { interactionOutputPorts } from '@/utils/studio'
 import type { WorkflowGraphNodeTypeDescriptor } from '@/types/agent'
 import { isSelectableBusinessMethod } from '@/views/workflow/businessMethodWorkflow'
+import { LiquidGlassNotice } from '@/components/common/liquid-glass'
+
+const formDisabled = useFormDisabled()
 
 const props = defineProps<{
   data: CanvasNodeData
@@ -875,13 +905,10 @@ function assetLabel(item: BusinessMethodInfo) {
 .interaction-section {
   display: grid;
   gap: 14px;
-  padding: 16px;
-  border: 1px solid #e2e8f0;
-  border-radius: 14px;
-  background:
-    linear-gradient(180deg, rgba(248, 250, 252, 0.92), rgba(255, 255, 255, 0.98)),
-    #ffffff;
-  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.04);
+  padding: 0 0 20px;
+  border: 0;
+  border-bottom: 1px solid var(--border-divider);
+  background: transparent;
 }
 
 .interaction-section-head {
@@ -897,14 +924,14 @@ function assetLabel(item: BusinessMethodInfo) {
   }
 
   strong {
-    color: #0f172a;
-    font-size: 15px;
-    font-weight: 850;
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 650;
   }
 
   span {
     overflow: hidden;
-    color: #64748b;
+    color: var(--text-muted);
     font-size: 12px;
     font-weight: 650;
     text-overflow: ellipsis;
@@ -964,7 +991,7 @@ function assetLabel(item: BusinessMethodInfo) {
 
 .project-api-cell span {
   overflow: hidden;
-  color: #64748b;
+  color: var(--text-muted);
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -976,7 +1003,7 @@ function assetLabel(item: BusinessMethodInfo) {
   justify-content: space-between;
   gap: 12px;
   margin-top: 12px;
-  color: #64748b;
+  color: var(--text-muted);
   font-size: 12px;
 }
 
@@ -986,11 +1013,14 @@ function assetLabel(item: BusinessMethodInfo) {
   max-width: 100%;
   overflow: hidden;
   border-radius: 10px;
-  background: #eef2ff;
+  background: var(--accent-light);
   padding: 3px;
 }
 
 .interaction-type-segmented {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
   width: 100%;
 }
 
@@ -1002,11 +1032,11 @@ function assetLabel(item: BusinessMethodInfo) {
   border: 0;
   border-radius: 8px;
   background: transparent;
-  color: #334155;
+  color: var(--text-secondary);
   cursor: pointer;
   font: inherit;
   font-size: 13px;
-  font-weight: 800;
+  font-weight: 650;
   white-space: nowrap;
   transition:
     background 0.16s ease,
@@ -1014,13 +1044,22 @@ function assetLabel(item: BusinessMethodInfo) {
     box-shadow 0.16s ease;
 
   &:hover {
-    color: #4f46e5;
+    color: var(--brand-primary);
   }
 
   &.active {
-    background: linear-gradient(135deg, #635bff, #4f46e5);
-    color: #ffffff;
-    box-shadow: 0 8px 18px rgba(79, 70, 229, 0.22);
+    background: var(--brand-primary);
+    color: var(--el-color-white);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--border-focus);
+    outline-offset: -2px;
   }
 }
 
@@ -1030,9 +1069,9 @@ function assetLabel(item: BusinessMethodInfo) {
   justify-content: space-between;
   gap: 12px;
   padding: 12px 14px;
-  border: 1px solid #dbeafe;
+  border: 1px solid var(--border-subtle);
   border-radius: 12px;
-  background: #f8fbff;
+  background: var(--surface-solid-disabled);
 
   > div {
     display: grid;
@@ -1040,13 +1079,13 @@ function assetLabel(item: BusinessMethodInfo) {
   }
 
   strong {
-    color: #1e293b;
+    color: var(--text-primary);
     font-size: 13px;
-    font-weight: 800;
+    font-weight: 650;
   }
 
   span {
-    color: #64748b;
+    color: var(--text-muted);
     font-size: 12px;
     font-weight: 650;
   }
@@ -1065,10 +1104,10 @@ function assetLabel(item: BusinessMethodInfo) {
   display: grid;
   gap: 14px;
   padding: 14px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--border-subtle);
   border-radius: 13px;
-  background: #ffffff;
-  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.035);
+  background: var(--surface-solid-control);
+  box-shadow: none;
 }
 
 .interaction-field-card-head {
@@ -1092,10 +1131,10 @@ function assetLabel(item: BusinessMethodInfo) {
     width: 26px;
     height: 26px;
     border-radius: 8px;
-    background: #eef2ff;
-    color: #4f46e5;
+    background: var(--accent-light);
+    color: var(--brand-primary);
     font-size: 12px;
-    font-weight: 850;
+    font-weight: 650;
   }
 
   strong,
@@ -1107,13 +1146,13 @@ function assetLabel(item: BusinessMethodInfo) {
   }
 
   strong {
-    color: #0f172a;
+    color: var(--text-primary);
     font-size: 14px;
-    font-weight: 850;
+    font-weight: 650;
   }
 
   em {
-    color: #64748b;
+    color: var(--text-muted);
     font-size: 12px;
     font-style: normal;
     font-weight: 650;
@@ -1143,7 +1182,7 @@ function assetLabel(item: BusinessMethodInfo) {
   :deep(.el-form-item__label) {
     justify-content: flex-start;
     height: auto;
-    color: #64748b;
+    color: var(--text-muted);
     font-size: 12px;
     line-height: 1;
   }
@@ -1157,7 +1196,7 @@ function assetLabel(item: BusinessMethodInfo) {
   justify-content: flex-start;
   padding: 12px;
   border-radius: 12px;
-  background: #f8fafc;
+  background: var(--surface-solid-disabled);
 
   &.is-slot-enabled {
     grid-template-columns: auto auto minmax(190px, 1fr) minmax(150px, 0.7fr) 132px;
@@ -1177,15 +1216,15 @@ function assetLabel(item: BusinessMethodInfo) {
 }
 
 .interaction-advanced {
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--border-subtle);
   border-radius: 14px;
   overflow: hidden;
-  background: #ffffff;
+  background: var(--surface-solid-control);
 
   :deep(.el-collapse-item__header) {
     padding: 0 16px;
-    color: #334155;
-    font-weight: 800;
+    color: var(--text-secondary);
+    font-weight: 650;
   }
 
   :deep(.el-collapse-item__content) {

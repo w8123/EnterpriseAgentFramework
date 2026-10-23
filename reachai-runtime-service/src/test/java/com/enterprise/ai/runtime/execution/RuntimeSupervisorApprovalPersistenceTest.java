@@ -428,7 +428,7 @@ class RuntimeSupervisorApprovalPersistenceTest {
         var resolver = mock(RuntimeAgentExecutionContextResolver.class);
         var runtime = mock(SupervisorRuntimeAdapter.class);
         when(resolver.resolve("agent-1")).thenReturn(Optional.of(context(99L)));
-        when(resolver.resolvePublished("agent-1", 12L)).thenReturn(Optional.of(context(12L)));
+        when(resolver.resolvePinned("agent-1", 12L)).thenReturn(Optional.of(context(12L)));
         when(runtime.execute(any())).thenReturn(new SupervisorRuntimeAdapter.SupervisorResult(
                 true, "OK", "执行完成", "trace-original", List.of(), Map.of(), null));
         var execution = new RuntimeAgentExecutionService(resolver, runtime, approvals,
@@ -441,7 +441,7 @@ class RuntimeSupervisorApprovalPersistenceTest {
         var request = ArgumentCaptor.forClass(SupervisorRuntimeAdapter.SupervisorRequest.class);
         verify(runtime).execute(request.capture());
         assertEquals(12L, request.getValue().config().getId());
-        verify(resolver).resolvePublished("agent-1", 12L);
+        verify(resolver).resolvePinned("agent-1", 12L);
         verify(resolver, never()).resolve(any());
         assertEquals("COMPLETED", row().getStatus());
     }
@@ -451,7 +451,7 @@ class RuntimeSupervisorApprovalPersistenceTest {
         create(identity("tenant-a", "user-a"));
         var resolver = mock(RuntimeAgentExecutionContextResolver.class);
         var runtime = mock(SupervisorRuntimeAdapter.class);
-        when(resolver.resolvePublished("agent-1", 12L)).thenReturn(Optional.empty());
+        when(resolver.resolvePinned("agent-1", 12L)).thenReturn(Optional.empty());
         when(resolver.resolve("agent-1")).thenReturn(Optional.of(context(99L)));
         Map<String, Object> response = execute(resolver, runtime);
         assertEquals(false, response.get("success"));
@@ -468,7 +468,7 @@ class RuntimeSupervisorApprovalPersistenceTest {
         var runtime = mock(SupervisorRuntimeAdapter.class);
         var disabled = new RuntimeAgentExecutionContext(new RuntimeAgentExecutionView("agent-1", 7L, "orders", "order-agent",
                 "订单助手", null, "PROJECT", null, false, 99L, null, null), config(12L), List.of(), List.of(), null);
-        when(resolver.resolvePublished("agent-1", 12L)).thenReturn(Optional.of(disabled));
+        when(resolver.resolvePinned("agent-1", 12L)).thenReturn(Optional.of(disabled));
         when(runtime.execute(any())).thenReturn(new SupervisorRuntimeAdapter.SupervisorResult(
                 true, "OK", "不应执行", "trace-original", List.of(), Map.of(), null));
         Map<String, Object> response = execute(resolver, runtime);

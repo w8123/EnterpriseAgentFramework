@@ -8,13 +8,12 @@
     :show-close="!publishing"
     :before-close="beforeClose"
   >
-    <el-alert
+    <LiquidGlassNotice
       v-if="releaseChecking"
       type="info"
-      :closable="false"
-      show-icon
       class="publish-warning"
       title="正在校验当前画布草稿，而不是上一次保存的版本…"
+      source="backdrop"
     />
     <div v-else-if="releaseErrors.length || releaseWarnings.length" class="release-check-panel">
       <div class="release-check-head">
@@ -43,25 +42,22 @@
         </el-collapse-item>
       </el-collapse>
     </div>
-    <el-alert
+    <LiquidGlassNotice
       v-else-if="releaseValidationReady"
       type="success"
-      :closable="false"
-      show-icon
       class="publish-warning"
       title="当前画布草稿已通过发布门禁"
+      source="backdrop"
     />
-    <el-alert
+    <LiquidGlassNotice
       v-if="publishWarnings.length"
       type="warning"
-      :closable="false"
       class="publish-warning"
       title="发布前检查"
+      source="backdrop"
     >
-      <ul>
-        <li v-for="item in publishWarnings" :key="item">{{ item }}</li>
-      </ul>
-    </el-alert>
+      <span v-for="item in publishWarnings" :key="item" class="publish-warning-item">{{ item }}</span>
+    </LiquidGlassNotice>
     <el-form :model="form" label-width="120px" :disabled="publishing" novalidate>
       <el-form-item label="版本号" required>
         <el-input v-model="form.version" placeholder="v1.0.0" />
@@ -74,15 +70,15 @@
       </el-form-item>
     </el-form>
     <template #footer>
-      <el-button :disabled="publishing" @click="open = false">取消</el-button>
-      <el-button
+      <LiquidGlassButton :disabled="publishing" @click="open = false">取消</LiquidGlassButton>
+      <LiquidGlassButton
         type="primary"
         :loading="publishing"
         :disabled="releaseChecking || !releaseValidationReady || !!releaseErrors.length"
         @click="$emit('publish')"
       >
         确认发布
-      </el-button>
+      </LiquidGlassButton>
     </template>
   </AppDialog>
 </template>
@@ -93,6 +89,7 @@ import type {
   WorkflowPublishRequest,
   WorkflowReleaseValidationItem,
 } from '@/types/workflow'
+import { LiquidGlassNotice, LiquidGlassButton } from '@/components/common/liquid-glass'
 
 defineProps<{
   publishing: boolean
@@ -118,9 +115,10 @@ const open = defineModel<boolean>('open', { required: true })
   margin-bottom: 14px;
 }
 
-.publish-warning ul {
-  margin: 0;
-  padding-left: 18px;
+.publish-warning-item {
+  display: list-item;
+  margin-left: 18px;
+  list-style: disc;
 }
 
 .release-check-panel {
@@ -129,9 +127,10 @@ const open = defineModel<boolean>('open', { required: true })
   gap: 10px;
   margin-bottom: 14px;
   padding: 12px;
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 6px;
-  background: var(--el-fill-color-lighter);
+  border: 1px solid var(--border-glass-edge);
+  border-radius: var(--radius-md);
+  background: var(--surface-glass-inset);
+  box-shadow: var(--glass-rim-double);
 }
 
 .release-check-head {
@@ -186,7 +185,7 @@ const open = defineModel<boolean>('open', { required: true })
   overflow-wrap: anywhere;
   padding: 2px 6px;
   border-radius: 4px;
-  background: var(--el-fill-color);
+  background: var(--surface-glass-inset);
   color: var(--el-text-color-secondary);
   font-family: Consolas, Monaco, 'Courier New', monospace;
 }

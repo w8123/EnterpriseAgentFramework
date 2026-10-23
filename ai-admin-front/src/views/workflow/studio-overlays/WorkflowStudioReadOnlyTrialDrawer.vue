@@ -77,14 +77,15 @@
     </div>
     <template #footer>
       <div class="trial-actions">
-        <el-button v-if="dirty" :disabled="running || saving" :loading="saving" @click="$emit('save')">保存草稿</el-button>
-        <el-button type="primary" :disabled="Boolean(reason)" :loading="running" @click="run">只读试运行</el-button>
+        <LiquidGlassButton v-if="dirty" :disabled="running || saving" :loading="saving" @click="$emit('save')">保存草稿</LiquidGlassButton>
+        <LiquidGlassButton type="primary" :disabled="Boolean(reason)" :loading="running" @click="run">只读试运行</LiquidGlassButton>
       </div>
     </template>
   </AppDrawer>
 </template>
 
 <script setup lang="ts">
+import { LiquidGlassButton } from '@/components/common/liquid-glass'
 import { nextTick, toRef, watch } from 'vue'
 import AppDrawer from '@/components/common/AppDrawer.vue'
 import type { WorkflowWorkingCopyState } from '@/types/workflow'
@@ -140,7 +141,7 @@ function formatOutput(output: unknown) {
 
 <style scoped lang="scss">
 .trial-panel { display: grid; gap: var(--section-gap, 16px); min-width: 0; }
-.trial-scope { display: grid; gap: 12px; margin: 0; padding: 16px; border: 1px solid var(--border-readable); border-radius: var(--radius-md); background: var(--surface-solid-panel); }
+.trial-scope { display: grid; gap: 12px; margin: 0; padding: 16px; border: 1px solid var(--border-readable); border-radius: var(--radius-md); background: var(--surface-glass-inset); }
 .trial-scope > div { display: grid; grid-template-columns: 100px minmax(0, 1fr); gap: 12px; }
 .trial-scope dt, .trial-help, .trial-trace-id, .trial-step-type, .trial-step-status { color: var(--text-secondary); }
 .trial-scope dd { margin: 0; overflow-wrap: anywhere; }

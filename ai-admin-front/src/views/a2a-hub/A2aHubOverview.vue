@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { ArrowRight, CircleCheck, Refresh, Warning } from '@element-plus/icons-vue'
 import MetricIconBg from '@/components/common/MetricIconBg.vue'
 import WorkbenchPanel from '@/components/common/WorkbenchPanel.vue'
+import { LiquidGlassButton, LiquidGlassControl } from '@/components/common/liquid-glass'
 import A2aTaskStateBadge from '@/components/a2a-hub/A2aTaskStateBadge.vue'
 import { getA2aHubOverview, listA2aTasks } from '@/api/a2aHub'
 import type { A2aHubOverview, A2aTaskSummary } from '@/types/a2aHub'
@@ -131,11 +132,13 @@ onMounted(reload)
       </div>
       <div class="overview-actions">
         <small>{{ generatedAtLabel }}</small>
-        <el-button :icon="Refresh" :loading="loading" @click="reload">刷新</el-button>
+        <LiquidGlassControl source="wallpaper">
+          <el-button :icon="Refresh" :loading="loading" @click="reload">刷新</el-button>
+        </LiquidGlassControl>
       </div>
     </div>
 
-    <section class="metric-grid" aria-label="A2A 核心指标">
+    <section class="metric-grid glass-workspace-adaptive" aria-label="A2A 核心指标">
       <button
         v-for="item in kpis"
         :key="item.label"
@@ -155,7 +158,7 @@ onMounted(reload)
     </section>
 
     <div class="overview-grid">
-      <WorkbenchPanel class="attention-panel" density="compact" title="待处理队列" description="只列出需要人处理的风险或退化项。">
+      <WorkbenchPanel class="attention-panel glass-workspace-adaptive" density="compact" title="待处理队列" description="只列出需要人处理的风险或退化项。">
         <div v-if="overview?.attention.length" class="attention-list">
           <button
             v-for="item in overview.attention"
@@ -178,9 +181,9 @@ onMounted(reload)
         </div>
       </WorkbenchPanel>
 
-      <WorkbenchPanel class="recent-task-panel" density="compact" title="最近跨 Agent 任务" description="点击任务可进入 Runtime Run 与 Trace 调查链路。">
+      <WorkbenchPanel class="recent-task-panel glass-workspace-adaptive" density="compact" title="最近跨 Agent 任务" description="点击任务可进入 Runtime Run 与 Trace 调查链路。">
         <template #actions>
-          <el-button text :icon="ArrowRight" @click="router.push('/a2a-hub/tasks')">查看全部</el-button>
+          <LiquidGlassButton size="small" :icon="ArrowRight" @click="router.push('/a2a-hub/tasks')">查看全部</LiquidGlassButton>
         </template>
         <el-table :data="recentTasks" size="small" max-height="350" @row-click="openTask">
           <el-table-column prop="submittedAt" label="受理时间" width="154">
@@ -233,7 +236,7 @@ onMounted(reload)
 }
 
 .overview-heading h2 {
-  color: var(--text-primary);
+  color: var(--text-on-wallpaper);
   font-size: 18px;
 }
 
@@ -249,17 +252,17 @@ onMounted(reload)
 
 .overview-heading__title > span {
   padding: 3px 8px;
-  border: 1px solid var(--border-divider);
+  border: 1px solid var(--border-glass-edge);
   border-radius: 999px;
-  color: var(--text-muted);
-  background: var(--surface-solid-control);
+  color: var(--text-on-wallpaper-secondary);
+  background: var(--surface-glass-frost);
   font-size: 11px;
   font-weight: 650;
 }
 
 .overview-heading p {
   margin-top: 4px;
-  color: var(--text-muted);
+  color: var(--text-on-wallpaper-secondary);
   font-size: 13px;
 }
 
@@ -269,7 +272,7 @@ onMounted(reload)
 }
 
 .overview-actions > small {
-  color: var(--text-muted);
+  color: var(--text-on-wallpaper-secondary);
   font-size: 11px;
 }
 
@@ -286,13 +289,15 @@ onMounted(reload)
   min-height: var(--layout-metric-strip-min-height);
   padding: var(--layout-metric-padding-block) var(--layout-metric-padding-inline);
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--metric-tone) 20%, var(--border-divider));
+  border: 1px solid var(--border-glass-edge);
   border-radius: var(--radius-lg);
   color: var(--text-primary);
+  font: inherit;
   text-align: left;
-  background:
-    linear-gradient(145deg, color-mix(in srgb, var(--metric-tone) 5%, var(--surface-solid-panel)), var(--surface-solid-panel));
-  box-shadow: var(--inner-highlight), 0 14px 30px -28px color-mix(in srgb, var(--metric-tone) 62%, transparent);
+  background: var(--surface-glass-frost);
+  box-shadow: var(--shadow-glass-frost);
+  -webkit-backdrop-filter: blur(var(--glass-blur-frost));
+  backdrop-filter: blur(var(--glass-blur-frost));
   cursor: pointer;
   transition:
     border-color var(--motion-duration-fast) ease,
@@ -316,9 +321,13 @@ onMounted(reload)
 }
 
 .metric-card:hover {
-  border-color: color-mix(in srgb, var(--metric-tone) 46%, var(--border-divider));
-  box-shadow: var(--inner-highlight), 0 18px 36px -28px color-mix(in srgb, var(--metric-tone) 72%, transparent);
+  border-color: color-mix(in srgb, var(--metric-tone) 46%, var(--border-glass-edge));
   transform: translateY(-1px);
+}
+
+.metric-card:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
 }
 
 .metric-card__head {
@@ -382,20 +391,15 @@ onMounted(reload)
   gap: var(--layout-page-gap);
 }
 
-.attention-panel,
-.recent-task-panel {
-  background: color-mix(in srgb, var(--surface-solid-panel) 88%, transparent);
-}
-
 .all-clear {
   display: flex;
   min-height: 78px;
   align-items: center;
   gap: 12px;
   padding: 14px;
-  border: 1px solid color-mix(in srgb, var(--status-success) 24%, var(--border-divider));
+  border: 1px solid color-mix(in srgb, var(--status-success) 24%, var(--border-glass-edge));
   border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--status-success-soft) 58%, var(--surface-solid-control));
+  background: color-mix(in srgb, var(--status-success-soft) 40%, var(--surface-glass-inset));
 }
 
 .all-clear__icon {
@@ -407,7 +411,7 @@ onMounted(reload)
   border: 1px solid color-mix(in srgb, var(--status-success) 28%, transparent);
   border-radius: 50%;
   color: var(--status-success);
-  background: var(--surface-solid-panel);
+  background: var(--surface-glass-inset);
 }
 
 .all-clear__icon .el-icon {
@@ -456,9 +460,14 @@ onMounted(reload)
   display: block;
 }
 
+.attention-row > span {
+  min-width: 0;
+}
+
 .attention-row strong {
   color: var(--text-primary);
   font-size: 13px;
+  overflow-wrap: anywhere;
 }
 
 .attention-row small {
@@ -485,7 +494,7 @@ onMounted(reload)
   border: 1px solid var(--border-divider);
   border-radius: 999px;
   color: var(--text-secondary);
-  background: var(--surface-solid-control);
+  background: var(--surface-glass-inset);
   font-size: 11px;
   font-weight: 650;
 }
@@ -493,13 +502,13 @@ onMounted(reload)
 .direction-badge.is-inbound {
   border-color: color-mix(in srgb, var(--status-info) 24%, var(--border-divider));
   color: var(--status-info);
-  background: color-mix(in srgb, var(--status-info-soft) 56%, var(--surface-solid-control));
+  background: color-mix(in srgb, var(--status-info-soft) 56%, var(--surface-glass-inset));
 }
 
 .direction-badge.is-outbound {
   border-color: color-mix(in srgb, var(--brand-primary) 24%, var(--border-divider));
-  color: var(--brand-active);
-  background: color-mix(in srgb, var(--surface-glass-selected) 56%, var(--surface-solid-control));
+  color: var(--brand-on-surface);
+  background: var(--surface-glass-selected);
 }
 
 .task-id {
@@ -516,9 +525,10 @@ onMounted(reload)
 }
 
 .recent-task-panel :deep(.el-table) {
-  --el-table-header-bg-color: color-mix(in srgb, var(--brand-primary) 7%, var(--surface-solid-control));
-  --el-table-row-hover-bg-color: color-mix(in srgb, var(--surface-glass-selected) 48%, var(--surface-solid-panel));
+  --el-table-header-bg-color: transparent;
+  --el-table-row-hover-bg-color: var(--surface-hover);
   --el-table-tr-bg-color: transparent;
+  --el-table-bg-color: transparent;
   background: transparent;
 }
 
@@ -566,7 +576,7 @@ onMounted(reload)
     width: 100%;
   }
 
-  .overview-actions > .el-button {
+  .overview-actions > .liquid-glass-control {
     width: 100%;
   }
 }

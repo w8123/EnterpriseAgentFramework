@@ -15,6 +15,7 @@ import type {
   ManagedExecutionArtifact,
   ManagedExecutionStatus,
 } from '@/types/aiCodingTask'
+import { LiquidGlassNotice } from '@/components/common/liquid-glass'
 
 const props = defineProps<{
   task: AiCodingTask
@@ -349,12 +350,11 @@ function formatRetention(value: string) {
       </div>
     </header>
 
-    <el-alert
+    <LiquidGlassNotice
       v-if="loadError"
       type="warning"
-      :closable="false"
-      show-icon
       :title="loadError"
+      source="backdrop"
     />
 
     <div v-if="!task.managedExecutionId" class="managed-execution-start">

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { getEvalOpsReadiness } from '@/api/agentEval'
+import { LiquidGlassNotice } from '@/components/common/liquid-glass'
 
 const emit = defineEmits<{ ready: [workerEnabled: boolean] }>()
 const workerEnabled = ref<boolean>()
@@ -19,11 +20,10 @@ onMounted(async () => {
 </script>
 
 <template>
-  <el-alert
+  <LiquidGlassNotice
     v-if="workerEnabled === false"
+    source="wallpaper"
     type="warning"
-    show-icon
-    :closable="false"
     title="评测执行器未开启，新发起的实验会一直排队、不会运行。"
     description="需要在 Runtime 启动参数里设置 REACHAI_EVAL_WORKER_ENABLED=true 后重启。数据集仍可正常维护。"
   />

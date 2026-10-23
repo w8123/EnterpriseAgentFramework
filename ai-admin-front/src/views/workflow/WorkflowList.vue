@@ -1,8 +1,10 @@
 <template>
-  <div class="workflow-list-page project-workbench-page workbench-page--list" :class="{ 'is-dark': theme === 'dark' }">
+  <LiquidGlassPage class="workflow-list-page project-workbench-page">
     <CollapsibleHeaderRegion :collapsed="isWorkflowHeaderCollapsed">
       <PageHeader
         variant="overview"
+        presentation="plain"
+        action-presentation="inline"
         domain="workflow"
         :title="pageTitle"
         :description="pageDescription"
@@ -13,44 +15,28 @@
           <el-tag v-if="workflowListStatus === 'success'" type="success" effect="light">
             当前 {{ workflows.length }} 个 Workflow
           </el-tag>
-          <el-tag type="info" effect="light">GraphSpec 可编排</el-tag>
         </template>
         <template #actions>
-          <el-button v-if="projectScoped" @click="backToProject">返回项目</el-button>
-          <el-button
+          <LiquidGlassButton source="wallpaper" v-if="projectScoped" @click="backToProject">返回项目</LiquidGlassButton>
+          <LiquidGlassButton source="wallpaper"
             v-if="scopeCanLoadData && canCreateWorkflowInCurrentScope"
             type="primary"
             :icon="Plus"
             @click="openCreateDialog"
           >
             新建 Workflow
-          </el-button>
+          </LiquidGlassButton>
         </template>
       </PageHeader>
 
       <template #summary>
-        <div v-if="workflowListStatus === 'success'" class="metric-strip">
-          <template v-for="(metric, index) in metrics" :key="metric.label">
-            <div v-if="index > 0" class="metric-divider" aria-hidden="true" />
-            <div class="metric-segment">
-              <MetricIconBg class="metric-segment-icon" :icon-key="metric.iconKey" :tone="metric.tone" />
-              <div class="metric-content">
-                <div class="metric-line">
-                  <span class="metric-label">{{ metric.label }}</span>
-                  <em v-if="metric.delta" class="metric-delta" :class="metric.deltaTone">{{ metric.delta }}</em>
-                </div>
-                <strong>{{ metric.value }}</strong>
-                <small>{{ metric.caption }}</small>
-              </div>
-            </div>
-          </template>
-        </div>
+        <MetricStrip v-if="workflowListStatus === 'success'" class="glass-workspace-adaptive" :items="metricItems" density="compact" aria-label="Workflow 指标概览" />
       </template>
     </CollapsibleHeaderRegion>
 
     <section
       v-if="!scopeCanLoadData"
-      class="workflow-scope-panel glass-surface-panel"
+      class="workflow-scope-panel glass-surface-panel glass-workspace-adaptive"
       :aria-label="workflowScopeLabel"
     >
       <ProjectScopeState
@@ -66,40 +52,43 @@
       />
     </section>
 
-    <el-card v-else class="workflow-card workbench-list-surface" shadow="never">
-      <div class="toolbar">
-        <el-input
-          v-model="keyword"
-          class="search-input"
-          clearable
-          placeholder="搜索 Workflow 名称、Key、描述、项目"
-        />
-        <el-select v-model="filters.workflowKind" clearable placeholder="Workflow 形态">
-          <el-option
-            v-for="item in WORKFLOW_KIND_SELECT_OPTIONS"
-            :key="item.value"
-            :label="item.label"
-            :value="item.value"
+    <LiquidGlassTable
+      v-else
+      v-model:current-page="currentPage"
+      v-model:page-size="pageSize"
+      class="workflow-card workbench-list-surface"
+      :loading="loading"
+      :total="filteredWorkflows.length"
+      :page-sizes="[5, 10, 20, 50]"
+      :show-pagination="workflowListStatus === 'success'"
+      pagination-label="Workflow 分页"
+    >
+      <template #toolbar>
+        <LiquidGlassFilterBar :loading="loading" :show-reset="false" @query="searchWorkflows">
+          <LiquidGlassInput
+            v-model="keyword"
+            class="search-input"
+            clearable
+            placeholder="搜索 Workflow 名称、Key、描述、项目"
           />
-        </el-select>
-        <el-select v-model="filters.status" clearable placeholder="发布状态">
-          <el-option
-            v-for="item in WORKFLOW_STATUS_SELECT_OPTIONS"
-            :key="item.value"
-            :label="item.label"
-            :value="item.value"
-          />
-        </el-select>
-        <el-button
-          class="toolbar-search"
-          type="primary"
-          :icon="Search"
-          :loading="loading"
-          @click="searchWorkflows"
-        >
-          搜索
-        </el-button>
-      </div>
+          <LiquidGlassSelect v-model="filters.workflowKind" clearable placeholder="Workflow 形态">
+            <el-option
+              v-for="item in WORKFLOW_KIND_SELECT_OPTIONS"
+              :key="item.value"
+              :label="item.label"
+              :value="item.value"
+            />
+          </LiquidGlassSelect>
+          <LiquidGlassSelect v-model="filters.status" clearable placeholder="发布状态">
+            <el-option
+              v-for="item in WORKFLOW_STATUS_SELECT_OPTIONS"
+              :key="item.value"
+              :label="item.label"
+              :value="item.value"
+            />
+          </LiquidGlassSelect>
+        </LiquidGlassFilterBar>
+      </template>
 
       <div v-if="workflowListStatus === 'error'" class="workflow-list-error" role="alert" aria-live="polite">
         <h3>Workflow 列表加载失败</h3>
@@ -109,11 +98,11 @@
 
       <div v-else ref="workflowTableShellRef" class="workflow-table-shell">
         <el-table
-          v-loading="loading"
           :data="pagedWorkflows"
           row-key="id"
           class="workflow-table"
           :max-height="workflowTableMaxHeight"
+          @row-click="openWorkflow"
         >
           <el-table-column label="Workflow 名称" min-width="260">
             <template #default="{ row }">
@@ -166,29 +155,6 @@
               </span>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="204" fixed="right">
-            <template #default="{ row }">
-              <el-button
-                v-if="canWriteWorkflow(row)"
-                size="small"
-                type="primary"
-                @click="openStudio(row.id)"
-              >
-                编排
-              </el-button>
-              <el-button size="small" @click="openVersions(row.id)">版本</el-button>
-              <el-button
-                v-if="canDeleteWorkflow(row)"
-                size="small"
-                type="danger"
-                plain
-                :loading="deletingId === row.id"
-                @click="confirmDeleteWorkflow(row)"
-              >
-                删除
-              </el-button>
-            </template>
-          </el-table-column>
 
           <template #empty>
             <div v-if="workflowListStatus === 'success'" class="workflow-table-empty-state">
@@ -219,18 +185,7 @@
         </el-table>
       </div>
 
-      <div v-if="workflowListStatus === 'success' && filteredWorkflows.length > 0" class="table-footer">
-        <span>共 {{ filteredWorkflows.length }} 条</span>
-        <el-pagination
-          v-model:current-page="currentPage"
-          v-model:page-size="pageSize"
-          background
-          layout="prev, pager, next, sizes"
-          :page-sizes="[5, 10, 20, 50]"
-          :total="filteredWorkflows.length"
-        />
-      </div>
-    </el-card>
+    </LiquidGlassTable>
 
     <AppDialog
       v-model="createDialogVisible"
@@ -321,18 +276,18 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button :disabled="creating" @click="createDialogVisible = false">取消</el-button>
-        <el-button
+        <LiquidGlassButton :disabled="creating" @click="createDialogVisible = false">取消</LiquidGlassButton>
+        <LiquidGlassButton
           type="primary"
           :disabled="createSubmitDisabled"
           :loading="creating"
           @click="submitCreateWorkflow"
         >
           创建并进入编排
-        </el-button>
+        </LiquidGlassButton>
       </template>
     </AppDialog>
-  </div>
+  </LiquidGlassPage>
 </template>
 
 <script setup lang="ts">
@@ -340,15 +295,16 @@ import AppDialog from '@/components/common/AppDialog.vue'
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Search } from '@element-plus/icons-vue'
+import { Plus } from '@element-plus/icons-vue'
 import CollapsibleHeaderRegion from '@/components/common/CollapsibleHeaderRegion.vue'
-import MetricIconBg from '@/components/common/MetricIconBg.vue'
+import MetricStrip from '@/components/common/MetricStrip.vue'
+import type { MetricStripItem } from '@/components/common/glassWorkbench'
+import { LiquidGlassButton, LiquidGlassFilterBar, LiquidGlassInput, LiquidGlassSelect, LiquidGlassTable, LiquidGlassPage } from '@/components/common/liquid-glass'
 import PageHeader from '@/components/common/PageHeader.vue'
 import ProjectScopeState from '@/components/common/ProjectScopeState.vue'
 import { createWorkflow, deleteWorkflow, listWorkflows } from '@/api/workflow'
 import type { WorkflowWorkingCopy, WorkflowWorkingCopyInput } from '@/types/workflow'
 import type { ScanProject } from '@/types/scanProject'
-import { useTheme } from '@/composables/useTheme'
 import { useAppStore } from '@/store/app'
 import { useCollapsiblePageHeader } from '@/composables/useCollapsiblePageHeader'
 import { usePageProjectScope } from '@/composables/usePageProjectScope'
@@ -393,7 +349,6 @@ type WorkflowCreateProjectIdentity = {
 
 const router = useRouter()
 const appStore = useAppStore()
-const { theme } = useTheme()
 const pageProjectScope = usePageProjectScope({ required: true })
 const scopeCanLoadData = pageProjectScope.canLoadData
 const scopeStatus = pageProjectScope.status
@@ -579,6 +534,15 @@ const metrics = computed(() => {
   ]
 })
 
+const metricItems = computed<MetricStripItem[]>(() => metrics.value.map(metric => ({
+  key: metric.iconKey,
+  label: metric.label,
+  value: metric.value,
+  hint: [metric.caption, metric.delta].filter(Boolean).join(' · '),
+  iconKey: metric.iconKey,
+  tone: metric.tone === 'green' ? 'success' : metric.tone === 'orange' ? 'warning' : metric.tone as 'brand' | 'info',
+})))
+
 let tableHeightRaf = 0
 let tableShellObserver: ResizeObserver | null = null
 let workflowDataGeneration = 0
@@ -679,7 +643,7 @@ function updateWorkflowTableMaxHeight() {
   const root = document.querySelector('.workflow-list-page')
   const cardEl = root?.querySelector('.workflow-card') as HTMLElement | undefined
   const tableEl = root?.querySelector('.workflow-table') as HTMLElement | undefined
-  const footerEl = root?.querySelector('.table-footer') as HTMLElement | undefined
+  const footerEl = root?.querySelector('.data-table-shell__pagination') as HTMLElement | undefined
   if (!tableEl) {
     workflowTableMaxHeight.value = Math.max(280, window.innerHeight - 420)
     return
@@ -811,16 +775,7 @@ function openStudio(id: string) {
 }
 
 function openWorkflow(row: WorkflowWorkingCopy) {
-  if (canWriteWorkflow(row)) {
-    openStudio(row.id)
-    return
-  }
-  openVersions(row.id)
-}
-
-function openVersions(id: string) {
-  if (!scopeCanLoadData.value) return
-  void router.push(`/workflows/${id}/versions`)
+  openStudio(row.id)
 }
 
 function canDeleteWorkflow(row: WorkflowWorkingCopy) {
@@ -1316,18 +1271,6 @@ function workflowStatusClass(status?: string | null) {
 </script>
 
 <style scoped lang="scss">
-.workflow-list-page {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  min-height: 0;
-  min-height: 100%;
-  width: 100%;
-  min-width: 0;
-  box-sizing: border-box;
-  background: transparent;
-}
-
 .empty-actions {
   position: relative;
   z-index: 1;
@@ -1335,211 +1278,6 @@ function workflowStatusClass(status?: string | null) {
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
-}
-
-.metric-strip {
-  display: flex;
-  align-items: stretch;
-  width: 100%;
-  min-width: 0;
-  margin: 0;
-  flex-shrink: 0;
-  min-height: var(--layout-metric-strip-min-height);
-  max-height: none;
-  padding: 0;
-  gap: 0;
-  overflow: hidden;
-  border: 1px solid rgb(var(--brand-primary-rgb) / 0.16);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.5);
-  box-shadow: 0 18px 42px rgb(var(--brand-primary-rgb) / 0.052);
-  backdrop-filter: blur(9px);
-}
-
-.metric-divider {
-  flex: 0 0 1px;
-  align-self: center;
-  width: 1px;
-  height: var(--layout-metric-icon-size);
-  background: rgb(var(--brand-primary-rgb) / 0.18);
-  border-radius: 1px;
-}
-
-.metric-segment {
-  position: relative;
-  display: flex;
-  flex: 1 1 0;
-  gap: var(--layout-metric-gap);
-  align-items: center;
-  min-width: 0;
-  min-height: 0;
-  padding: var(--layout-metric-padding-block) var(--layout-metric-padding-inline);
-
-  .metric-label,
-  small {
-    display: block;
-    color: #64748b;
-  }
-
-  .metric-label {
-    overflow: hidden;
-    font-size: 13px;
-    font-weight: 500;
-    line-height: 17px;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  strong {
-    display: block;
-    margin: 2px 0 0;
-    color: #0f172a;
-    font-size: var(--layout-metric-value-size);
-    font-weight: 700;
-    line-height: 1.2;
-  }
-
-  small {
-    font-size: 12px;
-    line-height: 16px;
-  }
-}
-
-.metric-segment-icon {
-  flex-shrink: 0;
-  --metric-icon-bg-size: var(--layout-metric-icon-size);
-  --metric-icon-bg-radius: 12px;
-  --metric-icon-glyph-size: calc(var(--layout-metric-icon-size) * 0.55);
-  --metric-icon-stroke-width: 1.75;
-}
-
-.metric-content {
-  flex: 1;
-  min-width: 0;
-}
-
-.metric-line {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--layout-control-gap);
-  min-width: 0;
-}
-
-.metric-delta {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: center;
-  min-width: 60px;
-  height: 20px;
-  padding: 0 var(--layout-control-gap);
-  border-radius: 12px;
-  font-size: 12px;
-  font-style: normal;
-  font-weight: 500;
-  line-height: 18px;
-}
-
-.metric-delta.brand {
-  color: var(--brand-active);
-  background: var(--brand-selected-bg);
-}
-
-.metric-delta.success {
-  color: #16a34a;
-  background: #dcfce7;
-}
-
-.metric-delta.warning {
-  color: #f97316;
-  background: #fff7ed;
-}
-
-.workflow-card {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  width: 100%;
-  min-width: 0;
-  min-height: 0;
-  margin: 0;
-  border: 1px solid #eaecf5;
-  border-radius: 12px;
-  box-shadow: 0 14px 34px rgba(17, 24, 39, 0.045);
-
-  :deep(.el-card__body) {
-    display: flex;
-    flex: 1;
-    flex-direction: column;
-    min-height: 0;
-    padding: 0;
-  }
-}
-
-.toolbar {
-  display: grid;
-  grid-template-columns: minmax(340px, 2.4fr) repeat(2, minmax(170px, 1fr)) minmax(96px, auto);
-  align-items: center;
-  gap: var(--layout-control-gap);
-  margin: var(--layout-panel-padding) var(--layout-panel-padding) 0;
-  padding: var(--layout-filter-padding-block) var(--layout-filter-padding-inline);
-  border: 1px solid rgb(var(--brand-primary-rgb) / 0.11);
-  border-radius: 12px;
-  background: var(--brand-soft-bg, rgba(238, 242, 255, 0.76));
-  flex-shrink: 0;
-
-  .search-input {
-    width: 100%;
-    min-width: 0;
-  }
-
-  .el-select,
-  .el-input {
-    width: 100%;
-    min-width: 0;
-  }
-
-  :deep(.el-input__wrapper),
-  :deep(.el-select__wrapper) {
-    min-height: 38px;
-    padding: 0 14px;
-    border-radius: 9px;
-    background: rgba(255, 255, 255, 0.86);
-    box-shadow: 0 0 0 1px rgb(var(--brand-primary-rgb) / 0.18) inset;
-  }
-
-  :deep(.el-input__inner),
-  :deep(.el-select__placeholder),
-  :deep(.el-select__selected-item) {
-    color: #8290a9;
-    font-size: 13px;
-    line-height: 17px;
-  }
-
-  :deep(.el-input__prefix),
-  :deep(.el-input__suffix),
-  :deep(.el-select__suffix),
-  :deep(.el-select__caret) {
-    color: rgb(var(--brand-primary-rgb) / 0.42);
-  }
-}
-
-.toolbar-search {
-  height: 40px;
-  min-height: 40px;
-  border-radius: 10px;
-  color: #fff;
-  border-color: transparent;
-  background: var(--brand-primary-gradient);
-  font-weight: 700;
-  box-shadow: 0 10px 18px -10px rgb(var(--brand-primary-rgb) / 0.24);
-}
-
-.toolbar-search:hover {
-  color: #fff;
-  border-color: rgb(var(--brand-primary-rgb) / 0.24);
-  background: linear-gradient(135deg, var(--brand-hover), var(--brand-primary));
 }
 
 .workflow-scope-panel {
@@ -1588,95 +1326,16 @@ function workflowStatusClass(status?: string | null) {
   flex: 1;
   flex-direction: column;
   min-height: 0;
-  margin: var(--layout-section-gap) var(--layout-panel-padding) 0;
   overflow: hidden;
-  border: 1px solid rgb(var(--brand-primary-rgb) / 0.12);
-  border-radius: 13px;
-  background: rgba(255, 255, 255, 0.68);
 }
 
 .workflow-table {
-  --el-table-header-bg-color: color-mix(in srgb, var(--brand-selected-bg) 42%, var(--surface-fallback-panel));
-  --el-table-row-hover-bg-color: color-mix(in srgb, var(--brand-primary) 8%, var(--surface-fallback-panel));
-  --el-table-border-color: rgb(var(--brand-primary-rgb) / 0.1);
   width: 100%;
   flex: 1;
   min-height: 0;
-  background: transparent;
-  transition: max-height var(--motion-duration-fast) var(--motion-easing-standard);
 
-  :deep(.el-scrollbar__wrap) {
-    transition: max-height var(--motion-duration-fast) var(--motion-easing-standard);
-  }
-
-  :deep(.el-table__inner-wrapper::before) {
-    height: 0;
-  }
-
-  :deep(.cell) {
-    padding: 0 8px;
-  }
-
-  :deep(th.el-table__cell) {
-    height: 44px;
-    color: var(--brand-active);
-    background: color-mix(in srgb, var(--brand-selected-bg) 42%, var(--surface-fallback-panel)) !important;
-    font-size: 12px;
-    font-weight: 700;
-    line-height: 16px;
-  }
-
-  :deep(td.el-table__cell) {
-    height: 58px;
-    color: #334155;
-    background: var(--surface-fallback-panel) !important;
-    border-bottom-color: rgb(var(--brand-primary-rgb) / 0.1);
-  }
-
-  :deep(.el-table__row:hover > td.el-table__cell),
-  :deep(.el-table__body tr.hover-row > td.el-table__cell) {
-    background: color-mix(in srgb, var(--brand-primary) 8%, var(--surface-fallback-panel)) !important;
-  }
-
-  :deep(.el-table-fixed-column--right),
-  :deep(.el-table-fixed-column--left) {
-    background-color: var(--surface-fallback-panel) !important;
-  }
-
-  :deep(th.el-table-fixed-column--right),
-  :deep(th.el-table-fixed-column--left) {
-    background-color: color-mix(in srgb, var(--brand-selected-bg) 42%, var(--surface-fallback-panel)) !important;
-  }
-
-  :deep(td.el-table-fixed-column--right),
-  :deep(td.el-table-fixed-column--left) {
-    background-color: var(--surface-fallback-panel) !important;
-  }
-
-  :deep(.el-table__row:hover > td.el-table-fixed-column--right),
-  :deep(.el-table__row:hover > td.el-table-fixed-column--left),
-  :deep(.el-table__body tr.hover-row > td.el-table-fixed-column--right),
-  :deep(.el-table__body tr.hover-row > td.el-table-fixed-column--left),
-  :deep(.el-table__body tr.current-row > td.el-table-fixed-column--right),
-  :deep(.el-table__body tr.current-row > td.el-table-fixed-column--left) {
-    background-color: color-mix(in srgb, var(--brand-primary) 8%, var(--surface-fallback-panel)) !important;
-  }
-
-  :deep(.el-table__fixed-right-patch) {
-    background-color: var(--surface-fallback-panel) !important;
-  }
-
-  :deep(.el-table__empty-block) {
-    width: 100% !important;
-    min-height: 320px;
-    background: var(--surface-fallback-panel);
-  }
-
-  :deep(.el-table__empty-text) {
-    width: 100%;
-    color: inherit;
-    line-height: inherit;
-  }
+  :deep(.el-table__row) { cursor: pointer; }
+  :deep(.el-table__empty-text) { width: 100%; line-height: inherit; }
 }
 
 .workflow-name-cell {
@@ -1691,13 +1350,13 @@ function workflowStatusClass(status?: string | null) {
   }
 
   strong {
-    color: #101828;
+    color: var(--text-primary);
     font-weight: 700;
   }
 
   span {
     margin-top: 4px;
-    color: #667085;
+    color: var(--text-muted);
     font-size: 12px;
   }
 }
@@ -1731,7 +1390,7 @@ function workflowStatusClass(status?: string | null) {
   width: 34px;
   height: 34px;
   border-radius: 10px;
-  color: #fff;
+  color: var(--text-on-brand);
   font-weight: 800;
 
   &.chat {
@@ -1739,16 +1398,16 @@ function workflowStatusClass(status?: string | null) {
   }
 
   &.sdk-graph {
-    background: linear-gradient(135deg, #22c55e, #14b8a6);
+    background: linear-gradient(135deg, var(--status-success), var(--status-info));
   }
 
   &.page-action {
-    background: linear-gradient(135deg, #f97316, #f59e0b);
+    background: linear-gradient(135deg, var(--status-warning), var(--status-warning));
   }
 }
 
 .muted {
-  color: #667085;
+  color: var(--text-muted);
 }
 
 .status-pill {
@@ -1766,26 +1425,26 @@ function workflowStatusClass(status?: string | null) {
 }
 
 .status-active {
-  color: #16a34a;
+  color: var(--status-success);
 
   i {
-    background: #22c55e;
+    background: var(--status-success);
   }
 }
 
 .status-draft {
-  color: #d97706;
+  color: var(--status-warning);
 
   i {
-    background: #f59e0b;
+    background: var(--status-warning);
   }
 }
 
 .status-archived {
-  color: #64748b;
+  color: var(--text-muted);
 
   i {
-    background: #94a3b8;
+    background: var(--surface-pressed);
   }
 }
 
@@ -1800,14 +1459,14 @@ function workflowStatusClass(status?: string | null) {
 
   h3 {
     margin: 0 0 8px;
-    color: #101828;
+    color: var(--text-primary);
     font-size: 18px;
     font-weight: 700;
   }
 
   p {
     margin: 0;
-    color: #667085;
+    color: var(--text-muted);
     line-height: 1.55;
   }
 }
@@ -1846,7 +1505,7 @@ function workflowStatusClass(status?: string | null) {
   height: 160px;
   border-radius: 22px;
   overflow: hidden;
-  background: linear-gradient(135deg, rgb(var(--brand-primary-rgb) / 0.08), rgba(255, 255, 255, 0.9));
+  background: linear-gradient(135deg, rgb(var(--brand-primary-rgb) / 0.08), var(--surface-solid-panel));
 }
 
 .empty-illustration-img {
@@ -1856,23 +1515,6 @@ function workflowStatusClass(status?: string | null) {
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
-}
-
-.table-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--layout-section-gap);
-  padding: var(--layout-pagination-padding-block) var(--layout-panel-padding);
-  border-top: 1px solid #eef1f7;
-  color: #667085;
-  font-size: 13px;
-  flex-shrink: 0;
-  margin-top: auto;
-
-  :deep(.el-pagination.is-background .el-pager li.is-active) {
-    background-color: var(--brand-primary);
-  }
 }
 
 .create-form {
@@ -1928,250 +1570,7 @@ function workflowStatusClass(status?: string | null) {
   font-size: 12px;
 }
 
-.workflow-list-page.is-dark {
-  background: transparent;
-
-  .metric-strip,
-  .workflow-card {
-    border-color: rgba(255, 255, 255, 0.07);
-    background: rgba(255, 255, 255, 0.035);
-    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.22);
-    backdrop-filter: blur(12px);
-  }
-
-  .metric-divider {
-    background: rgba(255, 255, 255, 0.08);
-  }
-
-  .metric-segment {
-    .metric-label,
-    small {
-      color: #94a3b8;
-    }
-
-    strong {
-      color: #e2e8f0;
-    }
-
-    .metric-delta {
-      color: #bae6fd;
-      background: rgba(14, 165, 233, 0.14);
-    }
-  }
-
-  .workflow-card {
-    --el-card-bg-color: transparent;
-
-    :deep(.el-card__body) {
-      background: transparent;
-    }
-  }
-
-  .toolbar {
-    background: rgba(255, 255, 255, 0.02);
-    border-color: rgba(255, 255, 255, 0.06);
-
-    :deep(.el-input__wrapper),
-    :deep(.el-select__wrapper) {
-      background: rgba(255, 255, 255, 0.035);
-      box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08) inset;
-    }
-
-    :deep(.el-input__inner),
-    :deep(.el-select__placeholder),
-    :deep(.el-select__selected-item) {
-      color: #cbd5e1;
-    }
-
-    :deep(.el-input__inner::placeholder) {
-      color: #64748b;
-    }
-
-    :deep(.el-input__prefix),
-    :deep(.el-input__suffix),
-    :deep(.el-select__suffix),
-    :deep(.el-select__caret) {
-      color: #94a3b8;
-    }
-
-    :deep(.el-button--default) {
-      color: #cbd5e1;
-      background: rgba(255, 255, 255, 0.04);
-      border-color: rgba(255, 255, 255, 0.1);
-
-      &:hover {
-        color: #e2e8f0;
-        background: rgb(var(--brand-primary-rgb) / 0.12);
-        border-color: rgb(var(--brand-primary-rgb) / 0.35);
-      }
-    }
-  }
-
-  .workflow-table-shell {
-    border-color: rgba(255, 255, 255, 0.06);
-    background: rgba(255, 255, 255, 0.025);
-  }
-
-  .workflow-table {
-    --el-table-bg-color: transparent;
-    --el-table-tr-bg-color: transparent;
-    --el-table-header-bg-color: color-mix(in srgb, var(--brand-selected-bg) 42%, var(--surface-fallback-panel));
-    --el-table-row-hover-bg-color: color-mix(in srgb, var(--brand-primary) 12%, var(--surface-fallback-panel));
-    --el-table-border-color: rgba(255, 255, 255, 0.06);
-    --el-table-text-color: #cbd5e1;
-    --el-table-header-text-color: #94a3b8;
-    background: transparent;
-
-    :deep(.el-table__inner-wrapper::before),
-    :deep(.el-table__border-left-patch),
-    :deep(.el-table__border-bottom-patch) {
-      background-color: rgba(255, 255, 255, 0.06);
-    }
-
-    :deep(th.el-table__cell) {
-      color: #94a3b8;
-      background: color-mix(in srgb, var(--brand-selected-bg) 42%, var(--surface-fallback-panel)) !important;
-    }
-
-    :deep(td.el-table__cell) {
-      color: #cbd5e1;
-      background: var(--surface-fallback-panel) !important;
-      border-bottom-color: rgba(255, 255, 255, 0.06);
-    }
-
-    :deep(.el-table__row:hover > td.el-table__cell),
-    :deep(.el-table__body tr.hover-row > td.el-table__cell) {
-      background: color-mix(in srgb, var(--brand-primary) 12%, var(--surface-fallback-panel)) !important;
-    }
-
-    :deep(.el-table__inner-wrapper),
-    :deep(.el-table__header-wrapper),
-    :deep(.el-table__body-wrapper) {
-      background: transparent;
-    }
-
-    :deep(.el-table-fixed-column--right),
-    :deep(.el-table-fixed-column--left) {
-      background-color: var(--surface-fallback-panel) !important;
-    }
-
-    :deep(th.el-table-fixed-column--right),
-    :deep(th.el-table-fixed-column--left) {
-      background-color: color-mix(in srgb, var(--brand-selected-bg) 42%, var(--surface-fallback-panel)) !important;
-    }
-
-    :deep(td.el-table-fixed-column--right),
-    :deep(td.el-table-fixed-column--left) {
-      background-color: var(--surface-fallback-panel) !important;
-    }
-
-    :deep(.el-table__row:hover > td.el-table-fixed-column--right),
-    :deep(.el-table__row:hover > td.el-table-fixed-column--left),
-    :deep(.el-table__body tr.hover-row > td.el-table-fixed-column--right),
-    :deep(.el-table__body tr.hover-row > td.el-table-fixed-column--left),
-    :deep(.el-table__body tr.current-row > td.el-table-fixed-column--right),
-    :deep(.el-table__body tr.current-row > td.el-table-fixed-column--left) {
-      background-color: color-mix(in srgb, var(--brand-primary) 12%, var(--surface-fallback-panel)) !important;
-    }
-
-    :deep(.el-table__fixed-right-patch) {
-      background-color: var(--surface-fallback-panel) !important;
-    }
-
-    :deep(.el-tag.el-tag--light) {
-      border-width: 1px;
-      border-style: solid;
-    }
-  }
-
-  .workflow-name-cell {
-    strong {
-      color: #e2e8f0;
-    }
-
-    span {
-      color: #64748b;
-    }
-  }
-
-  .workflow-name-cell-btn:hover strong {
-    color: var(--brand-disabled);
-  }
-
-  .muted {
-    color: #94a3b8;
-  }
-
-  .empty-illustration {
-    background: linear-gradient(135deg, rgb(var(--brand-primary-rgb) / 0.22), rgb(var(--brand-hover-rgb) / 0.08));
-  }
-
-  .workflow-table-empty-state {
-    h3 {
-      color: #e2e8f0;
-    }
-
-    p {
-      color: #94a3b8;
-    }
-  }
-
-  .workflow-list-error {
-    background: color-mix(in srgb, var(--surface-fallback-panel) 84%, transparent);
-  }
-
-  .table-footer {
-    color: #94a3b8;
-    border-top-color: rgba(255, 255, 255, 0.06);
-
-    :deep(.el-pagination.is-background .btn-prev),
-    :deep(.el-pagination.is-background .btn-next),
-    :deep(.el-pagination.is-background .el-pager li) {
-      color: #94a3b8;
-      background: rgba(255, 255, 255, 0.035);
-    }
-
-    :deep(.el-pagination.is-background .btn-prev:hover),
-    :deep(.el-pagination.is-background .btn-next:hover),
-    :deep(.el-pagination.is-background .el-pager li:hover) {
-      color: var(--brand-selected-bg);
-      background: rgb(var(--brand-primary-rgb) / 0.12);
-    }
-
-    :deep(.el-pagination.is-background .el-pager li.is-active) {
-      color: #fff;
-      background: linear-gradient(135deg, var(--brand-primary), var(--brand-hover));
-    }
-
-    :deep(.el-pagination.is-background .btn-prev.is-disabled),
-    :deep(.el-pagination.is-background .btn-next.is-disabled),
-    :deep(.el-pagination.is-background .el-pager li.is-disabled) {
-      color: rgba(148, 163, 184, 0.35);
-      background: rgba(255, 255, 255, 0.02);
-    }
-  }
-}
-
 @media (max-width: 1200px) {
-  .metric-strip {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    max-height: none;
-  }
-
-  .metric-divider {
-    display: none;
-  }
-
-  .toolbar {
-    grid-template-columns: minmax(0, 2fr) repeat(2, minmax(0, 1fr));
-  }
-
-  .toolbar-search {
-    grid-column: 1 / -1;
-    justify-self: end;
-    min-width: 96px;
-  }
 
   .empty-main {
     flex-direction: column;
@@ -2197,25 +1596,7 @@ function workflowStatusClass(status?: string | null) {
   }
 }
 
-@media (max-width: 1400px) {
-  .metric-line {
-    justify-content: flex-start;
-    gap: 0;
-  }
-
-  .metric-label {
-    overflow: visible;
-    text-overflow: clip;
-    white-space: normal;
-  }
-
-  .metric-delta {
-    display: none;
-  }
-}
-
 @media (max-width: 760px) {
-  .toolbar,
   .create-form-grid {
     grid-template-columns: 1fr;
   }
@@ -2225,16 +1606,6 @@ function workflowStatusClass(status?: string | null) {
     height: 176px;
   }
 
-  .table-footer {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-}
-
-@media (max-width: 480px) {
-  .metric-strip {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

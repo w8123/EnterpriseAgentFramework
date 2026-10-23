@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
 import {
   AGENT_SKILL_MIGRATION,
+  AGENT_SKILL_RECENT_UPGRADE,
   AGENT_SKILL_MARKET_MIGRATION,
   evaluateAgentSkillDeploymentEvidence,
   inspectAgentSkillRepository,
@@ -135,18 +137,12 @@ test('repository contract keeps baseline, migration, owners, permissions, and co
 
   const migration = await readFile(AGENT_SKILL_MIGRATION, 'utf8')
   const marketMigration = await readFile(AGENT_SKILL_MARKET_MIGRATION, 'utf8')
-  const skillSection = migration.slice(
-    migration.indexOf('-- Section 02/14:'),
-    migration.indexOf('-- Section 03/14:'),
-  )
-  const marketSection = marketMigration.slice(
-    marketMigration.indexOf('-- Section 04/14:'),
-    marketMigration.indexOf('-- Section 05/14:'),
-  )
-  assert.match(skillSection, /-- Section 02\/14:/)
-  assert.match(marketSection, /-- Section 04\/14:/)
-  assert.doesNotMatch(skillSection, /\b(?:DROP|DELETE|TRUNCATE)\b/i)
-  assert.doesNotMatch(marketSection, /\b(?:DROP|DELETE|TRUNCATE)\b/i)
+  assert.equal(AGENT_SKILL_MIGRATION, 'sql/initV2.sql')
+  assert.equal(AGENT_SKILL_MARKET_MIGRATION, 'sql/initV2.sql')
+  for (const { name } of [...REQUIRED_AGENT_SKILL_TABLES, ...REQUIRED_AGENT_SKILL_MARKET_TABLES]) {
+    assert.match(migration, new RegExp('CREATE TABLE IF NOT EXISTS `' + name + '`'))
+    assert.doesNotMatch(marketMigration, new RegExp('DROP\\s+TABLE\\s+(?:IF\\s+EXISTS\\s+)?`?' + name + '`?\\s*;', 'i'))
+  }
 })
 
 test('complete development evidence is deployment ready but cannot authorize production promotion', async () => {
@@ -167,6 +163,18 @@ test('complete staging evidence can authorize promotion', async () => {
   )
   assert.equal(result.deploymentReady, true, JSON.stringify(result.issues, null, 2))
   assert.equal(result.productionPromotionEligible, true)
+})
+
+test('existing databases can supply the recent upgrade with independent Skill schema readback', async () => {
+  const checksum = createHash('sha256').update(await readFile(AGENT_SKILL_RECENT_UPGRADE)).digest('hex')
+  const evidence = passingEvidence(checksum)
+  evidence.migration.script = AGENT_SKILL_RECENT_UPGRADE
+  const result = evaluateAgentSkillDeploymentEvidence(evidence, { expectedMigrationChecksum: checksum, now: NOW })
+  assert.equal(result.deploymentReady, true, JSON.stringify(result.issues, null, 2))
+  evidence.migration.tables[0].columnContractVerified = false
+  const missingReadback = evaluateAgentSkillDeploymentEvidence(evidence, { expectedMigrationChecksum: checksum, now: NOW })
+  assert.equal(missingReadback.deploymentReady, false)
+  assert.ok(missingReadback.issues.some(issue => issue.code === 'TABLE_COLUMN_CONTRACT_UNVERIFIED'))
 })
 
 test('schema drift, missing permissions, and migration checksum mismatch fail closed', async () => {

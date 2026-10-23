@@ -84,9 +84,11 @@ mustNotInclude(listPage, 'workspaceId', 'ModelInstances.vue must not use workspa
 mustNotInclude(listPage, 'credential', 'ModelInstances.vue must not use credential field')
 mustNotInclude(listPage, 'endpointType', 'ModelInstances.vue must not use endpointType')
 mustInclude(listPage, 'model-center-filter-bar', 'ModelInstances.vue must use dedicated filter bar class')
-mustInclude(listPage, 'grid-template-rows: auto minmax(0, 1fr)', 'ModelInstances shell must pin toolbar row to auto height')
+// R3-3：卡片区改由 LiquidGlassTable(cards) 承载，工具栏行高由公共外壳固定；类型页签复用 LiquidGlassNav 的统一控件高度。
+mustInclude(listPage, 'body-layout="cards"', 'ModelInstances shell must use the shared LiquidGlassTable card layout')
+mustInclude(listPage, '<LiquidGlassFilterBar', 'ModelInstances filters must use the shared LiquidGlassFilterBar')
 mustInclude(listPage, 'align-content: start', 'ModelInstances shell must avoid grid stretch blank space')
-mustInclude(listPage, 'height: 36px', 'ModelInstances type tabs must use compact pill height')
+mustInclude(listPage, '<LiquidGlassNav class="model-center__type-tabs"', 'ModelInstances type tabs must use the shared LiquidGlassNav pill height')
 
 mustInclude(router, "path: 'model/instances/:id'", 'router must include model instance detail route')
 mustInclude(detailPage, 'editing', 'ModelInstanceDetail.vue must support edit mode')

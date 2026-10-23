@@ -4,8 +4,9 @@ import { activeRunCenterTab, firstRunCenterPath, visibleRunCenterTabs } from './
 describe('run center tabs', () => {
   it('shows each tab only with its own permission', () => {
     expect(visibleRunCenterTabs(['runops:read']).map(tab => tab.key)).toEqual(['conversations', 'runs'])
-    expect(visibleRunCenterTabs(['automation:read', 'agent:evaluate']).map(tab => tab.key)).toEqual(['automations', 'evals'])
-    expect(visibleRunCenterTabs(['*']).map(tab => tab.key)).toEqual(['conversations', 'runs', 'automations', 'evals'])
+    expect(visibleRunCenterTabs(['automation:read']).map(tab => tab.key)).toEqual([])
+    expect(visibleRunCenterTabs(['automation:read', 'agent:evaluate']).map(tab => tab.key)).toEqual(['evals'])
+    expect(visibleRunCenterTabs(['*']).map(tab => tab.key)).toEqual(['conversations', 'runs', 'evals'])
   })
 
   it('lands on the first tab the user can open', () => {
@@ -16,7 +17,6 @@ describe('run center tabs', () => {
 
   it('keeps run details under the run records tab', () => {
     expect(activeRunCenterTab('/runops/trace-1')).toBe('runs')
-    expect(activeRunCenterTab('/runops/automations')).toBe('automations')
     expect(activeRunCenterTab('/runops/conversations/s-1')).toBe('conversations')
     expect(activeRunCenterTab('/runops/evals/agent-1')).toBe('evals')
   })

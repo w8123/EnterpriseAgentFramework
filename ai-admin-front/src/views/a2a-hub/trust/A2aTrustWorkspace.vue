@@ -3,7 +3,9 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Key, Plus, Refresh, Search, User } from '@element-plus/icons-vue'
 import AppDialog from '@/components/common/AppDialog.vue'
+// A2A 互联中心子页契约要求持有 WorkbenchPanel（check-page-header-family）；本页列表已改用 LiquidGlassTable。
 import WorkbenchPanel from '@/components/common/WorkbenchPanel.vue'
+import { LiquidGlassButton, LiquidGlassControl, LiquidGlassFilterBar, LiquidGlassInput, LiquidGlassNav, LiquidGlassNotice, LiquidGlassTable } from '@/components/common/liquid-glass'
 import A2aTrustLevelBadge from '@/components/a2a-hub/A2aTrustLevelBadge.vue'
 import {
   changeA2aPrincipalStatus,
@@ -39,6 +41,11 @@ const search = ref('')
 const profiles = ref<A2aTrustProfile[]>([])
 const principals = ref<A2aPrincipal[]>([])
 const credentials = ref<A2aCredential[]>([])
+const workspaceTabs = computed(() => [
+  { name: 'profiles', label: 'Trust Profile', count: profiles.value.length },
+  { name: 'principals', label: 'Principal', count: principals.value.length },
+  { name: 'credentials', label: '凭据', count: credentials.value.length },
+])
 const runtimeAgents = ref<Agent[]>([])
 
 const profileDialogVisible = ref(false)
@@ -383,32 +390,34 @@ onMounted(reload)
   <section class="trust-workspace">
     <div class="section-intro">
       <div><h2>信任与策略</h2><p>Principal 来自认证结果；Trust Profile 决定谁能调用谁、处理什么数据，以及任务边界。</p></div>
-      <el-button :icon="Refresh" :loading="loading" @click="reload">刷新</el-button>
+      <div class="section-actions">
+        <LiquidGlassControl source="wallpaper">
+          <el-button :icon="Refresh" :loading="loading" @click="reload">刷新</el-button>
+        </LiquidGlassControl>
+        <LiquidGlassButton v-if="activeTab === 'profiles'" source="wallpaper" type="primary" :icon="Plus" @click="openProfile()">新建策略</LiquidGlassButton>
+        <LiquidGlassButton v-else-if="activeTab === 'principals'" source="wallpaper" type="primary" :icon="User" @click="openPrincipal">新建主体</LiquidGlassButton>
+        <template v-else>
+          <LiquidGlassButton source="wallpaper" :icon="Key" @click="openCredential('INBOUND')">签发入站 Key</LiquidGlassButton>
+          <LiquidGlassButton source="wallpaper" type="primary" :icon="Key" @click="openCredential('OUTBOUND')">保存出站凭据</LiquidGlassButton>
+        </template>
+      </div>
     </div>
 
-    <el-alert type="info" :closable="false" show-icon title="请求 metadata 中的 userId、tenant、role 和 scope 永远不会提升为安全主体。远程 Agent 默认禁用 Personal Memory。" />
+    <LiquidGlassNotice source="wallpaper" type="info" title="请求 metadata 中的 userId、tenant、role 和 scope 永远不会提升为安全主体。远程 Agent 默认禁用 Personal Memory。" />
 
-    <WorkbenchPanel level="control" density="compact">
-      <div class="workspace-toolbar">
-        <el-tabs v-model="activeTab" class="workspace-tabs">
-          <el-tab-pane :label="`Trust Profile (${profiles.length})`" name="profiles" />
-          <el-tab-pane :label="`Principal (${principals.length})`" name="principals" />
-          <el-tab-pane :label="`凭据 (${credentials.length})`" name="credentials" />
-        </el-tabs>
-        <div class="toolbar-actions">
-          <el-input v-model="search" :prefix-icon="Search" clearable placeholder="搜索当前治理资产" @keyup.enter="reload" />
-          <el-button v-if="activeTab === 'profiles'" type="primary" :icon="Plus" @click="openProfile()">新建策略</el-button>
-          <el-button v-else-if="activeTab === 'principals'" type="primary" :icon="User" @click="openPrincipal">新建主体</el-button>
-          <template v-else>
-            <el-button :icon="Key" @click="openCredential('INBOUND')">签发入站 Key</el-button>
-            <el-button type="primary" :icon="Key" @click="openCredential('OUTBOUND')">保存出站凭据</el-button>
-          </template>
-        </div>
-      </div>
-    </WorkbenchPanel>
+    <LiquidGlassNav source="wallpaper" class="workspace-tabs" aria-label="治理资产类型">
+      <button v-for="tab in workspaceTabs" :key="tab.name" type="button" :aria-pressed="activeTab === tab.name" @click="activeTab = tab.name">
+        {{ tab.label }}<span class="tab-count">{{ tab.count }}</span>
+      </button>
+    </LiquidGlassNav>
 
-    <el-card v-if="activeTab === 'profiles'" class="workbench-list-surface" shadow="never">
-      <el-table :data="profiles" v-loading="loading" stripe>
+    <LiquidGlassTable class="workbench-list-surface" :loading="loading" :show-pagination="false">
+      <template #toolbar>
+        <LiquidGlassFilterBar :loading="loading" :show-reset="false" @query="reload">
+          <LiquidGlassInput v-model="search" :prefix-icon="Search" clearable placeholder="搜索当前治理资产" aria-label="搜索治理资产" @clear="reload" />
+        </LiquidGlassFilterBar>
+      </template>
+      <el-table v-if="activeTab === 'profiles'" :data="profiles" stripe empty-text="还没有 Trust Profile">
         <el-table-column label="策略" min-width="180"><template #default="{ row }"><div class="cell-stack"><strong>{{ row.name }}</strong><small>{{ row.profileKey }} · v{{ row.version }}</small></div></template></el-table-column>
         <el-table-column label="范围" width="150"><template #default="{ row }"><div class="cell-stack"><strong>{{ a2aLabel(row.direction) }} · {{ a2aLabel(row.environment) }}</strong><small>{{ row.authorizationPolicy.publicationKeys.join(', ') || '无 Publication 权限' }}</small></div></template></el-table-column>
         <el-table-column label="信任" width="95"><template #default="{ row }"><A2aTrustLevelBadge :level="row.trustLevel" /></template></el-table-column>
@@ -417,10 +426,7 @@ onMounted(reload)
         <el-table-column label="状态" width="90"><template #default="{ row }"><el-tag :type="a2aTone(row.status)" size="small">{{ a2aLabel(row.status) }}</el-tag></template></el-table-column>
         <el-table-column label="操作" width="180" fixed="right"><template #default="{ row }"><el-button link type="primary" @click="openProfile(row)">编辑</el-button><el-button v-if="row.status === 'ACTIVE'" link type="warning" @click="transitionProfile(row, 'DISABLED')">停用</el-button><el-button v-if="row.status === 'DISABLED'" link type="success" @click="transitionProfile(row, 'ACTIVE')">启用</el-button><el-button v-if="row.status !== 'ARCHIVED'" link type="danger" @click="transitionProfile(row, 'ARCHIVED')">归档</el-button></template></el-table-column>
       </el-table>
-    </el-card>
-
-    <el-card v-else-if="activeTab === 'principals'" class="workbench-list-surface" shadow="never">
-      <el-table :data="principals" v-loading="loading" stripe>
+      <el-table v-else-if="activeTab === 'principals'" :data="principals" stripe empty-text="还没有 Principal">
         <el-table-column label="Principal" min-width="190"><template #default="{ row }"><div class="cell-stack"><strong>{{ row.displayName }}</strong><small>{{ row.principalKey }} · {{ row.principalType }}</small></div></template></el-table-column>
         <el-table-column prop="tenantScope" label="租户" width="130"><template #default="{ row }">{{ row.tenantScope || '全局' }}</template></el-table-column>
         <el-table-column label="Trust / Credential" min-width="150"><template #default="{ row }"><div class="cell-stack"><strong>Trust #{{ row.trustProfileId }}</strong><small>{{ row.credentialId ? `Credential #${row.credentialId}` : '匿名开发主体' }}</small></div></template></el-table-column>
@@ -429,10 +435,7 @@ onMounted(reload)
         <el-table-column label="状态" width="90"><template #default="{ row }"><el-tag :type="a2aTone(row.status)" size="small">{{ a2aLabel(row.status) }}</el-tag></template></el-table-column>
         <el-table-column label="操作" width="170" fixed="right"><template #default="{ row }"><el-button v-if="row.status === 'ACTIVE'" link type="warning" @click="transitionPrincipal(row, 'QUARANTINED')">隔离</el-button><el-button v-if="['DISABLED','QUARANTINED'].includes(row.status)" link type="success" @click="transitionPrincipal(row, 'ACTIVE')">恢复</el-button><el-button v-if="row.status !== 'ARCHIVED'" link type="danger" @click="transitionPrincipal(row, 'ARCHIVED')">归档</el-button></template></el-table-column>
       </el-table>
-    </el-card>
-
-    <el-card v-else class="workbench-list-surface" shadow="never">
-      <el-table :data="credentials" v-loading="loading" stripe>
+      <el-table v-else :data="credentials" stripe empty-text="还没有凭据">
         <el-table-column label="凭据" min-width="180"><template #default="{ row }"><div class="cell-stack"><strong>{{ row.name }}</strong><small>{{ row.credentialKey }} · v{{ row.versionNo }}</small></div></template></el-table-column>
         <el-table-column label="方向" width="90"><template #default="{ row }"><el-tag size="small" effect="plain">{{ a2aLabel(row.direction) }}</el-tag></template></el-table-column>
         <el-table-column prop="credentialType" label="类型" width="110"><template #default="{ row }">{{ a2aLabel(row.credentialType) }}</template></el-table-column>
@@ -442,7 +445,7 @@ onMounted(reload)
         <el-table-column label="状态" width="90"><template #default="{ row }"><el-tag :type="a2aTone(row.status)" size="small">{{ a2aLabel(row.status) }}</el-tag></template></el-table-column>
         <el-table-column label="操作" width="130" fixed="right"><template #default="{ row }"><el-button v-if="['ACTIVE','GRACE'].includes(row.status)" link type="primary" @click="rotateCredential(row)">轮换</el-button><el-button v-if="['ACTIVE','GRACE'].includes(row.status)" link type="danger" @click="revokeCredential(row)">吊销</el-button></template></el-table-column>
       </el-table>
-    </el-card>
+    </LiquidGlassTable>
 
     <AppDialog v-model="profileDialogVisible" :title="editingProfileId ? '编辑 Trust Profile' : '新建 Trust Profile'" width="min(920px, 94vw)" :close-on-click-modal="false">
       <el-form label-position="top" class="policy-form">
@@ -455,9 +458,9 @@ onMounted(reload)
         <div class="form-grid form-grid--4"><el-form-item label="数据等级"><el-select v-model="profileForm.dataPolicy.allowedDataClassifications" multiple filterable allow-create default-first-option /></el-form-item><el-form-item label="正文保留（天）"><el-input-number v-model="profileForm.dataPolicy.payloadRetentionDays" :min="0" :max="3650" /></el-form-item><el-form-item label="每分钟请求"><el-input-number v-model="profileForm.rateLimitPerMinute" :min="1" /></el-form-item><el-form-item label="并发 Task"><el-input-number v-model="profileForm.maxConcurrentTasks" :min="1" /></el-form-item><el-form-item label="请求上限（bytes）"><el-input-number v-model="profileForm.maxRequestBytes" :min="1" /></el-form-item><el-form-item label="Artifact 上限（bytes）"><el-input-number v-model="profileForm.maxArtifactBytes" :min="1" /></el-form-item><el-form-item label="Task 超时（ms）"><el-input-number v-model="profileForm.taskTimeoutMs" :min="1000" /></el-form-item></div>
         <div class="switch-row"><el-checkbox v-model="profileForm.dataPolicy.allowTextParts">允许 Text Part</el-checkbox><el-checkbox v-model="profileForm.dataPolicy.allowFileParts">允许 File Part</el-checkbox><el-checkbox v-model="profileForm.dataPolicy.allowUrlParts">允许 URL Part</el-checkbox></div>
         <div class="form-grid"><el-form-item label="委派用户身份"><el-select v-model="profileForm.delegatedIdentityPolicy"><el-option label="禁止" value="DENY" /><el-option label="仅接受可验证声明" value="ATTESTED_ONLY" /></el-select></el-form-item><el-form-item label="Personal Memory"><el-select v-model="profileForm.personalMemoryPolicy"><el-option label="禁用（默认）" value="DISABLED" /><el-option label="仅验证用户" value="ATTESTED_USER_ONLY" /></el-select></el-form-item></div>
-        <el-alert v-if="profileForm.authenticationMethods.includes('ANONYMOUS')" type="error" :closable="false" show-icon title="匿名仅限 DEVELOPMENT，且不能与其他认证方式混用；页面已自动收紧这些字段。" />
+        <LiquidGlassNotice v-if="profileForm.authenticationMethods.includes('ANONYMOUS')" type="error" title="匿名仅限 DEVELOPMENT，且不能与其他认证方式混用；页面已自动收紧这些字段。" />
       </el-form>
-      <template #footer><el-button @click="profileDialogVisible = false">取消</el-button><el-button type="primary" :loading="profileSubmitting" @click="saveProfile">保存策略</el-button></template>
+      <template #footer><LiquidGlassButton @click="profileDialogVisible = false">取消</LiquidGlassButton><LiquidGlassButton type="primary" :loading="profileSubmitting" @click="saveProfile">保存策略</LiquidGlassButton></template>
     </AppDialog>
 
     <AppDialog
@@ -478,35 +481,35 @@ onMounted(reload)
         </el-form-item>
         <el-form-item label="过期时间"><el-date-picker v-model="credentialForm.expiresAt" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" /></el-form-item>
       </el-form>
-      <el-alert v-if="credentialDirection === 'OUTBOUND'" type="warning" :closable="false" show-icon title="不要把远端秘密复制到日志、工单、聊天或 Git。保存后只能轮换，不能读取。" />
-      <template #footer><el-button @click="credentialDialogVisible = false">取消</el-button><el-button type="primary" :loading="credentialSubmitting" @click="createCredential">{{ credentialDirection === 'OUTBOUND' ? '加密保存' : '签发' }}</el-button></template>
+      <LiquidGlassNotice v-if="credentialDirection === 'OUTBOUND'" type="warning" title="不要把远端秘密复制到日志、工单、聊天或 Git。保存后只能轮换，不能读取。" />
+      <template #footer><LiquidGlassButton @click="credentialDialogVisible = false">取消</LiquidGlassButton><LiquidGlassButton type="primary" :loading="credentialSubmitting" @click="createCredential">{{ credentialDirection === 'OUTBOUND' ? '加密保存' : '签发' }}</LiquidGlassButton></template>
     </AppDialog>
 
     <AppDialog :model-value="secretVisible" title="立即保存 API Key" description="离开此窗口后平台无法恢复原始 Key；请保存到 Vault/KMS 等企业秘密管理器。" width="680px" :show-close="false" :close-on-click-modal="false" :close-on-press-escape="false" @update:model-value="(value: boolean) => { if (!value) closeSecret() }">
-      <el-alert type="warning" :closable="false" show-icon title="不要把 API Key 粘贴到聊天、日志、工单或 Git。" />
+      <LiquidGlassNotice type="warning" title="不要把 API Key 粘贴到聊天、日志、工单或 Git。" />
       <div v-if="secretIssue" class="secret-box"><code>{{ secretIssue.apiKeyOnce }}</code><el-button type="primary" @click="copySecret">复制</el-button></div>
-      <template #footer><el-button type="primary" @click="closeSecret">我已安全保存，关闭</el-button></template>
+      <template #footer><LiquidGlassButton type="primary" @click="closeSecret">我已安全保存，关闭</LiquidGlassButton></template>
     </AppDialog>
 
     <AppDialog v-model="principalDialogVisible" title="创建认证 Principal" description="Principal 是凭据认证后的稳定身份，不读取请求 metadata 生成。" width="650px" :close-on-click-modal="false">
-      <el-form label-position="top"><div class="form-grid"><el-form-item label="主体标识"><el-input v-model="principalForm.principalKey" placeholder="例如 partner-alpha.agent" /></el-form-item><el-form-item label="显示名称"><el-input v-model="principalForm.displayName" /></el-form-item></div><div class="form-grid"><el-form-item label="主体类型"><el-select v-model="principalForm.principalType" @change="principalTypeChanged"><el-option label="本地 Agent（用于出站委派）" value="LOCAL_AGENT" /><el-option label="远程 Agent" value="REMOTE_AGENT" /><el-option label="远程客户端" value="REMOTE_CLIENT" /></el-select></el-form-item><el-form-item label="租户范围"><el-input v-model="principalForm.tenantScope" placeholder="留空表示全局" /></el-form-item></div><el-form-item v-if="localAgentPrincipal" label="本地 Runtime Agent"><el-select v-model="principalForm.runtimeAgentId" filterable><el-option v-for="agent in runtimeAgents" :key="agent.id" :label="`${agent.name} · ${agent.keySlug}`" :value="agent.id" /></el-select></el-form-item><el-form-item label="Trust Profile"><el-select v-model="principalForm.trustProfileId" filterable @change="principalTrustChanged"><el-option v-for="profile in principalTrustProfiles" :key="profile.id" :label="`${profile.name} · ${a2aLabel(profile.direction)} · ${a2aLabel(profile.environment)}`" :value="profile.id" /></el-select></el-form-item><el-form-item v-if="!localAgentPrincipal && selectedTrust && !selectedTrust.allowAnonymous" label="API Key 凭据"><el-select v-model="principalForm.credentialId" filterable><el-option v-for="credential in activeCredentials" :key="credential.id" :label="`${credential.name} · v${credential.versionNo} · ${credential.fingerprint.slice(0, 12)}…`" :value="credential.id" /></el-select></el-form-item><el-alert v-if="localAgentPrincipal" type="info" :closable="false" show-icon title="本地 Agent Principal 由 Runtime 通过服务间身份校验，不绑定入站凭据；只允许选择出站或双向 Trust Profile。" /><el-form-item label="Scopes"><el-select v-model="principalForm.scopes" multiple filterable allow-create default-first-option /></el-form-item></el-form>
-      <template #footer><el-button @click="principalDialogVisible = false">取消</el-button><el-button type="primary" :loading="principalSubmitting" @click="savePrincipal">创建主体</el-button></template>
+      <el-form label-position="top"><div class="form-grid"><el-form-item label="主体标识"><el-input v-model="principalForm.principalKey" placeholder="例如 partner-alpha.agent" /></el-form-item><el-form-item label="显示名称"><el-input v-model="principalForm.displayName" /></el-form-item></div><div class="form-grid"><el-form-item label="主体类型"><el-select v-model="principalForm.principalType" @change="principalTypeChanged"><el-option label="本地 Agent（用于出站委派）" value="LOCAL_AGENT" /><el-option label="远程 Agent" value="REMOTE_AGENT" /><el-option label="远程客户端" value="REMOTE_CLIENT" /></el-select></el-form-item><el-form-item label="租户范围"><el-input v-model="principalForm.tenantScope" placeholder="留空表示全局" /></el-form-item></div><el-form-item v-if="localAgentPrincipal" label="本地 Runtime Agent"><el-select v-model="principalForm.runtimeAgentId" filterable><el-option v-for="agent in runtimeAgents" :key="agent.id" :label="`${agent.name} · ${agent.keySlug}`" :value="agent.id" /></el-select></el-form-item><el-form-item label="Trust Profile"><el-select v-model="principalForm.trustProfileId" filterable @change="principalTrustChanged"><el-option v-for="profile in principalTrustProfiles" :key="profile.id" :label="`${profile.name} · ${a2aLabel(profile.direction)} · ${a2aLabel(profile.environment)}`" :value="profile.id" /></el-select></el-form-item><el-form-item v-if="!localAgentPrincipal && selectedTrust && !selectedTrust.allowAnonymous" label="API Key 凭据"><el-select v-model="principalForm.credentialId" filterable><el-option v-for="credential in activeCredentials" :key="credential.id" :label="`${credential.name} · v${credential.versionNo} · ${credential.fingerprint.slice(0, 12)}…`" :value="credential.id" /></el-select></el-form-item><LiquidGlassNotice v-if="localAgentPrincipal" type="info" title="本地 Agent Principal 由 Runtime 通过服务间身份校验，不绑定入站凭据；只允许选择出站或双向 Trust Profile。" /><el-form-item label="Scopes"><el-select v-model="principalForm.scopes" multiple filterable allow-create default-first-option /></el-form-item></el-form>
+      <template #footer><LiquidGlassButton @click="principalDialogVisible = false">取消</LiquidGlassButton><LiquidGlassButton type="primary" :loading="principalSubmitting" @click="savePrincipal">创建主体</LiquidGlassButton></template>
     </AppDialog>
   </section>
 </template>
 
 <style scoped lang="scss">
 .trust-workspace { display: flex; flex-direction: column; gap: var(--layout-page-gap); }
-.section-intro, .workspace-toolbar, .toolbar-actions, .switch-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.section-intro, .section-actions, .switch-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .section-intro { align-items: flex-start; }
 .section-intro h2, .section-intro p { margin: 0; }
-.section-intro h2 { font-size: 18px; }
-.section-intro p { margin-top: 4px; color: var(--text-muted); font-size: 13px; }
-.workspace-tabs { min-width: 0; flex: 1; }
-.workspace-tabs :deep(.el-tabs__header) { margin: 0; }
-.workspace-tabs :deep(.el-tabs__content) { display: none; }
-.toolbar-actions .el-input { width: 250px; }
+.section-intro h2 { color: var(--text-on-wallpaper); font-size: 18px; }
+.section-intro p { margin-top: 4px; color: var(--text-on-wallpaper-secondary); font-size: 13px; }
+.section-actions { flex-wrap: wrap; justify-content: flex-end; }
+.workspace-tabs { align-self: flex-start; }
+.tab-count { min-width: 20px; padding: 0 6px; border-radius: var(--radius-pill); background: var(--surface-glass-inset); font-size: 11px; font-variant-numeric: tabular-nums; text-align: center; }
 .cell-stack strong, .cell-stack small { display: block; }
+.cell-stack strong { color: var(--text-primary); }
 .cell-stack small { margin-top: 3px; color: var(--text-muted); font-size: 11px; }
 .inline-tag { margin: 2px 4px 2px 0; }
 .policy-form :deep(.el-select), .policy-form :deep(.el-input-number), .policy-form :deep(.el-date-editor), .el-dialog :deep(.el-select), .el-dialog :deep(.el-date-editor) { width: 100%; }
@@ -517,9 +520,8 @@ onMounted(reload)
 .secret-box code { overflow-wrap: anywhere; color: var(--text-primary); font-size: 13px; }
 
 @media (max-width: 900px) {
-  .workspace-toolbar { align-items: stretch; flex-direction: column; }
-  .toolbar-actions { width: 100%; flex-wrap: wrap; justify-content: flex-start; }
-  .toolbar-actions .el-input { width: 100%; }
+  .section-intro { align-items: stretch; flex-direction: column; }
+  .section-actions { justify-content: flex-start; }
   .form-grid--4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 

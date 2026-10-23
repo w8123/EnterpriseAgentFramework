@@ -785,12 +785,7 @@ export function draftRuntimeFingerprint(draft: ModelInstanceDraft, apiKeyInput: 
   })
 }
 
-export function formatDateTime(value: string | null | undefined): string {
-  if (!value) return '-'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleString()
-}
+export { formatDateTime } from '@/utils/dateTime'
 
 export function formatLatency(ms: number | null | undefined): string {
   if (ms == null || Number.isNaN(Number(ms))) return '-'

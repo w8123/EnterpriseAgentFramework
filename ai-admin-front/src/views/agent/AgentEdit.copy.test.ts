@@ -2,10 +2,10 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-const source = readFileSync(resolve(__dirname, './AgentEdit.vue'), 'utf8')
+import { agentEditSource as source, agentEditTemplate as template } from './agentEditSources.testutil'
+
 const routerSource = readFileSync(resolve(__dirname, '../../router/index.ts'), 'utf8')
 const breadcrumbSource = readFileSync(resolve(__dirname, '../../components/common/AppBreadcrumb.vue'), 'utf8')
-const template = source.split('<script setup')[0]
 
 describe('AgentEdit user-facing copy', () => {
   it('uses task-oriented names for the primary configuration areas', () => {
@@ -52,7 +52,8 @@ describe('AgentEdit user-facing copy', () => {
 
     expect(agentEditRoute).toBeTruthy()
     expect(agentEditRoute).toContain('title: resolveAgentEditorTitle')
-    expect(agentEditRoute).toContain("{ title: '智能体与编排', to: { path: '/agent' } }")
+    expect(agentEditRoute).toContain("{ title: 'AI 资产' }")
+    expect(agentEditRoute).toContain("{ title: 'Agent', to: { path: '/agent' } }")
     expect(agentEditRoute).toContain('{ title: resolveAgentEditorTitle }')
     expect(routerSource).toContain("route.params.id === 'new' ? '新建 Agent' : 'Agent 编辑'")
     expect(routerSource).toContain("typeof metaTitle === 'function' ? metaTitle(to) : metaTitle")

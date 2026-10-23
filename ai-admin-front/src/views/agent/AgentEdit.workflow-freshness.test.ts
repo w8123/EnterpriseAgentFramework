@@ -1,9 +1,6 @@
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-const source = readFileSync(resolve(__dirname, './AgentEdit.vue'), 'utf8')
-const [template, script] = source.split('<script setup')
+import { agentEditScript as script, agentEditSource as source, agentEditTemplate as template } from './agentEditSources.testutil'
 
 describe('AgentEdit Workflow version freshness', () => {
   it('tells the user the published config still runs an older Workflow version', () => {

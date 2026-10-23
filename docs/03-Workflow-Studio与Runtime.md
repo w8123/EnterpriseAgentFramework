@@ -37,7 +37,7 @@ Supervisor 的职责边界：
 | Page Bridge 动作执行超时 | 30 秒 |
 | 页面动作用户确认窗口 | 90 秒（平台独立控制） |
 
-只读 Workflow 可按 `parallel_read_only` 允许并行工具调用；写操作使用串行锁执行。每次调用都经过 `SupervisorToolPolicyService` 并写 Guard/Trace：READ 自动执行，PAGE_ACTION 要求用户原始问题中存在明确页面意图，WRITE 进入一次性确认，不可逆操作默认拒绝。`DEV_ALLOW_ALL` 仅跳过研发期 tenant allowlist 与 permission-role 映射，不绕过风险边界。
+只读 Workflow 可按 `parallel_read_only` 允许并行工具调用；写操作使用串行锁执行。每次调用都经过 `SupervisorToolPolicyService` 并写 Guard/Trace：READ 自动执行，PAGE_ACTION 要求用户原始问题中存在明确页面意图，WRITE 进入一次性确认，不可逆操作默认拒绝。`DEV_ALLOW_ALL` 仅跳过研发期 tenant allowlist 与 permission-role 映射，不绕过风险边界。新建 Agent 默认 `STANDARD`（要求请求带租户；Workflow 所需权限缺省为 `workflow:<keySlug>`），研发模式需在「高级运行设置」里手动选择，配置页会持续提示。Agent 调试默认跑当前草稿（Control 校验 `agent:debug` 后转发配置版本），其余入口只跑线上版本。
 
 ## Agent 配置与 Workflow-as-Tool
 
@@ -54,6 +54,8 @@ Supervisor 的职责边界：
 管理端 `AgentEdit.vue` 维护 Supervisor 配置和 Workflow 工具，并通过配置版本 API 发布新版本。Agent 主表保持稳定，提示词、模型、限制和工具集合通过配置版本演进，避免把每次配置调整写回身份主表。
 
 每个 Workflow 工具可以覆盖名称、描述、输入/输出 schema，并声明 `risk_level`、`permission_key`、`read_only`、启用状态和优先级。Runtime 只装载 ACTIVE Workflow 的 ACTIVE 版本快照；草稿或没有可执行版本的 Workflow 不会被暴露给 Supervisor。
+
+知识库以知识问答 Workflow（`kb-qa-<项目>-<知识库>`）接入 Agent。Agent 配置页的「知识库」分区调用 `POST /api/agents/{agentId}/knowledge-qa`，并传 `attachToAgent=false`：这一步只创建并发布这个 Workflow（需要 `agent:write`、`workflow:publish` 和 `knowledge:read`），再把它加入当前草稿，之后和其他配置一起调试、发布。这类 Workflow 不在「可调用 Workflow」列表里重复显示。知识库详情页的「接入 Agent」不传这个参数，仍然一步加入并发布 Agent（需要 `agent:publish`）。Agent 概览展示最近 5 条运行和最近一次评测，并链接到运行中心。
 
 ## Workflow Studio 与 GraphSpec
 
@@ -86,6 +88,7 @@ Agent Supervisor 的系统提示要求核对工具结果是否就是用户问的
 ### Studio 编辑、调试与评测
 
 - 单击画布节点，右侧属性面板直接显示「配置 / 测试 / 调试记录」三个页签，修改立即写入画布草稿；面板可拖宽，宽度记在本机浏览器。节点配置面板按面板宽度自适应（CSS 容器 `studio-config`）。
+- 节点名称在面板顶部直接编辑，说明默认折叠；配置页按节点任务分区，输入变量、输出变量与高级契约按需展开，不再嵌套第二层页签。大模型的变量插入与预览紧邻提示词，页面动作参数按行编辑。各节点分区见[节点面板整理](plans/Workflow节点面板整理.md)。
 - 顶部「调试」按钮旁标出当前方式：草稿不调用业务方法或 API 时是「沙箱」调试；调用了时改为「只读试运行」，真实调用业务系统但只允许只读操作，需先保存草稿。
 - 评测集按 Agent 保存在运行中心。Studio「更多 → 到运行中心评测」列出引用该 Workflow 的 Agent，只有一个时直接打开它的评测页（`/runops/evals/{agentId}`）；Studio 不再提供页面内临时的批量评测。
 

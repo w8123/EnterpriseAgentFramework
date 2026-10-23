@@ -5,7 +5,7 @@ import type {
   DashboardWidgetRect,
 } from '@/types/operationsDashboard'
 
-export const DASHBOARD_LAYOUT_SCHEMA_VERSION = 1
+export const DASHBOARD_LAYOUT_SCHEMA_VERSION = 2
 export const DASHBOARD_GRID_COLUMNS = 12
 export const DASHBOARD_GRID_ROW_HEIGHT = 57
 export const DASHBOARD_GRID_GAP = 12
@@ -166,6 +166,12 @@ function parseConfig(value: unknown): Record<string, unknown> {
     if ((key === 'topN' || key === 'displayCount') && typeof entry === 'number' && Number.isFinite(entry)) {
       result[key] = entry
     }
+    if (key === 'shortcutPreset' && typeof entry === 'string' && ['developer', 'operator', 'admin', 'custom'].includes(entry)) {
+      result[key] = entry
+    }
+    if (key === 'shortcutIds' && Array.isArray(entry)) {
+      result[key] = entry.filter(id => typeof id === 'string')
+    }
   }
   return result
 }
@@ -196,7 +202,7 @@ function parseInstance(value: unknown): DashboardWidgetInstance | null {
 export function parseLayoutDocument(value: unknown): LayoutParseResult {
   if (!value || typeof value !== 'object') return { ok: false, reason: '布局根节点不是对象' }
   const candidate = value as Record<string, unknown>
-  if (candidate.schemaVersion !== DASHBOARD_LAYOUT_SCHEMA_VERSION) {
+  if (candidate.schemaVersion !== 1 && candidate.schemaVersion !== DASHBOARD_LAYOUT_SCHEMA_VERSION) {
     return { ok: false, reason: `未知布局 schemaVersion: ${String(candidate.schemaVersion)}` }
   }
   if (candidate.mode !== 'CONSOLE') return { ok: false, reason: '布局 mode 不受支持' }
@@ -219,7 +225,7 @@ export function parseLayoutDocument(value: unknown): LayoutParseResult {
   return {
     ok: true,
     document: {
-      schemaVersion: DASHBOARD_LAYOUT_SCHEMA_VERSION,
+      schemaVersion: candidate.schemaVersion as number,
       revision,
       mode: 'CONSOLE',
       columns: DASHBOARD_GRID_COLUMNS,

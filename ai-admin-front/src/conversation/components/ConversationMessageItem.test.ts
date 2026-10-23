@@ -221,3 +221,26 @@ describe('ConversationMessageItem Prism shell', () => {
     expect(wrapper.text()).not.toContain('本轮推理')
   })
 })
+
+describe('ConversationMessageItem markdown', () => {
+  it('renders assistant Markdown safely and keeps user text literal', () => {
+    const assistant = mount(ConversationMessageItem, {
+      props: {
+        message: assistantMessage({
+          blocks: [{ id: 'b3', type: 'text', text: '- **罗技鼠标**：43 个\n\n<img src=x onerror="alert(1)"><script>alert(1)</script>' }],
+        }),
+      },
+    })
+    const markdown = assistant.find('.reachai-block__markdown')
+    expect(markdown.find('li strong').text()).toBe('罗技鼠标')
+    expect(markdown.html()).not.toContain('<script')
+    expect(markdown.html()).not.toContain('onerror')
+    expect(assistant.text()).not.toContain('**')
+
+    const user = mount(ConversationMessageItem, {
+      props: { message: userMessage({ blocks: [{ id: 'b4', type: 'text', text: '**不要加粗**' }] }) },
+    })
+    expect(user.find('.reachai-block__markdown').exists()).toBe(false)
+    expect(user.text()).toContain('**不要加粗**')
+  })
+})

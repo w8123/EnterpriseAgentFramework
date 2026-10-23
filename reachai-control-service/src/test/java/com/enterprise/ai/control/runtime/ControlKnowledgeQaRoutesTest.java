@@ -82,11 +82,33 @@ class ControlKnowledgeQaRoutesTest {
                 "knowledgeBaseCode", " erp_policy ", "knowledgeBaseName", "制度", "extra", "ignored"));
 
         Map<String, Object> expected = new HashMap<>();
+        expected.put("attachToAgent", true);
         expected.put("knowledgeBaseCode", "erp_policy");
         expected.put("knowledgeBaseName", "制度");
         expected.put("modelInstanceId", null);
         expected.put("publishedBy", null);
         verify(runtime).attachKnowledgeQaWorkflow("agent-1", expected);
+    }
+
+    @Test
+    void preparingForTheDraftNeedsAgentWriteInsteadOfPublish() {
+        grant(new PlatformPermissionGrant(PlatformPermissions.AGENT_WRITE, "PROJECT", "sales"),
+                new PlatformPermissionGrant(PlatformPermissions.WORKFLOW_PUBLISH, "PROJECT", "sales"),
+                new PlatformPermissionGrant(PlatformPermissions.KNOWLEDGE_READ, "GLOBAL", null));
+        when(runtime.attachKnowledgeQaWorkflow(anyString(), any())).thenReturn(ResponseEntity.ok(Map.of()));
+        controller.attachKnowledgeQaWorkflow("agent-1", Map.of("knowledgeBaseCode", "erp_policy", "attachToAgent", false));
+
+        Map<String, Object> expected = new HashMap<>();
+        expected.put("attachToAgent", false);
+        expected.put("knowledgeBaseCode", "erp_policy");
+        expected.put("knowledgeBaseName", null);
+        expected.put("modelInstanceId", null);
+        expected.put("publishedBy", null);
+        verify(runtime).attachKnowledgeQaWorkflow("agent-1", expected);
+
+        assertEquals(403, assertThrows(ResponseStatusException.class,
+                () -> controller.attachKnowledgeQaWorkflow("agent-1", Map.of("knowledgeBaseCode", "erp_policy")))
+                .getStatusCode().value());
     }
 
     @Test

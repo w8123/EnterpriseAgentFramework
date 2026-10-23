@@ -76,6 +76,7 @@ public class RuntimeAgentExecutionInternalController {
         Map<String, Object> rawBody = new LinkedHashMap<>(request.body());
         // Extract only after HMAC/nonce/identity verification above succeeded.
         TrustedControlTiming controlTiming = TrustedControlTiming.extractAndRemoveFromBody(rawBody);
+        Long debugConfigVersionId = extractDebugConfigVersionId(rawBody, identity);
         Map<String, Object> body = sanitizePublicBody(rawBody);
         Map<String, Object> result = agentExecutionService.execute(
                 body,
@@ -84,7 +85,8 @@ public class RuntimeAgentExecutionInternalController {
                 RuntimeAgentExecutionCancellation.NOOP,
                 identity,
                 controlTiming,
-                request.personalMemory());
+                request.personalMemory(),
+                debugConfigVersionId);
         return responseForAgentResult(result);
     }
 
@@ -129,6 +131,7 @@ public class RuntimeAgentExecutionInternalController {
                 : request.body());
         // Extract only after HMAC/nonce/identity verification above succeeded.
         TrustedControlTiming controlTiming = TrustedControlTiming.extractAndRemoveFromBody(rawBody);
+        Long debugConfigVersionId = extractDebugConfigVersionId(rawBody, identity);
         Map<String, Object> body = sanitizePublicBody(rawBody);
         SseEmitter emitter = new SseEmitter(AGENT_STREAM_TIMEOUT_MS);
         RuntimeAgentExecutionCancellation cancellation = new RuntimeAgentExecutionCancellation();
@@ -152,7 +155,8 @@ public class RuntimeAgentExecutionInternalController {
         CompletableFuture.runAsync(() -> {
             try {
                 streamAgentExecution(emitter, body, cancellation, trustedIdentity, trustedTiming,
-                        request == null ? TrustedPersonalMemoryContext.empty() : request.personalMemory());
+                        request == null ? TrustedPersonalMemoryContext.empty() : request.personalMemory(),
+                        debugConfigVersionId);
             } finally {
                 heartbeatSupport.stop(heartbeat);
             }
@@ -170,7 +174,8 @@ public class RuntimeAgentExecutionInternalController {
                                       RuntimeAgentExecutionCancellation cancellation,
                                       WorkflowExecutionIdentity identity,
                                       TrustedControlTiming controlTiming,
-                                      TrustedPersonalMemoryContext personalMemory) {
+                                      TrustedPersonalMemoryContext personalMemory,
+                                      Long debugConfigVersionId) {
         try {
             Map<String, Object> started = new LinkedHashMap<>();
             putIfPresent(started, "agentId", request.get("agentId"));
@@ -186,7 +191,8 @@ public class RuntimeAgentExecutionInternalController {
                     cancellation,
                     identity,
                     controlTiming,
-                    personalMemory);
+                    personalMemory,
+                    debugConfigVersionId);
             if (cancellation.isCancelled()) {
                 return;
             }
@@ -291,6 +297,27 @@ public class RuntimeAgentExecutionInternalController {
                     : null;
             default -> null;
         };
+    }
+
+    /**
+     * Control sets the debug target only for a console user it checked for {@code agent:debug};
+     * the key is honoured only on the platform-console (AGENT) identity and removed otherwise.
+     */
+    private static Long extractDebugConfigVersionId(Map<String, Object> body,
+                                                    WorkflowExecutionIdentity identity) {
+        Object raw = body.remove(RuntimeAgentExecutionService.DEBUG_CONFIG_VERSION_KEY);
+        if (raw == null || identity == null || identity.source() != WorkflowExecutionIdentity.Source.AGENT) {
+            return null;
+        }
+        if (raw instanceof Number number) {
+            return number.longValue() > 0 ? number.longValue() : null;
+        }
+        try {
+            long parsed = Long.parseLong(String.valueOf(raw).trim());
+            return parsed > 0 ? parsed : null;
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
     }
 
     private static Map<String, Object> sanitizePublicBody(Map<String, Object> body) {

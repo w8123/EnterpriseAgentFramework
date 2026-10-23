@@ -5,8 +5,10 @@ import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-export const AGENT_SKILL_MIGRATION = 'sql/upgrade-20260830-platform-consolidated.sql'
+// Agent Skill schemas are part of the initialization baseline, outside the recent upgrade window.
+export const AGENT_SKILL_MIGRATION = 'sql/initV2.sql'
 export const AGENT_SKILL_MARKET_MIGRATION = AGENT_SKILL_MIGRATION
+export const AGENT_SKILL_RECENT_UPGRADE = 'sql/upgrade-20261019-consolidated.sql'
 
 export const REQUIRED_AGENT_SKILL_TABLES = Object.freeze([
   { name: 'control_internal_auth_nonce', owner: 'reachai-control-service' },
@@ -436,8 +438,9 @@ export function evaluateAgentSkillDeploymentEvidence(evidence, {
   }
 
   const migration = evidence?.migration || {}
-  if (migration.script !== AGENT_SKILL_MIGRATION) {
-    collector.add('MIGRATION_SCRIPT_MISMATCH', 'migration.script', `expected ${AGENT_SKILL_MIGRATION}`)
+  if (![AGENT_SKILL_MIGRATION, AGENT_SKILL_RECENT_UPGRADE].includes(migration.script)) {
+    collector.add('MIGRATION_SCRIPT_MISMATCH', 'migration.script',
+      `expected ${AGENT_SKILL_MIGRATION} or ${AGENT_SKILL_RECENT_UPGRADE}`)
   }
   if (migration.status !== 'PASSED') {
     collector.add('MIGRATION_NOT_PASSED', 'migration.status', 'migration status must be PASSED')
@@ -571,8 +574,11 @@ async function main() {
   }
 
   const evidence = JSON.parse(await readFile(path.resolve(evidencePath), 'utf8'))
+  const expectedMigrationChecksum = evidence?.migration?.script === AGENT_SKILL_RECENT_UPGRADE
+    ? sha256(await readFile(path.resolve(repoRoot, AGENT_SKILL_RECENT_UPGRADE)))
+    : repository.migration.checksumSha256
   const deployment = evaluateAgentSkillDeploymentEvidence(evidence, {
-    expectedMigrationChecksum: repository.migration.checksumSha256,
+    expectedMigrationChecksum,
     maxEvidenceAgeDays: Number(
       argument('max-age-days') || process.env.REACHAI_AGENT_SKILL_EVIDENCE_MAX_AGE_DAYS || 30,
     ),

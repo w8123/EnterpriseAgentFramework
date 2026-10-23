@@ -19,11 +19,22 @@ vi.mock('vue-router', () => ({
 }))
 
 vi.mock('@/composables/useTheme', () => ({
+  DARK_THEME_ENTRY_READY: true,
   useTheme: () => ({
     theme: { value: 'light' },
+    themeMode: { value: 'light' },
+    themeModeOptions: [],
+    setThemeMode: vi.fn(),
     brand: { value: 'metro-green' },
     brandOptions: [],
     setBrand: vi.fn(),
+    density: { value: 'comfortable' },
+    densityOptions: [],
+    setDensity: vi.fn(),
+    glassRefraction: { value: false },
+    setGlassRefraction: vi.fn(),
+    reduceTransparency: { value: false },
+    setReduceTransparency: vi.fn(),
   }),
 }))
 
@@ -42,6 +53,8 @@ function mountSidebar() {
         ElScrollbar: true,
         ElSelect: true,
         ElSubMenu: true,
+        ElSwitch: true,
+        LiquidGlassLayer: true,
       },
     },
   })
@@ -90,6 +103,26 @@ describe('AppSidebar account actions', () => {
     expect(wrapper.text()).toContain('主题配色')
     expect(wrapper.find('.appearance-mode').exists()).toBe(false)
     expect(wrapper.find('.appearance-mode-button').exists()).toBe(false)
+    expect(wrapper.find('[aria-label="明暗模式"]').exists()).toBe(true)
+    expect(wrapper.find('[aria-label="显示密度"]').exists()).toBe(true)
+  })
+
+  it('closes the settings panel on Escape and on a click outside the sidebar footer', async () => {
+    const wrapper = mountSidebar()
+
+    await wrapper.findAll('.footer-entry')[1].trigger('click')
+    expect(wrapper.find('.sidebar-footer-popover').exists()).toBe(true)
+    wrapper.get('.appearance-panel').element.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+    await flushPromises()
+    expect(wrapper.find('.sidebar-footer-popover').exists()).toBe(true)
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await flushPromises()
+    expect(wrapper.find('.sidebar-footer-popover').exists()).toBe(false)
+
+    await wrapper.findAll('.footer-entry')[1].trigger('click')
+    document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+    await flushPromises()
+    expect(wrapper.find('.sidebar-footer-popover').exists()).toBe(false)
   })
 
   it('keeps the current session when the server logout request fails', async () => {

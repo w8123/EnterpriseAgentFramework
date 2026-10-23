@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router'
 import { DataAnalysis, Monitor, Promotion } from '@element-plus/icons-vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
+import { LiquidGlassNav } from '@/components/common/liquid-glass'
 
 const route = useRoute()
 const items = [
@@ -23,23 +24,27 @@ const activePath = computed(() => {
     <PageHeader
       variant="overview"
       height-preset="compact"
+      presentation="plain"
+      action-presentation="inline"
       domain="platform"
       title="MCP 互联中心"
       description="将能力和已发布 Workflow 安全发布为 MCP Tool。"
-    />
-
-    <nav class="hub-nav glass-surface-control" aria-label="MCP 互联中心工作区">
-      <router-link
-        v-for="item in items"
-        :key="item.path"
-        :to="item.path"
-        class="hub-nav__item"
-        :class="{ 'is-active': activePath === item.path }"
-      >
-        <el-icon aria-hidden="true"><component :is="item.icon" /></el-icon>
-        <strong>{{ item.label }}</strong>
-      </router-link>
-    </nav>
+    >
+      <template #meta>
+        <LiquidGlassNav source="wallpaper" class="hub-nav" aria-label="MCP 互联中心工作区">
+          <router-link
+            v-for="item in items"
+            :key="item.path"
+            :to="item.path"
+            :class="{ 'is-active': activePath === item.path }"
+            :aria-current="activePath === item.path ? 'page' : undefined"
+          >
+            <el-icon aria-hidden="true"><component :is="item.icon" /></el-icon>
+            {{ item.label }}
+          </router-link>
+        </LiquidGlassNav>
+      </template>
+    </PageHeader>
 
     <router-view />
   </WorkbenchPage>
@@ -53,69 +58,6 @@ const activePath = computed(() => {
 }
 
 .hub-nav {
-  display: flex;
-  width: max-content;
-  max-width: 100%;
-  align-self: flex-start;
-  gap: 4px;
-  padding: 4px;
-  overflow-x: auto;
-  border-radius: var(--radius-md);
-  scrollbar-width: none;
-}
-
-.hub-nav::-webkit-scrollbar {
-  display: none;
-}
-
-.hub-nav__item {
-  display: flex;
-  min-width: 112px;
-  min-height: 38px;
-  align-items: center;
-  justify-content: center;
-  gap: 9px;
-  padding: 7px 16px;
-  border: 1px solid transparent;
-  border-radius: var(--radius-md);
-  color: var(--text-secondary);
-  text-decoration: none;
-  transition: background var(--motion-duration-fast) ease, color var(--motion-duration-fast) ease;
-}
-
-.hub-nav__item > .el-icon {
-  flex: 0 0 auto;
-  font-size: 18px;
-}
-
-.hub-nav__item strong {
-  overflow: hidden;
-  font-size: 13px;
-  font-weight: 700;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.hub-nav__item:hover,
-.hub-nav__item.is-active {
-  color: var(--brand-active);
-  background: var(--surface-glass-selected);
-}
-
-.hub-nav__item.is-active {
-  border-color: rgb(var(--brand-primary-rgb) / 0.18);
-  box-shadow: var(--inner-highlight);
-}
-
-@media (max-width: 780px) {
-  .hub-nav {
-    width: 100%;
-  }
-
-  .hub-nav__item {
-    min-width: 104px;
-    flex: 1 0 auto;
-    padding-inline: 12px;
-  }
+  margin-top: 6px;
 }
 </style>

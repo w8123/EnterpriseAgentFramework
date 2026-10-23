@@ -16,6 +16,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import AppDialog from '@/components/common/AppDialog.vue'
 import AppDrawer from '@/components/common/AppDrawer.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
+import { LiquidGlassNotice, LiquidGlassTabs, LiquidGlassButton } from '@/components/common/liquid-glass'
 import AiCodingProviderSelector from '@/components/ai-coding/AiCodingProviderSelector.vue'
 import AiCodingTaskDetailPanel from '@/components/ai-coding/AiCodingTaskDetailPanel.vue'
 import PageWorkbenchTabs, {
@@ -1255,8 +1256,9 @@ watch(projectCode, loadAll, { immediate: true })
     <PageHeader
       v-if="!detailMode"
       title="页面接入中心"
-      description="选择一个业务页面，ReachAI 会根据真实状态告诉你下一步；无需理解任务类型。"
+      description="接入业务页面，配置页面动作并查看当前接入状态。"
       variant="workbench"
+      presentation="plain"
       height-preset="standard"
       domain="project"
     >
@@ -1345,12 +1347,10 @@ watch(projectCode, loadAll, { immediate: true })
       />
 
       <template v-else>
-        <el-alert
+        <LiquidGlassNotice
           v-if="!accessCenter.runtimeAvailable"
           class="page-access-runtime-warning"
           type="warning"
-          :closable="false"
-          show-icon
           :title="accessCenter.runtimeMessage"
           description="页面、资源与活动仍可使用；系统不会把运行数据不可用误判为未发布。"
         />
@@ -1420,7 +1420,7 @@ watch(projectCode, loadAll, { immediate: true })
           </div>
         </footer>
       </section>
-      <el-tabs v-else v-model="sourceDialogTab" class="page-source-tabs" stretch>
+      <LiquidGlassTabs v-else v-model="sourceDialogTab" class="page-source-tabs" stretch>
         <el-tab-pane name="scan">
           <template #label>
             <span class="page-source-tab-label">
@@ -1521,7 +1521,7 @@ watch(projectCode, loadAll, { immediate: true })
             @cancel="sourceDialogVisible = false"
           />
         </el-tab-pane>
-      </el-tabs>
+      </LiquidGlassTabs>
     </AppDialog>
 
     <AppDialog
@@ -1652,25 +1652,25 @@ watch(projectCode, loadAll, { immediate: true })
       </el-form>
       <template #footer>
         <template v-if="taskDialogStage === 'FORM'">
-          <el-button @click="taskDialogVisible = false">取消</el-button>
-          <el-button type="primary" :loading="taskSubmitting" @click="submitTask">
+          <LiquidGlassButton @click="taskDialogVisible = false">取消</LiquidGlassButton>
+          <LiquidGlassButton type="primary" :loading="taskSubmitting" @click="submitTask">
             {{ taskForm.executionMode === 'MANAGED_SANDBOX'
               ? '创建并启动隔离执行'
               : '创建并生成交接包' }}
-          </el-button>
+          </LiquidGlassButton>
         </template>
         <template v-else>
-          <el-button @click="taskDialogVisible = false">
+          <LiquidGlassButton @click="taskDialogVisible = false">
             {{ handoffCopied ? '完成' : '稍后处理' }}
-          </el-button>
-          <el-button
+          </LiquidGlassButton>
+          <LiquidGlassButton
             type="primary"
             :icon="handoffCopied ? Check : CopyDocument"
             :disabled="handoffCopied"
             @click="copyHandoffPrompt"
           >
             {{ handoffCopied ? '已复制，等待对接' : '复制交接包' }}
-          </el-button>
+          </LiquidGlassButton>
         </template>
       </template>
     </AppDialog>
@@ -1684,17 +1684,17 @@ watch(projectCode, loadAll, { immediate: true })
     >
       <AiCodingHandoffPanel :handoff="handoffPackage" />
       <template #footer>
-        <el-button @click="handoffDialogVisible = false">
+        <LiquidGlassButton @click="handoffDialogVisible = false">
           {{ handoffCopied ? '完成' : '稍后处理' }}
-        </el-button>
-        <el-button
+        </LiquidGlassButton>
+        <LiquidGlassButton
           type="primary"
           :icon="handoffCopied ? Check : CopyDocument"
           :disabled="handoffCopied"
           @click="copyHandoffPrompt"
         >
           {{ handoffCopied ? '已复制，等待对接' : '复制交接包' }}
-        </el-button>
+        </LiquidGlassButton>
       </template>
     </AppDialog>
 

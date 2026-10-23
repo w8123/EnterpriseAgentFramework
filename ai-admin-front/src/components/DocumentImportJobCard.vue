@@ -37,23 +37,21 @@
       <div><span>已用时间</span><strong>{{ formatDocumentJobDuration(job) }}</strong></div>
     </div>
 
-    <el-alert
+    <LiquidGlassNotice
       v-if="job.errorCode || job.errorMessage"
       type="error"
-      :closable="false"
-      show-icon
       class="job-alert"
       :title="job.errorCode || 'DOCUMENT_IMPORT_FAILED'"
       :description="job.errorMessage || '文档处理失败，请重试或检查文件内容。'"
+      source="backdrop"
     />
-    <el-alert
+    <LiquidGlassNotice
       v-if="clientError"
       type="warning"
-      :closable="false"
-      show-icon
       class="job-alert"
       title="页面刷新已暂停"
       :description="clientError"
+      source="backdrop"
     />
 
     <div v-if="showActions" class="job-actions">
@@ -108,6 +106,7 @@ import {
   formatDocumentJobDuration,
   isDocumentJobTerminal,
 } from '@/utils/documentImport'
+import { LiquidGlassNotice } from '@/components/common/liquid-glass'
 
 withDefaults(defineProps<{
   job: DocumentImportJob | null

@@ -1,20 +1,32 @@
 <template>
-  <WorkbenchPage class="auth-provider-page" layout="list">
+  <LiquidGlassPage class="auth-provider-page">
     <PageHeader
       variant="standard"
+      presentation="plain"
+      action-presentation="inline"
       domain="platform"
-      eyebrow="Identity Provider"
       title="认证源配置"
-      description="管理平台登录的本地、网关请求头、OIDC、SAML 等认证源。"
+      description="配置平台登录方式及身份认证来源。"
     >
+      <template v-if="loaded" #tags>
+        <el-tag type="info" effect="light">共 {{ providers.length }} 个认证源</el-tag>
+        <el-tag type="success" effect="light">当前启用 {{ activeCount }} 个</el-tag>
+      </template>
       <template #actions>
         <el-tooltip content="刷新认证源" placement="top">
-          <el-button circle :icon="Refresh" :loading="loading" aria-label="刷新认证源" @click="reload" />
+          <LiquidGlassButton source="wallpaper" circle :icon="Refresh" :loading="loading" aria-label="刷新认证源" @click="reload" />
         </el-tooltip>
       </template>
     </PageHeader>
 
-    <el-table class="workbench-list-surface" :data="providers" v-loading="loading" stripe>
+    <LiquidGlassTable
+      class="workbench-list-surface"
+      :loading="loading"
+      :empty="loaded && providers.length === 0"
+      empty-description="暂无认证源"
+      :show-pagination="false"
+    >
+    <el-table :data="providers" stripe>
       <el-table-column prop="providerCode" label="编码" width="130">
         <template #default="{ row }">
           <code>{{ row.providerCode }}</code>
@@ -41,21 +53,21 @@
           <span v-else class="text-muted">无敏感配置</span>
         </template>
       </el-table-column>
-      <el-table-column prop="updatedAt" label="更新时间" width="170" />
+      <el-table-column prop="updatedAt" label="更新时间" width="170" :formatter="formatTableDateTime" />
       <el-table-column label="操作" width="100" fixed="right">
         <template #default="{ row }">
           <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
         </template>
       </el-table-column>
     </el-table>
+    </LiquidGlassTable>
 
     <AppDialog v-model="dialogOpen" title="认证源配置" width="680px">
-      <el-alert
+      <LiquidGlassNotice
         type="info"
-        :closable="false"
-        show-icon
         title="当前版本只支持且固定启用 LOCAL 登录。OIDC、SAML 和 HEADER 保持禁用，且认证源密钥不会在浏览器中编辑或返回。"
         style="margin-bottom: 12px"
+        source="backdrop"
       />
       <el-form :model="editing" label-width="110px">
         <el-form-item label="认证源编码" required>
@@ -86,20 +98,21 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="dialogOpen = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="save">保存</el-button>
+        <LiquidGlassButton @click="dialogOpen = false">取消</LiquidGlassButton>
+        <LiquidGlassButton type="primary" :loading="saving" @click="save">保存</LiquidGlassButton>
       </template>
     </AppDialog>
-  </WorkbenchPage>
+  </LiquidGlassPage>
 </template>
 
 <script setup lang="ts">
+import { formatTableDateTime } from '@/utils/dateTime'
 import AppDialog from '@/components/common/AppDialog.vue'
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import PageHeader from '@/components/common/PageHeader.vue'
-import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
+import { LiquidGlassButton, LiquidGlassPage, LiquidGlassTable, LiquidGlassNotice } from '@/components/common/liquid-glass'
 import CommonStatusTag from '@/components/CommonStatusTag.vue'
 import {
   AUTH_PROVIDER_TYPE_SELECT_OPTIONS,
@@ -120,6 +133,8 @@ const loading = ref(false)
 const saving = ref(false)
 const dialogOpen = ref(false)
 const providers = ref<PlatformAuthProviderView[]>([])
+const loaded = ref(false)
+const activeCount = computed(() => providers.value.filter((item) => item.status === 'ACTIVE').length)
 const editing = reactive<PlatformAuthProviderCommand>({
   providerCode: '',
   providerName: '',
@@ -133,6 +148,7 @@ async function reload() {
   try {
     const { data } = await listPlatformAuthProviders()
     providers.value = data ?? []
+    loaded.value = true
   } finally {
     loading.value = false
   }
@@ -169,6 +185,6 @@ onMounted(reload)
 <style scoped lang="scss">
 code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  color: #344054;
+  color: var(--text-secondary);
 }
 </style>

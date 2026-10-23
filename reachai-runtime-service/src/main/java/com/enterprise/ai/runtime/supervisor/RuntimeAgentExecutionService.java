@@ -41,6 +41,9 @@ public class RuntimeAgentExecutionService implements RuntimePublishedAgentExecut
     private final RuntimeSessionClearPort sessionClearPort;
     private final RuntimeAgentRunLifecyclePort runLifecyclePort;
 
+    /** Control-attested debug target key; read only by the internal controller after HMAC verification. */
+    public static final String DEBUG_CONFIG_VERSION_KEY = "__debugConfigVersionId";
+
     @Autowired
     public RuntimeAgentExecutionService(
             RuntimeAgentExecutionContextResolver executionContextResolver,
@@ -113,6 +116,23 @@ public class RuntimeAgentExecutionService implements RuntimePublishedAgentExecut
                                        WorkflowExecutionIdentity trustedIdentity,
                                        TrustedControlTiming trustedControlTiming,
                                        TrustedPersonalMemoryContext personalMemory) {
+        return execute(request, detailed, eventSink, cancellation, trustedIdentity,
+                trustedControlTiming, personalMemory, null);
+    }
+
+    /**
+     * @param trustedDebugConfigVersionId exact config (DRAFT allowed) chosen by a console user with
+     *                                    debug permission; only the HMAC-authenticated internal
+     *                                    controller may pass it. Null runs the ACTIVE config.
+     */
+    public Map<String, Object> execute(Map<String, Object> request,
+                                       boolean detailed,
+                                       RuntimeAgentExecutionEventSink eventSink,
+                                       RuntimeAgentExecutionCancellation cancellation,
+                                       WorkflowExecutionIdentity trustedIdentity,
+                                       TrustedControlTiming trustedControlTiming,
+                                       TrustedPersonalMemoryContext personalMemory,
+                                       Long trustedDebugConfigVersionId) {
         Map<String, Object> body = normalizeInitialContext(request);
         // Discard any client/body controlTiming — trust only the explicit parameter.
         body.remove("controlTiming");
@@ -137,7 +157,7 @@ public class RuntimeAgentExecutionService implements RuntimePublishedAgentExecut
                     trustedIdentity, personalMemory);
         } else {
             response = executeResolved(body, detailed, null, eventSink, cancellation,
-                    trustedIdentity, personalMemory);
+                    trustedIdentity, personalMemory, trustedDebugConfigVersionId);
         }
         mergeControlTiming(response, trustedControlTiming);
         return response;
@@ -381,8 +401,9 @@ public class RuntimeAgentExecutionService implements RuntimePublishedAgentExecut
                     "Workflow interaction continuation is missing Agent/config identity",
                     null, body, detailed, List.of(), trustedIdentity);
         }
+        // The continuation is a server-owned checkpoint; a debug run may have pinned a DRAFT.
         Optional<RuntimeAgentExecutionContext> context =
-                executionContextResolver.resolvePublished(agentId, configVersionId);
+                executionContextResolver.resolvePinned(agentId, configVersionId);
         if (context.isEmpty() || context.get().config() == null) {
             return error("RUNTIME_INTERACTION_CONTINUATION_INVALID",
                     "Workflow interaction continuation Agent config version not found",
@@ -492,7 +513,7 @@ public class RuntimeAgentExecutionService implements RuntimePublishedAgentExecut
                     originalInput.put("__resumeExistingTrace", true);
                     Long approvedConfig = decision.agentConfigVersionId();
                     if (approvedConfig == null) throw new IllegalArgumentException("Supervisor approval has no pinned configuration");
-                    var approvedContext = executionContextResolver.resolvePublished(decision.agentId(), approvedConfig)
+                    var approvedContext = executionContextResolver.resolvePinned(decision.agentId(), approvedConfig)
                             .orElseThrow(() -> new IllegalArgumentException("Approved Agent is no longer available"));
                     if (approvedContext.config() == null) {
                         throw new IllegalArgumentException("Approved Agent configuration is no longer available");
@@ -521,7 +542,8 @@ public class RuntimeAgentExecutionService implements RuntimePublishedAgentExecut
                                                 RuntimeAgentExecutionEventSink eventSink,
                                                  RuntimeAgentExecutionCancellation cancellation,
                                                  WorkflowExecutionIdentity trustedIdentity,
-                                                 TrustedPersonalMemoryContext personalMemory) {
+                                                 TrustedPersonalMemoryContext personalMemory,
+                                                 Long trustedDebugConfigVersionId) {
         String agentLookup = firstText(
                 text(body.get("agentId")),
                 text(body.get("keySlug")));
@@ -529,10 +551,26 @@ public class RuntimeAgentExecutionService implements RuntimePublishedAgentExecut
             return error("RUNTIME_AGENT_REQUIRED", "agentId is required", null, body, detailed, List.of(), trustedIdentity);
         }
 
-        Optional<RuntimeAgentExecutionContext> context = executionContextResolver.resolve(agentLookup);
+        Optional<RuntimeAgentExecutionContext> context = trustedDebugConfigVersionId == null
+                ? executionContextResolver.resolve(agentLookup)
+                : executionContextResolver.resolvePinned(agentLookup, trustedDebugConfigVersionId);
         if (context.isEmpty()) {
             return error("RUNTIME_AGENT_NOT_FOUND", "Agent not found: " + agentLookup,
                     null, body, detailed, List.of(), trustedIdentity);
+        }
+        if (trustedDebugConfigVersionId != null) {
+            if (context.get().config() == null) {
+                return error("RUNTIME_AGENT_DEBUG_CONFIG_NOT_FOUND",
+                        "Agent configuration to debug not found: " + trustedDebugConfigVersionId,
+                        context.get().agentView(), body, detailed, List.of(), trustedIdentity);
+            }
+            body.put("entryType", "DEBUG");
+            if (body.get("metadata") instanceof Map<?, ?> rawMeta) {
+                Map<String, Object> metadata = new LinkedHashMap<>();
+                rawMeta.forEach((key, value) -> metadata.put(String.valueOf(key), value));
+                metadata.put("entryType", "DEBUG");
+                body.put("metadata", metadata);
+            }
         }
         return executeResolvedContext(body, detailed, approvalGrant, eventSink, cancellation,
                 context.get(), false, trustedIdentity, personalMemory);
@@ -611,6 +649,7 @@ public class RuntimeAgentExecutionService implements RuntimePublishedAgentExecut
         metadata.put("projectCode", agentView.projectCode());
         metadata.put("agentConfigVersionId", config.getId());
         metadata.put("agentConfigVersion", config.getVersionNo());
+        putIfPresent(metadata, "agentConfigStatus", config.getStatus());
         metadata.put("runtimeType", "AGENTSCOPE");
         metadata.put("memoryPolicy", RuntimeAgentMemoryPolicy.of(config).toMetadata());
         if (evalContext != null && evalContext.isEvaluation()) {
@@ -641,6 +680,7 @@ public class RuntimeAgentExecutionService implements RuntimePublishedAgentExecut
         body.remove("__supervisorContinuation");
         body.remove("__blockedWorkflowTools");
         body.remove("__resumeExistingTrace");
+        body.remove(DEBUG_CONFIG_VERSION_KEY);
         return body;
     }
 

@@ -28,6 +28,7 @@ import {
 } from '../modelCenterUi'
 import ModelProviderIcon from './ModelProviderIcon.vue'
 import ModelTemplatePicker from './ModelTemplatePicker.vue'
+import { LiquidGlassNotice, LiquidGlassButton } from '@/components/common/liquid-glass'
 
 const props = withDefaults(defineProps<{
   modelValue: boolean
@@ -527,7 +528,12 @@ function handlePrevious() {
         </div>
       </el-form>
 
-      <el-alert v-if="accountError" type="error" :closable="false" show-icon :title="accountError" />
+      <LiquidGlassNotice
+        v-if="accountError"
+        type="error"
+        :title="accountError"
+        source="backdrop"
+      />
     </div>
 
     <div v-else class="onboarding-models">
@@ -542,13 +548,12 @@ function handlePrevious() {
         <el-button :icon="Refresh" :loading="modelsLoading" @click="loadAccountModels">刷新</el-button>
       </div>
 
-      <el-alert
+      <LiquidGlassNotice
         v-if="modelsResult && !modelsResult.success"
         type="warning"
-        :closable="false"
-        show-icon
         :title="modelsResult.message"
         description="仍可在下方手动填写模型名称接入。"
+        source="backdrop"
       />
 
       <div class="onboarding-models__filters">
@@ -621,27 +626,27 @@ function handlePrevious() {
     <template #footer>
       <div class="model-onboarding-dialog__footer">
         <div class="model-onboarding-dialog__footer-group">
-          <el-button @click="visible = false">取消</el-button>
-          <el-button v-if="step !== 'provider'" @click="handlePrevious">上一步</el-button>
+          <LiquidGlassButton @click="visible = false">取消</LiquidGlassButton>
+          <LiquidGlassButton v-if="step !== 'provider'" @click="handlePrevious">上一步</LiquidGlassButton>
         </div>
         <div class="model-onboarding-dialog__footer-group">
           <template v-if="step === 'account'">
-            <el-button v-if="editingAccountId" type="primary" :loading="accountBusy" @click="saveEditedAccount">
+            <LiquidGlassButton v-if="editingAccountId" type="primary" :loading="accountBusy" @click="saveEditedAccount">
               保存账号
-            </el-button>
-            <el-button
+            </LiquidGlassButton>
+            <LiquidGlassButton
               v-else-if="creatingAccount || !accounts.length"
               type="primary"
               :loading="accountBusy"
               @click="verifyAndCreateAccount"
             >
               验证并获取模型
-            </el-button>
-            <el-button v-else type="primary" :disabled="!selectedAccountId" @click="continueWithAccount">
+            </LiquidGlassButton>
+            <LiquidGlassButton v-else type="primary" :disabled="!selectedAccountId" @click="continueWithAccount">
               获取模型列表
-            </el-button>
+            </LiquidGlassButton>
           </template>
-          <el-button
+          <LiquidGlassButton
             v-if="step === 'models'"
             type="primary"
             :loading="saving"
@@ -649,7 +654,7 @@ function handlePrevious() {
             @click="handleCreate"
           >
             接入所选{{ selectedCount ? `（${selectedCount}）` : '' }}
-          </el-button>
+          </LiquidGlassButton>
         </div>
       </div>
     </template>

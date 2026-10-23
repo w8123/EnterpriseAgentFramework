@@ -12,6 +12,7 @@ import type { CapabilityEnrichment, SemanticDoc } from '@/types/semanticDoc'
 import type { ModelInstance } from '@/types/model'
 import CapabilityParamHints from './CapabilityParamHints.vue'
 import CapabilitySemanticDocument from './CapabilitySemanticDocument.vue'
+import { LiquidGlassNotice } from '@/components/common/liquid-glass'
 
 const props = defineProps<{ projectId: number; projectCode?: string; subjectType: 'BUSINESS_METHOD' | 'HTTP_API'; subjectId: number; subjectKey?: string;
   navigate?: (location: RouteLocationRaw) => void }>()
@@ -186,8 +187,12 @@ onBeforeUnmount(() => { sequence += 1; emit('busy-change', false); emit('dirty-c
     <div v-else-if="error" role="alert"><p>{{ error }}</p><el-button @click="load">重新加载</el-button></div>
     <template v-else-if="enrichment">
       <template v-if="enrichment.semanticDoc">
-        <el-alert v-if="enrichment.semanticStale" title="补充说明基于此前契约，请核对当前输入与返回后重新生成或编辑。"
-          type="warning" :closable="false" show-icon />
+        <LiquidGlassNotice
+          v-if="enrichment.semanticStale"
+          title="补充说明基于此前契约，请核对当前输入与返回后重新生成或编辑。"
+          type="warning"
+          source="backdrop"
+        />
         <CapabilitySemanticDocument :content-md="enrichment.semanticDoc.contentMd" />
       </template>
       <p v-else class="enrichment-provenance">尚未补充业务说明；来源声明与输入输出契约仍为调用依据。</p>

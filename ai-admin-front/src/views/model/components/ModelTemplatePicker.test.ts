@@ -112,7 +112,7 @@ async function mountPicker(props: Record<string, unknown> = {}) {
           template:
             '<input class="stub-input" :value="modelValue" :placeholder="placeholder" @input="$emit(\'update:modelValue\', $event.target.value)" />',
         },
-        'el-alert': true,
+        LiquidGlassNotice: true,
         'el-empty': { template: '<div class="stub-empty"><slot /></div>' },
         'el-skeleton': true,
         'el-skeleton-item': true,

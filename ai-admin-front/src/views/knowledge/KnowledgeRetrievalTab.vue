@@ -1,12 +1,6 @@
 <template>
-  <div class="knowledge-retrieval-tab">
-    <el-alert
-      type="info"
-      :closable="false"
-      show-icon
-      class="visibility-alert"
-      :title="endUserVisibilityHint(kb?.accessMode)"
-    />
+  <LiquidGlassCard source="wallpaper" class="knowledge-retrieval-tab">
+    <LiquidGlassNotice class="visibility-alert" :title="endUserVisibilityHint(kb?.accessMode)" />
     <el-form :model="form" label-position="top" @submit.prevent>
       <el-form-item label="用户会怎么问">
         <el-input
@@ -18,10 +12,7 @@
         />
       </el-form-item>
       <div class="form-actions">
-        <el-button type="primary" :loading="searching" :disabled="!form.query.trim()" @click="handleSearch">
-          <el-icon><Search /></el-icon>
-          检索
-        </el-button>
+        <LiquidGlassButton type="primary" :icon="Search" :loading="searching" :disabled="!form.query.trim()" @click="handleSearch">检索</LiquidGlassButton>
         <el-switch v-model="form.recordHit" active-text="记入命中分析" />
         <span class="settings-hint">
           按本库设置检索：{{ searchModeLabel(kb?.searchMode) }}，返回 {{ kb?.topK || 5 }} 条，相似度不低于 {{ kb?.similarityThreshold ?? 0.5 }}
@@ -51,11 +42,10 @@
         </div>
       </div>
     </div>
-    <el-empty
-      v-else-if="result"
-      description="没有找到相关段落。终端用户问这个问题时，知识问答会回复「资料里没有」。"
-    />
-  </div>
+    <p v-else-if="result" class="result-empty" role="status">
+      没有找到相关段落。终端用户问这个问题时，知识问答会回复「资料里没有」。
+    </p>
+  </LiquidGlassCard>
 </template>
 
 <script setup lang="ts">
@@ -63,6 +53,7 @@ import { reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Search } from '@element-plus/icons-vue'
 import StatusTag from '@/components/common/StatusTag.vue'
+import { LiquidGlassButton, LiquidGlassCard, LiquidGlassNotice } from '@/components/common/liquid-glass'
 import type { StatusTone } from '@/components/common/glassWorkbench'
 import { retrievalTest } from '@/api/knowledge'
 import type { KnowledgeBase, RetrievalTestResponse } from '@/types/knowledge'
@@ -146,7 +137,17 @@ async function handleSearch() {
 .settings-hint,
 .search-meta {
   font-size: 12px;
-  color: var(--text-muted);
+  color: var(--text-secondary);
+}
+
+.result-empty {
+  margin: 0;
+  padding: 18px;
+  border: 1px dashed var(--border-glass-edge);
+  border-radius: var(--radius-lg);
+  color: var(--text-secondary);
+  font-size: 13px;
+  text-align: center;
 }
 
 .result-list {
@@ -157,9 +158,9 @@ async function handleSearch() {
 
 .result-item {
   padding: 14px 16px;
-  border-radius: 8px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--surface-glass-inset);
+  border: 1px solid var(--border-glass-edge);
 }
 
 .result-header,

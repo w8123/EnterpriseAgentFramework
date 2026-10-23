@@ -1,5 +1,5 @@
 <template>
-  <aside class="property-panel" :class="{ resizing }">
+  <aside class="property-panel" :class="{ resizing, 'has-node': !!node && !edge }">
     <div
       v-if="!collapsed"
       class="property-resizer"
@@ -21,13 +21,13 @@
       <strong>{{ node?.data.label || (edge ? edgeLabel : '') || '画布摘要' }}</strong>
       <span>{{ node ? nodeKindLabel(node.data.kind) : edge ? '连线' : `${nodeCount} 节点` }}</span>
     </div>
-    <div v-else class="property-content">
-      <el-alert
+    <div v-else ref="propertyContent" class="property-content">
+      <LiquidGlassNotice
         v-if="readOnly"
         class="readonly-alert"
         title="此 Workflow 由其他入口维护，只读展示。请从原创建入口更新。"
         type="warning"
-        :closable="false"
+        source="backdrop"
       />
 
       <div v-if="edge" class="edge-property">
@@ -127,48 +127,51 @@
       <div v-else class="node-property">
         <div class="node-property-head">
           <div class="node-property-icon" :style="{ background: kindColor(node.data.kind).bg, color: kindColor(node.data.kind).border }">
-            <el-icon><component :is="nodeIcon(node.data.kind) || Operation" /></el-icon>
+            <ModelProviderIcon v-if="nodeModelProvider" class="node-model-provider" :provider="nodeModelProvider" :size="26" />
+            <el-icon v-else><component :is="nodeIcon(node.data.kind) || Operation" /></el-icon>
           </div>
           <div class="node-property-title">
-            <strong>{{ node.data.label || node.id }}</strong>
-            <span>{{ nodeKindLabel(node.data.kind) }} · {{ node.id }}</span>
+            <el-input
+              v-model="node.data.label"
+              class="node-name-input"
+              aria-label="节点名称"
+              placeholder="节点名称"
+              :disabled="readOnly"
+              @change="emit('mark-dirty')"
+            />
+            <span>{{ nodeKindLabel(node.data.kind) }} <code>{{ node.id }}</code></span>
           </div>
           <el-button
             class="node-property-delete"
             size="small"
-            plain
+            text
+            aria-label="删除节点"
+            title="删除节点"
             :icon="Delete"
             type="danger"
             :disabled="readOnly || isBoundary"
             @click="emit('delete-node')"
-          >
-            删除
-          </el-button>
+          />
         </div>
 
-        <el-tabs :model-value="tab" class="node-property-tabs" @update:model-value="(value: string | number) => emit('update:tab', value as StudioPropertyTab)">
+        <LiquidGlassTabs :model-value="tab" source="backdrop" class="node-property-tabs" @update:model-value="(value: string | number) => emit('update:tab', value as StudioPropertyTab)">
           <el-tab-pane label="配置" name="config">
-            <el-form label-position="top" size="small" class="node-base-form" :disabled="readOnly">
-              <el-form-item label="名称">
-                <el-input v-model="node.data.label" placeholder="给节点起一个清晰的业务名称" @change="emit('mark-dirty')" />
-              </el-form-item>
-              <el-form-item label="描述">
-                <el-input
-                  v-model="node.data.description"
-                  type="textarea"
-                  :autosize="{ minRows: 2, maxRows: 6 }"
-                  placeholder="说明这个节点在流程中的职责"
-                  @change="emit('mark-dirty')"
-                />
-              </el-form-item>
-              <el-form-item v-if="!isBoundary" label="输出别名">
-                <el-input v-model="node.data.outputAlias" placeholder="如 customer / params / context" @change="emit('mark-dirty')" />
-                <div class="field-help">下游节点可用这个名字引用本节点的输出。</div>
-              </el-form-item>
-            </el-form>
-            <div class="node-config-body">
+            <details :key="node.id" class="node-description">
+              <summary><span>节点说明</span><span>{{ node.data.description || '添加说明' }}</span><el-icon><ArrowRight /></el-icon></summary>
+              <el-input
+                v-model="node.data.description"
+                type="textarea"
+                :rows="2"
+                resize="vertical"
+                aria-label="节点说明"
+                placeholder="说明这个节点在流程中的职责（可选）"
+                :disabled="readOnly"
+                @change="emit('mark-dirty')"
+              />
+            </details>
+            <el-form label-position="top" size="small" class="node-config-body" :disabled="readOnly" @submit.prevent>
               <slot name="node-config" :node="node" />
-            </div>
+            </el-form>
           </el-tab-pane>
 
           <el-tab-pane v-if="!isBoundary" name="test">
@@ -231,41 +234,43 @@
                 <pre>{{ trace.output }}</pre>
               </div>
             </div>
-            <el-alert
+            <LiquidGlassNotice
               v-else
               title="还没有本次 Studio 调试结果"
               type="info"
-              :closable="false"
-              show-icon
               description="点顶部「调试」跑一遍后，这里会显示该节点的输入和输出。已发布版本的运行请到运行中心查看。"
+              source="backdrop"
             />
             <el-button v-if="canReadPublishedRuns" class="published-run-entry" size="small" @click="emit('open-published-runs')">
               查看已发布运行记录
             </el-button>
           </el-tab-pane>
-        </el-tabs>
+        </LiquidGlassTabs>
       </div>
     </div>
   </aside>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import type { Component } from 'vue'
 import { Aim, ArrowLeft, ArrowRight, Delete, Operation } from '@element-plus/icons-vue'
 import ModelSelectEmptyState from '@/components/model/ModelSelectEmptyState.vue'
+import ModelProviderIcon from '@/views/model/components/ModelProviderIcon.vue'
 import { WORKFLOW_KIND_SELECT_OPTIONS } from '@/utils/workflowLabels'
 import { formatElapsed, type WorkflowNodeTraceState } from '@/views/workflow/composables/workflowStudioTrace'
 import { useWorkflowStudioNodeMetadata } from '@/views/workflow/composables/useWorkflowStudioNodeMetadata'
 import type { CanvasEdge, CanvasNode, CanvasNodeKind } from '@/types/studio'
 import type { ModelInstance } from '@/types/model'
 import type { WorkflowNodeDebugResult } from '@/types/workflow'
+import { resolveStudioLlmProvider } from './studioLlmModel'
 import {
   STUDIO_PROPERTY_WIDTH_DEFAULT,
   clampPropertyWidth,
   type StudioPropertyTab,
   type StudioWorkflowMeta,
 } from './studioPropertyPanel'
+import { LiquidGlassNotice, LiquidGlassTabs } from '@/components/common/liquid-glass'
 
 const props = defineProps<{
   collapsed: boolean
@@ -309,8 +314,19 @@ const emit = defineEmits<{
 const { nodeKindLabel } = useWorkflowStudioNodeMetadata()
 const defaultWidth = STUDIO_PROPERTY_WIDTH_DEFAULT
 const nodeCount = computed(() => props.canvasNodes.length)
+const nodeModelProvider = computed(() => resolveStudioLlmProvider(props.node?.data, {
+  defaultModelInstanceId: props.meta.defaultModelInstanceId,
+  modelOptions: props.modelOptions,
+}))
 const isBoundary = computed(() => props.node?.data.kind === 'start' || props.node?.data.kind === 'end')
 const resizing = ref(false)
+const propertyContent = ref<HTMLElement | null>(null)
+
+watch([() => props.node?.id, () => props.tab], async () => {
+  await nextTick()
+  const scrollArea = propertyContent.value?.querySelector<HTMLElement>('.node-property-tabs > .el-tabs__content')
+  if (scrollArea) scrollArea.scrollTop = 0
+})
 
 function nodeName(id: string) {
   const found = props.canvasNodes.find((item) => item.id === id)
@@ -363,96 +379,146 @@ onBeforeUnmount(() => stopResize?.())
 </script>
 
 <style scoped lang="scss">
-.property-empty-state {
-  display: grid;
-  gap: 8px;
-  padding: 20px 18px;
-  border: 1px dashed #c8d5e8;
-  border-radius: 12px;
-  background:
-    radial-gradient(circle at top left, rgba(49, 87, 255, 0.08), transparent 36%),
-    linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
-  color: #64748b;
-  text-align: center;
-}
-
-.property-empty-state .empty-state-icon {
-  display: grid;
-  width: 40px;
-  height: 40px;
-  margin: 0 auto 2px;
-  place-items: center;
-  border-radius: 12px;
-  background: #eef4ff;
-  color: #3157ff;
-  font-size: 18px;
-}
-
-.property-empty-state strong {
-  color: #0f172a;
-  font-size: 14px;
-}
-
-.property-empty-state span {
-  font-size: 12px;
-  line-height: 1.55;
-}
-
-.condition-help {
-  color: var(--el-text-color-secondary);
-  font-size: 12px;
-  line-height: 1.5;
-}
-
 .property-panel {
   position: relative;
-  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
-  border-left: 1px solid #e5edf7;
+  container: studio-config / inline-size;
+  border-left: 1px solid var(--border-glass-edge);
+  background: var(--surface-glass-panel);
+  -webkit-backdrop-filter: blur(var(--glass-blur-panel)) saturate(var(--glass-saturation));
+  backdrop-filter: blur(var(--glass-blur-panel)) saturate(var(--glass-saturation));
   overflow: hidden;
 }
-
-.property-toggle {
-  position: absolute;
-  top: 14px;
-  right: 14px;
-  z-index: 2;
-  display: grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  border: 1px solid #dbe5f2;
-  border-radius: 999px;
-  background: #fff;
-  color: #64748b;
-  cursor: pointer;
-  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
-  transition: border-color 0.16s ease, color 0.16s ease, transform 0.16s ease;
-}
-
-.property-toggle:hover {
-  transform: translateX(-1px);
-  border-color: #bfd0ff;
-  color: #3157ff;
-}
-
 .property-content {
   height: 100%;
-  padding: 18px 16px;
+  padding: 20px;
   overflow-y: auto;
 }
-
+.property-panel.has-node .property-content {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+.readonly-alert {
+  flex-shrink: 0;
+  margin-bottom: 12px;
+}
+.node-property {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+.node-property-head {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) 28px;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 10px;
+  min-height: 88px;
+  padding: 18px 54px 14px 20px;
+}
+.node-property-icon {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border-radius: 10px;
+  font-size: 18px;
+}
+.node-property-icon .node-model-provider {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.node-model-provider :deep(.model-provider-icon__img) {
+  width: 100%;
+  height: 100%;
+}
+.node-property-title {
+  min-width: 0;
+}
+.node-name-input :deep(.el-input__wrapper) {
+  padding: 2px 5px;
+  margin-left: -5px;
+  background: transparent;
+  box-shadow: none;
+  border-radius: 4px;
+}
+.node-name-input :deep(.el-input__wrapper:hover) {
+  box-shadow: 0 0 0 1px var(--border-readable) inset;
+}
+.node-name-input :deep(.el-input__wrapper.is-focus) {
+  box-shadow: 0 0 0 1px var(--brand-primary) inset;
+}
+.node-name-input :deep(.el-input__inner) {
+  height: 26px;
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 650;
+}
+.node-property-title > span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 3px;
+  color: var(--text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.node-property-title code {
+  overflow: hidden;
+  color: var(--text-disabled);
+  font:
+    10px/1.5 Consolas,
+    monospace;
+  text-overflow: ellipsis;
+}
+.node-property-delete {
+  padding: 6px;
+  margin: 0;
+  color: var(--text-muted);
+}
+.node-property-delete:hover {
+  color: var(--status-danger);
+}
+.property-toggle {
+  position: absolute;
+  top: 27px;
+  right: 14px;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.property-toggle:hover {
+  color: var(--brand-primary);
+  border-color: var(--border-focus);
+}
+.property-toggle:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 3px;
+}
 .property-compact {
   display: flex;
   height: 100%;
   flex-direction: column;
   align-items: center;
   gap: 10px;
-  padding: 54px 8px 14px;
-  color: #64748b;
+  padding: 70px 8px 14px;
+  color: var(--text-muted);
   writing-mode: vertical-rl;
   text-orientation: mixed;
 }
-
 .property-compact strong,
 .property-compact span {
   overflow: hidden;
@@ -460,200 +526,201 @@ onBeforeUnmount(() => stopResize?.())
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
 .property-compact strong {
-  color: #0f172a;
+  color: var(--text-primary);
   font-size: 13px;
 }
-
 .property-compact span {
   font-size: 12px;
 }
-
-
-.node-property-head {
-  display: grid;
-  grid-template-columns: 42px minmax(0, 1fr) auto;
-  gap: 12px;
+.node-property-tabs {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+.node-property-tabs :deep(> .el-tabs__header) {
+  flex-shrink: 0;
+  padding: 10px 20px 4px;
+  margin: 0;
+  /* 内容区独立滚动，页签栏无需不透明底；直接落在属性面板磨砂层上，避免面板顶部出现实色横条。 */
+  background: transparent;
+}
+.node-property-tabs :deep(> .el-tabs__header .el-tabs__item) {
+  font-size: 12px;
+}
+.node-property-tabs :deep(> .el-tabs__content) {
+  flex: 1;
+  min-height: 0;
+  padding: 0 20px 28px;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+.node-property-tabs :deep(> .el-tabs__content > .el-tab-pane) {
+  padding-top: 18px;
+}
+.node-description {
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border-divider);
+}
+.node-description summary {
+  display: flex;
   align-items: center;
-  padding: 2px 44px 12px 2px;
+  gap: 10px;
+  list-style: none;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
 }
-
-.node-property-icon {
-  display: grid;
-  width: 38px;
-  height: 38px;
-  place-items: center;
-  border-radius: 10px;
-  font-size: 18px;
+.node-description summary::-webkit-details-marker {
+  display: none;
 }
-
-.node-property-title {
+.node-description summary span:first-child {
+  flex-shrink: 0;
+  color: var(--text-secondary);
+}
+.node-description summary span:nth-child(2) {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.node-description[open] summary {
+  margin-bottom: 10px;
+}
+.node-description[open] summary .el-icon {
+  transform: rotate(90deg);
+}
+.node-description summary:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 4px;
+}
+.node-config-body {
   min-width: 0;
 }
-
-
-.node-property-title strong {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: #0f172a;
-  font-size: 16px;
-  font-weight: 800;
-  white-space: nowrap;
-}
-
-.node-property-title span {
-  display: block;
-  margin-top: 4px;
-  overflow: hidden;
-  color: #64748b;
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.node-property-delete {
-  align-self: start;
-  margin-top: 1px;
-}
-
 .node-debug-box,
 .node-trace-panel {
   display: grid;
-  gap: 12px;
+  gap: 16px;
 }
-
-.node-debug-head,
 .node-trace-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
 }
-
 .node-trace-meta {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  color: #64748b;
+  color: var(--text-muted);
   font-size: 12px;
 }
-
 .node-trace-block {
   display: grid;
   gap: 6px;
 }
-
-.node-trace-block span {
-  color: #64748b;
+.node-trace-block > span {
+  color: var(--text-secondary);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
 }
-
 .node-trace-block pre {
   margin: 0;
   padding: 12px;
-  border-radius: 10px;
-  background: #0f172a;
-  color: #e2e8f0;
-  font-size: 12px;
-  line-height: 1.5;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: var(--surface-solid-disabled);
+  color: var(--text-primary);
+  font:
+    12px/1.6 Consolas,
+    monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   overflow: auto;
 }
-
 .published-run-entry {
   margin-top: 12px;
 }
-
 .property-resizer {
   position: absolute;
   top: 0;
   bottom: 0;
   left: 0;
-  z-index: 3;
-  width: 6px;
+  z-index: 4;
+  width: 5px;
   cursor: col-resize;
-  transition: background 0.16s ease;
 }
-
 .property-resizer:hover,
 .property-panel.resizing .property-resizer {
-  background: rgba(49, 87, 255, 0.28);
+  background: var(--border-focus);
 }
-
-.property-panel {
-  container: studio-config / inline-size;
-}
-
 .property-heading {
   display: grid;
   gap: 4px;
-  margin: 4px 44px 14px 0;
+  margin: 4px 34px 14px 0;
 }
-
 .property-heading strong {
-  color: #0f172a;
-  font-size: 15px;
-  font-weight: 800;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 650;
 }
-
 .property-heading span {
   overflow-wrap: anywhere;
-  color: #64748b;
+  color: var(--text-muted);
   font-size: 12px;
 }
-
+.field-help,
+.condition-help {
+  margin-top: 5px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
 .workflow-property .property-heading {
-  margin-top: 18px;
+  margin-top: 24px;
 }
-
-.field-help {
-  margin-top: 4px;
-  color: var(--el-text-color-secondary);
+.property-empty-state {
+  display: grid;
+  gap: 8px;
+  padding: 24px 16px;
+  border: 1px dashed var(--border-readable);
+  border-radius: 8px;
+  color: var(--text-muted);
+  text-align: center;
+}
+.empty-state-icon {
+  margin: 0 auto 4px;
+  color: var(--brand-primary);
+  font-size: 24px;
+}
+.property-empty-state strong {
+  color: var(--text-primary);
+  font-size: 14px;
+}
+.property-empty-state span {
   font-size: 12px;
-  line-height: 1.5;
+  line-height: 1.6;
 }
-
-.readonly-alert {
-  margin-bottom: 12px;
-}
-
-.node-property-tabs :deep(.el-tabs__header) {
-  position: sticky;
-  top: -18px;
-  z-index: 2;
-  margin-bottom: 12px;
-  background: #fff;
-}
-
-.node-base-form {
-  padding-bottom: 4px;
-  border-bottom: 1px dashed #e5eaf2;
-  margin-bottom: 14px;
-}
-
 .tab-label {
   display: inline-flex;
   align-items: center;
   gap: 6px;
 }
-
 .tab-label i {
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
 }
-
 .tab-label i.is-ok {
-  background: var(--el-color-success);
+  background: var(--status-success);
 }
-
 .tab-label i.is-fail {
-  background: var(--el-color-danger);
+  background: var(--status-danger);
 }
-
 .tab-label i.is-wait {
-  background: var(--el-color-warning);
+  background: var(--status-warning);
 }
 </style>

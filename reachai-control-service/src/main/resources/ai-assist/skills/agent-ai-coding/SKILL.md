@@ -66,7 +66,7 @@ Content-Type: application/json
     "maxPlanSteps": 6,
     "maxWorkflowCalls": 4,
     "maxReplans": 2,
-    "policyProfile": "DEV_ALLOW_ALL"
+    "policyProfile": "STANDARD"
   },
   "activate": true,
   "requestedBy": "Codex"
@@ -101,7 +101,7 @@ PUT /api/ai-coding/projects/{projectId}/agents/{agentId}/config/draft
   "workflowTimeoutMs": 60000,
   "pageBridgeTimeoutMs": 30000,
   "parallelReadOnly": true,
-  "policyProfile": "DEV_ALLOW_ALL",
+  "policyProfile": "STANDARD",
   "config": {"purpose": "orders"}
 }
 ```

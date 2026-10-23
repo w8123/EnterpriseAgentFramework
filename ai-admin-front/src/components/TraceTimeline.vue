@@ -529,9 +529,10 @@ async function copyText(text: string, label: string) {
   flex-direction: column;
   gap: 10px;
   padding: 14px;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border-glass-edge);
   border-radius: var(--radius-md);
-  background: var(--surface-solid-panel);
+  background: var(--surface-glass-inset);
+  box-shadow: var(--glass-rim-double);
 }
 
 .trace-skeleton-line {
@@ -704,9 +705,10 @@ async function copyText(text: string, label: string) {
 .trace-card {
   min-width: 0;
   overflow: hidden;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border-glass-edge);
   border-radius: var(--radius-md);
-  background: var(--surface-solid-panel);
+  background: var(--surface-glass-inset);
+  box-shadow: var(--glass-rim-double);
   transition:
     border-color var(--motion-duration-fast) var(--motion-easing-standard),
     background-color var(--motion-duration-fast) var(--motion-easing-standard);

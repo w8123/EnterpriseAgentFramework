@@ -30,7 +30,7 @@ function mountCard(value: DocumentImportJob) {
         'el-tag': { template: '<span><slot/></span>' },
         'el-steps': { template: '<div><slot/></div>' },
         'el-step': { props: ['title'], template: '<span>{{ title }}</span>' },
-        'el-alert': { props: ['title', 'description'], template: '<div>{{ title }} {{ description }}</div>' },
+        LiquidGlassNotice: { props: ['title', 'description'], template: '<div>{{ title }} {{ description }}</div>' },
         'el-button': {
           emits: ['click'],
           template: '<button @click="$emit(\'click\')"><slot/></button>',

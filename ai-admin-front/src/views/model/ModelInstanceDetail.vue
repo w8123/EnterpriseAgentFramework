@@ -15,6 +15,12 @@ import StatusTag from '@/components/common/StatusTag.vue'
 import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
 import WorkbenchPanel from '@/components/common/WorkbenchPanel.vue'
 import {
+  LiquidGlassButton,
+  LiquidGlassCard,
+  LiquidGlassEmptyState,
+  LiquidGlassNotice,
+} from '@/components/common/liquid-glass'
+import {
   archiveModelInstance,
   getModelInstance,
   testModelInstance,
@@ -361,22 +367,27 @@ onBeforeUnmount(() => {
 
 <template>
   <WorkbenchPage class="model-detail" density="comfortable">
-    <div v-if="loading && !instance" class="model-detail__loading">
+    <LiquidGlassCard v-if="loading && !instance" source="wallpaper" class="model-detail__loading" aria-busy="true">
       <el-skeleton animated :rows="8" />
-    </div>
+    </LiquidGlassCard>
 
-    <div v-else-if="loadError" class="model-detail__error">
-      <el-result icon="warning" title="无法加载模型详情" :sub-title="loadError">
-        <template #extra>
-          <el-button @click="router.push({ name: 'ModelInstances' })">返回模型中心</el-button>
-          <el-button type="primary" @click="loadDetail">重试</el-button>
-        </template>
-      </el-result>
-    </div>
+    <LiquidGlassEmptyState
+      v-else-if="loadError"
+      source="wallpaper"
+      class="model-detail__error"
+      :icon="Warning"
+      title="无法加载模型详情"
+      :description="loadError"
+    >
+      <LiquidGlassButton @click="router.push({ name: 'ModelInstances' })">返回模型中心</LiquidGlassButton>
+      <LiquidGlassButton type="primary" @click="loadDetail">重试</LiquidGlassButton>
+    </LiquidGlassEmptyState>
 
     <template v-else-if="instance">
       <PageHeader
         variant="entity"
+        presentation="plain"
+        action-presentation="inline"
         domain="platform"
         :title="instance.name"
         show-back
@@ -398,42 +409,41 @@ onBeforeUnmount(() => {
           <HeaderMetaList :items="headerMeta" />
         </template>
         <template #actions>
-          <el-button :icon="Refresh" :loading="loading" @click="loadDetail">刷新</el-button>
-          <el-button
+          <LiquidGlassButton source="wallpaper" :icon="Refresh" :loading="loading" @click="loadDetail">刷新</LiquidGlassButton>
+          <LiquidGlassButton source="wallpaper"
             v-if="!archived && !editing"
             :loading="testing"
             @click="handleSavedTest"
           >
             测试
-          </el-button>
-          <el-button
+          </LiquidGlassButton>
+          <LiquidGlassButton source="wallpaper"
             v-if="!archived && !editing"
             :loading="toggling"
             :icon="Switch"
             @click="handleToggle"
           >
             {{ instance.status === 'ACTIVE' ? '停用' : '启用' }}
-          </el-button>
-          <el-button
+          </LiquidGlassButton>
+          <LiquidGlassButton source="wallpaper"
             v-if="!archived && !editing"
             type="primary"
             :icon="EditPen"
             @click="enterEdit"
           >
             编辑配置
-          </el-button>
-          <el-button
+          </LiquidGlassButton>
+          <LiquidGlassButton source="wallpaper"
             v-if="!archived"
-            plain
             @click="replaceVisible = true"
           >
             更换上游模型
-          </el-button>
+          </LiquidGlassButton>
         </template>
       </PageHeader>
 
       <div v-if="!editing" class="model-detail__panels">
-        <WorkbenchPanel title="基本信息" density="compact">
+        <WorkbenchPanel class="glass-workspace-adaptive" title="基本信息" density="compact">
           <div class="info-grid">
             <div class="info-row span-2 brand-row">
               <ModelProviderIcon :provider="instance.provider" :size="44" />
@@ -451,7 +461,7 @@ onBeforeUnmount(() => {
           </div>
         </WorkbenchPanel>
 
-        <WorkbenchPanel title="连接配置" density="compact">
+        <WorkbenchPanel class="glass-workspace-adaptive" title="连接配置" density="compact">
           <div class="info-grid">
             <div class="info-row span-2">
               <span>Base URL</span>
@@ -474,11 +484,11 @@ onBeforeUnmount(() => {
           </div>
         </WorkbenchPanel>
 
-        <WorkbenchPanel title="默认模型参数" density="compact">
+        <WorkbenchPanel class="glass-workspace-adaptive" title="默认模型参数" density="compact">
           <pre class="json-block">{{ defaultOptionsJson }}</pre>
         </WorkbenchPanel>
 
-        <WorkbenchPanel title="最近测试" density="compact">
+        <WorkbenchPanel class="glass-workspace-adaptive" title="最近测试" density="compact">
           <div class="info-grid">
             <div class="info-row">
               <span>测试状态</span>
@@ -499,8 +509,12 @@ onBeforeUnmount(() => {
           </div>
         </WorkbenchPanel>
 
-        <WorkbenchPanel v-if="!archived" title="危险操作" density="compact">
-          <el-alert type="warning" :closable="false" show-icon :title="ARCHIVE_CONFIRM_MESSAGE" />
+        <WorkbenchPanel v-if="!archived" class="glass-workspace-adaptive model-detail__danger" title="危险操作" density="compact">
+          <LiquidGlassNotice
+            type="warning"
+            :title="ARCHIVE_CONFIRM_MESSAGE"
+            source="backdrop"
+          />
           <div class="panel-actions">
             <el-button type="danger" :icon="Warning" :loading="archiving" @click="handleArchive">
               归档模型
@@ -510,13 +524,11 @@ onBeforeUnmount(() => {
       </div>
 
       <div v-else-if="draft" class="model-detail__edit">
-        <el-alert
-          type="info"
-          :closable="false"
-          show-icon
+        <LiquidGlassNotice
+          source="wallpaper"
           title="编辑模式下可修改名称、modelName、连接配置与默认参数。模型类型不可变；供应商请通过「更换上游模型」调整。"
         />
-        <WorkbenchPanel title="编辑配置" density="compact">
+        <WorkbenchPanel class="glass-workspace-adaptive" title="编辑配置" density="compact">
           <ModelInstanceForm
             ref="formRef"
             :draft="draft"
@@ -533,11 +545,11 @@ onBeforeUnmount(() => {
           />
         </WorkbenchPanel>
         <ModelTestResultPanel :result="draftTestResult" :stale="draftTestStale" />
-        <div class="model-detail__sticky-actions">
-          <el-button @click="cancelEdit">取消编辑</el-button>
-          <el-button :loading="testing" @click="handleDraftTest">测试当前配置</el-button>
-          <el-button type="primary" :loading="saving" @click="handleSave">保存更改</el-button>
-        </div>
+        <LiquidGlassCard as="div" source="wallpaper" class="model-detail__sticky-actions">
+          <LiquidGlassButton @click="cancelEdit">取消编辑</LiquidGlassButton>
+          <LiquidGlassButton :loading="testing" @click="handleDraftTest">测试当前配置</LiquidGlassButton>
+          <LiquidGlassButton type="primary" :loading="saving" @click="handleSave">保存更改</LiquidGlassButton>
+        </LiquidGlassCard>
       </div>
     </template>
 
@@ -578,23 +590,29 @@ onBeforeUnmount(() => {
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="customReplaceVisible = false">取消</el-button>
-        <el-button type="primary" @click="confirmCustomReplace">应用到草稿</el-button>
+        <LiquidGlassButton @click="customReplaceVisible = false">取消</LiquidGlassButton>
+        <LiquidGlassButton type="primary" @click="confirmCustomReplace">应用到草稿</LiquidGlassButton>
       </template>
     </AppDialog>
   </WorkbenchPage>
 </template>
 
 <style scoped lang="scss">
-.model-detail__loading,
-.model-detail__error {
+.model-detail__loading {
   padding: 24px;
-  border: 1px solid var(--border-glass);
-  border-radius: var(--radius-lg);
-  background: var(--surface-glass-panel);
 }
 
-.model-detail__panels,
+.model-detail__panels {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 16px;
+}
+
+.model-detail__danger {
+  grid-column: 1 / -1;
+}
+
 .model-detail__edit {
   display: grid;
   gap: 16px;
@@ -646,9 +664,10 @@ onBeforeUnmount(() => {
   margin: 0;
   padding: 12px;
   overflow: auto;
+  border: 1px solid var(--border-glass-edge);
   border-radius: var(--radius-md);
-  background: var(--surface-glass-control);
-  color: var(--text-secondary);
+  background: var(--code-surface);
+  color: var(--code-text);
   font-size: 12px;
   line-height: 1.5;
 }
@@ -665,11 +684,14 @@ onBeforeUnmount(() => {
   position: sticky;
   bottom: 0;
   z-index: 2;
-  padding: 12px 14px;
-  border: 1px solid var(--border-glass);
-  border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--surface-glass-panel) 92%, transparent);
-  backdrop-filter: blur(8px);
+  justify-content: flex-end;
+  padding: 10px 14px;
+}
+
+@media (max-width: 1100px) {
+  .model-detail__panels {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 @media (max-width: 860px) {

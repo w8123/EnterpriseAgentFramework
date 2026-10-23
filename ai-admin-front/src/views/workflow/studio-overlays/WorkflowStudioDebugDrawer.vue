@@ -247,7 +247,7 @@
                 <span class="step-time">{{ formatElapsed(step.elapsedMs) }}</span>
               </button>
               <div v-if="selectedStepIndex === index" class="debug-step-inline">
-                <el-tabs>
+                <LiquidGlassTabs>
                   <el-tab-pane label="输入">
                     <pre>{{ stringifyDebugPayload(step.input) }}</pre>
                   </el-tab-pane>
@@ -264,7 +264,7 @@
                   <el-tab-pane v-if="step.errorMessage" label="错误">
                     <pre>{{ step.errorCode }} {{ step.errorMessage }}</pre>
                   </el-tab-pane>
-                </el-tabs>
+                </LiquidGlassTabs>
               </div>
             </article>
           </div>
@@ -303,6 +303,7 @@ import type {
   WorkflowDebugStepResult,
 } from '@/types/workflow'
 import TraceTimeline from '@/components/TraceTimeline.vue'
+import { LiquidGlassTabs } from '@/components/common/liquid-glass'
 import SendIcon from '@/components/icons/SendIcon.vue'
 import {
   ConversationView,
@@ -452,11 +453,11 @@ function resolveWorkflowThinkingPresentation(message: ConversationMessage) {
 :global(.studio-debug-drawer-overlay .studio-debug-drawer) {
   pointer-events: auto;
   min-width: min(760px, 100vw);
-  border-left: 1px solid rgba(191, 219, 254, 0.72);
+  border-left: 1px solid rgb(var(--brand-primary-rgb) / 0.72);
   background:
-    radial-gradient(circle at 18% 8%, rgba(129, 140, 248, 0.14), transparent 32%),
-    radial-gradient(circle at 76% 18%, rgba(34, 211, 238, 0.13), transparent 28%),
-    linear-gradient(135deg, rgba(248, 250, 252, 0.78), rgba(239, 246, 255, 0.62));
+    radial-gradient(circle at 18% 8%, rgb(var(--brand-primary-rgb) / 0.14), transparent 32%),
+    radial-gradient(circle at 76% 18%, color-mix(in srgb, var(--status-info) 13%, transparent), transparent 28%),
+    linear-gradient(135deg, var(--surface-glass-control), rgb(var(--brand-primary-rgb) / 0.62));
   box-shadow: -26px 0 72px rgba(15, 23, 42, 0.16);
   backdrop-filter: blur(20px) saturate(1.18);
 }
@@ -471,17 +472,17 @@ function resolveWorkflowThinkingPresentation(message: ConversationMessage) {
   align-items: center;
   margin-bottom: 0;
   padding: 22px 28px 18px;
-  border-bottom: 1px solid rgba(226, 232, 240, 0.72);
-  background: rgba(255, 255, 255, 0.42);
+  border-bottom: 1px solid var(--border-glass-edge);
+  background: var(--surface-glass-control);
   backdrop-filter: blur(16px) saturate(1.18);
 }
 
 :global(.studio-debug-drawer-overlay .studio-debug-drawer .el-drawer__close-btn) {
-  color: #334155;
+  color: var(--text-secondary);
 }
 
 :global(.studio-debug-drawer-overlay .studio-debug-drawer .el-drawer__title) {
-  color: #0f172a;
+  color: var(--text-primary);
   font-weight: 800;
   letter-spacing: 0;
 }
@@ -500,7 +501,7 @@ function resolveWorkflowThinkingPresentation(message: ConversationMessage) {
   padding: 0 20px 22px;
   position: relative;
   overflow: hidden;
-  color: #0f172a;
+  color: var(--text-primary);
 }
 
 .debug-session-grid {
@@ -518,9 +519,9 @@ function resolveWorkflowThinkingPresentation(message: ConversationMessage) {
   min-height: 0;
   height: 100%;
   padding: 14px;
-  border: 1px solid rgba(203, 213, 225, 0.64);
+  border: 1px solid var(--border-readable);
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.74);
+  background: var(--surface-glass-control);
   box-shadow: 0 22px 56px rgba(15, 23, 42, 0.1);
   backdrop-filter: blur(18px) saturate(1.16);
 }
@@ -541,8 +542,8 @@ function resolveWorkflowThinkingPresentation(message: ConversationMessage) {
   overflow: hidden;
   border-color: transparent;
   background:
-    linear-gradient(rgba(255, 255, 255, 0.72), rgba(248, 250, 252, 0.58)) padding-box,
-    linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(148, 163, 184, 0.34)) border-box;
+    linear-gradient(var(--surface-glass-control), var(--surface-glass-control)) padding-box,
+    linear-gradient(135deg, var(--surface-solid-panel), var(--surface-pressed)) border-box;
 
   .debug-chat-conversation {
     flex: 1;
@@ -563,7 +564,7 @@ function resolveWorkflowThinkingPresentation(message: ConversationMessage) {
     inset: -2px;
     z-index: 0;
     border-radius: inherit;
-    background: conic-gradient(from 140deg, #7c3aed, #06b6d4, #22c55e, #f472b6, #7c3aed);
+    background: conic-gradient(from 140deg, var(--brand-primary), var(--status-info), var(--status-success), var(--brand-primary), var(--brand-primary));
     opacity: 0;
     filter: blur(1px);
   }
@@ -573,9 +574,9 @@ function resolveWorkflowThinkingPresentation(message: ConversationMessage) {
     z-index: 1;
     border-radius: 15px;
     background:
-      radial-gradient(circle at 14% 0%, rgba(129, 140, 248, 0.12), transparent 34%),
-      radial-gradient(circle at 92% 12%, rgba(34, 211, 238, 0.11), transparent 28%),
-      rgba(255, 255, 255, 0.84);
+      radial-gradient(circle at 14% 0%, rgb(var(--brand-primary-rgb) / 0.12), transparent 34%),
+      radial-gradient(circle at 92% 12%, color-mix(in srgb, var(--status-info) 11%, transparent), transparent 28%),
+      var(--surface-glass-control);
     backdrop-filter: blur(18px) saturate(1.16);
   }
 
@@ -590,21 +591,21 @@ function resolveWorkflowThinkingPresentation(message: ConversationMessage) {
   }
 
   &.is-waiting::before {
-    background: conic-gradient(from 120deg, #f59e0b, #a855f7, #38bdf8, #fb7185, #f59e0b);
+    background: conic-gradient(from 120deg, var(--status-warning), var(--brand-primary), var(--status-info), var(--status-danger), var(--status-warning));
     opacity: 0.72;
     animation: debugAuraSpin 7.2s linear infinite;
   }
 
   &.is-success {
     background:
-      linear-gradient(rgba(255, 255, 255, 0.76), rgba(248, 250, 252, 0.62)) padding-box,
-      linear-gradient(135deg, rgba(34, 197, 94, 0.56), rgba(14, 165, 233, 0.24)) border-box;
+      linear-gradient(var(--surface-glass-control), var(--surface-glass-control)) padding-box,
+      linear-gradient(135deg, color-mix(in srgb, var(--status-success) 56%, transparent), color-mix(in srgb, var(--status-info) 24%, transparent)) border-box;
   }
 
   &.is-error {
     background:
-      linear-gradient(rgba(255, 255, 255, 0.76), rgba(254, 242, 242, 0.6)) padding-box,
-      linear-gradient(135deg, rgba(239, 68, 68, 0.62), rgba(244, 114, 182, 0.28)) border-box;
+      linear-gradient(var(--surface-glass-control), var(--surface-glass-control)) padding-box,
+      linear-gradient(135deg, color-mix(in srgb, var(--status-danger) 62%, transparent), rgb(var(--brand-primary-rgb) / 0.28)) border-box;
   }
 }
 
@@ -617,7 +618,7 @@ function resolveWorkflowThinkingPresentation(message: ConversationMessage) {
   :deep(.el-textarea__inner),
   :deep(.el-input__wrapper) {
     border-radius: 0;
-    color: var(--reachai-chat-text, #1e293b);
+    color: var(--reachai-chat-text, var(--text-primary));
     background: transparent;
     box-shadow: none;
   }
@@ -629,7 +630,7 @@ function resolveWorkflowThinkingPresentation(message: ConversationMessage) {
   }
 
   :deep(.el-textarea__inner::placeholder) {
-    color: var(--reachai-chat-text-muted, #64748b);
+    color: var(--reachai-chat-text-muted, var(--text-muted));
     opacity: 1;
   }
 
@@ -639,8 +640,8 @@ function resolveWorkflowThinkingPresentation(message: ConversationMessage) {
     border: 0;
     background: linear-gradient(
       135deg,
-      var(--reachai-chat-primary-soft, #818cf8),
-      var(--reachai-chat-primary, #6366f1)
+      var(--reachai-chat-primary-soft, var(--brand-primary)),
+      var(--reachai-chat-primary, var(--brand-primary))
     );
     box-shadow: 0 12px 26px rgb(var(--reachai-chat-primary-rgb, 99 102 241) / 0.28);
   }
@@ -662,7 +663,7 @@ function resolveWorkflowThinkingPresentation(message: ConversationMessage) {
   padding-right: 34px;
 
   strong {
-    color: #0f172a;
+    color: var(--text-primary);
     font-size: 16px;
     font-weight: 850;
   }
@@ -681,13 +682,13 @@ function resolveWorkflowThinkingPresentation(message: ConversationMessage) {
   }
 
   strong {
-    color: #0f172a;
+    color: var(--text-primary);
     font-weight: 800;
   }
 
   span {
     margin-top: 3px;
-    color: #64748b;
+    color: var(--text-muted);
     font-size: 12px;
   }
 }
@@ -708,9 +709,9 @@ function resolveWorkflowThinkingPresentation(message: ConversationMessage) {
   max-height: 180px;
   margin: 0;
   padding: 10px;
-  border: 1px solid var(--el-border-color-lighter);
+  border: 1px solid var(--border-glass-edge);
   border-radius: 6px;
-  background: var(--el-fill-color-light);
+  background: var(--surface-glass-inset);
   color: var(--el-text-color-primary);
   font-family: Consolas, Monaco, 'Courier New', monospace;
   font-size: 11px;
@@ -719,9 +720,9 @@ function resolveWorkflowThinkingPresentation(message: ConversationMessage) {
 
 .debug-advanced-collapse {
   margin-top: 14px;
-  border: 1px solid rgba(203, 213, 225, 0.58);
+  border: 1px solid var(--border-readable);
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.46);
+  background: var(--surface-glass-control);
   overflow: hidden;
   backdrop-filter: blur(12px);
 }
@@ -754,33 +755,33 @@ function resolveWorkflowThinkingPresentation(message: ConversationMessage) {
 
 .workflow-debug-step-card {
   overflow: hidden;
-  border: 1px solid rgba(203, 213, 225, 0.62);
-  border-left: 3px solid #22c55e;
+  border: 1px solid var(--border-readable);
+  border-left: 3px solid color-mix(in srgb, var(--status-success) 40%, transparent);
   border-radius: 14px;
   background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.88), rgba(248, 250, 252, 0.66)),
-    rgba(255, 255, 255, 0.76);
+    linear-gradient(135deg, var(--surface-glass-control), var(--surface-glass-control)),
+    var(--surface-glass-control);
   box-shadow: 0 10px 26px rgba(15, 23, 42, 0.055);
   backdrop-filter: blur(12px) saturate(1.12);
   transition: border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
 
   &:hover {
     transform: translateY(-1px);
-    border-color: rgba(129, 140, 248, 0.34);
+    border-color: rgb(var(--brand-primary-rgb) / 0.34);
     box-shadow: 0 14px 32px rgba(15, 23, 42, 0.08);
   }
 
   &.selected {
-    border-color: rgba(99, 102, 241, 0.36);
-    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.14), 0 16px 36px rgba(99, 102, 241, 0.1);
+    border-color: rgb(var(--brand-primary-rgb) / 0.36);
+    box-shadow: 0 0 0 2px rgb(var(--brand-primary-rgb) / 0.14), 0 16px 36px rgb(var(--brand-primary-rgb) / 0.1);
   }
 
   &.is-error {
-    border-left-color: #ef4444;
+    border-left-color: color-mix(in srgb, var(--status-danger) 40%, transparent);
   }
 
   &.is-waiting {
-    border-left-color: #f59e0b;
+    border-left-color: color-mix(in srgb, var(--status-warning) 40%, transparent);
   }
 }
 
@@ -820,8 +821,8 @@ function resolveWorkflowThinkingPresentation(message: ConversationMessage) {
   left: -4px;
   width: 14px;
   height: 14px;
-  border: 2px solid rgba(99, 102, 241, 0.22);
-  border-top-color: #6366f1;
+  border: 2px solid rgb(var(--brand-primary-rgb) / 0.22);
+  border-top-color: rgb(var(--brand-primary-rgb) / 0.4);
   border-radius: 999px;
   opacity: 0;
 
@@ -837,34 +838,34 @@ function resolveWorkflowThinkingPresentation(message: ConversationMessage) {
   height: 26px;
   place-items: center;
   border-radius: 50%;
-  background: rgba(241, 245, 249, 0.92);
-  color: #64748b;
+  background: var(--surface-glass-selected);
+  color: var(--text-muted);
   font-size: 12px;
   font-weight: 700;
 }
 
 .workflow-debug-step-card.is-success .step-index {
-  background: rgba(220, 252, 231, 0.92);
-  color: #15803d;
+  background: color-mix(in srgb, var(--status-success) 92%, transparent);
+  color: var(--status-success);
 }
 
 .workflow-debug-step-card.is-running {
-  border-left-color: #6366f1;
+  border-left-color: rgb(var(--brand-primary-rgb) / 0.4);
 }
 
 .workflow-debug-step-card.is-running .step-index {
-  background: rgba(224, 231, 255, 0.95);
-  color: #4338ca;
+  background: rgb(var(--brand-primary-rgb) / 0.95);
+  color: var(--brand-on-surface);
 }
 
 .workflow-debug-step-card.is-waiting .step-index {
-  background: rgba(254, 243, 199, 0.95);
-  color: #b45309;
+  background: color-mix(in srgb, var(--status-warning) 95%, transparent);
+  color: var(--status-warning);
 }
 
 .workflow-debug-step-card.is-error .step-index {
-  background: rgba(254, 226, 226, 0.95);
-  color: #b91c1c;
+  background: color-mix(in srgb, var(--status-danger) 95%, transparent);
+  color: var(--status-danger);
 }
 
 .step-main,
@@ -888,7 +889,7 @@ function resolveWorkflowThinkingPresentation(message: ConversationMessage) {
   }
 
   strong {
-    color: #0f172a;
+    color: var(--text-primary);
     font-size: 13px;
     line-height: 1.22;
   }
@@ -903,14 +904,14 @@ function resolveWorkflowThinkingPresentation(message: ConversationMessage) {
 
 .debug-step-inline {
   padding: 0 12px 12px 54px;
-  border-top: 1px solid rgba(226, 232, 240, 0.74);
+  border-top: 1px solid var(--border-glass-edge);
 }
 
 .debug-step-inline pre {
   margin: 0;
   padding: 10px;
   border-radius: 6px;
-  background: #f4f4f5;
+  background: var(--surface-glass-selected);
   color: var(--el-text-color-primary);
   font-size: 12px;
   white-space: pre-wrap;
@@ -922,12 +923,12 @@ function resolveWorkflowThinkingPresentation(message: ConversationMessage) {
   gap: 4px;
   margin-bottom: 8px;
   padding: 10px;
-  border: 1px solid rgba(245, 158, 11, 0.35);
+  border: 1px solid color-mix(in srgb, var(--status-warning) 35%, transparent);
   border-radius: 6px;
-  background: rgba(245, 158, 11, 0.08);
+  background: color-mix(in srgb, var(--status-warning) 8%, transparent);
 
   strong {
-    color: #92400e;
+    color: var(--status-warning);
     font-size: 13px;
   }
 
@@ -942,9 +943,9 @@ function resolveWorkflowThinkingPresentation(message: ConversationMessage) {
   gap: 10px;
   margin-top: 12px;
   padding: 12px;
-  border: 1px solid var(--el-border-color-light);
+  border: 1px solid var(--border-glass-edge);
   border-radius: 8px;
-  background: var(--el-fill-color-lighter);
+  background: var(--surface-glass-inset);
 }
 
 .debug-advanced-collapse .trace-replay-panel {
@@ -961,9 +962,9 @@ function resolveWorkflowThinkingPresentation(message: ConversationMessage) {
 
 .debug-production-row {
   padding: 10px;
-  border: 1px solid var(--el-border-color-light);
+  border: 1px solid var(--border-glass-edge);
   border-radius: 8px;
-  background: #fff;
+  background: var(--surface-glass-inset);
 
   strong,
   span {
@@ -991,10 +992,10 @@ function resolveWorkflowThinkingPresentation(message: ConversationMessage) {
   gap: 8px;
   max-width: 220px;
   padding: 6px 9px;
-  border: 1px solid #bbf7d0;
+  border: 1px solid color-mix(in srgb, var(--status-success) 40%, transparent);
   border-radius: 999px;
-  background: #f0fdf4;
-  color: #166534;
+  background: var(--surface-glass-selected);
+  color: var(--status-success);
   cursor: pointer;
   font-size: 12px;
 
@@ -1010,20 +1011,20 @@ function resolveWorkflowThinkingPresentation(message: ConversationMessage) {
   }
 
   em {
-    color: #64748b;
+    color: var(--text-muted);
     font-style: normal;
   }
 
   &.error {
-    border-color: #fecaca;
-    background: #fef2f2;
-    color: #991b1b;
+    border-color: color-mix(in srgb, var(--status-danger) 40%, transparent);
+    background: var(--surface-glass-selected);
+    color: var(--status-danger);
   }
 
   &.waiting {
-    border-color: #fde68a;
-    background: #fffbeb;
-    color: #92400e;
+    border-color: color-mix(in srgb, var(--status-warning) 40%, transparent);
+    background: var(--status-warning-soft);
+    color: var(--status-warning);
   }
 }
 
@@ -1041,7 +1042,7 @@ function resolveWorkflowThinkingPresentation(message: ConversationMessage) {
   pre {
     padding: 8px;
     border-radius: 4px;
-    background: #f4f4f5;
+    background: var(--surface-glass-selected);
     font-size: 12px;
     white-space: pre-wrap;
     word-break: break-all;
@@ -1057,9 +1058,9 @@ function resolveWorkflowThinkingPresentation(message: ConversationMessage) {
 
 .runtime-insight {
   padding: 10px;
-  border: 1px solid var(--el-border-color-light);
+  border: 1px solid var(--border-glass-edge);
   border-radius: 8px;
-  background: var(--el-fill-color-lighter);
+  background: var(--surface-glass-inset);
 
   span {
     display: block;
@@ -1075,20 +1076,20 @@ function resolveWorkflowThinkingPresentation(message: ConversationMessage) {
 }
 
 .debug-advanced-trigger {
-  border-color: rgba(129, 140, 248, 0.22);
-  color: #4338ca;
-  background: rgba(255, 255, 255, 0.58);
-  box-shadow: 0 10px 24px rgba(79, 70, 229, 0.08);
+  border-color: rgb(var(--brand-primary-rgb) / 0.22);
+  color: var(--brand-on-surface);
+  background: var(--surface-glass-control);
+  box-shadow: 0 10px 24px rgb(var(--brand-primary-rgb) / 0.08);
   backdrop-filter: blur(12px) saturate(1.12);
 }
 
 :global(.debug-advanced-popover) {
   max-width: min(560px, calc(100vw - 40px));
-  border: 1px solid rgba(203, 213, 225, 0.64) !important;
+  border: 1px solid var(--border-readable) !important;
   border-radius: 16px !important;
   background:
-    radial-gradient(circle at 10% 0%, rgba(129, 140, 248, 0.12), transparent 34%),
-    linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(248, 250, 252, 0.8)) !important;
+    radial-gradient(circle at 10% 0%, rgb(var(--brand-primary-rgb) / 0.12), transparent 34%),
+    linear-gradient(135deg, var(--surface-solid-panel), var(--surface-glass-control)) !important;
   box-shadow: 0 24px 62px rgba(15, 23, 42, 0.16) !important;
   backdrop-filter: blur(18px) saturate(1.16);
 }

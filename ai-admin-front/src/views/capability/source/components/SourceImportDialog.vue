@@ -9,6 +9,7 @@ import type {
   ScanSettings,
   SdkCapabilityScanResult,
 } from '@/types/scanProject'
+import { LiquidGlassNotice } from '@/components/common/liquid-glass'
 
 const props = defineProps<{
   visible: boolean
@@ -120,22 +121,20 @@ const sdkSyncContractDescription = computed(() =>
         <strong>扫描解析设置</strong>
         <span>用于控制扫描时如何解析接口说明、参数说明和默认开关，不属于接口来源。</span>
       </div>
-      <el-alert
+      <LiquidGlassNotice
         v-if="project?.projectKind === 'REGISTERED' || project?.projectKind === 'HYBRID'"
         class="scan-settings-registry-alert"
         type="success"
-        :closable="false"
-        show-icon
         title="SDK 接入项目"
         description="此处配置保存在 scan_settings，业务系统 SDK 下次同步来源时按此解析说明与参数。契约变化请到业务方法/API 目录核对并显式接纳，无需人工复制 Tool。"
+        source="backdrop"
       />
-      <el-alert
+      <LiquidGlassNotice
         v-if="isOpenApiMode"
         class="scan-settings-mode-alert"
         type="info"
-        :closable="false"
-        show-icon
         title="当前为 OpenAPI/Auto-OpenAPI 方式：描述来源、类名正则等仅对 Controller 代码扫描有效。"
+        source="backdrop"
       />
       <el-form novalidate :disabled="!canWrite" label-position="top" class="scan-settings-form drawer-form" @submit.prevent>
         <el-form-item
@@ -305,33 +304,30 @@ const sdkSyncContractDescription = computed(() =>
 
           <p v-if="!canWrite" class="source-detail-muted" role="status">当前账号可查看接入指引与设置，无法同步或保存修改。</p>
 
-          <el-alert
+          <LiquidGlassNotice
             class="sdk-sync-contract-alert"
             type="info"
-            :closable="false"
-            show-icon
             title="ReachAI 将主动调用业务系统"
             :description="sdkSyncContractDescription"
+            source="backdrop"
           />
 
-          <el-alert
+          <LiquidGlassNotice
             v-if="loopbackTarget"
             class="sdk-sync-loopback-alert"
             type="warning"
-            :closable="false"
-            show-icon
             title="当前回调地址使用 localhost"
             description="只有 ReachAI 与业务系统运行在同一主机或共享网络命名空间时才可达；分机、容器或集群部署请改为 ReachAI 实际可访问的域名或 IP。"
+            source="backdrop"
           />
 
-          <el-alert
+          <LiquidGlassNotice
             v-if="syncError"
             class="sdk-sync-error-alert"
             type="error"
-            :closable="false"
-            show-icon
             title="最近一次同步失败"
             :description="syncError"
+            source="backdrop"
           />
 
           <div v-if="syncResult" class="sdk-import-result">

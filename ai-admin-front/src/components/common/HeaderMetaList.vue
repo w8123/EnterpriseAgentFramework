@@ -68,3 +68,14 @@ defineProps<{
 .header-meta-list dd.is-danger { color: var(--status-danger); }
 .header-meta-list dd.is-info { color: var(--status-info); }
 </style>
+
+<style lang="scss">
+/* 直接落在壁纸上的 plain 页头：沿用壁纸墨色，避免深色壁纸上出现深色正文。 */
+.app-page-header[data-presentation='plain'] .header-meta-list__item {
+  color: var(--text-on-wallpaper-secondary);
+}
+
+.app-page-header[data-presentation='plain'] .header-meta-list dd:not(.is-success, .is-warning, .is-danger, .is-info) {
+  color: var(--text-on-wallpaper);
+}
+</style>

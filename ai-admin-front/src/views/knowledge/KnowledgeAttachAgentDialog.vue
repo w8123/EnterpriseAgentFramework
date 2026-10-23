@@ -33,13 +33,14 @@
       <p>之后可以在 Workflow Studio 里像普通 Workflow 一样继续修改。已经接入过的 Agent 再点一次不会重复添加。</p>
     </div>
     <template #footer>
-      <el-button @click="emit('update:modelValue', false)">取消</el-button>
-      <el-button type="primary" :loading="submitting" :disabled="!agentId" @click="handleAttach">接入并发布</el-button>
+      <LiquidGlassButton @click="emit('update:modelValue', false)">取消</LiquidGlassButton>
+      <LiquidGlassButton type="primary" :loading="submitting" :disabled="!agentId" @click="handleAttach">接入并发布</LiquidGlassButton>
     </template>
   </AppDialog>
 </template>
 
 <script setup lang="ts">
+import { LiquidGlassButton } from '@/components/common/liquid-glass'
 import { ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import AppDialog from '@/components/common/AppDialog.vue'

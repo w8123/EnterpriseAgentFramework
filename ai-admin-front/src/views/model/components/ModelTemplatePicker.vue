@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { LiquidGlassNotice } from '@/components/common/liquid-glass'
 import { computed, onMounted, ref, watch } from 'vue'
 import { ArrowRight, ChatDotRound, Connection, Cpu, Plus, Refresh, Search } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
@@ -278,15 +279,14 @@ defineExpose({
       </el-skeleton>
     </div>
 
-    <el-alert
+    <LiquidGlassNotice
       v-else-if="error"
       type="error"
-      :closable="false"
-      show-icon
       :title="error"
+      source="backdrop"
     >
-      <el-button size="small" @click="loadTemplates">重试</el-button>
-    </el-alert>
+      <template #actions><el-button size="small" @click="loadTemplates">重试</el-button></template>
+    </LiquidGlassNotice>
 
     <template v-else-if="pickerStep === 'provider'">
       <div class="catalog-header">

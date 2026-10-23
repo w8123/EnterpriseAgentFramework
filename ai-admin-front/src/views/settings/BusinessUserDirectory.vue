@@ -1,53 +1,61 @@
 <template>
-  <WorkbenchPage class="business-user-page" layout="list">
+  <LiquidGlassPage class="business-user-page">
     <PageHeader
       variant="standard"
+      presentation="plain"
+      action-presentation="inline"
       domain="platform"
-      eyebrow="Business Identity"
       title="业务用户目录"
-      description="统一查看平台内业务用户、外部身份映射和角色绑定，支持人工校正跨系统账号关系。"
+      description="查看业务用户、外部身份映射与角色绑定。"
     >
+      <template v-if="loaded" #tags>
+        <el-tag type="info" effect="light">共 {{ pagination.total }} 位业务用户</el-tag>
+      </template>
       <template #actions>
         <el-tooltip content="刷新业务用户" placement="top">
-          <el-button circle :icon="Refresh" :loading="loading" aria-label="刷新业务用户" @click="reload" />
+          <LiquidGlassButton source="wallpaper" circle :icon="Refresh" :loading="loading" aria-label="刷新业务用户" @click="reload" />
         </el-tooltip>
       </template>
     </PageHeader>
 
-    <FilterBar :loading="loading" :show-reset="false" @query="search">
-      <el-input
-        v-model="filters.keyword"
-        class="business-user-filter__keyword"
-        clearable
-        placeholder="搜索统一用户、姓名、邮箱、手机号"
-        :prefix-icon="Search"
-        @keyup.enter="search"
-      />
-      <el-input
-        v-model="filters.tenantId"
-        class="business-user-filter__tenant"
-        clearable
-        placeholder="租户，如 default"
-        @keyup.enter="search"
-      />
-      <el-select v-model="filters.status" clearable placeholder="状态" style="width: 140px">
-        <el-option
-          v-for="item in BUSINESS_USER_STATUS_SELECT_OPTIONS"
-          :key="item.value"
-          :label="item.label"
-          :value="item.value"
-        />
-      </el-select>
-    </FilterBar>
-
-    <DataTableShell
+    <LiquidGlassTable
+      v-model:current-page="pagination.current"
+      v-model:page-size="pagination.size"
       class="business-user-list workbench-list-surface"
       :loading="loading"
-      :empty="users.length === 0"
-      :current-page="pagination.current"
-      :page-size="pagination.size"
+      :empty="loaded && users.length === 0"
+      empty-description="暂无符合条件的业务用户"
       :total="pagination.total"
+      :page-sizes="[20, 50, 100]"
+      pagination-label="业务用户分页"
+      @change="reload"
     >
+      <template #toolbar>
+        <LiquidGlassFilterBar :loading="loading" query-label="查询" @query="search" @reset="resetFilters">
+          <LiquidGlassInput
+            v-model="filters.keyword"
+            clearable
+            placeholder="搜索统一用户、姓名、邮箱、手机号"
+            aria-label="搜索业务用户"
+            :prefix-icon="Search"
+          />
+          <LiquidGlassInput
+            v-model="filters.tenantId"
+            class="business-user-filter__tenant"
+            clearable
+            placeholder="租户，如 default"
+            aria-label="租户"
+          />
+          <LiquidGlassSelect v-model="filters.status" class="business-user-filter__status" clearable placeholder="状态" dropdown-title="用户状态" aria-label="用户状态">
+            <el-option
+              v-for="item in BUSINESS_USER_STATUS_SELECT_OPTIONS"
+              :key="item.value"
+              :label="item.label"
+              :value="item.value"
+            />
+          </LiquidGlassSelect>
+        </LiquidGlassFilterBar>
+      </template>
       <el-table :data="users" empty-text="" stripe>
       <el-table-column prop="globalUserId" label="统一用户 ID" min-width="150">
         <template #default="{ row }">
@@ -97,19 +105,7 @@
         </template>
       </el-table-column>
       </el-table>
-
-      <template #pagination>
-        <el-pagination
-          v-model:current-page="pagination.current"
-          v-model:page-size="pagination.size"
-          :total="pagination.total"
-          :page-sizes="[20, 50, 100]"
-          layout="total, sizes, prev, pager, next"
-          @current-change="reload"
-          @size-change="reload"
-        />
-      </template>
-    </DataTableShell>
+    </LiquidGlassTable>
 
     <AppDialog v-model="userDialogOpen" title="校正业务用户资料" width="520px">
       <el-form v-if="editingUser" :model="editingUser" label-width="110px">
@@ -137,8 +133,8 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="userDialogOpen = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="saveUser">保存</el-button>
+        <LiquidGlassButton @click="userDialogOpen = false">取消</LiquidGlassButton>
+        <LiquidGlassButton type="primary" :loading="saving" @click="saveUser">保存</LiquidGlassButton>
       </template>
     </AppDialog>
 
@@ -214,7 +210,7 @@
         </div>
       </template>
     </AppDrawer>
-  </WorkbenchPage>
+  </LiquidGlassPage>
 </template>
 
 <script setup lang="ts">
@@ -228,10 +224,15 @@ import {
   PLATFORM_PERMISSION_BUSINESS_USER_MANAGE,
 } from '@/auth/platformAccess'
 import { platformSessionUser } from '@/auth/platformSession'
-import FilterBar from '@/components/common/FilterBar.vue'
-import DataTableShell from '@/components/common/DataTableShell.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
-import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
+import {
+  LiquidGlassButton,
+  LiquidGlassFilterBar,
+  LiquidGlassInput,
+  LiquidGlassPage,
+  LiquidGlassSelect,
+  LiquidGlassTable,
+} from '@/components/common/liquid-glass'
 import CommonStatusTag from '@/components/CommonStatusTag.vue'
 import { BUSINESS_USER_STATUS_SELECT_OPTIONS, formatPlatformRoleLabel } from '@/utils/uiLabels'
 import {
@@ -266,6 +267,7 @@ const filters = reactive({
   status: '',
 })
 const pagination = reactive({ current: 1, size: 20, total: 0 })
+const loaded = ref(false)
 const identityForm = reactive({
   id: undefined as number | undefined,
   appId: '',
@@ -289,6 +291,7 @@ async function reload() {
     })
     users.value = data?.records ?? []
     pagination.total = data?.total ?? 0
+    loaded.value = true
   } finally {
     loading.value = false
   }
@@ -297,6 +300,11 @@ async function reload() {
 function search() {
   pagination.current = 1
   reload()
+}
+
+function resetFilters() {
+  Object.assign(filters, { keyword: '', tenantId: 'default', status: '' })
+  search()
 }
 
 function openUserDialog(row: BusinessUserView) {
@@ -400,13 +408,11 @@ onMounted(reload)
 </script>
 
 <style scoped lang="scss">
-.business-user-filter__keyword {
-  min-width: 260px;
-  flex: 1 1 360px;
-}
-
-.business-user-filter__tenant {
-  width: 180px;
+// 租户和状态是短值，筛选条里收窄，把宽度留给关键词。
+.business-user-list :deep(.filter-bar__fields > .liquid-glass-control.business-user-filter__tenant),
+.business-user-list :deep(.filter-bar__fields > .liquid-glass-control.business-user-filter__status) {
+  flex: 1 1 150px;
+  max-width: 190px;
 }
 
 .tag-list {
@@ -416,18 +422,14 @@ onMounted(reload)
 }
 
 .muted {
-  color: #667085;
+  color: var(--text-muted);
   font-size: 12px;
   line-height: 1.6;
 }
 
 code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  color: #344054;
-}
-
-.el-pagination {
-  justify-content: flex-end;
+  color: var(--text-secondary);
 }
 
 .drawer-user {
@@ -437,7 +439,7 @@ code {
   margin-bottom: 12px;
 
   span {
-    color: #667085;
+    color: var(--text-muted);
     font-size: 12px;
   }
 }
@@ -445,7 +447,7 @@ code {
 .identity-form {
   margin-top: 18px;
   padding-top: 14px;
-  border-top: 1px solid #eaecf0;
+  border-top: 1px solid var(--border-divider);
 
   h3 {
     margin: 0 0 12px;

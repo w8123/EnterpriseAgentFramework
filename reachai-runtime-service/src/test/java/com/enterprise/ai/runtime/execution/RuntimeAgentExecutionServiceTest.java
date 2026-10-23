@@ -221,6 +221,60 @@ class RuntimeAgentExecutionServiceTest {
     }
 
     @Test
+    void trustedDebugTargetRunsExactDraftConfigAsDebugEntry() {
+        RuntimeAgentExecutionContextResolver resolver = mock(RuntimeAgentExecutionContextResolver.class);
+        SupervisorRuntimeAdapter supervisor = mock(SupervisorRuntimeAdapter.class);
+        RuntimeAgentExecutionService service = new RuntimeAgentExecutionService(
+                resolver, supervisor, mock(RuntimeSupervisorApprovalPort.class),
+                mock(RuntimeInteractionResumeService.class), mock(RuntimeSessionClearPort.class),
+                mock(RuntimeRunLifecycleService.class));
+        RuntimeAgentConfigSnapshot draft = activeConfig().toBuilder().id(12L).versionNo(3).status("DRAFT").build();
+        when(resolver.resolvePinned("orders-bot", 12L)).thenReturn(Optional.of(
+                context(agent("agent-1", "orders-bot", "orders"), draft, List.of())));
+        when(supervisor.execute(any())).thenReturn(new SupervisorRuntimeAdapter.SupervisorResult(
+                true, "SUPERVISOR_COMPLETED", "ok", "trace-debug", List.of(), Map.of(), null));
+
+        Map<String, Object> response = service.execute(new LinkedHashMap<>(Map.of(
+                        "agentId", "orders-bot", "message", "hi", "entryType", "EMBED")), false,
+                RuntimeAgentExecutionEventSink.NOOP, RuntimeAgentExecutionCancellation.NOOP,
+                null, null, TrustedPersonalMemoryContext.empty(), 12L);
+
+        ArgumentCaptor<SupervisorRuntimeAdapter.SupervisorRequest> captor =
+                ArgumentCaptor.forClass(SupervisorRuntimeAdapter.SupervisorRequest.class);
+        verify(supervisor).execute(captor.capture());
+        assertEquals(12L, captor.getValue().config().getId());
+        assertEquals("DEBUG", captor.getValue().input().get("entryType"));
+        Map<?, ?> metadata = (Map<?, ?>) response.get("metadata");
+        assertEquals("DRAFT", metadata.get("agentConfigStatus"));
+        assertEquals(3, metadata.get("agentConfigVersion"));
+        verify(resolver, never()).resolve(any());
+    }
+
+    @Test
+    void publicBodyCannotSelectDebugConfig() {
+        RuntimeAgentExecutionContextResolver resolver = mock(RuntimeAgentExecutionContextResolver.class);
+        SupervisorRuntimeAdapter supervisor = mock(SupervisorRuntimeAdapter.class);
+        RuntimeAgentExecutionService service = new RuntimeAgentExecutionService(
+                resolver, supervisor, mock(RuntimeSupervisorApprovalPort.class),
+                mock(RuntimeInteractionResumeService.class), mock(RuntimeSessionClearPort.class),
+                mock(RuntimeRunLifecycleService.class));
+        when(resolver.resolve("orders-bot")).thenReturn(Optional.of(
+                context(agent("agent-1", "orders-bot", "orders"), activeConfig(), List.of())));
+        when(supervisor.execute(any())).thenReturn(new SupervisorRuntimeAdapter.SupervisorResult(
+                true, "SUPERVISOR_COMPLETED", "ok", "trace-1", List.of(), Map.of(), null));
+
+        service.execute(Map.of("agentId", "orders-bot", "message", "hi",
+                RuntimeAgentExecutionService.DEBUG_CONFIG_VERSION_KEY, 12L), false);
+
+        ArgumentCaptor<SupervisorRuntimeAdapter.SupervisorRequest> captor =
+                ArgumentCaptor.forClass(SupervisorRuntimeAdapter.SupervisorRequest.class);
+        verify(supervisor).execute(captor.capture());
+        assertEquals(7L, captor.getValue().config().getId());
+        assertFalse(captor.getValue().input().containsKey(RuntimeAgentExecutionService.DEBUG_CONFIG_VERSION_KEY));
+        verify(resolver, never()).resolvePinned(any(), any());
+    }
+
+    @Test
     void executesCapturedDraftTargetAndIgnoresCallerEvalAndAgentOverrides() {
         RuntimeAgentExecutionContextResolver resolver = mock(RuntimeAgentExecutionContextResolver.class);
         SupervisorRuntimeAdapter supervisor = mock(SupervisorRuntimeAdapter.class);
@@ -315,7 +369,7 @@ class RuntimeAgentExecutionServiceTest {
                         grant, "审批已通过", "attempt-1", Map.of("action", "confirm"), null));
         when(approvals.completeResume(any(), any(), any(), any()))
                 .thenAnswer(invocation -> invocation.getArgument(3));
-        when(resolver.resolvePublished("agent-1", 7L)).thenReturn(Optional.of(context(agent, config, List.of())));
+        when(resolver.resolvePinned("agent-1", 7L)).thenReturn(Optional.of(context(agent, config, List.of())));
         when(supervisor.execute(any())).thenReturn(new SupervisorRuntimeAdapter.SupervisorResult(
                 true, "SUPERVISOR_COMPLETED", "订单已更新", "trace-original", List.of(), Map.of(), null));
         WorkflowExecutionIdentity trustedIdentity =
@@ -468,7 +522,7 @@ class RuntimeAgentExecutionServiceTest {
                         "traceId", "trace-cont",
                         "waitingToolName", "query_orders",
                         "originalInput", Map.of("message", "查订单", "sessionId", "s1"))));
-        when(resolver.resolvePublished("agent-1", 7L)).thenReturn(Optional.of(context(agent, config, List.of())));
+        when(resolver.resolvePinned("agent-1", 7L)).thenReturn(Optional.of(context(agent, config, List.of())));
         when(supervisor.continueAfterWorkflowInteraction(any(), any(), any())).thenReturn(
                 new SupervisorRuntimeAdapter.SupervisorResult(
                         true, "SUPERVISOR_COMPLETED", "final-answer", "trace-cont",

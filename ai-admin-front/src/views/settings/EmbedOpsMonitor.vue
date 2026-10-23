@@ -1,68 +1,57 @@
 <template>
-  <WorkbenchPage class="embed-ops-page project-workbench-page" layout="list">
+  <LiquidGlassPage class="embed-ops-page project-workbench-page">
     <PageHeader
       variant="overview"
+      presentation="plain"
+      action-presentation="inline"
       domain="project"
-      eyebrow="Page Access"
       title="前端页面管理"
       description="管理当前项目已接入的业务页面、页面动作、嵌入授权和会话审计。"
     >
+      <template #meta>
+        <MetricStrip presentation="inline" source="wallpaper" :items="metricItems" aria-label="页面接入指标" />
+      </template>
       <template #actions>
-        <el-button :icon="ChatDotRound" @click="goSessionAudit">嵌入式会话审计</el-button>
-        <el-button :icon="Lock" @click="openCredentialDrawer">嵌入授权</el-button>
-        <el-button :icon="Cpu" @click="openRendererDrawer">嵌入渲染器</el-button>
+        <LiquidGlassButton source="wallpaper" :icon="ChatDotRound" @click="goSessionAudit">嵌入式会话审计</LiquidGlassButton>
+        <LiquidGlassButton source="wallpaper" :icon="Lock" @click="openCredentialDrawer">嵌入授权</LiquidGlassButton>
+        <LiquidGlassButton source="wallpaper" :icon="Cpu" @click="openRendererDrawer">嵌入渲染器</LiquidGlassButton>
       </template>
     </PageHeader>
 
-    <MetricStrip :items="metricItems" density="compact" aria-label="页面接入指标" />
-
-    <DataTableShell
-      class="embed-ops-shell workbench-list-surface project-list-card-mode"
-      density="compact"
+    <LiquidGlassTable
+      class="embed-ops-shell workbench-list-surface"
+      body-layout="cards"
       :loading="catalogLoading"
       :empty="filteredPages.length === 0"
       empty-description="暂无匹配页面"
+      :show-pagination="false"
     >
       <template #toolbar>
-        <FilterBar
-          class="project-list-filter-bar"
-          density="compact"
+        <LiquidGlassFilterBar
           :loading="catalogLoading"
-          query-label="搜索"
           @query="loadCatalog"
           @reset="resetCatalogFilters"
         >
-          <el-form-item label="页面">
-            <el-input
-              v-model="catalogFilters.pageKey"
-              clearable
-              :prefix-icon="Search"
-              placeholder="搜索 pageKey / 路由"
-              @keyup.enter="loadCatalog"
-            />
-          </el-form-item>
-          <el-form-item label="动作">
-            <el-input
-              v-model="catalogFilters.actionKeyword"
-              clearable
-              placeholder="标题 / actionKey"
-              @keyup.enter="loadCatalog"
-            />
-          </el-form-item>
-          <el-form-item label="状态">
-            <el-select v-model="catalogFilters.status" clearable placeholder="全部状态">
-              <el-option label="已启用" value="ACTIVE" />
-              <el-option label="已移除" value="REMOVED" />
-              <el-option label="已禁用" value="DISABLED" />
-            </el-select>
-          </el-form-item>
-          <template #actions>
-            <el-button native-type="button" @click="resetCatalogFilters">重置</el-button>
-            <el-button type="primary" native-type="submit" :icon="Search" :loading="catalogLoading">
-              搜索
-            </el-button>
-          </template>
-        </FilterBar>
+          <LiquidGlassInput
+            v-model="catalogFilters.pageKey"
+            clearable
+            :prefix-icon="Search"
+            placeholder="搜索 pageKey / 路由"
+            aria-label="页面"
+          />
+          <LiquidGlassInput
+            v-model="catalogFilters.actionKeyword"
+            class="embed-ops-filter__action"
+            clearable
+            placeholder="动作标题 / actionKey"
+            aria-label="动作"
+          />
+          <LiquidGlassSelect v-model="catalogFilters.status" class="embed-ops-filter__status" clearable placeholder="全部状态" dropdown-title="页面状态" aria-label="页面状态">
+            <el-option label="已启用" value="ACTIVE" />
+            <el-option label="已移除" value="REMOVED" />
+            <el-option label="已禁用" value="DISABLED" />
+          </LiquidGlassSelect>
+        </LiquidGlassFilterBar>
       </template>
 
       <div class="project-list-card-grid">
@@ -114,7 +103,7 @@
           </div>
         </article>
       </div>
-    </DataTableShell>
+    </LiquidGlassTable>
 
     <AppDrawer
       v-model="actionDrawerVisible"
@@ -287,8 +276,8 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="credentialDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="credentialSaving" @click="saveCredentialPolicy">保存策略</el-button>
+        <LiquidGlassButton @click="credentialDialogVisible = false">取消</LiquidGlassButton>
+        <LiquidGlassButton type="primary" :loading="credentialSaving" @click="saveCredentialPolicy">保存策略</LiquidGlassButton>
       </template>
     </AppDialog>
 
@@ -335,17 +324,22 @@
         </el-table-column>
       </el-table>
     </AppDrawer>
-  </WorkbenchPage>
+  </LiquidGlassPage>
 </template>
 
 <script setup lang="ts">
 import AppDialog from '@/components/common/AppDialog.vue'
 import AppDrawer from '@/components/common/AppDrawer.vue'
-import DataTableShell from '@/components/common/DataTableShell.vue'
-import FilterBar from '@/components/common/FilterBar.vue'
 import MetricStrip from '@/components/common/MetricStrip.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
-import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
+import {
+  LiquidGlassButton,
+  LiquidGlassFilterBar,
+  LiquidGlassInput,
+  LiquidGlassPage,
+  LiquidGlassSelect,
+  LiquidGlassTable,
+} from '@/components/common/liquid-glass'
 import type { MetricStripItem } from '@/components/common/glassWorkbench'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -730,24 +724,26 @@ onMounted(loadCatalog)
 </script>
 
 <style scoped lang="scss">
-.embed-ops-shell.project-list-card-mode :deep(.data-table-shell__body) {
-  padding: 4px 4px 8px;
+.embed-ops-shell {
+  min-height: 0;
 }
 
+.embed-ops-shell :deep(.filter-bar__fields > .liquid-glass-control.embed-ops-filter__status) {
+  flex: 1 1 140px;
+  max-width: 180px;
+}
+
+// 页面卡片放在磨砂列表面板里：用内嵌玻璃面代替原来的实色卡，避免深色壁纸上出现白块。
 .embed-ops-shell :deep(.project-list-card) {
-  min-height: 228px;
+  min-height: 0;
+  border-color: var(--border-glass-edge);
+  background: var(--surface-glass-inset);
+  box-shadow: var(--glass-rim-double);
 }
 
-.embed-ops-shell :deep(.project-list-filter-bar .el-form-item:not(:first-child) .el-input) {
-  width: 100% !important;
-}
-
-.project-list-card.is-active {
-  border-color: color-mix(in srgb, var(--brand-primary) 42%, var(--border-subtle));
-  box-shadow:
-    var(--inner-highlight),
-    var(--shadow-md),
-    inset 3px 0 0 var(--brand-primary);
+.embed-ops-shell :deep(.project-list-card.is-active) {
+  border-color: var(--border-focus);
+  box-shadow: var(--glass-rim-double), inset 3px 0 0 var(--brand-on-surface);
 }
 
 .embed-ops-card-time {
@@ -762,9 +758,9 @@ onMounted(loadCatalog)
   gap: 10px;
   margin-bottom: 18px;
   padding: 14px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--surface-solid-panel) 88%, transparent);
+  border: 1px solid var(--border-glass-edge);
+  border-radius: var(--radius-lg);
+  background: var(--surface-glass-inset);
 }
 
 .drawer-page-summary > div {
@@ -815,9 +811,9 @@ onMounted(loadCatalog)
   gap: 12px;
   margin-bottom: 12px;
   padding: 12px 14px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--surface-solid-control) 72%, transparent);
+  border: 1px solid var(--border-glass-edge);
+  border-radius: var(--radius-lg);
+  background: var(--surface-glass-inset);
 }
 
 .reference-head span {

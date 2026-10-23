@@ -30,7 +30,7 @@ M3 入向编排接入（依赖 M2 的 remote tool 快照）
 | W1-2 | 改造 client 表 | `sql/initV2.sql` | `control_mcp_client` 增加 `publication_id`（NOT NULL，外联语义）、`state`（ACTIVE/ROTATED/REVOKED/EXPIRED，默认 ACTIVE）、`tool_scope_json`；`tool_whitelist_json` 删除（不保留兼容列）；`idx_publication` 索引 |
 | W1-3 | 改造 call log 表 | `sql/initV2.sql` | `control_mcp_call_log` 增加 `direction`（OUTBOUND/INBOUND，默认 OUTBOUND）、`publication_id`、`remote_server_id`（M2 使用，列先建）、`error_category`、`run_id`；`idx_direction_created`、`idx_publication_created` 索引 |
 | W1-4 | 退役旧表 | `sql/initV2.sql` | 删除 `control_mcp_visibility` 的 CREATE 段及关联 `add_*` 补丁调用 |
-| W1-5 | 升级 SQL | `sql/upgrade-20260830-platform-consolidated.sql` Section 14 | DROP `control_mcp_visibility`；CREATE 三张新表；ALTER client/call_log 增列并 DROP 旧列（`tool_whitelist_json`）；写清影响：现有 Client 全部失效需按新模型重建，旧 visibility 数据不迁移 |
+| W1-5 | 升级 SQL | 历史 MCP 升级（已并入 `sql/initV2.sql`，原脚本从 Git 查阅） | DROP `control_mcp_visibility`；CREATE 三张新表；ALTER client/call_log 增列并 DROP 旧列（`tool_whitelist_json`）；写清影响：现有 Client 全部失效需按新模型重建，旧 visibility 数据不迁移 |
 | W1-6 | SQL 文档 | `sql/README.md` | 登记升级脚本执行顺序与影响说明 |
 | W1-7 | 表所有权 | `docs/architecture/service-table-ownership.md` | 5 张 `control_mcp_*` 表 owner=reachai-control-service；M3 预登记 `runtime_agent_remote_tool` owner=runtime |
 
@@ -125,7 +125,7 @@ M3 入向编排接入（依赖 M2 的 remote tool 快照）
 - `PASS`：`ai-admin-front` 生产构建（2449 modules）；导航/侧边栏 happy-dom 用例 34/34；前端公共路由、internal API、物理服务路由三项契约检查；`scripts/check-mcp-hub-sql.mjs` 基线/升级一致性检查。
 - `PASS`：MCP 相关路径 `git diff --check HEAD -- <MCP paths>`、未跟踪文件尾随空白、退役入口与代码占位守卫；后端命名守卫中的 MCP 双入口断言已同步通过。全仓后端命名守卫仍有 11 条 Dashboard 并发改动导致的既存断言缺失，全仓已暂存差异也仍有非 MCP 并发改动的既存空白错误，本次未越界修改。
 - `BLOCKED`：W8-6 要求的 `clean test` 未满足；当前运行中的旧 Runtime JAR 锁定 `reachai-runtime-service/target`，本次未获授权中断进程。
-- `PASS`：2026-08-29 经明确授权对远程开发库 `reach_ai` 执行合并前来源脚本 `upgrade-20260828-mcp-hub.sql`（现为合并升级 Section 14）。执行前确认 MySQL 5.7、库/连接字符集均为 `utf8mb4`，旧 visibility/client/call-log 三表均为 0 行；脚本每遍 16 条语句并连续执行两遍，两遍各 17 项结构回读全部通过：5 张 MCP Hub 表、Client 非空项目/环境/租户作用域、调用正文 MEDIUMTEXT、关键索引、6 项权限、旧表/旧列退役和中文无 `?` 乱码。`initV2.sql` 全新建库仍为 `NOT RUN`，且不属于已有开发库的升级入口。
+- `PASS`：2026-08-29 经明确授权对远程开发库 `reach_ai` 执行合并前来源脚本 `upgrade-20260828-mcp-hub.sql`（历史脚本，最终结构已进入初始化基线）。执行前确认 MySQL 5.7、库/连接字符集均为 `utf8mb4`，旧 visibility/client/call-log 三表均为 0 行；脚本每遍 16 条语句并连续执行两遍，两遍各 17 项结构回读全部通过：5 张 MCP Hub 表、Client 非空项目/环境/租户作用域、调用正文 MEDIUMTEXT、关键索引、6 项权限、旧表/旧列退役和中文无 `?` 乱码。`initV2.sql` 全新建库仍为 `NOT RUN`，且不属于已有开发库的升级入口。
 - `NOT RUN`：新 Control/Runtime 包部署与健康、真实外部 HTTP 客户端对 Capability/Workflow 各一次 `tools/call`、回滚/越权/IRREVERSIBLE 业务流、真实浏览器验收。当前运行服务使用旧 JAR，不能作为本次源码验收证据。
 
 ---

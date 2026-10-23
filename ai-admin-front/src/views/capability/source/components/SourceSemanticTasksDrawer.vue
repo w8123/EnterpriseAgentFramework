@@ -2,6 +2,7 @@
 import AppDrawer from '@/components/common/AppDrawer.vue'
 import ModelSelectEmptyState from '@/components/model/ModelSelectEmptyState.vue'
 import type { ModelInstance } from '@/types/model'
+import { LiquidGlassNotice, LiquidGlassButton } from '@/components/common/liquid-glass'
 
 type AiGenerationMode = 'missing' | 'force'
 
@@ -78,12 +79,11 @@ function handleModelSelectVisible(opened: boolean) {
         </el-radio-group>
       </el-form-item>
     </el-form>
-    <el-alert
+    <LiquidGlassNotice
       class="drawer-section-alert"
       type="info"
-      :closable="false"
-      show-icon
       title="强制重生成会覆盖已编辑内容；普通生成会尽量保留已编辑语义。"
+      source="backdrop"
     />
     <el-progress
       v-if="taskRunning"
@@ -92,22 +92,26 @@ function handleModelSelectVisible(opened: boolean) {
       :stroke-width="18"
       class="task-progress"
     />
-    <el-alert
+    <LiquidGlassNotice
       v-if="taskFailed"
       type="error"
       :title="taskFailedTitle"
-      :closable="false"
-      show-icon
+      source="backdrop"
     />
-    <el-alert v-if="taskStatusError" :title="taskStatusError" type="warning" :closable="false" show-icon>
-      <template #default><el-button @click="emit('retryTaskStatus')">重试任务状态</el-button></template>
-    </el-alert>
+    <LiquidGlassNotice
+      v-if="taskStatusError"
+      :title="taskStatusError"
+      type="warning"
+      source="backdrop"
+    >
+      <template #actions><el-button @click="emit('retryTaskStatus')">重试任务状态</el-button></template>
+    </LiquidGlassNotice>
     <template #footer>
-      <el-button @click="visible = false">取消</el-button>
-      <el-button :loading="batchStarting" :disabled="!canWrite || taskRunning || !!taskStatusError" @click="canWrite && emit('startBatchGenerate', aiGenerationMode === 'force')">
+      <LiquidGlassButton @click="visible = false">取消</LiquidGlassButton>
+      <LiquidGlassButton :loading="batchStarting" :disabled="!canWrite || taskRunning || !!taskStatusError" @click="canWrite && emit('startBatchGenerate', aiGenerationMode === 'force')">
         一键生成
-      </el-button>
-      <el-button type="primary" @click="emit('saveAiGenerationSettings')">保存设置</el-button>
+      </LiquidGlassButton>
+      <LiquidGlassButton type="primary" @click="emit('saveAiGenerationSettings')">保存设置</LiquidGlassButton>
     </template>
   </AppDrawer>
 </template>

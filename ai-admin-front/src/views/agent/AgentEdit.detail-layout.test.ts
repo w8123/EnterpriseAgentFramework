@@ -2,9 +2,9 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-const agentEditSource = readFileSync(resolve(__dirname, './AgentEdit.vue'), 'utf8')
+import { agentEditSource, agentEditTemplate } from './agentEditSources.testutil'
+
 const overviewSource = readFileSync(resolve(__dirname, '../../components/agent/AgentDetailOverview.vue'), 'utf8')
-const agentEditTemplate = agentEditSource.split('<script setup')[0]
 const overviewTemplate = overviewSource.split('<style scoped')[0]
 
 describe('Agent detail information hierarchy', () => {
@@ -41,21 +41,16 @@ describe('Agent detail information hierarchy', () => {
     expect(agentEditTemplate).toContain('v-show="isNew || activeConfigSection === \'workflows\'"')
     expect(agentEditTemplate).toContain('v-show="isNew || activeConfigSection === \'remote\'"')
     expect(agentEditTemplate).toContain('v-show="isNew || activeConfigSection === \'skills\'"')
-    expect(agentEditTemplate).toContain('<summary>调用设置</summary>')
-    expect(agentEditTemplate).toContain('<summary>协作设置</summary>')
+    expect(agentEditTemplate).toContain('<summary>高级</summary>')
     expect(agentEditTemplate).not.toContain('scrollIntoView')
   })
 
   it('teleports overview-launched overlays outside the hidden configuration form', () => {
-    const configFormStart = agentEditTemplate.indexOf('<el-form\n      v-show="isNew || activeSection === \'config\'"')
-    const configFormEnd = agentEditTemplate.lastIndexOf('</el-form>')
-    const configFormTemplate = agentEditTemplate.slice(configFormStart, configFormEnd)
-    const overlays = [...configFormTemplate.matchAll(/<App(?:Dialog|Drawer)\b[\s\S]*?>/g)]
+    // 配置分区组件渲染在隐藏的配置表单里；从概览打开的弹窗必须挂到 body，否则跟着表单一起被隐藏。
+    const overlays = [...agentEditTemplate.matchAll(/<App(?:Dialog|Drawer)\b[\s\S]*?>/g)]
       .map((match) => match[0])
 
-    expect(configFormStart).toBeGreaterThan(-1)
-    expect(configFormEnd).toBeGreaterThan(configFormStart)
-    expect(overlays).toHaveLength(5)
+    expect(overlays).toHaveLength(6)
     overlays.forEach((overlay) => expect(overlay).toContain('append-to-body'))
     expect(agentEditTemplate).toContain('@add-remote="openA2aBindingDialog"')
   })

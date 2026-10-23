@@ -5,6 +5,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowLeft, DocumentCopy, Plus, Refresh } from '@element-plus/icons-vue'
 import AppDialog from '@/components/common/AppDialog.vue'
 import CodeSnippetBlock from '@/components/common/CodeSnippetBlock.vue'
+import { LiquidGlassButton, LiquidGlassCard, LiquidGlassNotice, LiquidGlassTabs } from '@/components/common/liquid-glass'
 import {
   addMcpPublicationItem,
   archiveMcpPublication,
@@ -558,9 +559,13 @@ onMounted(reload)
 </script>
 
 <template>
-  <section class="publication-detail" v-loading="loading">
+  <section class="publication-detail">
+    <LiquidGlassCard v-if="loading && !detail" source="wallpaper" class="detail-loading" aria-busy="true">
+      <el-skeleton animated :rows="6" />
+    </LiquidGlassCard>
+
     <div v-if="detail" class="detail-header">
-      <el-button link :icon="ArrowLeft" @click="router.push('/mcp-hub/publications')">返回列表</el-button>
+      <LiquidGlassButton source="wallpaper" circle :icon="ArrowLeft" aria-label="返回发布列表" @click="router.push('/mcp-hub/publications')" />
       <div class="detail-title">
         <h2>{{ detail.publication.name }}</h2>
         <div class="detail-meta">
@@ -571,31 +576,31 @@ onMounted(reload)
         </div>
       </div>
       <div class="detail-actions">
-        <el-button :icon="Refresh" @click="reload">刷新</el-button>
-        <el-button @click="openEdit">编辑信息</el-button>
-        <el-button
+        <LiquidGlassButton source="wallpaper" :icon="Refresh" :loading="loading" @click="reload">刷新</LiquidGlassButton>
+        <LiquidGlassButton source="wallpaper" @click="openEdit">编辑信息</LiquidGlassButton>
+        <LiquidGlassButton source="wallpaper"
           v-if="detail.publication.state === 'DRAFT' || detail.publication.state === 'PUBLISHED'"
           type="primary"
           @click="publishFlow"
         >
           {{ detail.publication.state === 'PUBLISHED' ? '发布新修订' : '发布' }}
-        </el-button>
-        <el-button v-if="detail.publication.state === 'PUBLISHED'" type="warning" @click="runStateAction('suspend')">暂停</el-button>
-        <el-button v-if="detail.publication.state === 'SUSPENDED'" type="success" @click="runStateAction('resume')">恢复</el-button>
-        <el-button v-if="detail.publication.state !== 'ARCHIVED'" type="danger" plain @click="runStateAction('archive')">归档</el-button>
+        </LiquidGlassButton>
+        <LiquidGlassButton source="wallpaper" v-if="detail.publication.state === 'PUBLISHED'" type="warning" @click="runStateAction('suspend')">暂停</LiquidGlassButton>
+        <LiquidGlassButton source="wallpaper" v-if="detail.publication.state === 'SUSPENDED'" type="success" @click="runStateAction('resume')">恢复</LiquidGlassButton>
+        <LiquidGlassButton source="wallpaper" v-if="detail.publication.state !== 'ARCHIVED'" type="danger" @click="runStateAction('archive')">归档</LiquidGlassButton>
       </div>
     </div>
 
-    <el-tabs v-model="activeTab" class="detail-tabs">
+    <LiquidGlassTabs v-if="detail" v-model="activeTab" source="wallpaper" class="detail-tabs">
       <!-- Tab 1 条目 -->
       <el-tab-pane label="条目" name="items">
-        <div v-if="detail" class="tab-body">
+        <LiquidGlassCard v-if="detail" source="wallpaper" class="tab-body">
           <div class="tab-toolbar">
             <p class="tab-hint">从能力目录与已发布 Workflow 中挑选条目；发布前先做解析预览与预检，不可逆工具需显式放行。</p>
             <div class="tab-actions">
-              <el-button :icon="Plus" type="primary" @click="openItemDialog">添加条目</el-button>
-              <el-button :loading="previewLoading" @click="runResolvePreview">解析预览</el-button>
-              <el-button :loading="precheckLoading" @click="runPrecheck">预检</el-button>
+              <LiquidGlassButton :icon="Plus" type="primary" @click="openItemDialog">添加条目</LiquidGlassButton>
+              <LiquidGlassButton :loading="previewLoading" @click="runResolvePreview">解析预览</LiquidGlassButton>
+              <LiquidGlassButton :loading="precheckLoading" @click="runPrecheck">预检</LiquidGlassButton>
             </div>
           </div>
 
@@ -678,20 +683,18 @@ onMounted(reload)
 
           <div v-if="precheckReport" class="preview-block">
             <h3>预检报告</h3>
-            <el-alert
+            <LiquidGlassNotice
               :type="precheckReport.ok ? 'success' : 'error'"
-              :closable="false"
-              show-icon
               :title="precheckReport.ok ? '预检通过，可以发布' : '预检未通过，请先修正条目'"
               :description="`工具 ${precheckReport.toolCount} 个 · 不可逆 ${precheckReport.irreversibleToolCount} 个 · 风险摘要：只读 ${precheckReport.riskSummary.read} / 写入 ${precheckReport.riskSummary.write} / 页面操作 ${precheckReport.riskSummary.page_action} / 不可逆 ${precheckReport.riskSummary.irreversible} / 未知 ${precheckReport.riskSummary.unknown}`"
             />
           </div>
-        </div>
+        </LiquidGlassCard>
       </el-tab-pane>
 
       <!-- Tab 2 修订 -->
       <el-tab-pane label="修订" name="revisions">
-        <div v-if="detail" class="tab-body">
+        <LiquidGlassCard v-if="detail" source="wallpaper" class="tab-body">
           <p class="tab-hint">修订是发布内容的不可变快照；tools/list 与 tools/call 始终按当前生效修订执行，回滚即切换当前修订指针。</p>
           <el-table :data="detail.revisions" size="small" stripe :row-class-name="revisionRowClass">
             <el-table-column label="修订" width="100">
@@ -731,23 +734,23 @@ onMounted(reload)
               </template>
             </el-table-column>
           </el-table>
-        </div>
+        </LiquidGlassCard>
       </el-tab-pane>
 
       <!-- Tab 3 凭证 -->
       <el-tab-pane label="凭证" name="clients">
-        <div v-if="detail" class="tab-body">
+        <LiquidGlassCard v-if="detail" source="wallpaper" class="tab-body">
           <div class="tab-toolbar">
             <p class="tab-hint">凭证归属本发布；API Key 仅创建/轮换时明文显示一次。工具范围只能引用本发布内的工具名，留空表示整包。</p>
             <div class="tab-actions">
-              <el-button
+              <LiquidGlassButton
                 type="primary"
                 :icon="Plus"
                 :disabled="detail.publication.state !== 'PUBLISHED'"
                 @click="openClientCreate"
               >
                 创建凭证
-              </el-button>
+              </LiquidGlassButton>
             </div>
           </div>
           <el-table :data="detail.clients" size="small" stripe>
@@ -791,30 +794,31 @@ onMounted(reload)
               </template>
             </el-table-column>
           </el-table>
-        </div>
+        </LiquidGlassCard>
       </el-tab-pane>
 
       <!-- Tab 4 接入指引 -->
       <el-tab-pane label="接入指引" name="onboarding">
-        <div class="tab-body">
-          <el-alert
-            type="info"
-            :closable="false"
-            show-icon
-            title="API Key 在「凭证」页签创建或轮换后一次性显示，请立即保存；下方示例中的 <API_KEY> 替换为该 Key。"
-          />
-          <el-descriptions :column="2" border size="small">
-            <el-descriptions-item label="MCP 端点">
-              <code class="inline-code">{{ jsonrpcEndpoint }}</code>
-              <el-button link size="small" :icon="DocumentCopy" @click="copyText(jsonrpcEndpoint)">复制</el-button>
-            </el-descriptions-item>
-            <el-descriptions-item label="Manifest">
-              <code class="inline-code">{{ manifestEndpoint }}</code>
-              <el-button link size="small" :icon="DocumentCopy" @click="copyText(manifestEndpoint)">复制</el-button>
-            </el-descriptions-item>
-            <el-descriptions-item label="协议">MCP（JSON-RPC 2.0 over HTTP）</el-descriptions-item>
-            <el-descriptions-item label="鉴权"><code class="inline-code">Authorization: Bearer &lt;API_KEY&gt;</code></el-descriptions-item>
-          </el-descriptions>
+        <LiquidGlassCard source="wallpaper" class="tab-body">
+          <LiquidGlassNotice title="API Key 在「凭证」页签创建或轮换后一次性显示，请立即保存；下方示例中的 <API_KEY> 替换为该 Key。" />
+          <dl class="endpoint-list">
+            <div>
+              <dt>MCP 端点</dt>
+              <dd>
+                <code class="inline-code">{{ jsonrpcEndpoint }}</code>
+                <el-button link size="small" :icon="DocumentCopy" @click="copyText(jsonrpcEndpoint)">复制</el-button>
+              </dd>
+            </div>
+            <div>
+              <dt>Manifest</dt>
+              <dd>
+                <code class="inline-code">{{ manifestEndpoint }}</code>
+                <el-button link size="small" :icon="DocumentCopy" @click="copyText(manifestEndpoint)">复制</el-button>
+              </dd>
+            </div>
+            <div><dt>协议</dt><dd>MCP（JSON-RPC 2.0 over HTTP）</dd></div>
+            <div><dt>鉴权</dt><dd><code class="inline-code">Authorization: Bearer &lt;API_KEY&gt;</code></dd></div>
+          </dl>
 
           <el-collapse class="onboarding-collapse">
             <el-collapse-item title="Cursor 接入（~/.cursor/mcp.json）" name="cursor">
@@ -822,12 +826,11 @@ onMounted(reload)
             </el-collapse-item>
             <el-collapse-item title="Claude 接入（claude mcp add / Desktop 配置）" name="claude">
               <CodeSnippetBlock title="claude mcp add" :code="claudeCliSnippet" @copy="copyText" />
-              <el-alert
+              <LiquidGlassNotice
                 class="snippet-alert"
                 type="warning"
-                :closable="false"
-                show-icon
                 title="Claude Desktop 目前仅支持 stdio MCP，可用 mcp-proxy 把 HTTP 端点桥接为 stdio。"
+                source="backdrop"
               />
               <CodeSnippetBlock title="claude_desktop_config.json" :code="claudeDesktopSnippet" @copy="copyText" />
             </el-collapse-item>
@@ -835,9 +838,9 @@ onMounted(reload)
               <CodeSnippetBlock title="curl" :code="curlSnippet" @copy="copyText" />
             </el-collapse-item>
           </el-collapse>
-        </div>
+        </LiquidGlassCard>
       </el-tab-pane>
-    </el-tabs>
+    </LiquidGlassTabs>
 
     <!-- 添加条目对话框 -->
     <AppDialog
@@ -898,8 +901,8 @@ onMounted(reload)
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="itemDialogOpen = false">取消</el-button>
-        <el-button type="primary" :loading="itemSubmitting" @click="submitItem">添加</el-button>
+        <LiquidGlassButton @click="itemDialogOpen = false">取消</LiquidGlassButton>
+        <LiquidGlassButton type="primary" :loading="itemSubmitting" @click="submitItem">添加</LiquidGlassButton>
       </template>
     </AppDialog>
 
@@ -929,11 +932,11 @@ onMounted(reload)
             <el-input v-model="clientForm.tenantId" placeholder="签入 Runtime 的可信 tenantId" />
           </el-form-item>
         </template>
-        <el-alert
+        <LiquidGlassNotice
           v-else
           type="info"
-          :closable="false"
           :title="`作用域不可变：${clientForm.projectCode} / ${clientForm.environment} / ${clientForm.tenantId}`"
+          source="backdrop"
         />
         <el-form-item required label="Tool ACL 角色">
           <el-select v-model="clientForm.roles" multiple filterable placeholder="只能选择调用权限中已管理的角色">
@@ -964,10 +967,10 @@ onMounted(reload)
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="clientDialogOpen = false">取消</el-button>
-        <el-button type="primary" :loading="clientSubmitting" @click="submitClient">
+        <LiquidGlassButton @click="clientDialogOpen = false">取消</LiquidGlassButton>
+        <LiquidGlassButton type="primary" :loading="clientSubmitting" @click="submitClient">
           {{ editingClient ? '保存' : '创建' }}
-        </el-button>
+        </LiquidGlassButton>
       </template>
     </AppDialog>
 
@@ -979,14 +982,18 @@ onMounted(reload)
       :close-on-click-modal="false"
       :show-close="false"
     >
-      <el-alert type="warning" :closable="false" show-icon title="请立即复制并妥善保存，关闭后将不再显示。" />
+      <LiquidGlassNotice
+        type="warning"
+        title="请立即复制并妥善保存，关闭后将不再显示。"
+        source="backdrop"
+      />
       <div class="apikey-box">
         <code>{{ issuedKey?.plaintextApiKey }}</code>
         <el-button type="primary" :icon="DocumentCopy" @click="copyText(issuedKey?.plaintextApiKey ?? '')">复制</el-button>
       </div>
       <p v-if="issuedKey?.note" class="apikey-note">{{ issuedKey.note }}</p>
       <template #footer>
-        <el-button type="primary" @click="keyDialogOpen = false">已保存</el-button>
+        <LiquidGlassButton type="primary" @click="keyDialogOpen = false">已保存</LiquidGlassButton>
       </template>
     </AppDialog>
 
@@ -1001,8 +1008,8 @@ onMounted(reload)
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="editVisible = false">取消</el-button>
-        <el-button type="primary" :loading="editSubmitting" @click="submitEdit">保存</el-button>
+        <LiquidGlassButton @click="editVisible = false">取消</LiquidGlassButton>
+        <LiquidGlassButton type="primary" :loading="editSubmitting" @click="submitEdit">保存</LiquidGlassButton>
       </template>
     </AppDialog>
   </section>
@@ -1026,11 +1033,16 @@ onMounted(reload)
   min-width: 0;
 }
 
+.detail-loading {
+  padding: 24px;
+}
+
 .detail-title h2 {
   margin: 0;
-  color: var(--text-primary);
+  color: var(--text-on-wallpaper);
   font-size: 18px;
   overflow-wrap: anywhere;
+  text-shadow: var(--text-on-wallpaper-shadow);
 }
 
 .detail-meta {
@@ -1039,7 +1051,7 @@ onMounted(reload)
   align-items: center;
   gap: 10px;
   margin-top: 6px;
-  color: var(--text-muted);
+  color: var(--text-on-wallpaper-secondary);
   font-size: 12px;
 }
 
@@ -1070,7 +1082,7 @@ onMounted(reload)
 
 .tab-hint {
   margin: 0;
-  color: var(--text-muted);
+  color: var(--text-secondary);
   font-size: 12px;
 }
 
@@ -1115,9 +1127,10 @@ onMounted(reload)
   overflow: auto;
   margin: 0;
   padding: 10px;
+  border: 1px solid var(--border-glass-edge);
   border-radius: var(--radius-md);
-  background: var(--surface-glass-control);
-  color: var(--text-primary);
+  background: var(--code-surface);
+  color: var(--code-text);
   font-family: Consolas, 'JetBrains Mono', monospace;
   font-size: 12px;
 }
@@ -1151,8 +1164,42 @@ onMounted(reload)
   word-break: break-word;
 }
 
+.endpoint-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 18px;
+  margin: 0;
+
+  > div {
+    display: grid;
+    gap: 3px;
+    min-width: 0;
+    padding: 10px 12px;
+    border: 1px solid var(--border-glass-edge);
+    border-radius: var(--radius-md);
+    background: var(--surface-glass-inset);
+  }
+
+  dt {
+    color: var(--text-muted);
+    font-size: 12px;
+  }
+
+  dd {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+    color: var(--text-primary);
+    font-size: 13px;
+  }
+}
+
 .onboarding-collapse {
   min-width: 0;
+  --el-collapse-header-bg-color: transparent;
+  --el-collapse-content-bg-color: transparent;
 }
 
 .snippet-alert {
@@ -1184,6 +1231,10 @@ onMounted(reload)
 }
 
 @media (max-width: 900px) {
+  .endpoint-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .detail-header,
   .tab-toolbar {
     flex-direction: column;

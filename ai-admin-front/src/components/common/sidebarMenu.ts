@@ -4,6 +4,7 @@ import {
   hasPlatformPermission,
   PLATFORM_PERMISSION_ADMIN,
   PLATFORM_PERMISSION_AGENT_READ,
+  PLATFORM_PERMISSION_AUTOMATION_READ,
   PLATFORM_PERMISSION_A2A_HUB_READ,
   PLATFORM_PERMISSION_BUSINESS_USER_READ,
   PLATFORM_PERMISSION_KNOWLEDGE_READ,
@@ -25,7 +26,7 @@ import {
   Grid,
   Lock,
   Share,
-  Shop,
+  Clock,
   Timer,
   User,
 } from '@element-plus/icons-vue'
@@ -53,20 +54,20 @@ export type SidebarEntry =
 
 /**
  * 全局主菜单结构。视觉由 AppSidebar 统一控制，这里只描述导航语义。
- * 分组按「人」划分：开发人员接入项目与业务能力，运营人员编排和运营 Agent，
- * 平台管理员管理账号、模型与合规。每个入口都声明权限，只有一个角色的人只看到自己那一组。
+ * 按功能领域恢复「智能化改造 / AI 资产 / 运行与治理 / 平台资源」分组。
+ * 每个入口继续按权限过滤；已退役的实验室不恢复，知识库保留收拢后的入口。
  */
 export const sidebarMenu: SidebarEntry[] = [
+  { kind: 'group', label: '智能化改造' },
   { kind: 'item', index: '/dashboard', label: '概览', icon: DataAnalysis },
-
-  { kind: 'group', label: '开发' },
   {
     kind: 'item',
     index: '/registry/projects',
-    label: '项目接入',
+    label: '项目管理',
     icon: Connection,
     requiredPermissions: [PLATFORM_PERMISSION_READ],
   },
+  { kind: 'group', label: 'AI 资产' },
   {
     kind: 'item',
     index: '/business-capabilities',
@@ -76,15 +77,6 @@ export const sidebarMenu: SidebarEntry[] = [
   },
   {
     kind: 'item',
-    index: '/api-market',
-    label: 'API 市场',
-    icon: Shop,
-    requiredPermissions: [PLATFORM_PERMISSION_READ],
-  },
-
-  { kind: 'group', label: '运营' },
-  {
-    kind: 'item',
     index: '/workflows',
     label: 'Workflow',
     icon: Share,
@@ -92,13 +84,27 @@ export const sidebarMenu: SidebarEntry[] = [
   },
   {
     kind: 'item',
-    index: '/agent-group',
+    index: '/agent',
     label: 'Agent',
     icon: Cpu,
+    requiredPermissions: [PLATFORM_PERMISSION_AGENT_READ],
+  },
+  {
+    kind: 'item',
+    index: '/skills',
+    label: 'Skill',
+    icon: Collection,
+    requiredPermissions: [PLATFORM_PERMISSION_SKILL_READ],
+  },
+  {
+    kind: 'item',
+    index: '/integration-group',
+    label: '集成与开放',
+    icon: Share,
     children: [
-      { index: '/agent', label: 'Agent 列表', requiredPermissions: [PLATFORM_PERMISSION_AGENT_READ] },
-      { index: '/mcp-hub', label: 'MCP 开放', requiredPermissions: [PLATFORM_PERMISSION_MCP_HUB_READ] },
-      { index: '/a2a-hub', label: 'A2A 开放', requiredPermissions: [PLATFORM_PERMISSION_A2A_HUB_READ] },
+      { index: '/api-market', label: 'API 市场', requiredPermissions: [PLATFORM_PERMISSION_READ] },
+      { index: '/mcp-hub', label: 'MCP Hub', requiredPermissions: [PLATFORM_PERMISSION_MCP_HUB_READ] },
+      { index: '/a2a-hub', label: 'A2A 互联中心', requiredPermissions: [PLATFORM_PERMISSION_A2A_HUB_READ] },
     ],
   },
   {
@@ -107,6 +113,14 @@ export const sidebarMenu: SidebarEntry[] = [
     label: '知识库',
     icon: Collection,
     requiredPermissions: [PLATFORM_PERMISSION_KNOWLEDGE_READ],
+  },
+  { kind: 'group', label: '运行与治理' },
+  {
+    kind: 'item',
+    index: '/automations',
+    label: '自动化中心',
+    icon: Clock,
+    requiredPermissions: [PLATFORM_PERMISSION_AUTOMATION_READ],
   },
   {
     kind: 'item',
@@ -117,29 +131,9 @@ export const sidebarMenu: SidebarEntry[] = [
   },
   {
     kind: 'item',
-    index: '/end-user-group',
-    label: '用户与调用权限',
-    icon: User,
-    children: [
-      {
-        index: '/settings/business-users',
-        label: '业务用户',
-        requiredPermissions: [PLATFORM_PERMISSION_BUSINESS_USER_READ],
-      },
-      {
-        index: '/settings/tool-acl',
-        label: '调用权限',
-        requiredPermissions: [PLATFORM_PERMISSION_TOOL_ACL_READ],
-      },
-    ],
-  },
-
-  { kind: 'group', label: '平台管理' },
-  {
-    kind: 'item',
     index: '/identity-group',
-    label: '账号与角色',
-    icon: Lock,
+    label: '身份与权限',
+    icon: User,
     children: [
       {
         index: '/settings/platform-users',
@@ -147,25 +141,25 @@ export const sidebarMenu: SidebarEntry[] = [
         requiredPermissions: [PLATFORM_PERMISSION_ADMIN],
       },
       {
+        index: '/settings/business-users',
+        label: '业务用户',
+        requiredPermissions: [PLATFORM_PERMISSION_BUSINESS_USER_READ],
+      },
+      {
         index: '/settings/auth-providers',
         label: '认证源',
         requiredPermissions: [PLATFORM_PERMISSION_ADMIN],
+      },
+      {
+        index: '/settings/tool-acl',
+        label: '调用权限',
+        requiredPermissions: [PLATFORM_PERMISSION_TOOL_ACL_READ],
       },
       {
         index: '/settings/runtime-user-mappings',
         label: '运行时用户映射',
         requiredPermissions: [PLATFORM_PERMISSION_RUNTIME_USER_MAPPING_MANAGE],
       },
-    ],
-  },
-  {
-    kind: 'item',
-    index: '/model-group',
-    label: '模型服务',
-    icon: Coin,
-    children: [
-      { index: '/model/instances', label: '模型中心', requiredPermissions: [PLATFORM_PERMISSION_MODEL_READ] },
-      { index: '/model/playground', label: '模型调试台', requiredPermissions: [PLATFORM_PERMISSION_MODEL_READ] },
     ],
   },
   {
@@ -181,12 +175,16 @@ export const sidebarMenu: SidebarEntry[] = [
       },
     ],
   },
+  { kind: 'group', label: '平台资源' },
   {
     kind: 'item',
-    index: '/skills',
-    label: 'Skill 包',
-    icon: Collection,
-    requiredPermissions: [PLATFORM_PERMISSION_SKILL_READ],
+    index: '/model-group',
+    label: '模型服务',
+    icon: Coin,
+    children: [
+      { index: '/model/instances', label: '模型中心', requiredPermissions: [PLATFORM_PERMISSION_MODEL_READ] },
+      { index: '/model/playground', label: '模型调试台', requiredPermissions: [PLATFORM_PERMISSION_MODEL_READ] },
+    ],
   },
 ]
 
@@ -243,7 +241,7 @@ export function filterSidebarMenu(
 export function resolveActiveMenu(path: string, metaActiveMenu?: unknown): string {
   if (typeof metaActiveMenu === 'string' && metaActiveMenu) return metaActiveMenu
   if (path.startsWith('/knowledge')) return '/knowledge'
-  // 业务索引按项目由 SDK 同步，从「项目接入 → 项目详情」进入。
+  // 业务索引按项目由 SDK 同步，从「项目管理 → 项目详情」进入。
   if (path.startsWith('/biz-index')) return '/registry/projects'
   if (path.startsWith('/api-market')) return '/api-market'
   if (path.startsWith('/skill-market')) return '/skills'
@@ -263,7 +261,8 @@ export function resolveActiveMenu(path: string, metaActiveMenu?: unknown): strin
   if (path.startsWith('/settings/auth-providers')) return '/settings/auth-providers'
   if (path.startsWith('/settings/tool-acl')) return '/settings/tool-acl'
   if (path.startsWith('/registry/projects')) return '/registry/projects'
-  if (path.startsWith('/automations') || path.startsWith('/runops') || path.startsWith('/run-center')) return '/run-center'
+  if (path.startsWith('/automations') || path.startsWith('/runops/automations')) return '/automations'
+  if (path.startsWith('/runops') || path.startsWith('/run-center')) return '/run-center'
   if (path.startsWith('/mcp-hub')) return '/mcp-hub'
   if (path.startsWith('/a2a-hub')) return '/a2a-hub'
   return path
@@ -274,16 +273,14 @@ export function resolveOpenGroups(path: string): string[] {
   const active = resolveActiveMenu(path)
   const open: string[] = []
 
-  if (active === '/agent' || active === '/mcp-hub' || active === '/a2a-hub') {
-    open.push('/agent-group')
-  }
-
-  if (active === '/settings/business-users' || active === '/settings/tool-acl') {
-    open.push('/end-user-group')
+  if (active === '/api-market' || active === '/mcp-hub' || active === '/a2a-hub') {
+    open.push('/integration-group')
   }
 
   if (
     active === '/settings/platform-users'
+    || active === '/settings/business-users'
+    || active === '/settings/tool-acl'
     || active === '/settings/runtime-user-mappings'
     || active === '/settings/auth-providers'
   ) {

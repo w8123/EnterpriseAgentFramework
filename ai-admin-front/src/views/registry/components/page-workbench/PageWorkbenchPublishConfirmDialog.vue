@@ -12,6 +12,7 @@ import {
   pageWorkbenchPageName,
   pageWorkbenchRiskLabel,
 } from '@/utils/pageWorkbenchPresentation'
+import { LiquidGlassNotice, LiquidGlassButton } from '@/components/common/liquid-glass'
 
 const props = defineProps<{
   modelValue: boolean
@@ -92,12 +93,11 @@ watch(() => props.modelValue, (visible) => {
             :value="workflow.workflowId"
           />
         </el-select>
-        <el-alert
+        <LiquidGlassNotice
           v-if="replaceWorkflowId"
           type="warning"
-          :closable="false"
-          show-icon
           title="发布成功后，所选旧 Workflow 将从当前 Agent 的可调用 Workflow 列表解除；同页其他能力保持不变。"
+          source="backdrop"
         />
       </section>
 
@@ -105,26 +105,25 @@ watch(() => props.modelValue, (visible) => {
         我已确认页面操作范围、权限、风险规则和上述上线方式；发布目标来自当前已校验草稿
       </el-checkbox>
 
-      <el-alert
+      <LiquidGlassNotice
         v-if="result && !result.validation.valid"
         title="当前草稿仍有确定性校验错误"
         description="请先在 Workflow Studio 修正 GraphSpec，再重新回到当前活动。"
         type="error"
-        :closable="false"
-        show-icon
+        source="backdrop"
       />
     </section>
 
     <template #footer>
-      <el-button @click="emit('update:modelValue', false)">稍后确认</el-button>
-      <el-button
+      <LiquidGlassButton @click="emit('update:modelValue', false)">稍后确认</LiquidGlassButton>
+      <LiquidGlassButton
         v-if="result"
         :icon="Setting"
         @click="emit('studio', result)"
       >
         在 Workflow Studio 核对
-      </el-button>
-      <el-button
+      </LiquidGlassButton>
+      <LiquidGlassButton
         v-if="result"
         type="primary"
         :icon="Promotion"
@@ -133,7 +132,7 @@ watch(() => props.modelValue, (visible) => {
         @click="emit('confirm', result, replaceWorkflowId || null)"
       >
         确认发布并接入
-      </el-button>
+      </LiquidGlassButton>
     </template>
   </AppDialog>
 </template>

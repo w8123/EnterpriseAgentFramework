@@ -1,11 +1,14 @@
 <template>
   <div
-    class="studio-node"
+    class="studio-node glass-surface-node"
     :class="[model.kindClass, runClass, { collapsed, 'needs-config': model.needsConfig }]"
   >
     <Handle v-if="model.hasTarget" type="target" :position="Position.Left" />
     <Handle v-if="model.hasSource" type="source" :position="Position.Right" />
-    <div class="node-icon"><el-icon><component :is="iconComponent" /></el-icon></div>
+    <div class="node-icon">
+      <ModelProviderIcon v-if="model.modelProvider" class="node-model-provider" :provider="model.modelProvider" :size="20" />
+      <el-icon v-else><component :is="iconComponent" /></el-icon>
+    </div>
     <div v-if="model.kicker" class="node-kicker">{{ model.kicker }}</div>
     <div v-else class="node-head">
       <span class="node-kind">{{ model.kind }}</span>
@@ -60,6 +63,7 @@ import {
   VideoPlay,
 } from '@element-plus/icons-vue'
 import LlmModelIcon from '@/components/icons/LlmModelIcon.vue'
+import ModelProviderIcon from '@/views/model/components/ModelProviderIcon.vue'
 import type { StudioNodeCardModel } from './studioNodeCardModel'
 
 const props = defineProps<{
@@ -101,7 +105,7 @@ const iconComponent = computed(() => icons[props.model.icon] || SetUp)
 
 <style scoped lang="scss">
 .studio-node {
-  --node-color: #2563eb;
+  --node-color: var(--brand-on-surface);
   --node-soft: rgba(37, 99, 235, 0.1);
   --node-line: rgba(37, 99, 235, 0.2);
   position: relative;
@@ -112,15 +116,10 @@ const iconComponent = computed(() => icons[props.model.icon] || SetUp)
   min-height: 118px;
   padding: 20px 14px 0;
   overflow: hidden;
-  border: 1px solid rgba(148, 163, 184, 0.28);
-  border-radius: 12px;
-  border-top: 1px solid rgba(148, 163, 184, 0.28);
-  background:
-    radial-gradient(circle at 82% 0%, var(--node-soft), transparent 34%),
-    linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
-  color: #0f172a;
+  border: 1px solid color-mix(in srgb, var(--node-color) 16%, var(--border-glass-edge));
+  border-radius: 16px;
+  color: var(--text-primary);
   font-size: 13px;
-  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.11);
   transition:
     border-color 0.16s ease,
     box-shadow 0.16s ease,
@@ -133,14 +132,15 @@ const iconComponent = computed(() => icons[props.model.icon] || SetUp)
   left: 0;
   right: 0;
   height: 4px;
-  background: linear-gradient(90deg, var(--node-color), color-mix(in srgb, var(--node-color) 56%, #ffffff));
+  background: linear-gradient(90deg, var(--node-color), color-mix(in srgb, var(--node-color) 56%, var(--surface-solid-panel)));
+  box-shadow: var(--inner-highlight);
   content: '';
 }
 
 .studio-node:hover {
   transform: translateY(-1px);
-  border-color: color-mix(in srgb, var(--node-color) 52%, #dbe5f0);
-  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.14);
+  border-color: color-mix(in srgb, var(--node-color) 52%, var(--border-readable));
+  box-shadow: var(--shadow-glass-node), var(--glass-node-rim), 0 0 0 1px var(--node-line);
 }
 
 .studio-node .node-icon {
@@ -154,6 +154,7 @@ const iconComponent = computed(() => icons[props.model.icon] || SetUp)
   border: 1px solid var(--node-line);
   border-radius: 9px;
   background: var(--node-soft);
+  box-shadow: var(--inner-highlight);
   color: var(--node-color);
   font-size: 17px;
   line-height: 1;
@@ -161,6 +162,18 @@ const iconComponent = computed(() => icons[props.model.icon] || SetUp)
 
 .studio-node .node-icon .el-icon {
   font-size: 17px;
+}
+
+.node-icon .node-model-provider {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.node-model-provider :deep(.model-provider-icon__img) {
+  width: 100%;
+  height: 100%;
 }
 
 .studio-node .node-head {
@@ -180,7 +193,7 @@ const iconComponent = computed(() => icons[props.model.icon] || SetUp)
   padding: 0 8px;
   border-radius: 999px;
   background: rgba(15, 23, 42, 0.045);
-  color: #475569;
+  color: var(--text-secondary);
   font-size: 11px;
   font-weight: 800;
   line-height: 22px;
@@ -210,7 +223,7 @@ const iconComponent = computed(() => icons[props.model.icon] || SetUp)
 
 .studio-node .node-label {
   overflow: visible;
-  color: #0f172a;
+  color: var(--text-primary);
   font-size: 15px;
   font-weight: 800;
   line-height: 1.35;
@@ -231,8 +244,9 @@ const iconComponent = computed(() => icons[props.model.icon] || SetUp)
   padding: 8px 10px;
   overflow: hidden;
   border-radius: 8px;
-  background: rgba(248, 250, 252, 0.86);
-  color: #475569;
+  background: var(--surface-glass-inset);
+  box-shadow: var(--inner-highlight);
+  color: var(--text-secondary);
   font-size: 11px;
   line-height: 1.45;
   text-overflow: ellipsis;
@@ -246,10 +260,10 @@ const iconComponent = computed(() => icons[props.model.icon] || SetUp)
   max-width: 100%;
   margin-top: 8px;
   padding: 3px 7px;
-  border: 1px solid rgba(14, 165, 233, 0.18);
+  border: 1px solid color-mix(in srgb, var(--status-info) 18%, transparent);
   border-radius: 6px;
-  background: rgba(14, 165, 233, 0.08);
-  color: #0369a1;
+  background: color-mix(in srgb, var(--status-info) 8%, transparent);
+  color: var(--brand-on-surface);
   font-family: 'Cascadia Code', 'Fira Code', monospace;
   font-size: 11px;
 }
@@ -261,9 +275,10 @@ const iconComponent = computed(() => icons[props.model.icon] || SetUp)
   gap: 12px;
   margin: 10px -14px 0;
   padding: 8px 14px;
-  border-top: 1px solid rgba(226, 232, 240, 0.9);
-  background: rgba(248, 250, 252, 0.76);
-  color: #64748b;
+  border-top: 1px solid var(--border-glass-edge);
+  background: var(--surface-glass-inset);
+  box-shadow: var(--inner-highlight);
+  color: var(--text-muted);
   font-size: 11px;
   font-weight: 600;
   line-height: 1.35;
@@ -310,10 +325,10 @@ const iconComponent = computed(() => icons[props.model.icon] || SetUp)
   width: auto;
   margin-top: 9px;
   padding: 3px 7px;
-  border: 1px solid rgba(15, 23, 42, 0.08);
+  border: 1px solid var(--border-readable);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.7);
-  color: #334155;
+  background: var(--surface-glass-control);
+  color: var(--text-secondary);
   cursor: pointer;
   font-size: 11px;
   font-weight: 700;
@@ -323,60 +338,61 @@ const iconComponent = computed(() => icons[props.model.icon] || SetUp)
   width: 7px;
   height: 7px;
   border-radius: 999px;
-  background: #22c55e;
+  background: var(--status-success);
 }
 
 .run-error .node-runtime .runtime-dot {
-  background: #ef4444;
+  background: var(--status-danger);
 }
 
 .run-waiting .node-runtime .runtime-dot {
-  background: #f59e0b;
+  background: var(--status-warning);
 }
 
 .run-running .node-runtime .runtime-dot {
-  background: #6366f1;
+  background: var(--brand-primary);
 }
 
 .studio-node.run-success {
-  border-color: rgba(34, 197, 94, 0.58);
-  box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.18), 0 16px 38px rgba(15, 23, 42, 0.12);
+  border-color: color-mix(in srgb, var(--status-success) 58%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--status-success) 18%, transparent), var(--shadow-glass-node), var(--glass-node-rim);
 }
 
 .studio-node.run-running {
-  --node-color: #6366f1;
+  --node-color: var(--brand-on-surface);
   --node-soft: rgba(99, 102, 241, 0.08);
   --node-line: rgba(99, 102, 241, 0.22);
-  border-color: rgba(99, 102, 241, 0.62);
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2), 0 16px 38px rgba(15, 23, 42, 0.13);
+  border-color: rgb(var(--brand-primary-rgb) / 0.62);
+  box-shadow: 0 0 0 2px rgb(var(--brand-primary-rgb) / 0.2), var(--shadow-glass-node), var(--glass-node-rim);
 }
 
 .studio-node.run-error {
-  --node-color: #ef4444;
+  --node-color: var(--status-danger);
   --node-soft: rgba(239, 68, 68, 0.08);
   --node-line: rgba(239, 68, 68, 0.24);
-  border-color: rgba(239, 68, 68, 0.58);
-  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2), 0 16px 38px rgba(15, 23, 42, 0.13);
+  border-color: color-mix(in srgb, var(--status-danger) 58%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--status-danger) 20%, transparent), var(--shadow-glass-node), var(--glass-node-rim);
 }
 
 .studio-node.run-waiting {
-  --node-color: #f59e0b;
+  --node-color: var(--status-warning);
   --node-soft: rgba(245, 158, 11, 0.1);
   --node-line: rgba(245, 158, 11, 0.26);
-  border-color: rgba(245, 158, 11, 0.62);
-  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.2), 0 16px 38px rgba(15, 23, 42, 0.13);
+  border-color: color-mix(in srgb, var(--status-warning) 62%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--status-warning) 20%, transparent), var(--shadow-glass-node), var(--glass-node-rim);
 }
 
 .studio-node.run-current {
-  border-color: rgba(99, 102, 241, 0.76);
+  border-color: rgb(var(--brand-primary-rgb) / 0.76);
   box-shadow:
-    0 0 0 3px rgba(99, 102, 241, 0.22),
-    0 18px 42px rgba(15, 23, 42, 0.16);
+    0 0 0 3px rgb(var(--brand-primary-rgb) / 0.22),
+    var(--shadow-glass-node),
+    var(--glass-node-rim);
   transform: translateY(-2px);
 }
 
 .start-node {
-  --node-color: #22c55e;
+  --node-color: var(--status-success);
   --node-soft: rgba(34, 197, 94, 0.1);
   --node-line: rgba(34, 197, 94, 0.24);
 }
@@ -393,10 +409,10 @@ const iconComponent = computed(() => icons[props.model.icon] || SetUp)
   min-height: 22px;
   align-items: center;
   padding: 0 8px;
-  border: 1px solid rgba(249, 115, 22, 0.2);
+  border: 1px solid color-mix(in srgb, var(--status-warning) 20%, transparent);
   border-radius: 999px;
-  background: rgba(255, 247, 237, 0.86);
-  color: #c2410c;
+  background: color-mix(in srgb, var(--status-warning) 86%, transparent);
+  color: var(--status-danger);
   font-size: 11px;
   font-weight: 800;
   line-height: 22px;
@@ -414,27 +430,27 @@ const iconComponent = computed(() => icons[props.model.icon] || SetUp)
   min-height: 42px;
   align-items: center;
   padding: 8px 28px 8px 10px;
-  border: 1px solid rgba(249, 115, 22, 0.22);
+  border: 1px solid color-mix(in srgb, var(--status-warning) 22%, transparent);
   border-radius: 10px;
-  background: rgba(255, 247, 237, 0.88);
+  background: color-mix(in srgb, var(--status-warning) 88%, transparent);
 }
 
 .classifier-route-row.is-default {
   border-style: dashed;
-  background: rgba(248, 250, 252, 0.94);
+  background: var(--surface-solid-opaque-raised);
 }
 
 .knowledge-node .classifier-route-row {
-  border-color: rgba(13, 148, 136, 0.24);
-  background: rgba(240, 253, 250, 0.9);
+  border-color: color-mix(in srgb, var(--status-info) 24%, transparent);
+  background: var(--surface-solid-opaque-raised);
 }
 
 .knowledge-node .classifier-route-row.is-default {
-  background: rgba(248, 250, 252, 0.94);
+  background: var(--surface-solid-opaque-raised);
 }
 
 .knowledge-node .classifier-route-copy strong {
-  color: #0f766e;
+  color: var(--status-info);
 }
 
 .classifier-route-copy {
@@ -445,7 +461,7 @@ const iconComponent = computed(() => icons[props.model.icon] || SetUp)
 
 .classifier-route-copy strong {
   overflow: hidden;
-  color: #9a3412;
+  color: var(--status-danger);
   font-size: 12px;
   font-weight: 850;
   line-height: 1.2;
@@ -455,7 +471,7 @@ const iconComponent = computed(() => icons[props.model.icon] || SetUp)
 
 .classifier-route-copy span {
   overflow: hidden;
-  color: #64748b;
+  color: var(--text-muted);
   font-size: 11px;
   font-weight: 700;
   line-height: 1.25;
@@ -465,87 +481,87 @@ const iconComponent = computed(() => icons[props.model.icon] || SetUp)
 
 .end-node,
 .answer-node {
-  --node-color: #16a34a;
+  --node-color: var(--status-success);
   --node-soft: rgba(22, 163, 74, 0.1);
   --node-line: rgba(22, 163, 74, 0.24);
 }
 
 .llm-node {
-  --node-color: #635bff;
+  --node-color: var(--brand-on-surface);
   --node-soft: rgba(99, 91, 255, 0.1);
   --node-line: rgba(99, 91, 255, 0.24);
 }
 
 .tool-node {
-  --node-color: #d97706;
+  --node-color: var(--status-warning);
   --node-soft: rgba(217, 119, 6, 0.1);
   --node-line: rgba(217, 119, 6, 0.24);
 }
 
 .knowledge-node {
-  --node-color: #0d9488;
+  --node-color: var(--status-info);
   --node-soft: rgba(13, 148, 136, 0.1);
   --node-line: rgba(13, 148, 136, 0.24);
 }
 
 .user-input-node {
-  --node-color: #10b981;
+  --node-color: var(--status-success);
   --node-soft: rgba(16, 185, 129, 0.1);
   --node-line: rgba(16, 185, 129, 0.24);
 }
 
 .interaction-node {
-  --node-color: #14b8a6;
+  --node-color: var(--status-info);
   --node-soft: rgba(20, 184, 166, 0.1);
   --node-line: rgba(20, 184, 166, 0.24);
 }
 
 .page-action-node {
-  --node-color: #8b5cf6;
+  --node-color: var(--brand-on-surface);
   --node-soft: rgba(139, 92, 246, 0.1);
   --node-line: rgba(139, 92, 246, 0.24);
 }
 
 .condition-node {
-  --node-color: #f97316;
+  --node-color: var(--status-warning);
   --node-soft: rgba(249, 115, 22, 0.11);
   --node-line: rgba(249, 115, 22, 0.26);
 }
 
 .variable-node {
-  --node-color: #64748b;
+  --node-color: var(--text-muted);
   --node-soft: rgba(100, 116, 139, 0.1);
   --node-line: rgba(100, 116, 139, 0.24);
 }
 
 .template-node {
-  --node-color: #a21caf;
+  --node-color: var(--brand-on-surface);
   --node-soft: rgba(162, 28, 175, 0.1);
   --node-line: rgba(162, 28, 175, 0.24);
 }
 
 .parameter-node {
-  --node-color: #db2777;
+  --node-color: var(--status-danger);
   --node-soft: rgba(219, 39, 119, 0.09);
   --node-line: rgba(219, 39, 119, 0.22);
 }
 
 .http-node,
 .mcp-node {
-  --node-color: #4f46e5;
+  --node-color: var(--brand-on-surface);
   --node-soft: rgba(79, 70, 229, 0.1);
   --node-line: rgba(79, 70, 229, 0.24);
 }
 
 .code-node,
 .document-extract-node {
-  --node-color: #475569;
+  --node-color: var(--text-secondary);
   --node-soft: rgba(71, 85, 105, 0.1);
   --node-line: rgba(71, 85, 105, 0.24);
 }
 
 .classifier-node {
-  --node-color: #ea580c;
+  --node-color: var(--status-warning);
   --node-soft: rgba(234, 88, 12, 0.1);
   --node-line: rgba(234, 88, 12, 0.24);
   width: 300px;
@@ -554,32 +570,31 @@ const iconComponent = computed(() => icons[props.model.icon] || SetUp)
 }
 
 .aggregate-node {
-  --node-color: #0891b2;
+  --node-color: var(--status-info);
   --node-soft: rgba(8, 145, 178, 0.1);
   --node-line: rgba(8, 145, 178, 0.24);
 }
 
 .approval-node {
-  --node-color: #ca8a04;
+  --node-color: var(--status-warning);
   --node-soft: rgba(202, 138, 4, 0.1);
   --node-line: rgba(202, 138, 4, 0.24);
 }
 
 .loop-node {
-  --node-color: #0284c7;
+  --node-color: var(--brand-on-surface);
   --node-soft: rgba(2, 132, 199, 0.1);
   --node-line: rgba(2, 132, 199, 0.24);
 }
 
 .knowledge-write-node {
-  --node-color: #e11d48;
+  --node-color: var(--status-danger);
   --node-soft: rgba(225, 29, 72, 0.09);
   --node-line: rgba(225, 29, 72, 0.22);
 }
 
 .studio-node.needs-config {
   border-style: dashed;
-  border-color: #f59e0b;
-  background: #fffbeb;
+  border-color: color-mix(in srgb, var(--status-warning) 40%, transparent);
 }
 </style>

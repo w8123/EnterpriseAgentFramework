@@ -8,7 +8,7 @@
     "artifactRef": "replace-with-immutable-artifact-reference"
   },
   "migration": {
-    "script": "sql/upgrade-20260830-platform-consolidated.sql",
+    "script": "sql/initV2.sql",
     "status": "PENDING",
     "checksumSha256": "replace-with-repository-checksum",
     "executedAt": null,

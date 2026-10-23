@@ -1,24 +1,34 @@
 <template>
   <section class="identity-panel">
-    <div class="panel-toolbar">
-      <div class="panel-toolbar__filters">
-        <el-input v-model="keyword" clearable :prefix-icon="Search" placeholder="搜索用户名、姓名、邮箱或手机号" />
-        <el-select v-model="statusFilter" class="compact-filter" aria-label="账号状态">
-          <el-option label="全部状态" value="ALL" />
-          <el-option label="启用" value="ACTIVE" />
-          <el-option label="停用" value="INACTIVE" />
-        </el-select>
-        <el-select v-model="sourceFilter" class="compact-filter" aria-label="账号来源">
-          <el-option label="全部来源" value="ALL" />
-          <el-option label="本地账号" value="LOCAL" />
-          <el-option label="外部身份" value="EXTERNAL" />
-        </el-select>
-      </div>
-      <el-button type="primary" :icon="Plus" @click="openCreate">新建账号</el-button>
-    </div>
-
-    <div class="table-shell">
-      <el-table :data="pagedAccounts" v-loading="loading" row-key="id">
+    <LiquidGlassTable
+      v-model:current-page="currentPage"
+      v-model:page-size="pageSize"
+      class="account-table"
+      :loading="loading"
+      :total="filteredAccounts.length"
+      :page-sizes="[20, 50, 100]"
+      :show-pagination="filteredAccounts.length > 20"
+      pagination-label="平台账号分页"
+    >
+      <template #toolbar>
+        <div class="panel-toolbar">
+          <div class="panel-toolbar__filters">
+            <LiquidGlassInput v-model="keyword" clearable :prefix-icon="Search" placeholder="搜索用户名、姓名、邮箱或手机号" aria-label="搜索平台账号" />
+            <LiquidGlassSelect v-model="statusFilter" class="compact-filter" dropdown-title="账号状态" aria-label="账号状态">
+              <el-option label="全部状态" value="ALL" />
+              <el-option label="启用" value="ACTIVE" />
+              <el-option label="停用" value="INACTIVE" />
+            </LiquidGlassSelect>
+            <LiquidGlassSelect v-model="sourceFilter" class="compact-filter" dropdown-title="账号来源" aria-label="账号来源">
+              <el-option label="全部来源" value="ALL" />
+              <el-option label="本地账号" value="LOCAL" />
+              <el-option label="外部身份" value="EXTERNAL" />
+            </LiquidGlassSelect>
+          </div>
+          <LiquidGlassButton type="primary" :icon="Plus" @click="openCreate">新建账号</LiquidGlassButton>
+        </div>
+      </template>
+      <el-table :data="pagedAccounts" row-key="id">
         <el-table-column label="账号" min-width="205">
           <template #default="{ row }">
             <div class="identity-cell">
@@ -98,17 +108,7 @@
           <el-empty description="没有符合条件的平台账号" />
         </template>
       </el-table>
-    </div>
-
-    <div v-if="filteredAccounts.length > pageSize" class="pagination-row">
-      <span>共 {{ filteredAccounts.length }} 个账号</span>
-      <el-pagination
-        v-model:current-page="currentPage"
-        :page-size="pageSize"
-        layout="prev, pager, next"
-        :total="filteredAccounts.length"
-      />
-    </div>
+    </LiquidGlassTable>
 
     <AppDialog
       v-model="accountDialogOpen"
@@ -159,10 +159,10 @@
         </template>
       </el-form>
       <template #footer>
-        <el-button @click="accountDialogOpen = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="submitAccount">
+        <LiquidGlassButton @click="accountDialogOpen = false">取消</LiquidGlassButton>
+        <LiquidGlassButton type="primary" :loading="saving" @click="submitAccount">
           {{ accountDialogMode === 'create' ? '创建账号' : '保存资料' }}
-        </el-button>
+        </LiquidGlassButton>
       </template>
     </AppDialog>
 
@@ -173,22 +173,21 @@
       width="920px"
       destroy-on-close
     >
-      <el-alert
+      <LiquidGlassNotice
         v-if="grantAccount?.status !== 'ACTIVE'"
         type="warning"
-        :closable="false"
         title="停用账号不能调整授权；请先启用账号。"
-        show-icon
+        source="backdrop"
       />
       <PlatformGrantEditor v-else v-model="editingGrants" :roles="roles" />
       <template #footer>
-        <el-button @click="grantDialogOpen = false">取消</el-button>
-        <el-button
+        <LiquidGlassButton @click="grantDialogOpen = false">取消</LiquidGlassButton>
+        <LiquidGlassButton
           type="primary"
           :loading="saving"
           :disabled="grantAccount?.status !== 'ACTIVE'"
           @click="saveGrants"
-        >保存授权</el-button>
+        >保存授权</LiquidGlassButton>
       </template>
     </AppDialog>
 
@@ -208,8 +207,8 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="passwordDialogOpen = false">取消</el-button>
-        <el-button type="danger" :loading="saving" @click="submitPasswordReset">重置并下线</el-button>
+        <LiquidGlassButton @click="passwordDialogOpen = false">取消</LiquidGlassButton>
+        <LiquidGlassButton type="danger" :loading="saving" @click="submitPasswordReset">重置并下线</LiquidGlassButton>
       </template>
     </AppDialog>
   </section>
@@ -228,6 +227,7 @@ import {
   SwitchButton,
 } from '@element-plus/icons-vue'
 import AppDialog from '@/components/common/AppDialog.vue'
+import { LiquidGlassButton, LiquidGlassInput, LiquidGlassSelect, LiquidGlassTable, LiquidGlassNotice } from '@/components/common/liquid-glass'
 import {
   createPlatformAccount,
   resetPlatformAccountPassword,
@@ -260,7 +260,7 @@ const keyword = ref('')
 const statusFilter = ref('ALL')
 const sourceFilter = ref('ALL')
 const currentPage = ref(1)
-const pageSize = 20
+const pageSize = ref(20)
 const saving = ref(false)
 const accountDialogOpen = ref(false)
 const accountDialogMode = ref<'create' | 'edit'>('create')
@@ -308,8 +308,8 @@ const filteredAccounts = computed(() => {
 })
 
 const pagedAccounts = computed(() => {
-  const offset = (currentPage.value - 1) * pageSize
-  return filteredAccounts.value.slice(offset, offset + pageSize)
+  const offset = (currentPage.value - 1) * pageSize.value
+  return filteredAccounts.value.slice(offset, offset + pageSize.value)
 })
 
 watch([keyword, statusFilter, sourceFilter], () => { currentPage.value = 1 })
@@ -476,13 +476,14 @@ function formatTime(value?: string, fallback = '-') {
 
 <style scoped lang="scss">
 .identity-panel {
-  display: grid;
+  display: flex;
+  min-height: 100%;
+  flex-direction: column;
   gap: 16px;
 }
 
 .panel-toolbar,
-.panel-toolbar__filters,
-.pagination-row {
+.panel-toolbar__filters {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -493,7 +494,7 @@ function formatTime(value?: string, fallback = '-') {
   flex: 1;
   justify-content: flex-start;
 
-  > .el-input {
+  > .liquid-glass-input {
     width: min(420px, 100%);
   }
 }
@@ -502,11 +503,12 @@ function formatTime(value?: string, fallback = '-') {
   width: 132px;
 }
 
-.table-shell {
-  overflow: hidden;
-  border: 1px solid var(--border-divider);
-  border-radius: var(--radius-lg);
-  background: var(--surface-glass-panel);
+.panel-toolbar {
+  width: 100%;
+}
+
+.account-table {
+  min-height: 0;
 }
 
 .identity-cell {
@@ -559,7 +561,6 @@ function formatTime(value?: string, fallback = '-') {
 }
 
 .muted,
-.pagination-row,
 .field-help {
   color: var(--text-secondary);
   font-size: 12px;
@@ -578,10 +579,6 @@ function formatTime(value?: string, fallback = '-') {
     background: rgb(var(--brand-selected-rgb) / 0.62);
     font-weight: 700;
   }
-}
-
-.pagination-row {
-  justify-content: flex-end;
 }
 
 .account-form {
@@ -610,9 +607,9 @@ function formatTime(value?: string, fallback = '-') {
     flex-direction: column;
   }
 
-  .panel-toolbar__filters > .el-input,
+  .panel-toolbar__filters > .liquid-glass-input,
   .compact-filter,
-  .panel-toolbar > .el-button {
+  .panel-toolbar > .liquid-glass-button {
     width: 100%;
   }
 

@@ -1,5 +1,34 @@
 # 业务方法与 API 重构实施进度
 
+> 2026-10-19 SQL 入口整理：2026-10-15 及以前的升级最终效果已进入初始化基线，历史脚本从 Git 查阅；10 月 16–18 日的升级已合并为 `sql/upgrade-20261019-consolidated.sql`。以下保留各批次当时的验证与执行记录，当前入口和适用范围见 [SQL 说明](../../sql/README.md)。
+
+## 公共页头参数与目录操作对齐（2026-10-22，U2/U3，验证中）
+
+用户授权全站页头使用公共参数，并允许调整位置、间距、样式和文案。业务能力部分对应 U2/U3 的资产查找与维护：左侧保留统一任务标题与用途说明，右侧集中工作视图导航及“整理／退出调整”，Java／HTTP 原生 TAB 仅负责资产类型切换；删除重复范围标签，范围仍由共享侧栏和目录筛选表达。
+
+- 公共实现：`_layout.scss` 统一导航与页头外层间距 14px、主副标题与元信息组内间距 8px、标题 22px／28px；`PageHeader` 按是否存在 leading/actions 分配布局，不再预留空网格列；面包屑随内容自然增高。其他模块的页头整理是本次单独授权的 UI 维护，不扩展业务方法/API 的资产模型或接入范围。
+- 行为保护：保留分类调整的项目权限、未保存退出确认、URL 查询、TAB 挂载生命周期及退出后的整理入口回焦；没有后端、SQL、owner、接纳、版本或调用规则变化。原有公共玻璃控件与折射 WIP 独立保留。
+- 当前验证：页头/布局/项目/Agent/ACL 58 项、工作台/来源/编辑与调试 53 项、Dashboard 107 项通过；页头族与页面节奏守卫（含变异证明）通过。完整构建、窄屏及跨页面浏览器核对完成后在此补充最终证据。事前快照和日志位于 `output/tasks/header-system-20261022/`；未提交、推送或部署。
+
+## 目录公共玻璃组件接入（2026-10-21，U2/U3，前端完成）
+
+用户指出 Java 业务方法、HTTP API 和 API 市场仍保留旧样式，并要求继续封装公共组件；随后反馈 Agent 列表加载时整块白底突兀。本批对应 U2/U3 的目录浏览、筛选和选择任务：统一导航、标签页、整理菜单、阅读卡片、项目空态、筛选与分页，加载期间保留玻璃阅读底，以薄雾和小型提示表达等待。
+
+- 实现：新增公共 `LiquidGlassNav / Tabs / Dropdown / Card / EmptyState`；业务能力工作台和两类目录、`ProjectScopeState`、API 市场接入同一入口。原生标签页离开确认、整理命令、禁用状态、项目范围、业务字段和调用契约保持原有逻辑，移除重复的页面材质样式。公共 `DataTableShell` 和卡片的 `glass-loading-surface` 统一加载外观、主题与无障碍回退。
+- 范围与 WIP：限 `ai-admin-front` 公共组件、上述视图、相关测试/静态检查和用法文档；没有后端、SQL、schema、资产 owner 或 API 接纳变化。保留原有 Dashboard、Studio、项目详情等 WIP，未提交、推送或部署。
+- 验证：最终 `npm run build`（含类型检查、管理端与 SDK）通过；公共玻璃 25 项、业务能力工作台/两类目录及公共列表 96 项、API 市场 20 项、Agent/项目列表 25 项，共 166 项相关测试通过。业务能力 UI、页头、页面节奏、暗色主题、玻璃主题及浮层迁移契约通过，`git diff --check` 通过。原有大 chunk 和 SDK 资源延迟解析提示保留。
+- 浏览器：独立实际组件预览验证七套品牌×明暗模式的加载配色、减少透明度、强制颜色、加载完成/失败/重试、真实菜单命令、标签切换和卡片独立 Enter 操作；390/320 像素布局无整页横向溢出。最终日志无警告/错误。代码与证据指针为[公共组件指南](../architecture/frontend-liquid-glass-usage.md)、本机 `output/playwright/catalog-loading-matrix.json`、`catalog-loading-*-final.jpg` 和 `catalog-loading-build-final.log`。预览页面位于被忽略的前端 `output/playwright`，不是正式产品路由。
+- 验证边界与后续：本轮后段五个本地后端及原认证浏览器已停止，因此最终浏览器为实际公共组件的独立预览，不声称完整在线接口验收。前端工作已完成；服务恢复后可在 Java/HTTP 目录和 API 市场确认真实数据下的视觉效果，不恢复历史暂停批次或扩大产品边界。
+
+## 开发库历史结构补齐（2026-10-19，当前本地开发库已执行）
+
+本批为 U1–U4 的存量开发库前置结构补齐。用户明确授权执行升级且无需备份，主要保留项目、模型、凭据和配置引用；未执行新库初始化。先核对源码、完整结构元数据和配置计数，暂停本次启动的五个后端后，依次执行近期合并升级 154 条语句及[开发库补充收口](../../sql/upgrade-20261019-development-schema-reconcile.sql)32 条语句，各执行一次。
+
+- 结构回读：当前库为 176 张表、2721 列；相对 `initV2.sql` 的表/列存在性、字段类型、可空性、索引列序/前缀/唯一性差异全部为 0。此比较不包含默认值、排序规则和全部业务种子；近期升级另有 22 项确定性回读，补充脚本的旧对象、标题约束、Agent 索引和中文回读均通过。
+- 配置保留：83 张表的既有保留字段逐表摘要一致，包含 3 个项目、6 个模型实例、19 个 Agent、25 个 Workflow 及其版本、能力资产、连接和凭据；业务索引开关及用户授权按计划迁移，原 196 条调用权限规则保持，新增管理员 ALLOW。未导出凭据值或数据备份。
+- 运行验证：五个后端按现有 JDK 17 制品恢复，artifact freshness、五服务健康及 Control 聚合 smoke 通过；真实登录、项目、模型/厂商账号、知识库、角色、用户映射、各项目 HTTP API 目录与连接、Agent 配置版本和 Workflow 读取通过。未调用外部模型或执行业务方法/API，未重新发布配置。
+- 保留事项：HTTP API 连接生效修订规则升级后，两条当前 ACTIVE Workflow 版本（38、39）仍引用旧连接修订，需要按正常流程重新发布，并按需要更新 Agent 的版本引用；历史版本和内容保持。Knowledge 的既有 Milvus 缺集合清理报错仍存在，不作为数据库结构升级失败或检索验收通过的依据。其他会话正在修改的前端 WIP 保留。
+
 ## Studio 整稿只读试运行（2026-10-16，D28，代码完成待部署）
 
 本批关联 U2“方法选入 Workflow 并真实验证”与 U3“Workflow 使用 API”，同时服务 Agent / Workflow 实施人员。用户授权按“让用户更好用、系统更好”自主调整（D28）。此前 Studio 只读真实试运行只接受“一个方法/API → 变量”单形草稿，真实业务流程（输入 → 业务方法 → 参数提取 → API → 回答）无法在发布前真实跑通。预期行为：作者点正常“调试”，草稿含业务方法或 API 节点时自动打开整稿只读试运行，填写 Workflow 输入字段与可选用户消息后真实运行整个已保存草稿，按节点看到状态、耗时、输出和最终回答；任一写节点或副作用节点在派发前整体拒绝并点名。范围限 common 策略、Control BFF、Runtime 试运行编排与派发守卫、Studio 前端与文档；不改 SQL、资产 owner、接纳、ACL 模型或发布流程；本批不部署、不推送。
@@ -17,7 +46,7 @@
 - 后端：Runtime 新增 `runtime_http_api_project_connection`（`project_id + environment` 唯一，乐观修订），`runtime_http_api_connection` 改为单 API 覆盖并新增 `override_active`（移除覆盖置 0、保留行延续修订号）。`RuntimeHttpApiConnectionService.snapshot(owner)` 统一返回生效连接，Console 试调用、市场验证与 Workflow HTTP API 执行均改用它。生效修订＝行修订×2（覆盖再 +1），来源切换或任一行修订变化都会产生新值；不复用已删除覆盖的修订。项目默认保存沿用 origin 规范化、出站策略、PROJECT 凭据和类型校验，不按单 API 契约裁剪；不适配的 API 视图为 BLOCKED 并提示可覆盖。
 - 接口：公开 `GET /api/apis/{id}/connection` 增加 `connectionSource`、`inherited`、`overrideActive`、`overrideRevision`、`projectDefault`；新增 `GET|PUT /api/apis/{id}/connection/project-default` 与 `DELETE /api/apis/{id}/connection/override?expectedRevision=`。Control 以 API owner 解析项目与环境并要求项目写权限，经 HMAC 签名转发 Runtime `PUT /internal/runtime/http-api-connections/project-default`、`POST /internal/runtime/http-api-connections/override-removals`。
 - 前端：API 详情“配置接入”显示生效来源，新增“项目默认连接（本项目所有 API 共用）”编辑区，原表单改为“本 API 覆盖连接（可选）”，覆盖生效时可“移除覆盖，改用项目默认”；试调用继续使用生效修订。
-- SQL：`sql/initV2.sql` 同步；已有库使用 `sql/upgrade-20261016-http-api-project-connection.sql`（幂等，未执行到任何数据库）。升级后既有连接按覆盖继续生效，但生效修订变为 `revision*2+1`，升级前未完成的试调用和已发布 Workflow 的连接 pin 需刷新或重新发布。
+- SQL：`sql/initV2.sql` 同步；对应升级已并入 `sql/upgrade-20261019-consolidated.sql` 段落 01；执行整份升级前按 [SQL 说明](../../sql/README.md) 确认前置条件与数据影响，本次未执行到任何数据库。升级后既有连接按覆盖继续生效，但生效修订变为 `revision*2+1`，升级前未完成的试调用和已发布 Workflow 的连接 pin 需刷新或重新发布。
 - 验证：Runtime 目标测试（连接/项目默认/调用持久化/验证/Workflow HTTP API/内部鉴权）及 `BusinessMethodWorkflowMcpE2eIntegrationTest` 全量 25 项（含新增经公开路由的继承、覆盖、移除与旧修订拒绝场景）通过；Control `HttpApiConsoleControllerTest`、`RuntimeHttpApiConsoleEgressGatewayTest` 与 common 兼容测试通过；前端 `vue-tsc`、`npm run build`、`src/views/api` 7 文件 102 项（happy-dom）及 Workflow HTTP API 相关 3 文件通过；内部 API 契约守卫仅保留既有 RunOps replay 缺项。未做浏览器实测、真实 MySQL 升级或服务重启。
 - 下一步：在开发库备份后执行升级脚本、部署 Runtime/Control/前端，以真实项目保存一次项目默认连接并验证继承、覆盖与已发布 Workflow 重新发布路径。
 
@@ -72,7 +101,7 @@
 
 - 范围：前端三页面、请求/类型、路由/导航及页面守卫；Capability 专用领域 Controller、实体/Mapper、挂接服务与关键词分类器；Control 对应转发/路由策略；Runtime 仅移除领域分类器阈值和试点推荐，保留独立意图评估；新库两张领域表和项目默认领域列、已有库幂等清理脚本及维护文档。
 - WIP：改前 40 文件快照、完整工作树状态和业务分类文件摘要位于 `output/tasks/domain-retirement-20261014/`。不回滚、提交或覆盖其他改动；本决定接替此前性能清理批次保留独立领域管理/分类的范围。
-- 实现：三页面与专用请求/类型删除，三个旧 URL 无页面、别名或重定向，沿用未知路由处理；领域 Controller、8 个领域类、专用持久化契约测试、项目默认领域实体字段及 Control 转发/策略退场。Runtime 不再返回 `domainClassifierReady` 或推荐领域前置过滤，原意图评估和统计保持。`sql/initV2.sql` 删除两张领域表及默认领域列，已有库提供 [幂等清理 SQL](../../sql/upgrade-20261014-retire-domain-governance.sql)，表所有权、服务说明和公开路由文档同步更新。
+- 实现：三页面与专用请求/类型删除，三个旧 URL 无页面、别名或重定向，沿用未知路由处理；领域 Controller、8 个领域类、专用持久化契约测试、项目默认领域实体字段及 Control 转发/策略退场。Runtime 不再返回 `domainClassifierReady` 或推荐领域前置过滤，原意图评估和统计保持。`sql/initV2.sql` 删除两张领域表及默认领域列，已有库提供 [幂等清理 SQL](../../sql/README.md#历史版本)，表所有权、服务说明和公开路由文档同步更新。
 - 自动验证：前端导航/布局/工作台和 Java/HTTP 分类回归共 153 项通过；`npm run build` 的 vue-tsc 与 Vite 通过，保留大 chunk 提示。后端 8 个目标测试类共 78 项、0 失败/错误/跳过，受影响三服务及 reactor 依赖编译通过。页面节奏/页头主检查及自测、Premium strict 零问题、前端公共 API 路由、物理服务路由及表所有权守卫通过；专用生产引用与旧领域编译类无残留。业务分类 21 个文件与改前 SHA-256 完全一致。完整文档检查有 7 项既有失败（5 个计划索引遗漏及旧进度本机路径），本批未扩大修复范围；限定差异检查通过。
 - 真实浏览器：已登录项目 Java 页面展开实验室菜单后，领域三入口不存在，上下文治理及两项检索诊断保持；选择“字典查询与统计（2）”后稳定返回两条方法，业务分类列/详情入口可见。HTTP API 稳定显示 4 条结果，分类列、分类筛选和未分类语义保持。中断后浏览器扩展连接不可用，未继续窄视口验证或恢复页面；没有分类写入或业务调用。见 [交付与验证记录](../../output/tasks/domain-retirement-20261014/交付与验证记录.md)。
 - 运行边界：初次 Maven clean 被正在运行的 JAR 文件占用阻止；使用 `maven.clean.failOnError=false` 重跑后编译/测试通过，领域旧 classes 确认已清除，运行中的 JAR 保留。本批未打包/重启后端、未执行数据库删除、未提交/推送；升级脚本的 MySQL 实际执行与幂等回读仍待部署时完成，不以源码或浏览器目录读取证明已升级。
@@ -227,7 +256,7 @@
 - 操作：目录单条“归类”预填当前多分类，可移除、清空或就地创建；当前页跨分段选择后原子批量替换。混合归属必须明确选择或显式清空后保存；同项目/类型、写权限、revision 均由服务端校验。冲突与失败保留选择，重读核对后再保存。普通导航隐藏当前类型零成员分类，已有空分类仍可在归类时选用，选中的空分类书签保留。
 - 旧接口：单个分类追加 PUT 已退场，由 owner GET classification 和 typed 批量 PUT classification 接替；Control 精确白名单与路由守卫同步。D17 的分类合并、D18 的无效索引重建不恢复。Runtime 只调整测试夹具构造依赖，没有执行语义变更。
 - 验证：Corretto 17 下 Starter 23、Knowledge 36、Capability 149、Control 20 项测试通过；前端 98 项相关测试通过、生产构建通过（已有大 chunk 提示）。服务表所有权、路由守卫及守卫测试、业务能力 UI、glass components、page rhythm、overlay、premium strict audit 通过。证据位于 [验证记录](../../output/tasks/business-classification-20261013/验证记录.md)。浏览器为真实 Vite + 全请求隔离夹具，已走查批量新建/保存、隐藏空分类、API 冲突保留与重读保存；不代表真实登录数据库写入验收。
-- 升级：新增 [升级脚本](../../sql/upgrade-20261013-business-classification-ownership.sql)。用户明确授权后，于 2026-10-13 10:56（北京时间）在 `39.106.238.224:33106/reach_ai` 的 MySQL 5.7.40-log 执行成功；六张相关表已作 DPAPI CurrentUser 加密备份并解密校验，事务内完整主键范围与间隙锁暂停相关写入。新增分类状态表，正式成员由 1 条增至 2 条，状态 2 条；全部原有行保留，中文、唯一键及第二次幂等执行通过。project36 的 2 个 Java 方法已持久归类（1 个人工、1 个自动），4 个 HTTP API 仍无可确认的历史归属，待新版本同步或人工归类。Capability 健康为 UP，未打部署包、重启服务、提交或推送；已有 WIP 保留。详见[数据库升级记录](../../output/tasks/business-classification-20261013/数据库升级记录.md)。
+- 升级：新增 [升级脚本](../../sql/README.md#历史版本)。用户明确授权后，于 2026-10-13 10:56（北京时间）在 `39.106.238.224:33106/reach_ai` 的 MySQL 5.7.40-log 执行成功；六张相关表已作 DPAPI CurrentUser 加密备份并解密校验，事务内完整主键范围与间隙锁暂停相关写入。新增分类状态表，正式成员由 1 条增至 2 条，状态 2 条；全部原有行保留，中文、唯一键及第二次幂等执行通过。project36 的 2 个 Java 方法已持久归类（1 个人工、1 个自动），4 个 HTTP API 仍无可确认的历史归属，待新版本同步或人工归类。Capability 健康为 UP，未打部署包、重启服务、提交或推送；已有 WIP 保留。详见[数据库升级记录](../../output/tasks/business-classification-20261013/数据库升级记录.md)。
 - 重启：用户随后授权重启前后端。Corretto 17 下五服务及依赖 `package -DskipTests` 通过（跳过测试运行，测试源码编译通过），复用原启动参数并按 Model/Knowledge/Capability/Runtime/Control/Vite 顺序启动。五后端及 Runtime 内部健康全部 200/UP，前端 200，前端未登录身份代理 401；新包及监听进程新鲜度通过，分类新类已进入可运行 JAR，两个 Java 分类状态重启后保持。Knowledge 清理调度仍记录 Milvus collection not found，不阻止健康 UP。修正检查工具误选 plain JAR，五个相关夹具通过。详见[重启验证记录](../../output/tasks/restart-20261013-business-classification/重启验证记录.md)。
 - 下一步：需要提供分类标签的业务系统更新 Starter 后，验收真实同步、来源失联、人工清空后的再次同步及用户使用体验；本次重启未执行这些业务写入验收。
 
@@ -237,7 +266,7 @@
 用户核对“更新检索索引”的实际作用后，明确授权移除该逻辑及关联无用前后端代码，关联 U2/U3 的检索理解与 U4 的来源维护、实施基线 D18。当前调用候选检索直接读取调用投影做关键词匹配；原“重建”仅拼接文本和计数，没有索引写入，Workflow 资源/AI 编排与 Agent 执行不依赖它。
 
 - 范围：移除来源菜单/抽屉/状态与操作连线，诊断页重建面板、模型选择和任务轮询，专用前端请求/类型，Capability rebuild/status 接口、异步任务和模型设置类；关键词检索与基础 health 保留，诊断文案如实说明。对应静态/路由守卫删除旧要求并保留搜索、布局与状态验证。
-- 数据库：新库基线移除 `capability_tool_retrieval_setting`，表所有权同步；提供 [已有库清理脚本](../../sql/upgrade-20261013-retire-tool-retrieval-rebuild.sql)及执行说明，仅删除失去消费者的模型选择设置。本批不执行数据库升级，不修改能力资产、调用投影或知识库数据。
+- 数据库：新库基线移除 `capability_tool_retrieval_setting`，表所有权同步；提供 [已有库清理脚本](../../sql/README.md#历史版本)及执行说明，仅删除失去消费者的模型选择设置。本批不执行数据库升级，不修改能力资产、调用投影或知识库数据。
 - 完成与验证：来源相关 3 文件 24 项前端测试、Capability 检索 7 项后端测试全部通过且无跳过，前端类型/生产构建通过；glass 379 项 mutation / 14 项 safe variant，业务能力、页头、页面节奏、overlay、模型、物理路由及退场回归、后端边界与表所有权守卫通过。Premium strict 零问题；DESIGN lint 零错误，保留既有无 YAML 警告，构建保留大 chunk 提示。后端首跑新 MockMvc 测试缺 JSON converter 已按现有惯例修正测试设置，首跑与最终日志分别保存。
 - 浏览器：真实本地 project36 来源更多菜单仅有敏感扫描、导出、批量说明与关联核对；390px 无整页横向溢出。关键词“字典”真实返回 2 条候选，无匹配词返回 0；空输入提示、键盘 Enter、加载、模拟断网后重试及窄屏折叠侧栏后的检索/结果可达已核对。记录区间只有 3 条 `/api/tool-retrieval/search` POST（其中一条模拟网络失败），无重建/任务状态/模型请求；未调用业务方法/API或提交来源维护。诊断页保留既有网络错误双 Toast 与默认展开侧栏在窄屏挤压内容的行为，未扩展到全站交互整改；临时网络、视口与侧栏偏好已恢复。
 - 停止点：前后端代码退场完成，限定前态、日志、截图与[验证记录](../../output/tasks/retrieval-rebuild-retirement-20261013/验证记录.md)已保存。共享进度文件中其他会话的 D17 完成记录并发更新已保留，不归为本批改动。未提交、推送、执行数据库升级或重启服务；运行中的旧后端可执行包需更新并重启后，两条已删除接口才在该环境退场。

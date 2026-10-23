@@ -1,24 +1,21 @@
 <template>
   <div class="node-specific-panel llm-panel">
-    <div class="llm-section-head">
-      <div>
-        <strong>模型与提示词</strong>
-        <span>配置本节点调用的模型、消息上下文和变量引用</span>
-      </div>
-      <el-tag size="small" effect="plain">LLM</el-tag>
-    </div>
-
-    <section class="llm-card model-card">
+    <ConfigSection title="模型">
       <el-form-item label="模型实例">
         <el-select
           v-model="config.modelInstanceId"
           filterable
-          placeholder="选择模型实例"
-          style="width: 100%"
+          clearable
+          placeholder="使用 Workflow 默认模型"
           :loading="modelOptionsLoading"
           @visible-change="handleModelSelectVisible"
         >
-          <el-option v-for="item in modelOptions" :key="item.id" :label="`${item.name} / ${item.modelName}`" :value="item.id" />
+          <el-option
+            v-for="item in modelOptions"
+            :key="item.id"
+            :label="`${item.name} / ${item.modelName}`"
+            :value="item.id"
+          />
           <template #empty>
             <ModelSelectEmptyState
               model-type="LLM"
@@ -30,157 +27,239 @@
           </template>
         </el-select>
       </el-form-item>
-    </section>
+    </ConfigSection>
 
-    <section class="llm-card prompt-card">
-      <div class="llm-card-title">
-        <div>
-          <strong>Prompt 消息</strong>
-          <span>{{ activeMessages.length }} 条消息 · 支持变量模板</span>
-        </div>
-        <div class="llm-toolbar">
-          <el-segmented v-model="config.promptTemplateMode" :options="promptModeOptions" />
-          <el-button size="small" type="primary" :icon="Plus" @click="addMessage('user')">消息</el-button>
-        </div>
-      </div>
-    <template v-if="config.promptTemplateMode === 'simple'">
-      <el-form-item label="系统提示词">
-        <el-input v-model="config.systemPrompt" type="textarea" :rows="5" placeholder="节点级 system prompt；为空时运行时回退 Agent 配置" @change="syncSimpleMessages" />
-      </el-form-item>
-      <el-form-item label="用户提示词">
-        <el-input v-model="config.userPrompt" type="textarea" :rows="5" placeholder="例如：请基于 {{ input }} 和 {{ knowledge_output }} 回答" @change="syncSimpleMessages" />
-      </el-form-item>
-    </template>
-
-    <template v-else>
-      <div class="message-list">
-        <div v-for="(message, index) in activeMessages" :key="message.id" class="message-card">
-          <div class="message-head">
-            <el-select v-model="message.role" size="small" class="role-select">
-              <el-option label="SYSTEM" value="system" />
-              <el-option label="USER" value="user" />
-              <el-option label="ASSISTANT" value="assistant" />
-            </el-select>
-            <span class="template-pill">变量模板</span>
-            <el-switch v-model="message.enabled" size="small" />
-            <el-button :icon="Top" size="small" circle :disabled="index === 0" @click="moveMessage(index, -1)" />
-            <el-button :icon="Bottom" size="small" circle :disabled="index === activeMessages.length - 1" @click="moveMessage(index, 1)" />
-            <el-button :icon="Delete" size="small" circle type="danger" :disabled="activeMessages.length <= 1" @click="removeMessage(index)" />
-          </div>
-          <el-input v-model="message.content" type="textarea" :rows="5" resize="vertical" placeholder="输入提示词，可引用 {{ input }}、{{ lastOutput }} 或上游节点输出" @focus="focusedMessageId = message.id" @change="syncPromptShortcuts" />
-        </div>
-      </div>
-      <div class="quick-add-row">
-        <el-button size="small" plain @click="addMessage('system')">添加 System</el-button>
-        <el-button size="small" plain @click="addMessage('user')">添加 User</el-button>
-        <el-button size="small" plain @click="addMessage('assistant')">添加 Assistant</el-button>
-      </div>
-    </template>
-    </section>
-
-    <section class="llm-card utility-card">
-      <el-form-item label="变量引用">
-        <div class="variable-picker">
-          <el-select
-            v-model="config.contextVariables"
-            multiple
-            filterable
-            allow-create
-            default-first-option
-            :filter-method="filterVariableOptions"
-            placeholder="选择本节点会使用的变量"
-            popper-class="studio-variable-select"
-            style="width: 100%"
-            @visible-change="handleVariableVisibleChange"
-          >
-            <el-option-group
-              v-for="group in groupedVariableOptions"
-              :key="group.group"
-              :label="group.group"
-            >
-              <el-option
-                v-for="item in group.options"
-                :key="item.value"
-                :label="item.label"
-                :value="item.value"
-              >
-                <div class="variable-option">
-                  <strong>{{ item.label }}</strong>
-                  <span>{{ item.value }}</span>
-                  <em v-if="item.description">{{ item.description }}</em>
+    <ConfigSection title="提示词" description="按消息顺序发送给模型">
+      <div class="prompt-toolbar">
+        <el-segmented
+          v-model="config.promptTemplateMode"
+          :options="promptModeOptions"
+          aria-label="提示词编辑模式"
+          @change="handlePromptModeChange"
+        />
+        <div class="prompt-actions">
+          <el-popover trigger="click" placement="bottom-end" :width="300" :disabled="formDisabled">
+            <template #reference><el-button text :icon="Coin" :disabled="formDisabled">插入变量</el-button></template>
+            <div class="prompt-variable-picker">
+              <el-input
+                v-model="variableKeyword"
+                placeholder="搜索变量名称或路径"
+                aria-label="搜索提示词变量"
+                clearable
+              />
+              <div class="prompt-variable-list">
+                <div v-for="group in groupedVariableOptions" :key="group.group" class="prompt-variable-group">
+                  <span>{{ group.group }}</span>
+                  <el-button
+                    v-for="item in group.options"
+                    :key="item.value"
+                    text
+                    :disabled="formDisabled"
+                    @click="insertVariable(item.value)"
+                  >
+                    <span>{{ item.label }}</span
+                    ><code>{{ item.value }}</code>
+                  </el-button>
                 </div>
-              </el-option>
-            </el-option-group>
-          </el-select>
-          <div class="variable-shortcuts">
-            <el-button
-              v-for="item in suggestedVariableOptions"
-              :key="item.value"
-              size="small"
-              @click="insertVariable(item.value)"
-            >
-              <strong>{{ item.label }}</strong>
-              <span>{{ item.value }}</span>
-            </el-button>
-          </div>
-        </div>
-      </el-form-item>
-
-      <el-collapse class="llm-collapse">
-        <el-collapse-item name="preview">
-          <template #title>提示词预览</template>
-          <div class="prompt-preview">
-            <div v-for="message in renderedPreview" :key="message.id" class="preview-message">
-              <strong>{{ message.role.toUpperCase() }}</strong>
-              <pre>{{ message.content }}</pre>
+                <p v-if="!groupedVariableOptions.length">没有匹配的变量</p>
+              </div>
             </div>
-          </div>
-        </el-collapse-item>
-      </el-collapse>
-    </section>
-
-    <div class="llm-section-head compact">
-      <div>
-        <strong>输出与治理</strong>
-        <span>约束模型输出格式，配置多模态输入和运行参数</span>
-      </div>
-    </div>
-
-    <section class="llm-card output-card">
-      <el-form-item label="输出格式">
-        <el-segmented v-model="config.outputFormat" :options="['text', 'json']" @change="handleOutputFormatChange" />
-      </el-form-item>
-      <el-form-item label="结构化输出">
-        <el-switch v-model="config.structuredOutput" active-text="启用" inactive-text="关闭" @change="handleStructuredChange" />
-        <el-switch v-if="config.structuredOutput" v-model="config.strictJsonSchema" class="strict-switch" active-text="严格校验" inactive-text="仅解析" />
-      </el-form-item>
-      <template v-if="config.structuredOutput">
-        <div class="field-table-head">
-          <strong>输出变量</strong>
-          <el-button size="small" type="primary" plain @click="addField(config.outputSchema || (config.outputSchema = []))">添加字段</el-button>
+          </el-popover>
+          <el-popover trigger="click" placement="left-start" :width="360">
+            <template #reference><el-button text :icon="View">预览</el-button></template>
+            <div class="prompt-preview">
+              <p class="preview-hint">变量位置以占位符显示，实际值在运行时替换。</p>
+              <div v-for="message in renderedPreview" :key="message.id" class="preview-message">
+                <strong>{{ message.role.toUpperCase() }}</strong>
+                <pre>{{ message.content || '（空消息）' }}</pre>
+              </div>
+            </div>
+          </el-popover>
         </div>
-        <div v-for="(field, index) in config.outputSchema" :key="index" class="field-row schema-row llm-schema-row">
-          <el-input v-model="field.name" placeholder="字段名" />
-          <el-select v-model="field.type" style="width: 110px">
-            <el-option label="string" value="string" />
-            <el-option label="number" value="number" />
-            <el-option label="integer" value="integer" />
-            <el-option label="boolean" value="boolean" />
-            <el-option label="object" value="object" />
-            <el-option label="array" value="array" />
-          </el-select>
-          <el-switch v-model="field.required" active-text="必填" />
-          <el-input v-model="field.description" placeholder="字段说明" />
-          <el-input v-model="field.defaultValue" placeholder="默认值" />
-          <el-button text type="danger" @click="config.outputSchema?.splice(index, 1)">删除</el-button>
+      </div>
+      <template v-if="config.promptTemplateMode === 'simple'">
+        <el-form-item label="系统提示词">
+          <el-input
+            v-model="config.systemPrompt"
+            type="textarea"
+            :rows="4"
+            placeholder="定义角色、任务和回答约束"
+            @focus="rememberPromptTarget('simple-system', $event)"
+            @input="syncSimpleMessages"
+          />
+        </el-form-item>
+        <el-form-item label="用户提示词">
+          <el-input
+            v-model="config.userPrompt"
+            type="textarea"
+            :rows="3"
+            placeholder="输入任务，可通过「插入变量」引用上游结果"
+            @focus="rememberPromptTarget('simple-user', $event)"
+            @input="syncSimpleMessages"
+          />
+        </el-form-item>
+      </template>
+      <template v-else>
+        <div class="message-list">
+          <div
+            v-for="(message, index) in activeMessages"
+            :key="message.id"
+            class="message-card"
+            :class="{ 'is-disabled': message.enabled === false }"
+          >
+            <div class="message-head">
+              <span class="message-index">{{ index + 1 }}</span>
+              <el-select
+                v-model="message.role"
+                size="small"
+                class="role-select"
+                aria-label="消息角色"
+                @change="syncPromptShortcuts"
+              >
+                <el-option label="系统 · System" value="system" /><el-option
+                  label="用户 · User"
+                  value="user"
+                /><el-option label="助手 · Assistant" value="assistant" />
+              </el-select>
+              <div class="message-actions">
+                <el-switch
+                  v-model="message.enabled"
+                  size="small"
+                  aria-label="启用消息"
+                  title="启用消息"
+                  @change="syncPromptShortcuts"
+                />
+                <el-button
+                  :icon="Top"
+                  text
+                  :disabled="index === 0"
+                  aria-label="上移消息"
+                  title="上移"
+                  @click="moveMessage(index, -1)"
+                />
+                <el-button
+                  :icon="Bottom"
+                  text
+                  :disabled="index === activeMessages.length - 1"
+                  aria-label="下移消息"
+                  title="下移"
+                  @click="moveMessage(index, 1)"
+                />
+                <el-button
+                  :icon="Delete"
+                  text
+                  :disabled="activeMessages.length <= 1"
+                  aria-label="删除消息"
+                  title="删除"
+                  @click="removeMessage(index)"
+                />
+              </div>
+            </div>
+            <el-input
+              v-model="message.content"
+              type="textarea"
+              :rows="message.role === 'system' ? 4 : 3"
+              resize="vertical"
+              :aria-label="`第 ${index + 1} 条消息内容`"
+              placeholder="输入提示词，使用上方「插入变量」引用上下文"
+              @focus="rememberPromptTarget(message.id, $event)"
+              @input="syncPromptShortcuts"
+            />
+          </div>
+        </div>
+        <el-dropdown trigger="click" :disabled="formDisabled" @command="addMessage">
+          <el-button class="add-message-button" plain :icon="Plus" :disabled="formDisabled">添加消息</el-button>
+          <template #dropdown
+            ><el-dropdown-menu
+              ><el-dropdown-item command="system">系统消息</el-dropdown-item
+              ><el-dropdown-item command="user">用户消息</el-dropdown-item
+              ><el-dropdown-item command="assistant">助手消息</el-dropdown-item></el-dropdown-menu
+            ></template
+          >
+        </el-dropdown>
+        <p v-if="!simpleModeAvailable" class="panel-hint">包含多条、助手或停用的消息，请使用消息编排保留完整上下文。</p>
+      </template>
+      <ConfigSection
+        title="附加上下文"
+        description="运行时一并提供给模型的变量"
+        :count="config.contextVariables?.length || 0"
+        collapsible
+      >
+        <el-select
+          v-model="config.contextVariables"
+          multiple
+          filterable
+          allow-create
+          default-first-option
+          :filter-method="filterVariableOptions"
+          placeholder="选择附加变量"
+          popper-class="studio-variable-select"
+          @visible-change="handleVariableVisibleChange"
+        >
+          <el-option-group v-for="group in groupedVariableOptions" :key="group.group" :label="group.group"
+            ><el-option v-for="item in group.options" :key="item.value" :label="item.label" :value="item.value"
+          /></el-option-group>
+        </el-select>
+      </ConfigSection>
+    </ConfigSection>
+
+    <ConfigSection title="输出" description="选择回答格式，按需声明结构化字段">
+      <el-form-item label="输出格式"
+        ><el-segmented
+          v-model="config.outputFormat"
+          :options="[
+            { label: '文本', value: 'text' },
+            { label: 'JSON', value: 'json' },
+          ]"
+          @change="handleOutputFormatChange"
+      /></el-form-item>
+      <el-form-item label="结构化输出"
+        ><el-switch v-model="config.structuredOutput" active-text="按字段约束输出" @change="handleStructuredChange"
+      /></el-form-item>
+      <template v-if="config.structuredOutput">
+        <el-form-item label="字段校验"
+          ><el-switch v-model="config.strictJsonSchema" active-text="严格校验"
+        /></el-form-item>
+        <div class="field-table-head">
+          <strong>输出字段</strong
+          ><el-button
+            size="small"
+            text
+            :icon="Plus"
+            @click="addField(config.outputSchema || (config.outputSchema = []))"
+            >添加字段</el-button
+          >
+        </div>
+        <div v-for="(field, index) in config.outputSchema" :key="index" class="field-row llm-schema-row">
+          <el-input v-model="field.name" placeholder="字段名" aria-label="输出字段名" />
+          <el-select v-model="field.type" aria-label="输出字段类型"
+            ><el-option
+              v-for="type in ['string', 'number', 'integer', 'boolean', 'object', 'array']"
+              :key="type"
+              :label="type"
+              :value="type"
+          /></el-select>
+          <el-input v-model="field.description" placeholder="字段说明" /><el-input
+            v-model="field.defaultValue"
+            placeholder="默认值"
+          />
+          <el-switch v-model="field.required" active-text="必填" /><el-button
+            text
+            type="danger"
+            @click="config.outputSchema?.splice(index, 1)"
+            >删除字段</el-button
+          >
         </div>
       </template>
-    </section>
+    </ConfigSection>
 
-    <section class="llm-card runtime-card">
-      <el-form-item label="视觉输入">
-        <el-switch v-model="config.visionEnabled" active-text="启用" inactive-text="关闭" />
-      </el-form-item>
+    <ConfigSection
+      title="视觉输入"
+      :description="config.visionEnabled ? '已启用图片输入' : '按需接收图片或文件变量'"
+      collapsible
+      :default-open="config.visionEnabled"
+    >
+      <el-form-item label="图片输入"><el-switch v-model="config.visionEnabled" active-text="启用" /></el-form-item>
       <el-form-item v-if="config.visionEnabled" label="图片变量">
         <el-select
           v-model="config.visionInputs"
@@ -189,42 +268,40 @@
           allow-create
           default-first-option
           :filter-method="filterVariableOptions"
-          placeholder="选择图片/文件变量"
-          popper-class="studio-variable-select"
-          style="width: 100%"
+          placeholder="选择图片或文件变量"
           @visible-change="handleVariableVisibleChange"
-        >
-          <el-option-group
-            v-for="group in groupedVariableOptions"
-            :key="group.group"
-            :label="group.group"
-          >
-            <el-option
+          ><el-option-group v-for="group in groupedVariableOptions" :key="group.group" :label="group.group"
+            ><el-option
               v-for="item in group.options"
               :key="item.value"
               :label="item.label"
-              :value="item.value"
-            >
-              <div class="variable-option">
-                <strong>{{ item.label }}</strong>
-                <span>{{ item.value }}</span>
-                <em v-if="item.description">{{ item.description }}</em>
-              </div>
-            </el-option>
-          </el-option-group>
-        </el-select>
+              :value="item.value" /></el-option-group
+        ></el-select>
       </el-form-item>
-
-      <el-form-item label="模型参数">
-        <el-input :model-value="formatMap(paramsAsText)" type="textarea" :rows="5" placeholder="temperature = 0.2&#10;maxTokens = 1024&#10;topP = 0.8" @update:model-value="updateParams" />
-      </el-form-item>
-    </section>
+    </ConfigSection>
+    <ConfigSection
+      title="模型参数"
+      description="温度、最大输出长度等调用参数"
+      collapsible
+      :default-open="Object.keys(config.modelParams || {}).length > 0"
+    >
+      <el-input
+        :model-value="formatMap(paramsAsText)"
+        type="textarea"
+        :rows="4"
+        aria-label="模型参数"
+        placeholder="temperature = 0.2&#10;maxTokens = 1024&#10;topP = 0.8"
+        @update:model-value="updateParams"
+      />
+    </ConfigSection>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { Bottom, Delete, Plus, Top } from '@element-plus/icons-vue'
+import { computed, nextTick, ref, shallowRef } from 'vue'
+import { useFormDisabled } from 'element-plus'
+import ConfigSection from './ConfigSection.vue'
+import { Bottom, Coin, Delete, Plus, Top, View } from '@element-plus/icons-vue'
 import type { CanvasNodeData, LlmNodeConfig, LlmPromptMessage, StudioVariableOption } from '@/types/studio'
 import type { ModelInstance } from '@/types/model'
 import ModelSelectEmptyState from '@/components/model/ModelSelectEmptyState.vue'
@@ -242,11 +319,25 @@ const emit = defineEmits<{
   reloadModelOptions: []
 }>()
 
-const promptModeOptions = [
+const formDisabled = useFormDisabled()
+const simpleModeAvailable = computed(() => activeMessages.value.length <= 2
+  && activeMessages.value.every((message) => ['system', 'user'].includes(message.role) && message.enabled !== false)
+  && new Set(activeMessages.value.map((message) => message.role)).size === activeMessages.value.length)
+const promptModeOptions = computed(() => [
   { label: '消息编排', value: 'messages' },
-  { label: '简洁模式', value: 'simple' },
-]
-const focusedMessageId = ref<string>('')
+  { label: '简洁', value: 'simple', disabled: !simpleModeAvailable.value },
+])
+const focusedMessageId = ref('')
+const focusedTextarea = shallowRef<HTMLTextAreaElement | null>(null)
+function rememberPromptTarget(id: string, event: FocusEvent) {
+  focusedMessageId.value = id
+  focusedTextarea.value = event.target as HTMLTextAreaElement
+}
+function handlePromptModeChange() {
+  focusedMessageId.value = ''
+  focusedTextarea.value = null
+  if (config.value.promptTemplateMode === 'simple') syncPromptShortcuts()
+}
 const variableKeyword = ref('')
 
 const fallbackVariableOptions: StudioVariableOption[] = [
@@ -325,30 +416,6 @@ const groupedVariableOptions = computed(() => {
       options: filtered.filter((item) => item.group === group),
     }))
     .filter((group) => group.options.length)
-})
-
-const suggestedVariableOptions = computed(() => {
-  const preferred = ['params.question', 'input', 'lastOutput', 'answer']
-  const byValue = new Map(normalizedVariableOptions.value.map((item) => [item.value, item]))
-  const picks: StudioVariableOption[] = []
-  for (const value of config.value.contextVariables || []) {
-    const item = byValue.get(value)
-    if (item) picks.push(item)
-  }
-  for (const value of preferred) {
-    const item = byValue.get(value)
-    if (item) picks.push(item)
-  }
-  for (const item of normalizedVariableOptions.value) {
-    if (picks.length >= 8) break
-    picks.push(item)
-  }
-  const seen = new Set<string>()
-  return picks.filter((item) => {
-    if (seen.has(item.value)) return false
-    seen.add(item.value)
-    return true
-  }).slice(0, 8)
 })
 
 function filterVariableOptions(keyword: string) {
@@ -450,6 +517,7 @@ function addMessage(role: LlmPromptMessage['role']) {
   }
   config.value.messages = [...activeMessages.value, message]
   focusedMessageId.value = message.id
+  focusedTextarea.value = null
   syncPromptShortcuts()
 }
 
@@ -465,20 +533,36 @@ function moveMessage(index: number, delta: number) {
   const [item] = next.splice(index, 1)
   next.splice(target, 0, item)
   config.value.messages = next
+  syncPromptShortcuts()
 }
 
-function insertVariable(name: string) {
+async function insertVariable(name: string) {
+  if (formDisabled.value) return
   const token = `{{ ${name} }}`
+  const simple = config.value.promptTemplateMode === 'simple'
   const target = activeMessages.value.find((message) => message.id === focusedMessageId.value)
     || [...activeMessages.value].reverse().find((message) => message.role === 'user')
     || activeMessages.value[activeMessages.value.length - 1]
-  if (target) {
-    target.content = target.content ? `${target.content}\n${token}` : token
+  const system = simple && focusedMessageId.value === 'simple-system'
+  const content = simple ? (system ? config.value.systemPrompt || '' : config.value.userPrompt || '') : target?.content || ''
+  const textarea = focusedTextarea.value?.isConnected ? focusedTextarea.value : null
+  const start = textarea?.selectionStart ?? content.length
+  const end = textarea?.selectionEnd ?? content.length
+  const next = content.slice(0, start) + token + content.slice(end)
+  if (simple) {
+    if (system) config.value.systemPrompt = next
+    else config.value.userPrompt = next
+    syncSimpleMessages()
+  } else if (target) {
+    target.content = next
+    syncPromptShortcuts()
   }
   if (!config.value.contextVariables?.includes(name)) {
     config.value.contextVariables = [...(config.value.contextVariables || []), name]
   }
-  syncPromptShortcuts()
+  await nextTick()
+  textarea?.focus()
+  textarea?.setSelectionRange(start + token.length, start + token.length)
 }
 
 function syncPromptShortcuts() {
@@ -519,290 +603,19 @@ function updateParams(text: string) {
 }
 </script>
 
-<style scoped lang="scss">
-.llm-panel {
-  display: grid;
-  gap: 14px;
-
-  .llm-toolbar,
-  .quick-add-row,
-  .variable-shortcuts {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-
-  .llm-section-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    margin: 2px 0 0;
-
-    &.compact {
-      margin-top: 6px;
-    }
-
-    strong,
-    span {
-      display: block;
-    }
-
-    strong {
-      color: #0f172a;
-      font-size: 15px;
-      font-weight: 850;
-    }
-
-    span {
-      margin-top: 4px;
-      color: #64748b;
-      font-size: 12px;
-      line-height: 1.5;
-    }
-  }
-
-  .llm-card {
-    padding: 14px;
-    border: 1px solid #e2e8f0;
-    border-radius: 12px;
-    background: #ffffff;
-    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.04);
-
-    :deep(.el-form-item) {
-      margin-bottom: 12px;
-
-      &:last-child {
-        margin-bottom: 0;
-      }
-    }
-
-    :deep(.el-form-item__label) {
-      color: #475569;
-      font-size: 12px;
-      font-weight: 700;
-    }
-
-    :deep(.el-input__wrapper),
-    :deep(.el-textarea__inner),
-    :deep(.el-select__wrapper) {
-      border-radius: 8px;
-      box-shadow: 0 0 0 1px #dbe3ef inset;
-    }
-  }
-
-  .llm-card-title {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 12px;
-    margin-bottom: 12px;
-
-    strong,
-    span {
-      display: block;
-    }
-
-    strong {
-      color: #111827;
-      font-size: 14px;
-      font-weight: 850;
-    }
-
-    span {
-      margin-top: 4px;
-      color: #64748b;
-      font-size: 12px;
-    }
-  }
-
-  .llm-toolbar {
-    flex-shrink: 0;
-    justify-content: space-between;
-  }
-
-  .message-list {
-    display: grid;
-    gap: 10px;
-    margin-bottom: 10px;
-  }
-
-  .message-card {
-    padding: 12px;
-    border: 1px solid #e2e8f0;
-    border-radius: 12px;
-    background:
-      linear-gradient(180deg, rgba(248, 250, 252, 0.82), rgba(255, 255, 255, 0.98)),
-      #ffffff;
-    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.035);
-  }
-
-  .message-head {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    margin-bottom: 10px;
-
-    :deep(.el-button.is-circle) {
-      width: 28px;
-      height: 28px;
-      border-color: #e2e8f0;
-      color: #64748b;
-    }
-
-    :deep(.el-button--danger.is-text),
-    :deep(.el-button--danger) {
-      border-color: #fecdd3;
-      background: #fff1f2;
-      color: #e11d48;
-    }
-  }
-
-  .template-pill {
-    display: inline-flex;
-    align-items: center;
-    height: 28px;
-    padding: 0 9px;
-    border: 1px solid #dbeafe;
-    border-radius: 8px;
-    background: #eff6ff;
-    color: #2563eb;
-    font-size: 12px;
-    font-weight: 750;
-    white-space: nowrap;
-  }
-
-  .role-select {
-    width: 122px;
-
-    :deep(.el-select__wrapper) {
-      min-height: 30px;
-      border-radius: 8px;
-      background: #f8fafc;
-    }
-  }
-
-  .variable-picker {
-    display: grid;
-    gap: 8px;
-    width: 100%;
-  }
-
-  .variable-shortcuts {
-    max-height: 112px;
-    overflow: auto;
-
-    :deep(.el-button) {
-      height: auto;
-      min-height: 44px;
-      padding: 7px 10px;
-      border-color: #dbeafe;
-      background: #eff6ff;
-      color: #2563eb;
-      text-align: left;
-
-      > span {
-        display: grid;
-        gap: 2px;
-        max-width: 220px;
-      }
-    }
-
-    strong,
-    span {
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    strong {
-      color: #1e293b;
-      font-size: 12px;
-      font-weight: 850;
-    }
-
-    span {
-      color: #4f46e5;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      font-size: 11px;
-    }
-  }
-
-  .llm-collapse {
-    margin: 4px 0 0;
-    border: 1px solid #e2e8f0;
-    border-radius: 10px;
-    padding: 0 10px;
-    background: #fbfdff;
-
-    :deep(.el-collapse-item__header) {
-      height: 38px;
-      border-bottom: 0;
-      background: transparent;
-      color: #334155;
-      font-size: 13px;
-      font-weight: 800;
-    }
-
-    :deep(.el-collapse-item__wrap) {
-      border-bottom: 0;
-      background: transparent;
-    }
-  }
-
-  .prompt-preview {
-    display: grid;
-    gap: 8px;
-  }
-
-  .preview-message {
-    padding: 9px 0 0;
-    border-top: 1px solid #edf2f7;
-
-    strong {
-      color: #4f46e5;
-      font-size: 12px;
-    }
-
-    pre {
-      margin: 4px 0 0;
-      white-space: pre-wrap;
-      word-break: break-word;
-      color: #334155;
-      font-size: 12px;
-      line-height: 1.55;
-    }
-  }
-
-  .strict-switch {
-    margin-left: 12px;
-  }
-
-  .llm-schema-row {
-    grid-template-columns: minmax(90px, 0.8fr) auto auto minmax(110px, 1fr) minmax(90px, 0.8fr) auto;
-    padding: 8px;
-    border: 1px solid #e2e8f0;
-    border-radius: 10px;
-    background: #f8fafc;
-  }
-
-  :deep(.el-segmented) {
-    --el-segmented-item-selected-bg-color: #635bff;
-    --el-segmented-item-selected-color: #ffffff;
-    border-radius: 9px;
-    background: #eef2ff;
-  }
-
-  :deep(.el-textarea__inner) {
-    min-height: 120px;
-    line-height: 1.55;
-    color: #334155;
-  }
-
-  :deep(.el-switch.is-checked .el-switch__core) {
-    background-color: #635bff;
-    border-color: #635bff;
-  }
-}
+<style scoped lang="scss" src="./llm-panel.scss"></style>
+<style lang="scss">
+.prompt-variable-picker { display: grid; gap: 10px; }
+.prompt-variable-list { max-height: 300px; overflow-y: auto; }
+.prompt-variable-group { display: grid; gap: 3px; margin-bottom: 10px; }
+.prompt-variable-group > span { padding: 4px 6px; color: var(--text-muted); font-size: 11px; }
+.prompt-variable-group .el-button { height: auto; padding: 7px 8px; margin: 0; justify-content: flex-start; }
+.prompt-variable-group .el-button > span { display: grid; gap: 3px; min-width: 0; text-align: left; }
+.prompt-variable-group .el-button span span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-primary); font-size: 12px; }
+.prompt-variable-group code { color: var(--brand-primary); font: 11px/1.5 Consolas, monospace; }
+.prompt-preview { max-height: 420px; overflow-y: auto; }
+.preview-hint { margin: 0 0 12px; color: var(--text-muted); font-size: 12px; }
+.preview-message { padding: 10px 0; border-top: 1px solid var(--border-divider); }
+.preview-message strong { color: var(--brand-primary); font: 11px/1.5 Consolas, monospace; }
+.preview-message pre { margin: 6px 0 0; color: var(--text-primary); font-size: 12px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
 </style>

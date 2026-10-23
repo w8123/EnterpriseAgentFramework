@@ -1,6 +1,15 @@
 <template>
   <div class="reachai-block" :data-type="block.type">
-    <div v-if="block.type === 'text'" class="reachai-block__text" :class="{ 'is-streaming': block.status === 'streaming' }">
+    <div
+      v-if="block.type === 'text' && markdown"
+      class="reachai-block__text reachai-block__text--markdown"
+      :class="{ 'is-streaming': block.status === 'streaming' }"
+    >
+      <!-- renderSafeMarkdown 只保留白名单标签和安全链接，不输出可执行 HTML -->
+      <div class="reachai-block__markdown" v-html="renderSafeMarkdown(block.text)" />
+      <span v-if="block.status === 'streaming'" class="reachai-block__caret" aria-hidden="true" />
+    </div>
+    <div v-else-if="block.type === 'text'" class="reachai-block__text" :class="{ 'is-streaming': block.status === 'streaming' }">
       {{ block.text }}
       <span v-if="block.status === 'streaming'" class="reachai-block__caret" aria-hidden="true" />
     </div>
@@ -29,10 +38,13 @@
 
 <script setup lang="ts">
 import type { ConversationBlock, ConversationInteractionBlock } from '../core/conversationTypes'
+import { renderSafeMarkdown } from '../../utils/safeMarkdown'
 import UnifiedInteractionRenderer from './UnifiedInteractionRenderer.vue'
 
 defineProps<{
   block: ConversationBlock
+  /** 助手回复按 Markdown 渲染；用户输入保持原文。 */
+  markdown?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -64,6 +76,70 @@ function onInteractionCancel(block: ConversationBlock) {
   font-size: 14px;
   font-weight: 500;
   line-height: 1.72;
+}
+.reachai-block__text--markdown {
+  white-space: normal;
+}
+.reachai-block__markdown :deep(p),
+.reachai-block__markdown :deep(ul),
+.reachai-block__markdown :deep(ol),
+.reachai-block__markdown :deep(pre),
+.reachai-block__markdown :deep(blockquote),
+.reachai-block__markdown :deep(table) {
+  margin: 0 0 8px;
+}
+.reachai-block__markdown > :deep(:last-child) {
+  margin-bottom: 0;
+}
+.reachai-block__markdown :deep(ul),
+.reachai-block__markdown :deep(ol) {
+  padding-left: 20px;
+}
+.reachai-block__markdown :deep(h1),
+.reachai-block__markdown :deep(h2),
+.reachai-block__markdown :deep(h3),
+.reachai-block__markdown :deep(h4) {
+  margin: 4px 0 6px;
+  font-size: 15px;
+  font-weight: 700;
+}
+.reachai-block__markdown :deep(strong) {
+  font-weight: 700;
+}
+.reachai-block__markdown :deep(code) {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: rgb(var(--reachai-chat-primary-rgb, 99 102 241) / 0.08);
+  font-family: var(--font-family-mono, ui-monospace, monospace);
+  font-size: 0.92em;
+}
+.reachai-block__markdown :deep(pre) {
+  overflow-x: auto;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgb(var(--reachai-chat-primary-rgb, 99 102 241) / 0.06);
+}
+.reachai-block__markdown :deep(pre code) {
+  padding: 0;
+  background: transparent;
+}
+.reachai-block__markdown :deep(table) {
+  display: block;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.reachai-block__markdown :deep(th),
+.reachai-block__markdown :deep(td) {
+  padding: 4px 8px;
+  border: 1px solid rgb(var(--reachai-chat-primary-rgb, 99 102 241) / 0.16);
+  text-align: left;
+}
+.reachai-block__markdown :deep(a) {
+  color: var(--reachai-chat-primary, #6366f1);
+}
+.reachai-block__markdown :deep(img) {
+  max-width: 100%;
 }
 .reachai-block__caret {
   display: inline-block;

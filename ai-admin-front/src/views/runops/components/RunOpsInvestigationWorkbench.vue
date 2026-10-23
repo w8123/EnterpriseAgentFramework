@@ -283,7 +283,7 @@
               </div>
               <div v-if="!changedSummaryDiffs.length" class="diff-empty">摘要指标一致</div>
             </div>
-            <el-tabs class="compare-tabs">
+            <LiquidGlassTabs class="compare-tabs">
               <el-tab-pane label="链路差异">
                 <DiffTable
                   kind="span"
@@ -308,7 +308,7 @@
                   empty-text="治理决策一致"
                 />
               </el-tab-pane>
-            </el-tabs>
+            </LiquidGlassTabs>
           </template>
           <el-empty v-else description="当前运行没有可对比的原始追踪" />
         </section>
@@ -399,6 +399,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { LiquidGlassTabs } from '@/components/common/liquid-glass'
 import { formatRuntimeTypeLabel } from '@/utils/registryLabels'
 import DiffTable from './RunOpsDiffTable.vue'
 import { toolCallStatusLabel, toolCallStatusTone } from '../toolCallOutcome'
@@ -975,9 +976,11 @@ function guardDigest(guard?: RunGuardDecision) {
   height: clamp(490px, calc(100dvh - 330px), 610px);
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--border-readable) 58%, transparent);
+  border: 1px solid var(--border-glass-edge);
   border-radius: 12px;
-  background: color-mix(in srgb, var(--surface-solid-overlay) 88%, transparent);
+  background: var(--surface-glass-frost);
+  -webkit-backdrop-filter: blur(var(--glass-blur-frost));
+  backdrop-filter: blur(var(--glass-blur-frost));
   box-shadow:
     0 18px 42px -34px rgb(15 23 42 / 0.46),
     inset 0 1px 0 color-mix(in srgb, var(--text-primary) 7%, transparent);
@@ -993,8 +996,8 @@ function guardDigest(guard?: RunGuardDecision) {
   justify-content: space-between;
   gap: 16px;
   padding: 6px 12px;
-  border-bottom: 1px solid var(--border-color);
-  background: color-mix(in srgb, var(--surface-solid-panel) 84%, transparent);
+  border-bottom: 1px solid var(--border-subtle);
+  background: transparent;
 }
 
 .workbench-groups,
@@ -1031,8 +1034,8 @@ function guardDigest(guard?: RunGuardDecision) {
 
 .workbench-group.active {
   border-color: color-mix(in srgb, var(--border-readable) 62%, transparent);
-  background: color-mix(in srgb, var(--surface-solid-control) 92%, transparent);
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text-primary) 7%, transparent);
+  background: var(--surface-glass-inset);
+  box-shadow: var(--glass-rim-double);
 }
 
 .workbench-group__label,
@@ -1067,7 +1070,7 @@ function guardDigest(guard?: RunGuardDecision) {
 
 .workbench-subtabs button:hover { color: var(--brand-primary); }
 .workbench-subtabs button.active {
-  background: color-mix(in srgb, var(--brand-primary) 10%, var(--surface-solid-control));
+  background: var(--surface-glass-selected);
   color: var(--brand-primary);
   font-weight: 720;
 }
@@ -1107,7 +1110,7 @@ function guardDigest(guard?: RunGuardDecision) {
 
 .workbench-main {
   overflow: hidden;
-  background: color-mix(in srgb, var(--surface-solid-panel) 68%, transparent);
+  background: transparent;
 }
 
 .execution-view,
@@ -1128,7 +1131,7 @@ function guardDigest(guard?: RunGuardDecision) {
   min-height: 40px;
   padding: 5px 12px;
   border-bottom: 1px solid var(--border-divider);
-  background: color-mix(in srgb, var(--surface-solid-control) 58%, transparent);
+  background: transparent;
 }
 
 .view-toolbar > div:first-child {
@@ -1146,16 +1149,16 @@ function guardDigest(guard?: RunGuardDecision) {
 .filter-pills button {
   min-height: 26px;
   padding: 0 10px;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border-subtle);
   border-radius: 999px;
-  background: var(--surface-solid-control, var(--card-bg));
+  background: var(--surface-glass-inset);
   color: var(--text-secondary);
   cursor: pointer;
   font-size: 12px;
 }
 .filter-pills button.active {
-  border-color: color-mix(in srgb, var(--brand-primary) 45%, var(--border-color));
-  background: color-mix(in srgb, var(--brand-primary) 9%, var(--card-bg));
+  border-color: color-mix(in srgb, var(--brand-primary) 45%, var(--border-subtle));
+  background: var(--surface-glass-selected);
   color: var(--brand-primary);
 }
 
@@ -1181,7 +1184,7 @@ function guardDigest(guard?: RunGuardDecision) {
 .execution-row:hover { background: color-mix(in srgb, var(--brand-primary) 5%, transparent); }
 .execution-row.selected {
   border-color: transparent;
-  background: color-mix(in srgb, var(--row-tone) 8%, var(--surface-solid-control));
+  background: color-mix(in srgb, var(--row-tone) 10%, var(--surface-glass-inset));
   box-shadow:
     inset 3px 0 0 var(--row-tone),
     inset 0 0 0 1px color-mix(in srgb, var(--row-tone) 16%, transparent);
@@ -1212,7 +1215,7 @@ function guardDigest(guard?: RunGuardDecision) {
   left: 50%;
   width: 1px;
   height: calc(50% + 9px);
-  background: var(--border-color);
+  background: var(--border-subtle);
 }
 .execution-rail::before { bottom: 50%; }
 .execution-rail::after { top: 50%; }
@@ -1223,7 +1226,7 @@ function guardDigest(guard?: RunGuardDecision) {
   z-index: 1;
   width: 10px;
   height: 10px;
-  border: 2px solid var(--card-bg);
+  border: 2px solid var(--surface-solid-panel);
   border-radius: 50%;
   background: var(--row-tone);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--row-tone) 45%, transparent);
@@ -1244,7 +1247,7 @@ function guardDigest(guard?: RunGuardDecision) {
   flex: 0 0 auto;
   padding: 2px 6px;
   border-radius: 4px;
-  background: color-mix(in srgb, var(--brand-primary) 7%, var(--card-bg));
+  background: var(--surface-glass-inset);
   color: var(--text-muted);
   font-size: 9px;
   font-style: normal;
@@ -1269,16 +1272,16 @@ function guardDigest(guard?: RunGuardDecision) {
   font-weight: 700;
 }
 .execution-status.is-danger { background: color-mix(in srgb, var(--status-danger) 10%, var(--surface-solid-control)); color: var(--status-danger); }
-.execution-status.is-warning { background: color-mix(in srgb, var(--status-warning) 12%, var(--card-bg)); color: var(--status-warning); }
-.execution-status.is-primary { background: color-mix(in srgb, var(--brand-primary) 10%, var(--card-bg)); color: var(--brand-primary); }
-.execution-status.is-info { background: color-mix(in srgb, var(--status-info) 10%, var(--card-bg)); color: var(--status-info); }
+.execution-status.is-warning { background: color-mix(in srgb, var(--status-warning) 12%, var(--surface-solid-panel)); color: var(--status-warning); }
+.execution-status.is-primary { background: color-mix(in srgb, var(--brand-primary) 10%, var(--surface-solid-panel)); color: var(--brand-primary); }
+.execution-status.is-info { background: color-mix(in srgb, var(--status-info) 10%, var(--surface-solid-panel)); color: var(--status-info); }
 
 .node-inspector {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border-left: 1px solid var(--border-color);
-  background: color-mix(in srgb, var(--surface-solid-overlay) 88%, transparent);
+  border-left: 1px solid var(--border-subtle);
+  background: transparent;
 }
 .node-inspector__header { padding: 12px 14px 9px; border-bottom: 1px solid var(--border-divider); }
 .node-inspector__header > div { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--text-muted); font-size: 11px; }
@@ -1314,7 +1317,7 @@ function guardDigest(guard?: RunGuardDecision) {
 .inspector-tabs button.active::after { background: var(--brand-primary); }
 
 .node-inspector__content { min-height: 0; flex: 1 1 auto; overflow: auto; padding: 13px 14px; }
-.node-diagnostic { --diagnostic-tone: var(--status-success); padding: 10px 11px; border: 0; border-left: 3px solid var(--diagnostic-tone); border-radius: 0 7px 7px 0; background: color-mix(in srgb, var(--diagnostic-tone) 5%, var(--surface-solid-control)); }
+.node-diagnostic { --diagnostic-tone: var(--status-success); padding: 10px 11px; border: 0; border-left: 3px solid var(--diagnostic-tone); border-radius: 0 7px 7px 0; background: color-mix(in srgb, var(--diagnostic-tone) 8%, var(--surface-glass-inset)); }
 .node-diagnostic.is-danger { --diagnostic-tone: var(--status-danger); }
 .node-diagnostic.is-warning { --diagnostic-tone: var(--status-warning); }
 .node-diagnostic.is-primary { --diagnostic-tone: var(--brand-primary); }
@@ -1333,7 +1336,7 @@ function guardDigest(guard?: RunGuardDecision) {
 
 .payload-view { display: grid; gap: 10px; }
 .payload-absence-note { margin: 0; padding: 0 10px 10px; color: var(--text-secondary); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
-.payload-view article { overflow: hidden; border: 1px solid var(--border-color); border-radius: 9px; background: var(--card-bg); }
+.payload-view article { overflow: hidden; border: 1px solid var(--border-subtle); border-radius: 9px; background: var(--surface-glass-inset); }
 .payload-view h3 { display: flex; justify-content: space-between; margin: 0; padding: 8px 10px; border-bottom: 1px solid var(--border-divider); color: var(--text-secondary); font-size: 11px; }
 .payload-view h3 small { color: var(--text-muted); font-family: var(--font-mono, Consolas, monospace); font-weight: 500; }
 .payload-view pre,
@@ -1349,7 +1352,7 @@ function guardDigest(guard?: RunGuardDecision) {
 .evidence-view dd { overflow: hidden; color: var(--text-secondary); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .evidence-view details { margin-top: 12px; }
 .evidence-view summary { color: var(--brand-primary); cursor: pointer; font-size: 11px; font-weight: 700; }
-.evidence-view pre { margin-top: 8px; padding: 9px; border-radius: 8px; background: var(--surface-solid-control, var(--page-bg)); }
+.evidence-view pre { margin-top: 8px; padding: 9px; border-radius: 8px; color: var(--code-text); background: var(--code-surface); }
 
 .data-view { padding: 14px; }
 .view-heading { margin-bottom: 12px; }
@@ -1358,14 +1361,14 @@ function guardDigest(guard?: RunGuardDecision) {
 .view-heading h2 { color: var(--text-primary); font-size: 15px; }
 .view-heading p { margin-top: 4px; }
 .metric-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
-.metric-strip > div { min-width: 0; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 9px; background: color-mix(in srgb, var(--brand-primary) 3%, var(--card-bg)); }
+.metric-strip > div { min-width: 0; padding: 10px 12px; border: 1px solid var(--border-subtle); border-radius: 9px; background: color-mix(in srgb, var(--brand-primary) 3%, var(--surface-solid-panel)); }
 .metric-strip span,
 .metric-strip small { display: block; overflow: hidden; color: var(--text-muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .metric-strip strong { display: block; margin: 4px 0 2px; color: var(--text-primary); font-size: 16px; }
 .evidence-table { cursor: pointer; }
 
-.span-card { display: block; width: 100%; padding: 11px 12px; border: 1px solid var(--border-color); border-radius: 9px; background: var(--card-bg); color: inherit; text-align: left; cursor: pointer; }
-.span-card:hover { border-color: color-mix(in srgb, var(--brand-primary) 42%, var(--border-color)); }
+.span-card { display: block; width: 100%; padding: 11px 12px; border: 1px solid var(--border-subtle); border-radius: 9px; background: var(--surface-solid-panel); color: inherit; text-align: left; cursor: pointer; }
+.span-card:hover { border-color: color-mix(in srgb, var(--brand-primary) 42%, var(--border-subtle)); }
 .span-card__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
 .span-card__head > span:first-child { min-width: 0; }
 .span-card__head strong,
@@ -1376,22 +1379,22 @@ function guardDigest(guard?: RunGuardDecision) {
 .span-card__error { display: block; margin-top: 8px; color: var(--status-danger); font-size: 10px; }
 
 .workbench-empty { display: grid; min-height: 300px; place-items: center; align-content: center; text-align: center; }
-.workbench-empty > span { display: grid; width: 40px; height: 40px; place-items: center; border-radius: 50%; background: color-mix(in srgb, var(--status-info) 10%, var(--card-bg)); color: var(--status-info); font-size: 18px; }
+.workbench-empty > span { display: grid; width: 40px; height: 40px; place-items: center; border-radius: 50%; background: color-mix(in srgb, var(--status-info) 10%, var(--surface-solid-panel)); color: var(--status-info); font-size: 18px; }
 .workbench-empty > strong { margin-top: 9px; color: var(--text-primary); font-size: 13px; }
 .workbench-empty > p { max-width: 340px; margin: 5px 0 0; color: var(--text-muted); font-size: 11px; line-height: 1.55; }
-.workbench-empty.is-success > span { background: color-mix(in srgb, var(--status-success) 10%, var(--card-bg)); color: var(--status-success); }
+.workbench-empty.is-success > span { background: color-mix(in srgb, var(--status-success) 10%, var(--surface-solid-panel)); color: var(--status-success); }
 
 .snapshot-accordion { display: grid; gap: 8px; }
-.snapshot-accordion details { overflow: hidden; border: 1px solid var(--border-color); border-radius: 9px; background: var(--card-bg); }
+.snapshot-accordion details { overflow: hidden; border: 1px solid var(--border-subtle); border-radius: 9px; background: var(--surface-solid-panel); }
 .snapshot-accordion summary { padding: 10px 12px; color: var(--text-primary); cursor: pointer; font-size: 12px; font-weight: 700; }
 .snapshot-accordion summary small { margin-left: 8px; color: var(--text-muted); font-family: var(--font-mono, Consolas, monospace); font-size: 9px; font-weight: 500; }
-.snapshot-accordion pre { max-height: 260px; padding: 11px 12px; border-top: 1px solid var(--border-divider); background: var(--surface-solid-control, var(--page-bg)); }
+.snapshot-accordion pre { max-height: 260px; padding: 11px 12px; border-top: 1px solid var(--border-divider); background: var(--surface-solid-control, var(--surface-page-canvas)); }
 
-.compare-banner { justify-content: center; gap: 12px; padding: 10px; border: 1px solid var(--border-color); border-radius: 9px; background: color-mix(in srgb, var(--brand-primary) 4%, var(--card-bg)); color: var(--text-secondary); font-size: 11px; }
+.compare-banner { justify-content: center; gap: 12px; padding: 10px; border: 1px solid var(--border-subtle); border-radius: 9px; background: color-mix(in srgb, var(--brand-primary) 4%, var(--surface-solid-panel)); color: var(--text-secondary); font-size: 11px; }
 .compare-banner code { color: var(--text-primary); }
 .compare-banner strong { color: var(--brand-primary); }
 .diff-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin: 10px 0; }
-.diff-metrics > div { min-width: 0; padding: 9px 10px; border: 1px solid var(--border-color); border-radius: 8px; }
+.diff-metrics > div { min-width: 0; padding: 9px 10px; border: 1px solid var(--border-subtle); border-radius: 8px; }
 .diff-metrics span { display: block; color: var(--text-muted); font-size: 9px; }
 .diff-metrics strong { display: block; margin-top: 4px; overflow: hidden; color: var(--text-primary); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .diff-metrics em { margin: 0 3px; color: var(--brand-primary); font-style: normal; }
@@ -1406,7 +1409,7 @@ function guardDigest(guard?: RunGuardDecision) {
   .investigation-workbench { height: auto; min-height: 760px; }
   .investigation-workbench__body { grid-template-columns: minmax(0, 1fr); }
   .workbench-main { min-height: 430px; }
-  .node-inspector { min-height: 420px; border-top: 1px solid var(--border-color); border-left: 0; }
+  .node-inspector { min-height: 420px; border-top: 1px solid var(--border-subtle); border-left: 0; }
   .investigation-workbench__header { align-items: stretch; flex-direction: column; gap: 0; }
   .workbench-groups { min-height: 42px; }
   .workbench-summary { min-height: 32px; justify-content: flex-end; }

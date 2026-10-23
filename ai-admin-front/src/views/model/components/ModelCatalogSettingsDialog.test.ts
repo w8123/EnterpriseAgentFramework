@@ -60,7 +60,7 @@ async function mountDialog() {
           emits: ['update:modelValue'],
           template: '<div><slot /><slot name="footer" /></div>',
         },
-        'el-alert': {
+        LiquidGlassNotice: {
           props: ['title', 'description'],
           template: '<div class="stub-alert">{{ title }} {{ description }}</div>',
         },

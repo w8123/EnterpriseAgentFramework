@@ -621,7 +621,7 @@ reachai:
 
 当前源码状态：M0 与 M1 核心闭环已实现；M2 的固定远端修订、出站凭据、Agent 配置绑定、Supervisor 委派、Task 查询/取消、Trace 治理和独立远端 E2E 已验证；M3 只完成 durable outbox 与出站查询租约，streaming/subscribe/push 和完整授权恢复尚未实现；M4 及正式生产发布验收仍为 PENDING。
 
-2026-08-24 数据库证据：目标远程开发库（MySQL 5.7、`reach_ai`、utf8mb4）执行合并前来源脚本 `upgrade-20260823-a2a-hub.sql`（现为合并升级 Section 01）两遍成功，每遍 70 条语句；19 张目标表、8 项权限、关键列/索引均通过回查，旧 `control_a2a_endpoint`、`control_a2a_call_log` 和旧 Task `endpoint_id` 结构均已退场。该证据只证明开发库 schema 已就绪，不替代运行中服务、浏览器、真实跨系统 E2E 或 TCK 证据。
+2026-08-24 数据库证据：目标远程开发库（MySQL 5.7、`reach_ai`、utf8mb4）执行合并前来源脚本 `upgrade-20260823-a2a-hub.sql`（历史脚本，最终结构已进入初始化基线）两遍成功，每遍 70 条语句；19 张目标表、8 项权限、关键列/索引均通过回查，旧 `control_a2a_endpoint`、`control_a2a_call_log` 和旧 Task `endpoint_id` 结构均已退场。该证据只证明开发库 schema 已就绪，不替代运行中服务、浏览器、真实跨系统 E2E 或 TCK 证据。
 
 ### M0：领域与基线
 

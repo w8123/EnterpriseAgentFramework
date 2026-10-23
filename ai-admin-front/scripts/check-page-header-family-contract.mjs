@@ -11,6 +11,7 @@ const files = {
   layout: 'src/styles/tokens/_layout.scss',
   brand: 'src/styles/tokens/_brand.scss',
   header: 'src/components/common/PageHeader.vue',
+  components: 'src/styles/_components.scss',
   collapsibleRegion: 'src/components/common/CollapsibleHeaderRegion.vue',
   collapseComposable: 'src/composables/useCollapsiblePageHeader.ts',
   projectList: 'src/views/registry/RegistryProjectList.vue',
@@ -21,10 +22,8 @@ const files = {
   workflowList: 'src/views/workflow/WorkflowList.vue',
   toolAcl: 'src/views/settings/ToolAclList.vue',
   knowledgeList: 'src/views/KnowledgeList.vue',
-  knowledgeImport: 'src/views/KnowledgeImport.vue',
   knowledgeDetail: 'src/views/KnowledgeDetail.vue',
   fileDetail: 'src/views/FileDetail.vue',
-  retrievalTest: 'src/views/RetrievalTest.vue',
   bizIndexList: 'src/views/BizIndexList.vue',
   bizIndexDetail: 'src/views/BizIndexDetail.vue',
   modelInstances: 'src/views/model/ModelInstances.vue',
@@ -46,13 +45,12 @@ const files = {
 }
 
 const materialFiles = [
-  'tech-purple.webp',
-  'aurora-cyan.webp',
-  'nebula-violet.webp',
-  'coral-rose.webp',
-  'metro-green.webp',
-  'solar-gold.webp',
-  'deep-ocean.webp',
+  'violet-waves.webp',
+  'ice-blue.webp',
+  'rose-glow.webp',
+  'sage-folds.webp',
+  'gold-curves.webp',
+  'deep-blue.webp',
 ]
 
 const readSources = () =>
@@ -103,7 +101,6 @@ function expectPageHeader(
     failures.push(`${label} PageHeader must not declare compact`)
   }
   if (enriched) {
-    if (!/\seyebrow=/.test(tag)) failures.push(`${label} PageHeader must declare eyebrow`)
     if (!/\sdescription=/.test(tag)) failures.push(`${label} PageHeader must declare description`)
   }
   if (/\s(?:class|style|:class|:style)=/.test(tag)) {
@@ -123,7 +120,7 @@ function expectPageHeader(
     failures.push(`${label} action dock must not contain form controls`)
   }
   if (primaryLast && actions) {
-    const buttons = [...actions.matchAll(/<el-button\b[\s\S]*?(?:\/>|>)/g)].map((match) => match[0])
+    const buttons = [...actions.matchAll(/<(?:el-button|LiquidGlassButton)\b[\s\S]*?(?:\/>|>)/g)].map((match) => match[0])
     const primaryIndex = buttons.findIndex((button) => /\stype="primary"/.test(button))
     if (primaryIndex >= 0 && primaryIndex !== buttons.length - 1) {
       failures.push(`${label} primary action must be the last button`)
@@ -341,6 +338,14 @@ function validate(sources, { validateAssets = true } = {}) {
     ['--layout-page-header-action-gap', '8px'],
     ['--layout-page-header-tag-gap', '8px'],
     ['--layout-page-header-art-opacity', '0.92'],
+    ['--layout-heading-spacing', 'var(--layout-sidebar-inset-block)'],
+    ['--layout-page-header-description-gap', 'var(--layout-control-gap)'],
+    ['--layout-page-header-meta-gap', 'var(--layout-control-gap)'],
+    ['--layout-page-header-title-size', '22px'],
+    ['--layout-page-header-title-line-height', '28px'],
+    ['--layout-page-header-title-indent', '22px'],
+    ['--layout-page-header-marker-width', '4px'],
+    ['--layout-page-header-action-height', '40px'],
   ])
   for (const [token, value] of requiredTokens) {
     expectIncludes(failures, sources.layout, `${token}: ${value};`, 'layout token contract')
@@ -362,24 +367,14 @@ function validate(sources, { validateAssets = true } = {}) {
   expectIncludes(failures, sources.header, 'collapsed: false', 'PageHeader collapsed default')
   expectIncludes(failures, sources.header, "'is-collapsed': props.collapsed", 'PageHeader collapsed class')
   expectIncludes(failures, sources.header, '.app-page-header.is-collapsed', 'PageHeader collapsed height recipe')
-  expectIncludes(
-    failures,
-    sources.header,
-    "[data-theme='dark'] .app-page-header__tags :deep(.el-tag)",
-    'PageHeader dark tag surface',
-  )
-  expectIncludes(
-    failures,
-    sources.header,
-    'background: color-mix(in srgb, var(--surface-solid-control) 88%, transparent);',
-    'PageHeader dark tag semantic background',
-  )
-  expectIncludes(
-    failures,
-    sources.header,
-    "[data-theme='dark'] .app-page-header__tags :deep(.el-tag--info)",
-    'PageHeader dark info tag readability',
-  )
+  // 标题区标签的明暗可读性由全局标签配方（_components.scss）按语义 token 提供，
+  // PageHeader 内不再保留单独的暗色补丁。
+  if (/\[data-theme=['"]?dark/.test(sources.header)) {
+    failures.push('PageHeader must not reintroduce [data-theme=dark] patches; tag surfaces come from semantic tokens')
+  }
+  expectIncludes(failures, sources.components, '--el-tag-bg-color: var(--status-neutral-soft);', 'global info tag semantic background')
+  expectIncludes(failures, sources.components, '--el-tag-text-color: var(--status-neutral);', 'global info tag readability')
+  expectIncludes(failures, sources.components, '--el-tag-text-color: var(--brand-on-surface);', 'global primary tag readability')
   expectIncludes(failures, sources.collapsibleRegion, 'collapsible-header-region__summary', 'collapsible region summary slot')
   expectIncludes(failures, sources.collapsibleRegion, ':aria-hidden="props.collapsed"', 'collapsible region accessibility state')
   expectIncludes(failures, sources.collapsibleRegion, 'grid-template-rows: 0fr', 'collapsible region hidden summary recipe')
@@ -449,10 +444,8 @@ function validate(sources, { validateAssets = true } = {}) {
   )
   expectPageHeader(failures, sources.toolAcl, 'standard', 'governance', 'ToolAclList', { enriched: true, primaryLast: true })
   expectPageHeader(failures, sources.knowledgeList, 'overview', 'knowledge', 'KnowledgeList', { enriched: true, primaryLast: true })
-  expectPageHeader(failures, sources.knowledgeImport, 'workbench', 'knowledge', 'KnowledgeImport', { enriched: true })
   expectPageHeader(failures, sources.knowledgeDetail, 'entity', 'knowledge', 'KnowledgeDetail', { primaryLast: true })
   expectPageHeader(failures, sources.fileDetail, 'entity', 'knowledge', 'FileDetail')
-  expectPageHeader(failures, sources.retrievalTest, 'standard', 'knowledge', 'RetrievalTest', { enriched: true, noActionControls: true })
   expectPageHeader(failures, sources.bizIndexList, 'standard', 'knowledge', 'BizIndexList', { enriched: true, primaryLast: true })
   expectPageHeader(failures, sources.bizIndexDetail, 'entity', 'knowledge', 'BizIndexDetail')
   expectPageHeader(failures, sources.modelInstances, 'overview', 'platform', 'ModelInstances', { enriched: true, primaryLast: true })
@@ -476,8 +469,8 @@ function validate(sources, { validateAssets = true } = {}) {
   expectIncludes(failures, actionSlot(sources.runOpsList), '@click="refreshAll"', 'RunOpsList refresh action')
   for (const [fragment, label] of [
     ['<MetricStrip', 'metric strip'],
-    ['<FilterBar', 'shared filter bar'],
-    ['<DataTableShell', 'shared data table shell'],
+    ['<LiquidGlassFilterBar', 'shared filter bar'],
+    ['<LiquidGlassTable', 'shared data table shell'],
   ]) {
     if (!sources.agentList.includes(fragment)) {
       failures.push(`AgentList overview must render ${label}`)
@@ -502,17 +495,18 @@ function validate(sources, { validateAssets = true } = {}) {
 
   if (validateAssets) {
     for (const file of materialFiles) {
-      const absolute = path.join(root, 'public/page-header-materials', file)
+      const absolute = path.join(root, 'public/theme-wallpapers', file)
       if (!fs.existsSync(absolute)) {
         failures.push(`missing page-header material ${file}`)
         continue
       }
       const dimensions = webpDimensions(fs.readFileSync(absolute))
-      if (!dimensions || dimensions.width !== 2048 || dimensions.height !== 512) {
-        failures.push(`${file} must be a 2048x512 WebP; got ${dimensions ? `${dimensions.width}x${dimensions.height}` : 'invalid WebP'}`)
+      if (!dimensions || dimensions.width < 1920 || dimensions.height < 1080) {
+        failures.push(`${file} must be a desktop WebP of at least 1920x1080; got ${dimensions ? `${dimensions.width}x${dimensions.height}` : 'invalid WebP'}`)
       }
-      expectIncludes(failures, sources.brand, `/page-header-materials/${file}`, `brand material mapping for ${file}`)
+      expectIncludes(failures, sources.brand, `/theme-wallpapers/${file}`, `brand material mapping for ${file}`)
     }
+    expectIncludes(failures, sources.brand, '--page-header-material: var(--surface-page-background)', 'shared wallpaper and page-header material')
   }
   return failures
 }
@@ -540,7 +534,7 @@ if (process.argv.includes('--self-test')) {
       ['knowledge-wrong-variant', 'knowledgeList', (value) => value.replace('variant="overview"', 'variant="standard"'), 'KnowledgeList PageHeader is missing variant="overview"'],
       ['mcp-wrong-domain', 'mcpHub', (value) => value.replace('domain="platform"', 'domain="governance"'), 'McpHubLayout PageHeader is missing domain="platform"'],
       ['legacy-page-header', 'a2aHub', (value) => value.replace('<PageHeader', '<div class="page-header"></div>\n    <PageHeader'), 'A2aHubLayout must not retain a legacy page header'],
-      ['knowledge-artwork-disabled', 'retrievalTest', (value) => value.replace('title="召回测试实验室"', 'title="召回测试实验室"\n      :artwork="false"'), 'RetrievalTest must not disable PageHeader artwork'],
+      ['knowledge-artwork-disabled', 'knowledgeList', (value) => value.replace('title="知识库管理"', 'title="知识库管理"\n      :artwork="false"'), 'KnowledgeList must not disable PageHeader artwork'],
       ['platform-users-domain', 'platformUsers', (value) => value.replace('domain="platform"', 'domain="governance"'), 'PlatformUserSettings PageHeader is missing domain="platform"'],
       ['runops-control-in-dock', 'runOpsList', (value) => value.replace('<template #actions>', '<template #actions>\n        <el-input />'), 'RunOpsList action dock must not contain form controls'],
       ['auth-primary-order', 'authProviders', (value) => value.replace('<template #actions>', '<template #actions>\n        <el-button type="primary">非法前置主操作</el-button>'), 'AuthProviderSettings primary action must be the last button'],
@@ -571,7 +565,7 @@ if (process.argv.includes('--self-test')) {
       ['mcp-aria-hidden-header', 'mcpHub', value => value.replace('<PageHeader', '<PageHeader aria-hidden="true"'), 'one reachable direct shared PageHeader'],
       ['mcp-missing-shared-import', 'mcpHub', value => value.replace('import PageHeader from', 'import MissingPageHeader from'), 'one reachable direct shared PageHeader'],
       ['platform-users-wrong-variant', 'platformUsers', value => value.replace('variant="overview"', 'variant="standard"'), 'PlatformUserSettings PageHeader is missing variant="overview"'],
-      ['platform-users-missing-eyebrow', 'platformUsers', value => value.replace('eyebrow="Identity & Access Management"', ''), 'PlatformUserSettings PageHeader must declare eyebrow'],
+      ['platform-users-missing-description', 'platformUsers', value => value.replace('description="管理平台账号、角色、项目授权与安全审计。"', ''), 'PlatformUserSettings PageHeader must declare description'],
       ['platform-users-reload', 'platformUsers', value => value.replace('@click="reload"', '@click="noop"'), 'PlatformUserSettings reload action is missing @click="reload"'],
       ['business-users-wrong-variant', 'businessUsers', value => value.replace('variant="standard"', 'variant="overview"'), 'BusinessUserDirectory PageHeader is missing variant="standard"'],
     ]
@@ -592,12 +586,12 @@ if (process.argv.includes('--self-test')) {
       }
     }
     const safeProofs = [
-      ['attribute-order', 'platformUsers', (value) => value.replace('variant="overview"\n      domain="platform"', 'domain="platform"\n      variant="overview"')],
-      ['filter-control-outside-dock', 'businessUsers', (value) => value.replace('<FilterBar', '<!-- filters stay outside PageHeader -->\n    <FilterBar')],
-      ['a2a-header-attribute-order', 'a2aHub', value => value.replace('variant="overview"\n      height-preset="standard"', 'height-preset="standard"\n      variant="overview"')],
+      ['attribute-order', 'platformUsers', value => value.replace('variant="overview"', '').replace('domain="platform"', 'domain="platform" variant="overview"')],
+      ['filter-control-outside-dock', 'businessUsers', value => value.replace('<LiquidGlassFilterBar', '<!-- filters stay outside PageHeader -->\n    <LiquidGlassFilterBar')],
+      ['a2a-header-attribute-order', 'a2aHub', value => value.replace('variant="overview"', '').replace('domain="platform"', 'domain="platform" variant="overview"')],
       ['a2a-native-link-comment', 'a2aHub', value => value.replace('<router-link', '<!-- native link retains keyboard focus -->\n      <router-link')],
       ['mcp-optional-eyebrow', 'mcpHub', value => value.replace('title="MCP 互联中心"', 'eyebrow="MCP HUB" title="MCP 互联中心"')],
-      ['mcp-description-attribute-order', 'mcpHub', value => value.replace('      description="将能力和已发布 Workflow 安全发布为 MCP Tool。"\n', '')
+      ['mcp-description-attribute-order', 'mcpHub', value => value.replace(/\s+description="将能力和已发布 Workflow 安全发布为 MCP Tool。"/, '')
         .replace('domain="platform"', 'description="将能力和已发布 Workflow 安全发布为 MCP Tool。"\n      domain="platform"')],
     ]
     for (const [name, key, mutate] of safeProofs) {

@@ -106,6 +106,11 @@ public class RuntimeKnowledgeQaWorkflowService {
                     "知识库「" + kbName + "」接入 Agent", publishedBy, workflow.getUpdatedAt().toString());
         }
 
+        if (Boolean.FALSE.equals(request.attachToAgent())) {
+            // The Agent config page adds the Workflow to its draft itself and publishes later.
+            return new AttachView(code, workflow.getId(), workflow.getKeySlug(), workflow.getName(), created,
+                    agent.id(), agent.name(), null, null, false, toolDescription(kbName));
+        }
         // The tool description carries the Supervisor's relay rules, so re-attaching refreshes it.
         AttachmentResult attachment = attachmentPort.attachInKnownProject(agent.projectId(), agent.projectCode(),
                 new AttachRequest(workflow.getId(), agent.id(), null, null, publishedBy,
@@ -120,7 +125,8 @@ public class RuntimeKnowledgeQaWorkflowService {
                 agent.name(),
                 attachment.activeConfig() == null ? null : attachment.activeConfig().version(),
                 attachment.toolName(),
-                attachment.reused());
+                attachment.reused(),
+                toolDescription(kbName));
     }
 
     /** Workflows whose GraphSpec retrieves from the given knowledge bases, with the Agents running them. */
@@ -296,7 +302,8 @@ public class RuntimeKnowledgeQaWorkflowService {
     public record AttachKnowledgeRequest(String knowledgeBaseCode,
                                          String knowledgeBaseName,
                                          String modelInstanceId,
-                                         String publishedBy) {
+                                         String publishedBy,
+                                         Boolean attachToAgent) {
     }
 
     public record AttachView(String knowledgeBaseCode,
@@ -308,7 +315,8 @@ public class RuntimeKnowledgeQaWorkflowService {
                              String agentName,
                              Integer agentConfigVersion,
                              String toolName,
-                             boolean alreadyAttached) {
+                             boolean alreadyAttached,
+                             String toolDescription) {
     }
 
     public record KnowledgeUsageView(String knowledgeBaseCode, List<WorkflowUsageView> workflows) {

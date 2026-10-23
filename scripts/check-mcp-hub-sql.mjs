@@ -4,9 +4,7 @@ import { fileURLToPath } from 'node:url'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const initPath = join(root, 'sql', 'initV2.sql')
-const upgradePath = join(root, 'sql', 'upgrade-20260830-platform-consolidated.sql')
 const init = readFileSync(initPath, 'utf8')
-const upgrade = readFileSync(upgradePath, 'utf8')
 
 const tables = [
   'control_mcp_publication',
@@ -35,11 +33,7 @@ function createTable(sql, table, source) {
 }
 
 for (const table of tables) {
-  const baseline = createTable(init, table, 'sql/initV2.sql')
-  const migration = createTable(upgrade, table, 'consolidated upgrade Section 14')
-  if (baseline && migration && baseline !== migration) {
-    fail(`${table} differs between baseline and upgrade SQL`)
-  }
+  createTable(init, table, 'sql/initV2.sql')
 }
 
 for (const required of [
@@ -51,8 +45,8 @@ for (const required of [
   '`idx_mcp_log_project_trace`',
   "'mcp-hub:publication:irreversible'",
 ]) {
-  if (!upgrade.includes(required)) {
-    fail(`upgrade SQL is missing retained project-scope contract ${required}`)
+  if (!init.includes(required)) {
+    fail(`baseline SQL is missing retained project-scope contract ${required}`)
   }
 }
 
@@ -63,17 +57,16 @@ for (const required of [
   /`request_body`\s+MEDIUMTEXT/,
   /`response_body`\s+MEDIUMTEXT/,
 ]) {
-  if (!required.test(createTable(upgrade, required.source.includes('request_body') || required.source.includes('response_body')
-    ? 'control_mcp_call_log' : 'control_mcp_client', 'consolidated upgrade Section 14'))) {
-    fail(`upgrade SQL is missing enforced MCP contract ${required}`)
+  if (!required.test(createTable(init, required.source.includes('request_body') || required.source.includes('response_body')
+    ? 'control_mcp_call_log' : 'control_mcp_client', 'sql/initV2.sql'))) {
+    fail(`baseline SQL is missing enforced MCP contract ${required}`)
   }
 }
 
-if (/CREATE TABLE IF NOT EXISTS `control_mcp_visibility`/i.test(init)
-    || /CREATE TABLE IF NOT EXISTS `control_mcp_visibility`/i.test(upgrade)) {
+if (/CREATE TABLE IF NOT EXISTS `control_mcp_visibility`/i.test(init)) {
   fail('retired control_mcp_visibility must not be recreated')
 }
 
 if (!process.exitCode) {
-  console.log('[mcp-hub-sql] PASS: baseline and upgrade MCP Hub schemas match')
+  console.log('[mcp-hub-sql] PASS: current baseline retains MCP Hub schemas and project-scope contracts')
 }

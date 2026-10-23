@@ -25,13 +25,23 @@
       @save-scan-settings="canWriteSemanticDocs && handleSaveScanSettings()"
     />
 
-    <el-alert v-if="sourceError" :title="sourceError" type="error" :closable="false" show-icon>
-      <template #default><el-button @click="refreshAll">重新加载项目来源</el-button></template>
-    </el-alert>
+    <LiquidGlassNotice
+      v-if="sourceError"
+      :title="sourceError"
+      type="error"
+      source="wallpaper"
+    >
+      <template #actions><el-button @click="refreshAll">重新加载项目来源</el-button></template>
+    </LiquidGlassNotice>
     <div v-else-if="loading && !project" role="status">正在读取项目接入信息…</div>
-    <el-alert v-if="sourcePartialError" :title="sourcePartialError" type="warning" :closable="false" show-icon>
-      <template #default><el-button @click="refreshAll">重新加载整理结果</el-button></template>
-    </el-alert>
+    <LiquidGlassNotice
+      v-if="sourcePartialError"
+      :title="sourcePartialError"
+      type="warning"
+      source="wallpaper"
+    >
+      <template #actions><el-button @click="refreshAll">重新加载整理结果</el-button></template>
+    </LiquidGlassNotice>
     <div class="scan-detail-sections">
       <section v-if="project && workspace === 'sources'" class="source-task-summary glass-surface-panel" aria-label="接入与变更任务">
         <header class="source-task-summary__header">
@@ -46,9 +56,18 @@
             @reconcile="handleReconcile" @open-import-dialog="openImportDialog"
             @start-sensitive-data-scan="startSensitiveDataScanFlow" @export-excel="handleExportScanToolsExcel" />
         </header>
-        <el-alert v-if="sdkScanResult" type="success" :closable="false" show-icon
-          :title="`最近同步已返回 ${sdkScanResult.capabilityCount} 条声明；接纳结果与待处理变化请在下方核对。`" />
-        <el-alert v-if="sdkScanError" :title="sdkScanError" type="error" :closable="false" show-icon />
+        <LiquidGlassNotice
+          v-if="sdkScanResult"
+          type="success"
+          :title="`最近同步已返回 ${sdkScanResult.capabilityCount} 条声明；接纳结果与待处理变化请在下方核对。`"
+          source="backdrop"
+        />
+        <LiquidGlassNotice
+          v-if="sdkScanError"
+          :title="sdkScanError"
+          type="error"
+          source="backdrop"
+        />
         <p v-if="project.lastScannedAt || project.registryStatusSummary" class="source-task-summary__unavailable" role="status">
           <span v-if="project.lastScannedAt">最近来源更新：{{ project.lastScannedAt }}</span>
           <span v-if="project.registryStatusSummary"> · {{ project.registryStatusSummary }}</span>
@@ -196,6 +215,7 @@ import { platformSessionId, platformSessionUser } from '@/auth/platformSession'
 import { useSourceOperations } from '@/views/capability/source/composables/useSourceOperations'
 import { useSourceSubjectContext } from './composables/useSourceSubjectContext'
 import { BUSINESS_CAPABILITY_ROOT, businessCapabilityWorkspaceLocation, type BusinessCapabilityWorkspace } from '../businessCapabilityRoutes'
+import { LiquidGlassNotice } from '@/components/common/liquid-glass'
 
 const props = defineProps<{ projectId: number; workspace: BusinessCapabilityWorkspace }>()
 const route = useRoute()

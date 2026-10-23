@@ -249,12 +249,10 @@ const totals = computed(() => {
 .usage-trend__tabs {
   display: flex;
   padding: 2px;
-  background: color-mix(in srgb, var(--ops-glass-surface) 76%, var(--ops-surface-control));
-  border: 1px solid var(--ops-glass-border);
+  background: var(--surface-glass-inset);
+  border: 1px solid var(--ops-divider);
   border-radius: 8px;
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ops-border) 54%, transparent), inset 0 1px 0 rgb(255 255 255 / .72);
-  -webkit-backdrop-filter: blur(10px) saturate(135%);
-  backdrop-filter: blur(10px) saturate(135%);
+  box-shadow: var(--inner-highlight);
 }
 
 .usage-trend__tabs button {
@@ -357,14 +355,10 @@ const totals = computed(() => {
   grid-template-columns: repeat(4, 1fr);
   margin: 0 10px 10px;
   padding: 8px 10px;
-  background:
-    linear-gradient(90deg, transparent 4%, rgb(255 255 255 / .72) 26%, transparent 68%) top / 100% 1px no-repeat,
-    color-mix(in srgb, var(--ops-glass-surface) 74%, var(--ops-surface-soft));
-  border: 1px solid var(--ops-glass-border);
+  background: var(--surface-glass-inset);
+  border: 1px solid var(--ops-divider);
   border-radius: 10px;
-  box-shadow: 0 6px 18px rgb(43 82 130 / .055), inset 0 0 0 1px color-mix(in srgb, var(--ops-border) 46%, transparent);
-  -webkit-backdrop-filter: blur(12px) saturate(135%);
-  backdrop-filter: blur(12px) saturate(135%);
+  box-shadow: var(--inner-highlight);
   color: var(--ops-text-muted);
   font-size: 9px;
 }

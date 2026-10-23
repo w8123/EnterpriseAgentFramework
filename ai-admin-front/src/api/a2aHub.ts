@@ -74,8 +74,9 @@ export function listA2aRemoteAgents(params?: {
   return controlRequest.get<A2aPageView<A2aRemoteAgent>>(`${ROOT}/remote-agents`, { params })
 }
 
-export function getA2aRemoteAgent(id: number) {
-  return controlRequest.get<A2aRemoteAgentDetail>(`${ROOT}/remote-agents/${id}`)
+export function getA2aRemoteAgent(id: number, options: { quiet?: boolean } = {}) {
+  return controlRequest.get<A2aRemoteAgentDetail>(`${ROOT}/remote-agents/${id}`,
+    options.quiet ? { errorFeedback: 'local' } : undefined)
 }
 
 export function discoverA2aRemoteAgent(body: A2aRemoteAgentDiscoverRequest) {

@@ -1,5 +1,6 @@
 import type { CanvasNode, CanvasNodeKind } from '@/types/studio'
 import { useWorkflowStudioNodeMetadata } from '../composables/useWorkflowStudioNodeMetadata'
+import { resolveStudioLlmProvider, type StudioLlmModelContext } from './studioLlmModel'
 
 type NodeData = CanvasNode['data']
 
@@ -16,6 +17,7 @@ export interface StudioNodeCardModel {
   /** CSS modifier, e.g. `tool-node`; drives the accent colour. */
   kindClass: string
   icon: string
+  modelProvider?: string
   /** Start/end use a single kicker instead of the kind/state pair. */
   kicker?: string
   kind?: string
@@ -31,8 +33,7 @@ export interface StudioNodeCardModel {
 }
 
 /** Studio-level values some cards display (default model, project). */
-export interface StudioNodeCardContext {
-  defaultModelInstanceId?: string | null
+export interface StudioNodeCardContext extends StudioLlmModelContext {
   projectCode?: string | null
 }
 
@@ -238,6 +239,7 @@ export function studioNodeCardModel(
     case 'llm':
       return {
         ...base('llm-node', 'LlmModel', data, id),
+        modelProvider: resolveStudioLlmProvider(data, context),
         kind: '大模型',
         state: '推理',
         description: `模型实例 · ${data.llmConfig?.modelInstanceId || context.defaultModelInstanceId || '未选择'}`,

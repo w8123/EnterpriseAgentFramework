@@ -6,6 +6,7 @@ import type {
   DashboardWidgetInstance,
 } from '@/types/operationsDashboard'
 import { clampRect, DASHBOARD_GRID_COLUMNS, DASHBOARD_LAYOUT_SCHEMA_VERSION } from './layoutEngine'
+import { defaultShortcutConfig, isShortcutPreset, sanitizeShortcutIds, SHORTCUT_WIDGET_KEY } from './dashboardShortcuts'
 
 export const dashboardDomainLabels: Record<DashboardDataDomain, string> = {
   projects: '业务系统', agents: 'Agent 列表', agentStats: 'Agent 统计',
@@ -41,6 +42,14 @@ function define(
  * DISABLED + 真实原因呈现，不允许用近似指标冒充。
  */
 export const dashboardWidgetRegistry: Record<string, DashboardWidgetDefinition> = {
+  [SHORTCUT_WIDGET_KEY]: define({
+    key: SHORTCUT_WIDGET_KEY,
+    category: 'NAVIGATION',
+    title: '快捷入口',
+    description: '把常用功能放在手边，按自己的习惯增删和排序。',
+    grid: { minW: 4, minH: 1, maxW: 12, maxH: 6, defaultW: 12, defaultH: 1 },
+    defaultConfig: { shortcutPreset: 'custom', shortcutIds: [] },
+  }),
   'kpi.agent-inventory': define({
     key: 'kpi.agent-inventory',
     category: 'KPI',
@@ -245,6 +254,19 @@ export const defaultConsoleLayout: DashboardLayoutDocument = {
   ],
 }
 
+/** 首次进入只放一套与账号授权匹配的入口；已保存布局不自动追加或覆盖。 */
+export function defaultConsoleLayoutFor(permissions: readonly string[], roles: readonly string[] = []): DashboardLayoutDocument {
+  const config = defaultShortcutConfig(permissions, roles)
+  const layout = JSON.parse(JSON.stringify(defaultConsoleLayout)) as DashboardLayoutDocument
+  if (!config) return layout
+  const shortcuts = instance(SHORTCUT_WIDGET_KEY, 0, 0, 12, 1)
+  shortcuts.config = config
+  return {
+    ...layout,
+    items: [shortcuts, ...layout.items.map(item => ({ ...item, rect: { ...item.rect, y: item.rect.y + 1 } }))],
+  }
+}
+
 /**
  * 早期原型默认布局已经写入部分浏览器。仅当文档仍与旧默认布局完全一致时，
  * 才无损切换到新版领导首屏；用户移动、删除或配置过任一组件后都原样保留。
@@ -300,6 +322,28 @@ export function migrateLegacyDefaultLayout(document: DashboardLayoutDocument): D
   }
 }
 
+/** v1 双行全宽入口升级为单行，只移除它独占的空余行，保留配置与其余相对布局。 */
+export function migrateShortcutStripLayout(document: DashboardLayoutDocument): DashboardLayoutDocument {
+  if (document.schemaVersion !== 1) return document
+  let items = document.items
+  const strips = items.filter(item => item.widgetKey === SHORTCUT_WIDGET_KEY
+    && item.rect.x === 0 && item.rect.w === document.columns && item.rect.h === 2)
+    .sort((a, b) => a.rect.y - b.rect.y)
+  for (const strip of strips) {
+    const current = items.find(item => item.instanceId === strip.instanceId)!
+    const removedRow = current.rect.y + 1
+    if (items.some(item => item.instanceId !== current.instanceId
+      && item.rect.y < removedRow + 1 && item.rect.y + item.rect.h > removedRow)) continue
+    items = items.map(item => ({
+      ...item,
+      rect: item.instanceId === current.instanceId
+        ? { ...item.rect, h: 1 }
+        : { ...item.rect, y: item.rect.y > removedRow ? item.rect.y - 1 : item.rect.y },
+    }))
+  }
+  return { ...document, schemaVersion: DASHBOARD_LAYOUT_SCHEMA_VERSION, items }
+}
+
 export function resolveWidgetTitle(instanceItem: DashboardWidgetInstance) {
   const custom = instanceItem.config.title?.trim()
   if (custom) return custom
@@ -347,6 +391,10 @@ export function sanitizeLayoutItems(items: DashboardWidgetInstance[]): Dashboard
       if (typeof value === 'number' && Number.isFinite(value)) {
         config[field.key] = Math.min(field.max, Math.max(field.min, Math.round(value)))
       }
+    }
+    if (item.widgetKey === SHORTCUT_WIDGET_KEY) {
+      if (isShortcutPreset(item.config.shortcutPreset)) config.shortcutPreset = item.config.shortcutPreset
+      if (Array.isArray(item.config.shortcutIds)) config.shortcutIds = sanitizeShortcutIds(item.config.shortcutIds)
     }
     result.push({
       instanceId: item.instanceId,

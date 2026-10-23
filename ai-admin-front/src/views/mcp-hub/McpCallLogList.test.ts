@@ -63,7 +63,7 @@ function mountCallLogs() {
         ElCollapseTransition: {
           template: '<div><slot /></div>',
         },
-        ElAlert: {
+        LiquidGlassNotice: {
           props: ['title'],
           template: '<div class="el-alert">{{ title }}</div>',
         },

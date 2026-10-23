@@ -30,7 +30,7 @@
           </div>
         </section>
 
-        <el-tabs v-model="activeTab" class="detail-tabs">
+        <LiquidGlassTabs v-model="activeTab" class="detail-tabs">
           <el-tab-pane label="概览" name="overview">
             <section class="detail-section">
               <h3>它能做什么</h3>
@@ -131,12 +131,11 @@
 
           <el-tab-pane label="版本与治理" name="governance">
             <section class="detail-section governance-copy">
-              <el-alert
+              <LiquidGlassNotice
                 title="版本固定，不自动升级"
                 description="项目接入固定来源版本及 Operation。所属 API 经接纳、连接与真实 Console 验证后，Workflow 使用稳定 API 引用；发布固定可信修订，目录新版本不自动替换选择或旧 pin。"
                 type="info"
-                :closable="false"
-                show-icon
+                source="backdrop"
               />
               <section class="evidence-section">
                 <div class="evidence-section__heading">
@@ -188,7 +187,7 @@
               </div>
             </section>
           </el-tab-pane>
-        </el-tabs>
+        </LiquidGlassTabs>
       </template>
     </div>
   </AppDrawer>
@@ -210,6 +209,7 @@ import {
   formatApiMarketSpec,
   formatApiMarketVerification,
 } from '@/utils/apiMarketLabels'
+import { LiquidGlassNotice, LiquidGlassTabs } from '@/components/common/liquid-glass'
 
 const props = defineProps<{
   modelValue: boolean
@@ -295,10 +295,10 @@ function formatDate(value?: string | null) {
   gap: 15px;
   overflow: hidden;
   padding: 18px;
-  border: 1px solid rgb(255 255 255 / 0.12);
+  border: 1px solid var(--border-glass-edge);
   border-radius: 16px;
   background:
-    radial-gradient(circle at 90% 0, rgb(100 218 233 / 0.2), transparent 36%),
+    radial-gradient(circle at 90% 0, color-mix(in srgb, var(--status-info) 20%, transparent), transparent 36%),
     linear-gradient(135deg, var(--detail-hero-start), var(--detail-hero-end));
   box-shadow: 0 18px 36px -27px rgb(11 26 54 / 0.82);
 
@@ -310,20 +310,20 @@ function formatDate(value?: string | null) {
     z-index: -1;
     width: 180px;
     height: 180px;
-    border: 1px solid rgb(255 255 255 / 0.08);
+    border: 1px solid var(--border-glass-edge);
     border-radius: 50%;
     box-shadow: 0 0 0 30px rgb(255 255 255 / 0.025);
   }
 
   p {
     margin: 0;
-    color: rgb(226 236 255 / 0.62);
+    color: rgb(var(--brand-primary-rgb) / 0.62);
     font-size: 11px;
   }
 
   h2 {
     margin: 3px 0 0;
-    color: #fff;
+    color: var(--text-on-brand);
     font-size: 21px;
     letter-spacing: -0.025em;
   }
@@ -339,7 +339,7 @@ function formatDate(value?: string | null) {
 .detail-identity__summary {
   display: block;
   margin-top: 5px;
-  color: rgb(226 236 255 / 0.76);
+  color: rgb(var(--brand-primary-rgb) / 0.76);
   font-size: 12px;
   line-height: 1.5;
 }
@@ -352,10 +352,10 @@ function formatDate(value?: string | null) {
   height: 54px;
   flex: 0 0 54px;
   place-items: center;
-  border: 1px solid rgb(255 255 255 / 0.16);
+  border: 1px solid var(--border-glass-edge);
   border-radius: 15px;
-  background: rgb(255 255 255 / 0.1);
-  color: #8ce4ef;
+  background: var(--surface-hover);
+  color: var(--status-info);
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.1);
   font-size: 23px;
   font-weight: 800;
@@ -371,10 +371,10 @@ function formatDate(value?: string | null) {
   margin-top: 10px;
 
   :deep(.el-tag) {
-    border-color: rgb(255 255 255 / 0.13);
+    border-color: var(--border-glass-edge);
     border-radius: 999px;
-    background: rgb(255 255 255 / 0.08);
-    color: rgb(243 247 255 / 0.84);
+    background: var(--surface-hover);
+    color: var(--text-on-brand);
   }
 }
 

@@ -3,14 +3,17 @@
   --density-compact-row-height: 40px;
   --density-compact-section-gap: 12px;
   --density-compact-panel-padding: 12px;
+  --density-compact-table-cell-padding-y: 4px;
   --density-comfortable-control-height: 38px;
   --density-comfortable-row-height: 48px;
   --density-comfortable-section-gap: 16px;
   --density-comfortable-panel-padding: 16px;
+  --density-comfortable-table-cell-padding-y: 8px;
   --density-spacious-control-height: 44px;
   --density-spacious-row-height: 56px;
   --density-spacious-section-gap: 20px;
   --density-spacious-panel-padding: 24px;
+  --density-spacious-table-cell-padding-y: 13px;
 }
 
 :root,
@@ -32,6 +35,22 @@
 
 [data-density='spacious'],
 .density-spacious {
+  --control-height: var(--density-spacious-control-height);
+  --row-height: var(--density-spacious-row-height);
+  --section-gap: var(--density-spacious-section-gap);
+  --panel-padding: var(--density-spacious-panel-padding);
+}
+
+// 公共组件默认使用 density-comfortable；用户在外观设置里选择的全局密度优先于这个默认值。
+// 页面显式传入的 compact / spacious 仍作为页面级覆盖保留。
+[data-density='compact'] .density-comfortable {
+  --control-height: var(--density-compact-control-height);
+  --row-height: var(--density-compact-row-height);
+  --section-gap: var(--density-compact-section-gap);
+  --panel-padding: var(--density-compact-panel-padding);
+}
+
+[data-density='spacious'] .density-comfortable {
   --control-height: var(--density-spacious-control-height);
   --row-height: var(--density-spacious-row-height);
   --section-gap: var(--density-spacious-section-gap);

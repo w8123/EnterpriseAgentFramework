@@ -21,14 +21,14 @@
 
     <footer>
       <a v-if="item.marketUrl" :href="item.marketUrl" target="_blank" rel="noopener noreferrer">查看上游</a>
-      <el-button
+      <LiquidGlassButton
         type="primary"
         size="small"
         :disabled="!item.importable || !canImport"
         @click="$emit('inspect', item)"
       >
         {{ canImport ? (item.importable ? '检查并导入' : '暂不支持导入') : '只读浏览' }}
-      </el-button>
+      </LiquidGlassButton>
     </footer>
   </article>
 </template>
@@ -36,6 +36,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import StatusTag from '@/components/common/StatusTag.vue'
+import { LiquidGlassButton } from '@/components/common/liquid-glass'
 import type { SkillMarketItem } from '@/types/skillMarket'
 import { formatInstalls, trustLabel, trustTone } from '../skillMarketPresentation'
 
@@ -68,16 +69,12 @@ const sourceType = computed(() => {
   gap: 13px;
   padding: 16px;
   overflow: hidden;
-  border: 1px solid rgb(var(--brand-primary-rgb) / 0.16);
-  border-radius: 15px;
-  background:
-    linear-gradient(145deg,
-      color-mix(in srgb, var(--el-bg-color) 94%, transparent),
-      color-mix(in srgb, var(--brand-selected-bg) 34%, var(--el-bg-color)));
-  box-shadow:
-    0 16px 34px -26px rgb(var(--brand-primary-rgb) / 0.5),
-    inset 0 1px 0 rgba(255, 255, 255, 0.76);
-  backdrop-filter: blur(18px) saturate(132%);
+  border: 1px solid var(--border-glass-edge);
+  border-radius: var(--radius-lg);
+  background: var(--surface-glass-frost);
+  box-shadow: var(--shadow-glass-frost);
+  -webkit-backdrop-filter: blur(var(--glass-blur-frost));
+  backdrop-filter: blur(var(--glass-blur-frost));
   transition: border-color .18s ease, transform .18s ease, box-shadow .18s ease;
 }
 
@@ -101,9 +98,7 @@ const sourceType = computed(() => {
 .market-card:hover {
   transform: translateY(-2px);
   border-color: rgb(var(--brand-primary-rgb) / 0.34);
-  box-shadow:
-    0 20px 38px -24px rgb(var(--brand-primary-rgb) / 0.38),
-    inset 0 1px 0 rgba(255, 255, 255, 0.82);
+  box-shadow: var(--shadow-glass-frost);
 }
 
 .market-card header,
@@ -136,11 +131,11 @@ const sourceType = computed(() => {
   width: 40px;
   height: 40px;
   place-items: center;
-  border: 1px solid rgb(var(--brand-primary-rgb) / 0.18);
+  border: 1px solid var(--border-glass-edge);
   border-radius: 12px;
-  color: var(--brand-active);
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.94), rgb(var(--brand-selected-rgb) / 0.7));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82);
+  color: var(--brand-on-surface);
+  background: var(--surface-glass-inset);
+  box-shadow: var(--glass-rim-double);
   font-size: 12px;
   font-weight: 800;
 }
@@ -190,9 +185,9 @@ code {
   align-items: baseline;
   gap: 5px;
   padding: 5px 8px;
-  border: 1px solid rgb(var(--brand-primary-rgb) / 0.1);
+  border: 1px solid var(--border-glass-edge);
   border-radius: 8px;
-  background: color-mix(in srgb, var(--brand-selected-bg) 24%, transparent);
+  background: var(--surface-glass-inset);
 }
 
 .install-signal strong {
@@ -212,11 +207,11 @@ code {
   min-height: 34px;
   gap: 12px;
   padding-top: 11px;
-  border-top: 1px solid rgb(var(--brand-primary-rgb) / 0.1);
+  border-top: 1px solid var(--border-divider);
 }
 
 .market-card footer a {
-  color: var(--brand-active);
+  color: var(--brand-on-surface);
   font-size: 11px;
   font-weight: 600;
   text-decoration: none;

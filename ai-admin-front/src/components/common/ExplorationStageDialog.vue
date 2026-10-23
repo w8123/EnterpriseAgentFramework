@@ -126,20 +126,17 @@ async function exitPlatform() {
 
 <style scoped lang="scss">
 :global(.exploration-stage-overlay) {
-  background: rgb(14 24 43 / 0.56);
-  -webkit-backdrop-filter: blur(10px) saturate(0.82);
-  backdrop-filter: blur(10px) saturate(0.82);
+  background: var(--el-overlay-color-light);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
 }
 
 :global(.exploration-stage-dialog.el-dialog) {
   max-block-size: calc(100vh - 48px);
   overflow: hidden;
-  border: 1px solid rgb(var(--brand-primary-rgb) / 0.22);
-  border-radius: 24px;
-  box-shadow:
-    0 32px 90px rgb(10 22 44 / 0.38),
-    0 0 0 1px rgb(255 255 255 / 0.72) inset,
-    0 0 36px rgb(var(--brand-primary-rgb) / 0.18);
+  border: 1px solid var(--border-glass-edge);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-overlay);
 }
 
 :global(.exploration-stage-dialog.el-dialog .el-dialog__header) {
@@ -150,14 +147,6 @@ async function exitPlatform() {
   max-block-size: none;
   overflow: auto;
   padding: 0;
-}
-
-:global([data-theme='dark'] .exploration-stage-dialog.el-dialog) {
-  border-color: rgb(var(--brand-primary-rgb) / 0.34);
-  box-shadow:
-    0 32px 96px rgb(0 0 0 / 0.68),
-    0 0 0 1px rgb(255 255 255 / 0.08) inset,
-    0 0 42px rgb(var(--brand-primary-rgb) / 0.2);
 }
 
 .exploration-stage {
@@ -182,7 +171,7 @@ async function exitPlatform() {
   inset: 0 0 0 auto;
   width: 18px;
   pointer-events: none;
-  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.24));
+  background: linear-gradient(90deg, transparent, var(--border-glass-edge));
 }
 
 .exploration-scene__image {
@@ -390,7 +379,7 @@ async function exitPlatform() {
     inset: auto 0 0;
     width: auto;
     height: 18px;
-    background: linear-gradient(180deg, transparent, rgb(255 255 255 / 0.24));
+    background: linear-gradient(180deg, transparent, var(--border-glass-edge));
   }
 
   .exploration-scene__image {

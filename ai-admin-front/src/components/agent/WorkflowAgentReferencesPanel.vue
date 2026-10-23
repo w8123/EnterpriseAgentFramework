@@ -8,13 +8,17 @@
       <el-button size="small" :loading="loading" @click="reload">刷新</el-button>
     </header>
 
-    <el-alert v-if="loadError" type="error" :closable="false" show-icon :title="loadError" />
-    <el-alert
+    <LiquidGlassNotice
+      v-if="loadError"
+      type="error"
+      :title="loadError"
+      source="backdrop"
+    />
+    <LiquidGlassNotice
       v-else-if="staleAgents.length"
       type="warning"
-      :closable="false"
-      show-icon
       :title="`${staleAgents.length} 个 Agent 仍在使用旧版本，发布 Agent 后才会用到 ${latestLabel}`"
+      source="backdrop"
     />
 
     <p v-if="!loading && !loadError && !references?.agents.length && !hiddenCount" class="workflow-agent-references__empty">
@@ -82,6 +86,7 @@ import {
 import type { WorkflowAgentReference, WorkflowAgentReferences } from '@/types/agent'
 import { hasPlatformResourcePermission, PLATFORM_PERMISSION_AGENT_PUBLISH } from '@/auth/platformAccess'
 import { platformSessionUser } from '@/auth/platformSession'
+import { LiquidGlassNotice } from '@/components/common/liquid-glass'
 
 const props = defineProps<{
   workflowId: string
@@ -168,7 +173,7 @@ defineExpose({ reload })
   padding: 12px 16px;
   border: 1px solid var(--el-border-color-lighter);
   border-radius: var(--el-border-radius-base);
-  background: var(--el-bg-color);
+  background: var(--surface-glass-inset);
 }
 
 .workflow-agent-references__header {

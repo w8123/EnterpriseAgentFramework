@@ -6,13 +6,13 @@
     destroy-on-close
     @closed="$emit('reset')"
   >
-    <el-alert
+    <LiquidGlassNotice
       type="info"
-      :closable="false"
       class="json-source-alert"
       title="GraphSpec 是运行语义；Canvas 只保存布局。修改不会立即影响画布，点击“校验并应用”后才会进入当前工作副本。"
+      source="backdrop"
     />
-    <el-tabs v-model="activeTab">
+    <LiquidGlassTabs v-model="activeTab">
       <el-tab-pane label="GraphSpec" name="graph">
         <el-input
           v-model="graphSpecSource"
@@ -33,20 +33,20 @@
           class="json-editor"
         />
       </el-tab-pane>
-    </el-tabs>
+    </LiquidGlassTabs>
     <template #footer>
       <div class="json-source-footer">
         <span>{{ changed ? '源码有尚未应用的修改' : '源码与当前画布一致' }}</span>
         <div>
-          <el-button @click="$emit('reset')">重置</el-button>
-          <el-button
+          <LiquidGlassButton @click="$emit('reset')">重置</LiquidGlassButton>
+          <LiquidGlassButton
             type="primary"
             :loading="applying"
             :disabled="readOnly || !changed"
             @click="$emit('apply')"
           >
             校验并应用
-          </el-button>
+          </LiquidGlassButton>
         </div>
       </div>
     </template>
@@ -55,6 +55,7 @@
 
 <script setup lang="ts">
 import AppDrawer from '@/components/common/AppDrawer.vue'
+import { LiquidGlassButton, LiquidGlassNotice, LiquidGlassTabs } from '@/components/common/liquid-glass'
 defineProps<{
   readOnly: boolean
   applying: boolean

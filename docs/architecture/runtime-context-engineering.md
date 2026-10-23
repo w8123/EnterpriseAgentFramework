@@ -77,7 +77,7 @@ flowchart LR
   不可用且不生成 `artifactRef`；不会把超限正文重新塞回模型。该降级在 Trace 中以
   `toolResultHardLimitDropCount` 单独计数，不能与成功卸载混淆。
 
-启用卸载前必须确认数据库至少达到 GitHub 基线 `ae9e1ce6`（更早数据库从对应 Git tag 获取历史迁移或重建），并配置至少 32 字符的
+启用卸载前必须确认数据库已完成 2026-10-15 及以前全部变更（更早数据库按 [SQL 历史版本说明](../../sql/README.md#历史版本) 获取迁移或重建），并配置至少 32 字符的
 `REACHAI_RUNTIME_CONTEXT_ARTIFACT_SECRET`。当前实现按一个 active key ID 读写；轮换密钥前必须等待
 旧工件 TTL 到期并确认密文已擦除，或先扩展为双 key 解密，不能直接替换 secret 造成存量工件不可读。
 

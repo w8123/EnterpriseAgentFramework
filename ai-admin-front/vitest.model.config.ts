@@ -15,6 +15,7 @@ export default defineConfig({
       'src/views/model/**/*.test.ts',
       'src/components/model/**/*.test.ts',
       'src/utils/modelSelection.test.ts',
+      'src/utils/dateTime.test.ts',
     ],
     css: false,
   },

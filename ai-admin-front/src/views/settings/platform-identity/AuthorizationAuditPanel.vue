@@ -1,24 +1,25 @@
 <template>
   <section class="audit-panel">
-    <div class="audit-toolbar">
-      <div>
-        <el-input v-model="keyword" clearable :prefix-icon="Search" placeholder="搜索操作人、对象或事件" />
-        <el-select v-model="eventFilter" aria-label="事件类型">
-          <el-option label="全部事件" value="ALL" />
-          <el-option v-for="eventType in eventTypes" :key="eventType" :label="platformAuditEventLabel(eventType)" :value="eventType" />
-        </el-select>
-        <el-select v-model="targetFilter" aria-label="对象类型">
-          <el-option label="全部对象" value="ALL" />
-          <el-option label="平台账号" value="PLATFORM_USER" />
-          <el-option label="平台角色" value="PLATFORM_ROLE" />
-          <el-option label="认证源" value="AUTH_PROVIDER" />
-        </el-select>
-      </div>
-      <span>展示最近 {{ events.length }} 条身份治理事件</span>
-    </div>
-
-    <div class="audit-table-shell">
-      <el-table :data="filteredEvents" v-loading="loading" row-key="id">
+    <LiquidGlassTable class="audit-table" :loading="loading" :show-pagination="false">
+      <template #toolbar>
+        <div class="audit-toolbar">
+          <div>
+            <LiquidGlassInput v-model="keyword" clearable :prefix-icon="Search" placeholder="搜索操作人、对象或事件" aria-label="搜索审计事件" />
+            <LiquidGlassSelect v-model="eventFilter" dropdown-title="事件类型" aria-label="事件类型">
+              <el-option label="全部事件" value="ALL" />
+              <el-option v-for="eventType in eventTypes" :key="eventType" :label="platformAuditEventLabel(eventType)" :value="eventType" />
+            </LiquidGlassSelect>
+            <LiquidGlassSelect v-model="targetFilter" dropdown-title="对象类型" aria-label="对象类型">
+              <el-option label="全部对象" value="ALL" />
+              <el-option label="平台账号" value="PLATFORM_USER" />
+              <el-option label="平台角色" value="PLATFORM_ROLE" />
+              <el-option label="认证源" value="AUTH_PROVIDER" />
+            </LiquidGlassSelect>
+          </div>
+          <span>展示最近 {{ events.length }} 条身份治理事件</span>
+        </div>
+      </template>
+      <el-table :data="filteredEvents" row-key="id">
         <el-table-column label="时间" width="180">
           <template #default="{ row }">{{ formatTime(row.createdAt) }}</template>
         </el-table-column>
@@ -73,14 +74,9 @@
           <el-empty description="没有符合条件的授权审计事件" />
         </template>
       </el-table>
-    </div>
+    </LiquidGlassTable>
 
-    <el-alert
-      type="info"
-      :closable="false"
-      show-icon
-      title="审计页面只展示经过脱敏的结构化摘要；密码、令牌、密钥和认证配置不会进入界面。"
-    />
+    <LiquidGlassNotice source="wallpaper" title="审计页面只展示经过脱敏的结构化摘要；密码、令牌、密钥和认证配置不会进入界面。" />
   </section>
 </template>
 
@@ -88,6 +84,7 @@
 import { computed, ref } from 'vue'
 import { DocumentChecked, Search } from '@element-plus/icons-vue'
 import type { PlatformAuthAuditEventView } from '@/api/platformAuth'
+import { LiquidGlassInput, LiquidGlassNotice, LiquidGlassSelect, LiquidGlassTable } from '@/components/common/liquid-glass'
 import { platformAuditEventLabel, safeAuditDetailEntries } from '@/auth/platformAccountManagement'
 
 const props = defineProps<{
@@ -149,7 +146,9 @@ function formatTime(value?: string) {
 
 <style scoped lang="scss">
 .audit-panel {
-  display: grid;
+  display: flex;
+  min-height: 100%;
+  flex-direction: column;
   gap: 16px;
 }
 
@@ -163,13 +162,14 @@ function formatTime(value?: string) {
 }
 
 .audit-toolbar {
+  width: 100%;
   justify-content: space-between;
 
-  > div .el-input {
+  > div .liquid-glass-input {
     width: 320px;
   }
 
-  > div .el-select {
+  > div .liquid-glass-control--field:not(.liquid-glass-input) {
     width: 150px;
   }
 
@@ -179,11 +179,8 @@ function formatTime(value?: string) {
   }
 }
 
-.audit-table-shell {
-  overflow: hidden;
-  border: 1px solid var(--border-divider);
-  border-radius: var(--radius-lg);
-  background: var(--surface-glass-panel);
+.audit-table {
+  min-height: 0;
 }
 
 .event-icon {
@@ -245,8 +242,8 @@ function formatTime(value?: string) {
     flex-direction: column;
   }
 
-  .audit-toolbar > div .el-input,
-  .audit-toolbar > div .el-select {
+  .audit-toolbar > div .liquid-glass-input,
+  .audit-toolbar > div .liquid-glass-control--field:not(.liquid-glass-input) {
     width: 100%;
   }
 }

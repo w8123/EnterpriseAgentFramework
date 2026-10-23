@@ -106,7 +106,7 @@ Workflow 提交保存为版本化 `submissionSchemaVersion/action/values`，动�
 
 这是结果未获确认后的收尾，不是业务对账，也不是可续租的工作者租约。期限经过不证明原进程已经停止，正在进行的外部调用仍可能完成；当前不强制中止 GraphSpec，不自动重跑、补偿或推断业务成败。持续数据库故障要待数据库恢复后才能提交收据；Agent 已完成 Workflow 后的最终回答恢复仍是后续工作。
 
-[恢复故障回归](../../reachai-runtime-service/src/test/java/com/enterprise/ai/runtime/execution/RuntimeWorkflowResumeRecoveryPersistenceTest.java) 使用真实 Spring 事务、MyBatis 和 SQL 基线生成的 H2 四张表，验证失去工作者的认领、完成回执失败、各类迟到结果、事件／Trace／RunOps 回滚、并发清理、来源隔离和有界查询；GraphSpec 和外部系统使用替身。新库基线新增期限列和索引，已有库按 [恢复期限升级脚本](../../sql/upgrade-20260906-workflow-resume-deadline.sql) 停旧实例、补列、回填后再部署。真实 MySQL 升级、锁和连接池行为、主机时钟差异及跨服务故障恢复尚未验收。
+[恢复故障回归](../../reachai-runtime-service/src/test/java/com/enterprise/ai/runtime/execution/RuntimeWorkflowResumeRecoveryPersistenceTest.java) 使用真实 Spring 事务、MyBatis 和 SQL 基线生成的 H2 四张表，验证失去工作者的认领、完成回执失败、各类迟到结果、事件／Trace／RunOps 回滚、并发清理、来源隔离和有界查询；GraphSpec 和外部系统使用替身。新库基线新增期限列和索引，历史恢复期限变更已进入初始化基线，已有库按 [SQL 说明](../../sql/README.md#历史版本) 核对结构与回填要求后再部署。真实 MySQL 升级、锁和连接池行为、主机时钟差异及跨服务故障恢复尚未验收。
 
 ### Supervisor 确认续跑期限与结果未知
 
@@ -201,11 +201,11 @@ Supervisor 的 Skill 绑定快照由根 Span 服务锁定当前记录后合并�
 
 Supervisor 与调试保留日志写入失败时尽力继续的既有行为，Automation 保留写入异常向上传播的行为；根记录明确拒绝更新时不再推进对应 RunOps 完成投影。[子事件持久化回归](../../reachai-runtime-service/src/test/java/com/enterprise/ai/runtime/trace/RuntimeTraceEvidencePersistenceTest.java) 覆盖 Workflow 成功、失败、等待和业务终态、节点父子关系、可信用户、中文回读、调试续跑、脱敏及写入失败时继续调用审计。Span、Tool 日志与 RunOps 仍不是跨调用原子提交，Guard 日志由 RunOps 独立维护，其他持久化引用继续按所属模块整理；真实 MySQL 和外部执行尚未验收。
 
-`BUSINESS_TERMINAL` 长 17 字符，旧 `runtime_trace_span.status VARCHAR(16)` 会使对应子记录写入失败。新库基线已扩展为 `VARCHAR(32)`；已有开发/测试库需先执行 [Trace 状态列升级](../../sql/upgrade-20260906-trace-span-status-width.sql)，保留已有数据且不缩短更宽的列。H2 已验证实际业务终态写入，MySQL 升级和列定义回读尚未执行。
+`BUSINESS_TERMINAL` 长 17 字符，旧 `runtime_trace_span.status VARCHAR(16)` 会使对应子记录写入失败。新库基线已扩展为 `VARCHAR(32)`；历史列宽升级从 Git 查阅，已有开发/测试库按 [SQL 说明](../../sql/README.md#历史版本) 核对列定义，保留数据且不缩短更宽的列。H2 已验证实际业务终态写入，MySQL 升级和列定义回读尚未执行。
 
 Supervisor 的 Guard 决策由策略服务投影，再交给 [RuntimeGuardDecisionWriter](../../reachai-runtime-service/src/main/java/com/enterprise/ai/runtime/runops/RuntimeGuardDecisionWriter.java) 写入 RunOps 自有表；Trace 服务不再承担该职责。目标项目 ID/code 来自 Agent，租户仅取独立可信身份，缺少可信身份时不写入请求声称的租户。公开 metadata 的归属字段与行字段一致，保留参数和原因脱敏；Workflow 与 A2A 分别记录 WORKFLOW_TOOL、A2A_REMOTE_AGENT。策略判断与日志失败时继续返回原决定的行为保持原有规则。[Guard 持久化回归](../../reachai-runtime-service/src/test/java/com/enterprise/ai/runtime/supervisor/SupervisorGuardDecisionPersistenceTest.java) 覆盖两个协议的允许、拒绝、确认、评测阻断、身份来源和实际 SQL 写入。
 
-Guard 的 REQUIRE_CONFIRMATION / EVAL_SIDE_EFFECT_BLOCKED 分别长 20/24 字符，旧 decision VARCHAR(16) 会使这些日志消失。新库基线已改为 VARCHAR(32)，已有库需按 [Guard 列宽升级](../../sql/upgrade-20260906-guard-decision-width.sql) 先扩列再部署 Runtime；脚本保留数据并提供列定义回读。H2 已验证两类长决策写入，真实 MySQL 升级和 DDL 锁影响尚未验收。
+Guard 的 REQUIRE_CONFIRMATION / EVAL_SIDE_EFFECT_BLOCKED 分别长 20/24 字符，旧 decision VARCHAR(16) 会使这些日志消失。新库基线已改为 VARCHAR(32)，历史列宽升级从 Git 查阅，已有库按 [SQL 说明](../../sql/README.md#历史版本) 核对列定义后再部署 Runtime；保留数据并回读列定义。H2 已验证两类长决策写入，真实 MySQL 升级和 DDL 锁影响尚未验收。
 
 RunOps 的 [RuntimeRunLifecycleService](../../reachai-runtime-service/src/main/java/com/enterprise/ai/runtime/runops/RuntimeRunLifecycleService.java) 对 Agent、Workflow 和 MCP 完成复用同一组状态写入规则：只更新 RUNNING/SUSPENDED 根记录，成功清空旧错误，等待清空结束时间与耗时，终态不接受迟到完成。Workflow 与 MCP 还匹配数据库 ID、对应 Run 类型和读取时的状态，另一连接已提交的终态不会被旧对象整行回写。执行入口现有 `finishAgent` 同时承接独立 Workflow 的交互恢复结果，因此允许 AGENT/WORKFLOW 两类，排除 MCP 和 Managed Execution；MCP 的摘要字段仍采用允许列表。
 

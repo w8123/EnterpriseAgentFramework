@@ -50,22 +50,25 @@ assert.equal(attribute(headers[0].node, 'eyebrow'), undefined, '不得重新添�
 assert.equal(elements.filter(({ node }) => ['h1', 'header'].includes(node.tag)).length, 0, '外层不得另造第二个hero或标题')
 const navigation = withClass('business-capability-workspaces')
 assert.equal(navigation.length, 1, '所有工作视图共用一份局部导航')
-assert.equal(navigation[0].node.tag, 'nav')
+assert.equal(navigation[0].node.tag, 'LiquidGlassNav')
+assert.match(read('src/components/common/LiquidGlassNav.vue'), /<nav\b/, '公共局部导航保留原生 nav 语义')
 assert.equal(attribute(navigation[0].node, 'aria-label')?.value?.content, '业务能力工作视图')
-assert.ok(!navigation[0].ancestors.some(node => ['el-tabs', 'el-tab-pane'].includes(node.tag)), '局部导航必须位于分类TAB外')
+assert.ok(!navigation[0].ancestors.some(node => ['LiquidGlassTabs', 'el-tab-pane'].includes(node.tag)), '局部导航必须位于分类TAB外')
 assert.equal(directive(navigation[0].node, 'if')?.exp?.content, '!classificationMode.active.value',
   '工作视图导航仅在分类调整模式隐藏')
 assert.ok(!navigation[0].ancestors.some(node => directive(node, 'if') || directive(node, 'else') || directive(node, 'else-if')),
   '共享页头与导航容器必须常驻')
-const tools = elements.find(({ node }) => node.tag === 'el-dropdown')
+const tools = elements.find(({ node }) => node.tag === 'LiquidGlassDropdown')
 assert.equal(directive(tools.node, 'if')?.exp?.content, "activeWorkspace === 'catalog' && !classificationMode.active.value",
   '分类调整时不显示无关整理入口')
 const catalogActions = withClass('business-capability-catalog-actions')
 assert.equal(catalogActions.length, 1, '目录整理操作只能有一个容器')
-assert.ok(!catalogActions[0].ancestors.some(node => ['PageHeader', 'el-tab-pane'].includes(node.tag)),
-  '整理操作须在目录类型行，与页头导航和TAB语义分开')
+assert.ok(catalogActions[0].ancestors.some(node => node.tag === 'PageHeader')
+  && !catalogActions[0].ancestors.some(node => ['LiquidGlassTabs', 'el-tab-pane'].includes(node.tag)),
+  '整理操作须集中在公共页头操作区，资产 TAB 只负责类型切换')
 assert.ok(tools.ancestors.includes(catalogActions[0].node), '整理菜单须归属于目录操作容器')
-const tabs = elements.filter(({ node }) => node.tag === 'el-tabs')
+const tabs = elements.filter(({ node }) => node.tag === 'LiquidGlassTabs')
+assert.match(read('src/components/common/LiquidGlassTabs.vue'), /<el-tabs v-bind="\$attrs"/, '公共标签页须转交 before-leave 与原生属性')
 assert.equal(tabs.length, 1, 'Java/HTTP分类只能在资产目录出现一份')
 assert.equal(directive(tabs[0].node, 'if')?.exp?.content, "activeWorkspace === 'catalog'", '项目共享来源、分组、语义与图谱不得显示分类TAB')
 const sharedScope = withClass('business-capability-scope')

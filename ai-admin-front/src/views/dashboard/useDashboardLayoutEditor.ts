@@ -16,7 +16,7 @@ import {
   resolveCollisions,
   sameItems,
 } from './layoutEngine'
-import { getWidgetDefinition } from './widgetRegistry'
+import { getWidgetDefinition, sanitizeLayoutItems } from './widgetRegistry'
 
 const HISTORY_LIMIT = 50
 
@@ -38,9 +38,10 @@ function nextInstanceId(widgetKey: string) {
  */
 export function useDashboardLayoutEditor(options: {
   repository: DashboardLayoutRepository
-  fallback: DashboardLayoutDocument
+  fallback: DashboardLayoutDocument | (() => DashboardLayoutDocument)
 }) {
-  const savedLayout = ref<DashboardLayoutDocument>(cloneLayoutDocument(options.fallback))
+  const fallback = () => cloneLayoutDocument(typeof options.fallback === 'function' ? options.fallback() : options.fallback)
+  const savedLayout = ref<DashboardLayoutDocument>(fallback())
   const draftLayout = ref<DashboardLayoutDocument | null>(null)
   const undoStack = ref<DashboardWidgetInstance[][]>([])
   const redoStack = ref<DashboardWidgetInstance[][]>([])
@@ -54,8 +55,8 @@ export function useDashboardLayoutEditor(options: {
   const saveError = ref<string | null>(null)
 
   function initialize() {
-    const loaded = options.repository.load()
-    if (loaded) savedLayout.value = loaded
+    cancelEdit()
+    savedLayout.value = options.repository.load() ?? fallback()
   }
 
   function beginEdit() {
@@ -122,7 +123,7 @@ export function useDashboardLayoutEditor(options: {
     return items.map((item) => (item.instanceId === id ? { ...item, rect } : item))
   }
 
-  function addWidgetInstance(widgetKey: string) {
+  function addWidgetInstance(widgetKey: string, config?: DashboardWidgetConfig) {
     if (draftLayout.value == null) return
     const definition = getWidgetDefinition(widgetKey)
     if (!definition || definition.availability.state !== 'AVAILABLE') return
@@ -136,9 +137,9 @@ export function useDashboardLayoutEditor(options: {
       instanceId: nextInstanceId(widgetKey),
       widgetKey,
       rect,
-      config: { ...definition.defaultConfig },
+      config: { ...definition.defaultConfig, ...config },
     }
-    applyChange(resolveCollisions([...draftLayout.value.items, created], created.instanceId))
+    applyChange(resolveCollisions([...draftLayout.value.items, ...sanitizeLayoutItems([created])], created.instanceId))
   }
 
   function removeWidgetInstance(id: string) {
@@ -161,7 +162,7 @@ export function useDashboardLayoutEditor(options: {
       instanceId: nextInstanceId(source.widgetKey),
       widgetKey: source.widgetKey,
       rect,
-      config: { ...source.config },
+      config: JSON.parse(JSON.stringify(source.config)) as DashboardWidgetConfig,
     }
     applyChange(resolveCollisions([...draftLayout.value.items, copy], copy.instanceId))
   }
@@ -219,11 +220,31 @@ export function useDashboardLayoutEditor(options: {
       if (typeof raw !== 'number' || !Number.isFinite(raw)) continue
       config[field.key] = Math.min(field.max, Math.max(field.min, Math.round(raw)))
     }
+    if ('shortcutPreset' in patch) config.shortcutPreset = patch.shortcutPreset
+    if ('shortcutIds' in patch) config.shortcutIds = patch.shortcutIds
     applyChange(
       draftLayout.value.items.map((item) =>
-        item.instanceId === id ? { ...item, config } : item,
+        item.instanceId === id ? sanitizeLayoutItems([{ ...item, config }])[0]! : item,
       ),
     )
+  }
+
+  /** 常态自定义入口直接保存；布局编辑中仍只改草稿，纳入撤销/重做。 */
+  function saveWidgetConfig(id: string, patch: Partial<DashboardWidgetConfig>) {
+    if (editing.value) { updateWidgetConfig(id, patch); return }
+    const target = savedLayout.value.items.find(item => item.instanceId === id)
+    if (!target) return
+    const [updated] = sanitizeLayoutItems([{ ...target, config: { ...target.config, ...patch } }])
+    if (!updated) return
+    try {
+      savedLayout.value = options.repository.save({
+        ...savedLayout.value,
+        items: savedLayout.value.items.map(item => item.instanceId === id ? updated : item),
+      })
+      saveError.value = null
+    } catch (error) {
+      saveError.value = error instanceof Error ? error.message : '快捷入口保存失败，请重试'
+    }
   }
 
   function tidyLayout() {
@@ -239,7 +260,7 @@ export function useDashboardLayoutEditor(options: {
 
   function resetToDefault() {
     if (draftLayout.value == null) return
-    applyChange(cloneLayoutDocument(options.fallback).items)
+    applyChange(fallback().items)
   }
 
   return {
@@ -262,6 +283,7 @@ export function useDashboardLayoutEditor(options: {
     resizeWidgetInstanceBy,
     commitWidgetRect,
     updateWidgetConfig,
+    saveWidgetConfig,
     tidyLayout,
     resetToDefault,
   }

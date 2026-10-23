@@ -163,13 +163,15 @@ describe('layoutEngine 像素换算', () => {
 })
 
 describe('layoutEngine schema 校验与回退', () => {
-  it('接受合法 v1 文档', () => {
+  it('接受当前文档及待升级的 v1 文档', () => {
     const result = parseLayoutDocument(JSON.parse(JSON.stringify(defaultConsoleLayout)))
     expect(result.ok).toBe(true)
+    const legacy = parseLayoutDocument({ ...defaultConsoleLayout, schemaVersion: 1 })
+    expect(legacy.ok && legacy.document.schemaVersion).toBe(1)
   })
 
   it('拒绝未知 schemaVersion、错误 mode / columns、畸形项与重复 id', () => {
-    expect(parseLayoutDocument({ ...defaultConsoleLayout, schemaVersion: 2 }).ok).toBe(false)
+    expect(parseLayoutDocument({ ...defaultConsoleLayout, schemaVersion: 99 }).ok).toBe(false)
     expect(parseLayoutDocument({ ...defaultConsoleLayout, mode: 'SCREEN' }).ok).toBe(false)
     expect(parseLayoutDocument({ ...defaultConsoleLayout, columns: 24 }).ok).toBe(false)
     expect(

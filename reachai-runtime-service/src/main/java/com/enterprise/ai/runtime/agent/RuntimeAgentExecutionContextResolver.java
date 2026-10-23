@@ -97,6 +97,15 @@ public class RuntimeAgentExecutionContextResolver {
         return resolveSpecificConfig(idOrKeySlug, configVersionId, true);
     }
 
+    /**
+     * Resolves a server-owned pinned config id (approval/interaction continuation, Control-attested
+     * console debug). DRAFT is allowed because the id never comes from an untrusted body.
+     */
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ, propagation = Propagation.REQUIRES_NEW)
+    public Optional<RuntimeAgentExecutionContext> resolvePinned(String idOrKeySlug, Long configVersionId) {
+        return resolveSpecificConfig(idOrKeySlug, configVersionId, true);
+    }
+
     private Optional<RuntimeAgentExecutionContext> resolveSpecificConfig(String idOrKeySlug,
                                                                          Long configVersionId,
                                                                          boolean allowDraft) {

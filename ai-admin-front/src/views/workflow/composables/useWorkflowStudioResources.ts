@@ -149,9 +149,7 @@ export function useWorkflowStudioResources(deps: UseWorkflowStudioResourcesDeps)
       const { data } = await getModelInstances({ modelType: 'LLM' })
       if (!isCurrent()) return
       modelOptions.value = normalizeActiveModelInstances(data, 'LLM')
-      if (!deps.aiModelInstanceId.value && deps.studio.value?.defaultModelInstanceId) {
-        deps.aiModelInstanceId.value = deps.studio.value.defaultModelInstanceId
-      }
+      // An empty selection follows the Workflow default; catalog refreshes must not pin it.
     } catch {
       if (!isCurrent()) return
       modelOptions.value = []

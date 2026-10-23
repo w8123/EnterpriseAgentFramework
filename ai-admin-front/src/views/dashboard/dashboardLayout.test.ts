@@ -34,6 +34,11 @@ vi.mock('@/api/request', () => ({
   controlRequest: { get: (...args: unknown[]) => mocks.controlGet(...args) },
 }))
 
+vi.mock('@/auth/platformSession', async () => {
+  const { ref } = await import('vue')
+  return { platformSessionUser: ref({ userId: 1, permissions: [] }), platformSessionId: ref('layout-test-session') }
+})
+
 const wrappers: VueWrapper[] = []
 
 function mockAllReady() {
@@ -112,7 +117,7 @@ function mockAllReady() {
   })
 }
 
-const LAYOUT_STORAGE_KEY = 'reachai.dashboard.consoleLayout.local.v1'
+const LAYOUT_STORAGE_KEY = 'reachai.dashboard.consoleLayout.local.v1.user.1'
 
 function readStoredLayout() {
   const raw = localStorage.getItem(LAYOUT_STORAGE_KEY)
@@ -253,7 +258,7 @@ describe('Dashboard 可配置布局编辑', () => {
     await flushPromises()
 
     const stored = readStoredLayout()
-    expect(stored.schemaVersion).toBe(1)
+    expect(stored.schemaVersion).toBe(2)
     expect(stored.revision).toBe(1)
     expect(stored.items).toHaveLength(12)
     expect(first.find('[data-testid="edit-layout"]').exists()).toBe(true)
@@ -276,7 +281,7 @@ describe('Dashboard 可配置布局编辑', () => {
   it('localStorage 中未知版本布局回退默认布局', async () => {
     localStorage.setItem(
       LAYOUT_STORAGE_KEY,
-      JSON.stringify({ schemaVersion: 2, revision: 9, mode: 'CONSOLE', columns: 12, items: [] }),
+      JSON.stringify({ schemaVersion: 99, revision: 9, mode: 'CONSOLE', columns: 12, items: [] }),
     )
     const wrapper = await mountDashboard()
     expect(widgetFrames(wrapper)).toHaveLength(13)

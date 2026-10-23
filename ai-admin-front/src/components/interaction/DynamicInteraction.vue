@@ -1,12 +1,11 @@
 <template>
   <div v-if="normalized" class="dynamic-interaction">
-    <el-alert
+    <LiquidGlassNotice
       v-if="normalized.title"
       :title="normalized.title"
       type="info"
-      :closable="false"
-      show-icon
       class="mb"
+      source="backdrop"
     />
     <UnifiedInteractionRenderer
       :request="normalized"
@@ -22,6 +21,7 @@
 import { computed } from 'vue'
 import { UnifiedInteractionRenderer, normalizeUiRequest } from '@/conversation'
 import type { UiRequestPayload } from '@/types/interaction'
+import { LiquidGlassNotice } from '@/components/common/liquid-glass'
 
 const props = defineProps<{
   payload: UiRequestPayload | null | undefined

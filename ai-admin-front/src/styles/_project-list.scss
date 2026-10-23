@@ -209,9 +209,9 @@
   background: linear-gradient(
     135deg,
     color-mix(in srgb, var(--surface-solid-panel) 94%, transparent),
-    color-mix(in srgb, var(--surface-glass-soft) 72%, transparent)
+    color-mix(in srgb, var(--surface-glass-control) 72%, transparent)
   );
-  box-shadow: var(--inner-highlight), var(--shadow-sm);
+  box-shadow: var(--shadow-panel);
   cursor: pointer;
   transition:
     transform var(--motion-duration-fast) ease,
@@ -222,12 +222,12 @@
 .project-list-card:hover,
 .project-list-card:focus-visible {
   border-color: color-mix(in srgb, var(--brand-primary) 34%, var(--border-subtle));
-  box-shadow: var(--inner-highlight), var(--shadow-md);
+  box-shadow: var(--shadow-card-hover);
   transform: translateY(-2px);
 }
 
 .project-list-card:focus-visible {
-  box-shadow: 0 0 0 2px var(--border-focus), var(--shadow-md);
+  box-shadow: 0 0 0 2px var(--border-focus), var(--shadow-card-hover);
 }
 
 .project-list-card__header {

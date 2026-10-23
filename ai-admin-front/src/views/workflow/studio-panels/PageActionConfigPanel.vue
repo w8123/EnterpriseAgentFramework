@@ -1,158 +1,147 @@
 <template>
   <div class="node-specific-panel">
-    <el-divider>页面动作</el-divider>
-    <el-alert
-      title="页面动作只会请求宿主业务页面执行已注册的 actionKey，不会下发任意 JS。"
-      type="info"
-      :closable="false"
-    />
-    <el-form label-position="top" class="page-action-form">
-      <el-form-item label="项目编码">
-        <div class="catalog-picker-row">
+    <ConfigSection title="页面动作" description="选择已注册的页面动作，绑定动作参数">
+      <LiquidGlassNotice
+        title="页面动作只会请求宿主业务页面执行已注册的 actionKey，不会下发任意 JS。"
+        type="info"
+        source="backdrop"
+      />
+      <div class="page-action-form">
+        <el-form-item label="项目编码">
+          <div class="catalog-picker-row">
+            <el-select
+              v-model="config.projectCode"
+              filterable
+              allow-create
+              default-first-option
+              clearable
+              placeholder="选择或输入项目编码"
+              style="width: 100%"
+              @change="handleProjectCodeChange"
+              @visible-change="ensureProjectsLoaded"
+            >
+              <el-option
+                v-for="project in projectStore.projects"
+                :key="project.id"
+                :label="projectStore.projectLabel(project)"
+                :value="project.projectCode || ''"
+                :disabled="!project.projectCode"
+              />
+            </el-select>
+            <el-button :loading="catalogLoading" @click="loadCatalog">加载目录</el-button>
+          </div>
+        </el-form-item>
+        <el-form-item label="已注册页面">
           <el-select
-            v-model="config.projectCode"
+            v-model="config.pageKey"
             filterable
-            allow-create
-            default-first-option
             clearable
-            placeholder="选择或输入项目编码"
+            placeholder="先选择前端 SDK 上报的页面"
             style="width: 100%"
-            @change="handleProjectCodeChange"
-            @visible-change="ensureProjectsLoaded"
+            @change="selectCatalogPage"
           >
             <el-option
-              v-for="project in projectStore.projects"
-              :key="project.id"
-              :label="projectStore.projectLabel(project)"
-              :value="project.projectCode || ''"
-              :disabled="!project.projectCode"
+              v-for="item in catalogPages"
+              :key="item.pageKey"
+              :label="`${item.name || item.pageKey} · ${item.pageKey}`"
+              :value="item.pageKey"
             />
           </el-select>
-          <el-button :loading="catalogLoading" @click="loadCatalog">加载目录</el-button>
+        </el-form-item>
+        <el-form-item label="已注册动作">
+          <el-select
+            v-model="selectedCatalogActionKey"
+            filterable
+            clearable
+            placeholder="选择该页面下的动作"
+            style="width: 100%"
+            @change="applyCatalogAction"
+          >
+            <el-option
+              v-for="item in filteredCatalogActions"
+              :key="`${item.pageKey}:${item.actionKey}`"
+              :label="`${item.title || item.actionKey} · ${item.actionKey}`"
+              :value="item.actionKey"
+            />
+          </el-select>
+        </el-form-item>
+        <LiquidGlassNotice
+          v-if="catalogLoaded && !catalogActions.length"
+          title="当前项目还没有前端 SDK 上报的页面动作。请先在项目详情复制前端 SDK 配置，在业务前端开发环境启动后自动注册页面动作目录。"
+          type="warning"
+          source="backdrop"
+        />
+        <div v-if="selectedCatalogAction" class="catalog-action-summary">
+          <div class="summary-title">
+            <span>{{ selectedCatalogAction.title || selectedCatalogAction.actionKey }}</span>
+            <el-tag size="small" effect="plain">{{ selectedCatalogAction.status }}</el-tag>
+          </div>
+          <div class="summary-line">
+            <span>页面：{{ selectedCatalogAction.pageKey }}</span>
+            <span v-if="selectedCatalogPage?.routePattern">路由：{{ selectedCatalogPage.routePattern }}</span>
+            <span>最近上报：{{ selectedCatalogAction.lastSeenAt || '-' }}</span>
+          </div>
+          <div class="summary-line">
+            <span>入参：{{ schemaFieldNames(selectedCatalogAction.inputSchemaJson).join('、') || '未声明' }}</span>
+            <span>输出：{{ schemaFieldNames(selectedCatalogAction.outputSchemaJson).join('、') || '未声明' }}</span>
+          </div>
         </div>
-      </el-form-item>
-      <el-form-item label="已注册页面">
-        <el-select
-          v-model="config.pageKey"
-          filterable
-          clearable
-          placeholder="先选择前端 SDK 上报的页面"
-          style="width: 100%"
-          @change="selectCatalogPage"
-        >
-          <el-option
-            v-for="item in catalogPages"
-            :key="item.pageKey"
-            :label="`${item.name || item.pageKey} · ${item.pageKey}`"
-            :value="item.pageKey"
-          />
-        </el-select>
-      </el-form-item>
-      <el-form-item label="已注册动作">
-        <el-select
-          v-model="selectedCatalogActionKey"
-          filterable
-          clearable
-          placeholder="选择该页面下的动作"
-          style="width: 100%"
-          @change="applyCatalogAction"
-        >
-          <el-option
-            v-for="item in filteredCatalogActions"
-            :key="`${item.pageKey}:${item.actionKey}`"
-            :label="`${item.title || item.actionKey} · ${item.actionKey}`"
-            :value="item.actionKey"
-          />
-        </el-select>
-      </el-form-item>
-      <el-alert
-        v-if="catalogLoaded && !catalogActions.length"
-        title="当前项目还没有前端 SDK 上报的页面动作。请先在项目详情复制前端 SDK 配置，在业务前端开发环境启动后自动注册页面动作目录。"
-        type="warning"
-        :closable="false"
-        show-icon
-      />
-      <div v-if="selectedCatalogAction" class="catalog-action-summary">
-        <div class="summary-title">
-          <span>{{ selectedCatalogAction.title || selectedCatalogAction.actionKey }}</span>
-          <el-tag size="small" effect="plain">{{ selectedCatalogAction.status }}</el-tag>
-        </div>
-        <div class="summary-line">
-          <span>页面：{{ selectedCatalogAction.pageKey }}</span>
-          <span v-if="selectedCatalogPage?.routePattern">路由：{{ selectedCatalogPage.routePattern }}</span>
-          <span>最近上报：{{ selectedCatalogAction.lastSeenAt || '-' }}</span>
-        </div>
-        <div class="summary-line">
-          <span>入参：{{ schemaFieldNames(selectedCatalogAction.inputSchemaJson).join('、') || '未声明' }}</span>
-          <span>输出：{{ schemaFieldNames(selectedCatalogAction.outputSchemaJson).join('、') || '未声明' }}</span>
-        </div>
-      </div>
-      <el-form-item label="动作标识 actionKey">
-        <el-input v-model="config.actionKey" placeholder="例如 team.openDetail / order.refreshList" @change="sync" />
-      </el-form-item>
-      <el-form-item label="展示标题">
-        <el-input v-model="config.title" placeholder="例如 打开班组详情" @change="sync" />
-      </el-form-item>
-      <el-form-item label="执行前确认">
-        <el-switch v-model="config.confirm" @change="sync" />
-      </el-form-item>
-      <el-form-item label="输出别名">
-        <el-input v-model="config.outputAlias" placeholder="page_action_result" @change="sync" />
-      </el-form-item>
-      <el-form-item label="动作参数映射">
-        <el-table :data="argRows" border size="small" class="arg-mapping-table" empty-text="选择动作后自动生成参数行">
-          <el-table-column prop="name" label="参数" min-width="150">
-            <template #default="{ row }">
-              <el-input v-model="row.name" placeholder="参数名" @change="syncArgRows" />
-            </template>
-          </el-table-column>
-          <el-table-column prop="type" label="类型" width="96">
-            <template #default="{ row }">{{ row.type || '-' }}</template>
-          </el-table-column>
-          <el-table-column prop="required" label="必填" width="72">
-            <template #default="{ row }">
-              <el-tag v-if="row.required" size="small" type="danger" effect="plain">是</el-tag>
-              <span v-else>-</span>
-            </template>
-          </el-table-column>
-          <el-table-column prop="description" label="说明" min-width="150" show-overflow-tooltip>
-            <template #default="{ row }">{{ row.description || '-' }}</template>
-          </el-table-column>
-          <el-table-column label="取值表达式" min-width="220">
-            <template #default="{ row }">
+        <el-form-item label="动作标识 actionKey">
+          <el-input v-model="config.actionKey" placeholder="例如 team.openDetail / order.refreshList" @change="sync" />
+        </el-form-item>
+        <el-form-item label="展示标题">
+          <el-input v-model="config.title" placeholder="例如 打开班组详情" @change="sync" />
+        </el-form-item>
+        <el-form-item label="执行前确认">
+          <el-switch v-model="config.confirm" @change="sync" />
+        </el-form-item>
+        <el-form-item label="输出别名">
+          <el-input v-model="config.outputAlias" placeholder="page_action_result" @change="sync" />
+        </el-form-item>
+        <el-form-item label="动作参数映射">
+          <div class="page-action-arg-list">
+            <div v-for="(row, index) in argRows" :key="index" class="page-action-arg-row">
+              <el-input v-model="row.name" placeholder="参数名" aria-label="动作参数名" @change="syncArgRows" />
+              <span class="page-action-arg-type">{{ row.type || 'any' }}<em v-if="row.required">必填</em></span>
+              <small v-if="row.description">{{ row.description }}</small>
               <el-input
                 v-model="row.expression"
-                placeholder="例如 lastOutput.teamName"
+                placeholder="取值表达式，如 lastOutput.teamName"
+                aria-label="动作参数来源"
                 @change="syncArgRows"
               />
-            </template>
-          </el-table-column>
-        </el-table>
-        <div class="mapping-actions">
-          <el-button size="small" @click="addArgRow">添加参数</el-button>
-          <el-button size="small" @click="rebuildArgRowsFromCurrentAction">按目录重置</el-button>
-        </div>
-      </el-form-item>
-      <el-form-item label="高级 JSON">
-        <el-input
-          v-model="argsText"
-          type="textarea"
-          :rows="4"
-          placeholder='例如 { "teamId": "lastOutput.id" }'
-          @change="syncArgs"
-        />
-      </el-form-item>
-      <el-alert
-        v-if="argsError"
-        :title="argsError"
-        type="warning"
-        :closable="false"
-      />
-    </el-form>
+            </div>
+            <div v-if="!argRows.length" class="panel-empty-row">选择动作后自动生成参数，也可以手动添加。</div>
+          </div>
+          <div class="mapping-actions">
+            <el-button size="small" @click="addArgRow">添加参数</el-button>
+            <el-button size="small" @click="rebuildArgRowsFromCurrentAction">按目录重置</el-button>
+          </div>
+        </el-form-item>
+        <ConfigSection title="参数 JSON" description="直接编辑动作参数映射" collapsible :default-open="!!argsError">
+          <el-form-item label="高级 JSON">
+            <el-input
+              v-model="argsText"
+              type="textarea"
+              :rows="4"
+              placeholder='例如 { "teamId": "lastOutput.id" }'
+              @change="syncArgs"
+            />
+          </el-form-item>
+          <LiquidGlassNotice
+            v-if="argsError"
+            :title="argsError"
+            type="warning"
+            source="backdrop"
+          />
+        </ConfigSection>
+      </div>
+    </ConfigSection>
   </div>
 </template>
 
 <script setup lang="ts">
+import ConfigSection from './ConfigSection.vue'
 import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
@@ -163,6 +152,7 @@ import {
 } from '@/api/embedOps'
 import { useProjectStore } from '@/store/project'
 import type { CanvasNodeData, PageActionNodeConfig } from '@/types/studio'
+import { LiquidGlassNotice } from '@/components/common/liquid-glass'
 
 const props = defineProps<{
   data: CanvasNodeData

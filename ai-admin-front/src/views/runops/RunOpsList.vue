@@ -2,68 +2,58 @@
   <WorkbenchPage class="runops-page" layout="list">
     <PageHeader
       variant="overview"
+      presentation="plain"
+      action-presentation="inline"
       domain="governance"
-      eyebrow="运行治理"
       title="运行中心"
       description="观测智能体决策、工作流调用与运行异常"
     >
       <template #meta>
-        <RunCenterNav />
+        <div class="runops-header-meta">
+          <RunCenterNav />
+          <MetricStrip presentation="inline" source="wallpaper" :items="kpis" aria-label="运行概览" />
+        </div>
       </template>
       <template #actions>
-        <el-button
+        <LiquidGlassButton
+          source="wallpaper"
           :icon="Refresh"
           :loading="loading || diagnosticsLoading"
           aria-label="刷新运行数据"
           @click="refreshAll"
         >
           刷新
-        </el-button>
+        </LiquidGlassButton>
       </template>
     </PageHeader>
 
-    <section class="runops-kpis" aria-label="运行概览">
-      <div
-        v-for="item in kpis"
-        :key="item.label"
-        class="kpi-card"
-        :class="{
-          'kpi-card--alert': item.tone === 'danger',
-          'kpi-card--warn': item.tone === 'warning',
-        }"
+    <LiquidGlassCard source="wallpaper" class="filter-card" aria-label="筛选运行记录">
+      <LiquidGlassFilterBar
+        :loading="loading || diagnosticsLoading"
+        query-label="查询"
+        @query="applyFilters"
+        @reset="resetFilters"
       >
-        <div class="kpi-card__label">{{ item.label }}</div>
-        <strong class="kpi-card__value">{{ item.value }}</strong>
-        <small class="kpi-card__hint">{{ item.hint }}</small>
-      </div>
-    </section>
-
-    <el-card shadow="never" class="filter-card">
-      <div class="section-heading">
-        <h2>筛选运行记录</h2>
-        <span class="section-count">当前匹配 {{ filteredRuns.length }} 条</span>
-      </div>
-
-      <div class="filter-primary-row">
-        <el-input
+        <LiquidGlassInput
           v-model="draftFilters.keyword"
           class="keyword-filter"
           clearable
           :prefix-icon="Search"
           placeholder="搜索运行名称、追踪 ID 或错误信息"
-          @keyup.enter="applyFilters"
+          aria-label="搜索运行记录"
         />
-        <el-select v-model="draftFilters.days" class="time-window-filter" aria-label="时间范围">
+        <LiquidGlassSelect v-model="draftFilters.days" class="compact-filter" dropdown-title="时间范围" aria-label="时间范围">
           <el-option label="最近 1 天" :value="1" />
           <el-option label="最近 7 天" :value="7" />
           <el-option label="最近 14 天" :value="14" />
           <el-option label="最近 30 天" :value="30" />
-        </el-select>
-        <el-select
+        </LiquidGlassSelect>
+        <LiquidGlassSelect
           v-model="draftFilters.status"
-          class="status-filter"
+          class="compact-filter"
           clearable
           placeholder="运行状态"
+          dropdown-title="运行状态"
           aria-label="运行状态"
         >
           <el-option label="运行中" value="RUNNING" />
@@ -72,12 +62,13 @@
           <el-option label="失败" value="FAILED" />
           <el-option label="已取消" value="CANCELLED" />
           <el-option label="已超时" value="TIMED_OUT" />
-        </el-select>
-        <el-select
+        </LiquidGlassSelect>
+        <LiquidGlassSelect
           v-model="draftFilters.runType"
-          class="type-filter"
+          class="compact-filter"
           clearable
           placeholder="运行类型"
+          dropdown-title="运行类型"
           aria-label="运行类型"
         >
           <el-option label="智能体" value="AGENT" />
@@ -85,68 +76,58 @@
           <el-option label="MCP 工具调用" value="MCP" />
           <el-option label="业务方法试调用" value="CONSOLE_CAPABILITY" />
           <el-option label="API 试调用" value="CONSOLE_HTTP_API" />
-        </el-select>
-        <el-select
+        </LiquidGlassSelect>
+        <LiquidGlassSelect
           v-model="draftFilters.entryType"
-          class="entry-filter"
+          class="compact-filter"
           clearable
           placeholder="运行入口"
+          dropdown-title="运行入口"
           aria-label="运行入口"
         >
           <el-option v-for="entry in entryTypes" :key="entry" :label="entryTypeLabel(entry)" :value="entry" />
-        </el-select>
-        <div class="filter-buttons">
-          <el-button type="primary" :icon="Search" :loading="loading || diagnosticsLoading" @click="applyFilters">
-            查询
-          </el-button>
-          <el-button @click="resetFilters">重置</el-button>
-          <el-button text type="primary" class="more-filters-toggle" @click="showMoreFilters = !showMoreFilters">
+        </LiquidGlassSelect>
+        <template #actions>
+          <LiquidGlassButton
+            native-type="button"
+            :aria-expanded="showMoreFilters"
+            @click="showMoreFilters = !showMoreFilters"
+          >
             {{ showMoreFilters ? '收起筛选' : '更多筛选' }}
             <span v-if="advancedFilterCount > 0" class="advanced-count">{{ advancedFilterCount }}</span>
-          </el-button>
-        </div>
-      </div>
+          </LiquidGlassButton>
+          <LiquidGlassButton native-type="button" @click="resetFilters">重置</LiquidGlassButton>
+          <LiquidGlassButton type="primary" native-type="submit" :icon="Search" :loading="loading || diagnosticsLoading">
+            查询
+          </LiquidGlassButton>
+        </template>
+      </LiquidGlassFilterBar>
 
       <div v-show="showMoreFilters" class="filter-advanced">
         <label class="filter-field">
           <span>项目编码</span>
-          <el-input
-            v-model="draftFilters.projectCode"
-            clearable
-            placeholder="全部项目"
-            @keyup.enter="applyFilters"
-          />
+          <LiquidGlassInput v-model="draftFilters.projectCode" clearable placeholder="全部项目" @keyup.enter="applyFilters" />
         </label>
         <label class="filter-field">
           <span>智能体 ID</span>
-          <el-input
-            v-model="draftFilters.agentId"
-            clearable
-            placeholder="全部智能体"
-            @keyup.enter="applyFilters"
-          />
+          <LiquidGlassInput v-model="draftFilters.agentId" clearable placeholder="全部智能体" @keyup.enter="applyFilters" />
         </label>
         <label class="filter-field">
           <span>用户 ID</span>
-          <el-input
-            v-model="draftFilters.userId"
-            clearable
-            placeholder="全部用户"
-            @keyup.enter="applyFilters"
-          />
+          <LiquidGlassInput v-model="draftFilters.userId" clearable placeholder="全部用户" @keyup.enter="applyFilters" />
         </label>
       </div>
-    </el-card>
+    </LiquidGlassCard>
 
     <section class="runops-diagnostics" aria-label="运行诊断">
-      <el-card shadow="never" class="diagnostics-card">
-        <template #header>
+      <LiquidGlassTable class="diagnostics-card" :loading="diagnosticsLoading" :show-pagination="false">
+        <template #toolbar>
           <div class="card-header">
-            <span>失败聚类</span>
+            <h2>失败聚类</h2>
             <span class="card-header__meta">{{ diagnostics.failureClusters.length }} 类</span>
           </div>
         </template>
-        <div v-loading="diagnosticsLoading" class="table-panel">
+        <div class="table-panel">
           <el-table
             v-if="diagnostics.failureClusters.length"
             class="runops-table"
@@ -203,16 +184,16 @@
             description="当前筛选下暂无失败聚类"
           />
         </div>
-      </el-card>
+      </LiquidGlassTable>
 
-      <el-card shadow="never" class="diagnostics-card">
-        <template #header>
+      <LiquidGlassTable class="diagnostics-card" :loading="diagnosticsLoading" :show-pagination="false">
+        <template #toolbar>
           <div class="card-header">
-            <span>发布版本表现</span>
+            <h2>发布版本表现</h2>
             <span class="card-header__meta">{{ diagnostics.versionComparisons.length }} 个版本</span>
           </div>
         </template>
-        <div v-loading="diagnosticsLoading" class="table-panel">
+        <div class="table-panel">
           <el-table
             v-if="diagnostics.versionComparisons.length"
             class="runops-table"
@@ -274,17 +255,25 @@
             description="当前筛选下暂无版本表现数据"
           />
         </div>
-      </el-card>
+      </LiquidGlassTable>
     </section>
 
-    <el-card shadow="never" class="runs-card">
-      <template #header>
+    <LiquidGlassTable
+      v-model:current-page="currentPage"
+      v-model:page-size="pageSize"
+      class="runs-card"
+      :loading="loading"
+      :total="filteredRuns.length"
+      :page-sizes="[10, 20, 50]"
+      pagination-label="根运行分页"
+    >
+      <template #toolbar>
         <div class="card-header">
-          <span>根运行记录</span>
-          <span class="card-header__meta">{{ filteredRuns.length }} 条</span>
+          <h2>根运行记录</h2>
+          <span class="card-header__meta">当前匹配 {{ filteredRuns.length }} 条</span>
         </div>
       </template>
-      <div v-loading="loading" class="table-panel runs-panel">
+      <div class="table-panel runs-panel">
           <el-table
             v-if="filteredRuns.length"
             class="runops-table runs-table"
@@ -410,17 +399,8 @@
           description="当前筛选下暂无根运行记录"
         />
 
-        <div v-if="filteredRuns.length" class="table-footer">
-          <el-pagination
-            v-model:current-page="currentPage"
-            v-model:page-size="pageSize"
-            :page-sizes="[10, 20, 50]"
-            layout="total, sizes, prev, pager, next"
-            :total="filteredRuns.length"
-          />
-        </div>
       </div>
-    </el-card>
+    </LiquidGlassTable>
   </WorkbenchPage>
 </template>
 
@@ -444,6 +424,16 @@ import type {
 } from '@/types/runops'
 import PageHeader from '@/components/common/PageHeader.vue'
 import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
+import MetricStrip from '@/components/common/MetricStrip.vue'
+import type { MetricStripItem } from '@/components/common/glassWorkbench'
+import {
+  LiquidGlassButton,
+  LiquidGlassCard,
+  LiquidGlassFilterBar,
+  LiquidGlassInput,
+  LiquidGlassSelect,
+  LiquidGlassTable,
+} from '@/components/common/liquid-glass'
 import { useProjectStore } from '@/store/project'
 import {
   hasPlatformGlobalPermissionGrant,
@@ -544,7 +534,7 @@ const advancedFilterCount = computed(() => {
   return count
 })
 
-const kpis = computed(() => {
+const kpis = computed<MetricStripItem[]>(() => {
   const total = filteredRuns.value.length
   const failed = filteredRuns.value.filter((run) => ['FAILED', 'TIMED_OUT'].includes(run.status)).length
   const waiting = filteredRuns.value.filter((run) => run.status === 'SUSPENDED').length
@@ -552,25 +542,10 @@ const kpis = computed(() => {
     ? Math.round(filteredRuns.value.reduce((sum, run) => sum + (run.latencyMs ?? 0), 0) / total)
     : 0
   return [
-    { label: '运行数', value: String(total), hint: `最近 ${appliedFilters.days} 天`, tone: 'neutral' as const },
-    {
-      label: '失败数',
-      value: String(failed),
-      hint: '失败与超时的根运行',
-      tone: failed > 0 ? ('danger' as const) : ('neutral' as const),
-    },
-    {
-      label: '等待审批',
-      value: String(waiting),
-      hint: '当前阻塞于人工审批',
-      tone: waiting > 0 ? ('warning' as const) : ('neutral' as const),
-    },
-    {
-      label: '平均耗时',
-      value: formatLatencyMs(avgLatency),
-      hint: '按根运行聚合',
-      tone: 'neutral' as const,
-    },
+    { key: 'runs', label: '运行数', value: String(total), hint: `最近 ${appliedFilters.days} 天` },
+    { key: 'failed', label: '失败数', value: String(failed), hint: '失败与超时的根运行' },
+    { key: 'waiting', label: '等待审批', value: String(waiting), hint: '当前阻塞于人工审批' },
+    { key: 'latency', label: '平均耗时', value: formatLatencyMs(avgLatency), hint: '按根运行聚合' },
   ]
 })
 
@@ -824,128 +799,28 @@ watch([filteredRuns, pageSize], () => {
   gap: 12px;
 }
 
-.runops-kpis {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.kpi-card {
+.runops-header-meta {
   display: flex;
-  min-height: 84px;
-  flex-direction: column;
-  justify-content: center;
-  gap: 4px;
-  padding: 12px 16px;
-  border: 1px solid var(--border-divider);
-  border-radius: 10px;
-  background: var(--surface-solid-panel);
-  box-shadow: 0 1px 2px rgb(15 23 42 / 4%);
-}
-
-.kpi-card--alert {
-  border-color: color-mix(in srgb, var(--status-danger) 28%, var(--border-divider));
-}
-
-.kpi-card--warn {
-  border-color: color-mix(in srgb, var(--status-warning) 28%, var(--border-divider));
-}
-
-.kpi-card__label {
-  color: var(--text-muted);
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 1.2;
-}
-
-.kpi-card__value {
-  color: var(--text-primary);
-  font-size: 24px;
-  font-weight: 700;
-  letter-spacing: -0.03em;
-  line-height: 1.15;
-}
-
-.kpi-card--alert .kpi-card__value {
-  color: var(--status-danger);
-}
-
-.kpi-card--warn .kpi-card__value {
-  color: var(--status-warning);
-}
-
-.kpi-card__hint {
-  color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.3;
-}
-
-.filter-card,
-.diagnostics-card,
-.runs-card {
-  border: 1px solid var(--border-divider);
-  border-radius: 10px;
-  background: var(--surface-solid-panel);
-  box-shadow: none;
-}
-
-.filter-card :deep(.el-card__body) {
-  padding: 14px 16px;
-}
-
-.section-heading {
-  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
+  gap: 8px 16px;
 }
 
-.section-heading h2 {
-  margin: 0;
-  color: var(--text-primary);
-  font-size: 14px;
-  font-weight: 650;
-  line-height: 1.3;
+.filter-card {
+  flex: 0 0 auto;
+  padding: 10px 12px;
 }
 
-.section-count,
+.filter-card :deep(.filter-bar__fields > .liquid-glass-control.compact-filter) {
+  flex: 1 1 120px;
+  max-width: 150px;
+}
+
 .card-header__meta {
   color: var(--text-muted);
   font-size: 12px;
   font-weight: 500;
   white-space: nowrap;
-}
-
-.filter-primary-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-
-.keyword-filter {
-  flex: 1 1 220px;
-  min-width: 180px;
-}
-
-.time-window-filter,
-.status-filter,
-.type-filter,
-.entry-filter {
-  width: 128px;
-}
-
-.filter-buttons {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin-left: auto;
-}
-
-.more-filters-toggle {
-  padding-inline: 6px;
 }
 
 .advanced-count {
@@ -957,8 +832,7 @@ watch([filteredRuns, pageSize], () => {
   margin-left: 4px;
   padding: 0 5px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--brand-primary) 14%, transparent);
-  color: var(--brand-primary);
+  background: color-mix(in srgb, currentColor 16%, transparent);
   font-size: 11px;
   font-weight: 700;
   line-height: 1;
@@ -968,8 +842,8 @@ watch([filteredRuns, pageSize], () => {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
-  margin-top: 12px;
-  padding-top: 12px;
+  margin-top: 10px;
+  padding-top: 10px;
   border-top: 1px solid var(--border-divider);
 }
 
@@ -982,8 +856,7 @@ watch([filteredRuns, pageSize], () => {
   font-weight: 600;
 }
 
-.filter-field :deep(.el-select),
-.filter-field :deep(.el-input) {
+.filter-field > .liquid-glass-control {
   width: 100%;
 }
 
@@ -996,36 +869,23 @@ watch([filteredRuns, pageSize], () => {
 
 .diagnostics-card,
 .runs-card {
+  flex: 0 0 auto;
   min-width: 0;
-}
-
-.diagnostics-card {
-  overflow: hidden;
-}
-
-.runs-card {
-  overflow: visible;
-}
-
-.diagnostics-card :deep(.el-card__header),
-.runs-card :deep(.el-card__header) {
-  padding: 12px 16px;
-  border-bottom-color: var(--border-divider);
-}
-
-.diagnostics-card :deep(.el-card__body),
-.runs-card :deep(.el-card__body) {
-  padding: 0;
 }
 
 .card-header {
   display: flex;
+  width: 100%;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  color: var(--text-primary);
-  font-size: 14px;
-  font-weight: 650;
+
+  h2 {
+    margin: 0;
+    color: var(--text-primary);
+    font-size: 14px;
+    font-weight: 650;
+  }
 }
 
 .table-panel {
@@ -1045,18 +905,7 @@ watch([filteredRuns, pageSize], () => {
 }
 
 .runops-table {
-  --el-table-border-color: var(--border-divider);
-  --el-table-header-bg-color: var(--surface-solid-control);
-  --el-table-row-hover-bg-color: color-mix(in srgb, var(--brand-primary) 5%, var(--surface-solid-panel));
-  --el-table-bg-color: transparent;
-  --el-fill-color-blank: transparent;
   width: 100%;
-  color: var(--text-primary);
-  background: transparent;
-}
-
-.runops-table :deep(.el-table__inner-wrapper::before) {
-  background-color: var(--border-divider);
 }
 
 .runops-table :deep(th.el-table__cell) {
@@ -1200,43 +1049,13 @@ watch([filteredRuns, pageSize], () => {
   color: var(--text-muted);
 }
 
-.table-footer {
-  display: flex;
-  justify-content: flex-end;
-  padding: 8px 4px 4px;
-}
-
 .table-panel :deep(.el-empty) {
   padding: 20px 8px;
-}
-
-.table-panel :deep(.el-loading-mask) {
-  background-color: color-mix(in srgb, var(--surface-solid-panel) 72%, transparent);
 }
 
 @media (max-width: 1360px) {
   .runops-diagnostics {
     grid-template-columns: 1fr;
-  }
-}
-
-@media (max-width: 1100px) {
-  .runops-kpis {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .time-window-filter,
-  .status-filter,
-  .type-filter,
-  .entry-filter {
-    width: 140px;
-    flex: 1 1 120px;
-  }
-
-  .filter-buttons {
-    margin-left: 0;
-    width: 100%;
-    justify-content: flex-start;
   }
 }
 
@@ -1247,16 +1066,6 @@ watch([filteredRuns, pageSize], () => {
   }
 
   .filter-advanced {
-    grid-template-columns: 1fr;
-  }
-
-  .keyword-filter {
-    flex-basis: 100%;
-  }
-}
-
-@media (max-width: 640px) {
-  .runops-kpis {
     grid-template-columns: 1fr;
   }
 }

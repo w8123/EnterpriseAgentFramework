@@ -35,13 +35,19 @@ public final class ReachAiMysqlMigrationRunner {
     private static final String MIGRATION_LOCK = "reachai-memory-migrations-v1";
 
     private static final List<String> REQUIRED_BASE_TABLES = Arrays.asList(
-            "control_context_item",
-            "control_context_memory_candidate",
-            "control_context_namespace",
-            "control_context_runtime_user_mapping",
             "control_platform_permission",
             "control_platform_role",
             "control_platform_role_permission",
+            "control_platform_user_role",
+            "control_tool_acl",
+            "model_instance",
+            "model_catalog_setting",
+            "runtime_agent_config_version",
+            "runtime_http_api_connection",
+            "runtime_run",
+            "control_embed_session",
+            "knowledge_base",
+            "knowledge_hit_log",
             "knowledge_business_index",
             "knowledge_business_index_record"
     );
@@ -316,9 +322,21 @@ public final class ReachAiMysqlMigrationRunner {
         if (!found.containsAll(REQUIRED_BASE_TABLES)) {
             throw new RunnerFailure("BASE_SCHEMA_INCOMPLETE", "PREFLIGHT", null, null, null, null);
         }
+        boolean currentMapping = scalarLong(connection,
+                "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() "
+                        + "AND TABLE_NAME = 'control_runtime_user_mapping'") == 1L;
+        boolean legacyMapping = scalarLong(connection,
+                "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() "
+                        + "AND TABLE_NAME = 'control_context_runtime_user_mapping'") == 1L;
+        if (currentMapping == legacyMapping) {
+            throw new RunnerFailure("RUNTIME_USER_MAPPING_SCHEMA_AMBIGUOUS", "PREFLIGHT",
+                    null, null, null, null);
+        }
+        String mappingTable = currentMapping
+                ? "control_runtime_user_mapping" : "control_context_runtime_user_mapping";
         long duplicateActiveOwners = scalarLong(connection,
                 "SELECT COUNT(*) FROM ("
-                        + "SELECT 1 FROM control_context_runtime_user_mapping "
+                        + "SELECT 1 FROM " + mappingTable + " "
                         + "WHERE status = 'ACTIVE' GROUP BY tenant_id, platform_user_id HAVING COUNT(*) > 1"
                         + ") duplicate_owner_slots");
         if (duplicateActiveOwners != 0L) {
@@ -377,6 +395,76 @@ public final class ReachAiMysqlMigrationRunner {
         try {
             List<CheckResult> checks = new ArrayList<>();
             switch (script) {
+                case "upgrade-20261019-consolidated.sql":
+                    checks.add(requireTables(connection, "recent.tables", 11,
+                            "runtime_http_api_project_connection", "model_provider_account",
+                            "control_personal_memory", "control_personal_memory_candidate",
+                            "control_personal_memory_audit", "control_personal_memory_outbox",
+                            "control_runtime_user_mapping", "runtime_automation", "runtime_automation_attempt",
+                            "runtime_automation_event", "runtime_automation_engine_command"));
+                    checks.add(requireTableProperties(connection, "recent.table_properties", 11,
+                            "runtime_http_api_project_connection", "model_provider_account",
+                            "control_personal_memory", "control_personal_memory_candidate",
+                            "control_personal_memory_audit", "control_personal_memory_outbox",
+                            "control_runtime_user_mapping", "runtime_automation", "runtime_automation_attempt",
+                            "runtime_automation_event", "runtime_automation_engine_command"));
+                    checks.add(requireColumns(connection, "recent.http_override", 1,
+                            "runtime_http_api_connection", "override_active"));
+                    checks.add(requireIndex(connection, "recent.http_project_scope",
+                            "runtime_http_api_project_connection", "uk_runtime_http_api_project_connection_scope",
+                            "project_id,environment", true));
+                    checks.add(requireColumns(connection, "recent.model_catalog", 1,
+                            "model_catalog_setting", "analyzer_model_instance_id"));
+                    checks.add(requireColumns(connection, "recent.model_account", 1,
+                            "model_instance", "provider_account_id"));
+                    checks.add(requireIndex(connection, "recent.model_account_index",
+                            "model_instance", "idx_model_instance_account", "provider_account_id", false));
+                    checks.add(requireColumns(connection, "recent.agent_memory", 4,
+                            "runtime_agent_config_version", "session_memory_enabled", "session_memory_window",
+                            "personal_memory_read", "personal_memory_write"));
+                    checks.add(requireColumns(connection, "recent.business_reference", 1,
+                            "knowledge_business_index", "agent_reference_enabled"));
+                    checks.add(requireIndex(connection, "recent.mapping_owner",
+                            "control_runtime_user_mapping", "uk_runtime_user_mapping_active",
+                            "tenant_id,platform_user_id,active_marker", true));
+                    checks.add(requireColumns(connection, "recent.embed_name", 1,
+                            "control_embed_session", "external_user_name"));
+                    checks.add(requireIndex(connection, "recent.run_session",
+                            "runtime_run", "idx_runtime_run_session_time", "session_id,started_at", false));
+                    checks.add(requireColumns(connection, "recent.knowledge_access", 1,
+                            "knowledge_base", "access_mode"));
+                    checks.add(requireColumns(connection, "recent.knowledge_hit_source", 1,
+                            "knowledge_hit_log", "source"));
+                    checks.add(requireIndex(connection, "recent.knowledge_hit_index",
+                            "knowledge_hit_log", "idx_kb_source_time", "knowledge_base_id,source,create_time", false));
+                    checks.add(requireZero(connection, "recent.retired_tables",
+                            "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() "
+                                    + "AND TABLE_NAME IN ('control_context_namespace','control_context_item',"
+                                    + "'control_context_binding','control_context_evidence','control_context_audit_event',"
+                                    + "'control_context_memory_candidate','control_context_memory_outbox',"
+                                    + "'control_context_runtime_user_mapping','runtime_agent_eval_dataset',"
+                                    + "'runtime_agent_eval_case','runtime_agent_eval_run','runtime_agent_eval_case_result',"
+                                    + "'knowledge_tag','knowledge_question')"));
+                    checks.add(requireZero(connection, "recent.retired_columns",
+                            "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND ("
+                                    + "(TABLE_NAME = 'knowledge_base' AND COLUMN_NAME IN "
+                                    + "('direct_return_enabled','direct_return_threshold')) OR "
+                                    + "(TABLE_NAME = 'knowledge_hit_log' AND COLUMN_NAME = 'direct_return') OR "
+                                    + "(TABLE_NAME = 'knowledge_business_index' AND COLUMN_NAME = 'agent_memory_enabled'))"));
+                    checks.add(requireZero(connection, "recent.retired_roles",
+                            "SELECT COUNT(*) FROM control_platform_role WHERE role_code IN ('AGENT_DESIGNER','PROJECT_OWNER')"));
+                    checks.add(requireZero(connection, "recent.retired_permissions",
+                            "SELECT COUNT(*) FROM control_platform_permission WHERE permission_code IN "
+                                    + "('workspace:build:access','workspace:operate:access','context:runtime-user:review')"));
+                    checks.add(requireAtLeast(connection, "recent.system_roles", 4,
+                            "SELECT COUNT(*) FROM control_platform_role WHERE role_kind = 'SYSTEM' AND role_code IN "
+                                    + "('PLATFORM_ADMIN','DEVELOPER','OPERATOR','AUDITOR')"));
+                    checks.add(requireAtLeast(connection, "recent.admin_acl", 1,
+                            "SELECT COUNT(*) FROM control_tool_acl WHERE role_code = 'PLATFORM_ADMIN' "
+                                    + "AND target_kind = 'ALL' AND target_name = '*' AND permission = 'ALLOW'"));
+                    checks.add(requireZero(connection, "recent.role_utf8",
+                            "SELECT COUNT(*) FROM control_platform_role WHERE role_kind = 'SYSTEM' AND role_name LIKE '%?%'"));
+                    break;
                 case "upgrade-20260830-platform-consolidated.sql":
                     for (String section : Arrays.asList(
                             "upgrade-20260823-a2a-hub.sql",
@@ -1125,6 +1213,12 @@ public final class ReachAiMysqlMigrationRunner {
         for (String line : lines) {
             String trimmed = line.trim();
             if (state.isNeutral() && current.toString().trim().isEmpty()
+                    && (trimmed.startsWith("--") || trimmed.startsWith("#"))) {
+                statementStartLine = lineNumber + 1;
+                lineNumber++;
+                continue;
+            }
+            if (state.isNeutral() && current.toString().trim().isEmpty()
                     && trimmed.toUpperCase(Locale.ROOT).startsWith("DELIMITER ")) {
                 String nextDelimiter = trimmed.substring("DELIMITER ".length()).trim();
                 if (nextDelimiter.isEmpty() || nextDelimiter.matches(".*\\s+.*")) {
@@ -1232,9 +1326,9 @@ public final class ReachAiMysqlMigrationRunner {
     }
 
     private static void runParserSelfTest() throws RunnerFailure {
-        String sample = "-- heading\nDROP PROCEDURE IF EXISTS p;\nDELIMITER $$\n"
+        String sample = "-- heading\nDROP PROCEDURE IF EXISTS p;\n-- helper\nDELIMITER $$\n"
                 + "CREATE PROCEDURE p()\nBEGIN\nSELECT 'a;''b';\nSELECT 2;\nEND$$\n"
-                + "DELIMITER ;\nCALL p();\nDROP PROCEDURE IF EXISTS p;\n";
+                + "DELIMITER ;\nCALL p();\nDROP PROCEDURE IF EXISTS p;\n-- footer\n# end\n";
         List<SqlUnit> statements = parseSql(sample);
         if (statements.size() != 4
                 || !statements.get(1).sql.contains("SELECT 2;")

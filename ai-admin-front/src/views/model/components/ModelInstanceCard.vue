@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import StatusTag from '@/components/common/StatusTag.vue'
+import { LiquidGlassButton } from '@/components/common/liquid-glass'
 import type { ModelInstance } from '@/types/model'
 import {
   extractBaseUrlAuthority,
@@ -87,14 +88,14 @@ const authority = computed(() => extractBaseUrlAuthority(props.instance.connecti
 
     <footer class="model-instance-card__actions">
       <template v-if="archived">
-        <el-button type="primary" plain @click="emit('manage', instance)">查看详情</el-button>
+        <LiquidGlassButton type="primary" @click="emit('manage', instance)">查看详情</LiquidGlassButton>
       </template>
       <template v-else>
-        <el-button :loading="testing" @click="emit('test', instance)">测试</el-button>
-        <el-button type="primary" plain @click="emit('manage', instance)">管理</el-button>
-        <el-button :loading="toggling" @click="emit('toggle', instance)">
+        <LiquidGlassButton :loading="testing" @click="emit('test', instance)">测试</LiquidGlassButton>
+        <LiquidGlassButton type="primary" @click="emit('manage', instance)">管理</LiquidGlassButton>
+        <LiquidGlassButton :loading="toggling" @click="emit('toggle', instance)">
           {{ instance.status === 'ACTIVE' ? '停用' : '启用' }}
-        </el-button>
+        </LiquidGlassButton>
       </template>
     </footer>
   </article>
@@ -107,10 +108,12 @@ const authority = computed(() => extractBaseUrlAuthority(props.instance.connecti
   flex-direction: column;
   gap: 14px;
   padding: 18px;
-  border: 1px solid var(--border-glass);
+  border: 1px solid var(--border-glass-edge);
   border-radius: var(--radius-lg);
-  background: var(--bg-card, var(--surface-glass-panel));
-  box-shadow: var(--shadow-panel);
+  background: var(--surface-glass-frost);
+  box-shadow: var(--shadow-glass-frost);
+  -webkit-backdrop-filter: blur(var(--glass-blur-frost));
+  backdrop-filter: blur(var(--glass-blur-frost));
   transition: border-color 0.18s ease, transform 0.18s ease;
 }
 
@@ -196,7 +199,7 @@ const authority = computed(() => extractBaseUrlAuthority(props.instance.connecti
   padding: 10px 12px;
   border: 1px solid color-mix(in srgb, var(--el-color-danger) 28%, var(--border-glass));
   border-radius: var(--radius-sm, 10px);
-  background: color-mix(in srgb, var(--el-color-danger) 7%, var(--bg-card));
+  background: color-mix(in srgb, var(--status-danger) 10%, transparent);
   color: var(--text-secondary);
   font-size: 12px;
   line-height: 1.5;

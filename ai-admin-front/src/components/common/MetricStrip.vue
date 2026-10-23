@@ -7,11 +7,13 @@ const props = withDefaults(
     items: MetricStripItem[]
     density?: WorkbenchDensity
     presentation?: 'panel' | 'inline'
+    source?: 'backdrop' | 'wallpaper'
     ariaLabel?: string
   }>(),
   {
     density: 'comfortable',
     presentation: 'panel',
+    source: 'backdrop',
     ariaLabel: '指标概览',
   },
 )
@@ -19,7 +21,7 @@ const props = withDefaults(
 
 <template>
   <section
-    :class="['metric-strip', 'glass-surface-panel', densityClass(props.density)]"
+    :class="['metric-strip', 'glass-surface-frost', densityClass(props.density), { 'samples-wallpaper': props.source === 'wallpaper' }]"
     :data-presentation="props.presentation"
     role="list"
     :aria-label="props.ariaLabel"
@@ -189,5 +191,12 @@ const props = withDefaults(
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;
+}
+
+.metric-strip[data-presentation='inline'].samples-wallpaper :is(.metric-strip__label, .metric-strip__hint) { color: var(--text-on-wallpaper-secondary); }
+.metric-strip[data-presentation='inline'].samples-wallpaper .metric-strip__value { color: var(--text-on-wallpaper); }
+.metric-strip[data-presentation='inline'].samples-wallpaper .metric-strip__item + .metric-strip__item { border-color: color-mix(in srgb, var(--text-on-wallpaper) 16%, transparent); }
+@media (forced-colors: active) {
+  .metric-strip[data-presentation='inline'].samples-wallpaper :is(.metric-strip__label, .metric-strip__value, .metric-strip__hint) { color: CanvasText; }
 }
 </style>

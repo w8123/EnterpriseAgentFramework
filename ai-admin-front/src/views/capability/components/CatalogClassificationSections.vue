@@ -1,4 +1,5 @@
 <script setup lang="ts" generic="Row extends { id?: number; assetId?: number }">
+import { LiquidGlassNotice } from '@/components/common/liquid-glass'
 import { computed, ref, watch } from 'vue'
 import { platformSessionId } from '@/auth/platformSession'
 import { ArrowDown, ArrowRight, Document, MoreFilled } from '@element-plus/icons-vue'
@@ -58,9 +59,15 @@ const selectionMissing = computed(() => !!props.selected && props.selected !== '
       <slot :rows="rows" :memberships-for="membershipsFor" :selected-ids="selectedIds" :is-selected="isSelected" :toggle-row="toggleRow" />
     </template>
     <template v-else>
-      <el-alert v-if="error" type="warning" :closable="false" show-icon :title="error" class="classification-load-state">
-        <template #default><el-button link type="primary" aria-label="重新读取业务分类" @click="emit('retry')">重试分类</el-button></template>
-      </el-alert>
+      <LiquidGlassNotice
+        v-if="error"
+        type="warning"
+        :title="error"
+        class="classification-load-state"
+        source="backdrop"
+      >
+        <template #actions><el-button link type="primary" aria-label="重新读取业务分类" @click="emit('retry')">重试分类</el-button></template>
+      </LiquidGlassNotice>
       <p v-else-if="loading" class="classification-scope-hint" role="status">正在读取业务分类；能力列表仍可查看。</p>
       <p v-else-if="selectionMissing" class="classification-scope-hint" role="status">所选业务分类已不可用，请查看全部分类或重试。</p>
       <div v-if="index && showNavigation" :class="many ? 'classification-navigation' : 'classification-overview'" aria-label="业务分类，数量为项目全量">

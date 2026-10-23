@@ -1,20 +1,19 @@
 <template>
   <section class="capability-catalog-page" aria-label="Java 业务方法目录">
-    <el-alert
+    <LiquidGlassNotice
       v-if="listError"
       type="error"
-      show-icon
-      :closable="false"
       :title="listError"
+      source="wallpaper"
       class="catalog-load-alert"
     >
-      <template #default>
-        <p v-if="listErrorDiagnostic" class="catalog-load-diagnostic">{{ listErrorDiagnostic }}</p>
+      <span v-if="listErrorDiagnostic" class="catalog-load-diagnostic">{{ listErrorDiagnostic }}</span>
+      <template #actions>
         <el-button link type="primary" @click="loadMethods">重新加载{{ catalogCopy.title }}</el-button>
       </template>
-    </el-alert>
+    </LiquidGlassNotice>
 
-    <ProjectScopeState
+    <ProjectScopeState source="wallpaper"
       v-if="!businessScopeReady"
       title="业务方法范围尚未确认"
       :message="businessScopeMessage"
@@ -41,7 +40,7 @@
       @size-change="query.changeSize"
     >
       <template #filters>
-        <el-input
+        <LiquidGlassInput
           v-model="query.draft.keyword"
           class="filter-control is-keyword"
           :prefix-icon="Search"
@@ -52,7 +51,7 @@
           @compositionend="composing = false"
           @clear="applyFilters"
         />
-        <el-select
+        <LiquidGlassSelect
           v-if="showProjectFilter"
           :model-value="projectFilterValue"
           class="filter-control is-project"
@@ -66,8 +65,8 @@
             :value="String(project.id)" :label="project.name" />
           <el-option v-if="invalidProjectFilter" :value="projectFilterValue"
             label="所选项目不可用" disabled />
-        </el-select>
-        <el-select
+        </LiquidGlassSelect>
+        <LiquidGlassSelect
           :model-value="query.filters.value.groupId"
           class="filter-control is-classification"
           :placeholder="allCatalogProjects ? '选择项目后按分类筛选' : '业务分类'"
@@ -85,8 +84,8 @@
           </template>
           <el-option v-if="classificationSelectionUnavailable" :value="query.filters.value.groupId"
             :label="query.filters.value.groupId === 'unclassified' ? '未分类（待更新）' : classification.index.value ? '所选分类已不可用' : '所选分类待更新'" disabled />
-        </el-select>
-        <el-select
+        </LiquidGlassSelect>
+        <LiquidGlassSelect
           v-model="query.draft.enabled"
           class="filter-control is-status"
           placeholder="启用状态"
@@ -96,7 +95,7 @@
         >
           <el-option label="已启用" value="true" />
           <el-option label="已停用" value="false" />
-        </el-select>
+        </LiquidGlassSelect>
       </template>
 
       <CatalogClassificationSections :rows="methods" :identity="methodIdentity" :index="classification.index.value"
@@ -204,6 +203,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { LiquidGlassInput, LiquidGlassSelect, LiquidGlassNotice } from '@/components/common/liquid-glass'
 import { ElMessage } from 'element-plus'
 import { ArrowRight, Search } from '@element-plus/icons-vue'
 import BusinessCapabilityCatalogList from './components/BusinessCapabilityCatalogList.vue'

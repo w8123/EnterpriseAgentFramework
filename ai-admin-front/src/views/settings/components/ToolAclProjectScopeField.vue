@@ -59,6 +59,6 @@ onMounted(() => {
 <style scoped>
 .acl-project-scope-field { width: 100%; }
 .acl-project-scope-field :deep(.el-select) { width: 100%; }
-.scope-hint, .scope-error { margin: 6px 0 0; color: var(--text-secondary); font-size: var(--font-size-sm); line-height: 1.5; }
+.scope-hint, .scope-error { margin: 6px 0 0; color: var(--text-secondary); font-size: 13px; line-height: 1.5; }
 .scope-error { color: var(--el-color-danger); }
 </style>

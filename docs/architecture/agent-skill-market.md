@@ -174,7 +174,7 @@ flowchart LR
 
 保存一次受治理引入的不可变溯源：provider、市场条目、仓库、精确 commit、所选根目录、原始 Bundle 摘要、所选单包摘要、最终 Skill/版本、导入者和时间。它引用现有 `control_agent_skill` 与 `control_agent_skill_version`，但不复制制品或评审状态。
 
-全新环境由 `sql/initV2.sql` 创建；从 GitHub 基线 `ae9e1ce6` 升级的开发/测试库完整执行 `sql/upgrade-20260830-platform-consolidated.sql`，Agent Skill 目录和市场分别位于 Section 02/04。
+Agent Skill 目录和市场结构、权限与来源种子已进入 `sql/initV2.sql`。已有库按 [SQL 说明](../../sql/README.md) 核对结构；历史迁移从匹配版本的 Git 历史获取，近期合并升级不再重复承载本模块建表。
 
 ## 9. 安全与供应链门禁
 
@@ -280,7 +280,7 @@ reachai:
 
 | 链路 | 真实证据 | 结论 |
 | --- | --- | --- |
-| 数据库 | 合并前来源脚本 `upgrade-20260823-agent-skill-catalog.sql` 与 `upgrade-20260824-agent-skill-market.sql` 均由 Connector/J 执行两遍；现已完整收口到合并升级 Section 02/04。五张目录/绑定表、两张市场表、六项权限、六个来源种子、索引、`utf8mb4` 和中文回读全部通过 | `LOCAL_LIVE_VERIFIED` |
+| 数据库 | 合并前来源脚本 `upgrade-20260823-agent-skill-catalog.sql` 与 `upgrade-20260824-agent-skill-market.sql` 均由 Connector/J 执行两遍；最终结构已进入初始化基线，来源脚本从 Git 历史查阅。五张目录/绑定表、两张市场表、六项权限、六个来源种子、索引、`utf8mb4` 和中文回读全部通过 | `LOCAL_LIVE_VERIFIED` |
 | 市场发现 | 真实 skills.sh 公共搜索返回 36 个发现结果；后续上游曾间歇返回 502，页面保留可解释降级，精选来源和 GitHub 直接检查不受影响 | `LOCAL_LIVE_VERIFIED_WITH_UPSTREAM_DEGRADATION` |
 | 作者引入 | 独立作者账号从 `vercel-labs/agent-skills` 的完整 commit `dd089a8c752c966dee8bf0f27cb625ba193ffd9e` 选择 `skills/web-design-guidelines`；记录 Bundle SHA-256 `e22d0ee9ee5d064d7514c83cf910b3923176f1bf2505aa5ae287717e8e738683` 与单包 SHA-256 `956d7e26f8717124a099bb7ef867e742a9f4507d29e8e1e82c60f7892fd1bc4a` | `LOCAL_LIVE_VERIFIED` |
 | 评审与发布 | 独立评审账号检查不可变来源、双摘要、无脚本和 License 未确认风险后批准；Skill 5 / Version 5 进入 `MARKET / PUBLISHED`，内容树 SHA-256 为 `c6a5bac6aff9eb38fb55a88515f16ac477e55ae0776a10ee921eb0666e0849f8` | `LOCAL_LIVE_VERIFIED` |

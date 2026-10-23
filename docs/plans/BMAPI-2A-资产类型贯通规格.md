@@ -1,5 +1,7 @@
 # BMAPI-2A：资产类型贯通规格
 
+> 2026-10-19 SQL 入口整理：2026-10-15 及以前的升级最终效果已进入初始化基线，历史脚本从 Git 查阅；10 月 16–18 日的升级已合并为 `sql/upgrade-20261019-consolidated.sql`。以下保留各批次当时的验证与执行记录，当前入口和适用范围见 [SQL 说明](../../sql/README.md)。
+
 更新时间：2026-09-15。状态：主任务已定规格，待执行任务实现与验证。
 
 关联：[实施基线](./业务方法与API重构实施基线.md) U1/U2、[设计决策](./业务方法与API重构设计决策.md) Q1–Q3/Q6。本文只覆盖方法和现有 MVC 描述符的类型贯通，不等于业务方法产品已交付。
@@ -17,7 +19,7 @@
 - `reachai-capability-sdk`：明确类型契约与 descriptor/scanner。
 - `reachai-spring-boot2-starter`：MVC descriptor 类型赋值及注册 metadata 传递。
 - `reachai-capability-service`：统一类型解析/校验，来源应用、更新、回滚和必要读取投影的一致性；相关实体与测试。
-- `sql/initV2.sql`、`sql/upgrade-20260915-capability-asset-type.sql`、`sql/README.md`；必要契约说明及服务表所有权说明。
+- `sql/initV2.sql`、`sql/README.md`（当时的资产类型升级现已并入基线）；必要契约说明及服务表所有权说明。
 - 本批结果写 `output/tasks/business-method-api/BMAPI-2A-实施结果.md`，完整测试输出放同目录的批次子目录。
 
 不修改主任务维护的基线、设计决策和进度；不修改前端、Control、Runtime 主路径、API 市场、通用权限和 A2d0 WIP。若存在必须跨出范围的实际编译/契约依赖，先回报具体文件、错误及最小方案。

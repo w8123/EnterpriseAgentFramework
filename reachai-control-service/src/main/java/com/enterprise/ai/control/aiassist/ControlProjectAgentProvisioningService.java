@@ -159,7 +159,7 @@ public class ControlProjectAgentProvisioningService {
                 "systemPrompt",
                 DEFAULT_PAGE_COPILOT_SYSTEM_PROMPT);
         draftRequest.put("modelInstanceId", modelInstanceId);
-        draftRequest.put("policyProfile", "DEV_ALLOW_ALL");
+        draftRequest.put("policyProfile", "STANDARD");
         draftRequest.put("toolCatalogMode", "ALLOW_LIST");
         draftRequest.put(
                 "configJson",

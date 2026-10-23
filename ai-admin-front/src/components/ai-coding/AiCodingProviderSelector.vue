@@ -134,23 +134,23 @@ function providerClass(provider: AiCodingExecutorProvider) {
 }
 
 .ai-coding-provider-selector__button.is-cursor {
-  background-color: #fff;
+  background-color: var(--surface-solid-panel);
 }
 
 .ai-coding-provider-selector__button.is-cursor:hover {
-  background-color: color-mix(in srgb, #fff 90%, var(--brand-primary));
+  background-color: color-mix(in srgb, var(--surface-solid-panel) 90%, var(--brand-primary));
 }
 
 .ai-coding-provider-selector__button.is-cursor.is-active {
-  background-color: color-mix(in srgb, #fff 84%, var(--brand-primary));
+  background-color: color-mix(in srgb, var(--surface-solid-panel) 84%, var(--brand-primary));
 }
 
 .ai-coding-provider-selector__button.is-trae:not(.is-active) {
-  background-color: color-mix(in srgb, #32f08c 7%, transparent);
+  background-color: color-mix(in srgb, var(--status-success) 7%, transparent);
 }
 
 .ai-coding-provider-selector__button.is-claude-code:not(.is-active) {
-  background-color: color-mix(in srgb, #d97757 7%, transparent);
+  background-color: color-mix(in srgb, var(--status-danger) 7%, transparent);
 }
 
 .ai-coding-provider-selector.is-compact {

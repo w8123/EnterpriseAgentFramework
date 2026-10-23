@@ -59,7 +59,7 @@ Control 先从 Capability owner 解析真实项目，再调用 Runtime-owned Age
     "maxPlanSteps": 6,
     "maxWorkflowCalls": 4,
     "maxReplans": 2,
-    "policyProfile": "DEV_ALLOW_ALL"
+    "policyProfile": "STANDARD"
   },
   "activate": true,
   "requestedBy": "Codex"

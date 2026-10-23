@@ -1,4 +1,4 @@
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import ElementPlus from 'element-plus'
 import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import { describe, expect, it } from 'vitest'
@@ -28,16 +28,26 @@ describe('business capability catalog controls', () => {
     const wrapper = render()
     expect(wrapper.text()).toContain('共 2 条')
     expect(wrapper.find('.el-pagination__jump').exists()).toBe(false)
-    expect(wrapper.get('.el-pagination').classes()).toContain('is-background')
+    expect(wrapper.find('.liquid-pagination__dock').exists()).toBe(true)
     expect(wrapper.get('.btn-next').attributes('disabled')).toBeDefined()
-    expect(wrapper.find('.el-pagination__sizes').exists()).toBe(true)
+    expect(wrapper.find('.liquid-pagination__size').exists()).toBe(true)
     await wrapper.setProps({ total: 40 })
     expect(wrapper.find('.el-pagination__jump').exists()).toBe(false)
     expect(wrapper.get('.btn-next').attributes('disabled')).toBeUndefined()
     await wrapper.get('.btn-next').trigger('click')
+    await flushPromises()
     expect(wrapper.emitted('pageChange')).toEqual([[2]])
     await wrapper.setProps({ total: 2, currentPage: 2 })
     expect(wrapper.find('.btn-prev').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('changes page size once without also issuing a page request', async () => {
+    const wrapper = render({ total: 90, currentPage: 3 })
+    wrapper.get('.liquid-pagination__size').findComponent({ name: 'ElSelect' }).vm.$emit('update:modelValue', 10)
+    await flushPromises()
+    expect(wrapper.emitted('sizeChange')).toEqual([[10]])
+    expect(wrapper.emitted('pageChange')).toBeUndefined()
     wrapper.unmount()
   })
 })

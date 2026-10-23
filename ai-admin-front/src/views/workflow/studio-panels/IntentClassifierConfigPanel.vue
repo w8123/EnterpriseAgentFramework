@@ -1,74 +1,85 @@
 <template>
   <div class="node-specific-panel">
-    <el-divider>意图分类</el-divider>
-    <el-form-item label="分类策略">
-      <el-segmented v-model="config.strategy" :options="strategyOptions" />
-    </el-form-item>
-    <el-form-item label="输入表达式">
-      <el-input v-model="config.inputExpression" placeholder="input / lastOutput / params.question" />
-    </el-form-item>
-    <template v-if="showLlmSettings">
-      <el-form-item label="模型实例">
-        <el-select
-          v-model="config.modelInstanceId"
-          filterable
-          placeholder="选择用于分类的模型"
-          style="width: 100%"
-          :loading="modelOptionsLoading"
-          @visible-change="handleModelSelectVisible"
-        >
-          <el-option
-            v-for="item in modelOptions"
-            :key="item.id"
-            :label="`${item.name} / ${item.modelName}`"
-            :value="item.id"
-          />
-          <template #empty>
-            <ModelSelectEmptyState
-              model-type="LLM"
-              :option-count="modelOptions.length"
-              :loading="modelOptionsLoading"
-              :load-error="modelOptionsLoadError"
-              @retry="emit('reloadModelOptions')"
+    <ConfigSection title="分类方式">
+      <el-form-item label="分类策略">
+        <el-segmented v-model="config.strategy" :options="strategyOptions" />
+      </el-form-item>
+      <el-form-item label="输入表达式">
+        <el-input v-model="config.inputExpression" placeholder="input / lastOutput / params.question" />
+      </el-form-item>
+      <template v-if="showLlmSettings">
+        <el-form-item label="模型实例">
+          <el-select
+            v-model="config.modelInstanceId"
+            filterable
+            placeholder="选择用于分类的模型"
+            style="width: 100%"
+            :loading="modelOptionsLoading"
+            @visible-change="handleModelSelectVisible"
+          >
+            <el-option
+              v-for="item in modelOptions"
+              :key="item.id"
+              :label="`${item.name} / ${item.modelName}`"
+              :value="item.id"
             />
-          </template>
-        </el-select>
-      </el-form-item>
-      <el-form-item label="置信度阈值">
-        <el-input-number v-model="config.confidenceThreshold" :min="0" :max="1" :step="0.05" style="width: 100%" />
-      </el-form-item>
-      <el-form-item label="LLM Prompt">
+            <template #empty>
+              <ModelSelectEmptyState
+                model-type="LLM"
+                :option-count="modelOptions.length"
+                :loading="modelOptionsLoading"
+                :load-error="modelOptionsLoadError"
+                @retry="emit('reloadModelOptions')"
+              />
+            </template>
+          </el-select>
+        </el-form-item>
+        <el-form-item label="置信度阈值">
+          <el-input-number v-model="config.confidenceThreshold" :min="0" :max="1" :step="0.05" style="width: 100%" />
+        </el-form-item>
+        <ConfigSection
+          title="自定义提示词"
+          description="留空使用内置分类规则"
+          collapsible
+          :default-open="!!config.llmPrompt"
+        >
+          <el-form-item label="LLM Prompt">
+            <el-input
+              v-model="config.llmPrompt"
+              type="textarea"
+              :rows="3"
+              placeholder="留空则使用内置分类提示；可用 {{ input }} 等模板变量"
+            />
+          </el-form-item>
+        </ConfigSection>
+      </template>
+    </ConfigSection>
+    <ConfigSection title="分类分支" description="命中分类时走对应连线，否则走默认分支">
+      <div class="field-table-head">
+        <strong>分类分支</strong>
+        <el-button size="small" type="primary" plain @click="addClass">添加分类</el-button>
+      </div>
+      <div v-for="(item, index) in config.classes" :key="index" class="classifier-row">
+        <el-input v-model="item.id" placeholder="分支标识" />
+        <el-input v-model="item.label" placeholder="显示名" />
+        <el-input v-model="item.description" placeholder="语义描述（LLM/HYBRID 推荐填写）" />
         <el-input
-          v-model="config.llmPrompt"
-          type="textarea"
-          :rows="3"
-          placeholder="留空则使用内置分类提示；可用 {{ input }} 等模板变量"
+          v-if="showKeywordSettings"
+          :model-value="item.keywords.join(', ')"
+          placeholder="关键词，逗号分隔"
+          @update:model-value="item.keywords = splitKeywords($event)"
         />
+        <el-button text type="danger" @click="config.classes.splice(index, 1)">删除</el-button>
+      </div>
+      <el-form-item label="默认分支">
+        <el-input v-model="config.defaultRoute" placeholder="else" />
       </el-form-item>
-    </template>
-    <div class="field-table-head">
-      <strong>分类分支</strong>
-      <el-button size="small" type="primary" plain @click="addClass">添加分类</el-button>
-    </div>
-    <div v-for="(item, index) in config.classes" :key="index" class="classifier-row">
-      <el-input v-model="item.id" placeholder="route id" />
-      <el-input v-model="item.label" placeholder="显示名" />
-      <el-input v-model="item.description" placeholder="语义描述（LLM/HYBRID 推荐填写）" />
-      <el-input
-        v-if="showKeywordSettings"
-        :model-value="item.keywords.join(', ')"
-        placeholder="关键词，逗号分隔"
-        @update:model-value="item.keywords = splitKeywords($event)"
-      />
-      <el-button text type="danger" @click="config.classes.splice(index, 1)">删除</el-button>
-    </div>
-    <el-form-item label="默认分支">
-      <el-input v-model="config.defaultRoute" placeholder="else" />
-    </el-form-item>
+    </ConfigSection>
   </div>
 </template>
 
 <script setup lang="ts">
+import ConfigSection from './ConfigSection.vue'
 import { computed, watch } from 'vue'
 import type { CanvasNodeData, IntentClassifierNodeConfig } from '@/types/studio'
 import type { ModelInstance } from '@/types/model'
@@ -88,7 +99,7 @@ const emit = defineEmits<{
 
 const strategyOptions = [
   { label: '关键词', value: 'KEYWORD' },
-  { label: 'LLM', value: 'LLM' },
+  { label: '模型分类', value: 'LLM' },
   { label: '混合', value: 'HYBRID' },
 ]
 

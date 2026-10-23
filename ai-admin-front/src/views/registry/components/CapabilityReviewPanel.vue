@@ -100,7 +100,12 @@
           <div class="detail-heading"><h3>{{ displayName(selected) }}</h3><StatusTag :label="statusLabel(selected)" :tone="statusTone(selected)" /></div>
           <code class="capability-id">{{ selected.qualifiedName }}</code>
           <p class="detail-reason">{{ impact.reason || '核对本次能力定义变化。' }}</p>
-          <el-alert v-if="sourceWarning" :title="sourceWarning" type="warning" :closable="false" show-icon />
+          <LiquidGlassNotice
+            v-if="sourceWarning"
+            :title="sourceWarning"
+            type="warning"
+            source="backdrop"
+          />
         </section>
 
         <section class="detail-section">
@@ -145,22 +150,28 @@
       </div>
       <template #footer>
         <div class="detail-actions">
-          <el-button @click="detailVisible = false">关闭</el-button>
+          <LiquidGlassButton @click="detailVisible = false">关闭</LiquidGlassButton>
           <div class="decision-actions">
             <template v-if="selected && canReview && selected.reviewStatus === 'PENDING' && impact.currentCandidate !== false">
-              <el-button @click="prepareDecision('IGNORE')">忽略这次变化</el-button>
-              <el-button type="primary" @click="prepareDecision('APPLY')">{{ selected.changeType === 'DELETED' ? '确认下线' : '接受变化' }}</el-button>
+              <LiquidGlassButton @click="prepareDecision('IGNORE')">忽略这次变化</LiquidGlassButton>
+              <LiquidGlassButton type="primary" @click="prepareDecision('APPLY')">{{ selected.changeType === 'DELETED' ? '确认下线' : '接受变化' }}</LiquidGlassButton>
             </template>
-            <el-button v-if="selected?.rollbackAvailable && ['APPLIED', 'AUTO_APPLIED'].includes(selected.reviewStatus) && canReview" type="warning" @click="prepareDecision('ROLLBACK')">恢复上次目录定义</el-button>
+            <LiquidGlassButton v-if="selected?.rollbackAvailable && ['APPLIED', 'AUTO_APPLIED'].includes(selected.reviewStatus) && canReview" type="warning" @click="prepareDecision('ROLLBACK')">恢复上次目录定义</LiquidGlassButton>
           </div>
         </div>
       </template>
     </AppDrawer>
     <AppDialog v-model="decisionVisible" class="capability-change-dialog" :title="decisionTitle" width="min(540px, 94vw)" append-to-body :show-close="!acting" :close-on-click-modal="!acting" :close-on-press-escape="!acting">
       <div class="decision-context"><strong>{{ selected ? displayName(selected) : '' }}</strong><p>{{ decisionDescription }}</p></div>
-      <el-alert v-if="decisionError" type="error" :title="decisionError" :closable="false" show-icon class="decision-error" />
+      <LiquidGlassNotice
+        v-if="decisionError"
+        type="error"
+        :title="decisionError"
+        class="decision-error"
+        source="backdrop"
+      />
       <el-form label-position="top"><el-form-item label="处理说明（可选）"><el-input v-model="note" type="textarea" :autosize="{ minRows: 3, maxRows: 6 }" resize="none" maxlength="500" show-word-limit :disabled="acting" /></el-form-item></el-form>
-      <template #footer><el-button :disabled="acting" @click="decisionVisible = false">取消</el-button><el-button type="primary" :loading="acting" @click="submitDecision">{{ decisionTitle }}</el-button></template>
+      <template #footer><LiquidGlassButton :disabled="acting" @click="decisionVisible = false">取消</LiquidGlassButton><LiquidGlassButton type="primary" :loading="acting" @click="submitDecision">{{ decisionTitle }}</LiquidGlassButton></template>
     </AppDialog>
   </section>
 </template>
@@ -179,6 +190,7 @@ import type { StatusTone } from '@/components/common/glassWorkbench'
 import { listCapabilityChanges, reviewCapabilityDiffItem, rollbackCapabilityDiffItem } from '@/api/registry'
 import type { CapabilityDiffReviewItem } from '@/types/registry'
 import { capabilityFieldLabel, parseCapabilityFieldDiffs, prettyCapabilityValue } from '@/views/capability/capabilityGovernance'
+import { LiquidGlassNotice, LiquidGlassButton } from '@/components/common/liquid-glass'
 
 type Action = 'APPLY' | 'IGNORE' | 'ROLLBACK'
 type Reference = { kind: string; id: string; name?: string; stage?: string; version?: string }

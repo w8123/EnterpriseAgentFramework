@@ -6,7 +6,12 @@
         : '可信 SDK 同步按项目策略自动接纳声明；这里只处理需要确认的例外变化，并保留来源与处理记录。'" />
     </header>
     <CapabilityReviewPanel v-if="canRead && platformSessionId" :key="contextKey" ref="reviewPanelRef" :project-code="project.projectCode || ''" :density="density" :presentation="presentation === 'inline' ? 'status' : 'panel'" />
-    <el-alert v-else title="当前账号无权读取本项目的来源变化。" type="warning" :closable="false" show-icon />
+    <LiquidGlassNotice
+      v-else
+      title="当前账号无权读取本项目的来源变化。"
+      type="warning"
+      source="backdrop"
+    />
   </section>
 </template>
 
@@ -17,6 +22,7 @@ import { hasPlatformResourcePermission, PLATFORM_PERMISSION_READ } from '@/auth/
 import GlassSectionHeader from '@/components/common/GlassSectionHeader.vue'
 import CapabilityReviewPanel from './CapabilityReviewPanel.vue'
 import type { ScanProject } from '@/types/scanProject'
+import { LiquidGlassNotice } from '@/components/common/liquid-glass'
 
 const props = withDefaults(defineProps<{ project: ScanProject; density?: 'comfortable' | 'compact'; presentation?: 'panel' | 'inline' }>(), { density: 'comfortable', presentation: 'panel' })
 const reviewPanelRef = ref<InstanceType<typeof CapabilityReviewPanel> | null>(null)

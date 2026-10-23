@@ -1,77 +1,79 @@
 <template>
   <div class="node-specific-panel">
-    <el-divider>变量赋值</el-divider>
-    <el-alert
-      title="目标写入 var.&lt;alias&gt; 业务命名空间。先解析全部右值，再原子写入。字符串默认按表达式/模板解析；number/boolean/object/array/null 以原生 JSON 类型保存。"
-      type="info"
-      :closable="false"
-      class="panel-alert"
-    />
-    <el-alert
-      v-if="jsonError"
-      :title="jsonError"
-      type="error"
-      :closable="false"
-      class="panel-alert"
-      data-testid="variable-assign-json-error"
-    />
-    <div class="field-table-head">
-      <strong>赋值项</strong>
-      <el-button size="small" type="primary" plain @click="addAssignment">添加赋值</el-button>
-    </div>
-    <div v-for="(item, index) in rows" :key="index" class="assign-row">
-      <el-input v-model="item.target" placeholder="目标，如 customer_id 或 var.order.status" @change="sync" />
-      <el-select v-model="item.valueKind" style="width: 140px" @change="onKindChange(item)">
-        <el-option label="表达式/模板" value="expression" />
-        <el-option label="number" value="number" />
-        <el-option label="boolean" value="boolean" />
-        <el-option label="object/array JSON" value="json" />
-        <el-option label="null" value="null" />
-      </el-select>
-      <template v-if="item.valueKind === 'expression'">
-        <el-select
-          v-model="item.textValue"
-          filterable
-          :fit-input-width="true"
-          popper-class="workflow-variable-assign-options"
-          allow-create
-          default-first-option
-          placeholder="表达式/模板字符串，如 input 或 {{ params.q }}"
-          @change="sync"
-        >
-          <el-option
-            v-for="option in normalizedVariableOptions"
-            :key="option.value"
-            :label="option.label"
-            :value="option.value"
-          />
+    <ConfigSection title="赋值规则" description="设置目标变量与取值来源">
+      <LiquidGlassNotice
+        title="下游使用 var.变量名 引用结果。可选择变量、表达式或固定值；所有赋值计算成功后一起写入。"
+        type="info"
+        class="panel-alert"
+        source="backdrop"
+      />
+      <LiquidGlassNotice
+        v-if="jsonError"
+        :title="jsonError"
+        type="error"
+        class="panel-alert"
+        data-testid="variable-assign-json-error"
+        source="backdrop"
+      />
+      <div class="field-table-head">
+        <strong>赋值项</strong>
+        <el-button size="small" type="primary" plain @click="addAssignment">添加赋值</el-button>
+      </div>
+      <div v-for="(item, index) in rows" :key="index" class="assign-row">
+        <el-input v-model="item.target" placeholder="目标，如 customer_id 或 var.order.status" @change="sync" />
+        <el-select v-model="item.valueKind" style="width: 140px" @change="onKindChange(item)">
+          <el-option label="表达式/模板" value="expression" />
+          <el-option label="数字" value="number" />
+          <el-option label="布尔值" value="boolean" />
+          <el-option label="对象 / 数组" value="json" />
+          <el-option label="空值 null" value="null" />
         </el-select>
-      </template>
-      <template v-else-if="item.valueKind === 'number'">
-        <el-input-number v-model="item.numberValue" controls-position="right" @change="sync" />
-      </template>
-      <template v-else-if="item.valueKind === 'boolean'">
-        <el-switch v-model="item.boolValue" @change="sync" />
-      </template>
-      <template v-else-if="item.valueKind === 'json'">
-        <el-input
-          v-model="item.jsonText"
-          type="textarea"
-          :rows="2"
-          placeholder='例如 {"a":1} 或 [1,true]'
-          @change="sync"
-        />
-      </template>
-      <template v-else>
-        <el-tag type="info">null</el-tag>
-      </template>
-      <el-button text type="danger" @click="removeAssignment(index)">删除</el-button>
-    </div>
-    <div v-if="!rows.length" class="panel-empty-row">至少配置一条赋值。</div>
+        <template v-if="item.valueKind === 'expression'">
+          <el-select
+            v-model="item.textValue"
+            filterable
+            :fit-input-width="true"
+            popper-class="workflow-variable-assign-options"
+            allow-create
+            default-first-option
+            placeholder="表达式/模板字符串，如 input 或 {{ params.q }}"
+            @change="sync"
+          >
+            <el-option
+              v-for="option in normalizedVariableOptions"
+              :key="option.value"
+              :label="option.label"
+              :value="option.value"
+            />
+          </el-select>
+        </template>
+        <template v-else-if="item.valueKind === 'number'">
+          <el-input-number v-model="item.numberValue" controls-position="right" @change="sync" />
+        </template>
+        <template v-else-if="item.valueKind === 'boolean'">
+          <el-switch v-model="item.boolValue" @change="sync" />
+        </template>
+        <template v-else-if="item.valueKind === 'json'">
+          <el-input
+            v-model="item.jsonText"
+            type="textarea"
+            :rows="2"
+            placeholder='例如 {"a":1} 或 [1,true]'
+            @change="sync"
+          />
+        </template>
+        <template v-else>
+          <el-tag type="info">null</el-tag>
+        </template>
+        <el-button text type="danger" @click="removeAssignment(index)">删除</el-button>
+      </div>
+      <div v-if="!rows.length" class="panel-empty-row">至少配置一条赋值。</div>
+    </ConfigSection>
   </div>
 </template>
 
 <script setup lang="ts">
+import ConfigSection from './ConfigSection.vue'
 import { computed, ref, watch } from 'vue'
 import type { CanvasNodeData, StudioVariableOption } from '@/types/studio'
 import {
@@ -79,6 +81,7 @@ import {
   type VariableAssignRow,
   type VariableAssignValueKind,
 } from './variableAssignValue'
+import { LiquidGlassNotice } from '@/components/common/liquid-glass'
 
 const props = defineProps<{
   data: CanvasNodeData
@@ -192,7 +195,21 @@ function removeAssignment(index: number) {
 }
 @container studio-config (max-width: 640px) {
   .assign-row {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 12px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+  }
+  .assign-row > :nth-child(2) {
+    width: 100% !important;
+  }
+  .assign-row > :nth-child(3) {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+  .assign-row > .el-button {
+    grid-column: 2;
+    justify-self: end;
   }
 }
 .panel-empty-row {

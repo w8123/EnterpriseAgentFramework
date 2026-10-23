@@ -1,40 +1,43 @@
 <template>
   <div class="node-specific-panel">
-    <el-divider>模板转换</el-divider>
-    <el-alert
-      title="TEMPLATE 是中间转换节点，输出 string，不会终止工作流。最终用户回答请使用 ANSWER。缺失变量按空字符串渲染。"
-      type="info"
-      :closable="false"
-      class="panel-alert"
-    />
-    <el-form-item label="模板">
-      <el-input
-        v-model="templateText"
-        type="textarea"
-        :rows="8"
-        placeholder="例如：订单 {{ var.orderId }} 状态为 {{ lastOutput }}"
+    <ConfigSection title="文本模板" description="引用变量生成文本，供后续节点继续使用">
+      <LiquidGlassNotice
+        title="生成的文本供后续节点使用；最终回复请使用回复节点。缺失变量会替换为空字符串。"
+        type="info"
+        class="panel-alert"
+        source="backdrop"
       />
-    </el-form-item>
-    <div class="field-table-head">
-      <strong>插入变量</strong>
-    </div>
-    <div class="variable-chips">
-      <el-button
-        v-for="option in normalizedVariableOptions.slice(0, 12)"
-        :key="option"
-        size="small"
-        plain
-        @click="insertVariable(option)"
-      >
-        {{ option }}
-      </el-button>
-    </div>
+      <el-form-item label="模板">
+        <el-input
+          v-model="templateText"
+          type="textarea"
+          :rows="8"
+          placeholder="例如：订单 {{ var.orderId }} 状态为 {{ lastOutput }}"
+        />
+      </el-form-item>
+      <div class="field-table-head">
+        <strong>插入变量</strong>
+      </div>
+      <div class="variable-chips">
+        <el-button
+          v-for="option in normalizedVariableOptions.slice(0, 12)"
+          :key="option"
+          size="small"
+          plain
+          @click="insertVariable(option)"
+        >
+          {{ option }}
+        </el-button>
+      </div>
+    </ConfigSection>
   </div>
 </template>
 
 <script setup lang="ts">
+import ConfigSection from './ConfigSection.vue'
 import { computed } from 'vue'
 import type { CanvasNodeData, StudioVariableOption } from '@/types/studio'
+import { LiquidGlassNotice } from '@/components/common/liquid-glass'
 
 const props = defineProps<{
   data: CanvasNodeData

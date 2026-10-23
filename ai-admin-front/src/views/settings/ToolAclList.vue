@@ -1,113 +1,132 @@
 <template>
-  <WorkbenchPage class="tool-acl-list-page" layout="list">
+  <LiquidGlassPage class="tool-acl-list-page">
     <PageHeader
       variant="standard"
+      presentation="plain"
+      action-presentation="inline"
       domain="governance"
-      eyebrow="Runtime Governance"
-      title="调用权限（角色 × 能力）"
-      description="以角色为入口管理 AI 调用目标的允许、拒绝规则，并在发布前完成权限诊断。"
+      title="调用权限"
+      description="控制业务系统里的哪些角色，可以通过 AI 调用哪些能力。"
     >
       <template #actions>
-        <el-tooltip content="批量授权" placement="top">
-          <el-button circle :icon="Magnet" aria-label="批量授权" @click="openBatchDialog" />
-        </el-tooltip>
-        <el-tooltip content="诊断" placement="top">
-          <el-button circle :icon="MagicStick" aria-label="ACL 决策诊断" @click="openExplainDialog" />
-        </el-tooltip>
+        <LiquidGlassButton source="wallpaper" :icon="MagicStick" aria-label="权限检查" @click="openExplainDialog">权限检查</LiquidGlassButton>
+        <LiquidGlassButton source="wallpaper" :icon="Files" aria-label="批量授权" @click="openBatchDialog">批量授权</LiquidGlassButton>
         <el-tooltip content="刷新" placement="top">
-          <el-button
+          <LiquidGlassButton
+            source="wallpaper"
             circle
             :icon="Refresh"
             :loading="loading"
-            aria-label="刷新 ACL 规则"
-            @click="reload"
+            aria-label="刷新调用权限规则"
+            @click="reloadAll"
           />
         </el-tooltip>
-        <el-button type="primary" :icon="Plus" @click="openCreateDialog">新建规则</el-button>
+        <LiquidGlassButton source="wallpaper" type="primary" :icon="Plus" @click="openCreateDialog">新建规则</LiquidGlassButton>
       </template>
     </PageHeader>
 
-    <el-alert
-      type="info"
-      show-icon
-      :closable="false"
-      title="决策规则：DENY 优先；无命中默认拒绝"
-      description="角色为空时 ACL 诊断返回 SKIPPED，该结果不表示允许调用；MCP 与 Console 等严格入口仅接受 ALLOW，并从可信身份取得角色。平台范围规则适用于所有项目，项目规则仅匹配指定项目。能力名 * 代表通配，类型 ALL 表示全部调用目标。"
-    />
+    <LiquidGlassNotice source="wallpaper" title="拒绝优先：没有匹配到任何规则时，默认拒绝调用">
+      同一角色同时命中「允许」和「拒绝」时按拒绝处理。平台范围的规则对所有项目生效，项目规则只对所选项目生效。
+    </LiquidGlassNotice>
 
     <div class="acl-body workbench-list-surface">
       <!-- 左栏：角色 -->
-      <aside class="role-panel">
-        <div class="role-title">
-          角色 <el-tag size="small" type="info">{{ roles.length }}</el-tag>
-        </div>
-        <el-input
+      <LiquidGlassCard as="div" source="wallpaper" class="role-panel" role="navigation" aria-label="按角色筛选">
+        <div class="role-title">业务角色</div>
+        <LiquidGlassInput
           v-model="roleFilter"
-          size="small"
-          placeholder="过滤角色"
+          class="role-filter"
+          placeholder="搜索角色"
+          aria-label="搜索角色"
           clearable
           :prefix-icon="Search"
-          style="margin-bottom: 8px"
         />
-        <el-scrollbar max-height="70vh">
-          <div
+        <el-scrollbar class="role-scroll">
+          <button
+            type="button"
             class="role-item"
             :class="{ active: selectedRole === '' }"
+            :aria-pressed="selectedRole === ''"
             @click="selectRole('')"
           >
-            <span>全部</span>
-            <el-tag size="small" type="info">{{ totalCount }}</el-tag>
-          </div>
-          <div
+            <span class="role-item__text"><span class="role-item__label">全部角色</span></span>
+            <span class="role-item__count">{{ totalCount }}</span>
+          </button>
+          <button
             v-for="r in filteredRoles"
             :key="r"
+            type="button"
             class="role-item"
             :class="{ active: selectedRole === r }"
+            :aria-pressed="selectedRole === r"
+            :title="r"
             @click="selectRole(r)"
           >
-            <span>{{ r }}</span>
-            <el-tag size="small">{{ roleRuleCounts[r] ?? 0 }}</el-tag>
-          </div>
+            <span class="role-item__text">
+              <span class="role-item__label">{{ toolAclRoleDisplay(r).label }}</span>
+              <span v-if="toolAclRoleDisplay(r).code" class="role-item__code">{{ toolAclRoleDisplay(r).code }}</span>
+            </span>
+            <span class="role-item__count">{{ roleRuleCounts[r] ?? '–' }}</span>
+          </button>
         </el-scrollbar>
-      </aside>
+      </LiquidGlassCard>
 
       <!-- 右栏：规则表 -->
-      <section class="rule-panel">
-        <el-card shadow="never">
-          <el-table :data="rules" v-loading="loading" stripe size="default">
-            <el-table-column prop="roleCode" label="角色" min-width="140" />
-            <el-table-column label="项目范围" min-width="180" show-overflow-tooltip>
+      <LiquidGlassTable
+        v-model:current-page="pagination.current"
+        v-model:page-size="pagination.size"
+        class="rule-panel"
+        :loading="loading"
+        :total="pagination.total"
+        :page-sizes="[20, 50, 100]"
+        pagination-label="调用权限规则分页"
+        @change="reload"
+      >
+          <el-table :data="rules" size="default" row-key="id">
+            <el-table-column label="角色" min-width="130">
+              <template #default="{ row }">
+                <div class="cell-stack" :title="row.roleCode">
+                  <span class="cell-main">{{ toolAclRoleDisplay(row.roleCode).label }}</span>
+                  <span v-if="toolAclRoleDisplay(row.roleCode).code" class="cell-sub">{{ toolAclRoleDisplay(row.roleCode).code }}</span>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column label="能力" min-width="190">
+              <template #default="{ row }">
+                <div class="cell-stack" :title="row.targetName">
+                  <span class="cell-main" :class="{ wildcard: targetDisplay(row).wildcard }">{{ targetDisplay(row).label }}</span>
+                  <span v-if="targetDisplay(row).hint" class="cell-sub">{{ targetDisplay(row).hint }}</span>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column label="适用范围" min-width="110" show-overflow-tooltip>
               <template #default="{ row }">{{ projectScopeLabel(row) }}</template>
             </el-table-column>
-            <el-table-column prop="targetKind" label="类型" width="110">
-              <template #default="{ row }">
-                <el-tag size="small" :type="kindTagType(row.targetKind)">{{ row.targetKind }}</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column prop="targetName" label="能力" min-width="180">
-              <template #default="{ row }">
-                <span v-if="row.targetName === '*'" class="wildcard">*（全部）</span>
-                <code v-else>{{ row.targetName }}</code>
-              </template>
-            </el-table-column>
-            <el-table-column prop="permission" label="决策" width="110">
+            <el-table-column label="决策" width="72">
               <template #default="{ row }">
                 <el-tag size="small" :type="row.permission === 'ALLOW' ? 'success' : 'danger'">
-                  {{ row.permission }}
+                  {{ TOOL_ACL_PERMISSION_LABELS[row.permission as ToolAclPermission] ?? row.permission }}
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="enabled" label="启用" width="90">
+            <el-table-column label="启用" width="76">
               <template #default="{ row }">
                 <el-switch
                   :model-value="row.enabled !== false"
+                  :aria-label="`启用规则 #${row.id}`"
                   @change="(v: boolean) => handleToggle(row, v)"
                 />
               </template>
             </el-table-column>
-            <el-table-column prop="note" label="备注" min-width="180" show-overflow-tooltip />
-            <el-table-column prop="updatedAt" label="更新时间" width="170" />
-            <el-table-column label="操作" width="160" fixed="right">
+            <el-table-column label="备注" min-width="130">
+              <template #default="{ row }">
+                <div class="cell-stack">
+                  <span class="cell-main cell-note" :title="row.note || ''">{{ row.note || '—' }}</span>
+                  <span v-if="row.updatedAt" class="cell-sub">更新于 {{ formatDateTime(row.updatedAt).slice(0, 10) }}</span>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="104" class-name="acl-actions">
               <template #default="{ row }">
                 <el-button size="small" link @click.stop="openEditDialog(row)">编辑</el-button>
                 <el-popconfirm
@@ -121,52 +140,41 @@
               </template>
             </el-table-column>
           </el-table>
-          <el-pagination
-            v-model:current-page="pagination.current"
-            v-model:page-size="pagination.size"
-            :total="pagination.total"
-            :page-sizes="[20, 50, 100]"
-            layout="total, sizes, prev, pager, next"
-            @current-change="reload"
-            @size-change="reload"
-            style="margin-top: 12px; justify-content: flex-end"
-          />
-        </el-card>
-      </section>
+      </LiquidGlassTable>
     </div>
 
     <!-- 新建 / 编辑弹窗 -->
-    <AppDialog v-model="editDialogOpen" :title="editing?.id ? `编辑规则 #${editing.id}` : '新建规则'" width="520px">
+    <AppDialog v-model="editDialogOpen" :title="editing?.id ? `编辑规则 #${editing.id}` : '新建规则'" width="540px">
       <el-form :model="editing" label-width="90px" v-if="editing">
         <ToolAclProjectScopeField :model-value="editing" :disabled="saving" @update:model-value="setEditingScope" />
         <el-form-item label="角色" required>
-          <el-input v-model="editing.roleCode" placeholder="PLATFORM_ADMIN / ops / customer-service" />
+          <el-input v-model="editing.roleCode" placeholder="业务系统传入的角色编码，如 sales_manager" />
         </el-form-item>
-        <el-form-item label="类型" required>
-          <el-radio-group v-model="editing.targetKind">
-            <el-radio-button value="TOOL">TOOL</el-radio-button>
-            <el-radio-button value="ALL">ALL</el-radio-button>
+        <el-form-item label="能力范围" required>
+          <el-radio-group :model-value="editingTargetMode" @update:model-value="setEditingTargetMode">
+            <el-radio-button value="one">指定能力</el-radio-button>
+            <el-radio-button value="all">全部能力</el-radio-button>
           </el-radio-group>
         </el-form-item>
-        <el-form-item label="能力" required>
-          <el-input v-model="editing.targetName" placeholder="调用目标名，或 * 表示通配" />
+        <el-form-item v-if="editingTargetMode === 'one'" label="能力标识" required>
+          <el-input v-model="editing.targetName" placeholder="能力的唯一标识，可在业务能力或 API 详情页复制" />
         </el-form-item>
         <el-form-item label="决策" required>
           <el-radio-group v-model="editing.permission">
-            <el-radio-button value="ALLOW">ALLOW</el-radio-button>
-            <el-radio-button value="DENY">DENY</el-radio-button>
+            <el-radio-button value="ALLOW">允许</el-radio-button>
+            <el-radio-button value="DENY">拒绝</el-radio-button>
           </el-radio-group>
         </el-form-item>
         <el-form-item label="启用">
           <el-switch v-model="editing.enabled" />
         </el-form-item>
         <el-form-item label="备注">
-          <el-input v-model="editing.note" type="textarea" :rows="2" />
+          <el-input v-model="editing.note" type="textarea" :rows="2" placeholder="选填，说明为什么这样授权" />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="editDialogOpen = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="handleSave">保存</el-button>
+        <LiquidGlassButton @click="editDialogOpen = false">取消</LiquidGlassButton>
+        <LiquidGlassButton type="primary" :loading="saving" @click="handleSave">保存</LiquidGlassButton>
       </template>
     </AppDialog>
 
@@ -179,72 +187,96 @@
         </el-form-item>
         <el-form-item label="决策" required>
           <el-radio-group v-model="batchForm.permission">
-            <el-radio-button value="ALLOW">ALLOW</el-radio-button>
-            <el-radio-button value="DENY">DENY</el-radio-button>
+            <el-radio-button value="ALLOW">允许</el-radio-button>
+            <el-radio-button value="DENY">拒绝</el-radio-button>
           </el-radio-group>
         </el-form-item>
-        <el-form-item label="TOOL 列表">
+        <el-form-item label="能力列表" required>
           <el-input
             v-model="batchForm.toolsRaw"
             type="textarea"
-            :rows="3"
-            placeholder="每行一个 tool 名，留空则跳过"
+            :rows="4"
+            placeholder="每行一个能力标识"
           />
         </el-form-item>
         <el-form-item label="备注">
-          <el-input v-model="batchForm.note" />
+          <el-input v-model="batchForm.note" placeholder="选填" />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="batchDialogOpen = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="handleBatchGrant">提交</el-button>
+        <LiquidGlassButton @click="batchDialogOpen = false">取消</LiquidGlassButton>
+        <LiquidGlassButton type="primary" :loading="saving" @click="handleBatchGrant">提交</LiquidGlassButton>
       </template>
     </AppDialog>
 
-    <!-- 诊断：给 roles + targets 查看决策 -->
-    <AppDialog v-model="explainDialogOpen" title="ACL 决策诊断" width="640px">
+    <!-- 权限检查：给定角色和能力，看最终能不能调用 -->
+    <AppDialog v-model="explainDialogOpen" title="权限检查" width="640px">
+      <p class="dialog-lead">输入角色和能力，查看按当前规则能否调用。</p>
       <el-form :model="explainForm" label-width="90px">
         <ToolAclProjectScopeField :model-value="explainForm" :disabled="explaining" @update:model-value="setExplainScope" />
-        <el-form-item label="roles" required>
+        <el-form-item label="角色" required>
           <el-select v-model="explainForm.roles" multiple filterable allow-create placeholder="选择或输入角色">
-            <el-option v-for="r in roles" :key="r" :label="r" :value="r" />
+            <el-option v-for="r in roles" :key="r" :label="roleOptionLabel(r)" :value="r" />
           </el-select>
         </el-form-item>
-        <el-form-item label="targets">
+        <el-form-item label="能力" required>
           <el-input
             v-model="explainForm.targetsRaw"
             type="textarea"
             :rows="3"
-            placeholder="每行 `kind:name`，例如 `TOOL:delete_order`"
+            placeholder="每行一个能力标识，例如 orders.search"
           />
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" :loading="explaining" @click="handleExplain">查询决策</el-button>
+          <LiquidGlassButton type="primary" :loading="explaining" @click="handleExplain">开始检查</LiquidGlassButton>
         </el-form-item>
       </el-form>
 
-      <el-table v-if="explainResult.length" :data="explainResult" size="small" stripe>
-        <el-table-column prop="kind" label="类型" width="100" />
-        <el-table-column prop="name" label="能力" />
-        <el-table-column prop="decision" label="决策">
+      <el-table v-if="explainResult.length" :data="explainResult" size="small">
+        <el-table-column label="能力" min-width="220">
           <template #default="{ row }">
-            <el-tag size="small" :type="decisionTag(row.decision)">{{ row.decision }}</el-tag>
+            <div class="cell-stack" :title="row.name">
+              <span class="cell-main">{{ targetDisplay({ targetKind: row.kind, targetName: row.name }).label }}</span>
+              <span v-if="targetDisplay({ targetKind: row.kind, targetName: row.name }).hint" class="cell-sub">
+                {{ targetDisplay({ targetKind: row.kind, targetName: row.name }).hint }}
+              </span>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="结果" min-width="180">
+          <template #default="{ row }">
+            <el-tag size="small" :type="decisionTag(row.decision)">{{ TOOL_ACL_DECISION_LABELS[row.decision as ToolAclDecision] ?? row.decision }}</el-tag>
           </template>
         </el-table-column>
       </el-table>
     </AppDialog>
-  </WorkbenchPage>
+  </LiquidGlassPage>
 </template>
 
 <script setup lang="ts">
+import { formatDateTime } from '@/utils/dateTime'
 import AppDialog from '@/components/common/AppDialog.vue'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Plus, Refresh, Search, Magnet, MagicStick } from '@element-plus/icons-vue'
-import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
+import { Files, MagicStick, Plus, Refresh, Search } from '@element-plus/icons-vue'
 import PageHeader from '@/components/common/PageHeader.vue'
+import {
+  LiquidGlassButton,
+  LiquidGlassCard,
+  LiquidGlassInput,
+  LiquidGlassNotice,
+  LiquidGlassPage,
+  LiquidGlassTable,
+} from '@/components/common/liquid-glass'
 import ToolAclProjectScopeField from './components/ToolAclProjectScopeField.vue'
 import { useProjectStore } from '@/store/project'
+import { listAllTools } from '@/api/tool'
+import {
+  TOOL_ACL_DECISION_LABELS,
+  TOOL_ACL_PERMISSION_LABELS,
+  toolAclRoleDisplay,
+  toolAclTargetDisplay,
+} from './toolAclLabels'
 import { usePageProjectScope } from '@/composables/usePageProjectScope'
 
 import {
@@ -275,6 +307,8 @@ const pageProjectScope = usePageProjectScope()
 const rules = ref<ToolAclRule[]>([])
 const roles = ref<string[]>([])
 const roleRuleCounts = ref<Record<string, number>>({})
+/** 能力标识 → 中文名；目录读不到时页面退回显示标识本身 */
+const toolTitles = ref(new Map<string, string>())
 const totalCount = ref(0)
 
 const selectedRole = ref('')
@@ -327,9 +361,26 @@ const filteredRoles = computed(() => {
   return roles.value.filter((r) => r.toLowerCase().includes(f))
 })
 
-function kindTagType(kind: ToolAclTargetKind) {
-  if (kind === 'ALL') return 'info'
-  return 'primary'
+const editingTargetMode = computed(() => (editing.value?.targetName === '*' ? 'all' : 'one'))
+
+function setEditingTargetMode(mode: string | number | boolean | undefined) {
+  if (!editing.value || mode === editingTargetMode.value) return
+  if (mode === 'all') {
+    editing.value.targetKind = 'ALL'
+    editing.value.targetName = '*'
+  } else {
+    editing.value.targetKind = 'TOOL'
+    editing.value.targetName = ''
+  }
+}
+
+function targetDisplay(rule: Pick<ToolAclRule, 'targetKind' | 'targetName'>) {
+  return toolAclTargetDisplay(rule, toolTitles.value)
+}
+
+function roleOptionLabel(roleCode: string) {
+  const { label, code } = toolAclRoleDisplay(roleCode)
+  return code ? `${label}（${code}）` : label
 }
 
 function decisionTag(d: ToolAclDecision) {
@@ -365,15 +416,41 @@ async function reloadRoles() {
   } catch {
     roles.value = []
   }
-  // 顺便做一次"全量数据 → role 分布"近似统计：不再调一次接口，用 roles 长度占位
-  // 精确计数需要遍历规则列表，这里权衡前端复杂度后只统计首页的近似值
-  roleRuleCounts.value = {}
-  for (const r of roles.value) {
-    roleRuleCounts.value[r] = 0
+  const counts = await Promise.all(roles.value.map(async (roleCode) => {
+    try {
+      const { data } = await listToolAcl({ current: 1, size: 1, roleCode })
+      return [roleCode, data?.total ?? 0] as const
+    } catch {
+      return [roleCode, undefined] as const
+    }
+  }))
+  const known: Record<string, number> = {}
+  for (const [roleCode, total] of counts) {
+    if (total != null) known[roleCode] = total
   }
-  for (const rule of rules.value) {
-    roleRuleCounts.value[rule.roleCode] = (roleRuleCounts.value[rule.roleCode] ?? 0) + 1
+  roleRuleCounts.value = known
+}
+
+async function loadToolTitles() {
+  try {
+    const tools = await listAllTools({}, undefined, { errorFeedback: 'local' })
+    const titles = new Map<string, string>()
+    for (const tool of tools) {
+      const title = tool.title?.trim()
+      if (!title) continue
+      for (const key of [tool.name, tool.qualifiedName, tool.sourceQualifiedName]) {
+        if (key && !titles.has(key)) titles.set(key, title)
+      }
+    }
+    toolTitles.value = titles
+  } catch {
+    // 能力目录只用于显示中文名，读不到时保留原始标识
   }
+}
+
+async function reloadAll() {
+  await reload()
+  await reloadRoles()
 }
 
 function selectRole(r: string) {
@@ -397,7 +474,7 @@ function hasSelectedScope(scope: ToolAclProjectScope) {
 }
 
 function projectScopeLabel(scope: ToolAclProjectScope) {
-  if (scope.projectId == null && !scope.projectCode) return '平台范围（所有项目）'
+  if (scope.projectId == null && !scope.projectCode) return '所有项目'
   const project = projectStore.projects.find(project => scope.projectId != null
     ? project.id === scope.projectId : project.projectCode === scope.projectCode)
   return project ? projectStore.projectLabel(project) : scope.projectCode || `项目 #${scope.projectId}`
@@ -440,7 +517,7 @@ async function handleSave() {
     return
   }
   if (!editing.value.roleCode || !editing.value.targetName) {
-    ElMessage.warning('请填写角色与能力')
+    ElMessage.warning('请填写角色和能力')
     return
   }
   saving.value = true
@@ -507,14 +584,14 @@ async function handleBatchGrant() {
     return
   }
   if (!batchForm.roleCode) {
-    ElMessage.warning('请填写 role')
+    ElMessage.warning('请填写角色')
     return
   }
   const targets: ToolAclTargetRef[] = [
     ...parseLines(batchForm.toolsRaw, 'TOOL'),
   ]
   if (targets.length === 0) {
-    ElMessage.warning('请至少填写一个 tool 条目')
+    ElMessage.warning('请至少填写一个能力')
     return
   }
   saving.value = true
@@ -553,7 +630,7 @@ async function handleExplain() {
     return
   }
   if (!explainForm.roles.length) {
-    ElMessage.warning('请选择至少一个 role')
+    ElMessage.warning('请至少选择一个角色')
     return
   }
   const targets: ToolAclTargetRef[] = explainForm.targetsRaw
@@ -561,16 +638,14 @@ async function handleExplain() {
     .map((l) => l.trim())
     .filter((l) => !!l)
     .map((line) => {
-      const separator = line.indexOf(':')
-      const kind = (separator < 0 ? 'TOOL' : line.slice(0, separator)).trim()
-      const name = (separator < 0 ? line : line.slice(separator + 1)).trim()
-      return {
-        kind: (kind?.toUpperCase() as ToolAclTargetKind) || 'TOOL',
-        name: name || kind,
-      }
+      // 兼容旧写法 `TOOL:名称` / `ALL:名称`；其余整行都是能力标识（标识本身可能含冒号）
+      const prefixed = /^(TOOL|ALL):(.+)$/i.exec(line)
+      return prefixed
+        ? { kind: prefixed[1].toUpperCase() as ToolAclTargetKind, name: prefixed[2].trim() }
+        : { kind: 'TOOL' as ToolAclTargetKind, name: line }
     })
   if (!targets.length) {
-    ElMessage.warning('请填写至少一条 target')
+    ElMessage.warning('请至少填写一个能力')
     return
   }
   const requestRevision = ++explainRevision
@@ -586,78 +661,163 @@ async function handleExplain() {
       decision: (data?.[t.name] ?? 'DENY_NO_MATCH') as ToolAclDecision,
     }))
   } catch (err) {
-    if (requestRevision === explainRevision) ElMessage.error('诊断失败：' + (err as Error).message)
+    if (requestRevision === explainRevision) ElMessage.error('检查失败：' + (err as Error).message)
   } finally {
     if (requestRevision === explainRevision) explaining.value = false
   }
 }
 
 onMounted(async () => {
-  await reload()
-  await reloadRoles()
+  void loadToolTitles()
+  await reloadAll()
 })
 </script>
 
 <style scoped lang="scss">
 .acl-body {
   display: grid;
-  grid-template-columns: 220px 1fr;
-  gap: 16px;
+  flex: 1;
+  min-height: 0;
+  grid-template-columns: 232px minmax(0, 1fr);
+  gap: var(--layout-section-gap);
 }
 
 .role-panel {
-  background: #fff;
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  border-radius: 4px;
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 8px;
   padding: 12px;
 
   .role-title {
-    font-weight: 600;
-    margin-bottom: 8px;
-    display: flex;
-    justify-content: space-between;
+    padding: 0 2px;
+    font-weight: 650;
+  }
+
+  .role-scroll {
+    flex: 1;
+    min-height: 0;
   }
 
   .role-item {
     display: flex;
-    justify-content: space-between;
+    width: 100%;
     align-items: center;
-    padding: 6px 10px;
-    border-radius: 4px;
-    cursor: pointer;
+    justify-content: space-between;
     margin-bottom: 2px;
+    gap: 8px;
+    padding: 7px 12px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-pill);
+    color: var(--text-primary);
+    background: transparent;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
 
     &:hover {
-      background: #f5f7fa;
+      background: var(--surface-glass-inset);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--border-focus);
+      outline-offset: -2px;
     }
 
     &.active {
-      background: #ecf5ff;
-      color: #409eff;
+      border-color: var(--border-glass-edge);
+      color: var(--brand-on-surface);
+      background: var(--surface-glass-inset);
+      box-shadow: var(--glass-rim-double);
+      font-weight: 650;
     }
+  }
+
+  .role-item__text {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 1px;
+  }
+
+  .role-item__label,
+  .role-item__code {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .role-item__code {
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 400;
+  }
+
+  .role-item__count {
+    flex: 0 0 auto;
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
   }
 }
 
 .rule-panel {
   min-width: 0;
+  min-height: 0;
 }
 
-.wildcard {
-  color: #f56c6c;
-  font-weight: 500;
+.cell-stack {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.4;
 }
 
-code {
-  background: #f4f4f5;
-  padding: 2px 6px;
-  border-radius: 4px;
+.cell-main,
+.cell-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cell-sub {
+  color: var(--text-secondary);
   font-size: 12px;
 }
 
-// ── 日间模式覆盖 ──
-:global([data-theme="light"]) {
-  .role-panel {
-    border: 1px solid #ebeef5;
+.cell-note {
+  color: var(--text-primary);
+}
+
+.wildcard {
+  color: var(--brand-on-surface);
+  font-weight: 600;
+}
+
+:deep(.acl-actions .cell) {
+  white-space: nowrap;
+}
+
+.dialog-lead {
+  margin: 0 0 14px;
+  color: var(--text-secondary);
+}
+
+@media (max-width: 860px) {
+  .acl-body {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .role-panel,
+  .rule-panel {
+    flex: 0 0 auto;
+  }
+
+  .role-panel .role-scroll {
+    flex: 0 0 auto;
+    height: 180px;
   }
 }
 </style>

@@ -1,9 +1,5 @@
 <template>
   <div class="app-breadcrumb">
-    <template v-if="canGoBack">
-      <el-button link class="app-breadcrumb__back" :icon="ArrowLeft" @click="goBack">返回</el-button>
-      <span class="app-breadcrumb__divider" aria-hidden="true" />
-    </template>
     <el-breadcrumb :separator="separator">
       <el-breadcrumb-item
         v-for="(item, index) in breadcrumbItems"
@@ -20,7 +16,6 @@
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { RouteLocationNormalizedLoaded, RouteLocationRaw } from 'vue-router'
-import { ArrowLeft } from '@element-plus/icons-vue'
 
 interface AppBreadcrumbItem {
   title: string | ((route: RouteLocationNormalizedLoaded) => string)
@@ -33,13 +28,11 @@ const props = withDefaults(
     homeLabel?: string
     homeTo?: RouteLocationRaw
     separator?: string
-    showBack?: boolean
     showHome?: boolean
   }>(),
   {
     homeLabel: '首页',
     separator: '/',
-    showBack: true,
     showHome: true,
   },
 )
@@ -84,100 +77,52 @@ function resolveCrumbTo(item: AppBreadcrumbItem): RouteLocationRaw | undefined {
   return typeof item.to === 'function' ? item.to(route) : item.to
 }
 
-const parentCrumbTarget = computed<RouteLocationRaw | undefined>(() => {
-  const crumbs = breadcrumbItems.value
-  for (let i = crumbs.length - 2; i >= 0; i -= 1) {
-    const target = resolveCrumbTo(crumbs[i])
-    if (target) return target
-  }
-
-  // A configured breadcrumb tree is authoritative. Falling back to URL
-  // truncation here would ask Vue Router to resolve non-routes such as
-  // `/registry`, which emits a warning on valid top-level workbench pages.
-  const configured = route.meta.breadcrumb as AppBreadcrumbItem[] | undefined
-  if (configured?.length) return undefined
-
-  // Routes without metadata may still use the nearest registered URL parent.
-  return autoParentCrumbTarget.value
-})
-
-const canGoBack = computed(() => props.showBack && Boolean(parentCrumbTarget.value))
-
-function goBack() {
-  if (window.history.state?.back) {
-    router.back()
-    return
-  }
-  if (parentCrumbTarget.value) {
-    router.push(parentCrumbTarget.value)
-  }
-}
 </script>
 
 <style scoped lang="scss">
 .app-breadcrumb {
   display: flex;
   align-items: center;
-  gap: 12px;
   min-width: 0;
+  text-shadow: var(--text-on-wallpaper-shadow);
 
   :deep(.el-breadcrumb) {
+    display: flex;
+    flex-wrap: wrap;
+    row-gap: var(--layout-control-gap);
     min-width: 0;
+    font: inherit;
+  }
+
+  :deep(.el-breadcrumb__item) {
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: anywhere;
   }
 
   :deep(.el-breadcrumb__inner),
+  :deep(.el-breadcrumb__inner.is-link),
+  :deep(.el-breadcrumb__inner a),
   :deep(.el-breadcrumb__separator) {
-    color: #5e7290;
-    font-size: 14px;
-    font-weight: 500;
-    line-height: 18px;
+    color: var(--text-on-wallpaper-secondary);
+    font-family: inherit;
+    font-size: var(--layout-breadcrumb-font-size);
+    font-weight: var(--layout-breadcrumb-font-weight);
+    line-height: var(--layout-breadcrumb-line-height);
+    text-decoration: none;
+  }
+
+  :deep(.el-breadcrumb__separator) {
+    margin-inline: var(--layout-breadcrumb-separator-gap);
   }
 
   :deep(.el-breadcrumb__inner.is-link:hover) {
-    color: var(--brand-primary);
+    color: var(--text-on-wallpaper);
   }
 
   :deep(.el-breadcrumb__item:last-child .el-breadcrumb__inner) {
-    color: #1e293b;
+    color: var(--text-on-wallpaper);
   }
 }
 
-.app-breadcrumb__back {
-  padding: 0;
-  font-weight: 600;
-  color: #64748b;
-
-  &:hover {
-    color: var(--brand-primary);
-  }
-}
-
-.app-breadcrumb__divider {
-  width: 1px;
-  height: 16px;
-  background: rgba(100, 116, 139, 0.24);
-}
-
-:global([data-theme='dark']) .app-breadcrumb {
-  :deep(.el-breadcrumb__inner),
-  :deep(.el-breadcrumb__separator) {
-    color: #94a3b8;
-  }
-
-  :deep(.el-breadcrumb__item:last-child .el-breadcrumb__inner) {
-    color: #e2e8f0;
-  }
-}
-
-:global([data-theme='dark']) .app-breadcrumb__back {
-  color: #94a3b8;
-
-  &:hover {
-    color: var(--brand-hover);
-  }
-}
-
-:global([data-theme='dark']) .app-breadcrumb__divider {
-  background: rgba(148, 163, 184, 0.28);
-}
 </style>

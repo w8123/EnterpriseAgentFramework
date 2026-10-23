@@ -9,13 +9,12 @@
       <el-button text size="small" :icon="Refresh" :loading="contextLoading" :disabled="!canInvoke || !active || isSubmitting || isQuerying" @click="loadContext">刷新调用条件</el-button>
     </header>
 
-    <el-alert
+    <LiquidGlassNotice
       v-if="!canInvoke"
       title="当前账号不能试调用该业务方法"
       :description="permissionExplanation"
       type="info"
-      :closable="false"
-      show-icon
+      source="backdrop"
     />
 
     <div v-else class="invocation-authorized">
@@ -23,19 +22,17 @@
         <el-icon class="is-loading"><Loading /></el-icon><span>正在读取项目内调用条件…</span>
       </div>
 
-      <el-alert
+      <LiquidGlassNotice
         v-else-if="contextError"
         title="调用条件未准备好"
         :description="contextError"
         type="warning"
-        :closable="false"
-        show-icon
+        source="backdrop"
       >
-        <template #default>
-          <p>{{ contextError }}</p>
+        <template #actions>
           <el-button size="small" plain :loading="contextLoading" :disabled="isSubmitting || isQuerying" @click="loadContext">重新读取调用条件</el-button>
         </template>
-      </el-alert>
+      </LiquidGlassNotice>
 
       <template v-else-if="context">
       <section class="invocation-context">
@@ -48,15 +45,14 @@
         <p class="context-identity">使用项目接入凭据调用；不携带业务用户身份，业务系统仍会校验</p>
       </section>
 
-      <el-alert
+      <LiquidGlassNotice
         v-if="!contextUsable"
         :title="context.businessIdentityRequired ? '该业务方法需要业务用户身份' : '该业务方法当前不可试调用'"
         :description="context.businessIdentityRequired
           ? '控制台不会伪造或代入业务用户身份，因此不会发起调用。'
           : (context.blockingMessage || '请先处理来源状态、接入凭据或已接受契约，再重新读取上下文。')"
         type="warning"
-        :closable="false"
-        show-icon
+        source="backdrop"
       />
 
       <form v-else class="invocation-form" novalidate @submit.prevent="requestInvocation">
@@ -93,13 +89,13 @@
       </template>
     </div>
 
-    <el-alert
+    <LiquidGlassNotice
       v-if="newAttemptNotice"
       class="invocation-notice"
       :title="newAttemptNotice"
       type="warning"
-      :closable="true"
       @close="newAttemptNotice = ''"
+      source="backdrop"
     />
 
     <section v-if="canInvoke && hasCurrentHandle" class="invocation-outcome" aria-live="polite">
@@ -130,7 +126,13 @@
         </div>
       </header>
 
-      <el-alert v-if="actionError" class="outcome-error" :title="actionError" type="warning" :closable="false" show-icon />
+      <LiquidGlassNotice
+        v-if="actionError"
+        class="outcome-error"
+        :title="actionError"
+        type="warning"
+        source="backdrop"
+      />
 
       <dl class="outcome-facts">
         <div><dt>调用 ID</dt><dd><code>{{ currentInvocationId }}</code></dd></div>
@@ -147,8 +149,20 @@
         <code>{{ outcome.traceId }}</code>
       </div>
 
-      <el-alert v-if="outcome?.resultTruncated" title="返回结果已截断" description="页面仅显示平台返回的安全截断结果；请结合调用追踪判断完整执行情况。" type="warning" :closable="false" show-icon />
-      <el-alert v-if="outcome && isExpiredResult(outcome)" title="返回结果已过期" description="该调用记录仍可用于审计，但结果正文已按保留策略移除。" type="info" :closable="false" show-icon />
+      <LiquidGlassNotice
+        v-if="outcome?.resultTruncated"
+        title="返回结果已截断"
+        description="页面仅显示平台返回的安全截断结果；请结合调用追踪判断完整执行情况。"
+        type="warning"
+        source="backdrop"
+      />
+      <LiquidGlassNotice
+        v-if="outcome && isExpiredResult(outcome)"
+        title="返回结果已过期"
+        description="该调用记录仍可用于审计，但结果正文已按保留策略移除。"
+        type="info"
+        source="backdrop"
+      />
 
       <section v-if="diagnostics.length" class="input-diagnostics" aria-labelledby="input-diagnostics-title">
         <h5 id="input-diagnostics-title">输入校验提示</h5>
@@ -174,6 +188,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDateTime } from '@/utils/dateTime'
 import { computed, nextTick, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
@@ -201,6 +216,7 @@ import {
 } from '../businessMethodInvocation'
 import { useBusinessMethodInvocation } from '../composables/useBusinessMethodInvocation'
 import BusinessMethodInvocationInputEditor from './BusinessMethodInvocationInputEditor.vue'
+import { LiquidGlassNotice } from '@/components/common/liquid-glass'
 
 type InvocationDraftState = { valid: boolean; revision: number; mode: 'form' | 'json' }
 type InvocationEditorExposed = { validate: () => InvocationDraftState }
@@ -417,7 +433,7 @@ function formatTime(value: number) {
   try {
     return new Intl.DateTimeFormat('zh-CN', { dateStyle: 'short', timeStyle: 'medium' }).format(value)
   } catch {
-    return new Date(value).toLocaleString()
+    return formatDateTime(value)
   }
 }
 

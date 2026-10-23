@@ -165,7 +165,7 @@ public class RuntimeAgentConfigService {
                 DEFAULT_WORKFLOW_TIMEOUT_MS,
                 DEFAULT_PAGE_BRIDGE_TIMEOUT_MS,
                 true,
-                "DEV_ALLOW_ALL",
+                "STANDARD",
                 "ALLOW_LIST",
                 configJson,
                 List.of()));
@@ -1496,7 +1496,7 @@ public class RuntimeAgentConfigService {
         if (target.getWorkflowTimeoutMs() == null) target.setWorkflowTimeoutMs(DEFAULT_WORKFLOW_TIMEOUT_MS);
         if (target.getPageBridgeTimeoutMs() == null) target.setPageBridgeTimeoutMs(DEFAULT_PAGE_BRIDGE_TIMEOUT_MS);
         if (target.getParallelReadOnly() == null) target.setParallelReadOnly(true);
-        if (!StringUtils.hasText(target.getPolicyProfile())) target.setPolicyProfile("DEV_ALLOW_ALL");
+        if (!StringUtils.hasText(target.getPolicyProfile())) target.setPolicyProfile("STANDARD");
         if (!StringUtils.hasText(target.getToolCatalogMode())) target.setToolCatalogMode("ALLOW_LIST");
         if (target.getSessionMemoryEnabled() == null) {
             target.setSessionMemoryEnabled(RuntimeAgentMemoryPolicy.DEFAULT.sessionMemoryEnabled());

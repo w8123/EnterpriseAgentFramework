@@ -84,7 +84,7 @@ function pretty(value: unknown) {
   overflow: auto;
   padding: 10px;
   border-radius: 8px;
-  background: var(--surface-solid-control, var(--page-bg));
+  background: var(--surface-solid-control, var(--surface-page-canvas));
   color: var(--text-secondary);
   font-family: var(--font-mono, Consolas, monospace);
   font-size: 10px;

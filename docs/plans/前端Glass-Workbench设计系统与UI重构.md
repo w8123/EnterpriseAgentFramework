@@ -1,5 +1,7 @@
 # 前端 Glass Workbench 设计系统与 UI 重构实施方案
 
+> 2026-10-20：管理端已整体改为液态玻璃主题，当前设计系统事实源改为 [管理端液态玻璃设计系统维护说明](../architecture/frontend-liquid-glass-design-system.md)。本文保留为历史方案，token 取值与组件配方以新文档和代码为准。
+
 本文档是 ReachAI 管理端（`ai-admin-front`）本轮 UI 重构的事实源，包含两部分内容：
 
 1. **设计语言与前端设计系统规范**（长期有效，落地后持续维护）。

@@ -5,6 +5,7 @@ import { Plus, Refresh, Search } from '@element-plus/icons-vue'
 import AppDialog from '@/components/common/AppDialog.vue'
 import AppDrawer from '@/components/common/AppDrawer.vue'
 import WorkbenchPanel from '@/components/common/WorkbenchPanel.vue'
+import { LiquidGlassButton, LiquidGlassControl, LiquidGlassFilterBar, LiquidGlassInput, LiquidGlassSelect, LiquidGlassTable, LiquidGlassNotice } from '@/components/common/liquid-glass'
 import AgentCardPreview from '@/components/a2a-hub/AgentCardPreview.vue'
 import {
   createA2aPublication,
@@ -128,6 +129,12 @@ async function reload() {
 
 function applyFilters() {
   query.offset = 0
+  reload()
+}
+
+function changePage(page: number, size: number) {
+  query.limit = size
+  query.offset = (page - 1) * size
   reload()
 }
 
@@ -278,23 +285,34 @@ onMounted(reload)
     <div class="section-intro">
       <div><h2>本地发布</h2><p>用不可变修订把已发布的 ReachAI Agent 转换为可发现、可授权的 A2A 服务。</p></div>
       <div class="section-actions">
-        <el-button :icon="Refresh" :loading="loading" @click="reload">刷新</el-button>
-        <el-button type="primary" :icon="Plus" @click="openCreate">创建 Publication</el-button>
+        <LiquidGlassControl source="wallpaper">
+          <el-button :icon="Refresh" :loading="loading" @click="reload">刷新</el-button>
+        </LiquidGlassControl>
+        <LiquidGlassButton source="wallpaper" type="primary" :icon="Plus" @click="openCreate">创建 Publication</LiquidGlassButton>
       </div>
     </div>
 
-    <WorkbenchPanel level="control" density="compact">
-      <div class="filter-row">
-        <el-input v-model="query.search" :prefix-icon="Search" clearable placeholder="搜索发布标识、Agent、项目或 Host" @keyup.enter="applyFilters" />
-        <el-select v-model="query.status" clearable placeholder="全部状态" @change="applyFilters">
-          <el-option v-for="value in ['DRAFT', 'READY', 'PUBLISHED', 'SUSPENDED', 'ARCHIVED']" :key="value" :label="a2aLabel(value)" :value="value" />
-        </el-select>
-        <el-button type="primary" @click="applyFilters">查询</el-button>
-      </div>
-    </WorkbenchPanel>
-
-    <el-card class="workbench-list-surface" shadow="never">
-      <el-table :data="rows" v-loading="loading" stripe @row-click="openDetail">
+    <LiquidGlassTable
+      class="workbench-list-surface"
+      :current-page="Math.floor(query.offset / query.limit) + 1"
+      :page-size="query.limit"
+      :total="total"
+      :page-sizes="[20, 50, 100]"
+      pagination-label="A2A Publication 分页"
+      :loading="loading"
+      :empty="!loading && rows.length === 0"
+      empty-description="还没有 Publication，点「创建 Publication」把已发布的 Agent 对外提供。"
+      @change="changePage"
+    >
+      <template #toolbar>
+        <LiquidGlassFilterBar :loading="loading" :show-reset="false" @query="applyFilters">
+          <LiquidGlassInput v-model="query.search" :prefix-icon="Search" clearable placeholder="搜索发布标识、Agent、项目或 Host" aria-label="搜索 Publication" @clear="applyFilters" />
+          <LiquidGlassSelect v-model="query.status" class="status-filter" clearable placeholder="全部状态" dropdown-title="发布状态" aria-label="发布状态" @change="applyFilters">
+            <el-option v-for="value in ['DRAFT', 'READY', 'PUBLISHED', 'SUSPENDED', 'ARCHIVED']" :key="value" :label="a2aLabel(value)" :value="value" />
+          </LiquidGlassSelect>
+        </LiquidGlassFilterBar>
+      </template>
+      <el-table :data="rows" stripe empty-text=" " @row-click="openDetail">
         <el-table-column prop="publicationKey" label="Publication" min-width="170">
           <template #default="{ row }"><div class="cell-stack"><strong>{{ row.publicationKey }}</strong><small>{{ row.publicHost }}</small></div></template>
         </el-table-column>
@@ -306,19 +324,10 @@ onMounted(reload)
         <el-table-column prop="updatedAt" label="更新时间" width="170"><template #default="{ row }">{{ a2aFormatDate(row.updatedAt) }}</template></el-table-column>
         <el-table-column label="操作" width="80" fixed="right"><template #default="{ row }"><el-button link type="primary" @click.stop="openDetail(row)">查看</el-button></template></el-table-column>
       </el-table>
-      <el-pagination
-        :current-page="Math.floor(query.offset / query.limit) + 1"
-        :page-size="query.limit"
-        :total="total"
-        layout="total, sizes, prev, pager, next"
-        :page-sizes="[20, 50, 100]"
-        @current-change="(page: number) => { query.offset = (page - 1) * query.limit; reload() }"
-        @size-change="(size: number) => { query.limit = size; query.offset = 0; reload() }"
-      />
-    </el-card>
+    </LiquidGlassTable>
 
     <AppDrawer v-model="detailVisible" title="Publication 详情" size="min(880px, 92vw)">
-      <div v-if="detail" v-loading="detailLoading" class="detail-content">
+      <div v-if="detail" v-loading="detailLoading" class="detail-content glass-loading-surface">
         <el-descriptions :column="2" border>
           <el-descriptions-item label="Publication">{{ detail.publication.publicationKey }}</el-descriptions-item>
           <el-descriptions-item label="状态"><el-tag :type="a2aTone(detail.publication.status)">{{ a2aLabel(detail.publication.status) }}</el-tag></el-descriptions-item>
@@ -327,31 +336,33 @@ onMounted(reload)
           <el-descriptions-item label="Agent">{{ detail.publication.agentId }}</el-descriptions-item>
           <el-descriptions-item label="Trust Profile">#{{ detail.publication.trustProfileId }}</el-descriptions-item>
         </el-descriptions>
-        <div class="command-row">
+        <div v-if="['PUBLISHED', 'SUSPENDED'].includes(detail.publication.status)" class="command-row">
           <el-button v-if="detail.publication.status === 'PUBLISHED'" type="warning" @click="executeCommand('suspend')">暂停新任务</el-button>
           <el-button v-if="detail.publication.status === 'SUSPENDED'" type="success" @click="executeCommand('resume')">恢复发布</el-button>
         </div>
-        <div class="revision-layout">
-          <div class="revision-list">
-            <button
-              v-for="revision in detail.revisions"
-              :key="revision.id"
-              type="button"
-              :class="['revision-item', { 'is-active': selectedRevisionId === revision.id }]"
-              @click="selectedRevisionId = revision.id"
-            >
-              <span><strong>r{{ revision.revisionNo }} · {{ revision.agentVersion }}</strong><small>{{ a2aLabel(revision.status) }} · {{ a2aFormatDate(revision.createdAt) }}</small></span>
-              <el-tag :type="a2aTone(revision.conformanceStatus)" size="small">TCK {{ a2aLabel(revision.conformanceStatus) }}</el-tag>
-            </button>
-          </div>
-          <div class="revision-detail" v-if="selectedRevision">
-            <div class="command-row">
-              <el-button v-if="selectedRevision.status === 'DRAFT'" @click="executeCommand('preflight', selectedRevision)">运行发布前检查</el-button>
-              <el-button v-if="selectedRevision.status === 'READY'" type="primary" @click="executeCommand('publish', selectedRevision)">发布此修订</el-button>
+        <WorkbenchPanel title="修订" description="每个修订冻结一份 Agent Card；先预检，再显式发布。" density="compact">
+          <div class="revision-layout">
+            <div class="revision-list">
+              <button
+                v-for="revision in detail.revisions"
+                :key="revision.id"
+                type="button"
+                :class="['revision-item', { 'is-active': selectedRevisionId === revision.id }]"
+                @click="selectedRevisionId = revision.id"
+              >
+                <span><strong>r{{ revision.revisionNo }} · {{ revision.agentVersion }}</strong><small>{{ a2aLabel(revision.status) }} · {{ a2aFormatDate(revision.createdAt) }}</small></span>
+                <el-tag :type="a2aTone(revision.conformanceStatus)" size="small">TCK {{ a2aLabel(revision.conformanceStatus) }}</el-tag>
+              </button>
             </div>
-            <AgentCardPreview :revision="selectedRevision" />
+            <div class="revision-detail" v-if="selectedRevision">
+              <div class="command-row">
+                <el-button v-if="selectedRevision.status === 'DRAFT'" @click="executeCommand('preflight', selectedRevision)">运行发布前检查</el-button>
+                <el-button v-if="selectedRevision.status === 'READY'" type="primary" @click="executeCommand('publish', selectedRevision)">发布此修订</el-button>
+              </div>
+              <AgentCardPreview :revision="selectedRevision" />
+            </div>
           </div>
-        </div>
+        </WorkbenchPanel>
       </div>
     </AppDrawer>
 
@@ -372,7 +383,11 @@ onMounted(reload)
               <el-option v-for="version in activeConfigs" :key="version.id" :label="`v${version.versionNo} · ${version.runtimeType}`" :value="version.id" />
             </el-select>
           </el-form-item>
-          <el-alert type="info" :closable="false" show-icon title="Publication 固定到一个已发布 Agent 配置版本，后续 Agent 改动不会静默改变外部契约。" />
+          <LiquidGlassNotice
+            type="info"
+            title="Publication 固定到一个已发布 Agent 配置版本，后续 Agent 改动不会静默改变外部契约。"
+            source="backdrop"
+          />
         </template>
 
         <template v-else-if="step === 1">
@@ -396,7 +411,11 @@ onMounted(reload)
           <el-form-item label="公开 Origin"><el-input v-model="form.publicOrigin" placeholder="https://agent.example.com" /></el-form-item>
           <el-form-item label="Host（必须与 Origin authority 一致）"><el-input v-model="form.publicHost" placeholder="agent.example.com" /></el-form-item>
           <div class="form-grid"><el-form-item label="默认输入媒体类型"><el-select v-model="form.defaultInputModes" multiple filterable allow-create /></el-form-item><el-form-item label="默认输出媒体类型"><el-select v-model="form.defaultOutputModes" multiple filterable allow-create /></el-form-item></div>
-          <el-alert type="warning" :closable="false" show-icon title="首发仅声明已实现的非流式 HTTP+JSON 能力；Streaming、Push 与 Extended Card 不会出现在 Card 中。" />
+          <LiquidGlassNotice
+            type="warning"
+            title="首发仅声明已实现的非流式 HTTP+JSON 能力；Streaming、Push 与 Extended Card 不会出现在 Card 中。"
+            source="backdrop"
+          />
         </template>
 
         <template v-else-if="step === 3">
@@ -405,7 +424,12 @@ onMounted(reload)
               <el-option v-for="profile in applicableTrustProfiles" :key="profile.id" :label="`${profile.name} · ${a2aLabel(profile.trustLevel)}`" :value="profile.id" />
             </el-select>
           </el-form-item>
-          <el-alert v-if="!applicableTrustProfiles.length" type="error" :closable="false" show-icon title="当前环境没有可用的入站 Trust Profile，请先到“信任与策略”创建。" />
+          <LiquidGlassNotice
+            v-if="!applicableTrustProfiles.length"
+            type="error"
+            title="当前环境没有可用的入站 Trust Profile，请先到“信任与策略”创建。"
+            source="backdrop"
+          />
           <div class="form-grid"><el-form-item label="提供方组织（可选）"><el-input v-model="form.providerOrganization" /></el-form-item><el-form-item label="提供方 URL（可选）"><el-input v-model="form.providerUrl" /></el-form-item></div>
           <el-form-item label="接入文档 URL（可选）"><el-input v-model="form.documentationUrl" /></el-form-item>
         </template>
@@ -419,15 +443,19 @@ onMounted(reload)
             <el-descriptions-item label="Trust Profile">#{{ form.trustProfileId }}</el-descriptions-item>
             <el-descriptions-item label="协议 AgentSkill">{{ form.protocolSkills.map((item) => item.id).join(', ') }}</el-descriptions-item>
           </el-descriptions>
-          <el-alert type="info" :closable="false" show-icon title="创建后状态为草稿；仍需逐个执行发布前检查和发布命令。" />
+          <LiquidGlassNotice
+            type="info"
+            title="创建后状态为草稿；仍需逐个执行发布前检查和发布命令。"
+            source="backdrop"
+          />
         </template>
       </el-form>
 
       <template #footer>
-        <el-button @click="createVisible = false">取消</el-button>
-        <el-button v-if="step > 0" @click="step--">上一步</el-button>
-        <el-button v-if="step < 4" type="primary" @click="nextStep">下一步</el-button>
-        <el-button v-else type="primary" :loading="submitting" @click="submitCreate">创建草稿</el-button>
+        <LiquidGlassButton @click="createVisible = false">取消</LiquidGlassButton>
+        <LiquidGlassButton v-if="step > 0" @click="step--">上一步</LiquidGlassButton>
+        <LiquidGlassButton v-if="step < 4" type="primary" @click="nextStep">下一步</LiquidGlassButton>
+        <LiquidGlassButton v-else type="primary" :loading="submitting" @click="submitCreate">创建草稿</LiquidGlassButton>
       </template>
     </AppDialog>
   </section>
@@ -443,7 +471,6 @@ onMounted(reload)
 
 .section-intro,
 .section-actions,
-.filter-row,
 .command-row,
 .skills-heading {
   display: flex;
@@ -453,12 +480,14 @@ onMounted(reload)
 }
 
 .section-intro { align-items: flex-start; }
+.section-actions { flex-wrap: wrap; justify-content: flex-end; }
 .section-intro h2, .section-intro p { margin: 0; }
-.section-intro h2 { font-size: 18px; }
-.section-intro p { margin-top: 4px; color: var(--text-muted); font-size: 13px; }
-.filter-row > .el-input { flex: 1; max-width: 520px; }
-.filter-row > .el-select { width: 160px; }
+.section-intro h2 { color: var(--text-on-wallpaper); font-size: 18px; }
+.section-intro p { margin-top: 4px; color: var(--text-on-wallpaper-secondary); font-size: 13px; }
+/* 状态是短值，筛选条里收窄，把宽度留给搜索框。 */
+.workbench-list-surface :deep(.filter-bar__fields > .liquid-glass-control.status-filter) { flex: 0 1 160px; max-width: 180px; }
 .cell-stack strong, .cell-stack small { display: block; }
+.cell-stack strong { color: var(--text-primary); }
 .cell-stack small { margin-top: 3px; color: var(--text-muted); font-size: 12px; }
 .command-row { justify-content: flex-end; }
 .revision-layout { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 14px; min-height: 360px; }
@@ -475,11 +504,11 @@ onMounted(reload)
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .skills-heading { margin: 14px 0 8px; }
 .skill-editor { margin-bottom: 10px; padding: 12px; border: 1px solid var(--border-divider); border-radius: var(--radius-md); background: var(--surface-glass-control); }
-.workbench-list-surface :deep(.el-pagination) { justify-content: flex-end; margin-top: 12px; }
 
 @media (max-width: 760px) {
-  .section-intro, .filter-row { align-items: stretch; flex-direction: column; }
-  .filter-row > .el-input, .filter-row > .el-select { width: 100%; max-width: none; }
+  .section-intro { align-items: stretch; flex-direction: column; }
+  .section-actions { justify-content: flex-start; }
+  .workbench-list-surface :deep(.filter-bar__fields > .liquid-glass-control.status-filter) { max-width: none; }
   .revision-layout, .form-grid { grid-template-columns: 1fr; }
 }
 </style>

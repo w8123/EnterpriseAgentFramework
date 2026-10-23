@@ -154,6 +154,10 @@
 .reachai-chat-root .reachai-conversation {
   --reachai-chat-primary: inherit;
   --reachai-chat-primary-rgb: inherit;
+  /* 正文色同样取 SDK 外壳的值，不读取宿主页面可能定义的 --text-* 变量 */
+  --reachai-chat-text: inherit;
+  --reachai-chat-text-secondary: inherit;
+  --reachai-chat-text-muted: inherit;
 }
 
 .reachai-conversation--compact,
@@ -169,15 +173,15 @@
   --reachai-chat-message-radius: 14px;
 }
 
-/* 暗色：深蓝灰中性玻璃，不复用亮色白玻璃 */
-html.dark .reachai-conversation,
-html[data-theme='dark'] .reachai-conversation,
+/* 暗色：深蓝灰中性玻璃，不复用亮色白玻璃。
+ * 管理端跟随 html 主题；嵌入式 SDK 与宿主隔离，只认自身根节点上的 data-theme，
+ * 宿主（如芋道 html.dark）切换深色不会改变对话框外观。 */
+html.dark .reachai-conversation:not(.eaf-chat .reachai-conversation):not(.reachai-chat-root .reachai-conversation),
+html[data-theme='dark'] .reachai-conversation:not(.eaf-chat .reachai-conversation):not(.reachai-chat-root .reachai-conversation),
 .reachai-conversation[data-theme='dark'],
-html.dark .eaf-chat,
-html[data-theme='dark'] .eaf-chat,
 .eaf-chat[data-theme='dark'],
-html.dark .reachai-chat-root,
-html[data-theme='dark'] .reachai-chat-root {
+.eaf-chat[data-theme='dark'] .reachai-conversation,
+.reachai-chat-root[data-theme='dark'] {
   --reachai-chat-glass-card: rgb(15 23 42 / 0.78);
   --reachai-chat-glass-card-fallback: rgb(15 23 42 / 0.96);
   --reachai-chat-glass-card-reading-layer: linear-gradient(
@@ -234,13 +238,12 @@ html[data-theme='dark'] .reachai-chat-root {
     --reachai-chat-card-base: var(--reachai-chat-glass-card-fallback);
   }
 
-  html.dark .reachai-conversation,
-  html[data-theme='dark'] .reachai-conversation,
+  html.dark .reachai-conversation:not(.eaf-chat .reachai-conversation):not(.reachai-chat-root .reachai-conversation),
+  html[data-theme='dark'] .reachai-conversation:not(.eaf-chat .reachai-conversation):not(.reachai-chat-root .reachai-conversation),
   .reachai-conversation[data-theme='dark'],
-  html.dark .eaf-chat,
-  html[data-theme='dark'] .eaf-chat,
-  html.dark .reachai-chat-root,
-  html[data-theme='dark'] .reachai-chat-root {
+  .eaf-chat[data-theme='dark'],
+  .eaf-chat[data-theme='dark'] .reachai-conversation,
+  .reachai-chat-root[data-theme='dark'] {
     --reachai-chat-glass-card-reading-layer: linear-gradient(
       135deg,
       rgb(15 23 42 / 0.94),

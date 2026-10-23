@@ -1,17 +1,15 @@
 <template>
-  <WorkbenchPage class="automation-page" layout="list" full-height>
+  <LiquidGlassPage class="automation-page">
     <CollapsibleHeaderRegion :collapsed="isAutomationHeaderCollapsed">
       <PageHeader
         variant="overview"
+        presentation="plain"
+        action-presentation="inline"
         domain="governance"
-        eyebrow="运行中心"
-        title="自动化"
-        description="设置好时间后，系统会自动运行指定的 Agent 或 Workflow。"
+        title="自动化中心"
+        description="设置 Agent 或 Workflow 的运行计划，查看执行记录。"
         :collapsed="isAutomationHeaderCollapsed"
       >
-        <template #meta>
-          <RunCenterNav />
-        </template>
         <template #tags>
           <el-tag type="success" effect="light">运行治理</el-tag>
           <el-tag type="success" effect="light">当前 {{ automations.length }} 个自动化</el-tag>
@@ -19,90 +17,64 @@
             {{ readiness ? `${readiness.engine} ${readiness.engineVersion}` : '执行引擎检查中' }}
           </el-tag>
         </template>
+        <template #meta>
+          <MetricStrip presentation="inline" source="wallpaper" :items="automationMetrics" aria-label="自动化概览" />
+        </template>
         <template #actions>
-          <el-button :icon="Refresh" :loading="loading" @click="refreshAll">刷新</el-button>
-          <el-button v-if="canCreateAutomation" type="primary" :icon="Plus" @click="openCreate">
+          <LiquidGlassButton source="wallpaper" :icon="Refresh" :loading="loading" @click="refreshAll">刷新</LiquidGlassButton>
+          <LiquidGlassButton v-if="canCreateAutomation" source="wallpaper" type="primary" :icon="Plus" @click="openCreate">
             新建自动化
-          </el-button>
+          </LiquidGlassButton>
         </template>
       </PageHeader>
-
-      <template #summary>
-        <section class="automation-metric-strip" aria-label="自动化概览">
-          <template v-for="(metric, index) in automationMetrics" :key="metric.label">
-            <div v-if="index > 0" class="automation-metric-divider" aria-hidden="true" />
-            <div class="automation-metric-segment">
-              <MetricIconBg
-                class="automation-metric-icon"
-                :icon-key="metric.iconKey"
-                :tone="metric.tone"
-              />
-              <div class="automation-metric-content">
-                <div class="automation-metric-line">
-                  <span>{{ metric.label }}</span>
-                  <em :class="metric.deltaTone">{{ metric.delta }}</em>
-                </div>
-                <strong>{{ metric.value }}</strong>
-              </div>
-            </div>
-          </template>
-        </section>
-      </template>
     </CollapsibleHeaderRegion>
 
-    <el-card shadow="never" class="automation-card workbench-list-surface">
-      <div class="filter-row">
-        <el-input
-          v-model="filters.keyword"
-          class="keyword-filter"
-          clearable
-          :prefix-icon="Search"
-          placeholder="搜索自动化名称、标识"
-          @keyup.enter="loadAutomations"
-        />
-        <el-select
-          v-model="filters.projectCode"
-          class="project-filter"
-          clearable
-          filterable
-          placeholder="所属项目"
-          @change="onProjectFilterChanged"
-        >
-          <el-option
-            v-for="project in projectOptions"
-            :key="project.id"
-            :label="projectLabel(project)"
-            :value="project.projectCode"
-          />
-        </el-select>
-        <el-select v-model="filters.status" clearable placeholder="全部状态" class="status-filter">
-          <el-option label="草稿" value="DRAFT" />
-          <el-option label="运行中" value="ACTIVE" />
-          <el-option label="已暂停" value="PAUSED" />
-          <el-option label="已完成" value="COMPLETED" />
-          <el-option label="已归档" value="ARCHIVED" />
-        </el-select>
-        <el-button class="filter-reset" @click="resetFilters">重置</el-button>
-        <el-button class="filter-search" type="primary" :icon="Search" :loading="loading" @click="loadAutomations">
-          搜索
-        </el-button>
-      </div>
+    <LiquidGlassNotice
+      v-if="readiness && !readiness.enabled"
+      source="wallpaper"
+      type="warning"
+      title="自动运行暂未开启"
+      description="现在只能保存草稿，不会按计划执行。完成数据库升级并开启自动化后即可使用。"
+    />
 
-      <div
-        v-if="readiness && !readiness.enabled"
-        class="readiness-inline"
-        role="status"
-      >
-        <el-icon><WarningFilled /></el-icon>
-        <div>
-          <strong>自动运行暂未开启</strong>
-          <span>现在只能保存草稿，不会按计划执行。完成数据库升级并开启自动化后即可使用。</span>
-        </div>
-      </div>
+    <LiquidGlassTable class="automation-card workbench-list-surface" :loading="loading">
+      <template #toolbar>
+        <LiquidGlassFilterBar :loading="loading" @query="loadAutomations" @reset="resetFilters">
+          <LiquidGlassInput
+            v-model="filters.keyword"
+            clearable
+            :prefix-icon="Search"
+            placeholder="搜索自动化名称、标识"
+            aria-label="搜索自动化"
+          />
+          <LiquidGlassSelect
+            v-model="filters.projectCode"
+            clearable
+            filterable
+            placeholder="所属项目"
+            dropdown-title="所属项目"
+            aria-label="所属项目"
+            @change="onProjectFilterChanged"
+          >
+            <el-option
+              v-for="project in projectOptions"
+              :key="project.id"
+              :label="projectLabel(project)"
+              :value="project.projectCode"
+            />
+          </LiquidGlassSelect>
+          <LiquidGlassSelect v-model="filters.status" clearable placeholder="全部状态" dropdown-title="自动化状态" aria-label="自动化状态">
+            <el-option label="草稿" value="DRAFT" />
+            <el-option label="运行中" value="ACTIVE" />
+            <el-option label="已暂停" value="PAUSED" />
+            <el-option label="已完成" value="COMPLETED" />
+            <el-option label="已归档" value="ARCHIVED" />
+          </LiquidGlassSelect>
+        </LiquidGlassFilterBar>
+      </template>
 
       <div class="automation-table-shell">
         <el-table
-          v-loading="loading"
           :data="automations"
           :class="['automation-table', { 'is-empty': !loading && automations.length === 0 }]"
           empty-text=" "
@@ -214,7 +186,7 @@
             <h3>还没有自动化任务</h3>
             <p>新建后，系统会按你设置的时间运行，并在这里保留运行记录。</p>
           </div>
-          <el-button
+          <LiquidGlassButton
             v-if="canCreateAutomation"
             class="automation-empty-action"
             type="primary"
@@ -222,16 +194,17 @@
             @click="openCreate"
           >
             创建第一个自动化
-          </el-button>
+          </LiquidGlassButton>
         </div>
       </div>
 
-      <div class="automation-table-footer">
-        <span>共 {{ automations.length }} 条</span>
-        <span>{{ filters.projectCode ? '当前项目范围' : '全部可访问项目' }}</span>
-      </div>
-
-    </el-card>
+      <template #pagination>
+        <div class="automation-table-footer">
+          <span>共 {{ automations.length }} 条</span>
+          <span>{{ filters.projectCode ? '当前项目范围' : '全部可访问项目' }}</span>
+        </div>
+      </template>
+    </LiquidGlassTable>
 
     <AppDrawer
       v-model="editorVisible"
@@ -326,11 +299,11 @@
               </el-select>
             </el-form-item>
           </div>
-          <el-alert
+          <LiquidGlassNotice
             v-if="form.targetId && !versionsLoading && versionOptions.length === 0"
             type="warning"
-            :closable="false"
             title="该目标没有可用于自动化的已发布版本"
+            source="backdrop"
           />
         </section>
 
@@ -460,10 +433,10 @@
               @blur="validateInputJson"
             />
           </el-form-item>
-          <el-alert
+          <LiquidGlassNotice
             type="info"
-            :closable="false"
             title="凭据应由 Runtime 凭据库或 Capability 边界注入。出现 token、password、secret、credential、apiKey 等字段会被后端拒绝。"
+            source="backdrop"
           />
         </section>
 
@@ -478,10 +451,10 @@
 
       <template #footer>
         <div class="drawer-footer">
-          <el-button @click="editorVisible = false">取消</el-button>
-          <el-button type="primary" :loading="saving" @click="saveAutomation">
+          <LiquidGlassButton @click="editorVisible = false">取消</LiquidGlassButton>
+          <LiquidGlassButton type="primary" :loading="saving" @click="saveAutomation">
             {{ form.activate ? '保存并启用' : '保存草稿' }}
-          </el-button>
+          </LiquidGlassButton>
         </div>
       </template>
     </AppDrawer>
@@ -594,7 +567,7 @@
         <el-empty v-if="!historyLoading && history.length === 0" :image-size="64" description="暂无运行记录" />
       </template>
     </AppDrawer>
-  </WorkbenchPage>
+  </LiquidGlassPage>
 </template>
 
 <script setup lang="ts">
@@ -602,12 +575,20 @@ import AppDrawer from '@/components/common/AppDrawer.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowDown, Clock, MoreFilled, Plus, Refresh, Search, WarningFilled } from '@element-plus/icons-vue'
+import { ArrowDown, Clock, MoreFilled, Plus, Refresh, Search } from '@element-plus/icons-vue'
 import CollapsibleHeaderRegion from '@/components/common/CollapsibleHeaderRegion.vue'
-import MetricIconBg from '@/components/common/MetricIconBg.vue'
+import MetricStrip from '@/components/common/MetricStrip.vue'
+import type { MetricStripItem } from '@/components/common/glassWorkbench'
 import PageHeader from '@/components/common/PageHeader.vue'
-import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
-import RunCenterNav from '@/views/runops/components/RunCenterNav.vue'
+import {
+  LiquidGlassButton,
+  LiquidGlassFilterBar,
+  LiquidGlassInput,
+  LiquidGlassNotice,
+  LiquidGlassPage,
+  LiquidGlassSelect,
+  LiquidGlassTable,
+} from '@/components/common/liquid-glass'
 import { useCollapsiblePageHeader } from '@/composables/useCollapsiblePageHeader'
 import {
   archiveAutomation,
@@ -657,15 +638,6 @@ interface TargetOption {
 interface VersionOption {
   id: number
   label: string
-}
-
-interface AutomationMetric {
-  label: string
-  value: string | number
-  delta: string
-  deltaTone: 'brand' | 'success' | 'warning' | 'neutral'
-  iconKey: string
-  tone: 'brand' | 'success' | 'warning' | 'neutral'
 }
 
 const route = useRoute()
@@ -774,38 +746,30 @@ const canOperateSelectedAutomation = computed(() => canOperateAutomation(
 ))
 const activeCount = computed(() => automations.value.filter((item) => item.status === 'ACTIVE').length)
 const attentionCount = computed(() => automations.value.filter((item) => ['PAUSED', 'COMPLETED'].includes(item.status)).length)
-const automationMetrics = computed<AutomationMetric[]>(() => [
+const automationMetrics = computed<MetricStripItem[]>(() => [
   {
+    key: 'total',
     label: '自动化总数',
     value: automations.value.length,
-    delta: filters.projectCode ? '当前项目' : '全部项目',
-    deltaTone: 'brand',
-    iconKey: 'workflow-total',
-    tone: 'brand',
+    hint: filters.projectCode ? '当前项目' : '全部项目',
   },
   {
+    key: 'active',
     label: '运行中',
     value: activeCount.value,
-    delta: activeCount.value ? '已调度' : '待启用',
-    deltaTone: activeCount.value ? 'success' : 'neutral',
-    iconKey: 'agent-enabled',
-    tone: 'success',
+    hint: activeCount.value ? '已调度' : '待启用',
   },
   {
+    key: 'attention',
     label: '需关注',
     value: attentionCount.value,
-    delta: attentionCount.value ? `待处理 ${attentionCount.value}` : '稳定',
-    deltaTone: attentionCount.value ? 'warning' : 'success',
-    iconKey: 'agent-ready',
-    tone: attentionCount.value ? 'warning' : 'success',
+    hint: attentionCount.value ? `待处理 ${attentionCount.value}` : '稳定',
   },
   {
+    key: 'engine',
     label: '执行引擎',
     value: readiness.value ? (readiness.value.enabled ? '就绪' : '关闭') : '检查中',
-    delta: readiness.value ? (readiness.value.enabled ? '可调度' : '未启用') : '状态未知',
-    deltaTone: readiness.value?.enabled ? 'success' : readiness.value ? 'warning' : 'neutral',
-    iconKey: 'model-ready',
-    tone: readiness.value?.enabled ? 'success' : readiness.value ? 'warning' : 'neutral',
+    hint: readiness.value ? (readiness.value.enabled ? '可调度' : '未启用') : '状态未知',
   },
 ])
 
@@ -1335,302 +1299,16 @@ function messageOf(error: unknown, fallback: string) {
   --page-header-domain-rgb: var(--brand-primary-rgb);
 }
 
-.automation-metric-strip {
-  display: flex;
-  min-width: 0;
-  height: auto;
-  min-height: var(--layout-metric-strip-min-height);
-  align-items: stretch;
-  overflow: hidden;
-  border: 1px solid rgb(var(--brand-primary-rgb) / 0.16);
-  border-radius: 8px;
-  background: rgb(255 255 255 / 0.5);
-  box-shadow: 0 18px 42px rgb(var(--brand-primary-rgb) / 0.052);
-  backdrop-filter: blur(9px);
-}
-
-.automation-metric-divider {
-  width: 1px;
-  height: 52px;
-  flex: 0 0 1px;
-  align-self: center;
-  border-radius: 1px;
-  background: rgb(var(--brand-primary-rgb) / 0.18);
-}
-
-.automation-metric-segment {
-  display: flex;
-  min-width: 0;
-  min-height: var(--layout-metric-strip-min-height);
-  flex: 1 1 0;
-  align-items: center;
-  gap: var(--layout-section-gap);
-  padding: var(--layout-metric-padding-block) var(--layout-metric-padding-inline);
-}
-
-.automation-metric-icon {
-  --metric-icon-bg-size: var(--layout-metric-icon-size);
-  --metric-icon-glyph-size: 20px;
-  flex-shrink: 0;
-}
-
-.automation-metric-content {
-  min-width: 0;
-  flex: 1;
-}
-
-.automation-metric-line {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.automation-metric-line > span {
-  overflow: hidden;
-  color: #64748b;
-  font-size: 13px;
-  font-weight: 500;
-  line-height: 17px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.automation-metric-line em {
-  display: inline-flex;
-  min-width: 72px;
-  height: 24px;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: center;
-  padding: 0 12px;
-  border-radius: 12px;
-  font-size: 12px;
-  font-style: normal;
-  font-weight: 500;
-  line-height: 18px;
-}
-
-.automation-metric-line em.brand {
-  color: var(--brand-active);
-  background: var(--brand-selected-bg);
-}
-
-.automation-metric-line em.success {
-  color: #16a34a;
-  background: #dcfce7;
-}
-
-.automation-metric-line em.warning {
-  color: #f97316;
-  background: #fff7ed;
-}
-
-.automation-metric-line em.neutral {
-  color: #64748b;
-  background: #f1f5f9;
-}
-
-.automation-metric-content strong {
-  display: block;
-  margin: 4px 0 2px;
-  color: #0f172a;
-  font-size: var(--layout-metric-value-size);
-  font-weight: 700;
-  line-height: 30px;
-}
-
 .automation-card {
-  display: flex;
-  width: 100%;
-  min-width: 0;
-  min-height: 420px;
-  flex: 1;
-  flex-direction: column;
-  overflow: hidden;
-  border: 1px solid rgb(var(--brand-primary-rgb) / 0.14);
-  border-radius: 16px;
-  background: var(--brand-glass-card-bg, rgb(255 255 255 / 0.76));
-  box-shadow: 0 18px 42px -16px rgb(var(--brand-primary-rgb) / 0.08);
-  backdrop-filter: blur(18px);
-}
-
-.automation-card :deep(.el-card__body) {
-  display: flex;
-  min-height: 0;
-  flex: 1;
-  flex-direction: column;
-  padding: 0;
-}
-
-.filter-row {
-  display: grid;
-  grid-template-columns: minmax(340px, 2.4fr) minmax(220px, 1.2fr) minmax(150px, 1fr) 74px 88px;
-  align-items: center;
-  gap: 12px;
-  margin: var(--layout-panel-padding) var(--layout-panel-padding) 0;
-  padding: var(--layout-filter-padding-block) var(--layout-filter-padding-inline);
-  border: 1px solid rgb(var(--brand-primary-rgb) / 0.11);
-  border-radius: 12px;
-  background: var(--brand-soft-bg, rgb(238 242 255 / 0.76));
-}
-
-.project-filter,
-.keyword-filter,
-.status-filter {
-  width: 100%;
-  min-width: 0;
-}
-
-.filter-row :deep(.el-input__wrapper),
-.filter-row :deep(.el-select__wrapper) {
-  min-height: 38px;
-  padding: 0 14px;
-  border-radius: 9px;
-  background: rgb(255 255 255 / 0.86);
-  box-shadow: 0 0 0 1px rgb(var(--brand-primary-rgb) / 0.18) inset;
-}
-
-.filter-row :deep(.el-input__inner),
-.filter-row :deep(.el-select__placeholder),
-.filter-row :deep(.el-select__selected-item) {
-  color: #8290a9;
-  font-size: 13px;
-  line-height: 17px;
-}
-
-.filter-reset,
-.filter-search {
-  min-height: 40px;
-  border-radius: 10px;
-  font-weight: 700;
-}
-
-.filter-reset {
-  border-color: rgb(var(--brand-primary-rgb) / 0.18);
-  background: rgb(255 255 255 / 0.86);
-  color: #334155;
-}
-
-.filter-search {
-  border-color: transparent;
-  background: var(--brand-primary-gradient);
-  box-shadow: 0 10px 18px -10px rgb(var(--brand-primary-rgb) / 0.24);
-}
-
-.readiness-inline {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: center;
-  gap: 12px;
-  margin: var(--layout-section-gap) var(--layout-panel-padding) 0;
-  padding: 10px 14px;
-  border: 1px solid color-mix(in srgb, var(--status-warning) 24%, transparent);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--status-warning-soft) 74%, transparent);
-}
-
-.readiness-inline > .el-icon {
-  color: var(--status-warning);
-  font-size: 20px;
-}
-
-.readiness-inline > div {
-  display: flex;
-  min-width: 0;
-  align-items: baseline;
-  gap: 10px;
-}
-
-.readiness-inline strong {
-  flex: 0 0 auto;
-  color: var(--text-primary);
-  font-size: 13px;
-}
-
-.readiness-inline span {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--text-secondary);
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.automation-table-shell {
-  display: flex;
-  min-height: 0;
-  flex: 1;
-  flex-direction: column;
-  margin: var(--layout-section-gap) var(--layout-panel-padding) 0;
-  overflow: hidden;
-  border: 1px solid rgb(var(--brand-primary-rgb) / 0.12);
-  border-radius: 13px;
-  background: rgb(255 255 255 / 0.68);
-}
-
-.readiness-inline + .automation-table-shell {
-  margin-top: var(--layout-section-gap);
+  min-height: 320px;
 }
 
 .automation-table {
-  --el-table-border-color: rgb(var(--brand-primary-rgb) / 0.1);
-  --el-table-header-bg-color: color-mix(in srgb, var(--brand-selected-bg) 42%, #f1f5fb);
-  --el-table-row-hover-bg-color: rgb(var(--brand-selected-rgb) / 0.16);
   width: 100%;
-  background: transparent;
-}
-
-.automation-table :deep(.el-table__inner-wrapper::before) {
-  height: 0;
-}
-
-.automation-table :deep(.cell) {
-  padding: 0 8px;
-}
-
-.automation-table :deep(th.el-table__cell) {
-  height: 44px;
-  background: color-mix(in srgb, var(--brand-selected-bg) 42%, #f1f5fb) !important;
-  color: var(--brand-active);
-  font-size: 12px;
-  font-weight: 700;
-  line-height: 16px;
 }
 
 .automation-table :deep(td.el-table__cell) {
   height: 62px;
-  border-bottom-color: rgb(var(--brand-primary-rgb) / 0.1);
-  background: rgb(255 255 255 / 0.72) !important;
-  color: #334155;
-}
-
-.automation-table :deep(.el-table__row:hover > td.el-table__cell),
-.automation-table :deep(.el-table__body tr.hover-row > td.el-table__cell) {
-  background: rgb(var(--brand-selected-rgb) / 0.16) !important;
-}
-
-.automation-table :deep(.el-table-fixed-column--right),
-.automation-table :deep(.el-table-fixed-column--left) {
-  background-color: rgb(255 255 255 / 0.94) !important;
-}
-
-.automation-table :deep(th.el-table-fixed-column--right),
-.automation-table :deep(th.el-table-fixed-column--left) {
-  background-color: color-mix(in srgb, var(--brand-selected-bg) 42%, #f1f5fb) !important;
-}
-
-.automation-table :deep(td.el-table-fixed-column--right),
-.automation-table :deep(td.el-table-fixed-column--left) {
-  background-color: rgb(255 255 255 / 0.94) !important;
-}
-
-.automation-table :deep(.el-table__row:hover > td.el-table-fixed-column--right),
-.automation-table :deep(.el-table__row:hover > td.el-table-fixed-column--left),
-.automation-table :deep(.el-table__body tr.hover-row > td.el-table-fixed-column--right),
-.automation-table :deep(.el-table__body tr.hover-row > td.el-table-fixed-column--left) {
-  background-color: color-mix(in srgb, var(--brand-selected-bg) 34%, #fff) !important;
 }
 
 .automation-table.is-empty :deep(.el-table__empty-block) {
@@ -1639,32 +1317,31 @@ function messageOf(error: unknown, fallback: string) {
 
 .automation-empty-state {
   display: grid;
-  grid-template-columns: 88px minmax(0, 1fr) auto;
-  min-height: 220px;
-  flex: 1;
+  grid-template-columns: 72px minmax(0, 1fr) auto;
+  min-height: 200px;
   align-items: center;
   gap: var(--layout-panel-padding);
   margin: var(--layout-panel-padding);
   padding: var(--layout-panel-padding);
-  border: 1px dashed rgb(var(--brand-primary-rgb) / 0.28);
-  border-radius: 18px;
-  background: linear-gradient(135deg, rgb(var(--brand-selected-rgb) / 0.55), rgb(255 255 255 / 0.62));
+  border: 1px dashed var(--border-glass-edge);
+  border-radius: var(--radius-xl);
+  background: var(--surface-glass-inset);
 }
 
 .automation-empty-icon {
   display: grid;
-  width: 88px;
-  height: 88px;
+  width: 72px;
+  height: 72px;
   place-items: center;
-  border: 1px solid rgb(var(--brand-primary-rgb) / 0.18);
-  border-radius: 22px;
-  background: rgb(255 255 255 / 0.76);
-  color: var(--brand-active);
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.92);
+  border: 1px solid var(--border-glass-edge);
+  border-radius: 20px;
+  background: var(--surface-glass-inset);
+  color: var(--brand-on-surface);
+  box-shadow: var(--glass-rim-double);
 }
 
 .automation-empty-icon .el-icon {
-  font-size: 36px;
+  font-size: 32px;
 }
 
 .automation-empty-copy {
@@ -1673,32 +1350,24 @@ function messageOf(error: unknown, fallback: string) {
 
 .automation-empty-copy h3 {
   margin: 0 0 8px;
-  color: #101828;
-  font-size: 18px;
+  color: var(--text-primary);
+  font-size: 17px;
 }
 
 .automation-empty-copy p {
   max-width: 620px;
   margin: 0;
-  color: #667085;
+  color: var(--text-muted);
   line-height: 1.65;
-}
-
-.automation-empty-action {
-  min-height: 40px;
-  border-radius: 10px;
 }
 
 .automation-table-footer {
   display: flex;
-  flex-shrink: 0;
+  width: 100%;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-top: auto;
-  padding: var(--layout-pagination-padding-block) var(--layout-panel-padding);
-  border-top: 1px solid rgb(var(--brand-primary-rgb) / 0.1);
-  color: #667085;
+  color: var(--text-muted);
   font-size: 13px;
 }
 
@@ -1714,7 +1383,7 @@ function messageOf(error: unknown, fallback: string) {
   text-align: left;
 }
 
-.automation-name { color: #101828; font-weight: 700; }
+.automation-name { color: var(--text-primary); font-weight: 700; }
 .automation-name:hover,
 .trace-link:hover { color: var(--brand-primary); text-decoration: underline; }
 
@@ -1753,7 +1422,7 @@ function messageOf(error: unknown, fallback: string) {
   margin-bottom: 18px;
   border: 1px solid color-mix(in srgb, var(--brand-primary) 24%, var(--border-divider));
   border-radius: 10px;
-  background: color-mix(in srgb, var(--brand-primary) 6%, var(--surface-solid-panel));
+  background: color-mix(in srgb, var(--brand-primary) 6%, var(--surface-glass-inset));
   color: var(--text-primary);
 }
 
@@ -1767,7 +1436,7 @@ function messageOf(error: unknown, fallback: string) {
   padding: 18px;
   border: 1px solid var(--border-divider);
   border-radius: 12px;
-  background: var(--surface-solid-panel);
+  background: var(--surface-glass-inset);
 }
 
 .section-title {
@@ -1834,7 +1503,7 @@ function messageOf(error: unknown, fallback: string) {
   padding: 18px;
   border: 1px solid color-mix(in srgb, var(--brand-primary) 22%, var(--border-divider));
   border-radius: 12px;
-  background: color-mix(in srgb, var(--brand-primary) 5%, var(--surface-solid-panel));
+  background: color-mix(in srgb, var(--brand-primary) 5%, var(--surface-glass-inset));
 }
 
 .drawer-footer { display: flex; justify-content: flex-end; gap: 10px; }
@@ -1887,154 +1556,10 @@ function messageOf(error: unknown, fallback: string) {
 .attempt-error { grid-column: 2 / -1; margin: 0; }
 .cell-error { margin-top: 5px; }
 
-:global([data-theme='dark']) .automation-metric-strip,
-:global([data-theme='dark']) .automation-card {
-  border-color: rgb(255 255 255 / 0.08);
-  background: rgb(255 255 255 / 0.04);
-  box-shadow: 0 18px 42px rgb(0 0 0 / 0.18);
-}
-
-:global([data-theme='dark']) .automation-metric-line > span,
-:global([data-theme='dark']) .automation-table-footer {
-  color: var(--text-muted);
-}
-
-:global([data-theme='dark']) .automation-metric-content strong,
-:global([data-theme='dark']) .automation-name,
-:global([data-theme='dark']) .automation-empty-copy h3 {
-  color: var(--text-primary);
-}
-
-:global([data-theme='dark']) .filter-row,
-:global([data-theme='dark']) .automation-table-shell,
-:global([data-theme='dark']) .automation-empty-state {
-  border-color: rgb(255 255 255 / 0.08);
-  background: rgb(255 255 255 / 0.035);
-}
-
-:global([data-theme='dark']) .filter-row :deep(.el-input__wrapper),
-:global([data-theme='dark']) .filter-row :deep(.el-select__wrapper),
-:global([data-theme='dark']) .filter-reset,
-:global([data-theme='dark']) .automation-empty-icon {
-  border-color: rgb(255 255 255 / 0.1);
-  background: var(--surface-solid-control);
-  color: var(--text-secondary);
-}
-
-:global([data-theme='dark']) .automation-table :deep(th.el-table__cell),
-:global([data-theme='dark']) .automation-table :deep(th.el-table-fixed-column--right),
-:global([data-theme='dark']) .automation-table :deep(th.el-table-fixed-column--left) {
-  background: var(--surface-solid-control) !important;
-  color: var(--brand-primary);
-}
-
-:global([data-theme='dark']) .automation-table :deep(td.el-table__cell),
-:global([data-theme='dark']) .automation-table :deep(td.el-table-fixed-column--right),
-:global([data-theme='dark']) .automation-table :deep(td.el-table-fixed-column--left) {
-  background: var(--surface-solid-panel) !important;
-  color: var(--text-secondary);
-}
-
-:global([data-theme='dark']) .automation-empty-copy p,
-:global([data-theme='dark']) .readiness-inline span {
-  color: var(--text-muted);
-}
-
-@media (max-width: 1100px) {
-  .automation-metric-strip {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    max-height: none;
-    gap: 1px;
-    background: rgb(var(--brand-primary-rgb) / 0.14);
-  }
-
-  .automation-metric-divider {
-    display: none;
-  }
-
-  .automation-metric-segment {
-    min-height: var(--layout-metric-strip-min-height);
-    background: var(--surface-glass-panel);
-  }
-
-  .filter-row {
-    grid-template-columns: minmax(260px, 2fr) repeat(2, minmax(140px, 1fr)) 74px 88px;
-  }
-}
-
-@media (max-width: 1040px) {
-  .filter-row {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .keyword-filter {
-    grid-column: 1 / -1;
-  }
-
-  .readiness-inline > div {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 3px;
-  }
-
-  .readiness-inline span {
-    overflow: visible;
-    text-overflow: initial;
-    white-space: normal;
-  }
-
-  .automation-empty-state {
-    grid-template-columns: 72px minmax(0, 1fr);
-  }
-
-  .automation-empty-icon {
-    width: 72px;
-    height: 72px;
-  }
-
-  .automation-empty-action {
-    grid-column: 2;
-    justify-self: start;
-  }
-}
-
 @media (max-width: 720px) {
-  .automation-metric-strip,
-  .filter-row {
-    grid-template-columns: 1fr;
-  }
-
-  .automation-metric-segment {
-    min-height: var(--layout-metric-strip-min-height);
-    padding: var(--layout-metric-padding-block) var(--layout-metric-padding-inline);
-  }
-
-  .filter-row,
-  .readiness-inline,
-  .automation-table-shell {
-    margin-right: var(--layout-panel-padding);
-    margin-left: var(--layout-panel-padding);
-  }
-
-  .keyword-filter {
-    grid-column: auto;
-  }
-
   .automation-empty-state {
     grid-template-columns: 1fr;
     justify-items: start;
-    margin: var(--layout-panel-padding);
-    padding: var(--layout-panel-padding);
-  }
-
-  .automation-empty-action {
-    grid-column: auto;
-  }
-
-  .automation-table-footer {
-    padding-right: var(--layout-panel-padding);
-    padding-left: var(--layout-panel-padding);
   }
 
   .form-grid--2,

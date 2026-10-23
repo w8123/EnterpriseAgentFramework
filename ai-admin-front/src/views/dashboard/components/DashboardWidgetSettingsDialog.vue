@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
-import type { DashboardWidgetInstance } from '@/types/operationsDashboard'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import type { DashboardWidgetConfig, DashboardWidgetInstance } from '@/types/operationsDashboard'
 import { getWidgetDefinition } from '../widgetRegistry'
+import { SHORTCUT_WIDGET_KEY } from '../dashboardShortcuts'
+import DashboardShortcutEditor from './DashboardShortcutEditor.vue'
 
 /**
  * Widget 设置面板：修改实例标题；支持配置字段（topN / 显示数量）。
@@ -10,21 +12,52 @@ import { getWidgetDefinition } from '../widgetRegistry'
  */
 const props = defineProps<{
   instance: DashboardWidgetInstance | null
+  permissions?: readonly string[]
+  editing?: boolean
+  saveError?: string | null
 }>()
 
 const emit = defineEmits<{
   close: []
-  apply: [patch: { title?: string; topN?: number; displayCount?: number }]
+  apply: [patch: DashboardWidgetConfig]
 }>()
 
 const titleDraft = ref('')
 const numberDrafts = ref<Record<string, number>>({})
+const shortcutDraft = ref<DashboardWidgetConfig>({})
+const dialogRef = ref<HTMLElement | null>(null)
+const isShortcuts = computed(() => props.instance?.widgetKey === SHORTCUT_WIDGET_KEY)
+let previousFocus: HTMLElement | null = null
+
+function handleKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape') { event.preventDefault(); emit('close'); return }
+  if (event.key !== 'Tab') return
+  const elements = [...(dialogRef.value?.querySelectorAll<HTMLElement>('button:not(:disabled), input, select:not(:disabled)') ?? [])]
+  const first = elements[0]
+  const last = elements[elements.length - 1]
+  if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus() }
+  else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
+}
+
+watch(() => Boolean(props.instance), async open => {
+  if (open) {
+    previousFocus = document.activeElement as HTMLElement | null
+    document.addEventListener('keydown', handleKeydown)
+    await nextTick()
+    dialogRef.value?.querySelector<HTMLInputElement>('input')?.focus()
+  } else {
+    document.removeEventListener('keydown', handleKeydown)
+    previousFocus?.focus()
+  }
+}, { immediate: true })
+onBeforeUnmount(() => document.removeEventListener('keydown', handleKeydown))
 
 watch(
   () => props.instance,
   (instance) => {
     if (!instance) return
     titleDraft.value = instance.config.title ?? ''
+    shortcutDraft.value = JSON.parse(JSON.stringify(instance.config)) as DashboardWidgetConfig
     const drafts: Record<string, number> = {}
     for (const field of getWidgetDefinition(instance.widgetKey)?.configFields ?? []) {
       const value = instance.config[field.key]
@@ -37,7 +70,11 @@ watch(
 
 function apply() {
   if (!props.instance) return
-  const patch: { title?: string; topN?: number; displayCount?: number } = { title: titleDraft.value }
+  const patch: DashboardWidgetConfig = { title: titleDraft.value }
+  if (isShortcuts.value) {
+    patch.shortcutIds = shortcutDraft.value.shortcutIds
+    patch.shortcutPreset = shortcutDraft.value.shortcutPreset
+  }
   for (const [key, value] of Object.entries(numberDrafts.value)) {
     patch[key as 'topN' | 'displayCount'] = value
   }
@@ -49,19 +86,21 @@ function apply() {
   <Teleport to="body">
     <div v-if="instance" class="dash-settings__overlay" @pointerdown.self="emit('close')">
       <aside
+        ref="dialogRef"
         class="dash-settings"
+        :class="{ 'dash-settings--shortcuts': isShortcuts }"
         role="dialog"
         aria-modal="true"
-        aria-label="组件设置"
+        :aria-label="isShortcuts ? '自定义快捷入口' : '组件设置'"
         data-testid="widget-settings"
       >
         <header class="dash-settings__header">
-          <h3>组件设置</h3>
+          <div><span v-if="isShortcuts" class="dash-settings__eyebrow">我的工作台</span><h3>{{ isShortcuts ? '自定义快捷入口' : '组件设置' }}</h3></div>
           <button type="button" class="dash-settings__close" aria-label="关闭设置" @click="emit('close')">✕</button>
         </header>
         <div class="dash-settings__body">
           <label class="dash-settings__field">
-            <span>实例标题</span>
+            <span>{{ isShortcuts ? '组件名称' : '实例标题' }}</span>
             <input
               v-model="titleDraft"
               type="text"
@@ -70,6 +109,7 @@ function apply() {
               placeholder="留空使用组件默认标题"
             >
           </label>
+          <DashboardShortcutEditor v-if="isShortcuts" v-model="shortcutDraft" :permissions="permissions ?? []" />
           <label
             v-for="field in getWidgetDefinition(instance.widgetKey)?.configFields ?? []"
             :key="field.key"
@@ -85,11 +125,12 @@ function apply() {
               :data-testid="`widget-settings-${field.key}`"
             >
           </label>
-          <p class="dash-settings__hint">设置仅保存在布局草稿中，随“保存布局”写入当前浏览器布局。</p>
+          <p class="dash-settings__hint">{{ editing ? '设置先应用到布局草稿，保存布局后生效。' : '仅为当前账号保存在此浏览器，其他人的工作台不受影响。' }}</p>
+          <p v-if="saveError" class="dash-settings__error" role="alert">{{ saveError }}</p>
         </div>
         <footer class="dash-settings__footer">
-          <button type="button" class="is-primary" @click="apply(); emit('close')">应用</button>
           <button type="button" @click="emit('close')">取消</button>
+          <button type="button" class="is-primary" @click="apply">{{ editing ? '应用' : '保存' }}</button>
         </footer>
       </aside>
     </div>
@@ -112,7 +153,14 @@ function apply() {
   border: 1px solid var(--ops-border-strong);
   border-radius: 10px;
   box-shadow: var(--ops-overlay-shadow);
+  max-height: calc(100dvh - 48px);
+  display: flex;
+  flex-direction: column;
 }
+
+.dash-settings--shortcuts { width: min(580px, calc(100vw - 32px)); border-radius: 14px; }
+.dash-settings__eyebrow { display: block; margin-bottom: 3px; color: var(--ops-text-secondary); font-size: 11px; }
+.dash-settings__error { margin: 0; color: var(--ops-danger); font-size: 12px; }
 
 .dash-settings__header {
   display: flex;
@@ -141,7 +189,13 @@ function apply() {
   display: grid;
   gap: 12px;
   padding: 14px;
+  min-height: 0;
+  overflow-y: auto;
 }
+
+.dash-settings--shortcuts .dash-settings__header,
+.dash-settings--shortcuts .dash-settings__footer { padding: 16px 20px; }
+.dash-settings--shortcuts .dash-settings__body { padding: 18px 20px; gap: 20px; }
 
 .dash-settings__field {
   display: grid;

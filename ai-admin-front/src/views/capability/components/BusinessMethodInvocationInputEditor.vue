@@ -14,24 +14,22 @@
       </div>
     </header>
 
-    <el-alert
+    <LiquidGlassNotice
       v-if="singleDtoRootName"
       class="input-editor-note"
       title="单 DTO 输入形式"
       :description="`可使用平铺字段或 ${singleDtoRootName} 包装形式。表单会保留你当前的包装与额外字段；完整 JSON 按原样提交。`"
       type="info"
-      :closable="false"
-      show-icon
+      source="backdrop"
     />
 
-    <el-alert
+    <LiquidGlassNotice
       v-if="formModeNotice"
       class="input-editor-note"
       title="请继续使用 JSON 编辑"
       :description="formModeNotice"
       type="warning"
-      :closable="false"
-      show-icon
+      source="backdrop"
     />
 
     <template v-if="mode === 'form'">
@@ -129,17 +127,21 @@
 
     <template v-else>
       <div v-if="hasSensitiveParameters && !jsonSensitiveRevealed" class="json-sensitive-guard">
-        <el-alert
+        <LiquidGlassNotice
           title="敏感字段已隐藏"
           description="下方只显示脱敏预览。若确需编辑完整 JSON，请显式显示敏感值；不要将输入复制到工单或聊天。"
           type="warning"
-          :closable="false"
-          show-icon
+          source="backdrop"
         />
         <el-button type="primary" plain size="small" :disabled="props.disabled" @click="revealSensitiveJson">显示敏感值并编辑</el-button>
       </div>
       <div v-else-if="hasSensitiveParameters" class="json-sensitive-guard is-revealed">
-        <el-alert title="正在显示敏感值" description="完成编辑后可重新隐藏。敏感输入不会被保存为最近调用记录。" type="warning" :closable="false" show-icon />
+        <LiquidGlassNotice
+          title="正在显示敏感值"
+          description="完成编辑后可重新隐藏。敏感输入不会被保存为最近调用记录。"
+          type="warning"
+          source="backdrop"
+        />
         <el-button text size="small" :disabled="props.disabled" @click="hideSensitiveJson">重新隐藏敏感值</el-button>
       </div>
       <el-input
@@ -174,6 +176,7 @@ import {
   maskInvocationInput,
   safeJson,
 } from '../businessMethodInvocation'
+import { LiquidGlassNotice } from '@/components/common/liquid-glass'
 
 type EditorMode = 'form' | 'json'
 

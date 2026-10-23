@@ -84,11 +84,11 @@ Capability 的 `CapabilityCatalogStateCodec` 明确评审前状态中可回滚�
 
 Studio 的 `useWorkflowStudioTraceProjection` 只读调试结果、RunOps 和旧 Trace，生成节点状态、回放摘要、已走过的连线和最近路由。显示类型、状态归一化及载荷格式化归属 `workflowStudioTrace`，画布、调试命令、抽屉和评测共用；展示代码不再为了格式化载荷依赖调试请求 composable。挂起状态在两类结果中一致显示等待，重复节点采用最近一次路由。保存和撤销历史使用 `serializeWorkflowEdge`，仅保留 `CanvasEdge` 声明字段及稳定样式；Vue Flow 的节点引用、测量坐标、选择状态和运行高亮只参与显示。读取或清除回放不会改变草稿快照。
 
-Workflow 自有 `runtime_workflow_capability_reference` 反向索引。草稿保存、版本发布和删除与索引维护同事务；回滚保留历史版本索引，更新草稿修订对应的索引。查询按能力引用键读取索引并关联名称、版本状态，不再逐请求加载全库 GraphSpec。覆盖标记区分已索引空图、缺失或过期索引、无法解析的图；启动时分批锁定并重建缺失索引。部署前执行 [引用索引升级](../../sql/upgrade-20260905-workflow-reference-index.sql)，新库直接使用 `initV2.sql`。
+Workflow 自有 `runtime_workflow_capability_reference` 反向索引。草稿保存、版本发布和删除与索引维护同事务；回滚保留历史版本索引，更新草稿修订对应的索引。查询按能力引用键读取索引并关联名称、版本状态，不再逐请求加载全库 GraphSpec。覆盖标记区分已索引空图、缺失或过期索引、无法解析的图；启动时分批锁定并重建缺失索引。引用索引已进入新库基线；已有库按 [SQL 说明](../../sql/README.md#历史版本) 核对结构。
 
 能力影响查询仍有明确容量限制：Workflow 索引命中与聚合后的 Workflow/Agent 使用证据各最多 10,000 条；MCP 最多读取 10,000 个发布与 10,000 个修订，Agent 最多读取 10,000 个活动/外部固定配置及相关绑定。超限、索引缺失或过期、缺少所有者或图无法解析时返回 `PARTIAL`，依赖不可用时由聚合端返回 `UNKNOWN`。这些状态不能解释成“没有引用”。覆盖检查仍遍历窄元数据，MCP 与 Agent 仍有有界集合读取；尚未做生产规模延迟、吞吐量或 MySQL 查询计划验证。
 
-Workflow 草稿的任务投递由 `RuntimeWorkflowDraftSubmissionService` 统一管理，Page Workbench 与 RunOps Trace 候选只负责各自请求转换和来源校验。Workflow 自有 `runtime_workflow_draft_submission` 保存请求摘要和成功应用修订；重复内容只读，新内容通过行锁与明确的 `baseRevision` 保护其他入口的编辑。事务使用 READ_COMMITTED，Workflow 行锁查询清理 MyBatis 缓存，避免等待期间提交的新修订被后续缓存读取覆盖。投递凭据和草稿一起提交或回滚，不使用可编辑的 `extraJson` 充当幂等依据。新增表按 [升级说明](../../sql/upgrade-20260906-workflow-draft-submissions.sql) 部署；不改变服务或模块所有权，不新增跨模块持久化引用。
+Workflow 草稿的任务投递由 `RuntimeWorkflowDraftSubmissionService` 统一管理，Page Workbench 与 RunOps Trace 候选只负责各自请求转换和来源校验。Workflow 自有 `runtime_workflow_draft_submission` 保存请求摘要和成功应用修订；重复内容只读，新内容通过行锁与明确的 `baseRevision` 保护其他入口的编辑。事务使用 READ_COMMITTED，Workflow 行锁查询清理 MyBatis 缓存，避免等待期间提交的新修订被后续缓存读取覆盖。投递凭据和草稿一起提交或回滚，不使用可编辑的 `extraJson` 充当幂等依据。投递表已进入初始化基线，已有库按 [SQL 说明](../../sql/README.md#历史版本) 核对结构；不改变服务或模块所有权，不新增跨模块持久化引用。
 
 Trace 的 [RuntimeTraceRootService](../../reachai-runtime-service/src/main/java/com/enterprise/ai/runtime/trace/RuntimeTraceRootService.java) 拥有根 Span 的创建、恢复与完成规则，Supervisor、Workflow 调试和 Automation 通过不可变请求与句柄调用，不向外暴露根 Entity。摘要脱敏工具迁入 Trace，等待过期与取消复用 Trace 自有终止服务。Automation 的两个 Trace Mapper/Entity 引用例外已删除；后续子记录整理进一步收回 Supervisor 与调试的 Trace 持久化引用。RunOps 继续拥有 Run 恢复的状态条件与空值清理，不引入 Trace 对 RunOps 的反向依赖。
 

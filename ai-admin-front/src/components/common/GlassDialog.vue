@@ -79,15 +79,12 @@ const emit = defineEmits<{
 .glass-composed-dialog.app-dialog.el-dialog {
   padding: 0;
   overflow: hidden;
-  border: 1px solid var(--border-readable);
+  border: 1px solid var(--border-glass-edge);
   border-radius: var(--radius-xl);
-  background: var(--surface-glass-overlay);
-  box-shadow:
-    0 32px 96px rgb(17 35 58 / 0.28),
-    0 10px 30px rgb(var(--brand-primary-rgb) / 0.1),
-    var(--inner-highlight);
-  -webkit-backdrop-filter: blur(34px) saturate(1.24);
-  backdrop-filter: blur(34px) saturate(1.24);
+  background: var(--glass-droplet-highlight), var(--surface-glass-overlay);
+  box-shadow: var(--shadow-overlay), var(--glass-rim-double);
+  -webkit-backdrop-filter: blur(var(--glass-blur-overlay)) saturate(var(--glass-saturation));
+  backdrop-filter: blur(var(--glass-blur-overlay)) saturate(var(--glass-saturation));
 }
 
 .glass-composed-dialog.app-dialog.el-dialog .el-dialog__header {
@@ -95,8 +92,7 @@ const emit = defineEmits<{
   padding: 24px 72px 22px 30px;
   border-bottom-color: transparent;
   background:
-    radial-gradient(ellipse 66% 130% at 10% -18%, rgb(var(--brand-primary-rgb) / 0.16), transparent 70%),
-    linear-gradient(180deg, rgb(255 255 255 / 0.2) 0%, rgb(255 255 255 / 0.08) 54%, transparent 100%);
+    radial-gradient(ellipse 66% 130% at 10% -18%, rgb(var(--brand-primary-rgb) / 0.14), transparent 70%);
 }
 
 .glass-composed-dialog.app-dialog.el-dialog .el-dialog__headerbtn {
@@ -146,8 +142,8 @@ const emit = defineEmits<{
   place-items: center;
   flex: 0 0 46px;
   border: 1px solid rgb(var(--brand-primary-rgb) / 0.28);
-  border-radius: 14px;
-  color: var(--brand-active);
+  border-radius: var(--radius-lg);
+  color: var(--brand-on-surface);
   background: var(--surface-glass-selected);
   box-shadow:
     0 12px 24px -18px rgb(var(--brand-primary-rgb) / 0.46),
@@ -261,10 +257,10 @@ const emit = defineEmits<{
 }
 
 .glass-dialog-footer__actions .el-button {
-  min-height: 40px;
+  min-height: var(--control-height, 40px);
   margin: 0;
-  border-radius: 10px;
-  font-weight: 680;
+  border-radius: var(--radius-pill);
+  font-weight: 600;
 }
 
 /* Shared form composition for configuration dialogs. */
@@ -278,10 +274,10 @@ const emit = defineEmits<{
 .glass-dialog-section {
   min-width: 0;
   padding: 18px 18px 4px;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border-glass-edge);
   border-radius: 14px;
-  background: color-mix(in srgb, var(--surface-solid-panel) 78%, transparent);
-  box-shadow: var(--inner-highlight), var(--shadow-sm);
+  background: var(--surface-glass-inset);
+  box-shadow: var(--shadow-glass-inset);
 }
 
 .glass-dialog-section > .glass-section-header {
@@ -395,21 +391,8 @@ const emit = defineEmits<{
   -webkit-text-fill-color: var(--text-muted);
 }
 
-[data-theme="dark"] .glass-composed-dialog.app-dialog.el-dialog {
-  border-color: var(--border-readable);
-  box-shadow:
-    0 34px 100px rgb(0 0 0 / 0.62),
-    0 10px 34px rgb(var(--brand-primary-rgb) / 0.16),
-    var(--inner-highlight);
-}
-
-[data-theme="dark"] .glass-composed-dialog.app-dialog.el-dialog .el-dialog__header {
-  background:
-    radial-gradient(ellipse 66% 130% at 10% -18%, rgb(var(--brand-primary-rgb) / 0.22), transparent 72%),
-    linear-gradient(180deg, rgb(255 255 255 / 0.04) 0%, rgb(255 255 255 / 0.015) 58%, transparent 100%);
-}
-
 [data-reduce-transparency="true"] .glass-composed-dialog.app-dialog.el-dialog {
+  background: var(--surface-fallback-overlay);
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }

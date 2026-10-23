@@ -2,8 +2,9 @@
   <WorkbenchPage class="eval-overview-page" layout="list">
     <PageHeader
       variant="overview"
+      presentation="plain"
+      action-presentation="inline"
       domain="governance"
-      eyebrow="运行中心"
       title="评测"
       description="发布新配置前，用同一批用例对比新旧版本，确认没有变差。"
     >
@@ -11,23 +12,23 @@
         <RunCenterNav />
       </template>
       <template #actions>
-        <el-button :icon="Refresh" :loading="loading" @click="load">刷新</el-button>
-        <el-button type="primary" :icon="Plus" @click="openCreate">新建评测</el-button>
+        <LiquidGlassButton source="wallpaper" :icon="Refresh" :loading="loading" @click="load">刷新</LiquidGlassButton>
+        <LiquidGlassButton source="wallpaper" type="primary" :icon="Plus" @click="openCreate">新建评测</LiquidGlassButton>
       </template>
     </PageHeader>
 
     <EvalWorkerNotice />
 
-    <el-alert
-      v-if="loadError"
-      type="error"
-      :title="loadError"
-      :closable="false"
-      show-icon
-    />
+    <LiquidGlassNotice v-if="loadError" source="wallpaper" type="error" :title="loadError" />
 
-    <WorkbenchPanel title="按 Agent" description="每个 Agent 的评测数据集和最近一次对比实验。">
-      <el-table v-loading="loading" :data="agentRows" row-key="agentId" empty-text="还没有评测。点「新建评测」为某个 Agent 建立数据集。">
+    <LiquidGlassTable class="eval-section" :loading="loading" :show-pagination="false">
+      <template #toolbar>
+        <header class="eval-section__head">
+          <h2>按 Agent</h2>
+          <p>每个 Agent 的评测数据集和最近一次对比实验。</p>
+        </header>
+      </template>
+      <el-table :data="agentRows" row-key="agentId" empty-text="还没有评测。点「新建评测」为某个 Agent 建立数据集。">
         <el-table-column label="Agent" min-width="200">
           <template #default="{ row }">
             <div class="cell-stack">
@@ -66,10 +67,16 @@
           </template>
         </el-table-column>
       </el-table>
-    </WorkbenchPanel>
+    </LiquidGlassTable>
 
-    <WorkbenchPanel title="最近实验" description="全部 Agent 最近的对比实验，点开查看逐项结果和对应运行。">
-      <el-table v-loading="loading" :data="recentExperiments" row-key="id" empty-text="还没有实验">
+    <LiquidGlassTable class="eval-section" :loading="loading" :show-pagination="false">
+      <template #toolbar>
+        <header class="eval-section__head">
+          <h2>最近实验</h2>
+          <p>全部 Agent 最近的对比实验，点开查看逐项结果和对应运行。</p>
+        </header>
+      </template>
+      <el-table :data="recentExperiments" row-key="id" empty-text="还没有实验">
         <el-table-column label="实验" min-width="220">
           <template #default="{ row }">
             <div class="cell-stack">
@@ -107,7 +114,7 @@
           </template>
         </el-table-column>
       </el-table>
-    </WorkbenchPanel>
+    </LiquidGlassTable>
 
     <AppDialog v-model="createVisible" title="新建评测" width="480px">
       <p class="dialog-hint">选择要评测的 Agent，进入后建立数据集并发起对比实验。</p>
@@ -126,8 +133,8 @@
         />
       </el-select>
       <template #footer>
-        <el-button @click="createVisible = false">取消</el-button>
-        <el-button type="primary" :disabled="!createAgentId" @click="openAgent(createAgentId)">进入</el-button>
+        <LiquidGlassButton @click="createVisible = false">取消</LiquidGlassButton>
+        <LiquidGlassButton type="primary" :disabled="!createAgentId" @click="openAgent(createAgentId)">进入</LiquidGlassButton>
       </template>
     </AppDialog>
   </WorkbenchPage>
@@ -140,7 +147,7 @@ import { Plus, Refresh } from '@element-plus/icons-vue'
 import AppDialog from '@/components/common/AppDialog.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
-import WorkbenchPanel from '@/components/common/WorkbenchPanel.vue'
+import { LiquidGlassButton, LiquidGlassNotice, LiquidGlassTable } from '@/components/common/liquid-glass'
 import { listEvalOpsDatasets, listEvalOpsExperiments } from '@/api/agentEval'
 import { listAgents } from '@/api/workflow'
 import type { EvalOpsDatasetSummary, EvalOpsExperimentSummary } from '@/types/agentEval'
@@ -226,6 +233,28 @@ onMounted(load)
 .eval-overview-page {
   width: min(100%, 1840px);
   margin-inline: auto;
+}
+
+.eval-section {
+  flex: 0 0 auto;
+}
+
+.eval-section__head {
+  display: grid;
+  gap: 2px;
+
+  h2 {
+    margin: 0;
+    color: var(--text-primary);
+    font-size: 15px;
+    font-weight: 650;
+  }
+
+  p {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 12px;
+  }
 }
 
 .cell-stack {

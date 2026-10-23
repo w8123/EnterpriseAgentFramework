@@ -5,6 +5,28 @@
     <link rel="icon" type="image/svg+xml" href="/reachai-icon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>睿池 ReachAI</title>
+    <script>
+      // 首屏外观：在样式加载前写入 html 属性，避免刷新时明暗或品牌色闪变。键与 useTheme.ts 一致。
+      ;(function () {
+        var html = document.documentElement
+        function read(key) {
+          try { return localStorage.getItem(key) } catch (e) { return null }
+        }
+        var mode = read('themeMode')
+        var dark = mode === 'dark'
+          || (mode === 'system' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)
+        html.setAttribute('data-theme', dark ? 'dark' : 'light')
+        if (dark) html.classList.add('dark')
+        var brand = read('brandTheme')
+        if (brand) html.setAttribute('data-brand', brand)
+        var density = read('density')
+        if (density === 'compact' || density === 'comfortable' || density === 'spacious') {
+          html.setAttribute('data-density', density)
+        }
+        html.setAttribute('data-reduce-transparency', read('reduceTransparency') === 'true' ? 'true' : 'false')
+        html.setAttribute('data-glass-refraction', read('glassRefraction') === 'false' ? 'off' : 'on')
+      })()
+    </script>
   </head>
   <body>
     <div id="app"></div>

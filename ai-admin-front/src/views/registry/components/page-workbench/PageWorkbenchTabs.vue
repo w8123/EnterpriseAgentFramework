@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { Clock, Connection, Document } from '@element-plus/icons-vue'
+import { LiquidGlassNav } from '@/components/common/liquid-glass'
 
 export type PageAccessCenterTab = 'pages' | 'activities' | 'online'
 
@@ -23,7 +24,7 @@ const tabs = computed(() => [
 </script>
 
 <template>
-  <nav class="page-access-tabs" role="tablist" aria-label="页面接入中心工作区">
+  <LiquidGlassNav source="wallpaper" class="page-access-tabs" role="tablist" aria-label="页面接入中心工作区">
     <button
       v-for="tab in tabs"
       :key="tab.key"
@@ -37,5 +38,5 @@ const tabs = computed(() => [
       <span>{{ tab.label }}</span>
       <small v-if="tab.count != null">{{ tab.count }}</small>
     </button>
-  </nav>
+  </LiquidGlassNav>
 </template>

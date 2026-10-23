@@ -145,7 +145,7 @@
         </div>
       </section>
 
-      <section class="login-zone" aria-labelledby="login-form-heading">
+      <section class="login-zone glass-surface-overlay" aria-labelledby="login-form-heading">
         <span class="login-zone-kicker">PLATFORM CONSOLE</span>
         <h2 id="login-form-heading" class="login-title">登录工作台</h2>
         <p class="login-subtitle">使用平台账号进入管理控制台</p>
@@ -385,13 +385,6 @@ async function handleLogin() {
   --scene-amber: #f4aa22;
   --scene-card: rgb(255 255 255 / 0.92);
   --scene-card-border: rgb(104 127 202 / 0.18);
-  --login-card-bg: linear-gradient(160deg, rgb(255 255 255 / 0.74), rgb(244 247 255 / 0.48));
-  --login-card-border: rgb(255 255 255 / 0.72);
-  --login-card-highlight: rgb(255 255 255 / 0.9);
-  --login-card-inner-line: rgb(255 255 255 / 0.3);
-  --login-card-shadow: 0 28px 64px rgb(45 66 128 / 0.18), 0 6px 18px rgb(45 66 128 / 0.08);
-  --login-field-bg: rgb(255 255 255 / 0.88);
-  --login-field-border: rgb(93 113 160 / 0.34);
 
   position: relative;
   min-height: 100vh;
@@ -468,7 +461,7 @@ async function handleLogin() {
 }
 
 .brand-subtitle {
-  color: var(--text-tertiary);
+  color: var(--text-muted);
   font-size: 12px;
 }
 
@@ -1123,20 +1116,13 @@ async function handleLogin() {
   flex-direction: column;
   justify-content: center;
   padding: clamp(36px, 4.5vh, 48px) clamp(28px, 2.2vw, 40px);
-  border: 1px solid var(--login-card-border);
-  border-radius: 26px;
-  background: var(--login-card-bg);
-  box-shadow:
-    var(--login-card-shadow),
-    inset 0 1px 0 var(--login-card-highlight),
-    inset 0 -1px 0 var(--login-card-inner-line);
-  backdrop-filter: blur(26px) saturate(1.5);
+  border-radius: var(--radius-xl);
 }
 
 .login-zone-kicker {
   display: block;
   margin-bottom: 10px;
-  color: var(--brand-primary);
+  color: var(--brand-on-surface);
   font-size: 10px;
   font-weight: 900;
   letter-spacing: 0.15em;
@@ -1150,7 +1136,7 @@ async function handleLogin() {
 
 .login-subtitle {
   margin: 8px 0 28px;
-  color: var(--text-tertiary);
+  color: var(--text-muted);
   font-size: 13px;
 }
 
@@ -1166,28 +1152,18 @@ async function handleLogin() {
 
 .login-form :deep(.el-input__wrapper) {
   min-height: 42px;
-  background: var(--login-field-bg);
-  box-shadow: 0 0 0 1px var(--login-field-border) inset;
-}
-
-.login-form :deep(.el-input__wrapper:hover),
-.login-form :deep(.el-input__wrapper.is-focus) {
-  box-shadow: 0 0 0 1px var(--brand-primary) inset;
 }
 
 .login-button {
   width: 100%;
   min-height: 43px;
   margin-top: 8px;
-  border: 0;
-  background: linear-gradient(110deg, var(--brand-primary), #8256ed);
-  box-shadow: 0 10px 24px rgb(var(--brand-hover-rgb) / 0.22);
-  font-weight: 800;
+  font-weight: 750;
 }
 
 .dev-hint {
   margin-top: 24px;
-  color: var(--text-tertiary);
+  color: var(--text-muted);
   font-size: 12px;
 }
 
@@ -1227,14 +1203,14 @@ async function handleLogin() {
 .dev-hint p {
   margin: 9px 0 0;
   padding: 10px 12px;
-  border-radius: 10px;
-  background: rgb(var(--brand-hover-rgb) / 0.06);
+  border-radius: var(--radius-md);
+  background: var(--brand-soft-bg);
   line-height: 1.55;
 }
 
 .dev-hint code {
   color: var(--brand-primary);
-  font-family: var(--font-mono, monospace);
+  font-family: var(--font-family-mono);
   font-weight: 700;
 }
 
@@ -1336,13 +1312,6 @@ async function handleLogin() {
   --scene-card: rgb(19 33 56 / 0.92);
   --scene-card-border: rgb(132 153 224 / 0.2);
   --scene-navy: #dce6ff;
-  --login-card-bg: linear-gradient(160deg, rgb(24 40 68 / 0.78), rgb(14 27 49 / 0.6));
-  --login-card-border: rgb(132 153 224 / 0.26);
-  --login-card-highlight: rgb(160 185 255 / 0.16);
-  --login-card-inner-line: rgb(160 185 255 / 0.08);
-  --login-card-shadow: 0 28px 64px rgb(0 0 0 / 0.46), 0 6px 18px rgb(0 0 0 / 0.24);
-  --login-field-bg: rgb(21 38 64 / 0.96);
-  --login-field-border: rgb(132 153 194 / 0.32);
 
   background:
     radial-gradient(900px 600px at 6% 5%, rgb(var(--brand-hover-rgb) / 0.15), transparent 70%),

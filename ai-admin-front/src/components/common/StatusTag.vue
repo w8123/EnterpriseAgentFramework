@@ -49,31 +49,31 @@ const tagType = computed(() => (props.tone === 'neutral' ? 'info' : props.tone))
 .status-tag--success {
   --el-tag-text-color: var(--status-success);
   --el-tag-bg-color: var(--status-success-soft);
-  --el-tag-border-color: var(--status-success);
+  --el-tag-border-color: color-mix(in srgb, var(--status-success) 30%, transparent);
 }
 
 .status-tag--warning {
   --el-tag-text-color: var(--status-warning);
   --el-tag-bg-color: var(--status-warning-soft);
-  --el-tag-border-color: var(--status-warning);
+  --el-tag-border-color: color-mix(in srgb, var(--status-warning) 30%, transparent);
 }
 
 .status-tag--danger {
   --el-tag-text-color: var(--status-danger);
   --el-tag-bg-color: var(--status-danger-soft);
-  --el-tag-border-color: var(--status-danger);
+  --el-tag-border-color: color-mix(in srgb, var(--status-danger) 30%, transparent);
 }
 
 .status-tag--info {
   --el-tag-text-color: var(--status-info);
   --el-tag-bg-color: var(--status-info-soft);
-  --el-tag-border-color: var(--status-info);
+  --el-tag-border-color: color-mix(in srgb, var(--status-info) 30%, transparent);
 }
 
 .status-tag--neutral {
   --el-tag-text-color: var(--status-neutral);
   --el-tag-bg-color: var(--status-neutral-soft);
-  --el-tag-border-color: var(--status-neutral);
+  --el-tag-border-color: color-mix(in srgb, var(--status-neutral) 30%, transparent);
 }
 
 @keyframes status-tag-pulse {

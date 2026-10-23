@@ -1,23 +1,5 @@
 <template>
   <div class="knowledge-files-tab">
-    <div class="toolbar">
-      <div class="toolbar-hint">
-        Markdown 和 Word 先按标题切成段落，单节超过 {{ kb?.chunkSize || 500 }} 字再按长度切；切分方式在「设置」里调整，改完后重新解析文件即可生效。
-      </div>
-      <el-upload
-        :auto-upload="false"
-        :show-file-list="false"
-        :accept="acceptTypes"
-        :disabled="uploading || jobInProgress"
-        :on-change="handleUploadChange"
-      >
-        <el-button type="primary" :loading="uploading" :disabled="jobInProgress">
-          <el-icon><Upload /></el-icon>
-          上传文件
-        </el-button>
-      </el-upload>
-    </div>
-
     <DocumentImportJobCard
       :job="job"
       :title="jobTitle"
@@ -30,12 +12,28 @@
       @dismiss="dismissJob"
     />
 
-    <DataTableShell
-      density="compact"
+    <LiquidGlassTable
       :empty="fileList.length === 0"
       :loading="filesLoading"
+      :show-pagination="false"
       empty-description="还没有文件。上传 TXT、Markdown、Word、PDF 等文件后，平台会解析、切分并建立索引。"
     >
+      <template #toolbar>
+        <div class="toolbar">
+          <div class="toolbar-hint">
+            Markdown 和 Word 先按标题切成段落，单节超过 {{ kb?.chunkSize || 500 }} 字再按长度切；切分方式在「设置」里调整，改完后重新解析文件即可生效。
+          </div>
+          <el-upload
+            :auto-upload="false"
+            :show-file-list="false"
+            :accept="acceptTypes"
+            :disabled="uploading || jobInProgress"
+            :on-change="handleUploadChange"
+          >
+            <LiquidGlassButton type="primary" :icon="Upload" :loading="uploading" :disabled="jobInProgress">上传文件</LiquidGlassButton>
+          </el-upload>
+        </div>
+      </template>
       <el-table :data="fileList" stripe empty-text=" ">
         <el-table-column prop="fileName" label="文件名" min-width="220" show-overflow-tooltip />
         <el-table-column label="解析器" width="130">
@@ -49,7 +47,7 @@
             <StatusTag :label="fileStatusText(row.status)" :tone="fileStatusTone(row.status)" />
           </template>
         </el-table-column>
-        <el-table-column prop="createTime" label="上传时间" width="180" />
+        <el-table-column prop="createTime" label="上传时间" width="180" :formatter="formatTableDateTime" />
         <el-table-column label="操作" width="220" fixed="right">
           <template #default="{ row }">
             <el-button type="primary" link size="small" @click="router.push(`/knowledge/${kbCode}/file/${row.fileId}`)">
@@ -71,17 +69,18 @@
           </template>
         </el-table-column>
       </el-table>
-    </DataTableShell>
+    </LiquidGlassTable>
   </div>
 </template>
 
 <script setup lang="ts">
+import { formatTableDateTime } from '@/utils/dateTime'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import type { UploadFile } from 'element-plus'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Upload } from '@element-plus/icons-vue'
-import DataTableShell from '@/components/common/DataTableShell.vue'
+import { LiquidGlassButton, LiquidGlassTable } from '@/components/common/liquid-glass'
 import StatusTag from '@/components/common/StatusTag.vue'
 import DocumentImportJobCard from '@/components/DocumentImportJobCard.vue'
 import type { StatusTone } from '@/components/common/glassWorkbench'
@@ -363,16 +362,28 @@ onBeforeUnmount(stopPolling)
 </script>
 
 <style scoped lang="scss">
+.knowledge-files-tab {
+  display: grid;
+  gap: var(--layout-section-gap);
+}
+
 .toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 10px;
 }
 
 .toolbar-hint {
   font-size: 12px;
-  color: var(--text-muted);
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+@media (max-width: 640px) {
+  .toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
 }
 </style>

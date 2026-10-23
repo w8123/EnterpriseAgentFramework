@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Refresh, Search } from '@element-plus/icons-vue'
 import AppDialog from '@/components/common/AppDialog.vue'
-import WorkbenchPanel from '@/components/common/WorkbenchPanel.vue'
+import { LiquidGlassButton, LiquidGlassFilterBar, LiquidGlassInput, LiquidGlassSelect, LiquidGlassTable } from '@/components/common/liquid-glass'
 import {
   archiveMcpPublication,
   createMcpPublication,
@@ -89,6 +89,12 @@ async function reload() {
 
 function applyFilters() {
   query.offset = 0
+  reload()
+}
+
+function changePage(page: number, size: number) {
+  query.limit = size
+  query.offset = (page - 1) * size
   reload()
 }
 
@@ -180,30 +186,39 @@ onMounted(reload)
         <p>把能力目录条目与已发布 Workflow 组成版本化 MCP 服务；修订不可变，可暂停、恢复与回滚。</p>
       </div>
       <div class="section-actions">
-        <el-button :icon="Refresh" :loading="loading" @click="reload">刷新</el-button>
-        <el-button type="primary" :icon="Plus" @click="openCreate">新建发布</el-button>
+        <LiquidGlassButton source="wallpaper" :icon="Refresh" :loading="loading" @click="reload">刷新</LiquidGlassButton>
+        <LiquidGlassButton source="wallpaper" type="primary" :icon="Plus" @click="openCreate">新建发布</LiquidGlassButton>
       </div>
     </div>
 
-    <WorkbenchPanel level="control" density="compact">
-      <div class="filter-row">
-        <el-input
-          v-model="query.search"
-          :prefix-icon="Search"
-          clearable
-          placeholder="搜索发布名称或说明"
-          @keyup.enter="applyFilters"
-          @clear="applyFilters"
-        />
-        <el-select v-model="query.state" clearable placeholder="全部状态" @change="applyFilters">
-          <el-option v-for="option in stateOptions" :key="option.value" :label="option.label" :value="option.value" />
-        </el-select>
-        <el-button type="primary" @click="applyFilters">查询</el-button>
-      </div>
-    </WorkbenchPanel>
-
-    <el-card class="workbench-list-surface" shadow="never">
-      <el-table :data="rows" v-loading="loading" stripe @row-click="openDetail">
+    <LiquidGlassTable
+      class="workbench-list-surface"
+      :current-page="Math.floor(query.offset / query.limit) + 1"
+      :page-size="query.limit"
+      :total="total"
+      :page-sizes="[20, 50, 100]"
+      pagination-label="MCP 发布分页"
+      :loading="loading"
+      :empty="!loading && rows.length === 0"
+      empty-description="还没有对外发布，点「新建发布」开始。"
+      @change="changePage"
+    >
+      <template #toolbar>
+        <LiquidGlassFilterBar :loading="loading" :show-reset="false" @query="applyFilters">
+          <LiquidGlassInput
+            v-model="query.search"
+            :prefix-icon="Search"
+            clearable
+            placeholder="搜索发布名称或说明"
+            aria-label="搜索发布"
+            @clear="applyFilters"
+          />
+          <LiquidGlassSelect v-model="query.state" class="state-filter" clearable placeholder="全部状态" dropdown-title="发布状态" aria-label="发布状态" @change="applyFilters">
+            <el-option v-for="option in stateOptions" :key="option.value" :label="option.label" :value="option.value" />
+          </LiquidGlassSelect>
+        </LiquidGlassFilterBar>
+      </template>
+      <el-table :data="rows" stripe empty-text=" " @row-click="openDetail">
         <el-table-column prop="name" label="名称" min-width="200">
           <template #default="{ row }">
             <div class="cell-stack">
@@ -233,16 +248,7 @@ onMounted(reload)
           </template>
         </el-table-column>
       </el-table>
-      <el-pagination
-        :current-page="Math.floor(query.offset / query.limit) + 1"
-        :page-size="query.limit"
-        :total="total"
-        layout="total, sizes, prev, pager, next"
-        :page-sizes="[20, 50, 100]"
-        @current-change="(page: number) => { query.offset = (page - 1) * query.limit; reload() }"
-        @size-change="(size: number) => { query.limit = size; query.offset = 0; reload() }"
-      />
-    </el-card>
+    </LiquidGlassTable>
 
     <AppDialog
       v-model="createVisible"
@@ -269,8 +275,8 @@ onMounted(reload)
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="createVisible = false">取消</el-button>
-        <el-button type="primary" :loading="submitting" @click="submitCreate">创建</el-button>
+        <LiquidGlassButton @click="createVisible = false">取消</LiquidGlassButton>
+        <LiquidGlassButton type="primary" :loading="submitting" @click="submitCreate">创建</LiquidGlassButton>
       </template>
     </AppDialog>
   </section>
@@ -284,8 +290,7 @@ onMounted(reload)
 }
 
 .section-intro,
-.section-actions,
-.filter-row {
+.section-actions {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -302,28 +307,29 @@ onMounted(reload)
 }
 
 .section-intro h2 {
-  color: var(--text-primary);
+  color: var(--text-on-wallpaper);
   font-size: 18px;
 }
 
 .section-intro p {
   margin-top: 4px;
-  color: var(--text-muted);
+  color: var(--text-on-wallpaper-secondary);
   font-size: 13px;
 }
 
-.filter-row > .el-input {
-  flex: 1;
-  max-width: 420px;
-}
-
-.filter-row > .el-select {
-  width: 150px;
+/* 状态是短值，筛选条里收窄，把宽度留给搜索框。 */
+.workbench-list-surface :deep(.filter-bar__fields > .liquid-glass-control.state-filter) {
+  flex: 0 1 160px;
+  max-width: 180px;
 }
 
 .cell-stack strong,
 .cell-stack small {
   display: block;
+}
+
+.cell-stack strong {
+  color: var(--text-primary);
 }
 
 .cell-stack small {
@@ -342,21 +348,13 @@ onMounted(reload)
   font-weight: 400;
 }
 
-.workbench-list-surface :deep(.el-pagination) {
-  justify-content: flex-end;
-  margin-top: 12px;
-}
-
 @media (max-width: 760px) {
-  .section-intro,
-  .filter-row {
+  .section-intro {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .filter-row > .el-input,
-  .filter-row > .el-select {
-    width: 100%;
+  .workbench-list-surface :deep(.filter-bar__fields > .liquid-glass-control.state-filter) {
     max-width: none;
   }
 }

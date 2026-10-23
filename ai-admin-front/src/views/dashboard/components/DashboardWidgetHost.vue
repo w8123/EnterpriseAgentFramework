@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { Grid, Setting } from '@element-plus/icons-vue'
 import type {
   DashboardWidgetContext,
   DashboardWidgetInstance,
@@ -13,6 +14,8 @@ import WidgetAttention from './widgets/WidgetAttention.vue'
 import WidgetProjectCards from './widgets/WidgetProjectCards.vue'
 import WidgetRecentRuns from './widgets/WidgetRecentRuns.vue'
 import WidgetHealthStatus from './widgets/WidgetHealthStatus.vue'
+import WidgetShortcuts from './widgets/WidgetShortcuts.vue'
+import { SHORTCUT_WIDGET_KEY, shortcutPresets } from '../dashboardShortcuts'
 import DashboardUsageTrend from './DashboardUsageTrend.vue'
 import DashboardTokenDistribution from './DashboardTokenDistribution.vue'
 import {
@@ -49,9 +52,12 @@ const emit = defineEmits<{
   openRunTrace: [traceId: string]
   retryRuns: []
   retryAll: []
+  openShortcut: [path: string]
 }>()
 
 const definition = computed(() => getWidgetDefinition(props.instance.widgetKey))
+const isShortcuts = computed(() => props.instance.widgetKey === SHORTCUT_WIDGET_KEY)
+const shortcutLabel = computed(() => shortcutPresets.find(preset => preset.key === props.instance.config.shortcutPreset)?.label ?? '自选')
 const restrictedDomains = computed(() => (definition.value?.dataDomains ?? [])
   .filter(domain => props.context.deniedDomains?.[domain]))
 const restrictionDetail = computed(() =>
@@ -86,21 +92,44 @@ const projectSummaries = computed(() =>
 
 <template>
   <DashboardWidgetFrame
+    :class="{ 'dash-host--shortcuts': isShortcuts }"
     :instance-id="instance.instanceId"
     :title="widgetTitle"
     :subtitle="definition?.category === 'KPI' ? undefined : ''"
     :editing="editing"
     :selected="selected"
     :bare="isBareWidget && !restrictedDomains.length"
+    :inline="isShortcuts && !restrictedDomains.length"
     @select="emit('select')"
     @move="(dx, dy) => emit('move', dx, dy)"
     @resize="(dw, dh) => emit('resize', dw, dh)"
     @remove="emit('remove')"
     @settings="emit('settings')"
   >
+    <template v-if="isShortcuts" #heading>
+      <span class="dash-host__shortcut-mark"><Grid aria-hidden="true" /></span>
+      <div class="dash-host__shortcut-heading">
+        <h3 class="dash-host__shortcut-title" :title="widgetTitle">{{ widgetTitle }}</h3>
+        <span v-if="shortcutLabel !== widgetTitle" class="dash-host__shortcut-label">{{ shortcutLabel }}</span>
+      </div>
+    </template>
+    <template v-if="isShortcuts" #inline-content>
+      <WidgetShortcuts
+        :config="instance.config"
+        :permissions="context.permissions ?? []"
+        @open="path => emit('openShortcut', path)"
+      />
+    </template>
     <template v-if="!restrictedDomains.length" #actions>
       <button
-        v-if="instance.widgetKey === 'ranking.agent-top'"
+        v-if="isShortcuts"
+        type="button"
+        class="dash-host__customize"
+        data-testid="customize-shortcuts"
+        @click="emit('settings')"
+      ><Setting aria-hidden="true" />自定义</button>
+      <button
+        v-else-if="instance.widgetKey === 'ranking.agent-top'"
         type="button"
         class="ops-link-btn"
         data-testid="open-agents-link"
@@ -193,6 +222,58 @@ const projectSummaries = computed(() =>
 </template>
 
 <style scoped lang="scss">
+.dash-host--shortcuts {
+  container-type: inline-size;
+
+  &.dash-frame.ops-panel {
+    border-radius: 14px;
+    background: var(--surface-glass-frost);
+    -webkit-backdrop-filter: blur(var(--glass-blur-frost)) saturate(var(--glass-saturation));
+    backdrop-filter: blur(var(--glass-blur-frost)) saturate(var(--glass-saturation));
+  }
+
+  &.dash-frame.ops-panel:not(.is-editing) {
+    border-color: var(--border-glass-edge);
+    box-shadow: var(--shadow-glass-frost);
+  }
+
+  :deep(.dash-frame__heading) { align-items: center; gap: 8px; max-width: 200px; }
+}
+.dash-host__shortcut-mark { display: grid; place-items: center; color: var(--ops-blue); }
+.dash-host__shortcut-mark svg { width: 15px; height: 15px; }
+.dash-host__shortcut-heading { display: grid; gap: 1px; min-width: 0; }
+.dash-host__shortcut-title {
+  margin: 0;
+  overflow: hidden;
+  color: var(--ops-text-strong);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dash-host__shortcut-label { color: var(--ops-text-secondary); font-size: 11px; line-height: 1.4; white-space: nowrap; }
+.dash-host__customize {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 32px;
+  padding: 5px 7px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--ops-text-secondary);
+  background: transparent;
+  font-size: 12px;
+  cursor: pointer;
+
+  svg { width: 13px; height: 13px; }
+  &:hover { color: var(--ops-blue); background: var(--ops-surface-hover); }
+  &:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 2px; }
+}
+
+@media (pointer: coarse) {
+  .dash-host__customize { min-height: 44px; }
+}
 .dash-host__restricted {
   min-height: 0;
   flex: 1;

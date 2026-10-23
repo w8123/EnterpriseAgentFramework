@@ -1,19 +1,37 @@
 <template>
   <div class="embed-session-audit-page project-workbench-page">
-    <div class="page-head">
-      <div>
-        <h1>嵌入式会话审计</h1>
-        <p>查看当前项目下业务页面中的嵌入式对话会话、对话事件和页面动作。</p>
-      </div>
-      <div class="page-actions">
-        <el-button @click="goPageActions">返回前端页面管理</el-button>
-        <el-button :loading="loading" @click="load">刷新</el-button>
-      </div>
-    </div>
+    <PageHeader
+      variant="standard"
+      presentation="plain"
+      action-presentation="inline"
+      domain="project"
+      title="嵌入式会话审计"
+      description="查看当前项目下业务页面中的嵌入式对话会话、对话事件和页面动作。"
+    >
+      <template v-if="loaded" #tags>
+        <el-tag type="info" effect="light">共 {{ sessions.length }} 个会话</el-tag>
+        <el-tag v-if="currentProjectCode" type="info" effect="light">{{ currentProjectCode }}</el-tag>
+      </template>
+      <template #actions>
+        <LiquidGlassButton source="wallpaper" :icon="Back" @click="goPageActions">返回前端页面管理</LiquidGlassButton>
+        <el-tooltip content="刷新会话" placement="top">
+          <LiquidGlassButton source="wallpaper" circle :icon="Refresh" :loading="loading" aria-label="刷新会话" @click="load" />
+        </el-tooltip>
+      </template>
+    </PageHeader>
 
-    <el-card shadow="never">
-      <template #header>会话历史</template>
-      <el-table :data="sessions" row-key="sessionId" @row-click="selectSession">
+    <LiquidGlassTable
+      v-model:current-page="currentPage"
+      v-model:page-size="pageSize"
+      class="session-table workbench-list-surface"
+      :loading="loading"
+      :empty="loaded && sessions.length === 0"
+      empty-description="当前项目还没有嵌入式会话"
+      :total="sessions.length"
+      :page-sizes="[20, 50, 100]"
+      pagination-label="会话分页"
+    >
+      <el-table :data="pagedSessions" row-key="sessionId" @row-click="selectSession">
         <el-table-column prop="sessionId" label="会话 ID" min-width="220" show-overflow-tooltip />
         <el-table-column prop="agentId" label="智能体" width="150" show-overflow-tooltip />
         <el-table-column prop="externalUserId" label="用户" width="150" show-overflow-tooltip />
@@ -21,14 +39,14 @@
         <el-table-column prop="origin" label="来源域" min-width="180" show-overflow-tooltip />
         <el-table-column prop="route" label="路由" min-width="160" show-overflow-tooltip />
         <el-table-column prop="status" label="状态" width="100" />
-        <el-table-column prop="createdAt" label="创建时间" width="180" />
+        <el-table-column prop="createdAt" label="创建时间" width="180" :formatter="formatTableDateTime" />
         <el-table-column label="操作" width="120" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click.stop="selectSession(row)">查看详情</el-button>
           </template>
         </el-table-column>
       </el-table>
-    </el-card>
+    </LiquidGlassTable>
 
     <AppDrawer
       v-model="drawerVisible"
@@ -73,14 +91,14 @@
           </div>
         </div>
 
-        <el-tabs v-model="activeDetailTab" class="detail-tabs">
+        <LiquidGlassTabs v-model="activeDetailTab" class="detail-tabs">
           <el-tab-pane label="对话事件" name="chat">
             <el-table :data="chatEvents" row-key="id" size="small">
               <el-table-column prop="eventType" label="事件" width="150" />
               <el-table-column prop="role" label="角色" width="90" />
               <el-table-column prop="content" label="内容" min-width="260" show-overflow-tooltip />
               <el-table-column prop="traceId" label="追踪 ID" min-width="160" show-overflow-tooltip />
-              <el-table-column prop="createdAt" label="创建时间" width="180" />
+              <el-table-column prop="createdAt" label="创建时间" width="180" :formatter="formatTableDateTime" />
             </el-table>
           </el-tab-pane>
           <el-tab-pane label="页面动作" name="actions">
@@ -94,16 +112,20 @@
               <el-table-column prop="completedAt" label="完成时间" width="180" />
             </el-table>
           </el-tab-pane>
-        </el-tabs>
+        </LiquidGlassTabs>
       </div>
     </AppDrawer>
   </div>
 </template>
 
 <script setup lang="ts">
+import { formatTableDateTime } from '@/utils/dateTime'
 import AppDrawer from '@/components/common/AppDrawer.vue'
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { Back, Refresh } from '@element-plus/icons-vue'
+import PageHeader from '@/components/common/PageHeader.vue'
+import { LiquidGlassButton, LiquidGlassTable, LiquidGlassTabs } from '@/components/common/liquid-glass'
 import {
   listEmbedChatEvents,
   listEmbedSessions,
@@ -124,6 +146,13 @@ const pageActions = ref<PageActionEventView[]>([])
 const chatEvents = ref<EmbedChatEventView[]>([])
 const selectedSession = ref<EmbedSessionView | null>(null)
 const selectedSessionId = ref('')
+const loaded = ref(false)
+const currentPage = ref(1)
+const pageSize = ref(20)
+const pagedSessions = computed(() => {
+  const offset = (currentPage.value - 1) * pageSize.value
+  return sessions.value.slice(offset, offset + pageSize.value)
+})
 const currentProjectCode = computed(() => String(route.params.projectCode || route.query.projectCode || ''))
 
 async function load() {
@@ -132,6 +161,9 @@ async function load() {
     const params = currentProjectCode.value ? { appId: currentProjectCode.value } : {}
     const { data } = await listEmbedSessions(params)
     sessions.value = data || []
+    loaded.value = true
+    const lastPage = Math.max(1, Math.ceil(sessions.value.length / pageSize.value))
+    if (currentPage.value > lastPage) currentPage.value = lastPage
     if (selectedSessionId.value) {
       await loadSessionDetail(selectedSessionId.value)
     }
@@ -178,27 +210,12 @@ onMounted(load)
   flex-direction: column;
 }
 
-.page-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
+.session-table {
+  min-height: 0;
 }
 
-.page-head h1 {
-  margin: 0;
-  font-size: 22px;
-}
-
-.page-head p {
-  margin: 6px 0 0;
-  color: var(--text-secondary);
-}
-
-.page-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.session-table :deep(.el-table__row) {
+  cursor: pointer;
 }
 
 .session-detail {
@@ -211,9 +228,9 @@ onMounted(load)
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
   padding: 14px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-  background: var(--bg-muted);
+  border: 1px solid var(--border-glass-edge);
+  border-radius: var(--radius-lg);
+  background: var(--surface-glass-inset);
 }
 
 .session-summary div {

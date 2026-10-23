@@ -1,9 +1,9 @@
 <template>
-  <article
+  <LiquidGlassCard as="article" source="wallpaper" interactive
     :class="['api-card', `api-card--${categoryTone}`]"
     tabindex="0"
     @click="emit('open', entry)"
-    @keydown.enter="emit('open', entry)"
+    @keydown.enter.self="emit('open', entry)"
   >
     <header class="api-card__header">
       <div class="api-card__mark" aria-hidden="true">
@@ -53,11 +53,11 @@
         {{ entry.source?.name || '人工维护' }}
       </span>
       <div class="api-card__actions">
-        <el-button text :icon="ArrowRight" @click.stop="emit('open', entry)">查看</el-button>
-        <el-button type="primary" @click.stop="emit('integrate', entry)">接入 API</el-button>
+        <LiquidGlassButton :icon="ArrowRight" @click.stop="emit('open', entry)">查看</LiquidGlassButton>
+        <LiquidGlassButton type="primary" @click.stop="emit('integrate', entry)">接入 API</LiquidGlassButton>
       </div>
     </footer>
-  </article>
+  </LiquidGlassCard>
 </template>
 
 <script setup lang="ts">
@@ -77,6 +77,7 @@ import {
   Tools,
 } from '@element-plus/icons-vue'
 import StatusTag from '@/components/common/StatusTag.vue'
+import { LiquidGlassCard, LiquidGlassButton } from '@/components/common/liquid-glass'
 import type { ApiMarketEntrySummary } from '@/types/apiMarket'
 import {
   apiMarketVerificationTone,
@@ -125,14 +126,6 @@ const emit = defineEmits<{
   flex-direction: column;
   gap: 14px;
   overflow: hidden;
-  padding: 18px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 16px;
-  outline: none;
-  background:
-    radial-gradient(circle at 100% 0, rgb(var(--api-tone-rgb) / 0.08), transparent 34%),
-    var(--surface-glass-panel);
-  box-shadow: var(--shadow-sm);
   cursor: pointer;
   transition:
     transform var(--motion-duration-fast) var(--motion-easing-standard),
@@ -161,22 +154,6 @@ const emit = defineEmits<{
 .api-card--science,
 .api-card--data,
 .api-card--ai { --api-tone-rgb: 6 182 212; }
-
-.api-card:hover,
-.api-card:focus-visible {
-  border-color: rgb(var(--api-tone-rgb) / 0.36);
-  box-shadow: 0 18px 38px -26px rgb(var(--api-tone-rgb) / 0.55), var(--shadow-md);
-  transform: translateY(-2px);
-
-  &::before {
-    opacity: 1;
-  }
-}
-
-.api-card:focus-visible {
-  outline: 2px solid var(--border-focus);
-  outline-offset: 2px;
-}
 
 .api-card__header,
 .api-card__footer,
@@ -329,18 +306,6 @@ const emit = defineEmits<{
 
   :deep(.el-button + .el-button) {
     margin-left: 0;
-  }
-
-  :deep(.el-button) {
-    min-height: 32px;
-    border-radius: 9px;
-    font-size: 11px;
-    font-weight: 680;
-  }
-
-  :deep(.el-button--primary) {
-    border-color: rgb(var(--api-tone-rgb) / 0.78);
-    background: rgb(var(--api-tone-rgb) / 0.9);
   }
 }
 

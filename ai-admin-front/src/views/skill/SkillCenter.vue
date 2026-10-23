@@ -1,31 +1,31 @@
 <template>
-  <WorkbenchPage class="skill-center" density="compact" layout="list">
+  <LiquidGlassPage class="skill-center" density="compact">
     <CollapsibleHeaderRegion :collapsed="isSkillHeaderCollapsed">
       <PageHeader
         title="Skill 管理"
-        eyebrow="Agent Skills"
-        description="统一管理岗位工作手册的标准包、版本与治理状态。"
+        description="管理 Skill 工作手册、默认版本与发布状态。"
         domain="agent"
         variant="overview"
+        height-preset="compact"
+        presentation="plain"
+        action-presentation="inline"
         :collapsed="isSkillHeaderCollapsed"
       >
-        <template #tags>
-          <el-tag effect="light">岗位工作手册</el-tag>
-          <el-tag type="success" effect="light">{{ publishedCount }} 个可绑定</el-tag>
-          <el-tag v-if="pendingCount" type="warning" effect="light">{{ pendingCount }} 个待治理</el-tag>
+        <template #meta>
+          <MetricStrip presentation="inline" source="wallpaper" :items="metricItems" density="compact" aria-label="Skill 目录摘要" />
         </template>
         <template #actions>
-          <el-button :icon="Compass" @click="router.push('/skill-market')">Skill 市场</el-button>
-          <el-button v-if="canImportSkills" type="primary" :icon="Upload" @click="openImport">导入标准包</el-button>
+          <LiquidGlassButton source="wallpaper" :icon="Compass" @click="router.push('/skill-market')">Skill 市场</LiquidGlassButton>
+          <LiquidGlassButton source="wallpaper" v-if="canImportSkills" type="primary" :icon="Upload" @click="openImport">导入标准包</LiquidGlassButton>
         </template>
       </PageHeader>
 
-      <template #summary>
-        <MetricStrip :items="metricItems" density="compact" aria-label="Skill 管理指标概览" />
-      </template>
     </CollapsibleHeaderRegion>
 
-    <DataTableShell
+    <LiquidGlassTable
+      body-layout="cards"
+      presentation="collection"
+      pagination-label="Skill 分页"
       v-model:current-page="currentPage"
       v-model:page-size="pageSize"
       class="skill-catalog-shell workbench-list-surface"
@@ -37,14 +37,14 @@
       :page-sizes="[9, 18, 36]"
     >
       <template #toolbar>
-        <FilterBar
-          class="skill-filter-bar"
+        <LiquidGlassFilterBar
           density="compact"
           :loading="loading"
+          :show-reset="false"
           @query="handleQuery"
           @reset="resetFilters"
         >
-          <el-input
+          <LiquidGlassInput
             v-model="search"
             clearable
             class="skill-filter-control is-keyword"
@@ -52,15 +52,16 @@
             :prefix-icon="Search"
             @clear="handleQuery"
           />
-          <el-select
+          <LiquidGlassSelect
             v-model="statusFilter"
             clearable
             class="skill-filter-control is-status"
             placeholder="全部状态"
-            @clear="handleQuery"
+            aria-label="Skill 状态"
+            @change="handleQuery"
           >
             <el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" />
-          </el-select>
+          </LiquidGlassSelect>
 
           <template #actions>
             <el-button
@@ -72,72 +73,28 @@
             >
               清空
             </el-button>
-            <el-button type="primary" native-type="submit" :icon="Search" :loading="loading">搜索</el-button>
+            <LiquidGlassButton type="primary" native-type="submit" :icon="Search" :loading="loading">搜索</LiquidGlassButton>
           </template>
-        </FilterBar>
+        </LiquidGlassFilterBar>
       </template>
 
       <div v-if="skills.length" class="skill-card-grid">
-        <article
+        <SkillCatalogCard
           v-for="skill in pagedSkills"
           :key="skill.id"
-          class="skill-card glass-surface-card"
-          tabindex="0"
-          :aria-label="`查看 ${skill.displayName || skill.name} 详情`"
-          @click="openDetail(skill)"
-          @keydown.enter.prevent="openDetail(skill)"
-          @keydown.space.prevent="openDetail(skill)"
-        >
-          <header class="skill-card__header">
-            <div class="skill-card__mark">{{ skillInitial(skill) }}</div>
-            <div class="skill-card__identity">
-              <h3>{{ skill.displayName || skill.name }}</h3>
-              <code>{{ skill.publisher }}/{{ skill.name }}</code>
-            </div>
-            <StatusTag
-              v-if="skill.latestVersionStatus"
-              :label="statusLabel(skill.latestVersionStatus)"
-              :tone="statusTone(skill.latestVersionStatus)"
-            />
-          </header>
-
-          <p class="skill-card__description">{{ skill.description || '尚未填写这份岗位工作手册的用途说明。' }}</p>
-
-          <div class="skill-card__tags">
-            <StatusTag :label="scopeLabel(skill)" tone="neutral" />
-            <StatusTag
-              :label="publisherTrustLabel(skill.publisher)"
-              :tone="skill.publisher === 'reachai' ? 'success' : 'warning'"
-            />
-          </div>
-
-          <dl class="skill-card__metrics">
-            <div>
-              <dt>最新版本</dt>
-              <dd>{{ skill.latestVersion || '—' }}</dd>
-            </div>
-            <div>
-              <dt>默认版本</dt>
-              <dd>{{ skill.defaultVersion || '未设置' }}</dd>
-            </div>
-            <div>
-              <dt>版本数</dt>
-              <dd>{{ skill.versionCount }}</dd>
-            </div>
-          </dl>
-
-        </article>
+          :skill="skill"
+          @open="openDetail"
+        />
       </div>
 
       <template #empty>
-        <div class="empty-state">
-          <strong>没有匹配的 Skill</strong>
-          <p>可导入任何符合 Agent Skills 标准、包含 SKILL.md 的 ZIP 包。</p>
-          <el-button v-if="canImportSkills" type="primary" :icon="Upload" @click="openImport">导入标准包</el-button>
+        <LiquidGlassEmptyState title="没有匹配的 Skill" description="试试其他关键词或状态，也可以导入包含 SKILL.md 的标准 ZIP 包。">
+          <LiquidGlassButton v-if="hasActiveFilters" @click="resetFilters">清空筛选</LiquidGlassButton>
+          <LiquidGlassButton v-if="canImportSkills" type="primary" :icon="Upload" @click="openImport">导入标准包</LiquidGlassButton>
           <small v-else>当前账号拥有只读访问；请联系管理员授予 skill:import 后导入。</small>
-        </div>
+        </LiquidGlassEmptyState>
       </template>
-    </DataTableShell>
+    </LiquidGlassTable>
 
     <AppDrawer title="Skill 详情" v-model="detailVisible" size="min(760px, 92vw)" destroy-on-close>
       <template #header>
@@ -222,7 +179,7 @@
             <article><span>License</span><strong>{{ selectedVersion.declaredLicense || '未声明' }}</strong></article>
             <article><span>Compatibility</span><strong>{{ selectedVersion.declaredCompatibility || '未声明' }}</strong></article>
           </div>
-          <el-tabs v-model="inspectorTab" class="inspector-tabs">
+          <LiquidGlassTabs v-model="inspectorTab" class="inspector-tabs">
             <el-tab-pane label="文件预览" name="files">
               <div class="file-browser">
                 <el-table
@@ -304,7 +261,7 @@
                 <el-empty v-if="!reviewsLoading && !reviews.length" description="暂无评审记录" :image-size="64" />
               </div>
             </el-tab-pane>
-          </el-tabs>
+          </LiquidGlassTabs>
         </section>
       </div>
     </AppDrawer>
@@ -414,8 +371,8 @@
         </div>
       </el-form>
       <template #footer>
-        <el-button @click="importVisible = false">取消</el-button>
-        <el-button type="primary" :loading="importing" :disabled="!canSubmitImport" @click="submitImport">校验并导入所选 Skill</el-button>
+        <LiquidGlassButton @click="importVisible = false">取消</LiquidGlassButton>
+        <LiquidGlassButton type="primary" :loading="importing" :disabled="!canSubmitImport" @click="submitImport">校验并导入所选 Skill</LiquidGlassButton>
       </template>
     </AppDialog>
 
@@ -426,13 +383,13 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="reviewVisible = false">取消</el-button>
-        <el-button :type="reviewDecision === 'APPROVE' ? 'success' : 'danger'" :loading="actionLoading" @click="submitReview">
+        <LiquidGlassButton @click="reviewVisible = false">取消</LiquidGlassButton>
+        <LiquidGlassButton :type="reviewDecision === 'APPROVE' ? 'success' : 'danger'" :loading="actionLoading" @click="submitReview">
           确认{{ reviewDecision === 'APPROVE' ? '通过' : '驳回' }}
-        </el-button>
+        </LiquidGlassButton>
       </template>
     </AppDialog>
-  </WorkbenchPage>
+  </LiquidGlassPage>
 </template>
 
 <script setup lang="ts">
@@ -443,12 +400,12 @@ import { Compass, Download, Lock, MoreFilled, Search, Upload } from '@element-pl
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import CollapsibleHeaderRegion from '@/components/common/CollapsibleHeaderRegion.vue'
-import DataTableShell from '@/components/common/DataTableShell.vue'
-import FilterBar from '@/components/common/FilterBar.vue'
+import { LiquidGlassButton, LiquidGlassFilterBar, LiquidGlassInput, LiquidGlassSelect, LiquidGlassTable, LiquidGlassPage, LiquidGlassEmptyState, LiquidGlassTabs } from '@/components/common/liquid-glass'
+import SkillCatalogCard from './components/SkillCatalogCard.vue'
+import { skillStatusLabel as statusLabel, skillStatusTone as statusTone, skillScopeLabel as scopeLabel, skillPublisherTrustLabel as publisherTrustLabel } from '@/utils/skillLabels'
 import MetricStrip from '@/components/common/MetricStrip.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import StatusTag from '@/components/common/StatusTag.vue'
-import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
 import type { MetricStripItem } from '@/components/common/glassWorkbench'
 import { useCollapsiblePageHeader } from '@/composables/useCollapsiblePageHeader'
 import {
@@ -552,7 +509,7 @@ const pagedSkills = computed(() => {
 const metricItems = computed<MetricStripItem[]>(() => [
   {
     key: 'skill-total',
-    label: '目录 Skill',
+    label: '全部 Skill',
     value: catalogSkills.value.length,
     hint: '标准身份与独立治理范围',
     iconKey: 'workflow-manual',
@@ -573,14 +530,6 @@ const metricItems = computed<MetricStripItem[]>(() => [
     hint: pendingCount.value ? '待评审或已驳回版本' : '当前没有待处理版本',
     iconKey: 'workflow-published',
     tone: pendingCount.value ? 'warning' : 'neutral',
-  },
-  {
-    key: 'skill-format',
-    label: '标准包格式',
-    value: 'ZIP',
-    hint: 'SKILL.md 与配套资源',
-    iconKey: 'sdk',
-    tone: 'info',
   },
 ])
 const canImportSkills = computed(() => skillAccess.value.canImport)
@@ -888,23 +837,6 @@ async function downloadVersion(version: AgentSkillVersion) {
   URL.revokeObjectURL(url)
 }
 
-function statusLabel(status?: string | null) {
-  return ({ REVIEW_PENDING: '待评审', APPROVED: '已通过', REJECTED: '已驳回', PUBLISHED: '已发布', DEPRECATED: '已废弃', REVOKED: '已撤销' } as Record<string, string>)[status || ''] || status || '未知'
-}
-function statusTone(status?: string | null) {
-  return ({ REVIEW_PENDING: 'warning', APPROVED: 'success', REJECTED: 'danger', PUBLISHED: 'success', DEPRECATED: 'info', REVOKED: 'danger' } as Record<string, 'neutral' | 'success' | 'warning' | 'danger' | 'info'>)[status || ''] || 'neutral'
-}
-function visibilityLabel(value: string) { return ({ PRIVATE: '私有', PROJECT: '项目', SHARED: '共享', PUBLIC: '公开' } as Record<string, string>)[value] || value }
-function scopeLabel(skill: AgentSkillSummary) {
-  return skill.visibility === 'PROJECT' && skill.projectCode
-    ? `项目 · ${skill.projectCode}`
-    : visibilityLabel(skill.visibility)
-}
-function skillInitial(skill: AgentSkillSummary) {
-  const name = (skill.displayName || skill.name || 'S').trim()
-  return Array.from(name)[0]?.toUpperCase() || 'S'
-}
-function publisherTrustLabel(publisher: string) { return publisher === 'reachai' ? '内置可信' : '发布者未验证' }
 function sourceLabel(value: string) { return ({ UPLOAD: '上传', GIT: 'Git', MARKET: '市场', BUILTIN: '内置' } as Record<string, string>)[value] || value }
 function objectValue(value: unknown): Record<string, unknown> | null {
   return value != null && typeof value === 'object' && !Array.isArray(value)
@@ -969,244 +901,15 @@ onMounted(async () => {
   min-width: 0;
 }
 
-.skill-catalog-shell {
-  min-height: 0;
-}
-
-.skill-catalog-shell :deep(.data-table-shell__toolbar) {
-  display: block;
-}
-
-.skill-catalog-shell :deep(.data-table-shell__body) {
-  overflow: visible;
-}
-
-.skill-filter-bar {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 10px 12px;
-  border-color: color-mix(in srgb, var(--border-readable) 82%, transparent);
-  border-radius: 16px;
-  background: color-mix(in srgb, var(--surface-solid-control) 72%, transparent);
-  box-shadow: var(--inner-highlight);
-}
-
-.skill-filter-bar :deep(.filter-bar__fields) {
-  flex-wrap: nowrap;
-  gap: 0;
-  overflow: hidden;
-  border: 1px solid var(--border-readable);
-  border-radius: 11px;
-  background: color-mix(in srgb, var(--surface-solid-control) 78%, transparent);
-  box-shadow: var(--inner-highlight);
-}
-
-.skill-filter-control.is-keyword {
-  width: min(560px, 100%);
-  flex: 1 1 320px;
-}
-
-.skill-filter-control.is-status {
-  width: 166px;
-  flex: 0 0 166px;
-  border-inline-start: 1px solid var(--border-divider);
-}
-
-.skill-filter-control.is-keyword :deep(.el-input__wrapper),
-.skill-filter-control.is-status :deep(.el-input__wrapper),
-.skill-filter-control.is-status :deep(.el-select__wrapper) {
-  min-height: 36px;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none !important;
-}
-
-.skill-filter-bar :deep(.filter-bar__actions) {
-  gap: 6px;
-}
-
-.skill-filter-clear {
-  padding-inline: 8px;
-  color: var(--text-muted);
-}
-
-.skill-filter-bar :deep(.filter-bar__actions .el-button--primary) {
-  min-width: 88px;
-  min-height: 38px;
-  border-radius: 10px;
-  box-shadow: 0 10px 22px -16px rgb(var(--brand-primary-rgb) / 0.72), var(--inner-highlight);
-}
-
 .skill-card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
-  gap: var(--section-gap);
-}
-
-.skill-card {
-  position: relative;
-  isolation: isolate;
-  display: flex;
-  min-width: 0;
-  min-height: 228px;
-  flex-direction: column;
-  overflow: hidden;
-  padding: var(--panel-padding);
-  border: 1px solid color-mix(in srgb, var(--border-readable) 76%, transparent);
-  border-radius: var(--radius-lg);
-  background:
-    linear-gradient(
-      145deg,
-      color-mix(in srgb, var(--surface-solid-control) 88%, transparent),
-      rgb(var(--brand-primary-rgb) / 0.045)
-    );
-  box-shadow: 0 20px 42px -34px rgb(var(--brand-primary-rgb) / 0.44), var(--inner-highlight);
-  -webkit-backdrop-filter: blur(22px) saturate(1.18);
-  backdrop-filter: blur(22px) saturate(1.18);
-  cursor: pointer;
-  transition:
-    border-color var(--motion-duration-fast) ease,
-    box-shadow var(--motion-duration-fast) ease,
-    transform var(--motion-duration-fast) ease;
-}
-
-.skill-card::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  border-radius: inherit;
-  background:
-    linear-gradient(125deg, color-mix(in srgb, var(--surface-solid-control) 44%, transparent), transparent 40%),
-    radial-gradient(circle at 100% 0%, rgb(var(--brand-primary-rgb) / 0.09), transparent 42%);
-  pointer-events: none;
-}
-
-.skill-card > * {
-  position: relative;
-  z-index: 1;
-}
-
-.skill-card:hover {
-  border-color: color-mix(in srgb, var(--brand-primary) 48%, var(--border-readable));
-  box-shadow: 0 24px 50px -32px rgb(var(--brand-primary-rgb) / 0.54), var(--inner-highlight);
-  transform: translateY(-2px);
-}
-
-.skill-card:focus-visible {
-  outline: 2px solid var(--el-color-primary-light-5);
-  outline-offset: 2px;
-}
-
-.skill-card__header {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-}
-
-.skill-card__header :deep(.status-tag) {
-  flex-shrink: 0;
-}
-
-.skill-card__mark {
-  display: grid;
-  width: 42px;
-  height: 42px;
-  place-items: center;
-  flex: 0 0 42px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 12px;
-  color: var(--brand-active);
-  background: color-mix(in srgb, var(--surface-solid-control) 62%, transparent);
-  box-shadow: var(--inner-highlight);
-  -webkit-backdrop-filter: blur(10px) saturate(1.12);
-  backdrop-filter: blur(10px) saturate(1.12);
-  font-size: 16px;
-  font-weight: 700;
-}
-
-.skill-card__identity {
-  min-width: 0;
-  flex: 1;
-}
-
-.skill-card__identity h3,
-.skill-card__identity code {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.skill-card__identity h3 {
-  margin: 0;
-  color: var(--text-primary);
-  font-size: 16px;
-  line-height: 1.35;
-}
-
-.skill-card__identity code {
-  margin-top: 4px;
-  color: var(--brand-active);
-  font-size: 11px;
-}
-
-.skill-card__description {
-  display: -webkit-box;
-  min-height: 40px;
-  margin: 12px 0 0;
-  overflow: hidden;
-  color: var(--text-secondary);
-  font-size: 13px;
-  line-height: 1.55;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
-.skill-card__tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 8px;
-}
-
-.skill-card__metrics {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-  margin: 12px 0 0;
-  padding: 11px 0 0;
-  border-top: 1px solid var(--border-divider);
-}
-
-.skill-card__metrics div {
-  min-width: 0;
-}
-
-.skill-card__metrics dt,
-.skill-card__metrics dd {
-  overflow: hidden;
-  margin: 0;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.skill-card__metrics dt {
-  color: var(--text-muted);
-  font-size: 11px;
-}
-
-.skill-card__metrics dd {
-  margin-top: 4px;
-  color: var(--text-primary);
-  font-size: 13px;
-  font-weight: 650;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+  align-items: stretch;
+  gap: 14px;
 }
 
 .drawer-heading code { color: var(--el-color-primary); }
 .section-heading small, .drawer-heading small { color: var(--el-text-color-secondary); }
-.empty-state { display: grid; justify-items: center; gap: 8px; padding: 40px 30px; color: var(--el-text-color-secondary); }
-.empty-state p { margin: 0 0 6px; }
 .drawer-heading { display: flex; justify-content: space-between; align-items: center; width: 100%; gap: 16px; }
 .header-tags { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .drawer-heading h2, .section-heading h3 { margin: 2px 0; color: var(--el-text-color-primary); }
@@ -1220,45 +923,45 @@ onMounted(async () => {
 .section-heading > span { color: var(--el-text-color-secondary); }
 .risk-label.warning { color: var(--el-color-warning); font-weight: 600; }
 .evidence-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.evidence-grid article { display: grid; gap: 6px; min-width: 0; padding: 12px; border: 1px solid var(--el-border-color-lighter); border-radius: 10px; }
+.evidence-grid article { display: grid; gap: 6px; min-width: 0; padding: 12px; border: 1px solid var(--border-glass-edge); border-radius: 10px; }
 .evidence-grid span { color: var(--el-text-color-secondary); }
 .evidence-grid code { overflow-wrap: anywhere; font-size: 11px; }
-.inspector-tabs pre { max-height: 360px; margin: 0; padding: 14px; overflow: auto; border-radius: 10px; background: var(--el-fill-color-light); color: var(--el-text-color-primary); font-size: 12px; line-height: 1.55; }
+.inspector-tabs pre { max-height: 360px; margin: 0; padding: 14px; overflow: auto; border-radius: 10px; background: var(--code-surface); color: var(--code-text); font-size: 12px; line-height: 1.55; }
 .compatibility-panel { display: grid; gap: 12px; }
 .compatibility-overview, .host-compatibility-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-.compatibility-overview article, .host-compatibility-grid article { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--el-border-color-lighter); border-radius: 10px; background: var(--el-bg-color); }
+.compatibility-overview article, .host-compatibility-grid article { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--border-glass-edge); border-radius: 10px; background: var(--surface-glass-selected); }
 .compatibility-overview span, .compatibility-overview small, .host-compatibility-grid dt { color: var(--el-text-color-secondary); }
 .compatibility-overview small { line-height: 1.5; }
 .host-compatibility-grid header { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .host-compatibility-grid dl { display: grid; gap: 6px; margin: 0; }
 .host-compatibility-grid dl div { display: grid; grid-template-columns: 76px 1fr; gap: 8px; }
 .host-compatibility-grid dt, .host-compatibility-grid dd { margin: 0; }
-.raw-report { border: 1px solid var(--el-border-color-lighter); border-radius: 10px; overflow: hidden; }
-.raw-report summary { padding: 10px 12px; cursor: pointer; color: var(--el-text-color-regular); background: var(--el-fill-color-lighter); }
+.raw-report { border: 1px solid var(--border-glass-edge); border-radius: 10px; overflow: hidden; }
+.raw-report summary { padding: 10px 12px; cursor: pointer; color: var(--el-text-color-regular); background: var(--surface-glass-inset); }
 .raw-report pre { border-radius: 0; }
 .file-browser { display: grid; grid-template-columns: minmax(280px, .9fr) minmax(320px, 1.1fr); gap: 12px; min-height: 360px; }
 .file-browser :deep(.el-table__row) { cursor: pointer; }
-.file-preview-pane { min-width: 0; min-height: 340px; overflow: hidden; border: 1px solid var(--el-border-color-lighter); border-radius: 10px; background: var(--el-fill-color-lighter); }
-.file-preview-pane header { display: flex; justify-content: space-between; gap: 12px; padding: 10px 12px; border-bottom: 1px solid var(--el-border-color-lighter); background: var(--el-bg-color); }
+.file-preview-pane { min-width: 0; min-height: 340px; overflow: hidden; border: 1px solid var(--border-glass-edge); border-radius: 10px; background: var(--surface-glass-inset); }
+.file-preview-pane header { display: flex; justify-content: space-between; gap: 12px; padding: 10px 12px; border-bottom: 1px solid var(--border-glass-edge); background: var(--surface-glass-selected); }
 .file-preview-pane header > div { display: grid; min-width: 0; gap: 2px; }
 .file-preview-pane header strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .file-preview-pane header small { color: var(--el-text-color-secondary); }
 .file-preview-pane pre { max-height: 390px; border-radius: 0; background: transparent; }
 .review-list { display: grid; gap: 8px; min-height: 80px; }
-.review-list article { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: start; padding: 10px; border: 1px solid var(--el-border-color-lighter); border-radius: 10px; }
+.review-list article { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: start; padding: 10px; border: 1px solid var(--border-glass-edge); border-radius: 10px; }
 .review-list p { margin: 4px 0 0; color: var(--el-text-color-secondary); }
 .review-list time { color: var(--el-text-color-secondary); font-size: 12px; }
-.file-picker { display: flex; width: 100%; box-sizing: border-box; gap: 12px; align-items: center; padding: 18px; border: 1px dashed var(--el-border-color); border-radius: 12px; cursor: pointer; background: var(--el-fill-color-lighter); }
+.file-picker { display: flex; width: 100%; box-sizing: border-box; gap: 12px; align-items: center; padding: 18px; border: 1px dashed var(--border-glass-edge); border-radius: 12px; cursor: pointer; background: var(--surface-glass-inset); }
 .file-picker input { display: none; }
 .file-picker .el-icon { font-size: 24px; color: var(--el-color-primary); }
 .file-picker span { display: grid; gap: 3px; }
 .file-picker small { color: var(--el-text-color-secondary); }
-.bundle-discovery { min-height: 72px; margin: 0 0 18px; padding: 12px; border: 1px solid var(--el-border-color-lighter); border-radius: 12px; background: var(--el-fill-color-lighter); }
+.bundle-discovery { min-height: 72px; margin: 0 0 18px; padding: 12px; border: 1px solid var(--border-glass-edge); border-radius: 12px; background: var(--surface-glass-inset); }
 .bundle-discovery > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .bundle-discovery > header > div { display: grid; gap: 3px; min-width: 0; }
 .bundle-discovery > header small, .bundle-discovery-placeholder { color: var(--el-text-color-secondary); }
 .bundle-candidate-list { display: grid; width: 100%; max-height: 290px; gap: 8px; overflow: auto; }
-.bundle-candidate { width: 100%; height: auto; box-sizing: border-box; margin: 0; padding: 10px 12px; border: 1px solid var(--el-border-color); border-radius: 10px; background: var(--el-bg-color); white-space: normal; }
+.bundle-candidate { width: 100%; height: auto; box-sizing: border-box; margin: 0; padding: 10px 12px; border: 1px solid var(--border-glass-edge); border-radius: 10px; background: var(--surface-glass-selected); white-space: normal; }
 .bundle-candidate.is-checked { border-color: var(--el-color-primary); background: var(--el-color-primary-light-9); }
 .bundle-candidate :deep(.el-radio__label) { width: 100%; min-width: 0; padding-left: 10px; }
 .bundle-candidate-body { display: grid; min-width: 0; gap: 5px; }
@@ -1285,28 +988,5 @@ onMounted(async () => {
     grid-template-columns: 1fr;
   }
 
-  .skill-filter-bar :deep(.filter-bar__fields) {
-    flex-wrap: wrap;
-    gap: 8px;
-    overflow: visible;
-    border: 0;
-    background: transparent;
-    box-shadow: none;
-  }
-
-  .skill-filter-control.is-keyword,
-  .skill-filter-control.is-status {
-    width: 100%;
-    flex-basis: 100%;
-    overflow: hidden;
-    border: 1px solid var(--border-readable);
-    border-radius: 10px;
-  }
-
-  .skill-filter-control.is-keyword :deep(.el-input__wrapper),
-  .skill-filter-control.is-status :deep(.el-input__wrapper),
-  .skill-filter-control.is-status :deep(.el-select__wrapper) {
-    border-radius: 9px;
-  }
 }
 </style>

@@ -59,7 +59,8 @@
   border: 1px solid var(--reachai-chat-glass-border-soft, rgb(115 133 172 / 0.18));
   border-radius: 16px;
   background:
-    linear-gradient(180deg, rgb(255 255 255 / 0.42), rgb(248 250 255 / 0.28)),
+    /* 宿主可能是深色或高对比背景：阅读层保持足够不透明，玻璃感留在边缘与光泽 */
+    linear-gradient(180deg, rgb(255 255 255 / 0.74), rgb(248 250 255 / 0.62)),
     var(--reachai-chat-glass-composer, rgb(255 255 255 / 0.72));
   box-shadow:
     var(--reachai-chat-glass-highlight, inset 0 1px 0 rgb(255 255 255 / 0.74)),

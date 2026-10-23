@@ -1,7 +1,21 @@
 import { computed } from 'vue'
 import type { Ref } from 'vue'
 import type { Component } from 'vue'
-import { Briefcase, Coin, Collection, Connection, Document, Finished, Files, Link, MagicStick, Operation, SetUp, Switch } from '@element-plus/icons-vue'
+import {
+  Briefcase,
+  ChatDotRound,
+  Coin,
+  Collection,
+  Connection,
+  Document,
+  Finished,
+  Files,
+  Link,
+  MagicStick,
+  Operation,
+  SetUp,
+  Switch,
+} from '@element-plus/icons-vue'
 import LlmModelIcon from '@/components/icons/LlmModelIcon.vue'
 import type { WorkflowGraphNodeTypeDescriptor as NodeTypeDescriptor } from '@/types/workflow'
 import type { CanvasNodeKind } from '@/types/studio'
@@ -23,8 +37,6 @@ export type WorkflowStudioPaletteGroup = {
 
 export interface UseWorkflowStudioPaletteDeps {
   nodeSearchKeyword: Ref<string>
-  activePaletteGroup: Ref<string>
-  paletteExpanded: Ref<boolean>
   nodeTypes: Ref<NodeTypeDescriptor[]>
   graphNodeTypeCapabilitiesLoaded: Ref<boolean>
 }
@@ -32,7 +44,7 @@ export interface UseWorkflowStudioPaletteDeps {
 const nodeIconMap: Record<CanvasNodeKind, Component> = {
   start: SetUp,
   end: Finished,
-  userInput: SetUp,
+  userInput: ChatDotRound,
   interaction: SetUp,
   pageAction: Link,
   llm: LlmModelIcon,
@@ -56,9 +68,11 @@ const nodeIconMap: Record<CanvasNodeKind, Component> = {
 
 const groupIconMap: Record<string, Component> = {
   Cpu: LlmModelIcon,
-  Operation,
+  ChatDotRound,
   Connection,
   Collection,
+  Operation,
+  Document,
 }
 
 const kindColorMap: Record<'start'|'end'|'answer'|'approval'|'llm'|'classifier'|'tool'|'http'|'mcp'|'knowledge'|'knowledgeWrite'|'documentExtract'|'condition'|'variable'|'aggregate'|'loop', { border: string; bg: string }> = {
@@ -81,7 +95,7 @@ const kindColorMap: Record<'start'|'end'|'answer'|'approval'|'llm'|'classifier'|
 }
 
 export function useWorkflowStudioPalette(deps: UseWorkflowStudioPaletteDeps) {
-  const { nodeSearchKeyword, activePaletteGroup, paletteExpanded, nodeTypes, graphNodeTypeCapabilitiesLoaded } = deps
+  const { nodeSearchKeyword, nodeTypes, graphNodeTypeCapabilitiesLoaded } = deps
 
   const graphNodeCompositionByKind = computed(() => studioNodeCapabilityMap(nodeTypes.value))
   const enabledPaletteKinds = computed(() =>
@@ -100,7 +114,7 @@ export function useWorkflowStudioPalette(deps: UseWorkflowStudioPaletteDeps) {
         )
         .map((item) => {
           const capability = graphNodeCompositionByKind.value[item.kind]
-          const baseMeta = capability?.type || item.meta
+          const baseMeta = item.meta || '通用'
           const meta = capability?.maturity === 'BETA' ? `${baseMeta} · Beta` : baseMeta
           return {
             kind: item.kind,
@@ -129,17 +143,6 @@ export function useWorkflowStudioPalette(deps: UseWorkflowStudioPaletteDeps) {
       .filter((group) => group.items.length > 0)
   })
 
-  const flatFilteredPalette = computed(() => filteredPaletteGroups.value.flatMap((group) => group.items))
-
-  function openPaletteGroup(title: string) {
-    if (activePaletteGroup.value === title && paletteExpanded.value) {
-      paletteExpanded.value = false
-      return
-    }
-    activePaletteGroup.value = title
-    paletteExpanded.value = true
-  }
-
   function kindColor(kind: CanvasNodeKind) {
     return kindColorMap[kind as keyof typeof kindColorMap] || { border: '#6f63ff', bg: 'rgba(111, 99, 255, 0.12)' }
   }
@@ -151,8 +154,6 @@ export function useWorkflowStudioPalette(deps: UseWorkflowStudioPaletteDeps) {
   return {
     paletteGroups,
     filteredPaletteGroups,
-    flatFilteredPalette,
-    openPaletteGroup,
     kindColor,
     nodeIcon,
   }

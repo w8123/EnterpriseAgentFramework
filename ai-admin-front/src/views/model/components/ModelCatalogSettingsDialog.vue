@@ -16,6 +16,7 @@ import type {
   ModelInstance,
 } from '@/types/model'
 import { normalizeListPayload, readModelApiPayload } from '../modelCenterUi'
+import { LiquidGlassNotice, LiquidGlassButton } from '@/components/common/liquid-glass'
 
 const props = defineProps<{
   modelValue: boolean
@@ -147,12 +148,11 @@ async function synchronizeNow() {
     destroy-on-close
   >
     <div v-loading="loading" class="catalog-settings">
-      <el-alert
+      <LiquidGlassNotice
         v-if="error"
         type="error"
-        :closable="false"
-        show-icon
         :title="error"
+        source="backdrop"
       />
 
       <section class="catalog-settings__card catalog-settings__card--analyzer">
@@ -208,13 +208,12 @@ async function synchronizeNow() {
         </el-button>
       </section>
 
-      <el-alert
+      <LiquidGlassNotice
         v-if="status && !status.analyzerConfigured"
         type="warning"
-        :closable="false"
-        show-icon
         title="尚未配置目录分析模型，暂不能同步"
         description="先在模型中心接入一个大语言模型，再在上方选择并保存。"
+        source="backdrop"
       />
 
       <p v-if="status" class="catalog-settings__message">{{ status.message }}</p>
@@ -222,15 +221,15 @@ async function synchronizeNow() {
 
     <template #footer>
       <div class="catalog-settings__footer">
-        <el-button @click="visible = false">关闭</el-button>
-        <el-button
+        <LiquidGlassButton @click="visible = false">关闭</LiquidGlassButton>
+        <LiquidGlassButton
           type="primary"
           :loading="saving"
           :disabled="loading || Boolean(error) || !settingChanged"
           @click="saveSettings"
         >
           保存设置
-        </el-button>
+        </LiquidGlassButton>
       </div>
     </template>
   </AppDialog>

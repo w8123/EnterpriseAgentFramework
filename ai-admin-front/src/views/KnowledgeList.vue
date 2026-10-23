@@ -1,25 +1,27 @@
 <template>
-  <WorkbenchPage class="knowledge-list-page" layout="list">
+  <LiquidGlassPage class="knowledge-list-page">
     <PageHeader
       variant="overview"
+      presentation="plain"
+      action-presentation="inline"
       domain="knowledge"
-      eyebrow="Knowledge Hub"
       title="知识库管理"
-      description="上传制度、手册等文件，检索设置好后一键接入 Agent，让 Agent 按资料回答。"
+      description="管理知识文件和检索配置，为 Agent 与 Workflow 提供参考资料。"
     >
       <template #summary>
-        <HeaderMiniStat label="知识库总数" :value="knowledgeStore.knowledgeList.length" hint="统一知识源" />
-        <HeaderMiniStat label="文件总数" :value="totalFileCount" hint="已纳入检索" />
+        <HeaderMiniStat class="glass-workspace-adaptive" label="知识库总数" :value="knowledgeStore.knowledgeList.length" />
+        <HeaderMiniStat class="glass-workspace-adaptive" label="文件总数" :value="totalFileCount" />
       </template>
       <template #actions>
-        <ViewToggle v-model="viewMode" />
-        <el-button type="primary" :icon="Plus" @click="openCreateDialog">新建知识库</el-button>
+        <LiquidGlassViewToggle v-model="viewMode" source="wallpaper" />
+        <LiquidGlassButton source="wallpaper" type="primary" :icon="Plus" @click="openCreateDialog">新建知识库</LiquidGlassButton>
       </template>
     </PageHeader>
 
-    <DataTableShell
-      class="project-list-table-shell knowledge-list-surface workbench-list-surface"
-      :class="{ 'project-list-card-mode': viewMode === 'card' }"
+    <LiquidGlassTable
+      class="knowledge-list-surface workbench-list-surface"
+      :body-layout="viewMode === 'card' ? 'cards' : 'table'"
+      pagination-label="知识库分页"
       density="compact"
       :loading="knowledgeStore.loading"
       :empty="filteredKnowledgeList.length === 0"
@@ -28,96 +30,153 @@
       :page-size="pageSize"
       :total="filteredKnowledgeList.length"
       :page-sizes="[10, 20, 50]"
-      pagination-layout="total, prev, pager, next, sizes"
       @update:current-page="handlePageChange"
       @update:page-size="handlePageSizeChange"
     >
       <template #toolbar>
-        <FilterBar
-          class="project-list-filter-bar"
+        <LiquidGlassFilterBar
           density="compact"
           :loading="knowledgeStore.loading"
           query-label="搜索"
           @query="handleSearch"
           @reset="resetFilters"
         >
-          <el-form-item label="关键词">
-            <el-input
-              v-model="keyword"
-              clearable
-              :prefix-icon="Search"
-              placeholder="搜索知识库名称、编码或描述"
-              @keyup.enter="handleSearch"
-            />
-          </el-form-item>
-          <el-form-item label="状态">
-            <el-select v-model="statusFilter" clearable placeholder="知识库状态">
-              <el-option label="已启用" value="enabled" />
-              <el-option label="已禁用" value="disabled" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="向量模型">
-            <el-select v-model="embeddingFilter" clearable placeholder="是否已配置">
-              <el-option label="已配置" value="configured" />
-              <el-option label="未配置" value="unconfigured" />
-            </el-select>
-          </el-form-item>
-        </FilterBar>
+          <LiquidGlassInput
+            v-model="keyword"
+            clearable
+            :prefix-icon="Search"
+            placeholder="搜索知识库名称、编码或描述"
+            aria-label="关键词"
+          />
+          <LiquidGlassSelect v-model="statusFilter" clearable placeholder="知识库状态" aria-label="知识库状态">
+            <el-option label="已启用" value="enabled" />
+            <el-option label="已禁用" value="disabled" />
+          </LiquidGlassSelect>
+          <LiquidGlassSelect v-model="embeddingFilter" clearable placeholder="向量模型配置" aria-label="向量模型配置">
+            <el-option label="已配置" value="configured" />
+            <el-option label="未配置" value="unconfigured" />
+          </LiquidGlassSelect>
+        </LiquidGlassFilterBar>
       </template>
 
-      <!-- 卡片视图保留，并与列表共享筛选、分页和空状态。 -->
-      <div v-if="viewMode === 'card'" class="project-list-card-grid">
+      <!-- 卡片视图：极简高级液态玻璃（Liquid Glass）架构 -->
+      <div v-if="viewMode === 'card'" class="knowledge-card-grid">
         <article
           v-for="kb in pagedKnowledgeList"
           :key="kb.code"
-          class="project-list-card"
+          class="kb-liquid-card glass-surface-frost"
           @click="router.push(`/knowledge/${kb.code}`)"
         >
-          <div class="project-list-card__header">
-            <div class="project-list-card__icon">
-              <el-icon :size="20"><Collection /></el-icon>
-            </div>
-            <div class="project-list-card__identity">
-              <h3>{{ kb.name }}</h3>
-              <code>{{ kb.code }}</code>
-            </div>
-            <el-tag :type="kb.status === 1 ? 'success' : 'danger'" size="small" effect="light">
-              {{ kb.status === 1 ? '已启用' : '已禁用' }}
-            </el-tag>
+          <!-- 液态极光微光晕 -->
+          <div class="kb-liquid-card__ambient">
+            <span class="ambient-orb ambient-orb--violet" />
+            <span class="ambient-orb ambient-orb--cyan" />
           </div>
 
-          <p class="project-list-card__description">{{ kb.description || '暂无描述' }}</p>
+          <!-- 顶沿微光棱镜高光条 -->
+          <div class="kb-liquid-card__prism-edge" />
 
-          <div class="project-list-card__metrics">
-            <span>
+          <!-- 卡片头部：水晶图标 + 标题/编码 + 状态微标 -->
+          <div class="kb-liquid-card__header">
+            <div class="kb-liquid-card__avatar">
+              <el-icon :size="20" class="avatar-icon"><Collection /></el-icon>
+            </div>
+            <div class="kb-liquid-card__identity">
+              <h3 class="kb-liquid-card__title" :title="kb.name">{{ kb.name }}</h3>
+              <div
+                class="kb-code-sub"
+                title="点击复制知识库编码"
+                @click.stop="copyKbCode(kb.code, $event)"
+              >
+                <span>{{ kb.code }}</span>
+                <el-icon class="copy-icon"><CopyDocument /></el-icon>
+              </div>
+            </div>
+            <div class="kb-liquid-card__status">
+              <span
+                class="kb-status-pill"
+                :class="{ 'is-active': kb.status === 1, 'is-disabled': kb.status !== 1 }"
+              >
+                <span class="kb-status-pill__dot" />
+                <span>{{ kb.status === 1 ? '已启用' : '已禁用' }}</span>
+              </span>
+            </div>
+          </div>
+
+          <!-- 知识库描述：自然纯净展示 -->
+          <p class="kb-liquid-card__description" :class="{ 'is-empty': !kb.description }">
+            {{ kb.description || '暂无描述信息，点击进入详情可补充业务说明。' }}
+          </p>
+
+          <!-- 核心资产：单行通透内联微晶指标（Inline Glass Stats） -->
+          <div class="kb-liquid-card__stats-row">
+            <span class="stat-chip">
+              <el-icon><Document /></el-icon>
               <strong>{{ kb.fileCount ?? 0 }}</strong>
               <small>文件</small>
             </span>
-            <span>
+            <span class="stat-chip">
+              <el-icon><Files /></el-icon>
               <strong>{{ kb.chunkCount ?? 0 }}</strong>
               <small>段落</small>
             </span>
-          </div>
-
-          <div class="project-list-card__meta">
-            <el-icon><Coin /></el-icon>
-            <span>使用情况</span>
-            <strong>{{ usageSummary(usageFor(usages, kb.code)) }}</strong>
-          </div>
-
-          <div class="project-list-card__footer">
-            <el-button link type="primary" size="small" @click.stop="router.push(`/knowledge/${kb.code}`)">详情</el-button>
-            <el-button link type="primary" size="small" @click.stop="openEditDialog(kb)">编辑</el-button>
-            <el-popconfirm
-              title="确定删除此知识库？所有关联数据将被清除。"
-              confirm-button-text="确定"
-              cancel-button-text="取消"
-              @confirm="handleDelete(kb.code)"
+            <span
+              class="stat-chip stat-chip--agent"
+              :class="{ 'is-connected': agentSummaryBadge(kb.code).connected }"
+              :title="usageSummary(usageFor(usages, kb.code))"
+              @click.stop="!agentSummaryBadge(kb.code).connected && openAttachDialog(kb)"
             >
-              <template #reference>
-                <el-button link type="danger" size="small" @click.stop>删除</el-button>
-              </template>
-            </el-popconfirm>
+              <el-icon><Connection /></el-icon>
+              <span>{{ agentSummaryBadge(kb.code).label }}</span>
+            </span>
+          </div>
+
+          <!-- 底部工具栏：时间 + 检索测试 + 更多操作 -->
+          <div class="kb-liquid-card__footer" @click.stop>
+            <span class="meta-time" :title="`创建时间：${kb.createTime || '-'}`">
+              {{ formatRelativeTime(kb.updateTime || kb.createTime) }}
+            </span>
+
+            <div class="action-buttons">
+              <button
+                type="button"
+                class="liquid-action-btn"
+                @click="router.push({ path: `/knowledge/${kb.code}`, query: { tab: 'retrieval' } })"
+              >
+                <el-icon><Search /></el-icon>
+                <span>检索测试</span>
+              </button>
+
+              <el-dropdown trigger="click" @command="handleDropdownCommand($event, kb)">
+                <button type="button" class="liquid-action-btn liquid-action-btn--more" aria-label="更多操作">
+                  <el-icon><MoreFilled /></el-icon>
+                </button>
+                <template #dropdown>
+                  <el-dropdown-menu class="kb-card-dropdown">
+                    <el-dropdown-item command="detail">
+                      <el-icon><Right /></el-icon>
+                      <span>查看详情</span>
+                    </el-dropdown-item>
+                    <el-dropdown-item command="files">
+                      <el-icon><Document /></el-icon>
+                      <span>文件管理</span>
+                    </el-dropdown-item>
+                    <el-dropdown-item command="attach">
+                      <el-icon><Connection /></el-icon>
+                      <span>接入 Agent</span>
+                    </el-dropdown-item>
+                    <el-dropdown-item command="settings">
+                      <el-icon><Setting /></el-icon>
+                      <span>知识库设置</span>
+                    </el-dropdown-item>
+                    <el-dropdown-item command="delete" divided class="is-danger">
+                      <el-icon><Delete /></el-icon>
+                      <span>删除知识库</span>
+                    </el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+            </div>
           </div>
         </article>
       </div>
@@ -140,11 +199,6 @@
             <el-tag effect="plain" size="small">{{ row.code }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="向量模型" min-width="170" show-overflow-tooltip>
-          <template #default="{ row }">
-            {{ modelName(row.embeddingModelInstanceId) }}
-          </template>
-        </el-table-column>
         <el-table-column prop="fileCount" label="文件" width="80" align="center">
           <template #default="{ row }">
             <el-tag size="small" effect="plain">{{ row.fileCount ?? 0 }}</el-tag>
@@ -155,13 +209,6 @@
             <el-tag size="small" effect="plain">{{ row.chunkCount ?? 0 }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="使用中的 Workflow" min-width="200" show-overflow-tooltip>
-          <template #default="{ row }">
-            <span :class="{ 'usage-muted': usageFor(usages, row.code).workflows.length === 0 }">
-              {{ usageSummary(usageFor(usages, row.code)) }}
-            </span>
-          </template>
-        </el-table-column>
         <el-table-column prop="description" label="描述" min-width="180" show-overflow-tooltip />
         <el-table-column prop="status" label="状态" width="100" align="center">
           <template #default="{ row }">
@@ -170,15 +217,12 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="createTime" label="创建时间" width="180" />
-        <el-table-column label="操作" width="220" fixed="right">
+        <el-table-column prop="createTime" label="创建时间" width="180" :formatter="formatTableDateTime" />
+        <el-table-column label="操作" width="160" fixed="right">
           <template #default="{ row }">
             <el-button type="primary" link size="small"
               @click="router.push(`/knowledge/${row.code}`)">
               详情
-            </el-button>
-            <el-button type="primary" link size="small" @click="openEditDialog(row)">
-              编辑
             </el-button>
             <el-popconfirm
               title="确定删除此知识库？所有关联数据将被清除。"
@@ -205,15 +249,15 @@
           <el-button v-else type="primary" :icon="Plus" @click="openCreateDialog">新建知识库</el-button>
         </div>
       </template>
-    </DataTableShell>
+    </LiquidGlassTable>
 
-    <!-- 新建 / 编辑弹窗 -->
+    <!-- 新建弹窗 -->
     <GlassDialog
       v-model="dialogVisible"
-      :title="isEdit ? '编辑知识库' : '新建知识库'"
+      title="新建知识库"
       eyebrow="知识资产"
-      :description="isEdit ? '调整知识库基础信息与检索模型配置。' : '创建可用于文件入库、向量检索与智能问答的知识空间。'"
-      :status="isEdit ? '编辑模式' : '新建模式'"
+      description="创建可用于文件入库、向量检索与智能问答的知识空间。"
+      status="新建模式"
       class="knowledge-editor-dialog"
       width="760px"
       destroy-on-close
@@ -246,7 +290,6 @@
               <el-input
                 v-model="form.code"
                 placeholder="例如：kb_policy"
-                :disabled="isEdit"
               />
             </el-form-item>
             <el-form-item class="is-wide" label="知识库描述" prop="description">
@@ -356,43 +399,174 @@
         向量模型与回答模型为必选项，创建后仍可继续调整；更换向量模型需要重新解析已有文件。
       </template>
       <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="submitLoading" @click="handleSubmit">
-          {{ isEdit ? '保存' : '创建' }}
-        </el-button>
+        <LiquidGlassButton @click="dialogVisible = false">取消</LiquidGlassButton>
+        <LiquidGlassButton type="primary" :loading="submitLoading" @click="handleSubmit">
+          创建
+        </LiquidGlassButton>
       </template>
     </GlassDialog>
-  </WorkbenchPage>
+
+    <!-- 快捷接入 Agent 弹窗 -->
+    <KnowledgeAttachAgentDialog
+      v-model="attachDialogVisible"
+      :kb-code="targetAttachKb?.code || ''"
+      :kb-name="targetAttachKb?.name || ''"
+      @attached="handleAgentAttached"
+    />
+  </LiquidGlassPage>
 </template>
 
 <script setup lang="ts">
+import { formatTableDateTime } from '@/utils/dateTime'
 import GlassDialog from '@/components/common/GlassDialog.vue'
 import GlassSectionHeader from '@/components/common/GlassSectionHeader.vue'
 import ModelSelectEmptyState from '@/components/model/ModelSelectEmptyState.vue'
+import KnowledgeAttachAgentDialog from './knowledge/KnowledgeAttachAgentDialog.vue'
 import { computed, ref, reactive, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import type { FormInstance, FormRules } from 'element-plus'
-import { ElMessage } from 'element-plus'
-import { Plus, Collection, Coin, Search, EditPen, InfoFilled } from '@element-plus/icons-vue'
-import ViewToggle from '@/components/ViewToggle.vue'
-import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import {
+  Plus,
+  Collection,
+  Coin,
+  Search,
+  EditPen,
+  InfoFilled,
+  CopyDocument,
+  Cpu,
+  Rank,
+  Lock,
+  Compass,
+  Document,
+  Files,
+  Aim,
+  Connection,
+  Clock,
+  MoreFilled,
+  Right,
+  Setting,
+  Delete,
+} from '@element-plus/icons-vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import HeaderMiniStat from '@/components/common/HeaderMiniStat.vue'
-import DataTableShell from '@/components/common/DataTableShell.vue'
-import FilterBar from '@/components/common/FilterBar.vue'
+import { LiquidGlassButton, LiquidGlassFilterBar, LiquidGlassInput, LiquidGlassSelect, LiquidGlassTable, LiquidGlassViewToggle, LiquidGlassPage } from '@/components/common/liquid-glass'
 import { useKnowledgeStore } from '@/store/knowledge'
-import { createKnowledge, updateKnowledge, deleteKnowledge, getKnowledgeUsage } from '@/api/knowledge'
+import { createKnowledge, deleteKnowledge, getKnowledgeUsage } from '@/api/knowledge'
 import { getModelInstances } from '@/api/model'
 import type { KnowledgeBase, KnowledgeBaseForm, KnowledgeUsage } from '@/types/knowledge'
-import { usageFor, usageSummary } from './knowledge/knowledgeDetailModel'
+import { usageFor, usageSummary, agentNames } from './knowledge/knowledgeDetailModel'
 import { useModelNames } from './knowledge/useModelNames'
+import { formatRelativeTime } from '@/utils/relativeTime'
 import type { ModelInstance } from '@/types/model'
 import { normalizeActiveModelInstances } from '@/utils/modelSelection'
 
 const router = useRouter()
 const knowledgeStore = useKnowledgeStore()
-const usages = ref<KnowledgeUsage[]>([])
 const { loadModelNames, modelName } = useModelNames()
+const usages = ref<KnowledgeUsage[]>([])
+const attachDialogVisible = ref(false)
+const targetAttachKb = ref<KnowledgeBase | null>(null)
+
+function displayEmbeddingModel(id?: string | null): string {
+  if (!id) return '未配置向量'
+  const name = modelName(id)
+  return name.replace(/（.*）/, '') || name
+}
+
+function searchModeLabel(mode?: string | null): string {
+  if (!mode || mode === 'hybrid') return '混合检索'
+  if (mode === 'vector') return '语义检索'
+  if (mode === 'keyword') return '全文检索'
+  return mode
+}
+
+function hasAgentConnected(code: string): boolean {
+  const usage = usageFor(usages.value, code)
+  return (usage.workflows?.length ?? 0) > 0 || (usage.hiddenWorkflowCount ?? 0) > 0
+}
+
+function agentSummaryBadge(code: string): { connected: boolean; label: string } {
+  const usage = usageFor(usages.value, code)
+  const count = usage.workflows?.length ?? 0
+  if (count > 0) {
+    const agents = agentNames(usage.workflows)
+    if (agents.length > 0) {
+      return { connected: true, label: `${agents.length} 个 Agent` }
+    }
+    return { connected: true, label: `${count} 个 Workflow` }
+  }
+  return { connected: false, label: '+ 接入 Agent' }
+}
+
+function openAttachDialog(kb: KnowledgeBase) {
+  targetAttachKb.value = kb
+  attachDialogVisible.value = true
+}
+
+async function handleAgentAttached() {
+  attachDialogVisible.value = false
+  if (targetAttachKb.value) {
+    await fetchUsages([targetAttachKb.value.code])
+  }
+}
+
+async function copyKbCode(code: string, e?: Event) {
+  e?.stopPropagation()
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(code)
+    } else {
+      const input = document.createElement('input')
+      input.value = code
+      document.body.appendChild(input)
+      input.select()
+      document.execCommand('copy')
+      document.body.removeChild(input)
+    }
+    ElMessage.success({ message: `已复制编码：${code}`, duration: 1800 })
+  } catch {
+    ElMessage.error('复制失败')
+  }
+}
+
+function handleDropdownCommand(command: string, kb: KnowledgeBase) {
+  switch (command) {
+    case 'detail':
+      router.push(`/knowledge/${kb.code}`)
+      break
+    case 'files':
+      router.push({ path: `/knowledge/${kb.code}`, query: { tab: 'files' } })
+      break
+    case 'attach':
+      openAttachDialog(kb)
+      break
+    case 'settings':
+      router.push({ path: `/knowledge/${kb.code}`, query: { tab: 'settings' } })
+      break
+    case 'delete':
+      void confirmDelete(kb)
+      break
+  }
+}
+
+async function confirmDelete(kb: KnowledgeBase) {
+  try {
+    await ElMessageBox.confirm(
+      `确定删除知识库「${kb.name}」？所有关联文件、切片及向量数据将被清除，操作不可撤销。`,
+      '删除确认',
+      {
+        confirmButtonText: '确定删除',
+        cancelButtonText: '取消',
+        type: 'warning',
+        confirmButtonClass: 'el-button--danger',
+      },
+    )
+    await handleDelete(kb.code)
+  } catch {
+    // 取消删除
+  }
+}
 
 async function fetchUsages(codes: string[]) {
   if (codes.length === 0) return
@@ -443,7 +617,6 @@ const emptyDescription = computed(() => hasActiveFilters.value
 )
 
 const dialogVisible = ref(false)
-const isEdit = ref(false)
 const submitLoading = ref(false)
 const formRef = ref<FormInstance>()
 const embeddingInstances = ref<ModelInstance[]>([])
@@ -485,19 +658,7 @@ function resetForm() {
 }
 
 function openCreateDialog() {
-  isEdit.value = false
   resetForm()
-  dialogVisible.value = true
-}
-
-function openEditDialog(row: KnowledgeBase) {
-  isEdit.value = true
-  form.name = row.name
-  form.code = row.code
-  form.description = row.description || ''
-  form.embeddingModelInstanceId = row.embeddingModelInstanceId || ''
-  form.rerankModelInstanceId = row.rerankModelInstanceId || ''
-  form.llmModelInstanceId = row.llmModelInstanceId || ''
   dialogVisible.value = true
 }
 
@@ -588,13 +749,8 @@ async function handleSubmit() {
 
   submitLoading.value = true
   try {
-    if (isEdit.value) {
-      await updateKnowledge(form)
-      ElMessage.success('更新成功')
-    } else {
-      await createKnowledge(form)
-      ElMessage.success('创建成功')
-    }
+    await createKnowledge(form)
+    ElMessage.success('创建成功')
     dialogVisible.value = false
     await knowledgeStore.fetchList()
   } finally {
@@ -631,7 +787,7 @@ watch(
 
 onMounted(() => {
   knowledgeStore.fetchList()
-  void loadModelNames()
+  loadModelNames()
   fetchEmbeddingInstances()
   fetchRerankInstances()
   fetchLlmInstances()
@@ -639,11 +795,426 @@ onMounted(() => {
 </script>
 
 <style scoped lang="scss">
-.knowledge-list-surface {
-  margin-bottom: 0;
+// 卡片网格：精简紧凑，单卡片小巧精致，多卡片优雅排布
+.knowledge-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 310px), 340px));
+  gap: 16px;
+  padding: 2px 2px 16px;
 }
 
-.usage-muted {
-  color: var(--text-muted);
+// 极简液态玻璃卡片
+.kb-liquid-card {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  max-width: 340px;
+  flex-direction: column;
+  padding: 16px 18px 14px;
+  overflow: hidden;
+  border-radius: 18px;
+  cursor: pointer;
+
+  transition:
+    transform 220ms cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 220ms ease,
+    box-shadow 220ms ease;
+
+  &:hover {
+    transform: translateY(-3px) scale(1.004);
+    border-color: var(--border-divider);
+    .ambient-orb--violet {
+      transform: translate(5px, -3px) scale(1.15);
+      opacity: 0.85;
+    }
+
+    .ambient-orb--cyan {
+      transform: translate(-3px, 5px) scale(1.2);
+      opacity: 0.75;
+    }
+
+    .kb-liquid-card__prism-edge {
+      opacity: 1;
+      transform: scaleX(1);
+    }
+
+    .kb-liquid-card__avatar {
+      transform: scale(1.05) rotate(-2deg);
+      box-shadow:
+        inset 0 1.5px 3px rgba(255, 255, 255, 1),
+        0 5px 14px -2px rgb(var(--brand-primary-rgb) / 0.35);
+    }
+
+    .kb-liquid-card__title {
+      color: var(--brand-on-surface);
+    }
+  }
+
+  // 内部微光极光
+  &__ambient {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    overflow: hidden;
+    border-radius: inherit;
+    z-index: 0;
+
+    .ambient-orb {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(32px);
+      transition: transform 500ms cubic-bezier(0.16, 1, 0.3, 1), opacity 500ms ease;
+
+      &--violet {
+        top: -15px;
+        right: -10px;
+        width: 140px;
+        height: 140px;
+        background: radial-gradient(circle, rgb(var(--brand-primary-rgb) / 0.32) 0%, rgb(var(--brand-primary-rgb) / 0.14) 50%, transparent 70%);
+        opacity: 0.65;
+      }
+
+      &--cyan {
+        bottom: -20px;
+        left: -15px;
+        width: 130px;
+        height: 130px;
+        background: radial-gradient(circle, color-mix(in srgb, var(--status-info) 26%, transparent) 0%, color-mix(in srgb, var(--status-info) 10%, transparent) 50%, transparent 70%);
+        opacity: 0.55;
+      }
+    }
+  }
+
+  // 顶沿水光棱镜高光条
+  &__prism-edge {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2.5px;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      var(--surface-solid-panel) 20%,
+      var(--brand-primary) 50%,
+      var(--status-info) 80%,
+      transparent 100%
+    );
+    opacity: 0.7;
+    transform: scaleX(0.8);
+    transform-origin: center;
+    transition: all 360ms ease;
+    z-index: 1;
+  }
+
+  // 头部区域
+  &__header {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: flex-start;
+    gap: 11px;
+    margin-bottom: 9px;
+  }
+
+  // 水晶圆角图标徽章
+  &__avatar {
+    position: relative;
+    display: grid;
+    width: 36px;
+    height: 36px;
+    flex-shrink: 0;
+    place-items: center;
+    border-radius: 11px;
+    background: linear-gradient(
+      140deg,
+      var(--surface-solid-panel) 0%,
+      rgb(var(--brand-primary-rgb) / 0.8) 50%,
+      rgb(var(--brand-primary-rgb) / 0.6) 100%
+    );
+    border: 1px solid var(--border-glass-edge);
+    box-shadow:
+      inset 0 1.5px 2px rgba(255, 255, 255, 1),
+      inset 0 -1px 1px rgb(var(--brand-primary-rgb) / 0.15),
+      0 4px 10px -2px rgb(var(--brand-primary-rgb) / 0.22);
+    transition: all 220ms cubic-bezier(0.16, 1, 0.3, 1);
+
+    .avatar-icon {
+      color: var(--brand-on-surface);
+      font-size: 18px;
+      filter: drop-shadow(0 1px 2px rgb(var(--brand-primary-rgb) / 0.3));
+    }
+  }
+
+  &__identity {
+    min-width: 0;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  &__title {
+    margin: 0;
+    overflow: hidden;
+    color: var(--text-primary);
+    font-size: 14.5px;
+    font-weight: 700;
+    line-height: 20px;
+    letter-spacing: -0.01em;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    transition: color 160ms ease;
+  }
+
+  // 极简编码小字
+  .kb-code-sub {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    align-self: flex-start;
+    max-width: 100%;
+    color: var(--text-muted);
+    font-family: var(--font-family-mono, ui-monospace, SFMono-Regular, monospace);
+    font-size: 11px;
+    line-height: 15px;
+    cursor: copy;
+    transition: all 140ms ease;
+
+    &:hover {
+      color: var(--brand-primary);
+
+      .copy-icon {
+        opacity: 1;
+        transform: scale(1.1);
+      }
+    }
+
+    span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .copy-icon {
+      font-size: 10.5px;
+      opacity: 0.6;
+      transition: all 140ms ease;
+    }
+  }
+
+  // 状态呼吸胶囊
+  .kb-status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 7px;
+    border-radius: 999px;
+    font-size: 10.5px;
+    font-weight: 600;
+    white-space: nowrap;
+    border: 1px solid transparent;
+
+    &.is-active {
+      background: linear-gradient(135deg, color-mix(in srgb, var(--status-success) 12%, transparent) 0%, color-mix(in srgb, var(--status-success) 6%, transparent) 100%);
+      color: var(--status-success);
+      border-color: color-mix(in srgb, var(--status-success) 25%, transparent);
+      box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.8);
+
+      .kb-status-pill__dot {
+        background: var(--status-success);
+        box-shadow: 0 0 6px var(--status-success), 0 0 2px #fff;
+        animation: pulse-dot 2s infinite;
+      }
+    }
+
+    &.is-disabled {
+      background: var(--surface-hover);
+      color: var(--text-muted);
+      border-color: var(--border-subtle);
+
+      .kb-status-pill__dot {
+        background: var(--text-muted);
+      }
+    }
+
+    &__dot {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+    }
+  }
+
+  // 描述文本：纯净通透
+  &__description {
+    position: relative;
+    z-index: 1;
+    display: -webkit-box;
+    min-height: 32px;
+    margin: 0 0 12px;
+    overflow: hidden;
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 16px;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+
+    &.is-empty {
+      color: var(--text-muted);
+      font-style: italic;
+    }
+  }
+
+  // 单行极简通透指标栏 (Inline Stats)
+  &__stats-row {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+
+    .stat-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: var(--surface-glass-control);
+      border: 1px solid var(--border-glass-edge);
+      box-shadow:
+        inset 0 1px 1px rgba(255, 255, 255, 0.95),
+        0 1px 3px rgba(15, 23, 42, 0.02);
+      color: var(--text-secondary);
+      font-size: 11px;
+      line-height: 15px;
+      white-space: nowrap;
+
+      .el-icon {
+        font-size: 12px;
+        color: var(--text-muted);
+      }
+
+      strong {
+        color: var(--text-primary);
+        font-weight: 700;
+        font-family: var(--font-family-mono, ui-monospace, SFMono-Regular, monospace);
+      }
+
+      small {
+        color: var(--text-muted);
+        font-size: 10.5px;
+      }
+
+      &--agent {
+        margin-left: auto;
+        color: var(--text-muted);
+        transition: all 160ms ease;
+
+        &.is-connected {
+          background: linear-gradient(135deg, rgb(var(--brand-primary-rgb) / 0.1) 0%, rgb(var(--brand-primary-rgb) / 0.06) 100%);
+          border-color: rgb(var(--brand-primary-rgb) / 0.28);
+          color: var(--brand-primary);
+
+          .el-icon {
+            color: var(--brand-primary);
+          }
+        }
+
+        &:not(.is-connected) {
+          cursor: pointer;
+          color: var(--brand-primary);
+          border-style: dashed;
+
+          &:hover {
+            background: rgb(var(--brand-primary-rgb) / 0.12);
+            border-color: var(--brand-primary);
+          }
+        }
+      }
+    }
+  }
+
+  // 底部工具栏
+  &__footer {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: auto;
+    padding-top: 10px;
+    border-top: 1px solid var(--border-glass-edge);
+
+    .meta-time {
+      color: var(--text-muted);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .action-buttons {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+  }
+}
+
+// 极简液态水滴晶片按钮
+.liquid-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  background: linear-gradient(
+    145deg,
+    var(--surface-glass-control) 0%,
+    var(--surface-glass-control) 100%
+  );
+  border: 1px solid var(--border-glass-edge);
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, 1),
+    0 1px 4px rgba(30, 58, 110, 0.04);
+  color: var(--text-secondary);
+  backdrop-filter: blur(8px);
+  transition: all 160ms ease;
+
+  &:hover {
+    color: var(--brand-primary);
+    background: linear-gradient(
+      145deg,
+      var(--surface-solid-panel) 0%,
+      rgb(var(--brand-primary-rgb) / 0.8) 100%
+    );
+    border-color: rgb(var(--brand-primary-rgb) / 0.4);
+    box-shadow:
+      inset 0 1px 1px rgba(255, 255, 255, 1),
+      0 3px 8px rgb(var(--brand-primary-rgb) / 0.2);
+    transform: translateY(-1px);
+  }
+
+  &--more {
+    width: 26px;
+    padding: 0;
+  }
+}
+
+@keyframes pulse-dot {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.6;
+    transform: scale(1.15);
+  }
 }
 </style>

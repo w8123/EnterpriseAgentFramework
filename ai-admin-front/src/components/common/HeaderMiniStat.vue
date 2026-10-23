@@ -27,10 +27,10 @@ withDefaults(
   align-content: center;
   gap: 2px;
   padding: 8px 12px;
-  border: 1px solid rgb(255 255 255 / 0.84);
-  border-radius: 12px;
-  background: rgb(255 255 255 / 0.72);
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.94);
+  border: 1px solid var(--border-glass-edge);
+  border-radius: var(--radius-md);
+  background: var(--surface-glass-control);
+  box-shadow: var(--inner-highlight);
   color: var(--text-primary);
 }
 

@@ -1,9 +1,9 @@
 <template>
-  <WorkbenchPage class="api-market-page" density="compact">
+  <LiquidGlassPage class="api-market-page" density="compact">
     <PageHeader
-      class="market-page-header"
       variant="overview"
-      height-preset="standard"
+      presentation="plain"
+      action-presentation="inline"
       domain="tool"
       title="API 市场"
       description="集中发现、评估并接入公开 API。"
@@ -20,7 +20,7 @@
           </span>
         </el-tooltip>
         <el-tooltip content="刷新目录" placement="bottom">
-          <el-button
+          <LiquidGlassButton source="wallpaper"
             class="market-refresh"
             circle
             :icon="Refresh"
@@ -32,12 +32,13 @@
       </template>
     </PageHeader>
 
-    <nav class="market-tabs" aria-label="API 市场功能导航">
+    <LiquidGlassNav source="wallpaper" :columns="4" class="market-tabs" aria-label="API 市场功能导航">
       <button
         v-for="tab in tabs"
         :key="tab.name"
         type="button"
         :class="{ 'is-active': activeTab === tab.name }"
+        :aria-pressed="activeTab === tab.name"
         @click="switchTab(tab.name)"
       >
         <span class="market-tabs__icon"><component :is="tab.icon" /></span>
@@ -46,27 +47,29 @@
           <small>{{ tab.description }}</small>
         </span>
       </button>
-    </nav>
+    </LiquidGlassNav>
 
-    <template v-if="activeTab === 'discover'">
-      <section class="catalog-toolbar">
-        <el-input
+    <LiquidGlassTable v-if="activeTab === 'discover'" class="catalog-results" body-layout="cards"
+      v-model:current-page="page.current" v-model:page-size="page.size" :total="page.total" :page-sizes="[24, 48, 96]"
+      :loading="loadingEntries" :empty="!loadingEntries && !entries.length" pagination-label="API 市场分页" @change="loadEntries">
+      <template #toolbar>
+      <LiquidGlassFilterBar class="catalog-toolbar" :show-reset="false" :loading="loadingEntries" @query="applyFilters">
+        <LiquidGlassInput
           v-model="filters.keyword"
           class="catalog-keyword"
           clearable
           :prefix-icon="Search"
           placeholder="搜索 API 名称、能力或提供方"
-          @keyup.enter="applyFilters"
           @clear="applyFilters"
         />
-        <el-select v-model="filters.authType" clearable placeholder="认证方式" aria-label="认证方式" @change="applyFilters">
+        <LiquidGlassSelect v-model="filters.authType" clearable placeholder="认证方式" aria-label="认证方式" @change="applyFilters">
           <el-option label="无需认证" value="NONE" />
           <el-option label="API Key · Header" value="API_KEY_HEADER" />
           <el-option label="API Key · Query" value="API_KEY_QUERY" />
           <el-option label="Bearer Token" value="BEARER" />
           <el-option label="OAuth 2.0" value="OAUTH2" />
-        </el-select>
-        <el-select
+        </LiquidGlassSelect>
+        <LiquidGlassSelect
           v-model="filters.verificationStatus"
           clearable
           placeholder="验证状态"
@@ -77,71 +80,53 @@
           <el-option label="待验证" value="UNVERIFIED" />
           <el-option label="验证已过期" value="STALE" />
           <el-option label="验证失败" value="FAILED" />
-        </el-select>
-        <el-select v-model="filters.source" clearable placeholder="目录来源" aria-label="目录来源" @change="applyFilters">
+        </LiquidGlassSelect>
+        <LiquidGlassSelect v-model="filters.source" clearable placeholder="目录来源" aria-label="目录来源" @change="applyFilters">
           <el-option
             v-for="source in sources"
             :key="source.sourceKey"
             :label="source.name"
             :value="source.sourceKey"
           />
-        </el-select>
-        <el-select v-model="filters.specFilter" clearable placeholder="机器可读契约" aria-label="机器可读契约" @change="applyFilters">
+        </LiquidGlassSelect>
+        <LiquidGlassSelect v-model="filters.specFilter" clearable placeholder="机器可读契约" aria-label="机器可读契约" @change="applyFilters">
           <el-option label="有 OpenAPI" value="yes" />
           <el-option label="暂无 OpenAPI" value="no" />
-        </el-select>
-        <el-button
+        </LiquidGlassSelect>
+        <template #actions>
+        <LiquidGlassButton
           class="catalog-reset"
           :icon="RefreshLeft"
           :disabled="!hasActiveFilters"
           @click="resetFilters"
-        >重置</el-button>
-        <el-button class="catalog-search" type="primary" :icon="Search" @click="applyFilters">搜索</el-button>
+        >重置</LiquidGlassButton>
+        <LiquidGlassButton class="catalog-search" type="primary" :icon="Search" native-type="submit" :loading="loadingEntries">搜索</LiquidGlassButton>
+        </template>
+      </LiquidGlassFilterBar>
         <footer class="catalog-toolbar__summary">
           <span><strong>{{ page.total }}</strong> 个可接入 API</span>
           <small>按认证、验证状态、目录来源与契约筛选</small>
         </footer>
-      </section>
-
-      <section v-loading="loadingEntries" class="catalog-results" aria-live="polite">
-        <el-empty
-          v-if="!loadingEntries && !entries.length"
-          description="没有找到符合条件的 API，试试减少筛选条件或换一个关键词。"
-        >
-          <el-button type="primary" @click="resetFilters">查看全部 API</el-button>
-        </el-empty>
-        <div v-else class="api-card-grid">
-          <ApiMarketEntryCard
-            v-for="entry in entries"
-            :key="entry.entryKey"
-            :entry="entry"
-            @open="openEntry"
-            @integrate="quickIntegrate"
-          />
-        </div>
-        <footer v-if="page.total > page.size" class="catalog-pagination">
-          <span>第 {{ page.current }} / {{ page.pages }} 页</span>
-          <el-pagination
-            v-model:current-page="page.current"
-            :page-size="page.size"
-            :total="page.total"
-            layout="prev, pager, next"
-            background
-            @current-change="loadEntries"
-          />
-        </footer>
-      </section>
-    </template>
+      </template>
+      <div class="api-card-grid">
+        <ApiMarketEntryCard v-for="entry in entries" :key="entry.entryKey" :entry="entry" @open="openEntry" @integrate="quickIntegrate" />
+      </div>
+      <template #empty>
+        <LiquidGlassEmptyState title="没有找到符合条件的 API" description="试试减少筛选条件或换一个关键词。">
+          <LiquidGlassButton type="primary" @click="resetFilters">查看全部 API</LiquidGlassButton>
+        </LiquidGlassEmptyState>
+      </template>
+    </LiquidGlassTable>
 
     <template v-else-if="activeTab === 'integrations'">
-      <section class="workspace-panel">
+      <LiquidGlassCard source="wallpaper" class="workspace-panel">
         <header class="workspace-panel__header">
           <div>
             <h2>我的接入</h2>
             <span>接入记录保存“项目准备使用哪些 API”，凭据和实际执行仍由 Runtime 管理。</span>
           </div>
           <div class="workspace-panel__filters">
-            <el-select
+            <LiquidGlassSelect
               :model-value="integrationProjectId"
               :clearable="scope.canSelectAll.value"
               filterable
@@ -150,8 +135,8 @@
               @change="changeIntegrationProject"
             >
               <el-option v-for="project in scope.readableProjects.value" :key="project.id" :label="project.name" :value="project.id" />
-            </el-select>
-            <el-select
+            </LiquidGlassSelect>
+            <LiquidGlassSelect
               v-model="integrationFilters.status"
               clearable
               placeholder="全部状态"
@@ -161,19 +146,26 @@
               <el-option label="来源已选择" value="READY" />
               <el-option label="异常" value="BROKEN" />
               <el-option label="已停用" value="DISABLED" />
-            </el-select>
+            </LiquidGlassSelect>
           </div>
         </header>
 
-        <el-alert v-if="integrationListError" :title="integrationListError" type="error" :closable="false" show-icon>
-          <template #default><el-button link @click="loadIntegrations">重新读取</el-button></template>
-        </el-alert>
-        <div v-loading="loadingIntegrations" class="integration-table-shell">
-          <el-empty v-if="!loadingIntegrations && !integrations.length"
-            :description="!integrationProjectId ? scope.feedbackMessage.value || '选择项目后读取受控接入，不跨项目汇总授权' : integrationListError ? '接入状态未知，请重新读取' : '该项目还没有接入外部 API'">
-            <el-button type="primary" @click="switchTab('discover')">去发现 API</el-button>
-          </el-empty>
-          <el-table v-else :data="integrations" class="integration-table">
+        <LiquidGlassNotice
+          v-if="integrationListError"
+          :title="integrationListError"
+          type="error"
+          source="backdrop"
+        >
+          <template #actions><el-button link @click="loadIntegrations">重新读取</el-button></template>
+        </LiquidGlassNotice>
+        <LiquidGlassTable class="integration-table-shell" :show-pagination="false" :loading="loadingIntegrations" :empty="!loadingIntegrations && !integrations.length">
+          <template #empty>
+          <LiquidGlassEmptyState :title="!integrationProjectId ? '请选择项目查看接入' : integrationListError ? '接入状态未知' : '该项目还没有接入外部 API'"
+            :description="!integrationProjectId ? scope.feedbackMessage.value || '选择项目后读取受控接入，不跨项目汇总授权' : integrationListError ? '接入状态未知，请重新读取' : undefined">
+            <LiquidGlassButton type="primary" @click="switchTab('discover')">去发现 API</LiquidGlassButton>
+          </LiquidGlassEmptyState>
+          </template>
+          <el-table v-if="integrations.length" :data="integrations" class="integration-table">
             <el-table-column label="API / 项目" min-width="250">
               <template #default="{ row }">
                 <button class="table-api-link" type="button" @click="openIntegrationEntry(row)">
@@ -232,20 +224,20 @@
               </template>
             </el-table-column>
           </el-table>
-        </div>
-      </section>
+        </LiquidGlassTable>
+      </LiquidGlassCard>
     </template>
 
     <template v-else-if="activeTab === 'changes'">
-      <section class="workspace-panel">
+      <LiquidGlassCard v-loading="loadingChanges" source="wallpaper" class="workspace-panel" :aria-busy="loadingChanges" element-loading-text="正在加载">
         <header class="workspace-panel__header">
           <div>
             <h2>变更与风险</h2>
             <span>优先处理 Spec 变化、验证过期和失败条目；市场不会自动改写已发布 Workflow。</span>
           </div>
         </header>
-        <div v-loading="loadingChanges" class="risk-list">
-          <el-empty v-if="!loadingChanges && !riskEntries.length" description="当前没有待处理的 API 风险" />
+        <div class="risk-list">
+          <LiquidGlassEmptyState v-if="!loadingChanges && !riskEntries.length" title="当前没有待处理的 API 风险" />
           <article v-for="entry in riskEntries" :key="entry.entryKey" class="risk-card">
             <div class="risk-card__icon"><WarningFilled /></div>
             <div class="risk-card__main">
@@ -257,14 +249,14 @@
               :label="entry.specStatus === 'CHANGED' ? 'Spec 有变更' : formatApiMarketVerification(entry.verificationStatus)"
               :tone="entry.verificationStatus === 'FAILED' ? 'danger' : 'warning'"
             />
-            <el-button @click="openEntry(entry)">查看证据</el-button>
+            <LiquidGlassButton @click="openEntry(entry)">查看证据</LiquidGlassButton>
           </article>
         </div>
-      </section>
+      </LiquidGlassCard>
     </template>
 
     <template v-else>
-      <section class="workspace-panel">
+      <LiquidGlassCard source="wallpaper" class="workspace-panel">
         <header class="workspace-panel__header">
           <div>
             <h2>来源与质量</h2>
@@ -298,7 +290,7 @@
             </el-link>
           </article>
         </div>
-      </section>
+      </LiquidGlassCard>
     </template>
 
     <ApiMarketDetailDrawer
@@ -358,36 +350,38 @@
           </el-form-item>
         </div>
 
-        <el-alert
+        <LiquidGlassNotice
           v-if="selectedDetail?.entry.authType !== 'NONE'"
           title="该 API 需要凭据"
           description="当前仅支持明确无认证的只读 GET；需要认证但缺少结构化契约时不能降为 NONE，请先补来源事实。"
           type="warning"
-          :closable="false"
-          show-icon
+          source="backdrop"
         />
-        <el-alert
+        <LiquidGlassNotice
           v-else
           title="该 Operation 无需认证"
           description="本次只固定来源版本并生成项目 API 候选。仍需显式接纳、配置 Runtime 连接与目标 ACL，并完成真实 Console GET 验证。"
           type="info"
-          :closable="false"
-          show-icon
+          source="backdrop"
         />
 
         <p class="workflow-hint">环境采用所选项目的已确认值；接入不创建连接、凭据、调用权限或成功验证。</p>
-        <el-alert v-if="integrationBlocker || integrationError" :title="integrationError || integrationBlocker"
-          type="warning" :closable="false" show-icon />
+        <LiquidGlassNotice
+          v-if="integrationBlocker || integrationError"
+          :title="integrationError || integrationBlocker"
+          type="warning"
+          source="backdrop"
+        />
       </el-form>
 
       <template #footer>
-        <el-button :disabled="submittingIntegration" @click="integrationDialogVisible = false">取消</el-button>
-        <el-button type="primary" :disabled="Boolean(integrationBlocker)" :loading="submittingIntegration" @click="submitIntegration">
+        <LiquidGlassButton :disabled="submittingIntegration" @click="integrationDialogVisible = false">取消</LiquidGlassButton>
+        <LiquidGlassButton type="primary" :disabled="Boolean(integrationBlocker)" :loading="submittingIntegration" @click="submitIntegration">
           接入并配置 API
-        </el-button>
+        </LiquidGlassButton>
       </template>
     </AppDialog>
-  </WorkbenchPage>
+  </LiquidGlassPage>
 </template>
 
 <script setup lang="ts">
@@ -406,7 +400,7 @@ import {
   TrendCharts,
   WarningFilled,
 } from '@element-plus/icons-vue'
-import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
+import { LiquidGlassPage, LiquidGlassTable, LiquidGlassFilterBar, LiquidGlassInput, LiquidGlassSelect, LiquidGlassButton, LiquidGlassNav, LiquidGlassCard, LiquidGlassEmptyState, LiquidGlassNotice } from '@/components/common/liquid-glass'
 import PageHeader from '@/components/common/PageHeader.vue'
 import StatusTag from '@/components/common/StatusTag.vue'
 import AppDialog from '@/components/common/AppDialog.vue'
@@ -767,92 +761,10 @@ function errorMessage(error: unknown) {
 
 <style scoped lang="scss">
 .api-market-page {
-  gap: 14px;
+  gap: var(--layout-page-gap);
 }
 
-.market-page-header {
-  :deep(.app-page-header__actions) {
-    gap: 8px;
-  }
-}
-
-.market-source-status,
-.market-refresh {
-  display: inline-grid;
-  width: 36px;
-  height: 36px;
-  place-items: center;
-  padding: 0 !important;
-  border: 1px solid var(--border-subtle) !important;
-  border-radius: 10px !important;
-  background: var(--surface-solid-control) !important;
-  box-shadow: var(--inner-highlight);
-}
-
-.market-source-status {
-  color: var(--status-success);
-  font-size: 17px;
-}
-
-.market-refresh {
-  color: var(--text-secondary) !important;
-
-  &:hover {
-    border-color: rgb(var(--brand-primary-rgb) / 0.28) !important;
-    color: var(--brand-active) !important;
-  }
-}
-
-.market-tabs {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  padding: 0 8px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 12px;
-  background: var(--surface-glass-panel);
-  box-shadow: none;
-
-  button {
-    position: relative;
-    display: flex;
-    align-items: center;
-    min-width: 0;
-    gap: 8px;
-    padding: 11px 14px;
-    border: 0;
-    border-radius: 8px;
-    background: transparent;
-    color: var(--text-secondary);
-    text-align: left;
-    cursor: pointer;
-    transition:
-      background var(--motion-duration-fast) ease,
-      color var(--motion-duration-fast) ease;
-
-    &:hover {
-      background: rgb(var(--brand-primary-rgb) / 0.045);
-      color: var(--brand-active);
-    }
-
-    &.is-active {
-      background: rgb(var(--brand-primary-rgb) / 0.065);
-      color: var(--brand-active);
-      box-shadow: none;
-
-      &::after {
-        content: '';
-        position: absolute;
-        right: 14px;
-        bottom: 0;
-        left: 14px;
-        height: 2px;
-        border-radius: 999px;
-        background: var(--brand-primary);
-      }
-    }
-  }
-}
-
+.market-source-status { display: grid; place-items: center; color: var(--status-success); font-size: 19px; }
 .market-tabs__icon {
   display: grid;
   width: 22px;
@@ -864,7 +776,7 @@ function errorMessage(error: unknown) {
   font-size: 15px;
 }
 
-.market-tabs button.is-active .market-tabs__icon {
+.market-tabs :deep(button.is-active) .market-tabs__icon {
   background: transparent;
   color: var(--brand-active);
 }
@@ -891,42 +803,6 @@ function errorMessage(error: unknown) {
     white-space: nowrap;
   }
 }
-.catalog-toolbar,
-.workspace-panel {
-  border: 1px solid var(--border-subtle);
-  border-radius: 15px;
-  background: color-mix(in srgb, var(--surface-glass-panel) 92%, var(--surface-solid-control));
-  box-shadow: var(--shadow-sm);
-}
-
-.catalog-toolbar {
-  display: grid;
-  grid-template-columns: minmax(260px, 2fr) repeat(4, minmax(108px, 1fr)) auto auto;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 14px 9px;
-  box-shadow: none;
-
-  :deep(.el-input__wrapper),
-  :deep(.el-select__wrapper) {
-    min-height: 38px;
-    border-radius: 9px;
-    background: var(--surface-solid-control);
-    box-shadow: 0 0 0 1px var(--border-subtle) inset;
-  }
-
-  :deep(.el-button + .el-button) {
-    margin-left: 0;
-  }
-}
-
-.workspace-panel__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-}
-
 .catalog-toolbar__summary {
   display: flex;
   align-items: center;
@@ -949,57 +825,21 @@ function errorMessage(error: unknown) {
   }
 }
 
-.catalog-reset,
-.catalog-search {
-  min-width: 72px;
-  height: 38px;
-  border-radius: 9px;
-  font-weight: 650;
-}
-
-.catalog-reset {
-  border-color: var(--border-subtle);
-  background: var(--surface-solid-control);
-  color: var(--text-secondary);
-
-  &:hover {
-    border-color: rgb(var(--brand-primary-rgb) / 0.35);
-    color: var(--brand-active);
-  }
-}
-
-.catalog-search {
-  min-width: 80px;
-}
-
-.catalog-results {
-  min-height: 280px;
-}
-
 .api-card-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
 }
 
-.catalog-pagination {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: 18px;
-  padding: 13px 18px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  background: var(--surface-glass-panel);
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
 .workspace-panel {
-  overflow: hidden;
+  display: flex; flex: 1; flex-direction: column; min-height: 0; padding: 0; overflow: auto;
 }
 
 .workspace-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
   padding: 17px 20px;
   border-bottom: 1px solid var(--border-divider);
 
@@ -1031,16 +871,6 @@ function errorMessage(error: unknown) {
 
 .integration-table-shell {
   min-height: 300px;
-}
-
-.integration-table {
-  --el-table-bg-color: transparent;
-  --el-table-tr-bg-color: transparent;
-  --el-table-header-bg-color: var(--surface-solid-control);
-  --el-table-row-hover-bg-color: rgb(var(--brand-primary-rgb) / 0.06);
-  --el-table-border-color: var(--border-divider);
-  --el-table-text-color: var(--text-secondary);
-  --el-table-header-text-color: var(--text-muted);
 }
 
 .table-api-link {
@@ -1278,97 +1108,14 @@ function errorMessage(error: unknown) {
   line-height: 1.55;
 }
 
-@media (max-width: 1320px) {
-  .api-card-grid,
-  .source-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .catalog-toolbar {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-
-  .catalog-keyword {
-    grid-column: span 2;
-  }
-}
-
 @media (max-width: 1100px) {
-  .workspace-panel__header {
-    align-items: flex-start;
-    flex-direction: column;
-  }
+  .workspace-panel__header { align-items: flex-start; flex-direction: column; }
 }
-
 @media (max-width: 900px) {
-  .market-page-header {
-    grid-template-columns: minmax(0, 1fr) auto;
-
-    :deep(.app-page-header__tags) {
-      display: none;
-    }
-
-    :deep(.app-page-header__trailing) {
-      width: auto;
-      grid-row: 1;
-      grid-column: 2;
-      justify-content: flex-end;
-    }
-  }
-
-  .api-card-grid,
-  .source-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .market-tabs {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .catalog-toolbar {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .catalog-keyword {
-    grid-column: 1 / -1;
-  }
+  .api-card-grid, .source-grid { grid-template-columns: 1fr; }
 }
-
 @media (max-width: 680px) {
-  .market-page-header {
-    grid-template-columns: minmax(0, 1fr);
-
-    :deep(.app-page-header__trailing) {
-      width: 100%;
-      grid-row: auto;
-      grid-column: 1;
-      justify-content: flex-start;
-    }
-  }
-
-  .api-card-grid,
-  .source-grid,
-  .integration-form__grid {
-    grid-template-columns: 1fr;
-  }
-
-  .catalog-toolbar {
-    grid-template-columns: 1fr;
-  }
-
-  .catalog-keyword {
-    grid-column: 1;
-  }
-
-  .catalog-reset,
-  .catalog-search {
-    width: 100%;
-  }
-
-  .risk-card,
-  .selected-operation {
-    align-items: flex-start;
-    flex-direction: column;
-  }
+  .integration-form__grid { grid-template-columns: 1fr; }
+  .risk-card, .selected-operation { align-items: flex-start; flex-direction: column; }
 }
 </style>

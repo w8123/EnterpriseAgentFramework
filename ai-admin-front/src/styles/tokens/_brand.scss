@@ -9,8 +9,15 @@
   --brand-hover-rgb: 139 92 246;
   --brand-active-rgb: 79 70 229;
   --brand-selected-rgb: 237 233 254;
-  --page-header-material: url('/page-header-materials/tech-purple.webp');
-  --page-header-material-position: center;
+  --theme-wallpaper-image: url('/theme-wallpapers/violet-waves.webp');
+  --theme-wallpaper-position: 38% 50%;
+  --wallpaper-fallback: #201145;
+  --wallpaper-ink: #f7f9ff;
+  --wallpaper-ink-muted: #dce4f0;
+  --wallpaper-ink-shadow: 0 1px 4px rgb(0 0 0 / 0.4);
+  --frost-veil-alpha: 0.62;
+  --page-header-material: var(--surface-page-background);
+  --page-header-material-position: var(--theme-wallpaper-position);
 }
 
 [data-brand='metro-green'] {
@@ -23,8 +30,15 @@
   --brand-hover-rgb: 45 147 117;
   --brand-active-rgb: 9 98 71;
   --brand-selected-rgb: 227 247 242;
-  --page-header-material: url('/page-header-materials/metro-green.webp');
-  --page-header-material-position: center;
+  --theme-wallpaper-image: url('/theme-wallpapers/sage-folds.webp');
+  --theme-wallpaper-position: center 58%;
+  --wallpaper-fallback: #d8d8c9;
+  --wallpaper-ink: #172033;
+  --wallpaper-ink-muted: #3e4a5c;
+  --wallpaper-ink-shadow: none;
+  --frost-veil-alpha: 0.42;
+  --page-header-material: var(--surface-page-background);
+  --page-header-material-position: var(--theme-wallpaper-position);
 }
 
 [data-brand='aurora-cyan'] {
@@ -37,8 +51,15 @@
   --brand-hover-rgb: 34 211 238;
   --brand-active-rgb: 14 116 144;
   --brand-selected-rgb: 236 254 255;
-  --page-header-material: url('/page-header-materials/aurora-cyan.webp');
-  --page-header-material-position: center;
+  --theme-wallpaper-image: url('/theme-wallpapers/ice-blue.webp');
+  --theme-wallpaper-position: center 42%;
+  --wallpaper-fallback: #e4edf8;
+  --wallpaper-ink: #172033;
+  --wallpaper-ink-muted: #3e4a5c;
+  --wallpaper-ink-shadow: none;
+  --frost-veil-alpha: 0.42;
+  --page-header-material: var(--surface-page-background);
+  --page-header-material-position: var(--theme-wallpaper-position);
 }
 
 [data-brand='nebula-violet'] {
@@ -51,8 +72,15 @@
   --brand-hover-rgb: 236 72 153;
   --brand-active-rgb: 109 40 217;
   --brand-selected-rgb: 243 232 255;
-  --page-header-material: url('/page-header-materials/nebula-violet.webp');
-  --page-header-material-position: center;
+  --theme-wallpaper-image: url('/theme-wallpapers/violet-waves.webp');
+  --theme-wallpaper-position: 68% 46%;
+  --wallpaper-fallback: #27114c;
+  --wallpaper-ink: #f7f9ff;
+  --wallpaper-ink-muted: #dce4f0;
+  --wallpaper-ink-shadow: 0 1px 4px rgb(0 0 0 / 0.4);
+  --frost-veil-alpha: 0.62;
+  --page-header-material: var(--surface-page-background);
+  --page-header-material-position: var(--theme-wallpaper-position);
 }
 
 [data-brand='coral-rose'] {
@@ -65,8 +93,15 @@
   --brand-hover-rgb: 244 114 182;
   --brand-active-rgb: 190 24 93;
   --brand-selected-rgb: 252 231 243;
-  --page-header-material: url('/page-header-materials/coral-rose.webp');
-  --page-header-material-position: center;
+  --theme-wallpaper-image: url('/theme-wallpapers/rose-glow.webp');
+  --theme-wallpaper-position: center 48%;
+  --wallpaper-fallback: #291247;
+  --wallpaper-ink: #f7f9ff;
+  --wallpaper-ink-muted: #dce4f0;
+  --wallpaper-ink-shadow: 0 1px 4px rgb(0 0 0 / 0.4);
+  --frost-veil-alpha: 0.62;
+  --page-header-material: var(--surface-page-background);
+  --page-header-material-position: var(--theme-wallpaper-position);
 }
 
 [data-brand='solar-gold'] {
@@ -79,8 +114,15 @@
   --brand-hover-rgb: 245 158 11;
   --brand-active-rgb: 146 64 14;
   --brand-selected-rgb: 254 243 199;
-  --page-header-material: url('/page-header-materials/solar-gold.webp');
-  --page-header-material-position: center;
+  --theme-wallpaper-image: url('/theme-wallpapers/gold-curves.webp');
+  --theme-wallpaper-position: center 48%;
+  --wallpaper-fallback: #f3d692;
+  --wallpaper-ink: #172033;
+  --wallpaper-ink-muted: #3e4a5c;
+  --wallpaper-ink-shadow: none;
+  --frost-veil-alpha: 0.42;
+  --page-header-material: var(--surface-page-background);
+  --page-header-material-position: var(--theme-wallpaper-position);
 }
 
 [data-brand='deep-ocean'] {
@@ -93,12 +135,56 @@
   --brand-hover-rgb: 6 182 212;
   --brand-active-rgb: 30 64 175;
   --brand-selected-rgb: 219 234 254;
-  --page-header-material: url('/page-header-materials/deep-ocean.webp');
-  --page-header-material-position: center;
+  --theme-wallpaper-image: url('/theme-wallpapers/deep-blue.webp');
+  --theme-wallpaper-position: center 52%;
+  --wallpaper-fallback: #111a35;
+  --wallpaper-ink: #f7f9ff;
+  --wallpaper-ink-muted: #dce4f0;
+  --wallpaper-ink-shadow: 0 1px 4px rgb(0 0 0 / 0.4);
+  --frost-veil-alpha: 0.62;
+  --page-header-material: var(--surface-page-background);
+  --page-header-material-position: var(--theme-wallpaper-position);
 }
 
 :root,
 [data-brand] {
   --brand-selected-bg: var(--brand-selected);
   --brand-primary-gradient: linear-gradient(135deg, var(--brand-primary), var(--brand-hover));
+}
+
+// 深色主题下的选中底：主色按 24% 混入深色不透明底，保证选中态在深色里仍是暗底浅字。
+
+[data-theme='dark'], [data-theme='dark'][data-brand='tech-purple'] {
+  --brand-selected: #2e3156;
+  --brand-selected-rgb: 46 49 86;
+}
+
+[data-theme='dark'][data-brand='metro-green'] {
+  --brand-selected: #193631;
+  --brand-selected-rgb: 25 54 49;
+}
+
+[data-theme='dark'][data-brand='aurora-cyan'] {
+  --brand-selected: #183b47;
+  --brand-selected-rgb: 24 59 71;
+}
+
+[data-theme='dark'][data-brand='nebula-violet'] {
+  --brand-selected: #342655;
+  --brand-selected-rgb: 52 38 85;
+}
+
+[data-theme='dark'][data-brand='coral-rose'] {
+  --brand-selected: #4b2239;
+  --brand-selected-rgb: 75 34 57;
+}
+
+[data-theme='dark'][data-brand='solar-gold'] {
+  --brand-selected: #412c1e;
+  --brand-selected-rgb: 65 44 30;
+}
+
+[data-theme='dark'][data-brand='deep-ocean'] {
+  --brand-selected: #1d2b50;
+  --brand-selected-rgb: 29 43 80;
 }

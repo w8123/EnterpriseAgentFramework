@@ -1,13 +1,13 @@
 <template>
-  <WorkbenchPage class="dashboard-page" density="compact">
-    <div ref="dashboardRoot" class="ops-dashboard" :class="{ 'is-fullscreen': isFullscreen }">
+  <WorkbenchPage class="dashboard-page" density="compact" full-height>
+    <div ref="dashboardRoot" class="ops-dashboard glass-workspace-adaptive" :class="{ 'is-fullscreen': isFullscreen }">
       <header class="ops-topbar">
         <div class="ops-heading">
           <h1>智能体运营中心</h1>
           <p>平台级 AI 运营态势与业务价值总览</p>
         </div>
 
-        <div class="ops-topbar__controls">
+        <div class="ops-topbar__controls glass-surface-frost">
           <span
             class="ops-scope-chip"
             :aria-label="`当前数据范围：${scopeLabel}`"
@@ -38,7 +38,7 @@
             aria-label="刷新运营数据"
             title="刷新运营数据"
             @click="refresh()"
-          >↻</button>
+          ><span class="ops-icon-btn__icon" aria-hidden="true">↻</span></button>
           <span class="ops-last-updated">{{ lastUpdatedLabel }}</span>
           <button
             v-if="!overviewDenied && !editor.editing.value && !layoutNarrow"
@@ -63,14 +63,9 @@
       </header>
 
       <div class="ops-content">
-        <DashboardRoleShortcuts
-          v-if="!editor.editing.value"
-          :permissions="platformSessionUser?.permissions ?? []"
-          @open="go"
-        />
         <DashboardPanelState
           v-if="overviewDenied"
-          class="ops-project-entry"
+          class="ops-project-entry glass-surface-frost"
           tone="disabled"
           title="平台总览不可查看"
           :detail="overviewDeniedDetail"
@@ -92,9 +87,10 @@
         </div>
 
         <DashboardLayoutContainer
-          v-if="!overviewDenied"
+          v-if="!overviewDenied || visibleLayout.items.length"
           :context="widgetContext"
-          :layout="editor.layoutForRender.value"
+          :layout="visibleLayout"
+          :owner-key="platformSessionUser?.userId"
           :editing="editor.editing.value"
           :can-undo="editor.canUndo.value"
           :can-redo="editor.canRedo.value"
@@ -114,7 +110,8 @@
           @move-widget="editor.moveWidgetInstanceBy"
           @resize-widget="editor.resizeWidgetInstanceBy"
           @commit-rect="editor.commitWidgetRect"
-          @update-config="editor.updateWidgetConfig"
+          @update-config="editor.saveWidgetConfig"
+          @open-shortcut="go"
           @open-agent="openAgent"
           @open-project="openProject"
           @open-projects="go('/registry/projects')"
@@ -166,19 +163,19 @@ import {
   summarizeRunOutcomes,
   summarizeTokens,
 } from './dashboardModel'
-import { dashboardLayoutLocalRepository } from './dashboardLayoutLocalRepository'
-import { dashboardDomainLabels, defaultConsoleLayout } from './widgetRegistry'
+import { createDashboardLayoutLocalRepository } from './dashboardLayoutLocalRepository'
+import { dashboardDomainLabels, defaultConsoleLayoutFor } from './widgetRegistry'
+import { SHORTCUT_WIDGET_KEY } from './dashboardShortcuts'
 import { useDashboardLayoutEditor } from './useDashboardLayoutEditor'
 import DashboardLayoutContainer from './components/DashboardLayoutContainer.vue'
 import DashboardPanelState from './components/DashboardPanelState.vue'
-import DashboardRoleShortcuts from './components/DashboardRoleShortcuts.vue'
 
 interface InternalServicesHealthResponse {
   services?: Record<string, { status?: string } | undefined>
 }
 
 const router = useRouter()
-const repository = dashboardLayoutLocalRepository
+const repository = createDashboardLayoutLocalRepository(() => platformSessionUser.value?.userId)
 
 const projects = ref<DashboardDomainState<ScanProject[]>>({ status: 'loading', data: [] })
 const agents = ref<DashboardDomainState<Agent[]>>({ status: 'loading', data: [] })
@@ -227,8 +224,13 @@ const availableTasks = computed(() => filterSidebarMenu(sidebarMenu, platformSes
   .filter(entry => entry.kind === 'item')
   .filter(entry => ['/business-capabilities', '/workflows'].includes(entry.index)))
 
-const editor = useDashboardLayoutEditor({ repository, fallback: defaultConsoleLayout })
+const editor = useDashboardLayoutEditor({ repository, fallback: () => defaultConsoleLayoutFor(platformSessionUser.value?.permissions ?? [], platformSessionUser.value?.roles ?? []) })
 editor.initialize()
+watch(() => platformSessionUser.value?.userId, () => editor.initialize())
+const visibleLayout = computed(() => overviewDenied.value ? {
+  ...editor.layoutForRender.value,
+  items: editor.layoutForRender.value.items.filter(item => item.widgetKey === SHORTCUT_WIDGET_KEY),
+} : editor.layoutForRender.value)
 
 function requireArray<T>(value: unknown, label: string): T[] {
   if (!Array.isArray(value)) throw new Error(`${label}响应不是数组`)
@@ -564,6 +566,7 @@ const attentionItems = computed<DashboardAttentionSignal[]>(() => {
 const attentionHasSignals = computed(() => attentionItems.value.some((item) => item.value > 0))
 
 const widgetContext = computed<DashboardWidgetContext>(() => ({
+  permissions: platformSessionUser.value?.permissions ?? [],
   deniedDomains: deniedDomains.value,
   metrics: Object.fromEntries(metricCards.value.map((metric) => [`kpi.${metric.key}`, metric])),
   runsStatus: runs.value.status,

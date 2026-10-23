@@ -776,10 +776,10 @@ defineExpose({
 }
 
 .eaf-chat-memory-toggle {
-  position: absolute;
-  top: 8px;
-  right: 10px;
-  z-index: 3;
+  /* 放在正常文档流里（右上角一行），避免盖住第一条消息。 */
+  flex: 0 0 auto;
+  align-self: flex-end;
+  margin: 8px 10px 0;
   padding: 3px 9px;
   border: 1px solid rgb(var(--reachai-chat-primary-rgb, 99 102 241) / 0.22);
   border-radius: 999px;

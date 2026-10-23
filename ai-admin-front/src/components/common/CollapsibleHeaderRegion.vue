@@ -35,10 +35,10 @@ const props = withDefaults(
   display: grid;
   min-width: 0;
   gap: var(--layout-page-gap);
-  // The child header/summary already own their glass treatment. Keep this sticky
-  // wrapper nearly opaque without another large blur layer that must be repainted
-  // on every height-animation frame.
-  background: color-mix(in srgb, var(--surface-solid-page) 96%, transparent);
+  // The child header/summary own their rounded glass. The wrapper stays
+  // transparent: an opaque square backdrop here showed up behind the rounded
+  // corners on wallpaper themes and looked like an unfinished cut-out.
+  background: transparent;
   transition: gap var(--motion-duration-normal) var(--motion-easing-standard);
 }
 

@@ -50,7 +50,27 @@ defineSlots<{
 const containerRef = ref<HTMLElement | null>(null)
 const containerWidth = ref(0)
 let resizeObserver: ResizeObserver | null = null
+let intrinsicObserver: ResizeObserver | null = null
+const intrinsicHeights = ref<Record<string, number>>({})
 let windowResizeHandler: (() => void) | null = null
+
+function intrinsicHeight(element: HTMLElement) {
+  const style = element.parentElement ? getComputedStyle(element.parentElement) : null
+  return Math.ceil(element.getBoundingClientRect().height
+    + (parseFloat(style?.borderTopWidth ?? '') || 0)
+    + (parseFloat(style?.borderBottomWidth ?? '') || 0))
+}
+
+/** 工具条换行时只增加实际占位，不把响应式高度写入个人布局草稿。 */
+function observeIntrinsicContent() {
+  intrinsicObserver?.disconnect()
+  const next: Record<string, number> = {}
+  containerRef.value?.querySelectorAll<HTMLElement>('[data-grid-intrinsic-height]').forEach(element => {
+    next[element.dataset.gridIntrinsicHeight!] = intrinsicHeight(element)
+    intrinsicObserver?.observe(element)
+  })
+  intrinsicHeights.value = next
+}
 
 const colWidth = computed(() => computeColumnWidth(containerWidth.value, props.columns, props.gap))
 
@@ -76,19 +96,35 @@ function measure() {
 onMounted(() => {
   measure()
   if (typeof ResizeObserver !== 'undefined') {
+    intrinsicObserver = new ResizeObserver(entries => {
+      const next = { ...intrinsicHeights.value }
+      let changed = false
+      for (const entry of entries) {
+        const element = entry.target as HTMLElement
+        const id = element.dataset.gridIntrinsicHeight
+        if (!id || !(id in next)) continue
+        const height = intrinsicHeight(element)
+        if (next[id] !== height) { next[id] = height; changed = true }
+      }
+      if (changed) intrinsicHeights.value = next
+    })
     resizeObserver = new ResizeObserver((entries) => {
       const width = entries[0]?.contentRect?.width ?? 0
       if (width > 0) containerWidth.value = width
     })
     resizeObserver.observe(containerRef.value as Element)
   } else if (typeof window !== 'undefined') {
-    windowResizeHandler = measure
-    window.addEventListener('resize', measure)
+    windowResizeHandler = () => { measure(); observeIntrinsicContent() }
+    window.addEventListener('resize', windowResizeHandler)
   }
+  observeIntrinsicContent()
 })
+
+watch(() => props.items.map(item => item.instanceId).join('\n'), observeIntrinsicContent, { flush: 'post' })
 
 onBeforeUnmount(() => {
   resizeObserver?.disconnect()
+  intrinsicObserver?.disconnect()
   if (windowResizeHandler) window.removeEventListener('resize', windowResizeHandler)
   detachWindowListeners()
 })
@@ -203,20 +239,41 @@ watch(
   },
 )
 
-const gridHeight = computed(() =>
-  props.items.reduce(
-    (max, item) => Math.max(max, (item.rect.y + item.rect.h) * (props.rowHeight + props.gap)),
-    0,
-  ),
-)
+function rectFor(instance: DashboardWidgetInstance) {
+  return drag.value?.id === instance.instanceId && drag.value.candidate
+    ? drag.value.candidate
+    : instance.rect
+}
+
+const expandedRows = computed(() => {
+  const rows = new Map<number, number>()
+  for (const item of props.items) {
+    const rect = rectFor(item)
+    const height = rect.h * (props.rowHeight + props.gap) - props.gap
+    const extra = (intrinsicHeights.value[item.instanceId] ?? 0) - height
+    if (extra > 0) rows.set(rect.y + rect.h, Math.max(rows.get(rect.y + rect.h) ?? 0, extra))
+  }
+  return [...rows.entries()]
+})
+
+function offsetBefore(row: number) {
+  return expandedRows.value.reduce((offset, [boundary, extra]) => offset + (boundary <= row ? extra : 0), 0)
+}
+
+function itemPixels(instance: DashboardWidgetInstance) {
+  const rect = rectFor(instance)
+  const { left, top, width, height } = rectToPixels(rect, colWidth.value, props.rowHeight, props.gap)
+  return { left, top: top + offsetBefore(rect.y), width, height: Math.max(height, intrinsicHeights.value[instance.instanceId] ?? 0) }
+}
+
+const gridHeight = computed(() => props.items.reduce((max, item) => {
+  const pixels = itemPixels(item)
+  return Math.max(max, pixels.top + pixels.height + props.gap)
+}, 0))
 
 function itemStyle(instance: DashboardWidgetInstance) {
   if (props.narrow) return undefined
-  const rect =
-    drag.value?.id === instance.instanceId && drag.value.candidate
-      ? drag.value.candidate
-      : instance.rect
-  const { left, top, width, height } = rectToPixels(rect, colWidth.value, props.rowHeight, props.gap)
+  const { left, top, width, height } = itemPixels(instance)
   return {
     position: 'absolute' as const,
     left: `${left}px`,

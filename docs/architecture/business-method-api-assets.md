@@ -113,4 +113,4 @@ Agent 按已发布配置与 Workflow-as-Tool 白名单使用 Workflow。MCP 的�
 
 旧能力目录、`/tool` 重定向、人工 scan promote/edit/test 和公开 raw Tool/组合/独立交互执行入口已删除。独立 Module/ToolAsset/CompositionDefinition/InteractionDefinition 不再拥有业务事实；多步骤编排归 Workflow，交互归 Workflow 会话，页面动作归 Control。必要 Tool 协议、ACL、调用日志和内部技术入口保留，不形成另一套资产。
 
-新库以 [initV2.sql](../../sql/initV2.sql) 直接创建当前模型。BMAPI-8 的附属表重建脚本 [upgrade-20261008-business-capability-enrichment.sql](../../sql/upgrade-20261008-business-capability-enrichment.sql) 清空旧语义与图谱数据，不改方法/API owner、接纳修订、来源、凭据或 Workflow；本批只提供脚本，尚未执行到已有库。升级影响及前序 BMAPI-6 的执行说明见 [SQL README](../../sql/README.md)。未分类旧行不猜测类型、不自动回填 owner，正常可信同步或来源发现重新形成资产；不建立旧数据兼容路径，既有引用不会自动迁移。本批没有提交、推送或部署，受控验证不代替客户系统或真人任务签收。
+新库以 [initV2.sql](../../sql/initV2.sql) 直接创建当前模型。BMAPI-8 的历史附属表重建（已并入基线，原脚本从 Git 查阅，见 [历史版本说明](../../sql/README.md#历史版本)） 清空旧语义与图谱数据，不改方法/API owner、接纳修订、来源、凭据或 Workflow；本批只提供脚本，尚未执行到已有库。升级影响及前序 BMAPI-6 的执行说明见 [SQL README](../../sql/README.md)。未分类旧行不猜测类型、不自动回填 owner，正常可信同步或来源发现重新形成资产；不建立旧数据兼容路径，既有引用不会自动迁移。本批没有提交、推送或部署，受控验证不代替客户系统或真人任务签收。

@@ -92,13 +92,7 @@ Studio Debug SSE 以 `runtime.execution.v1` 事件名增量发送完整类型化
 
 ## 6. 数据库与部署顺序
 
-新库使用 `sql/initV2.sql`。已有开发或测试库必须先执行：
-
-```text
-sql/upgrade-20260830-platform-consolidated.sql  # Runtime checkpoint V1: Section 09
-```
-
-然后部署 Runtime 代码。旧 schema 上直接启动新代码会因缺列失败，这是有意的同步切换门禁。
+Runtime checkpoint V1 已进入 `sql/initV2.sql`，新库只执行初始化。已有库按 [SQL 说明](../../sql/README.md) 核对前置结构与近期升级范围；缺失 checkpoint 结构的历史库应从匹配版本的 Git 历史取回迁移。确认列、索引和版本标记后再部署 Runtime 代码。旧 schema 上直接启动新代码会因缺列失败，这是有意的同步切换门禁。
 
 ## 7. 验收门禁
 

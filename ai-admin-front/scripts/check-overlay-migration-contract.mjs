@@ -8,8 +8,6 @@ const srcRoot = resolve(projectRoot, 'src')
 const rawOverlayAllowlist = new Set([
   'src/components/common/AppDialog.vue',
   'src/components/common/AppDrawer.vue',
-  'src/views/workflow/WorkflowStudio.vue',
-  'src/views/workflow/studio-panels/ToolConfigPanel.vue',
 ])
 
 function normalizePath(file) {

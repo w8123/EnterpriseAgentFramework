@@ -1,9 +1,8 @@
 <script setup lang="ts">
 import { Search } from '@element-plus/icons-vue'
-import DataTableShell from '@/components/common/DataTableShell.vue'
-import FilterBar from '@/components/common/FilterBar.vue'
+import { LiquidGlassTable, LiquidGlassFilterBar, LiquidGlassButton, LiquidGlassEmptyState } from '@/components/common/liquid-glass'
 
-defineProps<{
+const props = defineProps<{
   loading: boolean
   composing: boolean
   currentPage: number
@@ -20,11 +19,15 @@ const emit = defineEmits<{
   pageChange: [page: number]
   sizeChange: [size: number]
 }>()
+function changePagination(page: number, size: number) {
+  if (size !== props.pageSize) emit('sizeChange', size)
+  else if (page !== props.currentPage) emit('pageChange', page)
+}
 </script>
 
 <template>
-  <DataTableShell
-    class="business-capability-list project-list-table-shell project-list-table-shell--fit project-list-table-shell--catalog workbench-list-surface"
+  <LiquidGlassTable
+    class="business-capability-list workbench-list-surface"
     density="compact"
     :loading="loading"
     :empty="empty"
@@ -33,77 +36,39 @@ const emit = defineEmits<{
     :page-size="pageSize"
     :total="total"
     :page-sizes="[10, 20, 50, 100]"
-    @page-change="emit('pageChange', $event)"
-    @size-change="emit('sizeChange', $event)"
+    @change="changePagination"
   >
     <template #toolbar>
-      <FilterBar
+      <LiquidGlassFilterBar
         class="business-capability-filter project-list-filter-bar"
         density="compact"
-        presentation="panel"
+        :show-reset="false"
         :loading="loading"
         @query="emit('query')"
       >
         <slot name="filters" />
         <template #actions>
-          <el-button native-type="submit" type="primary" :icon="Search" :loading="loading" :disabled="composing">
+          <LiquidGlassButton native-type="submit" type="primary" :icon="Search" :loading="loading" :disabled="composing">
             搜索
-          </el-button>
+          </LiquidGlassButton>
         </template>
-      </FilterBar>
+      </LiquidGlassFilterBar>
     </template>
 
     <slot />
 
-    <template v-if="total > 0" #pagination>
-      <el-pagination
-        background
-        :current-page="currentPage"
-        :page-size="pageSize"
-        :total="total"
-        :page-sizes="[10, 20, 50, 100]"
-        layout="total, prev, pager, next, sizes"
-        @update:current-page="emit('pageChange', $event)"
-        @update:page-size="emit('sizeChange', $event)"
-      />
-    </template>
-
     <template #empty>
-      <div class="catalog-empty-state">
-        <el-empty :description="emptyDescription" :image-size="84" />
-        <p v-if="!hasFilters">{{ emptyHint }}</p>
-        <div v-if="!hasFilters" class="catalog-empty-state__actions">
-          <slot name="empty-actions" />
-        </div>
-      </div>
+      <LiquidGlassEmptyState class="catalog-empty-state" :title="emptyDescription" :description="!hasFilters ? emptyHint : undefined">
+        <slot v-if="!hasFilters" name="empty-actions" />
+      </LiquidGlassEmptyState>
     </template>
-  </DataTableShell>
+  </LiquidGlassTable>
 </template>
 
 <style scoped lang="scss">
 :deep(.catalog-row-actions) { display: inline-flex; align-items: center; gap: 6px; }
 :deep(.catalog-row-actions .el-button + .el-button) { margin-left: 0; }
-.business-capability-list :deep(th.el-table__cell) {
-  color: var(--text-secondary);
-  background: color-mix(in srgb, var(--brand-primary) 4%, var(--surface-solid-control)) !important;
-  font-weight: 600;
-}
 .business-capability-list :deep(td.el-table__cell) { padding-block: 14px; }
-.business-capability-list :deep(.el-table .cell) { padding-inline: 16px; }
-.business-capability-list :deep(.el-table__row:hover > td.el-table__cell),
-.business-capability-list :deep(.el-table__row:focus-within > td.el-table__cell),
-.business-capability-list :deep(.el-table__body tr.hover-row > td.el-table__cell) {
-  background: color-mix(in srgb, var(--brand-primary) 5%, var(--surface-solid-panel)) !important;
-}
-.business-capability-list :deep(th.el-table-fixed-column--right) {
-  background: color-mix(in srgb, var(--brand-primary) 4%, var(--surface-fallback-panel)) !important;
-}
-.business-capability-list :deep(td.el-table-fixed-column--right) { background: var(--surface-fallback-panel) !important; }
-.business-capability-list :deep(.el-table__row:hover > td.el-table-fixed-column--right),
-.business-capability-list :deep(.el-table__row:focus-within > td.el-table-fixed-column--right),
-.business-capability-list :deep(.el-table__body tr.hover-row > td.el-table-fixed-column--right) {
-  background: color-mix(in srgb, var(--brand-primary) 5%, var(--surface-fallback-panel)) !important;
-}
 :deep(.catalog-asset-cell) { display: flex; align-items: flex-start; gap: 12px; min-width: 0; }
 :deep(.catalog-asset-icon) {
   display: grid;
@@ -114,7 +79,7 @@ const emit = defineEmits<{
   border: 1px solid color-mix(in srgb, var(--brand-primary) 16%, var(--border-divider));
   border-radius: 10px;
   background: var(--brand-soft-bg);
-  color: var(--brand-active);
+  color: var(--brand-on-surface);
   font: 600 21px/1 var(--font-family-mono, ui-monospace, Consolas, monospace);
 }
 :deep(.catalog-asset-heading) { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-width: 0; }
@@ -129,7 +94,7 @@ const emit = defineEmits<{
   border: 1px solid color-mix(in srgb, var(--brand-primary) 14%, var(--border-divider));
   border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--brand-primary) 5%, var(--surface-solid-control));
-  color: var(--brand-active);
+  color: var(--brand-on-surface);
   font-size: 12px;
   font-weight: 500;
   line-height: 1.5;
@@ -177,7 +142,7 @@ const emit = defineEmits<{
   cursor: pointer;
 }
 :deep(.catalog-row-action .el-icon) { margin-left: 5px; font-size: 12px; }
-:deep(.catalog-row-action:hover), :deep(.catalog-row-action.el-button:hover) { border-color: var(--brand-primary); background: var(--brand-soft-bg); color: var(--brand-active); }
+:deep(.catalog-row-action:hover), :deep(.catalog-row-action.el-button:hover) { border-color: var(--brand-primary); background: var(--brand-soft-bg); color: var(--brand-on-surface); }
 :deep(.catalog-row-action:active), :deep(.catalog-row-action.el-button:active) { background: color-mix(in srgb, var(--brand-primary) 14%, var(--surface-solid-control)); }
 .business-capability-filter { width: 100%; }
 .business-capability-filter :deep(.filter-bar__fields) { flex-wrap: nowrap; }
@@ -185,9 +150,6 @@ const emit = defineEmits<{
 .business-capability-filter :deep(.filter-control.is-keyword) { flex: 1 1 360px; width: min(360px, 100%); }
 .business-capability-filter :deep(.filter-control.is-project) { flex: 0 1 180px; width: min(180px, 100%); }
 .business-capability-filter :deep(.filter-control.is-classification) { flex: 0 1 200px; width: min(200px, 100%); }
-.catalog-empty-state { display: grid; justify-items: center; padding: 28px; color: var(--text-muted); text-align: center; }
-.catalog-empty-state > p { margin: -12px 0 16px; font-size: 13px; line-height: 1.6; }
-.catalog-empty-state__actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
 @media (max-width: 960px) {
   .business-capability-filter :deep(.filter-bar__fields) { flex-wrap: wrap; }
 }
@@ -196,8 +158,6 @@ const emit = defineEmits<{
   .business-capability-filter :deep(.filter-control.is-project),
   .business-capability-filter :deep(.filter-control.is-classification),
   .business-capability-filter :deep(.filter-control.is-keyword) { flex: 0 0 auto; width: 100%; }
-  .catalog-empty-state { padding: 0; }
-  .catalog-empty-state__actions { width: 100%; flex-direction: column; }
-  .catalog-empty-state__actions :deep(.el-button) { margin: 0; }
+
 }
 </style>

@@ -8,13 +8,14 @@ import type {
 const TOOL_SELECTOR_PAGE_SIZE = 100
 const TOOL_SELECTOR_MAX_PAGES = 20
 
-export function getTools(params?: ToolListQuery) {
-  return controlRequest.get<ToolPageResult>('/api/tools', { params })
+export function getTools(params?: ToolListQuery, options: { errorFeedback?: 'global' | 'local' } = {}) {
+  return controlRequest.get<ToolPageResult>('/api/tools', { params, ...options })
 }
 
 export async function listAllTools(
   params: ToolListQuery = {},
   maxPages = TOOL_SELECTOR_MAX_PAGES,
+  options: { errorFeedback?: 'global' | 'local' } = {},
 ): Promise<ToolInfo[]> {
   const records: ToolInfo[] = []
   let current = Math.max(1, params.current ?? 1)
@@ -26,7 +27,7 @@ export async function listAllTools(
       ...params,
       current,
       size: TOOL_SELECTOR_PAGE_SIZE,
-    })
+    }, options)
     if (Array.isArray(data?.records)) {
       records.push(...data.records)
     }

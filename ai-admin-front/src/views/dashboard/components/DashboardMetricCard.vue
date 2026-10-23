@@ -35,7 +35,7 @@ const safeProgress = computed(() => {
 </script>
 
 <template>
-  <article class="ops-metric" :class="[`is-${metric.tone}`, `is-${metric.status}`]">
+  <article class="ops-metric glass-surface-panel" :class="[`is-${metric.tone}`, `is-${metric.status}`]">
     <span class="ops-metric__glyph" aria-hidden="true">
       <svg viewBox="0 0 28 28" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
         <template v-if="metric.icon === 'agent'">
@@ -71,7 +71,7 @@ const safeProgress = computed(() => {
       <span v-if="metric.status === 'loading'" class="ops-metric__skeleton" role="status" :aria-label="`${metric.label}加载中`" />
       <span v-else-if="metric.status === 'error'" class="ops-metric__unavailable">暂不可用</span>
       <strong v-else>{{ metric.value }}</strong>
-      <span class="ops-metric__detail">{{ metric.status === 'ready' ? metric.detail : metric.note || '等待数据源响应' }}</span>
+      <span class="ops-metric__detail" :title="metric.status === 'ready' ? metric.detail : metric.note">{{ metric.status === 'ready' ? metric.detail : metric.note || '等待数据源响应' }}</span>
     </div>
 
     <div v-if="metric.status === 'ready'" class="ops-metric__visual" aria-hidden="true">
@@ -90,43 +90,16 @@ const safeProgress = computed(() => {
 .ops-metric {
   --metric: var(--ops-blue);
   position: relative;
-  isolation: isolate;
   min-width: 0;
   min-height: 100%;
-  display: grid;
-  grid-template-columns: 54px minmax(0, 1fr);
-  grid-template-rows: 1fr auto;
-  column-gap: 13px;
-  align-items: center;
-  padding: 15px 14px 11px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 15px 16px 11px;
   overflow: hidden;
   color: var(--metric);
-  background:
-    linear-gradient(112deg, rgb(255 255 255 / .32), transparent 42%),
-    radial-gradient(circle at 8% 12%, color-mix(in srgb, var(--metric) 14%, transparent), transparent 38%),
-    radial-gradient(circle at 92% 112%, color-mix(in srgb, var(--metric) 9%, transparent), transparent 42%),
-    var(--ops-card-background);
-  border: 1px solid color-mix(in srgb, var(--metric) 20%, var(--ops-glass-border));
+  border-color: var(--border-glass-edge);
   border-radius: 14px;
-  box-shadow: var(--ops-glass-shadow), 0 0 0 1px rgb(255 255 255 / .18) inset;
-  -webkit-backdrop-filter: var(--ops-glass-filter);
-  backdrop-filter: var(--ops-glass-filter);
-}
-
-.ops-metric::before {
-  content: '';
-  position: absolute;
-  z-index: -1;
-  inset: 0;
-  pointer-events: none;
-  background:
-    linear-gradient(90deg, transparent 4%, rgb(255 255 255 / .82) 22%, transparent 58%) top / 100% 1px no-repeat,
-    linear-gradient(135deg, rgb(255 255 255 / .34), transparent 28%);
-}
-
-.ops-metric > * {
-  position: relative;
-  z-index: 1;
 }
 
 .ops-metric.is-cyan { --metric: var(--ops-cyan); }
@@ -135,35 +108,32 @@ const safeProgress = computed(() => {
 .ops-metric.is-orange { --metric: var(--ops-orange); }
 
 .ops-metric__glyph {
-  width: 50px;
-  height: 50px;
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 30px;
+  height: 30px;
   display: grid;
   place-items: center;
-  align-self: start;
   color: var(--metric);
-  background:
-    radial-gradient(circle at 35% 24%, rgb(255 255 255 / .72), transparent 32%),
-    color-mix(in srgb, var(--metric) 10%, var(--ops-glass-surface-strong));
-  border: 1px solid color-mix(in srgb, var(--metric) 20%, rgb(255 255 255 / .72));
-  border-radius: 50%;
-  box-shadow:
-    0 8px 18px color-mix(in srgb, var(--metric) 12%, transparent),
-    inset 0 1px 0 rgb(255 255 255 / .88);
+  background: color-mix(in srgb, var(--metric) 8%, transparent);
+  border-radius: 9px;
 }
 
 .ops-metric__glyph svg {
-  width: 27px;
-  height: 27px;
+  width: 20px;
+  height: 20px;
 }
 
 .ops-metric__content {
   min-width: 0;
-  align-self: start;
+  container-type: inline-size;
   display: flex;
   flex-direction: column;
 }
 
 .ops-metric__label {
+  padding-right: 34px;
   overflow: hidden;
   color: var(--ops-text-secondary);
   font-size: 11.5px;
@@ -178,8 +148,12 @@ const safeProgress = computed(() => {
   display: flex;
   align-items: center;
   color: var(--ops-text-strong);
-  font: 780 clamp(27px, 2vw, 36px)/1 ui-monospace, SFMono-Regular, Consolas, monospace;
-  letter-spacing: -0.055em;
+  font: 700 clamp(27px, 2vw, 36px)/1 var(--font-family-mono);
+  /* 按卡片内容宽度收缩，避免 100.0% 这类长数值溢出卡片 */
+  font-size: clamp(20px, 26cqi, 36px);
+  letter-spacing: -0.04em;
+  overflow: hidden;
+  white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
 
@@ -191,30 +165,31 @@ const safeProgress = computed(() => {
 
 .ops-metric__detail {
   overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   color: var(--ops-text-muted);
   font-size: 9.5px;
   line-height: 1.35;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .ops-metric__visual {
-  grid-column: 1 / -1;
-  height: 30px;
+  height: 16px;
   margin-top: 5px;
   color: var(--metric);
 }
 
 .ops-metric__sparkline {
   width: 100%;
-  height: 30px;
+  height: 16px;
   overflow: visible;
 }
 
 .ops-metric__progress {
-  height: 5px;
+  height: 3px;
   display: block;
-  margin-top: 12px;
+  margin-top: 7px;
   overflow: hidden;
   background: var(--ops-track);
   border-radius: 99px;

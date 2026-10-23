@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { LiquidGlassButton } from '@/components/common/liquid-glass'
 import { EditPen } from '@element-plus/icons-vue'
 import AppDialog from '@/components/common/AppDialog.vue'
 import type { ProjectPage } from '@/types/pageWorkbench'
@@ -71,15 +72,15 @@ function formatDateTime(value?: string) {
     </section>
 
     <template #footer>
-      <el-button @click="emit('update:modelValue', false)">关闭</el-button>
-      <el-button
+      <LiquidGlassButton @click="emit('update:modelValue', false)">关闭</LiquidGlassButton>
+      <LiquidGlassButton
         v-if="page"
         type="primary"
         :icon="EditPen"
         @click="emit('edit', page)"
       >
         编辑页面信息
-      </el-button>
+      </LiquidGlassButton>
     </template>
   </AppDialog>
 </template>

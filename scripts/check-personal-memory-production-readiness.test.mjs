@@ -240,7 +240,7 @@ test('missing migration and repository checksum mismatch fail closed', () => {
 })
 
 test('current release uses one consolidated migration and keeps the semantic projection baseline', async () => {
-  const script = 'sql/upgrade-20260830-platform-consolidated.sql'
+  const script = 'sql/upgrade-20261019-consolidated.sql'
   assert.deepEqual(REQUIRED_MIGRATIONS, [script])
   const [migration, baseline, digests] = await Promise.all([
     readFile(script, 'utf8'),
@@ -260,14 +260,14 @@ test('current release uses one consolidated migration and keeps the semantic pro
     assert.match(baseline, new RegExp(`\x60${field}\x60`))
   }
   assert.match(baseline, /`embedding_status`[\s\S]*DEFAULT 'DISABLED'/)
-  assert.match(migration, /This file consolidates every upgrade created after origin\/main at ae9e1ce6/)
-  assert.match(migration, /-- Section 01\/14:/)
-  assert.match(migration, /-- Section 14\/14:/)
+  assert.match(migration, /2026-10-15/)
+  assert.match(migration, /-- Section 01\/10:/)
+  assert.match(migration, /-- Section 10\/10:/)
   assert.match(digests[script], /^[a-f0-9]{64}$/)
 })
 
 test('current consolidated migration does not replay historical personal-memory outbox rewrites', async () => {
-  const script = 'sql/upgrade-20260830-platform-consolidated.sql'
+  const script = 'sql/upgrade-20261019-consolidated.sql'
   const [migration, baseline, digests] = await Promise.all([
     readFile(script, 'utf8'),
     readFile('sql/initV2.sql', 'utf8'),
@@ -280,7 +280,7 @@ test('current consolidated migration does not replay historical personal-memory 
 })
 
 test('cross-domain erasure remains a baseline contract after historical migration cleanup', async () => {
-  const script = 'sql/upgrade-20260830-platform-consolidated.sql'
+  const script = 'sql/upgrade-20261019-consolidated.sql'
   const [migration, baseline, digests] = await Promise.all([
     readFile(script, 'utf8'),
     readFile('sql/initV2.sql', 'utf8'),
@@ -293,7 +293,7 @@ test('cross-domain erasure remains a baseline contract after historical migratio
     assert.match(baseline, new RegExp(`CREATE TABLE IF NOT EXISTS [^\\n]*${table}`))
   }
   assert.match(baseline, /correlation_id/)
-  assert.match(baseline, /idx_context_memory_outbox_correlation/)
+  assert.match(baseline, /idx_personal_memory_outbox_correlation/)
   assert.match(baseline, /context:memory:erasure:manage/)
   assert.match(digests[script], /^[a-f0-9]{64}$/)
   assert.doesNotMatch(migration, /DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?`?control_memory_erasure_/i)

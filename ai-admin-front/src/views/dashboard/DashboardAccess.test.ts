@@ -52,7 +52,7 @@ function populated() {
     agentId: 'allowed-agent', agentName: '授权订单助手', userId: 'allowed-user', startedAt: new Date().toISOString(), tokenCost: 128 }] })
 }
 function includeHealthWidget() {
-  localStorage.setItem('reachai.dashboard.consoleLayout.local.v1', JSON.stringify({ ...defaultConsoleLayout,
+  localStorage.setItem('reachai.dashboard.consoleLayout.local.v1.user.55', JSON.stringify({ ...defaultConsoleLayout,
     items: [...defaultConsoleLayout.items, { instanceId: 'health-test', widgetKey: 'service.data-source-status',
       rect: { x: 0, y: 13, w: 4, h: 3 }, config: {} }] }))
 }

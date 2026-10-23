@@ -268,7 +268,7 @@ AI 不直接写模板。完整链路为：
 
 ## 升级脚本行为
 
-历史脚本 `upgrade-20260717-agent-supervisor-runops-model-center-v2.sql` 已随最终结构进入 GitHub 基线并从当前工作树清理。早于 `ae9e1ce6` 的数据库应从对应 Git tag 获取当时迁移链或按当前 `initV2.sql` 重建；当前合并升级不重复承载这段历史破坏性迁移。
+历史脚本 `upgrade-20260717-agent-supervisor-runops-model-center-v2.sql` 已随最终结构进入 GitHub 基线并从当前工作树清理。未完成 2026-10-15 及以前全部变更的数据库应从对应 Git tag 获取当时迁移链或按当前 `initV2.sql` 重建；当前合并升级不重复承载这段历史破坏性迁移。
 
 识别并处理五类 `model_instance` 状态：
 
@@ -293,8 +293,7 @@ AI 不直接写模板。完整链路为：
 
 上一版常见路径（普通 `project_scope_key` + 形状正确的唯一索引）：先 `DROP INDEX`（即便当前索引 valid），再 `DROP COLUMN` + `ADD` 正确生成列，最后重建唯一索引。禁止在同名索引仍引用该列时 `DROP COLUMN`。
 
-平台模板：原固定 `tpl-*` 仍作为 last-known-good 启动种子；当前 `upgrade-20260830-platform-consolidated.sql` Section 10
-增加官方来源日同步表、默认关闭的持久化设置和模板治理字段。同步只做有证据的增量 upsert，保留稳定实例与用户自建模板。
+平台模板：原固定 `tpl-*` 仍作为 last-known-good 启动种子；当前 `sql/initV2.sql` 已包含官方来源日同步表、默认关闭的持久化设置和模板治理字段，历史合并脚本从 Git 查阅。同步只做有证据的增量 upsert，保留稳定实例与用户自建模板。
 
 ## 实例测试状态失效
 

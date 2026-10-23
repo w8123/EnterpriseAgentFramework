@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { LiquidGlassButton } from '@/components/common/liquid-glass'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 
@@ -283,8 +284,8 @@ onMounted(load)
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="editVisible = false">取消</el-button>
-        <el-button type="primary" :loading="saving" :disabled="originErrors.length > 0" @click="saveEdit">保存</el-button>
+        <LiquidGlassButton @click="editVisible = false">取消</LiquidGlassButton>
+        <LiquidGlassButton type="primary" :loading="saving" :disabled="originErrors.length > 0" @click="saveEdit">保存</LiquidGlassButton>
       </template>
     </AppDialog>
   </section>
@@ -382,8 +383,8 @@ onMounted(load)
   padding: 12px;
   overflow: auto;
   border-radius: 6px;
-  background: var(--el-fill-color-light);
-  color: var(--text-primary);
+  background: var(--code-surface);
+  color: var(--code-text);
   font-size: 12px;
   line-height: 1.5;
 }

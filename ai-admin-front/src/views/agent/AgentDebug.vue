@@ -4,6 +4,8 @@
       class="agent-debug-header"
       variant="entity"
       domain="agent"
+      presentation="plain"
+      action-presentation="inline"
       :title="agentName || 'Agent 调试台'"
     >
       <template #leading>
@@ -12,11 +14,23 @@
         </div>
       </template>
       <template #tags>
-        <StatusTag :label="agentConfigStatusLabel" :tone="agentConfigStatusTone" />
+        <el-radio-group
+          v-if="activeDebugConfig && draftDebugConfig"
+          v-model="debugTarget"
+          class="debug-target-switch"
+          size="small"
+          aria-label="选择调试的配置版本"
+          :disabled="isConversationBusy"
+          @change="handleDebugTargetChange"
+        >
+          <el-radio-button value="draft">草稿 v{{ draftDebugConfig.versionNo }}</el-radio-button>
+          <el-radio-button value="active">线上 v{{ activeDebugConfig.versionNo }}</el-radio-button>
+        </el-radio-group>
+        <StatusTag v-else :label="debugTargetLabel" :tone="debugTargetTone" />
       </template>
       <template #meta>
         <div class="agent-header-meta">
-          <span>{{ agent?.runtimeType || 'Supervisor Agent' }}</span>
+          <span>{{ debugTargetHint }}</span>
           <i aria-hidden="true" />
           <span>会话 ID <strong>{{ sessionId || '尚未建立' }}</strong></span>
           <el-tooltip content="复制会话 ID" placement="top">
@@ -31,9 +45,6 @@
             </button>
           </el-tooltip>
         </div>
-      </template>
-      <template #actions>
-        <img class="agent-header-prism" src="/agent-debug/agent-prism.png" alt="" aria-hidden="true" />
       </template>
     </PageHeader>
 
@@ -92,7 +103,7 @@
                 <img :src="prismAvatarUrl" alt="" />
               </div>
               <h3>开始一次 Agent 调试</h3>
-              <p>输入问题，观察 Supervisor 的理解、规划、Workflow 选择与最终回答。</p>
+              <p>输入问题，观察 Agent 的理解、规划、Workflow 选择与最终回答。</p>
             </div>
           </template>
           <template #message-meta="{ message }">
@@ -178,7 +189,7 @@
       <aside class="detail-panel glass-surface-panel">
         <div class="detail-header">
           <div>
-            <span class="toolbar-label">Supervisor Runtime</span>
+            <span class="toolbar-label">本轮执行</span>
             <h3>本轮执行</h3>
           </div>
           <div class="detail-header-actions">
@@ -203,90 +214,33 @@
           <div><span>人工审批</span><strong>{{ pendingApprovals.length }}</strong></div>
         </div>
 
-        <el-tabs v-model="activeTab" class="detail-tabs" stretch>
+        <LiquidGlassTabs v-model="activeTab" class="detail-tabs" stretch>
           <el-tab-pane name="supervisor">
             <template #label>执行阶段 <b class="tab-count">{{ displaySteps.length }}</b></template>
-            <div class="execution-panel">
-              <div class="execution-state" :class="`is-${executionPhase}`">
-                <i />{{ executionStatusText }}
-              </div>
-
-              <p v-if="turnExecutionNote" class="execution-note">{{ turnExecutionNote }}</p>
-
-              <div class="metric-grid">
-                <div class="metric-card">
-                  <span>规划 / 重规划</span>
-                  <strong>{{ formatOptionalCount(planCount) }} / {{ formatOptionalCount(replanCount) }}</strong>
-                </div>
-                <div class="metric-card">
-                  <span>Workflow 调用</span>
-                  <strong>{{ formatOptionalCount(workflowCallCount) }}</strong>
-                </div>
-              </div>
-
-              <div v-if="!displaySteps.length" class="empty-detail compact">
-                <el-icon><DataLine /></el-icon>
-                <p>发送消息后查看 Supervisor 执行阶段</p>
-              </div>
-              <div v-else class="execution-step-list">
-                <article
-                  v-for="(step, stepIndex) in displaySteps"
-                  :key="step.stepId || `${step.name}-${stepIndex}`"
-                  class="execution-step"
-                  :class="[`is-${insightStepState(stepIndex)}`, { 'is-open': selectedStepIndex === stepIndex }]"
-                >
-                  <button type="button" @click="selectedStepIndex = selectedStepIndex === stepIndex ? -1 : stepIndex">
-                    <span class="execution-step-marker">
-                      <el-icon v-if="insightStepState(stepIndex) === 'complete'"><Check /></el-icon>
-                      <el-icon v-else-if="insightStepState(stepIndex) === 'active'" class="spin-icon"><Loading /></el-icon>
-                      <el-icon v-else-if="insightStepState(stepIndex) === 'error'"><CircleClose /></el-icon>
-                      <template v-else>{{ stepIndex + 1 }}</template>
-                    </span>
-                    <span class="execution-step-copy">
-                      <strong>{{ step.title || formatStepName(step.name, stepIndex) }}</strong>
-                      <small>{{ step.name }}</small>
-                    </span>
-                    <el-icon class="step-chevron"><ArrowDown /></el-icon>
-                  </button>
-                  <p v-if="selectedStepIndex === stepIndex">{{ formatStepDetail(step.detail) }}</p>
-                </article>
-              </div>
-            </div>
+            <AgentDebugExecutionPanel
+              v-model:selected-index="selectedStepIndex"
+              :steps="displaySteps"
+              :phase="executionPhase"
+              :status-text="executionStatusText"
+              :note="turnExecutionNote"
+              :plan-count="planCount"
+              :replan-count="replanCount"
+              :workflow-call-count="workflowCallCount"
+              :step-state="insightStepState"
+            />
           </el-tab-pane>
 
           <el-tab-pane name="approvals">
             <template #label>人工审批 <b class="tab-count">{{ pendingApprovals.length }}</b></template>
-            <div class="approval-panel">
-              <div class="approval-toolbar">
-                <span>待处理审批</span>
-                <el-button size="small" :loading="approvalLoading" @click="loadPendingApprovals">刷新</el-button>
-              </div>
-              <div v-if="!pendingApprovals.length" class="empty-detail compact">
-                <el-icon><CircleCheck /></el-icon>
-                <p>暂无待处理审批</p>
-              </div>
-              <div v-else class="approval-list">
-                <article v-for="item in pendingApprovals" :key="item.interactionId" class="approval-item">
-                  <div class="approval-title">
-                    <strong>{{ item.title || item.nodeId || '人工审批' }}</strong>
-                    <StatusTag :label="item.status" tone="warning" />
-                  </div>
-                  <p v-if="item.message" class="approval-message">{{ item.message }}</p>
-                  <div class="approval-meta">
-                    <span>{{ item.nodeId }}</span>
-                    <button v-if="item.traceId" type="button" @click="openTrace(item.traceId)">查看运行详情</button>
-                  </div>
-                  <DynamicInteraction
-                    v-if="item.uiRequest"
-                    class="interaction-card"
-                    :payload="item.uiRequest"
-                    @action="(act, vals) => handlePendingApprovalAction(item, act, vals)"
-                  />
-                </article>
-              </div>
-            </div>
+            <AgentDebugApprovalPanel
+              :approvals="pendingApprovals"
+              :loading="approvalLoading"
+              @refresh="loadPendingApprovals"
+              @open-trace="openTrace"
+              @action="handlePendingApprovalAction"
+            />
           </el-tab-pane>
-        </el-tabs>
+        </LiquidGlassTabs>
 
         <div class="approval-policy" :class="{ 'has-pending': pendingApprovals.length > 0 }">
           <el-icon><Lock /></el-icon>
@@ -298,90 +252,15 @@
       </aside>
     </section>
 
-    <AppDrawer
+    <AgentDebugTraceDrawer
       v-model="traceDrawerVisible"
-      class="agent-debug-trace-drawer"
-      title="本轮运行详情"
-      size="min(760px, 94vw)"
-      :show-close="false"
-    >
-      <template #header="{ close, titleId, titleClass }">
-        <div class="trace-drawer-header">
-          <div class="trace-drawer-header__copy">
-            <h2 :id="titleId" :class="[titleClass, 'trace-drawer-header__title']">本轮运行详情</h2>
-            <div v-if="activeTraceId" class="trace-drawer-header__id-row">
-              <el-tooltip :content="activeTraceId" placement="bottom" :show-after="300">
-                <code class="trace-drawer-header__id" :title="activeTraceId">{{ activeTraceId }}</code>
-              </el-tooltip>
-              <el-button
-                class="trace-drawer-header__copy-btn"
-                text
-                size="small"
-                :icon="CopyDocument"
-                aria-label="复制 Trace ID"
-                @click="copyTraceId"
-              >
-                复制
-              </el-button>
-            </div>
-            <p class="trace-drawer-header__desc">查看本轮执行链路、节点耗时与原始运行数据。</p>
-          </div>
-          <button
-            type="button"
-            class="trace-drawer-header__close"
-            aria-label="关闭本轮运行详情"
-            @click="close"
-          >
-            <el-icon><Close /></el-icon>
-          </button>
-        </div>
-      </template>
-
-      <el-tabs v-model="traceDetailTab" class="trace-detail-tabs">
-        <el-tab-pane label="执行链路" name="timeline">
-          <TraceTimeline :nodes="traceNodes" :loading="traceLoading" />
-        </el-tab-pane>
-        <el-tab-pane label="原始响应" name="raw">
-          <div class="raw-response-panel">
-            <template v-if="rawResponseMode === 'show'">
-              <div class="raw-response-toolbar">
-                <span>本轮 lastAgentResult.metadata</span>
-                <el-button
-                  text
-                  size="small"
-                  :icon="CopyDocument"
-                  aria-label="复制 JSON"
-                  @click="copyRawResponseJson"
-                >
-                  复制 JSON
-                </el-button>
-              </div>
-              <pre class="metadata-json">{{ rawResponseJson }}</pre>
-            </template>
-            <div v-else-if="rawResponseMode === 'mismatch'" class="empty-detail compact raw-response-empty">
-              <el-icon><DataLine /></el-icon>
-              <p>当前页面未保留该 Trace 对应的原始响应，请前往 RunOps 查看持久化运行数据。</p>
-            </div>
-            <div v-else class="empty-detail compact raw-response-empty">
-              <el-icon><DataLine /></el-icon>
-              <p>暂无本轮原始响应</p>
-            </div>
-          </div>
-        </el-tab-pane>
-      </el-tabs>
-
-      <template #footer>
-        <el-button @click="traceDrawerVisible = false">关闭</el-button>
-        <el-button
-          type="primary"
-          :icon="DataLine"
-          :disabled="!activeTraceId"
-          @click="openRunOps"
-        >
-          前往 RunOps 深度分析
-        </el-button>
-      </template>
-    </AppDrawer>
+      :trace-id="activeTraceId"
+      :nodes="traceNodes"
+      :loading="traceLoading"
+      :raw-mode="rawResponseMode"
+      :raw-json="rawResponseJson"
+      @open-runops="openRunOps"
+    />
   </main>
 </template>
 
@@ -390,16 +269,11 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
-  ArrowDown,
-  Check,
   ChatDotRound,
-  CircleCheck,
   CircleClose,
-  Close,
   Connection,
   CopyDocument,
   DArrowLeft,
-  DataLine,
   Delete,
   Loading,
   Lock,
@@ -407,18 +281,15 @@ import {
   Timer,
   Tools,
 } from '@element-plus/icons-vue'
-import AppDrawer from '@/components/common/AppDrawer.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import StatusTag from '@/components/common/StatusTag.vue'
 import type { StatusTone } from '@/components/common/glassWorkbench'
-import TraceTimeline from '@/components/TraceTimeline.vue'
-import DynamicInteraction from '@/components/interaction/DynamicInteraction.vue'
 import LlmModelIcon from '@/components/icons/LlmModelIcon.vue'
 import type { UiRequestPayload } from '@/types/interaction'
-import type { AgentResult, PendingHumanApproval, StepRecord } from '@/types/agent'
+import type { AgentConfigVersion, AgentResult, PendingHumanApproval, StepRecord } from '@/types/agent'
 import type { TraceNode } from '@/types/trace'
 import type { Agent } from '@/types/workflow'
-import { getAgent } from '@/api/workflow'
+import { getAgent, listAgentConfigVersions } from '@/api/workflow'
 import { listPendingHumanApprovals } from '@/api/agent'
 import { getTraceDetail } from '@/api/trace'
 import {
@@ -431,13 +302,16 @@ import {
   type ConversationSnapshot,
 } from '@/conversation'
 import prismAvatarUrl from '@/conversation/assets/agent-prism.webp'
+import { LiquidGlassTabs } from '@/components/common/liquid-glass'
+import AgentDebugApprovalPanel from './debug/AgentDebugApprovalPanel.vue'
+import AgentDebugExecutionPanel from './debug/AgentDebugExecutionPanel.vue'
+import AgentDebugTraceDrawer from './debug/AgentDebugTraceDrawer.vue'
+import { formatStepName, type ExecutionPhase, type RawResponseMode, type StepState } from './debug/agentDebugFormat'
 
 const route = useRoute()
 const router = useRouter()
 const agentId = route.params.id as string
 
-type ExecutionPhase = 'idle' | 'running' | 'success' | 'error' | 'stopped'
-type StepState = 'complete' | 'active' | 'error' | 'pending'
 
 const INSIGHT_WIDTH_STORAGE_KEY = 'reachai-agent-debug-insight-width'
 const DEFAULT_INSIGHT_WIDTH = 312
@@ -459,7 +333,6 @@ const lastAgentResult = ref<AgentResult | null>(null)
 const liveSteps = ref<StepRecord[]>([])
 const traceDrawerVisible = ref(false)
 const activeTraceId = ref('')
-const traceDetailTab = ref<'timeline' | 'raw'>('timeline')
 const traceNodes = ref<TraceNode[]>([])
 const traceLoading = ref(false)
 const pendingApprovals = ref<PendingHumanApproval[]>([])
@@ -475,8 +348,35 @@ const hasStreamedAnswer = ref(false)
 let turnStartedAt = 0
 let resizingActive = false
 
+const configVersions = ref<AgentConfigVersion[]>([])
+const activeDebugConfig = computed(() => configVersions.value.find((item) => item.status === 'ACTIVE') || null)
+const draftDebugConfig = computed(() => configVersions.value.find((item) => item.status === 'DRAFT') || null)
+/** 有草稿时默认调试草稿；?config=active 可直接打开线上版本。 */
+const debugTarget = ref<'draft' | 'active'>(route.query.config === 'active' ? 'active' : 'draft')
+const debugConfig = computed(() => {
+  if (debugTarget.value === 'draft' && draftDebugConfig.value) return draftDebugConfig.value
+  return activeDebugConfig.value || draftDebugConfig.value
+})
+const debugTargetLabel = computed(() => {
+  const config = debugConfig.value
+  if (!config) return agent.value?.enabled === false ? '已停用' : '尚无配置'
+  return config.status === 'DRAFT' ? `草稿 v${config.versionNo}` : `线上 v${config.versionNo}`
+})
+const debugTargetTone = computed<StatusTone>(() => {
+  if (!debugConfig.value) return agent.value?.enabled === false ? 'danger' : 'neutral'
+  return debugConfig.value.status === 'DRAFT' ? 'warning' : 'success'
+})
+const debugTargetHint = computed(() => {
+  const config = debugConfig.value
+  if (!config) return '保存配置后即可调试'
+  return config.status === 'DRAFT'
+    ? '正在调试未发布的草稿，业务用户仍在使用线上版本'
+    : '正在调试线上版本'
+})
+
 const transport = createAgentDebugTransport({
   agentId,
+  getDebugConfigVersionId: () => debugConfig.value?.id,
   getSessionId: () => sessionId.value || undefined,
   setSessionId: (id) => {
     sessionId.value = id || ''
@@ -516,10 +416,10 @@ const displaySteps = computed(() => lastAgentResult.value?.steps?.length
   : liveSteps.value)
 const executionStatusText = computed(() => ({
   idle: '等待开始调试',
-  running: 'Supervisor 正在执行',
-  success: 'Supervisor 执行完成',
-  error: 'Supervisor 执行失败',
-  stopped: 'Supervisor 执行已停止',
+  running: 'Agent 正在执行',
+  success: '执行完成',
+  error: '执行失败',
+  stopped: '执行已停止',
 })[executionPhase.value])
 
 const UNSAFE_THINKING_DETAIL = /reason(ing)?|chain\s*of\s*thought|prompt|internal|system|内部|思维链/i
@@ -538,7 +438,7 @@ const currentThinkingSummary = computed(() => {
     return `正在执行：${formatStepName(step.name, displaySteps.value.length - 1)}`
   }
   if (runtimeConnected.value) {
-    return 'Supervisor 已开始处理请求'
+    return 'Agent 已开始处理请求'
   }
   return '正在连接运行时…'
 })
@@ -604,18 +504,6 @@ function resolveAssistantThinkingPresentation(message: ConversationMessage) {
     })),
   }
 }
-const agentConfigStatusLabel = computed(() => {
-  if (agent.value?.configStatus === 'ACTIVE') return '已发布'
-  if (agent.value?.configStatus === 'DRAFT') return '草稿'
-  if (agent.value?.configStatus === 'ARCHIVED') return '已归档'
-  return agent.value?.enabled === false ? '已停用' : '未发布'
-})
-const agentConfigStatusTone = computed<StatusTone>(() => {
-  if (agent.value?.configStatus === 'ACTIVE') return 'success'
-  if (agent.value?.configStatus === 'DRAFT') return 'warning'
-  if (agent.value?.enabled === false) return 'danger'
-  return 'neutral'
-})
 const latestTraceId = computed(() => {
   for (let index = conversationSnapshot.value.messages.length - 1; index >= 0; index -= 1) {
     const traceId = conversationSnapshot.value.messages[index].metadata?.traceId
@@ -657,7 +545,6 @@ const turnExecutionNote = computed(() => {
   return ''
 })
 
-type RawResponseMode = 'show' | 'mismatch' | 'empty'
 
 /**
  * 防止审批项等其它 traceId 打开详情时，误展示当前轮次 lastAgentResult.metadata。
@@ -825,25 +712,7 @@ function readStoredInsightWidth() {
   }
 }
 
-function formatStepDetail(detail: unknown) {
-  if (typeof detail === 'string') return detail
-  try {
-    return JSON.stringify(detail)
-  } catch {
-    return String(detail ?? '')
-  }
-}
 
-function formatStepName(name: string, index: number) {
-  const normalized = name.toLowerCase()
-  if (normalized.includes('config')) return '读取已发布配置'
-  if (normalized === 'workflow' || normalized.includes('workflow')) return '调用 Workflow'
-  if (normalized.includes('plan') || normalized.includes('replan')) return '规划执行路径'
-  if (normalized.includes('answer') || normalized.includes('final') || normalized.includes('respond')) return '生成最终回答'
-  if (normalized.includes('policy')) return '策略检查'
-  if (normalized.includes('agent') || normalized.includes('resolve')) return '识别 Agent 范围'
-  return name || `步骤 ${index + 1}`
-}
 
 /** 类型安全读取可选数值：字段缺失返回 null，不伪装为 0。 */
 function readOptionalNumber(
@@ -860,9 +729,6 @@ function readOptionalNumber(
   return null
 }
 
-function formatOptionalCount(value: number | null): string {
-  return value === null ? '—' : String(value)
-}
 
 function readOptionalTraceId(source: Record<string, unknown>): string {
   const value = source.traceId
@@ -945,7 +811,6 @@ function extractToolCalls(result: AgentResult) {
 async function openTrace(traceId?: string) {
   if (!traceId) return
   activeTraceId.value = traceId
-  traceDetailTab.value = 'timeline'
   traceNodes.value = []
   traceLoading.value = true
   traceDrawerVisible.value = true
@@ -966,25 +831,7 @@ function openRunOps() {
   router.push(`/runops/${encodeURIComponent(activeTraceId.value)}`)
 }
 
-async function copyTraceId() {
-  if (!activeTraceId.value) return
-  try {
-    await navigator.clipboard.writeText(activeTraceId.value)
-    ElMessage.success('Trace ID 已复制')
-  } catch {
-    ElMessage.error('复制失败，请手动复制')
-  }
-}
 
-async function copyRawResponseJson() {
-  if (rawResponseMode.value !== 'show' || !rawResponseJson.value) return
-  try {
-    await navigator.clipboard.writeText(rawResponseJson.value)
-    ElMessage.success('JSON 已复制')
-  } catch {
-    ElMessage.error('复制失败，请手动复制')
-  }
-}
 
 async function copySessionId() {
   if (!sessionId.value) return
@@ -1004,6 +851,21 @@ async function loadAgent() {
   } catch {
     agentName.value = agentId
   }
+}
+
+async function loadConfigVersions() {
+  try {
+    const { data } = await listAgentConfigVersions(agentId)
+    configVersions.value = Array.isArray(data) ? data : []
+  } catch {
+    configVersions.value = []
+  }
+}
+
+/** 换配置版本后开新会话，避免一段对话里混用两套配置。 */
+async function handleDebugTargetChange() {
+  if (!sessionId.value && !conversationSnapshot.value.messages.length) return
+  await handleClearSession()
 }
 
 async function loadPendingApprovals() {
@@ -1156,6 +1018,7 @@ function handleWindowResize() {
 
 onMounted(() => {
   loadAgent()
+  loadConfigVersions()
   loadPendingApprovals()
   nextTick(handleWindowResize)
   window.addEventListener('resize', handleWindowResize)
@@ -1197,35 +1060,11 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: var(--layout-page-gap);
   overflow: hidden;
-  padding: 0 var(--layout-content-inline) var(--layout-page-end);
+  padding: var(--layout-page-start) var(--layout-content-inline) var(--layout-page-end);
 }
 
 .agent-debug-header {
-  --page-header-material: url('/agent-debug/conversation-atmosphere.png');
-  --page-header-material-position: center 43%;
-  --agent-header-content-offset: -4px;
   flex: 0 0 auto;
-  min-height: 112px;
-
-  :deep(.app-page-header__leading),
-  :deep(.app-page-header__main),
-  :deep(.app-page-header__trailing) {
-    transform: translateY(var(--agent-header-content-offset));
-  }
-
-  :deep(.app-page-header__entity-mark) {
-    color: var(--brand-primary);
-    background: color-mix(in srgb, var(--surface-solid-control) 76%, transparent);
-    box-shadow: 0 12px 28px rgb(var(--brand-primary-rgb) / 0.14), var(--inner-highlight);
-  }
-
-  :deep(.app-page-header__action-dock) {
-    padding: 0;
-    border: 0;
-    background: transparent;
-    box-shadow: none;
-    backdrop-filter: none;
-  }
 }
 
 .agent-header-meta,
@@ -1296,15 +1135,6 @@ onBeforeUnmount(() => {
     cursor: not-allowed;
     opacity: 0.45;
   }
-}
-
-.agent-header-prism {
-  display: block;
-  width: 94px;
-  height: 94px;
-  border-radius: 50%;
-  object-fit: cover;
-  filter: saturate(1.04) drop-shadow(0 12px 25px rgb(var(--brand-primary-rgb) / 0.22));
 }
 
 .debug-body {
@@ -1454,48 +1284,6 @@ onBeforeUnmount(() => {
   }
 }
 
-.chat-messages {
-  position: relative;
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-  padding: 34px 32px 38px;
-  scroll-behavior: smooth;
-  background-color: transparent;
-}
-
-.chat-messages::-webkit-scrollbar {
-  display: none;
-  width: 0;
-  height: 0;
-}
-
-.chat-messages::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  opacity: var(--agent-atmosphere-art-opacity);
-  background: linear-gradient(180deg, var(--agent-atmosphere-wash-top), var(--agent-atmosphere-wash-bottom));
-  background-repeat: no-repeat;
-  filter: saturate(var(--agent-atmosphere-art-saturation));
-}
-
-.chat-messages::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background:
-    var(--agent-atmosphere-theme-wash),
-    radial-gradient(circle at 14% 28%, var(--agent-atmosphere-glow-primary), transparent 22%),
-    radial-gradient(circle at 68% 62%, var(--agent-atmosphere-glow-secondary), transparent 30%),
-    linear-gradient(180deg, transparent 38%, var(--agent-atmosphere-bottom-tint));
-}
-
 .chat-empty {
   position: relative;
   z-index: 1;
@@ -1530,7 +1318,7 @@ onBeforeUnmount(() => {
   place-items: center;
   border: 1px solid rgb(var(--brand-primary-rgb) / 0.14);
   border-radius: 50%;
-  background: rgb(255 255 255 / 0.56);
+  background: var(--surface-glass-control);
   box-shadow: 0 18px 40px rgb(var(--brand-primary-rgb) / 0.16), inset 0 1px 0 rgb(255 255 255 / 0.82);
   backdrop-filter: blur(14px);
 
@@ -1562,12 +1350,12 @@ onBeforeUnmount(() => {
 
 .tool-chip {
   color: color-mix(in srgb, var(--status-success) 82%, var(--text-primary));
-  background: color-mix(in srgb, var(--status-success) 10%, rgb(255 255 255 / 0.48));
+  background: color-mix(in srgb, var(--status-success) 10%, var(--surface-glass-control));
 }
 
 .elapsed-chip {
   color: var(--text-muted);
-  background: rgb(255 255 255 / 0.34);
+  background: var(--surface-hover);
 }
 
 .trace-link {
@@ -1578,52 +1366,6 @@ onBeforeUnmount(() => {
   &:hover {
     background: rgb(var(--brand-primary-rgb) / 0.12);
   }
-}
-
-.execution-step-marker {
-  display: grid;
-  place-items: center;
-  border-radius: 11px;
-  color: var(--text-muted);
-  background: color-mix(in srgb, var(--surface-solid-control) 76%, transparent);
-  font-size: 11px;
-  font-weight: 800;
-}
-
-.execution-step.is-complete .execution-step-marker {
-  color: var(--status-success);
-  background: color-mix(in srgb, var(--status-success) 10%, var(--surface-solid-control));
-}
-
-.execution-step.is-active .execution-step-marker {
-  color: var(--brand-primary);
-  background: rgb(var(--brand-primary-rgb) / 0.10);
-}
-
-.execution-step-copy {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 4px;
-
-  strong {
-    color: var(--text-primary);
-    font-size: 12px;
-    font-weight: 780;
-  }
-
-  small {
-    overflow: hidden;
-    color: var(--text-muted);
-    font-size: 11px;
-    line-height: 1.45;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-}
-
-.spin-icon {
-  animation: icon-spin 1s linear infinite;
 }
 
 .chat-input {
@@ -1645,7 +1387,7 @@ onBeforeUnmount(() => {
     padding: 10px 4px;
     border: 0;
     border-radius: 0;
-    color: var(--reachai-chat-text, var(--text-primary, #1e293b));
+    color: var(--reachai-chat-text, var(--text-primary, var(--text-primary)));
     background: transparent;
     box-shadow: none;
     font-size: 13px;
@@ -1658,7 +1400,7 @@ onBeforeUnmount(() => {
     }
 
     &::placeholder {
-      color: var(--reachai-chat-text-muted, #64748b);
+      color: var(--reachai-chat-text-muted, var(--text-muted));
       opacity: 1;
     }
   }
@@ -1688,7 +1430,7 @@ onBeforeUnmount(() => {
     border-bottom-color: color-mix(in srgb, var(--text-muted) 34%, transparent);
     border-radius: 5px;
     color: var(--text-secondary);
-    background: rgb(255 255 255 / 0.74);
+    background: var(--surface-glass-control);
     box-shadow: 0 1px 0 rgb(15 23 42 / 0.05);
     font-family: inherit;
     font-size: 10px;
@@ -1804,7 +1546,7 @@ onBeforeUnmount(() => {
     radial-gradient(circle at 94% 14%, var(--agent-card-rose-glow), transparent 40%),
     radial-gradient(circle at 72% 100%, var(--agent-card-cool-glow), transparent 46%),
     var(--agent-atmosphere-theme-wash),
-    linear-gradient(155deg, rgb(255 255 255 / 0.72), rgb(var(--brand-selected-rgb) / 0.34) 58%, rgb(255 255 255 / 0.52));
+    linear-gradient(155deg, var(--surface-glass-control), rgb(var(--brand-selected-rgb) / 0.34) 58%, var(--surface-glass-control));
 }
 
 .detail-panel::before {
@@ -1947,33 +1689,6 @@ onBeforeUnmount(() => {
 
   :deep(.el-tabs__header) {
     margin: 0 0 12px;
-    padding: 4px;
-    border: 1px solid rgb(var(--brand-primary-rgb) / 0.14);
-    border-radius: 13px;
-    background:
-      linear-gradient(145deg, rgb(255 255 255 / 0.58), rgb(var(--brand-selected-rgb) / 0.42)),
-      color-mix(in srgb, var(--surface-solid-control) 52%, transparent);
-  }
-
-  :deep(.el-tabs__nav-wrap::after),
-  :deep(.el-tabs__active-bar) {
-    display: none;
-  }
-
-  :deep(.el-tabs__item) {
-    height: 34px;
-    border-radius: 10px;
-    color: var(--text-muted);
-    font-size: 11px;
-    font-weight: 780;
-    transition: background 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
-  }
-
-  :deep(.el-tabs__item.is-active) {
-    color: var(--brand-primary);
-    background:
-      linear-gradient(145deg, rgb(255 255 255 / 0.94), rgb(var(--brand-selected-rgb) / 0.62));
-    box-shadow: 0 5px 14px rgb(var(--brand-primary-rgb) / 0.12), var(--inner-highlight);
   }
 
   :deep(.el-tabs__content),
@@ -2008,231 +1723,6 @@ onBeforeUnmount(() => {
   font-size: 10px;
 }
 
-.execution-panel,
-.approval-panel {
-  padding: 0 2px 12px;
-}
-
-.execution-note {
-  margin: 0 2px 12px;
-  padding: 8px 10px;
-  border: 1px solid color-mix(in srgb, var(--brand-primary) 14%, var(--border-subtle));
-  border-radius: var(--radius-sm);
-  color: var(--text-secondary);
-  background: color-mix(in srgb, rgb(var(--brand-selected-rgb) / 0.55) 42%, transparent);
-  font-size: 12px;
-  font-weight: 650;
-  line-height: 1.5;
-}
-
-.execution-state {
-  gap: 7px;
-  margin: 2px 2px 12px;
-  color: var(--text-secondary);
-  font-size: 11px;
-  font-weight: 750;
-
-  i {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--status-neutral);
-    box-shadow: 0 0 0 5px color-mix(in srgb, var(--status-neutral) 10%, transparent);
-  }
-
-  &.is-running { color: var(--brand-primary); }
-  &.is-running i { background: var(--brand-primary); animation: status-pulse 1.8s ease-out infinite; }
-  &.is-success { color: var(--status-success); }
-  &.is-success i { background: var(--status-success); }
-  &.is-error { color: var(--status-danger); }
-  &.is-error i { background: var(--status-danger); }
-  &.is-stopped { color: var(--status-warning); }
-  &.is-stopped i { background: var(--status-warning); }
-}
-
-.metric-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  margin-bottom: 12px;
-}
-
-.metric-card {
-  padding: 11px 12px;
-  border: 1px solid rgb(var(--brand-primary-rgb) / 0.12);
-  border-radius: 12px;
-  background:
-    radial-gradient(circle at 8% 0%, var(--agent-card-anchor-glow), transparent 58%),
-    linear-gradient(145deg, rgb(255 255 255 / 0.78), rgb(var(--brand-selected-rgb) / 0.36));
-  box-shadow: 0 8px 18px rgb(var(--brand-primary-rgb) / 0.06), var(--inner-highlight);
-
-  span {
-    display: block;
-    color: var(--text-muted);
-    font-size: 10px;
-    font-weight: 700;
-  }
-
-  strong {
-    display: block;
-    margin-top: 5px;
-    color: var(--brand-primary);
-    font-size: 17px;
-    font-weight: 850;
-  }
-}
-
-.execution-step-list {
-  display: grid;
-  gap: 8px;
-}
-
-.execution-step {
-  overflow: hidden;
-  border: 1px solid rgb(var(--brand-primary-rgb) / 0.10);
-  border-radius: 14px;
-  background:
-    linear-gradient(145deg, rgb(255 255 255 / 0.76), rgb(var(--brand-selected-rgb) / 0.28));
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.72);
-  transition: border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
-
-  &.is-active {
-    border-color: rgb(var(--brand-primary-rgb) / 0.30);
-    background:
-      radial-gradient(circle at 6% 0%, var(--agent-card-cool-glow), transparent 55%),
-      linear-gradient(145deg, rgb(255 255 255 / 0.86), rgb(var(--brand-selected-rgb) / 0.52));
-    box-shadow: 0 8px 20px rgb(var(--brand-primary-rgb) / 0.10);
-  }
-
-  &.is-complete {
-    border-color: color-mix(in srgb, var(--status-success) 22%, rgb(var(--brand-primary-rgb) / 0.10));
-  }
-
-  &.is-error {
-    border-color: color-mix(in srgb, var(--status-danger) 30%, var(--border-subtle));
-  }
-
-  > button {
-    display: grid;
-    width: 100%;
-    grid-template-columns: 35px minmax(0, 1fr) auto;
-    gap: 10px;
-    align-items: center;
-    padding: 10px 11px;
-    color: inherit;
-    text-align: left;
-    background: transparent;
-  }
-
-  > p {
-    margin: 0;
-    padding: 0 13px 12px 56px;
-    color: var(--text-secondary);
-    font-size: 11px;
-    line-height: 1.6;
-    word-break: break-word;
-  }
-}
-
-.execution-step-marker {
-  width: 34px;
-  height: 34px;
-}
-
-.execution-step.is-error .execution-step-marker {
-  color: var(--status-danger);
-  background: color-mix(in srgb, var(--status-danger) 9%, var(--surface-solid-control));
-}
-
-.step-chevron {
-  color: var(--text-muted);
-  transition: transform 0.18s ease;
-}
-
-.execution-step.is-open .step-chevron {
-  transform: rotate(180deg);
-}
-
-.empty-detail {
-  display: flex;
-  min-height: 210px;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-muted);
-  text-align: center;
-
-  &.compact {
-    min-height: 145px;
-  }
-
-  .el-icon {
-    margin-bottom: 9px;
-    font-size: 30px;
-  }
-
-  p {
-    margin: 0;
-    font-size: 12px;
-    font-weight: 650;
-  }
-}
-
-.approval-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 10px;
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-weight: 760;
-}
-
-.approval-list {
-  display: grid;
-  gap: 10px;
-}
-
-.approval-item {
-  padding: 13px;
-  border: 1px solid color-mix(in srgb, var(--status-warning) 24%, rgb(var(--brand-primary-rgb) / 0.12));
-  border-radius: 14px;
-  background:
-    linear-gradient(145deg, rgb(255 255 255 / 0.72), rgb(var(--brand-selected-rgb) / 0.22)),
-    color-mix(in srgb, var(--status-warning) 6%, transparent);
-}
-
-.approval-title {
-  justify-content: space-between;
-  gap: 9px;
-
-  strong {
-    color: var(--text-primary);
-    font-size: 12px;
-  }
-}
-
-.approval-message {
-  margin: 9px 0 0;
-  color: var(--text-secondary);
-  font-size: 11px;
-  line-height: 1.6;
-}
-
-.approval-meta {
-  gap: 8px 12px;
-  margin-top: 9px;
-  flex-wrap: wrap;
-  color: var(--text-muted);
-  font-size: 10px;
-
-  button {
-    padding: 0;
-    color: var(--brand-primary);
-    background: transparent;
-  }
-}
-
 .approval-policy {
   flex: 0 0 auto;
   gap: 10px;
@@ -2242,14 +1732,14 @@ onBeforeUnmount(() => {
   border-radius: 14px;
   color: var(--status-success);
   background:
-    linear-gradient(145deg, rgb(255 255 255 / 0.7), rgb(var(--brand-selected-rgb) / 0.26)),
+    linear-gradient(145deg, var(--surface-glass-control), rgb(var(--brand-selected-rgb) / 0.26)),
     color-mix(in srgb, var(--status-success) 6%, transparent);
 
   &.has-pending {
     border-color: color-mix(in srgb, var(--status-warning) 28%, rgb(var(--brand-primary-rgb) / 0.12));
     color: var(--status-warning);
     background:
-      linear-gradient(145deg, rgb(255 255 255 / 0.7), rgb(var(--brand-selected-rgb) / 0.26)),
+      linear-gradient(145deg, var(--surface-glass-control), rgb(var(--brand-selected-rgb) / 0.26)),
       color-mix(in srgb, var(--status-warning) 7%, transparent);
   }
 
@@ -2277,334 +1767,93 @@ onBeforeUnmount(() => {
   }
 }
 
-.trace-drawer-header {
-  display: flex;
-  width: 100%;
-  min-width: 0;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  padding-inline-end: 4px;
-}
-
-.trace-drawer-header__copy {
-  display: flex;
-  min-width: 0;
-  flex: 1 1 auto;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.trace-drawer-header__title {
-  margin: 0;
-  color: var(--text-primary);
-  font-size: 18px;
-  font-weight: 750;
-  letter-spacing: 0.01em;
-  line-height: 1.3;
-}
-
-.trace-drawer-header__id-row {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 6px;
-}
-
-.trace-drawer-header__id {
-  display: block;
-  min-width: 0;
-  overflow: hidden;
-  color: var(--text-muted);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12px;
-  line-height: 1.4;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.trace-drawer-header__copy-btn {
-  flex: 0 0 auto;
-}
-
-.trace-drawer-header__desc {
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: 13px;
-  line-height: 1.5;
-}
-
-.trace-drawer-header__close {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  margin: 0;
-  padding: 0;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  transition:
-    color var(--motion-duration-fast) var(--motion-easing-standard),
-    background-color var(--motion-duration-fast) var(--motion-easing-standard),
-    border-color var(--motion-duration-fast) var(--motion-easing-standard);
-
-  &:hover {
-    color: var(--text-primary);
-    background: color-mix(in srgb, var(--surface-solid-control) 88%, transparent);
-    border-color: var(--border-subtle);
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--border-focus);
-    outline-offset: 2px;
-  }
-}
-
-.metadata-json {
-  max-height: min(62vh, 640px);
-  margin: 0;
-  overflow: auto;
-  padding: 14px;
-  border: 1px solid color-mix(in srgb, var(--border-subtle) 80%, transparent);
-  border-radius: var(--radius-md);
-  color: var(--text-primary);
-  background: color-mix(in srgb, var(--surface-solid-control) 78%, #0b1220);
-  font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
-  font-size: 12px;
-  line-height: 1.7;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  word-break: break-word;
-}
-
-.trace-detail-tabs {
-  min-width: 0;
-
-  :deep(.el-tabs__header) {
-    margin: 0 0 12px;
-  }
-
-  :deep(.el-tabs__nav-wrap) {
-    min-width: 0;
-  }
-
-  :deep(.el-tabs__item) {
-    font-weight: 750;
-  }
-
-  :deep(.el-tabs__item:focus-visible) {
-    outline: 2px solid var(--border-focus);
-    outline-offset: 2px;
-  }
-
-  :deep(.el-tab-pane) {
-    min-width: 0;
-  }
-}
-
-.raw-response-panel {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.raw-response-toolbar {
-  display: flex;
-  min-width: 0;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  color: var(--text-muted);
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.raw-response-empty {
-  margin-top: 8px;
-}
-
 @keyframes icon-spin {
   to { transform: rotate(1turn); }
 }
 
 @keyframes status-pulse {
   0% { box-shadow: 0 0 0 0 currentColor; }
+
   70% { box-shadow: 0 0 0 7px transparent; }
+
   100% { box-shadow: 0 0 0 0 transparent; }
-}
-
-:global([data-theme='dark']) {
-  .chat-panel {
-    background: transparent;
-  }
-
-  .chat-conversation :deep(.reachai-message-list) {
-    background-color: transparent;
-  }
-
-
-  .empty-orbit {
-    background: rgb(20 31 52 / 0.72);
-  }
-
-  .chat-input {
-    background: linear-gradient(135deg, rgb(15 25 44 / 0.34), rgb(20 31 57 / 0.22));
-  }
-
-  .detail-panel {
-    background:
-      radial-gradient(circle at 10% 6%, rgb(var(--brand-primary-rgb) / 0.22), transparent 42%),
-      radial-gradient(circle at 94% 14%, color-mix(in srgb, var(--agent-spectrum-rose) 18%, transparent), transparent 40%),
-      radial-gradient(circle at 72% 100%, color-mix(in srgb, var(--agent-spectrum-cool) 16%, transparent), transparent 46%),
-      linear-gradient(155deg, rgb(16 27 46 / 0.88), rgb(12 22 38 / 0.82));
-  }
-
-  .detail-panel::before {
-    opacity: 0.35;
-  }
-
-  .detail-action-button,
-  .metric-card,
-  .execution-step {
-    background:
-      linear-gradient(145deg, rgb(24 37 56 / 0.84), rgb(var(--brand-selected-rgb) / 0.12));
-  }
-
-  .metadata-json {
-    color: #dce8ff;
-    background: #101827;
-    border-color: rgb(113 131 156 / 0.22);
-  }
-
-  .execution-note {
-    background: color-mix(in srgb, rgb(24 37 56 / 0.84) 72%, transparent);
-  }
-
-  .approval-item {
-    background:
-      linear-gradient(145deg, rgb(24 37 56 / 0.84), rgb(var(--brand-selected-rgb) / 0.1)),
-      color-mix(in srgb, var(--status-warning) 8%, transparent);
-  }
-
-  .approval-policy {
-    background:
-      linear-gradient(145deg, rgb(24 37 56 / 0.84), rgb(var(--brand-selected-rgb) / 0.1)),
-      color-mix(in srgb, var(--status-success) 8%, transparent);
-
-    &.has-pending {
-      background:
-        linear-gradient(145deg, rgb(24 37 56 / 0.84), rgb(var(--brand-selected-rgb) / 0.1)),
-        color-mix(in srgb, var(--status-warning) 10%, transparent);
-    }
-  }
-
-  .detail-tabs {
-    :deep(.el-tabs__header) {
-      background: linear-gradient(145deg, rgb(24 37 56 / 0.78), rgb(var(--brand-selected-rgb) / 0.1));
-    }
-
-    :deep(.el-tabs__item.is-active) {
-      background: linear-gradient(145deg, rgb(30 44 64 / 0.92), rgb(var(--brand-selected-rgb) / 0.16));
-    }
-  }
-
-  .execution-step.is-active {
-    background:
-      radial-gradient(circle at 6% 0%, color-mix(in srgb, var(--agent-spectrum-cool) 18%, transparent), transparent 55%),
-      linear-gradient(145deg, rgb(28 42 64 / 0.92), rgb(var(--brand-selected-rgb) / 0.18));
-  }
 }
 
 @media (max-width: 1080px) {
   .agent-debug-page {
-    height: auto;
-    min-height: 100%;
-    overflow: visible;
-  }
+      height: auto;
+      min-height: 100%;
+      overflow: visible;
+    }
 
   .debug-body {
-    grid-template-columns: minmax(0, 1fr);
-    gap: var(--layout-page-gap);
-  }
+      grid-template-columns: minmax(0, 1fr);
+      gap: var(--layout-page-gap);
+    }
 
   .workbench-resizer {
-    display: none;
-  }
+      display: none;
+    }
 
   .chat-panel {
-    min-height: 700px;
-  }
+      min-height: 700px;
+    }
 
   .detail-panel {
-    min-height: 560px;
-  }
+      min-height: 560px;
+    }
 }
 
 @media (max-width: 720px) {
-  .agent-debug-header {
-    min-height: 104px;
-
-    :deep(.app-page-header__trailing) {
-      display: none;
-    }
-  }
-
   .agent-header-meta {
-    gap: 7px;
-    flex-wrap: wrap;
-  }
+      gap: 7px;
+      flex-wrap: wrap;
+    }
 
   .chat-toolbar {
-    padding: 0 16px;
-  }
+      padding: 0 16px;
+    }
 
   .chat-conversation :deep(.reachai-message-list) {
-    padding: 24px 15px 30px;
-  }
+      padding: 24px 15px 30px;
+    }
 
   .message-meta {
-    margin-right: 0;
-    margin-left: 0;
-    padding-right: 15px;
-    padding-left: 15px;
-  }
+      margin-right: 0;
+      margin-left: 0;
+      padding-right: 15px;
+      padding-left: 15px;
+    }
 
   .trace-link {
-    margin-left: 0;
-  }
+      margin-left: 0;
+    }
 
   .chat-input {
-    padding-right: 12px;
-    padding-left: 12px;
-  }
+      padding-right: 12px;
+      padding-left: 12px;
+    }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .spin-icon,
-  .run-state.active i,
-  .execution-state.is-running i {
-    animation: none !important;
-  }
+    .run-state.active i,
+    .execution-state.is-running i {
+      animation: none !important;
+    }
 
   .toolbar-icon-button,
-  .detail-action-button {
-    transition: none !important;
-  }
+    .detail-action-button {
+      transition: none !important;
+    }
 
   .toolbar-icon-button:hover:not(:disabled),
-  .detail-action-button:hover:not(:disabled) {
-    transform: none;
-  }
+    .detail-action-button:hover:not(:disabled) {
+      transform: none;
+    }
 
   .chat-conversation :deep(.reachai-message-list) {
-    scroll-behavior: auto;
-  }
+      scroll-behavior: auto;
+    }
 }
 </style>

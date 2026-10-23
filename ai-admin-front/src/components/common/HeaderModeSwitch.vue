@@ -76,17 +76,10 @@ const emit = defineEmits<{
 }
 
 .header-mode-switch__item.is-active {
-  border-color: rgb(255 255 255 / 0.84);
-  background: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--brand-active) 76%, #0f172a 24%),
-    color-mix(in srgb, var(--brand-primary) 72%, #0f172a 28%)
-  );
-  color: #fff;
-  box-shadow:
-    0 0 0 1px rgb(255 255 255 / 0.42),
-    0 11px 22px -13px rgb(15 23 42 / 0.58),
-    inset 0 1px 0 rgb(255 255 255 / 0.28);
+  border-color: transparent;
+  background: var(--brand-primary-gradient);
+  color: var(--text-on-brand);
+  box-shadow: var(--shadow-active);
 }
 
 .header-mode-switch__item:focus-visible {

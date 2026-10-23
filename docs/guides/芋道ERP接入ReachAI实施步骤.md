@@ -122,7 +122,7 @@ location ^~ /reachai/embed/ {
 | --- | --- | --- |
 | 业务响应只认 `code=200` | 芋道等用 `code=0` 表示成功的系统，所有调用都被判为“查询失败” | `BusinessResponseEnvelope` 同时接受 `0` 和 `200` |
 | Starter 扫 HTTP API 时忽略 Spring MVC 的路径前缀 | 芋道 `addPathPrefix("/admin-api")` 下的 146 个接口路径全部缺前缀，调用 404 | 从 `RequestMappingHandlerMapping.getPathPrefixes()` 取前缀 |
-| 调用权限种子给的是角色 `admin`，平台管理员角色是 `PLATFORM_ADMIN` | 全新环境管理员试调用任何业务方法都是 403 | `initV2.sql` 补种子；已有库执行 `upgrade-20261016-platform-admin-tool-acl.sql` |
+| 调用权限种子给的是角色 `admin`，平台管理员角色是 `PLATFORM_ADMIN` | 全新环境管理员试调用任何业务方法都是 403 | `initV2.sql` 补种子；已有库按 [SQL 说明](../../sql/README.md) 执行适用的近期合并升级（管理员 ACL 见段落 04） |
 | SDK 接入令牌的 Starter 配置把 registry url 写成 `localhost:18603` | 照抄配置的业务系统注册不上 | 默认填当前 ReachAI 访问地址 |
 | HTTP API 连接保存失败时只提示“当前条件已变化，请刷新后重试” | 认证方式不匹配、接口不支持试调用等真实原因被吞掉 | Control 透传 Runtime 的 `HTTP_API_*` 固定原因 |
 

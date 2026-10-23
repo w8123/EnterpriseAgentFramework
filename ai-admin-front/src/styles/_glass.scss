@@ -1,3 +1,20 @@
+// Liquid Glass 材质层。
+// 业务页面只消费这些类或 WorkbenchPanel / AppSidebar 等公共组件，不直接写模糊、透明度和边缘高光。
+// - shell：导航与操作层（侧栏、浮动工具栏、分段切换），最通透，边缘高光 + 顶部光泽。
+// - panel：内容承载层，更高不透明度，表格/表单/日志在其上阅读。
+// - control：输入、次级按钮等控件底。
+// - overlay：Popover / Dialog / Drawer 等弹出层。
+// - node：工作流节点的高浓度磨砂玻璃，正文阅读优先。
+// 折射增强由 LiquidGlassLayer 组件在宿主内渐进启用（见 composables/liquidGlass.ts）。
+
+@mixin opaque-navigation-ink {
+  --navigation-ink: var(--text-primary);
+  --navigation-ink-secondary: var(--text-secondary);
+  --navigation-ink-muted: var(--text-muted);
+  --navigation-active: var(--brand-on-surface);
+  --navigation-divider: var(--border-divider);
+}
+
 .glass-surface-shell,
 .glass-surface-panel,
 .glass-surface-overlay {
@@ -7,15 +24,37 @@
 }
 
 .glass-surface-shell {
+  --glass-tint: var(--surface-glass-shell);
+  border-color: var(--border-glass-edge);
   background: var(--surface-glass-shell);
   box-shadow: var(--shadow-shell);
   -webkit-backdrop-filter: blur(var(--glass-blur-shell)) saturate(var(--glass-saturation));
   backdrop-filter: blur(var(--glass-blur-shell)) saturate(var(--glass-saturation));
 }
 
+// 主导航保留壁纸轮廓；控件、正文和浮层继续使用各自的阅读底。
+.glass-surface-navigation {
+  --glass-tint: var(--surface-glass-navigation);
+  --navigation-ink: var(--text-on-wallpaper);
+  --navigation-ink-secondary: var(--text-on-wallpaper-secondary);
+  --navigation-ink-muted: var(--text-on-wallpaper-secondary);
+  --navigation-active: var(--text-on-wallpaper);
+  --navigation-divider: color-mix(in srgb, var(--text-on-wallpaper) 14%, transparent);
+  background: var(--surface-glass-navigation);
+}
+
 .glass-surface-panel {
   background: var(--surface-glass-panel);
   box-shadow: var(--shadow-panel);
+}
+
+// 磨砂：透出背景的柔和明暗，用于页头下方的统计条等轻量信息面。
+.glass-surface-frost {
+  border: 1px solid var(--border-glass-edge);
+  background: var(--surface-glass-frost);
+  box-shadow: var(--shadow-glass-frost);
+  -webkit-backdrop-filter: blur(var(--glass-blur-frost)) saturate(var(--glass-saturation));
+  backdrop-filter: blur(var(--glass-blur-frost)) saturate(var(--glass-saturation));
 }
 
 .glass-surface-control {
@@ -25,45 +64,208 @@
 }
 
 .glass-surface-overlay {
+  --glass-tint: var(--surface-glass-overlay);
   background: var(--surface-glass-overlay);
   box-shadow: var(--shadow-overlay);
   -webkit-backdrop-filter: blur(var(--glass-blur-overlay)) saturate(var(--glass-saturation));
   backdrop-filter: blur(var(--glass-blur-overlay)) saturate(var(--glass-saturation));
 }
 
+.glass-surface-node {
+  border: 1px solid var(--border-glass-edge);
+  background: var(--glass-droplet-highlight), var(--surface-glass-node);
+  box-shadow: var(--shadow-glass-node), var(--glass-node-rim);
+  -webkit-backdrop-filter: blur(var(--glass-blur-panel)) saturate(var(--glass-saturation));
+  backdrop-filter: blur(var(--glass-blur-panel)) saturate(var(--glass-saturation));
+}
+
+// 小尺寸透明透镜：仅供当前导航/切换项，几何尺寸由消费组件定义。
+.glass-surface-lens {
+  --glass-tint: var(--surface-glass-lens);
+  border: 1px solid var(--border-glass-lens);
+  background: var(--surface-glass-selected);
+  box-shadow: var(--shadow-glass-lens);
+
+  // 水滴：顶部偏左的弧形高光 + 底部偏右的彩色焦散，打破均匀描边的“规矩”感。
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: var(--glass-droplet-highlight), var(--glass-droplet-caustic);
+    pointer-events: none;
+  }
+
+  &::after {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    padding: 1px;
+    border-radius: inherit;
+    background: var(--glass-lens-rim);
+    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+}
+
+// 折射宿主：LiquidGlassLayer 接管模糊与折射，宿主保留着色与边缘高光，避免双重模糊。
+.liquid-glass-host {
+  isolation: isolate;
+}
+
+.liquid-glass-host.is-liquid-refracting,
+.liquid-glass-host.is-liquid-refracting.glass-surface-shell,
+.liquid-glass-host.is-liquid-refracting.glass-surface-overlay {
+  // Tint must be ABOVE the lens. An opaque host background otherwise becomes
+  // the sampled backdrop itself, flattening the effect into a frosted card.
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.liquid-glass-layer,
+.liquid-glass-tint,
+.liquid-glass-specular {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.liquid-glass-layer {
+  z-index: -3;
+  -webkit-backdrop-filter: blur(var(--glass-blur-refract)) saturate(var(--glass-saturation));
+  backdrop-filter: blur(var(--glass-blur-refract)) saturate(var(--glass-saturation));
+}
+
+.liquid-glass-tint {
+  z-index: -2;
+  background: var(--glass-tint, var(--surface-glass-shell));
+}
+
+.liquid-glass-specular {
+  z-index: -1;
+  background-image: var(--liquid-specular-light);
+  background-size: 100% 100%;
+  opacity: var(--glass-specular-opacity);
+}
+
+[data-theme='dark'] .liquid-glass-specular {
+  background-image: var(--liquid-specular-dark);
+}
+
+// 临时交互层：按压反馈短促、轻微，只用 transform。
+.glass-press {
+  transition: transform var(--motion-duration-fast) var(--motion-easing-emphasized);
+
+  &:active:not(:disabled):not(.is-disabled) {
+    transform: scale(0.97);
+  }
+}
+
 @supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
   .glass-surface-shell { background: var(--surface-fallback-shell); }
   .glass-surface-panel { background: var(--surface-fallback-panel); }
+  .glass-surface-frost { background: var(--surface-fallback-panel); }
   .glass-surface-control { background: var(--surface-fallback-control); }
   .glass-surface-overlay { background: var(--surface-fallback-overlay); }
+  .glass-surface-node { background: var(--surface-fallback-panel); }
+  .glass-surface-lens { background: var(--surface-fallback-control); }
+  .glass-surface-navigation {
+    background: var(--surface-fallback-shell);
+    @include opaque-navigation-ink;
+  }
 }
 
 [data-reduce-transparency='true'] {
   .glass-surface-shell,
   .glass-surface-panel,
+  .glass-surface-frost,
   .glass-surface-control,
-  .glass-surface-overlay {
+  .glass-surface-overlay,
+  .glass-surface-node,
+  .glass-surface-lens,
+  .glass-surface-navigation {
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
+  .liquid-glass-layer,
+  .liquid-glass-tint,
+  .liquid-glass-specular { display: none; }
   .glass-surface-shell { background: var(--surface-fallback-shell); }
   .glass-surface-panel { background: var(--surface-fallback-panel); }
+  .glass-surface-frost { background: var(--surface-fallback-panel); }
   .glass-surface-control { background: var(--surface-fallback-control); }
   .glass-surface-overlay { background: var(--surface-fallback-overlay); }
+  .glass-surface-node { background: var(--surface-fallback-panel); }
+  .glass-surface-lens { background: var(--surface-fallback-control); }
+  .glass-surface-navigation {
+    background: var(--surface-fallback-shell);
+    @include opaque-navigation-ink;
+  }
 }
 
 @media (prefers-reduced-transparency: reduce) {
   .glass-surface-shell,
   .glass-surface-panel,
+  .glass-surface-frost,
   .glass-surface-control,
-  .glass-surface-overlay {
+  .glass-surface-overlay,
+  .glass-surface-node,
+  .glass-surface-lens,
+  .glass-surface-navigation {
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
+  .liquid-glass-layer,
+  .liquid-glass-tint,
+  .liquid-glass-specular { display: none; }
   .glass-surface-shell { background: var(--surface-fallback-shell); }
   .glass-surface-panel { background: var(--surface-fallback-panel); }
+  .glass-surface-frost { background: var(--surface-fallback-panel); }
   .glass-surface-control { background: var(--surface-fallback-control); }
   .glass-surface-overlay { background: var(--surface-fallback-overlay); }
+  .glass-surface-node { background: var(--surface-fallback-panel); }
+  .glass-surface-lens { background: var(--surface-fallback-control); }
+  .glass-surface-navigation {
+    background: var(--surface-fallback-shell);
+    @include opaque-navigation-ink;
+  }
+}
+
+@media (forced-colors: active) {
+  .glass-surface-shell,
+  .glass-surface-panel,
+  .glass-surface-frost,
+  .glass-surface-control,
+  .glass-surface-overlay,
+  .glass-surface-node,
+  .glass-surface-lens,
+  .glass-surface-navigation {
+    border-color: CanvasText;
+    background: Canvas;
+    box-shadow: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .glass-surface-lens::before,
+  .glass-surface-lens::after { display: none; }
+
+  .glass-surface-navigation {
+    --navigation-ink: CanvasText;
+    --navigation-ink-secondary: CanvasText;
+    --navigation-ink-muted: CanvasText;
+    --navigation-active: CanvasText;
+    --navigation-divider: CanvasText;
+  }
+
+  .liquid-glass-layer,
+  .liquid-glass-tint,
+  .liquid-glass-specular {
+    display: none;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -71,5 +273,9 @@
     --motion-duration-fast: 0.01ms;
     --motion-duration-normal: 0.01ms;
     --motion-duration-slow: 0.01ms;
+  }
+
+  .glass-press:active:not(:disabled):not(.is-disabled) {
+    transform: none;
   }
 }

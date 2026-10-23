@@ -2,6 +2,8 @@
 import { computed, useId, useSlots, watchEffect } from 'vue'
 import { ArrowLeft } from '@element-plus/icons-vue'
 import { densityClass, type WorkbenchDensity } from './glassWorkbench'
+import LiquidGlassLayer from './LiquidGlassLayer.vue'
+import PageHeaderTags from './PageHeaderTags.vue'
 
 export type PageHeaderVariant = 'overview' | 'entity' | 'workbench' | 'standard'
 export type PageHeaderHeightPreset = 'compact' | 'standard' | 'emphasis'
@@ -27,6 +29,7 @@ const props = withDefaults(
     collapsed?: boolean
     artwork?: boolean
     presentation?: 'panel' | 'plain'
+    actionPresentation?: 'dock' | 'inline'
     backLabel?: string
     showBack?: boolean
   }>(),
@@ -38,6 +41,7 @@ const props = withDefaults(
     collapsed: false,
     artwork: true,
     presentation: 'panel',
+    actionPresentation: 'dock',
     backLabel: '返回',
     showBack: false,
   },
@@ -78,11 +82,14 @@ if (import.meta.env.DEV) {
         'is-compact': props.compact,
         'is-collapsed': props.collapsed,
         'has-artwork': props.artwork,
+        'has-leading': props.showBack || Boolean($slots.leading),
+        'has-trailing': hasTrailing,
       },
     ]"
     :aria-labelledby="titleId"
     :data-collapsed="props.collapsed ? 'true' : 'false'"
     :data-presentation="props.presentation"
+    :data-action-presentation="props.actionPresentation"
   >
     <div v-if="props.showBack || $slots.leading" class="app-page-header__leading">
       <button
@@ -108,15 +115,7 @@ if (import.meta.env.DEV) {
       </p>
 
       <div class="app-page-header__title-row">
-        <h1 :id="titleId" class="app-page-header__title">{{ props.title }}</h1>
-        <div
-          v-if="$slots.tags"
-          class="app-page-header__tags"
-          :aria-hidden="props.collapsed"
-          :inert="props.collapsed"
-        >
-          <slot name="tags" />
-        </div>
+        <h1 :id="titleId" class="app-page-header__title" :title="props.title">{{ props.title }}</h1>
       </div>
 
       <p
@@ -126,6 +125,14 @@ if (import.meta.env.DEV) {
       >
         {{ props.description }}
       </p>
+      <PageHeaderTags
+        v-if="$slots.tags"
+        class="app-page-header__tags"
+        :collapsed="props.collapsed"
+        :source="props.presentation === 'plain' ? 'wallpaper' : 'backdrop'"
+      >
+        <slot name="tags" />
+      </PageHeaderTags>
       <div
         v-if="$slots.meta"
         class="app-page-header__meta"
@@ -140,7 +147,12 @@ if (import.meta.env.DEV) {
       <div v-if="$slots.summary && !props.collapsed" class="app-page-header__summary">
         <slot name="summary" />
       </div>
-      <div v-if="hasDock" class="app-page-header__action-dock">
+      <div
+        v-if="hasDock"
+        class="app-page-header__action-dock"
+        :class="{ 'glass-surface-shell liquid-glass-host': props.presentation !== 'plain' && props.actionPresentation === 'dock' }"
+      >
+        <LiquidGlassLayer v-if="props.presentation !== 'plain' && props.actionPresentation === 'dock'" :bezel="16" :depth="24" />
         <div v-if="$slots.mode && !props.collapsed" class="app-page-header__mode">
           <slot name="mode" />
         </div>
@@ -166,7 +178,7 @@ if (import.meta.env.DEV) {
   // Expanded headers grow for descriptions and metadata; collapse keeps its preset.
   // Supporting browsers interpolate between natural and collapsed heights.
   interpolate-size: allow-keywords;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   align-items: center;
   gap: var(--layout-section-gap);
   overflow: hidden;
@@ -179,6 +191,10 @@ if (import.meta.env.DEV) {
     min-height var(--motion-duration-normal) var(--motion-easing-standard),
     padding var(--motion-duration-normal) var(--motion-easing-standard);
 }
+
+.app-page-header.has-trailing { grid-template-columns: minmax(0, 1fr) auto; }
+.app-page-header.has-leading { grid-template-columns: auto minmax(0, 1fr); }
+.app-page-header.has-leading.has-trailing { grid-template-columns: auto minmax(0, 1fr) auto; }
 
 .app-page-header::before,
 .app-page-header::after {
@@ -207,13 +223,13 @@ if (import.meta.env.DEV) {
   background:
     linear-gradient(
       90deg,
-      rgb(255 255 255 / 0.98) 0%,
-      rgb(255 255 255 / 0.92) 28%,
-      rgb(255 255 255 / 0.6) 48%,
-      rgb(255 255 255 / 0.15) 72%,
-      rgb(255 255 255 / 0.05) 100%
+      color-mix(in srgb, var(--surface-solid-opaque) 96%, transparent) 0%,
+      color-mix(in srgb, var(--surface-solid-opaque) 88%, transparent) 28%,
+      color-mix(in srgb, var(--surface-solid-opaque) 58%, transparent) 48%,
+      color-mix(in srgb, var(--surface-solid-opaque) 16%, transparent) 72%,
+      transparent 100%
     ),
-    linear-gradient(180deg, rgb(255 255 255 / 0.24), rgb(var(--page-header-domain-rgb) / 0.05));
+    linear-gradient(180deg, transparent, rgb(var(--page-header-domain-rgb) / 0.06));
 }
 
 .app-page-header--overview,
@@ -279,7 +295,6 @@ if (import.meta.env.DEV) {
 
 .app-page-header__leading,
 .app-page-header__title-row,
-.app-page-header__tags,
 .app-page-header__meta,
 .app-page-header__trailing,
 .app-page-header__summary,
@@ -303,12 +318,12 @@ if (import.meta.env.DEV) {
   flex: 0 0 var(--layout-page-header-leading-size);
   align-items: center;
   justify-content: center;
-  border: 1px solid rgb(255 255 255 / 0.9);
-  border-radius: 14px;
-  background: rgb(255 255 255 / 0.7);
+  border: 1px solid var(--border-glass-edge);
+  border-radius: var(--radius-lg);
+  background: var(--surface-glass-control);
   color: var(--page-header-domain-tone);
   box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 0.96),
+    var(--glass-edge-highlight),
     0 12px 24px -18px rgb(var(--page-header-domain-rgb) / 0.65);
   font-size: 1.5rem;
 }
@@ -326,9 +341,9 @@ if (import.meta.env.DEV) {
   align-items: center;
   justify-content: center;
   padding: 0;
-  border: 1px solid rgb(255 255 255 / 0.9);
+  border: 1px solid var(--border-glass-edge);
   border-radius: var(--radius-md);
-  background: rgb(255 255 255 / 0.82);
+  background: var(--surface-glass-control);
   color: var(--text-secondary);
   box-shadow: var(--inner-highlight);
   cursor: pointer;
@@ -406,44 +421,20 @@ if (import.meta.env.DEV) {
   font-size: 1.5rem;
 }
 
-.app-page-header__tags,
 .app-page-header__meta {
   min-width: 0;
   flex-wrap: wrap;
   gap: var(--layout-page-header-tag-gap);
 }
 
-.app-page-header__tags {
-  max-width: min(44rem, 52vw);
-  max-height: 4rem;
-  overflow: hidden;
-  opacity: 1;
-  transform: translateY(0);
-  transition:
-    max-width var(--motion-duration-normal) var(--motion-easing-standard),
-    max-height var(--motion-duration-normal) var(--motion-easing-standard),
-    opacity var(--motion-duration-fast) ease,
-    transform var(--motion-duration-normal) var(--motion-easing-standard);
-}
-
-.app-page-header__tags :deep(.el-tag) {
-  min-height: 24px;
-  padding-inline: 11px;
-  border-color: rgb(255 255 255 / 0.72);
-  border-radius: 999px;
-  background: rgb(255 255 255 / 0.58);
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.86);
-  font-weight: 650;
-}
-
 .app-page-header__description {
   display: -webkit-box;
   max-width: 72ch;
   max-height: 3rem;
-  margin-top: 5px;
+  margin-top: var(--layout-page-header-description-gap);
   overflow: hidden;
   color: var(--text-secondary);
-  font-size: 0.875rem;
+  font-size: var(--layout-page-header-description-size);
   line-height: 1.5;
   opacity: 1;
   transform: translateY(0);
@@ -458,7 +449,7 @@ if (import.meta.env.DEV) {
 
 .app-page-header__meta {
   max-height: 4rem;
-  margin-top: 8px;
+  margin-top: var(--layout-page-header-meta-gap);
   overflow: hidden;
   color: var(--text-muted);
   font-size: 0.8125rem;
@@ -472,7 +463,6 @@ if (import.meta.env.DEV) {
 }
 
 .app-page-header.is-collapsed .app-page-header__eyebrow,
-.app-page-header.is-collapsed .app-page-header__tags,
 .app-page-header.is-collapsed .app-page-header__description,
 .app-page-header.is-collapsed .app-page-header__meta {
   max-height: 0;
@@ -481,10 +471,6 @@ if (import.meta.env.DEV) {
   opacity: 0;
   transform: translateY(-6px);
   pointer-events: none;
-}
-
-.app-page-header.is-collapsed .app-page-header__tags {
-  max-width: 0;
 }
 
 .app-page-header__trailing {
@@ -503,14 +489,9 @@ if (import.meta.env.DEV) {
   max-width: 100%;
   justify-content: flex-end;
   gap: var(--layout-page-header-action-gap);
+  position: relative;
   padding: 5px;
-  border: 1px solid rgb(255 255 255 / 0.88);
-  border-radius: 14px;
-  background: rgb(255 255 255 / 0.58);
-  box-shadow:
-    0 14px 28px -20px rgb(15 23 42 / 0.48),
-    inset 0 1px 0 rgb(255 255 255 / 0.96);
-  backdrop-filter: blur(14px) saturate(0.78);
+  border-radius: var(--radius-lg);
 }
 
 .app-page-header__mode,
@@ -526,97 +507,102 @@ if (import.meta.env.DEV) {
 }
 
 .app-page-header__actions :deep(.el-button) {
-  min-height: 40px;
-  border-color: rgb(255 255 255 / 0.92);
-  border-radius: 10px;
-  background: rgb(255 255 255 / 0.86);
-  color: #42516a;
-  box-shadow:
-    0 9px 18px -14px rgb(15 23 42 / 0.38),
-    inset 0 1px 0 rgb(255 255 255 / 0.98);
-  font-weight: 700;
-}
-
-.app-page-header__actions :deep(.el-button:hover) {
-  border-color: rgb(var(--brand-primary-rgb) / 0.45);
-  color: var(--brand-active);
-  transform: translateY(-1px);
-}
-
-.app-page-header__actions :deep(.el-button--primary) {
-  border-color: rgb(255 255 255 / 0.84) !important;
-  background: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--brand-active) 76%, #0f172a 24%),
-    color-mix(in srgb, var(--brand-primary) 72%, #0f172a 28%)
-  ) !important;
-  color: #fff !important;
-  box-shadow:
-    0 0 0 1px rgb(255 255 255 / 0.42),
-    0 13px 26px -13px rgb(15 23 42 / 0.58),
-    inset 0 1px 0 rgb(255 255 255 / 0.28) !important;
+  min-height: var(--layout-page-header-action-height);
+  border-radius: var(--radius-md);
+  font-weight: 650;
 }
 
 .app-page-header__actions :deep(.el-button.is-circle) {
   width: 40px;
   padding: 0;
-  border-radius: 10px;
-}
-
-[data-theme='dark'] .app-page-header::after {
-  background:
-    linear-gradient(
-      90deg,
-      rgb(8 18 28 / 0.97) 0%,
-      rgb(8 18 28 / 0.88) 30%,
-      rgb(8 18 28 / 0.58) 52%,
-      rgb(8 18 28 / 0.18) 78%,
-      transparent 100%
-    ),
-    linear-gradient(180deg, rgb(8 18 28 / 0.12), rgb(var(--page-header-domain-rgb) / 0.12));
-}
-
-[data-theme='dark'] .app-page-header__tags :deep(.el-tag) {
-  border-color: color-mix(in srgb, var(--border-readable) 72%, transparent);
-  background: color-mix(in srgb, var(--surface-solid-control) 88%, transparent);
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text-primary) 10%, transparent);
-}
-
-[data-theme='dark'] .app-page-header__tags :deep(.el-tag--primary) {
-  color: color-mix(in srgb, var(--brand-primary) 70%, var(--text-primary));
-}
-
-[data-theme='dark'] .app-page-header__tags :deep(.el-tag--info) {
-  color: var(--text-secondary);
+  border-radius: var(--radius-md);
 }
 
 .app-page-header[data-presentation='plain'] {
+  // 列布局页面内容较高时，plain 页头没有固定高度，不能被压缩裁掉副行。
+  flex-shrink: 0;
   height: auto;
-  min-height: 52px;
-  padding: 8px 0;
+  min-height: 0;
+  padding: 0;
+  align-items: start;
   border: 0;
   border-radius: 0;
   background: transparent;
   box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 .app-page-header[data-presentation='plain']::before,
 .app-page-header[data-presentation='plain']::after { display: none; }
 
-.app-page-header[data-presentation='plain'] .app-page-header__title { font-size: 22px; }
+.app-page-header[data-presentation='plain'] .app-page-header__title {
+  font-size: var(--layout-page-header-title-size);
+  line-height: var(--layout-page-header-title-line-height);
+  color: var(--text-on-wallpaper);
+  text-shadow: var(--text-on-wallpaper-shadow);
+}
+
+.app-page-header[data-presentation='plain'] .app-page-header__description,
+.app-page-header[data-presentation='plain'] .app-page-header__meta,
+.app-page-header[data-presentation='plain'] .app-page-header__eyebrow {
+  color: var(--text-on-wallpaper-secondary);
+  text-shadow: var(--text-on-wallpaper-shadow);
+}
+
 .app-page-header[data-presentation='plain'] .app-page-header__action-dock {
+  padding: 5px;
+  border: 0;
+  background: var(--surface-solid-control);
+  box-shadow: none;
+}
+
+.app-page-header[data-action-presentation='inline'] .app-page-header__action-dock {
   padding: 0;
   border: 0;
   background: transparent;
   box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.app-page-header[data-presentation='plain']:not(.app-page-header--entity) {
+  .app-page-header__title-row {
+    gap: calc(var(--layout-page-header-title-indent) - var(--layout-page-header-marker-width));
+  }
+
+  .app-page-header__title-row::before {
+    width: var(--layout-page-header-marker-width);
+    height: var(--layout-page-header-title-line-height);
+    flex-basis: var(--layout-page-header-marker-width);
+    margin-right: 0;
+  }
+
+  .app-page-header__description,
+  .app-page-header__tags,
+  .app-page-header__meta {
+    margin-inline-start: var(--layout-page-header-title-indent);
+  }
+}
+
+.app-page-header[data-presentation='plain'] .app-page-header__trailing {
+  align-items: start;
+  flex-wrap: wrap;
+  gap: var(--layout-page-header-action-gap);
 }
 
 @media (max-width: 900px) {
-  .app-page-header {
+  .app-page-header,
+  .app-page-header.has-trailing {
     height: auto;
     min-height: var(--layout-page-header-height-standard);
-    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
     align-items: center;
+  }
+
+  .app-page-header.has-leading,
+  .app-page-header.has-leading.has-trailing {
+    grid-template-columns: auto minmax(0, 1fr);
   }
 
   .app-page-header--overview,
@@ -646,14 +632,13 @@ if (import.meta.env.DEV) {
 
   .app-page-header__trailing {
     grid-column: 1 / -1;
-    justify-content: space-between;
+    justify-content: flex-start;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .app-page-header,
   .app-page-header__eyebrow,
-  .app-page-header__tags,
   .app-page-header__description,
   .app-page-header__meta {
     transition: none;
@@ -661,7 +646,10 @@ if (import.meta.env.DEV) {
 }
 
 @media (max-width: 760px) {
-  .app-page-header {
+  .app-page-header,
+  .app-page-header.has-trailing,
+  .app-page-header.has-leading,
+  .app-page-header.has-leading.has-trailing {
     grid-template-columns: minmax(0, 1fr);
   }
 

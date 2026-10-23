@@ -219,6 +219,8 @@ export interface KnowledgeQaAttachResult {
   agentId: string
   agentName: string
   agentConfigVersion?: number
-  toolName: string
+  toolName?: string | null
   alreadyAttached: boolean
+  /** 加入 Agent 时使用的调用说明（含出处转述规则）。 */
+  toolDescription?: string
 }

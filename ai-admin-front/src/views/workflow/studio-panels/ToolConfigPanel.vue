@@ -1,260 +1,408 @@
 <template>
   <div class="node-specific-panel">
-    <el-divider>能力调用</el-divider>
-    <el-form-item label="引用能力">
-      <div class="reference-row">
-        <el-input :model-value="config.ref" readonly aria-label="当前资产引用" placeholder="请选择所属目录中的业务方法或 API" />
-        <el-button v-if="data.kind === 'tool'" plain @click="openBusinessMethodPicker">选择业务方法</el-button>
-        <el-button v-if="data.kind === 'tool'" plain @click="openHttpApiPicker">选择 API</el-button>
-      </div>
-    </el-form-item>
-    <el-alert v-if="selectedTool?.sourceAvailability === 'LEGACY_SCAN_TOOL_RETIRED'"
-      title="扫描人工调用投影已退场。请到所属项目 API 目录核对来源、接纳和连接，再点“选择 API”重新选择并显式发布。旧引用保持不变。"
-      type="warning" :closable="false" show-icon />
-    <section v-if="selectedBusinessMethod || businessMethodDetailError" class="business-method-summary" aria-live="polite">
-      <template v-if="selectedBusinessMethod">
-        <div class="business-method-summary-head">
-          <div>
-            <strong>业务方法</strong>
-            <span>{{ selectedBusinessMethod.title || selectedBusinessMethod.name }}</span>
-          </div>
-          <el-tag size="small" type="success" effect="plain">来源 {{ selectedBusinessMethod.sourceAvailability || 'READY' }}</el-tag>
+    <ConfigSection title="调用配置" description="选择业务方法或 API，再绑定参数来源">
+      <el-form-item label="引用能力">
+        <div class="reference-row">
+          <el-input
+            :model-value="config.ref"
+            readonly
+            aria-label="当前资产引用"
+            placeholder="请选择所属目录中的业务方法或 API"
+          />
+          <el-button v-if="data.kind === 'tool'" plain @click="openBusinessMethodPicker">选择业务方法</el-button>
+          <el-button v-if="data.kind === 'tool'" plain @click="openHttpApiPicker">选择 API</el-button>
         </div>
-        <dl>
-          <div><dt>标识</dt><dd><code>{{ selectedBusinessMethod.qualifiedName }}</code></dd></div>
-          <div><dt>项目</dt><dd>{{ selectedBusinessMethod.projectCode || projectCode || '-' }}</dd></div>
-          <div><dt>副作用</dt><dd>{{ businessMethodSideEffectLabel(selectedBusinessMethod.sideEffect) }}</dd></div>
-          <div><dt>返回</dt><dd>{{ selectedBusinessMethod.responseType || '未声明返回类型' }}</dd></div>
-        </dl>
-        <p v-if="selectedBusinessMethod.description">{{ selectedBusinessMethod.description }}</p>
-      </template>
-      <el-alert
-        v-if="businessMethodDetailError"
-        :title="businessMethodDetailError"
+      </el-form-item>
+      <LiquidGlassNotice
+        v-if="selectedTool?.sourceAvailability === 'LEGACY_SCAN_TOOL_RETIRED'"
+        title="扫描人工调用投影已退场。请到所属项目 API 目录核对来源、接纳和连接，再点“选择 API”重新选择并显式发布。旧引用保持不变。"
         type="warning"
-        :closable="false"
-        show-icon
+        source="backdrop"
+      />
+      <section
+        v-if="selectedBusinessMethod || businessMethodDetailError"
+        class="business-method-summary"
+        aria-live="polite"
       >
-        <template #default>
-          <el-button text type="primary" @click="retryBusinessMethodDetail">重试读取摘要</el-button>
-        </template>
-      </el-alert>
-    </section>
-    <section v-if="config.httpApiAssetId" class="business-method-summary" aria-live="polite">
-      <template v-if="selectedHttpApi">
-        <div class="business-method-summary-head">
-          <div><strong>API</strong><span>{{ selectedHttpApi.summary.httpMethod }} {{ selectedHttpApi.summary.routeTemplate }}</span></div>
-          <el-tag size="small" :type="httpApiSelectedReason ? 'danger' : 'success'" effect="plain">
-            {{ httpApiSelectedReason ? '当前不可选' : '作者可配置' }}
-          </el-tag>
-        </div>
-        <dl>
-          <div><dt>项目</dt><dd>{{ selectedHttpApi.summary.projectCode }} / {{ selectedHttpApi.summary.environment }}</dd></div>
-          <div><dt>来源</dt><dd>{{ selectedHttpApi.summary.sourceKinds.join('、') }}</dd></div>
-          <div><dt>标识</dt><dd><code>{{ selectedHttpApi.summary.qualifiedName }}</code></dd></div>
-          <div><dt>契约</dt><dd>{{ selectedHttpApi.summary.sourceStatus }} · 来源{{ selectedHttpApi.summary.sourceConfirmed ? '已确认' : '待确认' }}</dd></div>
-        </dl>
-        <p>配置只保存 API 标识与映射；发布时由服务端固定来源、连接及凭据修订。</p>
-        <p>API 请求使用服务端受控超时；写入后超时按结果未确认处理，不自动重发。</p>
-        <el-alert v-if="selectedHttpApi.summary.httpMethod === 'POST'" type="warning" :closable="false" show-icon
-          title="此 API 会写入业务数据。仅已发布 Workflow 可执行；Studio 两种调试入口均不调用写 API。"
-          description="Agent 须通过既有写操作确认；已授权 MCP 客户端的显式新运行会发起一次写入。结果未确认时请先核对原运行，勿直接重发。" />
-      </template>
-      <el-alert v-if="httpApiSelectedReason" :title="httpApiSelectedReason" type="warning" :closable="false" show-icon>
-        <template #default><el-button text type="primary" @click="retryHttpApiDetail">重试读取 API</el-button></template>
-      </el-alert>
-      <p v-else-if="httpApiSelectedLoading">正在核对 API 来源及连接…</p>
-    </section>
-    <el-form-item v-if="!config.httpApiAssetId" label="凭据引用">
-      <CredentialSelect
-        v-model="config.credentialRef"
-        :credentials="credentialOptions"
-        :project-id="projectId"
-        :project-code="projectCode"
-        @created="$emit('credentialCreated', $event)"
-      />
-    </el-form-item>
-    <el-form-item v-if="isRequestTool && !config.httpApiAssetId" label="最大请求时间">
-      <el-input-number
-        v-model="maxRequestSeconds"
-        :min="1"
-        :max="1800"
-        :step="10"
-        controls-position="right"
-      />
-      <span class="timeout-unit">秒</span>
-    </el-form-item>
-    <el-form-item label="参数映射">
-      <template v-if="config.httpApiAssetId">
-        <div v-if="selectedHttpApi" class="business-method-mappings">
-          <div class="field-table-head"><strong>API path / query / JSON body</strong><span>必填项显式映射；可选缺省不补默认值，不回退 lastOutput。</span></div>
-          <div v-for="target in httpApiInputTargets" :key="target.key" class="business-method-mapping-row">
-            <div class="business-method-target">
-              <strong>{{ target.name }}</strong><span>{{ target.location }} · {{ target.type }}</span>
-              <em>{{ target.required ? '必填' : '可选' }}</em>
-              <small v-if="target.sensitive">敏感字段：选择输入变量，不在图中保存秘密常量。</small>
-            </div>
-            <el-select :model-value="businessMappingDisplay(target.key)" filterable allow-create
-              :disabled="!!httpApiSelectedReason"
-              placeholder="选择 Workflow 输入或前序节点输出"
-              @change="(value: string) => updateHttpApiMapping(target.key, value)">
-              <el-option-group v-for="group in httpApiVariableGroups" :key="group.group" :label="group.group">
-                <el-option v-for="option in group.options" :key="option.value" :label="option.label" :value="option.value" />
-              </el-option-group>
-            </el-select>
-            <p v-if="httpApiMappingIssue(target.key, target.required)" class="business-method-mapping-error" role="alert">
-              {{ httpApiMappingIssue(target.key, target.required) }}
-            </p>
-          </div>
-        </div>
-        <el-alert v-else title="正在核对已保存 API；引用与映射保持原样。" type="info" :closable="false" />
-      </template>
-      <template v-else-if="selectedBusinessMethod">
-        <div class="business-method-mappings">
-          <div class="field-table-head">
+        <template v-if="selectedBusinessMethod">
+          <div class="business-method-summary-head">
             <div>
-              <strong>逐参数来源</strong>
-              <span>只映射顶层参数；DTO、Map 和数组整体传入。</span>
+              <strong>业务方法</strong>
+              <span>{{ selectedBusinessMethod.title || selectedBusinessMethod.name }}</span>
             </div>
-            <el-button size="small" text type="primary" @click="fillMissingMappings">补齐映射</el-button>
+            <el-tag size="small" type="success" effect="plain"
+              >来源 {{ selectedBusinessMethod.sourceAvailability || 'READY' }}</el-tag
+            >
           </div>
-          <div v-if="businessMethodInputTargets.length" class="business-method-mapping-rows">
-            <div v-for="target in businessMethodInputTargets" :key="target.name" class="business-method-mapping-row">
+          <dl>
+            <div>
+              <dt>标识</dt>
+              <dd>
+                <code>{{ selectedBusinessMethod.qualifiedName }}</code>
+              </dd>
+            </div>
+            <div>
+              <dt>项目</dt>
+              <dd>{{ selectedBusinessMethod.projectCode || projectCode || '-' }}</dd>
+            </div>
+            <div>
+              <dt>副作用</dt>
+              <dd>{{ businessMethodSideEffectLabel(selectedBusinessMethod.sideEffect) }}</dd>
+            </div>
+            <div>
+              <dt>返回</dt>
+              <dd>{{ selectedBusinessMethod.responseType || '未声明返回类型' }}</dd>
+            </div>
+          </dl>
+          <p v-if="selectedBusinessMethod.description">{{ selectedBusinessMethod.description }}</p>
+        </template>
+        <LiquidGlassNotice
+          v-if="businessMethodDetailError"
+          :title="businessMethodDetailError"
+          type="warning"
+          source="backdrop"
+        >
+          <template #actions><el-button text type="primary" @click="retryBusinessMethodDetail">重试读取摘要</el-button></template>
+        </LiquidGlassNotice>
+      </section>
+      <section v-if="config.httpApiAssetId" class="business-method-summary" aria-live="polite">
+        <template v-if="selectedHttpApi">
+          <div class="business-method-summary-head">
+            <div>
+              <strong>API</strong
+              ><span>{{ selectedHttpApi.summary.httpMethod }} {{ selectedHttpApi.summary.routeTemplate }}</span>
+            </div>
+            <el-tag size="small" :type="httpApiSelectedReason ? 'danger' : 'success'" effect="plain">
+              {{ httpApiSelectedReason ? '当前不可选' : '作者可配置' }}
+            </el-tag>
+          </div>
+          <dl>
+            <div>
+              <dt>项目</dt>
+              <dd>{{ selectedHttpApi.summary.projectCode }} / {{ selectedHttpApi.summary.environment }}</dd>
+            </div>
+            <div>
+              <dt>来源</dt>
+              <dd>{{ selectedHttpApi.summary.sourceKinds.join('、') }}</dd>
+            </div>
+            <div>
+              <dt>标识</dt>
+              <dd>
+                <code>{{ selectedHttpApi.summary.qualifiedName }}</code>
+              </dd>
+            </div>
+            <div>
+              <dt>契约</dt>
+              <dd>
+                {{ selectedHttpApi.summary.sourceStatus }} · 来源{{
+                  selectedHttpApi.summary.sourceConfirmed ? '已确认' : '待确认'
+                }}
+              </dd>
+            </div>
+          </dl>
+          <p>配置只保存 API 标识与映射；发布时由服务端固定来源、连接及凭据修订。</p>
+          <p>API 请求使用服务端受控超时；写入后超时按结果未确认处理，不自动重发。</p>
+          <LiquidGlassNotice
+            v-if="selectedHttpApi.summary.httpMethod === 'POST'"
+            type="warning"
+            title="此 API 会写入业务数据。仅已发布 Workflow 可执行；Studio 两种调试入口均不调用写 API。"
+            description="Agent 须通过既有写操作确认；已授权 MCP 客户端的显式新运行会发起一次写入。结果未确认时请先核对原运行，勿直接重发。"
+            source="backdrop"
+          />
+        </template>
+        <LiquidGlassNotice
+          v-if="httpApiSelectedReason"
+          :title="httpApiSelectedReason"
+          type="warning"
+          source="backdrop"
+        >
+          <template #actions><el-button text type="primary" @click="retryHttpApiDetail">重试读取 API</el-button></template>
+        </LiquidGlassNotice>
+        <p v-else-if="httpApiSelectedLoading">正在核对 API 来源及连接…</p>
+      </section>
+      <el-form-item v-if="!config.httpApiAssetId" label="凭据引用">
+        <CredentialSelect
+          v-model="config.credentialRef"
+          :credentials="credentialOptions"
+          :project-id="projectId"
+          :project-code="projectCode"
+          @created="$emit('credentialCreated', $event)"
+        />
+      </el-form-item>
+      <el-form-item v-if="isRequestTool && !config.httpApiAssetId" label="最大请求时间">
+        <el-input-number v-model="maxRequestSeconds" :min="1" :max="1800" :step="10" controls-position="right" />
+        <span class="timeout-unit">秒</span>
+      </el-form-item>
+    </ConfigSection>
+    <ConfigSection title="参数与返回" description="绑定调用参数，查看下游可引用的结果">
+      <el-form-item label="参数映射">
+        <template v-if="config.httpApiAssetId">
+          <div v-if="selectedHttpApi" class="business-method-mappings">
+            <div class="field-table-head">
+              <strong>API path / query / JSON body</strong
+              ><span>必填项显式映射；可选缺省不补默认值，不回退 lastOutput。</span>
+            </div>
+            <div v-for="target in httpApiInputTargets" :key="target.key" class="business-method-mapping-row">
               <div class="business-method-target">
-                <strong>{{ target.name }}</strong>
-                <span>{{ target.type }}</span>
+                <strong>{{ target.name }}</strong
+                ><span>{{ target.location }} · {{ target.type }}</span>
                 <em>{{ target.required ? '必填' : '可选' }}</em>
-                <small v-if="target.children.length">含 {{ target.children.length }} 个来源声明字段，仅映射根对象</small>
-                <small v-else-if="target.description">{{ target.description }}</small>
+                <small v-if="target.sensitive">敏感字段：选择输入变量，不在图中保存秘密常量。</small>
               </div>
               <el-select
-                :model-value="businessMappingDisplay(target.name)"
+                :model-value="businessMappingDisplay(target.key)"
                 filterable
                 allow-create
-                placeholder="选择 params、nodeOutput、var、sys 或高级表达式"
-                @change="(value: string) => updateBusinessMethodMapping(target.name, value)"
+                :disabled="!!httpApiSelectedReason"
+                placeholder="选择 Workflow 输入或前序节点输出"
+                @change="(value: string) => updateHttpApiMapping(target.key, value)"
               >
-                <el-option-group v-for="group in businessMethodVariableGroups" :key="group.group" :label="group.group">
-                  <el-option v-for="option in group.options" :key="option.value" :label="option.label" :value="option.value">
-                    <div class="variable-option">
-                      <strong>{{ option.label }}</strong>
-                      <span>{{ option.value }}</span>
-                      <em v-if="option.description">{{ option.description }}</em>
-                    </div>
-                  </el-option>
+                <el-option-group v-for="group in httpApiVariableGroups" :key="group.group" :label="group.group">
+                  <el-option
+                    v-for="option in group.options"
+                    :key="option.value"
+                    :label="option.label"
+                    :value="option.value"
+                  />
                 </el-option-group>
               </el-select>
-              <p v-if="businessMappingIssue(target.name, target.required)" class="business-method-mapping-error" role="alert">
-                {{ businessMappingIssue(target.name, target.required) }}
+              <p
+                v-if="httpApiMappingIssue(target.key, target.required)"
+                class="business-method-mapping-error"
+                role="alert"
+              >
+                {{ httpApiMappingIssue(target.key, target.required) }}
               </p>
             </div>
           </div>
-          <div v-else class="business-method-zero-args">
-            此业务方法无需输入参数。保存时会写入 Runtime 已支持的 <code>args={}</code>，不会回退为通用 input。
-          </div>
-          <el-alert
-            v-if="mappingReconciliationNotice"
-            :title="mappingReconciliationNotice"
+          <LiquidGlassNotice
+            v-else
+            title="正在核对已保存 API；引用与映射保持原样。"
             type="info"
-            :closable="false"
-            show-icon
+            source="backdrop"
           />
+        </template>
+        <template v-else-if="selectedBusinessMethod">
+          <div class="business-method-mappings">
+            <div class="field-table-head">
+              <div>
+                <strong>逐参数来源</strong>
+                <span>只映射顶层参数；DTO、Map 和数组整体传入。</span>
+              </div>
+              <el-button size="small" text type="primary" @click="fillMissingMappings">补齐映射</el-button>
+            </div>
+            <div v-if="businessMethodInputTargets.length" class="business-method-mapping-rows">
+              <div v-for="target in businessMethodInputTargets" :key="target.name" class="business-method-mapping-row">
+                <div class="business-method-target">
+                  <strong>{{ target.name }}</strong>
+                  <span>{{ target.type }}</span>
+                  <em>{{ target.required ? '必填' : '可选' }}</em>
+                  <small v-if="target.children.length"
+                    >含 {{ target.children.length }} 个来源声明字段，仅映射根对象</small
+                  >
+                  <small v-else-if="target.description">{{ target.description }}</small>
+                </div>
+                <el-select
+                  :model-value="businessMappingDisplay(target.name)"
+                  filterable
+                  allow-create
+                  placeholder="选择 params、nodeOutput、var、sys 或高级表达式"
+                  @change="(value: string) => updateBusinessMethodMapping(target.name, value)"
+                >
+                  <el-option-group
+                    v-for="group in businessMethodVariableGroups"
+                    :key="group.group"
+                    :label="group.group"
+                  >
+                    <el-option
+                      v-for="option in group.options"
+                      :key="option.value"
+                      :label="option.label"
+                      :value="option.value"
+                    >
+                      <div class="variable-option">
+                        <strong>{{ option.label }}</strong>
+                        <span>{{ option.value }}</span>
+                        <em v-if="option.description">{{ option.description }}</em>
+                      </div>
+                    </el-option>
+                  </el-option-group>
+                </el-select>
+                <p
+                  v-if="businessMappingIssue(target.name, target.required)"
+                  class="business-method-mapping-error"
+                  role="alert"
+                >
+                  {{ businessMappingIssue(target.name, target.required) }}
+                </p>
+              </div>
+            </div>
+            <div v-else class="business-method-zero-args">
+              此业务方法无需输入参数。保存时会写入 Runtime 已支持的 <code>args={}</code>，不会回退为通用 input。
+            </div>
+            <LiquidGlassNotice
+              v-if="mappingReconciliationNotice"
+              :title="mappingReconciliationNotice"
+              type="info"
+              source="backdrop"
+            />
+          </div>
+        </template>
+        <el-input
+          v-else
+          :model-value="formatMap(config.inputMapping)"
+          type="textarea"
+          :rows="6"
+          placeholder="customerId = params.customerId"
+          @update:model-value="updateGenericInputMapping($event)"
+        />
+      </el-form-item>
+      <ConfigSection
+        title="映射备注"
+        description="记录参数映射的补充说明"
+        collapsible
+        :default-open="!!config.mappingNote"
+      >
+        <el-form-item label="映射备注">
+          <el-input v-model="config.mappingNote" type="textarea" :rows="2" />
+        </el-form-item>
+      </ConfigSection>
+      <div v-if="config.httpApiAssetId && selectedHttpApi" class="tool-params business-method-output-hints">
+        <div class="field-table-head"><strong>响应与下游引用</strong></div>
+        <p>
+          {{
+            httpApiOutputFields.length
+              ? `已声明 ${httpApiOutputFields.length} 个 JSON 字段。`
+              : '没有可证明的响应字段；下游仅提供根对象。'
+          }}
+        </p>
+        <div class="business-method-output-candidates">
+          <code>nodeOutput.{{ nodeId }}</code>
+          <code>var.{{ data.outputAlias || 'tool_output' }}</code>
+          <code v-for="field in httpApiOutputFields" :key="field">nodeOutput.{{ nodeId }}.{{ field }}</code>
         </div>
-      </template>
-      <el-input
-        v-else
-        :model-value="formatMap(config.inputMapping)"
-        type="textarea"
-        :rows="6"
-        placeholder="customerId = params.customerId"
-        @update:model-value="updateGenericInputMapping($event)"
-      />
-    </el-form-item>
-    <el-form-item label="映射备注">
-      <el-input v-model="config.mappingNote" type="textarea" :rows="2" />
-    </el-form-item>
-    <div v-if="config.httpApiAssetId && selectedHttpApi" class="tool-params business-method-output-hints">
-      <div class="field-table-head"><strong>响应与下游引用</strong></div>
-      <p>{{ httpApiOutputFields.length ? `已声明 ${httpApiOutputFields.length} 个 JSON 字段。` : '没有可证明的响应字段；下游仅提供根对象。' }}</p>
-      <div class="business-method-output-candidates">
-        <code>nodeOutput.{{ nodeId }}</code>
-        <code>var.{{ data.outputAlias || 'tool_output' }}</code>
-        <code v-for="field in httpApiOutputFields" :key="field">nodeOutput.{{ nodeId }}.{{ field }}</code>
       </div>
-    </div>
-    <div v-else-if="selectedBusinessMethod" class="tool-params business-method-output-hints">
-      <div class="field-table-head">
-        <strong>返回与下游引用</strong>
+      <div v-else-if="selectedBusinessMethod" class="tool-params business-method-output-hints">
+        <div class="field-table-head">
+          <strong>返回与下游引用</strong>
+        </div>
+        <p v-if="businessMethodOutputFields.length">
+          已声明 {{ businessMethodOutputFields.length }} 个返回字段；下游可选择节点输出根对象、业务别名和声明字段路径。
+        </p>
+        <p v-else-if="businessMethodHasScalarReturn(selectedBusinessMethod.responseType)">
+          来源声明标量返回。下游选择“标量返回值”，只读试运行与已发布执行都使用节点输出根值。
+        </p>
+        <p v-else>
+          {{
+            selectedBusinessMethod.responseType
+              ? '来源仅声明返回类型，尚无可选字段；下游仅提供根对象。'
+              : '来源未声明返回类型或字段；下游仅提供根对象。'
+          }}
+        </p>
+        <div class="business-method-output-candidates">
+          <code v-for="candidate in businessMethodOutputCandidates" :key="candidate.value">{{ candidate.value }}</code>
+        </div>
       </div>
-      <p v-if="businessMethodOutputFields.length">
-        已声明 {{ businessMethodOutputFields.length }} 个返回字段；下游可选择节点输出根对象、业务别名和声明字段路径。
-      </p>
-      <p v-else-if="businessMethodHasScalarReturn(selectedBusinessMethod.responseType)">
-        来源声明标量返回。下游选择“标量返回值”，只读试运行与已发布执行都使用节点输出根值。
-      </p>
-      <p v-else>
-        {{ selectedBusinessMethod.responseType
-          ? '来源仅声明返回类型，尚无可选字段；下游仅提供根对象。'
-          : '来源未声明返回类型或字段；下游仅提供根对象。' }}
-      </p>
-      <div class="business-method-output-candidates">
-        <code v-for="candidate in businessMethodOutputCandidates" :key="candidate.value">{{ candidate.value }}</code>
+      <div v-else-if="selectedTool?.parameters?.length" class="tool-params">
+        <div class="field-table-head">
+          <strong>工具参数</strong>
+          <el-button size="small" text type="primary" @click="fillMissingMappings">补齐映射</el-button>
+        </div>
+        <div v-for="param in selectedTool.parameters" :key="param.name" class="tool-param-row">
+          <strong>{{ param.name }}</strong>
+          <span>{{ param.type }}</span>
+          <em>{{ param.required ? '必填' : '可选' }}</em>
+        </div>
       </div>
-    </div>
-    <div v-else-if="selectedTool?.parameters?.length" class="tool-params">
-      <div class="field-table-head">
-        <strong>工具参数</strong>
-        <el-button size="small" text type="primary" @click="fillMissingMappings">补齐映射</el-button>
-      </div>
-      <div v-for="param in selectedTool.parameters" :key="param.name" class="tool-param-row">
-        <strong>{{ param.name }}</strong>
-        <span>{{ param.type }}</span>
-        <em>{{ param.required ? '必填' : '可选' }}</em>
-      </div>
-    </div>
-
-    <el-dialog v-model="httpApiDialogOpen" title="选择 API" width="min(920px, 96vw)" append-to-body destroy-on-close>
+    </ConfigSection>
+    <AppDialog v-model="httpApiDialogOpen" title="选择 API" width="min(920px, 96vw)" append-to-body destroy-on-close>
       <div class="business-method-picker-toolbar">
-        <el-input v-model="httpApiKeyword" clearable :prefix-icon="Search" aria-label="搜索 API"
-          placeholder="搜索路径或 API 标识" @clear="clearHttpApiSearch" @keyup.enter="submitHttpApiSearch" />
+        <el-input
+          v-model="httpApiKeyword"
+          clearable
+          :prefix-icon="Search"
+          aria-label="搜索 API"
+          placeholder="搜索路径或 API 标识"
+          @clear="clearHttpApiSearch"
+          @keyup.enter="submitHttpApiSearch"
+        />
         <el-button :icon="Search" type="primary" @click="submitHttpApiSearch">查询</el-button>
       </div>
-      <p class="business-method-picker-scope">当前范围：{{ projectCode || projectId || '-' }} / {{ httpApiEnvironment || '待确认' }}。支持只读 GET 与内部 POST + WRITE 平铺 JSON；选择前核验来源、契约及连接。写 API 不用于 Studio 调试。</p>
-      <el-alert v-if="httpApiListStatus === 'error'" :title="httpApiListError" type="error" :closable="false" show-icon>
-        <template #default><el-button text type="primary" @click="retryHttpApiList">重试</el-button></template>
-      </el-alert>
-      <el-table v-loading="httpApiListStatus === 'loading'" :data="httpApiRows" row-key="summary.id" height="420" stripe>
+      <p class="business-method-picker-scope">
+        当前范围：{{ projectCode || projectId || '-' }} / {{ httpApiEnvironment || '待确认' }}。支持只读 GET 与内部 POST
+        + WRITE 平铺 JSON；选择前核验来源、契约及连接。写 API 不用于 Studio 调试。
+      </p>
+      <LiquidGlassNotice
+        v-if="httpApiListStatus === 'error'"
+        :title="httpApiListError"
+        type="error"
+        source="backdrop"
+      >
+        <template #actions><el-button text type="primary" @click="retryHttpApiList">重试</el-button></template>
+      </LiquidGlassNotice>
+      <el-table
+        v-loading="httpApiListStatus === 'loading'"
+        :data="httpApiRows"
+        row-key="summary.id"
+        height="420"
+        stripe
+      >
         <el-table-column label="API" min-width="270">
-          <template #default="{ row }"><div class="project-api-name">
-            <strong>{{ row.summary.httpMethod }} {{ row.summary.routeTemplate }}</strong>
-            <code>{{ row.summary.qualifiedName }}</code>
-            <span>{{ row.summary.projectCode }} / {{ row.summary.environment }}</span>
-            <span class="http-api-mobile-state">{{ row.summary.sourceKinds.join('、') }} · {{ row.reason || '来源及连接已核验' }}</span>
-          </div></template>
+          <template #default="{ row }"
+            ><div class="project-api-name">
+              <strong>{{ row.summary.httpMethod }} {{ row.summary.routeTemplate }}</strong>
+              <code>{{ row.summary.qualifiedName }}</code>
+              <span>{{ row.summary.projectCode }} / {{ row.summary.environment }}</span>
+              <span class="http-api-mobile-state"
+                >{{ row.summary.sourceKinds.join('、') }} · {{ row.reason || '来源及连接已核验' }}</span
+              >
+            </div></template
+          >
         </el-table-column>
         <el-table-column label="来源 / 输入" min-width="150">
-          <template #default="{ row }"><div class="project-api-name">
-            <strong>{{ row.summary.sourceKinds.join('、') }}</strong>
-            <span>{{ buildHttpApiInputTargets(row.detail?.acceptedContract).length }} 个输入 · {{ row.detail?.acceptedContract?.sideEffect || '未声明副作用' }}</span>
-          </div></template>
+          <template #default="{ row }"
+            ><div class="project-api-name">
+              <strong>{{ row.summary.sourceKinds.join('、') }}</strong>
+              <span
+                >{{ buildHttpApiInputTargets(row.detail?.acceptedContract).length }} 个输入 ·
+                {{ row.detail?.acceptedContract?.sideEffect || '未声明副作用' }}</span
+              >
+            </div></template
+          >
         </el-table-column>
         <el-table-column label="可用性" min-width="180">
-          <template #default="{ row }"><el-tag size="small" :type="row.reason ? 'warning' : 'success'" effect="plain">
-            {{ row.reason || '来源及连接已核验' }}
-          </el-tag></template>
+          <template #default="{ row }"
+            ><el-tag size="small" :type="row.reason ? 'warning' : 'success'" effect="plain">
+              {{ row.reason || '来源及连接已核验' }}
+            </el-tag></template
+          >
         </el-table-column>
         <el-table-column label="操作" width="90" fixed="right">
-          <template #default="{ row }"><el-button size="small" type="primary" text :disabled="!!row.reason" @click="selectHttpApi(row)">选择</el-button></template>
+          <template #default="{ row }"
+            ><el-button size="small" type="primary" text :disabled="!!row.reason" @click="selectHttpApi(row)"
+              >选择</el-button
+            ></template
+          >
         </el-table-column>
-        <template #empty><el-empty v-if="httpApiListStatus === 'empty'" :description="httpApiSubmittedKeyword ? '没有匹配的 API' : '当前范围没有可展示的 API'" /></template>
+        <template #empty
+          ><el-empty
+            v-if="httpApiListStatus === 'empty'"
+            :description="httpApiSubmittedKeyword ? '没有匹配的 API' : '当前范围没有可展示的 API'"
+        /></template>
       </el-table>
-      <div class="business-method-picker-footer"><span>共 {{ httpApiTotal }} 项；不可用项需按提示处理。</span>
-        <el-pagination v-model:current-page="httpApiCurrentPage" :page-size="httpApiPageSize" layout="total, prev, pager, next"
-          :total="httpApiTotal" @current-change="changeHttpApiPage" /></div>
-    </el-dialog>
+      <div class="business-method-picker-footer">
+        <span>共 {{ httpApiTotal }} 项；不可用项需按提示处理。</span>
+        <el-pagination
+          v-model:current-page="httpApiCurrentPage"
+          :page-size="httpApiPageSize"
+          layout="total, prev, pager, next"
+          :total="httpApiTotal"
+          @current-change="changeHttpApiPage"
+        />
+      </div>
+    </AppDialog>
 
-
-    <el-dialog v-model="businessMethodDialogOpen" title="选择业务方法" width="920px" append-to-body destroy-on-close>
+    <AppDialog v-model="businessMethodDialogOpen" title="选择业务方法" width="920px" append-to-body destroy-on-close>
       <div class="business-method-picker-toolbar">
         <el-input
           v-model="businessMethodKeyword"
@@ -267,29 +415,28 @@
         />
         <el-button :icon="Search" type="primary" @click="submitBusinessMethodSearch">查询</el-button>
       </div>
-      <p class="business-method-picker-scope">当前项目：{{ projectCode || projectId || '-' }}。仅可选择已接纳、已启用且来源 READY 的业务方法。</p>
-      <el-alert
+      <p class="business-method-picker-scope">
+        当前项目：{{ projectCode || projectId || '-' }}。仅可选择已接纳、已启用且来源 READY 的业务方法。
+      </p>
+      <LiquidGlassNotice
         v-if="businessMethodListStatus === 'error'"
         :title="businessMethodListError"
         type="error"
-        :closable="false"
-        show-icon
+        source="backdrop"
       >
-        <template #default><el-button text type="primary" @click="retryBusinessMethodList">重试</el-button></template>
-      </el-alert>
-      <el-alert
+        <template #actions><el-button text type="primary" @click="retryBusinessMethodList">重试</el-button></template>
+      </LiquidGlassNotice>
+      <LiquidGlassNotice
         v-else-if="!businessMethodHasProjectScope"
         title="当前 Workflow 未绑定项目，不能跨项目选择业务方法。"
         type="warning"
-        :closable="false"
-        show-icon
+        source="backdrop"
       />
-      <el-alert
+      <LiquidGlassNotice
         v-else-if="businessMethodInvalidRows.length"
         :title="`目录返回 ${businessMethodInvalidRows.length} 条不满足当前选择条件的数据，已禁止选择。`"
         type="warning"
-        :closable="false"
-        show-icon
+        source="backdrop"
       />
       <el-table
         v-loading="businessMethodListStatus === 'loading'"
@@ -332,7 +479,14 @@
         </el-table-column>
         <el-table-column label="操作" width="100" fixed="right">
           <template #default="{ row }">
-            <el-button size="small" type="primary" text :disabled="!isBusinessMethodSelectable(row)" @click="selectBusinessMethod(row)">选择</el-button>
+            <el-button
+              size="small"
+              type="primary"
+              text
+              :disabled="!isBusinessMethodSelectable(row)"
+              @click="selectBusinessMethod(row)"
+              >选择</el-button
+            >
           </template>
         </el-table-column>
         <template #empty>
@@ -349,11 +503,13 @@
           @current-change="changeBusinessMethodPage"
         />
       </div>
-    </el-dialog>
+    </AppDialog>
   </div>
 </template>
 
 <script setup lang="ts">
+import AppDialog from '@/components/common/AppDialog.vue'
+import ConfigSection from './ConfigSection.vue'
 import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Search } from '@element-plus/icons-vue'
@@ -378,6 +534,7 @@ import { applyHttpApiSelection, httpApiInputTargets as buildHttpApiInputTargets,
   httpApiOutputFields as buildHttpApiOutputFields, httpApiOutputPorts } from '@/views/workflow/httpApiWorkflow'
 import { formatMap, parseMap } from './panelUtils'
 import CredentialSelect from './CredentialSelect.vue'
+import { LiquidGlassNotice } from '@/components/common/liquid-glass'
 
 const props = defineProps<{
   data: CanvasNodeData
@@ -844,9 +1001,9 @@ function normalizeVariableOption(item: string | StudioVariableOption): StudioVar
   min-width: 0;
   box-sizing: border-box;
   padding: 12px;
-  border: 1px solid var(--el-border-color-lighter);
+  border: 1px solid var(--border-glass-edge);
   border-radius: 8px;
-  background: var(--el-fill-color-lighter);
+  background: var(--surface-glass-inset);
 }
 
 .business-method-summary {
@@ -953,7 +1110,7 @@ function normalizeVariableOption(item: string | StudioVariableOption): StudioVar
 .business-method-zero-args {
   padding: 10px;
   border-radius: 6px;
-  background: var(--el-fill-color);
+  background: var(--surface-glass-inset);
 }
 
 .business-method-output-candidates {
@@ -966,9 +1123,9 @@ function normalizeVariableOption(item: string | StudioVariableOption): StudioVar
   max-width: 100%;
   overflow-wrap: anywhere;
   padding: 3px 6px;
-  border: 1px solid var(--el-border-color-lighter);
+  border: 1px solid var(--border-glass-edge);
   border-radius: 4px;
-  background: var(--el-bg-color);
+  background: var(--surface-glass-selected);
   color: var(--el-text-color-regular);
   font-size: 12px;
 }

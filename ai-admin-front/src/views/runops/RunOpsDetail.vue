@@ -4,6 +4,8 @@
       variant="entity"
       domain="governance"
       height-preset="compact"
+      presentation="plain"
+      action-presentation="inline"
       eyebrow="运行诊断"
       :title="detailTitle"
       show-back
@@ -19,7 +21,8 @@
       </template>
       <template #actions>
         <el-tooltip content="刷新运行详情" placement="top" :trigger-keys="[]">
-          <el-button
+          <LiquidGlassButton
+            source="wallpaper"
             circle
             :icon="Refresh"
             :loading="loading"
@@ -27,15 +30,16 @@
             @click="loadDetail"
           />
         </el-tooltip>
-        <el-button :disabled="!summary" @click="copyIssueSummary">复制运行摘要</el-button>
-        <el-button
+        <LiquidGlassButton source="wallpaper" :disabled="!summary" @click="copyIssueSummary">复制运行摘要</LiquidGlassButton>
+        <LiquidGlassButton
           v-if="summary?.runType === 'WORKFLOW' && summary.workflowId && canWriteSourceWorkflow"
+          source="wallpaper"
           @click="router.push(`/workflows/${summary.workflowId}/studio`)"
         >
           打开工作流编排
-        </el-button>
+        </LiquidGlassButton>
         <el-dropdown trigger="click" @command="handleMoreCommand">
-          <el-button :icon="MoreFilled" aria-label="更多运行操作" />
+          <LiquidGlassButton source="wallpaper" circle :icon="MoreFilled" aria-label="更多运行操作" />
           <template #dropdown>
             <el-dropdown-menu>
               <el-dropdown-item command="context">运行上下文</el-dropdown-item>
@@ -49,14 +53,16 @@
             </el-dropdown-menu>
           </template>
         </el-dropdown>
-        <el-button
+        <LiquidGlassButton
           v-if="canAddToEval"
+          source="wallpaper"
           @click="addToEvalVisible = true"
         >
           加入评测集
-        </el-button>
-        <el-button
+        </LiquidGlassButton>
+        <LiquidGlassButton
           v-if="canOperateRun && canReplayRunType(summary?.runType)"
+          source="wallpaper"
           type="primary"
           :icon="VideoPlay"
           :loading="replaying"
@@ -64,11 +70,11 @@
           @click="openReplayDialog"
         >
           重放运行
-        </el-button>
+        </LiquidGlassButton>
       </template>
     </PageHeader>
 
-    <el-empty v-if="!loading && !detail" description="未找到运行记录" />
+    <LiquidGlassEmptyState v-if="!loading && !detail" source="wallpaper" title="未找到运行记录" description="它可能已超过保留期，或不属于当前项目范围。" />
 
     <template v-if="detail && summary">
       <section :class="['run-overview-panel', `is-${diagnosticState.tone}`]" aria-label="运行结论与上下文">
@@ -201,20 +207,17 @@
 
       <section class="context-drawer-section">
         <h3>重放边界</h3>
-        <el-alert
+        <LiquidGlassNotice
           type="info"
-          :closable="false"
           description="重放固定使用本次运行的历史发布版本与配置快照，不会静默切换到当前最新配置；新运行会保留对原始运行的审计引用。"
         />
       </section>
     </AppDrawer>
 
     <AppDialog v-model="replayDialogVisible" title="重放运行" width="560px">
-      <el-alert
+      <LiquidGlassNotice
         class="replay-alert"
         type="info"
-        :closable="false"
-        show-icon
         title="重放使用原运行的已发布配置版本"
         description="重放不会切换到当前活动配置；新的追踪记录将自动与原运行建立对比关系。"
       />
@@ -251,8 +254,8 @@
         </el-form>
       </details>
       <template #footer>
-        <el-button @click="replayDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="replaying" @click="replayTrace">开始重放</el-button>
+        <LiquidGlassButton @click="replayDialogVisible = false">取消</LiquidGlassButton>
+        <LiquidGlassButton type="primary" :loading="replaying" @click="replayTrace">开始重放</LiquidGlassButton>
       </template>
     </AppDialog>
 
@@ -265,10 +268,8 @@
         <el-skeleton :rows="6" animated />
       </template>
       <template v-else-if="candidateEligibility?.eligible">
-        <el-alert
+        <LiquidGlassNotice
           type="success"
-          :closable="false"
-          show-icon
           title="资格检查通过，可以创建候选任务"
           description="只创建并校验 DRAFT Workflow；不会自动发布、绑定 Agent 或改动线上路由。"
         />
@@ -295,10 +296,8 @@
         </el-form>
       </template>
       <template v-else-if="candidateEligibility">
-        <el-alert
+        <LiquidGlassNotice
           type="info"
-          :closable="false"
-          show-icon
           title="当前运行不满足 Workflow 候选规则"
           description="这些限制会阻止把失败或缺少治理证据的偶然轨迹固化成 Workflow。"
         />
@@ -309,17 +308,17 @@
           </ol>
         </div>
       </template>
-      <el-empty v-else description="暂时无法读取候选资格，请刷新运行详情后重试" />
+      <LiquidGlassEmptyState v-else title="暂时无法读取候选资格" description="请刷新运行详情后重试。" />
       <template #footer>
-        <el-button @click="candidateDialogVisible = false">关闭</el-button>
-        <el-button
+        <LiquidGlassButton @click="candidateDialogVisible = false">关闭</LiquidGlassButton>
+        <LiquidGlassButton
           v-if="candidateEligibility?.eligible"
           type="primary"
           :loading="candidateTaskBusy"
           @click="createCandidateTask"
         >
           创建 AI Coding 任务
-        </el-button>
+        </LiquidGlassButton>
       </template>
     </AppDialog>
 
@@ -328,10 +327,8 @@
       title="Workflow 候选 AI Coding 交接包"
       width="860px"
     >
-      <el-alert
+      <LiquidGlassNotice
         type="info"
-        :closable="false"
-        show-icon
         title="将下方交接包复制到所选 AI 编程工具"
         description="重复点击同一轨迹会复用未终态任务；同一任务的 Runtime 草稿也会幂等复用。"
       />
@@ -343,14 +340,14 @@
         readonly
       />
       <template #footer>
-        <el-button @click="candidateHandoffVisible = false">关闭</el-button>
-        <el-button
+        <LiquidGlassButton @click="candidateHandoffVisible = false">关闭</LiquidGlassButton>
+        <LiquidGlassButton
           :disabled="!candidateTaskId"
           @click="openCandidateTaskDetail"
         >
           查看任务闭环
-        </el-button>
-        <el-button type="primary" @click="copyCandidateHandoff">复制交接包</el-button>
+        </LiquidGlassButton>
+        <LiquidGlassButton type="primary" @click="copyCandidateHandoff">复制交接包</LiquidGlassButton>
       </template>
     </AppDialog>
 
@@ -389,6 +386,7 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { CopyDocument, MoreFilled, Refresh, VideoPlay } from '@element-plus/icons-vue'
+import { LiquidGlassButton, LiquidGlassEmptyState, LiquidGlassNotice } from '@/components/common/liquid-glass'
 import PageHeader from '@/components/common/PageHeader.vue'
 import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
 import RunOpsInvestigationWorkbench from './components/RunOpsInvestigationWorkbench.vue'
@@ -1142,11 +1140,6 @@ onMounted(loadDetail)
   overflow-x: hidden;
 }
 
-.runops-detail :deep(.app-page-header) {
-  border: 1px solid var(--border-color);
-  box-shadow: none;
-}
-
 .replay-alert {
   margin-bottom: 16px;
 }
@@ -1175,55 +1168,22 @@ onMounted(loadDetail)
   margin-inline: auto;
 }
 
+/* plain 页头直接坐在壁纸上，玻璃按钮自带尺寸；窄屏允许操作换行。 */
 .runops-detail :deep(.app-page-header__actions) {
-  flex-wrap: nowrap;
-}
-
-.runops-detail :deep(.app-page-header) {
-  border-color: color-mix(in srgb, var(--border-readable) 48%, transparent);
-  border-radius: 12px;
-  box-shadow:
-    0 16px 36px -34px rgb(15 23 42 / 0.46),
-    inset 0 1px 0 color-mix(in srgb, var(--text-primary) 7%, transparent);
-}
-
-.runops-detail :deep(.app-page-header__title) {
-  font-size: clamp(19px, 1.55vw, 23px);
-  letter-spacing: -0.015em;
-}
-
-.runops-detail :deep(.app-page-header__action-dock) {
-  gap: 4px;
-  padding: 3px;
-  border-radius: 11px;
-  box-shadow:
-    0 12px 24px -22px rgb(15 23 42 / 0.44),
-    inset 0 1px 0 rgb(255 255 255 / 0.9);
-}
-
-.runops-detail :deep(.app-page-header__actions .el-button) {
-  min-height: 34px;
-  border-radius: 8px;
-  font-size: 12px;
-}
-
-.runops-detail :deep(.app-page-header__actions .el-button.is-circle) {
-  width: 34px;
+  flex-wrap: wrap;
 }
 
 .run-overview-panel {
   --run-tone: var(--status-info);
   min-width: 0;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--border-readable) 48%, transparent);
+  border: 1px solid var(--border-glass-edge);
   border-left: 2px solid var(--run-tone);
   border-radius: 9px;
-  background: color-mix(in srgb, var(--surface-solid-overlay) 78%, transparent);
-  box-shadow:
-    0 14px 28px -30px color-mix(in srgb, var(--run-tone) 42%, transparent),
-    inset 0 1px 0 color-mix(in srgb, var(--text-primary) 6%, transparent);
-  -webkit-backdrop-filter: blur(16px) saturate(1.02);
-  backdrop-filter: blur(16px) saturate(1.02);
+  background: var(--surface-glass-frost);
+  box-shadow: var(--shadow-glass-frost);
+  -webkit-backdrop-filter: blur(var(--glass-blur-frost));
+  backdrop-filter: blur(var(--glass-blur-frost));
 
   &.is-success { --run-tone: var(--status-success); }
   &.is-danger { --run-tone: var(--status-danger); }
@@ -1249,7 +1209,7 @@ onMounted(loadDetail)
   place-items: center;
   border-radius: 50%;
   background: var(--run-tone);
-  color: #fff;
+  color: var(--text-on-brand);
   font-size: 12px;
   font-weight: 800;
 }
@@ -1299,7 +1259,7 @@ onMounted(loadDetail)
   padding: 4px;
   border: 1px solid color-mix(in srgb, var(--border-readable) 42%, transparent);
   border-radius: 8px;
-  background: color-mix(in srgb, var(--surface-solid-control) 66%, transparent);
+  background: var(--surface-glass-inset);
 
   > div {
     min-width: 0;
@@ -1356,7 +1316,7 @@ onMounted(loadDetail)
     margin-left: auto;
     padding: 2px 7px;
     border-radius: 6px;
-    background: color-mix(in srgb, var(--surface-solid-control) 58%, transparent);
+    background: var(--surface-glass-inset);
     color: var(--text-secondary);
   }
 }
@@ -1419,9 +1379,9 @@ onMounted(loadDetail)
 .replay-version-box {
   margin: 12px 0;
   padding: 10px 12px;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border-subtle);
   border-radius: 8px;
-  background: var(--fill-color-light);
+  background: var(--surface-hover);
   color: var(--text-secondary);
   font-size: 12px;
 
@@ -1432,7 +1392,7 @@ onMounted(loadDetail)
 
 .replay-advanced {
   overflow: hidden;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border-subtle);
   border-radius: 8px;
 
   summary {
@@ -1459,9 +1419,9 @@ onMounted(loadDetail)
 .candidate-blocker-panel {
   margin-top: 14px;
   padding: 14px;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border-subtle);
   border-radius: 9px;
-  background: var(--fill-color-light);
+  background: var(--surface-hover);
 
   > strong {
     color: var(--text-primary);

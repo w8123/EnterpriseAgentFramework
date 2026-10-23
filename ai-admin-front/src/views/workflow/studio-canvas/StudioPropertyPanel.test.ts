@@ -6,6 +6,7 @@ import NodeConfigPanel from '../studio-panels/NodeConfigPanel.vue'
 import StudioPropertyPanel from './StudioPropertyPanel.vue'
 import { clampPropertyWidth, STUDIO_PROPERTY_WIDTH_MAX, STUDIO_PROPERTY_WIDTH_MIN } from './studioPropertyPanel'
 import type { CanvasNode } from '@/types/studio'
+import type { ModelInstance } from '@/types/model'
 
 function variableNode(): CanvasNode {
   return reactive({
@@ -41,6 +42,42 @@ function render(node: CanvasNode | null, extra: Record<string, unknown> = {}) {
 }
 
 describe('StudioPropertyPanel', () => {
+  it('keeps the header vendor in sync with the node model, workflow default and catalog', async () => {
+    const node = variableNode()
+    node.data.kind = 'llm'
+    node.data.llmConfig = { modelInstanceId: '' }
+    const meta = reactive({ name: '测试', keySlug: 'test', workflowKind: 'GENERAL', description: '', defaultModelInstanceId: 'model-a' })
+    const modelOptions: ModelInstance[] = ['deepseek', 'openai'].map((provider, index) => ({
+      id: index === 0 ? 'model-a' : 'model-b', name: provider, provider, modelType: 'LLM',
+      modelName: provider, protocol: 'OPENAI_COMPATIBLE', connection: {}, defaultOptions: {},
+      paramsSchema: {}, status: 'ACTIVE', lastTestStatus: 'UNKNOWN',
+    }))
+    const wrapper = render(node, { meta })
+    const vendor = () => wrapper.find('.node-property-icon .model-provider-icon')
+    try {
+      expect(vendor().exists()).toBe(false)
+      await wrapper.setProps({ modelOptions })
+      expect(vendor().find('img').attributes('src')).toContain('/deepseek.png')
+      node.data.llmConfig.modelInstanceId = 'model-b'
+      await nextTick()
+      expect(vendor().find('img').attributes('src')).toContain('/openai.png')
+      node.data.llmConfig.modelInstanceId = 'missing-model'
+      await nextTick()
+      expect(vendor().exists()).toBe(false)
+      node.data.llmConfig.modelInstanceId = ''
+      await nextTick()
+      expect(vendor().find('img').attributes('src')).toContain('/deepseek.png')
+      meta.defaultModelInstanceId = ''
+      await nextTick()
+      expect(vendor().exists()).toBe(false)
+      expect(wrapper.find('.node-property-icon svg').exists()).toBe(true)
+      meta.defaultModelInstanceId = 'model-a'
+      node.data.kind = 'variable'
+      await nextTick()
+      expect(vendor().exists()).toBe(false)
+    } finally { wrapper.unmount() }
+  })
+
   it('edits the selected node in place with config / test / trace tabs', async () => {
     const node = variableNode()
     const wrapper = render(node)
@@ -74,5 +111,22 @@ describe('StudioPropertyPanel', () => {
     expect(clampPropertyWidth(5000, 2600)).toBe(STUDIO_PROPERTY_WIDTH_MAX)
     expect(clampPropertyWidth(900, 1200)).toBe(720)
     expect(clampPropertyWidth(Number.NaN, 1600)).toBe(480)
+  })
+
+  it('starts at the top when selecting another node and disables its configuration in read-only mode', async () => {
+    const first = variableNode()
+    const wrapper = render(first, { readOnly: true })
+    try {
+      await nextTick(); await flushPromises()
+      const editor = wrapper.get('input[placeholder="目标，如 customer_id 或 var.order.status"]')
+      expect(editor.attributes('disabled')).toBeDefined()
+      const scroll = wrapper.get('.node-property-tabs > .el-tabs__content').element
+      scroll.scrollTop = 400
+      const second = variableNode()
+      second.id = 'another-node'
+      await wrapper.setProps({ node: second, canvasNodes: [first, second] })
+      await nextTick()
+      expect(scroll.scrollTop).toBe(0)
+    } finally { wrapper.unmount() }
   })
 })

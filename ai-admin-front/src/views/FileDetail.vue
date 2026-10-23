@@ -1,7 +1,9 @@
 <template>
-  <WorkbenchPage class="file-detail-page">
+  <LiquidGlassPage class="file-detail-page">
     <PageHeader
       variant="entity"
+      presentation="plain"
+      action-presentation="inline"
       domain="knowledge"
       :title="fileInfo?.fileName || '文档段落运营'"
       show-back
@@ -18,70 +20,79 @@
         </el-tag>
       </template>
       <template #meta>
-        <HeaderMetaList :items="fileMetaItems" />
+        <MetricStrip presentation="inline" source="wallpaper" :items="fileMetaItems" aria-label="文件概览" />
       </template>
       <template #actions>
         <el-tooltip content="刷新文档段落" placement="top">
-          <el-button circle :icon="Refresh" :loading="loading" aria-label="刷新文档段落" @click="fetchChunks" />
+          <LiquidGlassButton source="wallpaper" circle :icon="Refresh" :loading="loading" aria-label="刷新文档段落" @click="fetchChunks" />
         </el-tooltip>
       </template>
     </PageHeader>
 
-    <div class="toolbar">
-      <el-input v-model="keyword" clearable placeholder="搜索段落内容或标题" class="search-input">
-        <template #prefix><el-icon><Search /></el-icon></template>
-      </el-input>
-      <el-segmented v-model="enabledFilter" :options="filterOptions" />
-    </div>
-
-    <el-table v-loading="loading" :data="filteredChunks" stripe style="width: 100%">
-      <el-table-column prop="chunkIndex" label="#" width="72" align="center" />
-      <el-table-column label="段落" min-width="460">
-        <template #default="{ row }">
-          <div class="chunk-title">{{ row.title || `段落 ${row.chunkIndex}` }}</div>
-          <div v-if="row.elementType || row.sectionPath || chunkSourceLabel(row)" class="chunk-source">
-            <el-tag v-if="row.elementType" size="small" effect="plain">
-              {{ documentElementLabel(row.elementType) }}
-            </el-tag>
-            <span v-if="row.sectionPath" class="source-section">{{ row.sectionPath }}</span>
-            <span v-if="chunkSourceLabel(row)">{{ chunkSourceLabel(row) }}</span>
-          </div>
-          <div class="chunk-content">
-            {{ expandedIds.has(row.id) ? row.content : truncate(row.content, 220) }}
-            <el-button v-if="row.content?.length > 220" type="primary" link size="small" @click="toggleExpand(row.id)">
-              {{ expandedIds.has(row.id) ? '收起' : '展开' }}
+    <LiquidGlassTable
+      v-model:current-page="currentPage"
+      v-model:page-size="pageSize"
+      :total="filteredChunks.length"
+      :loading="loading"
+      :empty="!loading && filteredChunks.length === 0"
+      :empty-description="keyword || enabledFilter !== 'all' ? '没有匹配的段落' : '这个文件还没有段落'"
+      pagination-label="段落分页"
+    >
+      <template #toolbar>
+        <div class="toolbar">
+          <LiquidGlassInput v-model="keyword" class="search-input" :prefix-icon="Search" clearable placeholder="搜索段落内容或标题" aria-label="搜索段落" />
+          <el-segmented v-model="enabledFilter" :options="filterOptions" />
+        </div>
+      </template>
+      <el-table :data="pagedChunks" stripe style="width: 100%">
+        <el-table-column prop="chunkIndex" label="#" width="72" align="center" />
+        <el-table-column label="段落" min-width="460">
+          <template #default="{ row }">
+            <div class="chunk-title">{{ row.title || `段落 ${row.chunkIndex}` }}</div>
+            <div v-if="row.elementType || row.sectionPath || chunkSourceLabel(row)" class="chunk-source">
+              <el-tag v-if="row.elementType" size="small" effect="plain">
+                {{ documentElementLabel(row.elementType) }}
+              </el-tag>
+              <span v-if="row.sectionPath" class="source-section">{{ row.sectionPath }}</span>
+              <span v-if="chunkSourceLabel(row)">{{ chunkSourceLabel(row) }}</span>
+            </div>
+            <div class="chunk-content">
+              {{ expandedIds.has(row.id) ? row.content : truncate(row.content, 220) }}
+              <el-button v-if="row.content?.length > 220" type="primary" link size="small" @click="toggleExpand(row.id)">
+                {{ expandedIds.has(row.id) ? '收起' : '展开' }}
+              </el-button>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column prop="length" label="长度" width="90" align="center" />
+        <el-table-column prop="hitCount" label="命中" width="90" align="center">
+          <template #default="{ row }">
+            <el-tag size="small" effect="plain">{{ row.hitCount ?? 0 }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" width="110" align="center">
+          <template #default="{ row }">
+            <el-switch
+              :model-value="row.enabled !== 0"
+              :loading="togglingId === row.id"
+              @change="(val: boolean) => handleToggle(row, val)"
+            />
+          </template>
+        </el-table-column>
+        <el-table-column label="向量" width="160" align="center">
+          <template #default="{ row }">
+            <el-button type="primary" link size="small" :loading="reembeddingId === row.id" @click="handleReembed(row)">
+              重建向量
             </el-button>
-          </div>
-        </template>
-      </el-table-column>
-      <el-table-column prop="length" label="长度" width="90" align="center" />
-      <el-table-column prop="hitCount" label="命中" width="90" align="center">
-        <template #default="{ row }">
-          <el-tag size="small" effect="plain">{{ row.hitCount ?? 0 }}</el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column label="状态" width="110" align="center">
-        <template #default="{ row }">
-          <el-switch
-            :model-value="row.enabled !== 0"
-            :loading="togglingId === row.id"
-            @change="(val: boolean) => handleToggle(row, val)"
-          />
-        </template>
-      </el-table-column>
-      <el-table-column label="向量" width="160" align="center">
-        <template #default="{ row }">
-          <el-button type="primary" link size="small" :loading="reembeddingId === row.id" @click="handleReembed(row)">
-            重建向量
-          </el-button>
-        </template>
-      </el-table-column>
-      <el-table-column label="操作" width="100" fixed="right">
-        <template #default="{ row }">
-          <el-button type="primary" link size="small" @click="openEdit(row)">编辑</el-button>
-        </template>
-      </el-table-column>
-    </el-table>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="100" fixed="right">
+          <template #default="{ row }">
+            <el-button type="primary" link size="small" @click="openEdit(row)">编辑</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </LiquidGlassTable>
 
     <AppDialog v-model="editVisible" title="编辑段落" width="720px">
       <el-form :model="editForm" label-width="80px">
@@ -96,22 +107,23 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="editVisible = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="handleSave">保存</el-button>
+        <LiquidGlassButton @click="editVisible = false">取消</LiquidGlassButton>
+        <LiquidGlassButton type="primary" :loading="saving" @click="handleSave">保存</LiquidGlassButton>
       </template>
     </AppDialog>
-  </WorkbenchPage>
+  </LiquidGlassPage>
 </template>
 
 <script setup lang="ts">
 import AppDialog from '@/components/common/AppDialog.vue'
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Refresh, Search } from '@element-plus/icons-vue'
-import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
-import HeaderMetaList from '@/components/common/HeaderMetaList.vue'
+import MetricStrip from '@/components/common/MetricStrip.vue'
+import type { MetricStripItem } from '@/components/common/glassWorkbench'
+import { LiquidGlassButton, LiquidGlassInput, LiquidGlassPage, LiquidGlassTable } from '@/components/common/liquid-glass'
 import { getFileChunks, getKbFiles, reembedChunk, toggleChunk, updateChunk } from '@/api/knowledge'
 import type { ChunkDetail, FileInfo } from '@/types/knowledge'
 import { formatFileSize } from '@/utils'
@@ -148,11 +160,11 @@ const filterOptions = [
 
 const enabledCount = computed(() => chunkList.value.filter((item) => item.enabled !== 0).length)
 
-const fileMetaItems = computed(() => [
+const fileMetaItems = computed<MetricStripItem[]>(() => [
   { key: 'type', label: '格式', value: fileInfo.value?.fileType?.toUpperCase() || '—' },
   { key: 'size', label: '大小', value: fileInfo.value ? formatFileSize(fileInfo.value.fileSize) : '—' },
   { key: 'chunks', label: '段落', value: chunkList.value.length },
-  { key: 'enabled', label: '启用', value: enabledCount.value, tone: 'success' as const },
+  { key: 'enabled', label: '启用', value: enabledCount.value, tone: 'success' },
 ])
 
 const filteredChunks = computed(() => {
@@ -164,6 +176,14 @@ const filteredChunks = computed(() => {
     return `${item.title || ''} ${item.content || ''}`.toLowerCase().includes(kw)
   })
 })
+
+const currentPage = ref(1)
+const pageSize = ref(20)
+const pagedChunks = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value
+  return filteredChunks.value.slice(start, start + pageSize.value)
+})
+watch([keyword, enabledFilter], () => { currentPage.value = 1 })
 
 function truncate(text: string, maxLen: number): string {
   if (!text) return ''
@@ -249,15 +269,14 @@ onMounted(fetchChunks)
 .toolbar {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  justify-content: space-between;
   gap: 10px;
 }
 
-.toolbar {
-  justify-content: space-between;
-}
-
 .search-input {
-  max-width: 360px;
+  flex: 1 1 240px;
+  max-width: 420px;
 }
 
 .chunk-title {

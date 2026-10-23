@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ArrowRight, Connection, Promotion, Refresh } from '@element-plus/icons-vue'
 import { getMcpHubOverview } from '@/api/mcp'
+import { LiquidGlassButton, LiquidGlassCard, LiquidGlassNav, LiquidGlassNotice } from '@/components/common/liquid-glass'
 import mcpInterconnectionOnboardingIllustration from '@/assets/illustrations/mcp-interconnection-onboarding-flat.webp'
 import type { McpHubOverview } from '@/types/mcp'
 
@@ -10,6 +11,7 @@ const router = useRouter()
 const loading = ref(false)
 const error = ref('')
 const days = ref(7)
+const dayOptions = [7, 14, 30]
 const overview = ref<McpHubOverview | null>(null)
 
 const isFirstUse = computed(() => overview.value !== null && overview.value.publications === 0)
@@ -112,22 +114,23 @@ onMounted(reload)
 
 <template>
   <section class="hub-overview" v-loading="loading">
-    <el-alert
+    <LiquidGlassNotice
       v-if="error"
+      source="wallpaper"
       type="error"
-      show-icon
-      :closable="false"
       :title="`总览加载失败：${error}`"
       description="请检查 reachai-control-service 是否可用，然后重试。"
     >
-      <el-button type="primary" size="small" @click="reload">重试</el-button>
-    </el-alert>
+      <template #actions>
+        <LiquidGlassButton type="primary" @click="reload">重试</LiquidGlassButton>
+      </template>
+    </LiquidGlassNotice>
 
-    <section v-else-if="loading && !overview" class="loading-shell" aria-label="正在加载 MCP 总览">
+    <LiquidGlassCard v-else-if="loading && !overview" source="wallpaper" class="loading-shell" aria-label="正在加载 MCP 总览">
       <el-skeleton animated :rows="4" />
-    </section>
+    </LiquidGlassCard>
 
-    <section v-else-if="isFirstUse" class="onboarding-card" aria-labelledby="mcp-first-use-title">
+    <LiquidGlassCard v-else-if="isFirstUse" source="wallpaper" class="onboarding-card" aria-labelledby="mcp-first-use-title">
       <div class="onboarding-visual">
         <img
           :src="mcpInterconnectionOnboardingIllustration"
@@ -143,26 +146,32 @@ onMounted(reload)
         <p>选择能力或已发布 Workflow，完成预检并创建 Client 凭证。</p>
 
         <div class="onboarding-actions">
-          <el-button type="primary" :icon="Promotion" @click="openPublications">创建第一个发布</el-button>
-          <el-button link :icon="Refresh" :loading="loading" @click="reload">刷新状态</el-button>
+          <LiquidGlassButton type="primary" :icon="Promotion" @click="openPublications">创建第一个发布</LiquidGlassButton>
+          <LiquidGlassButton :icon="Refresh" :loading="loading" @click="reload">刷新状态</LiquidGlassButton>
         </div>
       </div>
-    </section>
+    </LiquidGlassCard>
 
     <section v-else-if="overview" class="operational-overview">
       <div class="overview-toolbar">
         <h2>运行概览</h2>
         <div class="toolbar-actions">
-          <el-radio-group :model-value="days" size="small" @update:model-value="switchDays">
-            <el-radio-button :value="7">近 7 天</el-radio-button>
-            <el-radio-button :value="14">近 14 天</el-radio-button>
-            <el-radio-button :value="30">近 30 天</el-radio-button>
-          </el-radio-group>
-          <el-button :icon="Refresh" :loading="loading" aria-label="刷新总览" @click="reload" />
+          <LiquidGlassNav source="wallpaper" aria-label="统计周期">
+            <button
+              v-for="option in dayOptions"
+              :key="option"
+              type="button"
+              :aria-pressed="days === option"
+              @click="switchDays(option)"
+            >
+              近 {{ option }} 天
+            </button>
+          </LiquidGlassNav>
+          <LiquidGlassButton source="wallpaper" circle :icon="Refresh" :loading="loading" aria-label="刷新总览" @click="reload" />
         </div>
       </div>
 
-      <section class="metric-grid" aria-label="MCP 互联核心指标">
+      <section class="metric-grid glass-workspace-adaptive" aria-label="MCP 互联核心指标">
         <button
           v-for="item in metrics"
           :key="item.label"
@@ -177,16 +186,16 @@ onMounted(reload)
         </button>
       </section>
 
-      <section v-if="nextStep" class="next-step-panel" aria-live="polite">
+      <LiquidGlassCard v-if="nextStep" source="wallpaper" class="next-step-panel" aria-live="polite">
         <div class="next-step-panel__icon"><Connection /></div>
         <div>
           <h3>{{ nextStep.title }}</h3>
           <p>{{ nextStep.description }}</p>
         </div>
-        <el-button type="primary" :icon="ArrowRight" @click="openPublications">
+        <LiquidGlassButton type="primary" :icon="ArrowRight" @click="openPublications">
           {{ nextStep.action }}
-        </el-button>
-      </section>
+        </LiquidGlassButton>
+      </LiquidGlassCard>
     </section>
   </section>
 </template>
@@ -207,9 +216,6 @@ onMounted(reload)
 .loading-shell {
   min-height: 280px;
   padding: 28px;
-  border: 1px solid var(--border-divider);
-  border-radius: var(--radius-xl);
-  background: var(--surface-glass-panel);
 }
 
 .onboarding-card {
@@ -223,15 +229,6 @@ onMounted(reload)
   gap: clamp(36px, 5vw, 72px);
   overflow: hidden;
   padding: clamp(26px, 3.5vw, 42px);
-  border: 1px dashed var(--border-readable);
-  border-radius: var(--radius-xl);
-  background:
-    linear-gradient(
-      135deg,
-      color-mix(in srgb, var(--brand-primary) 6%, var(--surface-solid-panel)),
-      color-mix(in srgb, var(--surface-solid-control) 82%, transparent)
-    );
-  box-shadow: var(--inner-highlight);
 }
 
 .onboarding-card::after {
@@ -252,10 +249,9 @@ onMounted(reload)
   width: 100%;
   aspect-ratio: 1;
   overflow: hidden;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border-glass-edge);
   border-radius: var(--radius-lg);
-  background: var(--surface-solid-panel);
-  box-shadow: var(--shadow-card), var(--inner-highlight);
+  box-shadow: var(--shadow-glass-inset);
 }
 
 .onboarding-visual img {
@@ -295,7 +291,7 @@ onMounted(reload)
 .onboarding-actions {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--layout-control-gap);
   margin-top: 24px;
 }
 
@@ -309,8 +305,9 @@ onMounted(reload)
 
 .overview-toolbar h2 {
   margin: 0;
-  color: var(--text-primary);
+  color: var(--text-on-wallpaper);
   font-size: 18px;
+  text-shadow: var(--text-on-wallpaper-shadow);
 }
 
 .toolbar-actions {
@@ -332,12 +329,15 @@ onMounted(reload)
   min-height: var(--layout-metric-strip-min-height);
   padding: var(--layout-metric-padding-block) var(--layout-metric-padding-inline);
   overflow: hidden;
-  border: 1px solid var(--border-divider);
+  border: 1px solid var(--border-glass-edge);
   border-radius: var(--radius-lg);
   color: var(--text-primary);
+  font: inherit;
   text-align: left;
-  background: var(--surface-glass-panel);
-  box-shadow: var(--inner-highlight);
+  background: var(--surface-glass-frost);
+  box-shadow: var(--shadow-glass-frost);
+  -webkit-backdrop-filter: blur(var(--glass-blur-frost));
+  backdrop-filter: blur(var(--glass-blur-frost));
   cursor: pointer;
   transition: border-color var(--motion-duration-fast) ease, transform var(--motion-duration-fast) ease;
 }
@@ -365,6 +365,11 @@ onMounted(reload)
   transform: translateY(-1px);
 }
 
+.metric-card:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
 .metric-card span,
 .metric-card small {
   display: block;
@@ -389,10 +394,6 @@ onMounted(reload)
   align-items: center;
   gap: 14px;
   padding: 16px 18px;
-  border: 1px solid rgb(var(--brand-primary-rgb) / 0.18);
-  border-radius: var(--radius-lg);
-  background: var(--surface-glass-control);
-  box-shadow: var(--inner-highlight);
 }
 
 .next-step-panel__icon {
@@ -402,8 +403,8 @@ onMounted(reload)
   align-items: center;
   justify-content: center;
   border-radius: 12px;
-  color: var(--brand-active);
-  background: var(--surface-glass-selected);
+  color: var(--brand-on-surface);
+  background: var(--surface-glass-inset);
 }
 
 .next-step-panel h3,
@@ -471,7 +472,7 @@ onMounted(reload)
     grid-template-columns: auto minmax(0, 1fr);
   }
 
-  .next-step-panel > .el-button {
+  .next-step-panel > .liquid-glass-button {
     grid-column: 1 / -1;
   }
 }

@@ -11,6 +11,7 @@ const themeSource = read('src/composables/useTheme.ts')
 const elementPlusSource = read('src/styles/_element-plus.scss')
 const sdkSource = read('src/views/registry/styles/SdkAccessWizard.ai-coding.figma.scss')
 const projectListSource = read('src/views/registry/RegistryProjectList.vue')
+const liquidTableSource = read('src/components/common/LiquidGlassTable.vue')
 const failures = []
 
 function expect(condition, message) {
@@ -463,8 +464,10 @@ function proveCompiledElementPlusDarkContract(source) {
   }
 }
 
-function expectCompiledDeclarations(rules, selector, expectedDeclarations, label) {
-  const rule = rules.find((candidate) => normalizeSelector(candidate.selector) === normalizeSelector(selector))
+function expectCompiledDeclarations(rules, selector, expectedDeclarations, label, { last = false } = {}) {
+  const matches = rules.filter((candidate) => normalizeSelector(candidate.selector) === normalizeSelector(selector))
+  // last：同一选择器出现多次时以最后一条（级联生效的那条）为准
+  const rule = last ? matches.at(-1) : matches[0]
   if (!rule) {
     failures.push(`${label} must compile selector ${selector}`)
     return
@@ -549,18 +552,30 @@ function proveCompiledProjectListContract(source) {
     return
   }
 
-  expectCompiledDeclarations(
-    rules,
-    '.registry-project-page.is-dark .project-table-shell',
-    [['background', 'var(--surface-solid-panel)']],
-    'compiled project list dark table shell',
+  // 筛选、表格与分页共享一块磨砂阅读面，内部透明，避免重复着色叠成白底。
+  // 明暗和减少透明度的降级由共享 glass-surface-frost 材质负责。
+  expectIncludes(
+    source,
+    '<LiquidGlassTable',
+    'project list must use the shared liquid table surface',
   )
   expectCompiledDeclarations(
     rules,
-    '.registry-project-page.is-dark .table-footer',
-    [['background', 'color-mix(in srgb, var(--surface-solid-panel) 72%, transparent)']],
-    'compiled project list dark footer',
+    '.project-table-shell',
+    [['background', 'transparent']],
+    'compiled project list table shell',
+    { last: true },
   )
+  expectIncludes(liquidTableSource, 'glass-surface-frost', 'shared liquid table must retain frosted material and its fallbacks')
+  expectIncludes(liquidTableSource, '<DataTableShell', 'shared liquid table must compose the existing data shell')
+  const sharedStart = liquidTableSource.indexOf(styleStartTag) + styleStartTag.length
+  const sharedEnd = liquidTableSource.indexOf('</style>', sharedStart)
+  try {
+    const sharedRules = parseTopLevelCssRules(compileString(liquidTableSource.slice(sharedStart, sharedEnd), { style: 'expanded' }).css)
+    expectCompiledDeclarations(sharedRules, '.liquid-glass-table :deep(.el-table)', [['background', 'transparent']], 'shared liquid table reading layer')
+  } catch (error) {
+    failures.push(`shared liquid table SCSS must compile before its dark contract is checked: ${error.message}`)
+  }
 }
 
 proveThemeRuntimeBehavior(themeSource)
@@ -568,22 +583,8 @@ proveCompiledElementPlusDarkContract(elementPlusSource)
 proveCompiledSdkContract(sdkSource)
 proveCompiledProjectListContract(projectListSource)
 
-const projectListDarkStart = projectListSource.indexOf('.registry-project-page.is-dark {')
-const projectListDarkEnd = projectListSource.indexOf('@media (max-width: 1200px)', projectListDarkStart)
-if (projectListDarkStart === -1 || projectListDarkEnd === -1) {
-  failures.push('project list dark compatibility block is missing')
-} else {
-  const projectListDark = projectListSource.slice(projectListDarkStart, projectListDarkEnd)
-  expectIncludes(
-    projectListDark,
-    'background: var(--surface-solid-panel);',
-    'project list dark table shell must replace its hardcoded light surface',
-  )
-  expectIncludes(
-    projectListDark,
-    'background: color-mix(in srgb, var(--surface-solid-panel) 72%, transparent);',
-    'project list dark footer must replace its hardcoded light surface',
-  )
+if (/\.registry-project-page\.is-dark\b/.test(projectListSource)) {
+  failures.push('project list must not reintroduce a separate .is-dark override block; use semantic tokens')
 }
 
 const refinedMarker = '/* Shared refined access progress:'

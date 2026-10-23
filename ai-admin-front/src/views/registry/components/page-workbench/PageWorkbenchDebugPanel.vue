@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { LiquidGlassNotice } from '@/components/common/liquid-glass'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { Connection, Tools, VideoPlay } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
@@ -206,13 +207,12 @@ async function runDebug() {
     </header>
 
     <template v-if="page.actions.length">
-      <el-alert
+      <LiquidGlassNotice
         class="page-debug-inline__alert"
         title="请保持对应业务页面打开"
         description="在线页面需要携带有效 SDK 会话，并注册当前页面操作。"
         type="info"
-        :closable="false"
-        show-icon
+        source="backdrop"
       />
 
       <div class="page-debug-inline__workspace">

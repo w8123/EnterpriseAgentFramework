@@ -411,6 +411,8 @@ docker compose --env-file deploy/.env -f deploy/docker-compose.infra.yml up -d
 mysql --default-character-set=utf8mb4 -h localhost -u root -p -e "source sql/initV2.sql"
 ```
 
+新库只执行上述初始化；已有数据库按 [SQL 初始化与升级说明](sql/README.md) 选择适用升级，近期变更已合并为一份脚本。
+
 ### 2. 构建后端
 
 ```bash

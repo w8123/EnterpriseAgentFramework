@@ -3,6 +3,15 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { Connection, Filter, Search } from '@element-plus/icons-vue'
 import AppDialog from '@/components/common/AppDialog.vue'
 import MetricStrip from '@/components/common/MetricStrip.vue'
+import {
+  LiquidGlassButton,
+  LiquidGlassFilterBar,
+  LiquidGlassInput,
+  LiquidGlassNotice,
+  LiquidGlassPagination,
+  LiquidGlassSelect,
+  LiquidGlassTable,
+} from '@/components/common/liquid-glass'
 import type { MetricStripItem } from '@/components/common/glassWorkbench'
 import { getMcpCallLog, listMcpCallLogs, listMcpClients, listMcpPublications } from '@/api/mcp'
 import type { McpCallLogEntry, McpClientView, McpPublication } from '@/types/mcp'
@@ -168,6 +177,12 @@ function applyFilters() {
   reload()
 }
 
+function changePage(page: number, size: number) {
+  query.limit = size
+  query.offset = (page - 1) * size
+  reload()
+}
+
 function resetFilters() {
   query.direction = ''
   query.publicationId = undefined
@@ -222,96 +237,96 @@ onMounted(() => {
   <section class="call-log-page">
     <h2 class="visually-hidden">调用流水</h2>
 
-    <MetricStrip class="call-log-metrics" :items="metricItems" aria-label="调用流水指标概览" />
+    <MetricStrip presentation="inline" source="wallpaper" class="call-log-metrics" :items="metricItems" aria-label="调用流水指标概览" />
 
-    <el-card class="call-log-card workbench-list-surface" shadow="never">
-      <div class="call-log-toolbar">
-        <el-input
-          v-model="query.toolName"
-          class="toolbar-keyword"
-          clearable
-          :prefix-icon="Search"
-          placeholder="搜索工具名称"
-          @keyup.enter="applyFilters"
-        />
-        <el-select
-          v-model="query.publicationId"
-          clearable
-          filterable
-          :placeholder="publicationLoadFailed ? '发布单元暂不可用' : '发布单元'"
-        >
-          <el-option
-            v-for="publication in publications"
-            :key="publication.id"
-            :label="publication.name"
-            :value="publication.id"
-          />
-        </el-select>
-        <el-select v-model="query.success" clearable placeholder="调用结果">
-          <el-option label="成功" value="true" />
-          <el-option label="失败" value="false" />
-        </el-select>
-        <el-select v-model="query.days" placeholder="时间窗口">
-          <el-option label="近 7 天" :value="7" />
-          <el-option label="近 14 天" :value="14" />
-          <el-option label="近 30 天" :value="30" />
-        </el-select>
-        <div class="toolbar-actions">
-          <el-tooltip :content="advancedFiltersOpen ? '收起高级筛选' : '更多筛选'" placement="top">
-            <el-button
-              class="toolbar-more"
-              :class="{ 'is-active': advancedFiltersOpen || hasAdvancedFilters }"
-              :icon="Filter"
-              aria-label="更多筛选"
-              @click="advancedFiltersOpen = !advancedFiltersOpen"
+    <LiquidGlassNotice v-if="loadError" source="wallpaper" type="error" :title="`调用流水加载失败：${loadError}`" />
+
+    <LiquidGlassTable class="call-log-card workbench-list-surface" :loading="loading" :show-pagination="total > 0">
+      <template #toolbar>
+        <div class="call-log-toolbar-stack">
+          <LiquidGlassFilterBar :loading="loading" @query="applyFilters" @reset="resetFilters">
+            <LiquidGlassInput
+              v-model="query.toolName"
+              clearable
+              :prefix-icon="Search"
+              placeholder="搜索工具名称"
+              aria-label="搜索工具名称"
             />
-          </el-tooltip>
-          <el-button class="toolbar-reset" @click="resetFilters">重置</el-button>
-          <el-button class="toolbar-search" type="primary" :icon="Search" :loading="loading" @click="applyFilters">
-            搜索
-          </el-button>
+            <LiquidGlassSelect
+              v-model="query.publicationId"
+              clearable
+              filterable
+              dropdown-title="发布单元"
+              aria-label="发布单元"
+              :placeholder="publicationLoadFailed ? '发布单元暂不可用' : '发布单元'"
+            >
+              <el-option
+                v-for="publication in publications"
+                :key="publication.id"
+                :label="publication.name"
+                :value="publication.id"
+              />
+            </LiquidGlassSelect>
+            <LiquidGlassSelect v-model="query.success" clearable placeholder="调用结果" dropdown-title="调用结果" aria-label="调用结果">
+              <el-option label="成功" value="true" />
+              <el-option label="失败" value="false" />
+            </LiquidGlassSelect>
+            <LiquidGlassSelect v-model="query.days" placeholder="时间窗口" dropdown-title="时间窗口" aria-label="时间窗口">
+              <el-option label="近 7 天" :value="7" />
+              <el-option label="近 14 天" :value="14" />
+              <el-option label="近 30 天" :value="30" />
+            </LiquidGlassSelect>
+            <template #actions>
+              <el-tooltip :content="advancedFiltersOpen ? '收起高级筛选' : '更多筛选'" placement="top">
+                <LiquidGlassButton
+                  circle
+                  native-type="button"
+                  :class="{ 'is-active': advancedFiltersOpen || hasAdvancedFilters }"
+                  :type="advancedFiltersOpen || hasAdvancedFilters ? 'primary' : undefined"
+                  :icon="Filter"
+                  aria-label="更多筛选"
+                  :aria-expanded="advancedFiltersOpen"
+                  @click="advancedFiltersOpen = !advancedFiltersOpen"
+                />
+              </el-tooltip>
+              <LiquidGlassButton native-type="button" @click="resetFilters">重置</LiquidGlassButton>
+              <LiquidGlassButton type="primary" native-type="submit" :icon="Search" :loading="loading">搜索</LiquidGlassButton>
+            </template>
+          </LiquidGlassFilterBar>
+
+          <el-collapse-transition>
+            <div v-if="advancedFiltersOpen" class="advanced-filters">
+              <LiquidGlassSelect v-model="query.direction" clearable placeholder="调用方向" dropdown-title="调用方向" aria-label="调用方向">
+                <el-option label="出向（外部 Client 调用平台）" value="OUTBOUND" />
+                <el-option label="入向（平台调用外部，M2）" value="INBOUND" />
+              </LiquidGlassSelect>
+              <LiquidGlassSelect
+                v-model="query.clientId"
+                clearable
+                filterable
+                placeholder="Client 凭证"
+                dropdown-title="Client 凭证"
+                aria-label="Client 凭证"
+                :disabled="!query.publicationId"
+              >
+                <el-option
+                  v-for="client in clients"
+                  :key="client.id"
+                  :label="client.name"
+                  :value="client.id"
+                />
+              </LiquidGlassSelect>
+              <LiquidGlassSelect v-model="query.method" clearable filterable allow-create placeholder="JSON-RPC 方法" dropdown-title="JSON-RPC 方法" aria-label="JSON-RPC 方法">
+                <el-option v-for="method in methodOptions" :key="method" :label="method" :value="method" />
+              </LiquidGlassSelect>
+              <LiquidGlassInput v-model="query.errorCategory" clearable placeholder="错误分层，如 AUTH / RUNTIME" aria-label="错误分层" @keyup.enter="applyFilters" />
+              <span class="advanced-filter-note">列表已脱敏，正文按权限与保留期开放</span>
+            </div>
+          </el-collapse-transition>
         </div>
-      </div>
+      </template>
 
-      <el-collapse-transition>
-        <div v-if="advancedFiltersOpen" class="advanced-filters">
-          <el-select v-model="query.direction" clearable placeholder="调用方向">
-            <el-option label="出向（外部 Client 调用平台）" value="OUTBOUND" />
-            <el-option label="入向（平台调用外部，M2）" value="INBOUND" />
-          </el-select>
-          <el-select
-            v-model="query.clientId"
-            clearable
-            filterable
-            placeholder="Client 凭证"
-            :disabled="!query.publicationId"
-          >
-            <el-option
-              v-for="client in clients"
-              :key="client.id"
-              :label="client.name"
-              :value="client.id"
-            />
-          </el-select>
-          <el-select v-model="query.method" clearable filterable allow-create placeholder="JSON-RPC 方法">
-            <el-option v-for="method in methodOptions" :key="method" :label="method" :value="method" />
-          </el-select>
-          <el-input v-model="query.errorCategory" clearable placeholder="错误分层，如 AUTH / RUNTIME" @keyup.enter="applyFilters" />
-          <span class="advanced-filter-note">列表已脱敏，正文按权限与保留期开放</span>
-        </div>
-      </el-collapse-transition>
-
-      <el-alert
-        v-if="loadError"
-        class="call-log-error"
-        type="error"
-        :closable="false"
-        show-icon
-        :title="`调用流水加载失败：${loadError}`"
-      />
-
-      <div class="call-log-table-shell">
-        <el-table v-loading="loading" :data="rows" class="call-log-table" max-height="480">
+        <el-table :data="rows" class="call-log-table">
           <el-table-column prop="createdAt" label="时间" width="150">
             <template #default="{ row }"><span class="muted">{{ formatDateTime(row.createdAt) }}</span></template>
           </el-table-column>
@@ -375,35 +390,38 @@ onMounted(() => {
             </div>
           </template>
         </el-table>
-      </div>
 
-      <div v-if="total > 0" class="table-footer">
-        <span>共 {{ total }} 条</span>
-        <el-pagination
-          :current-page="Math.floor(query.offset / query.limit) + 1"
-          :page-size="query.limit"
-          :total="total"
-          class="call-log-pagination"
-          background
-          layout="prev, pager, next, sizes"
-          :page-sizes="[20, 50, 100, 200]"
-          @current-change="(page: number) => { query.offset = (page - 1) * query.limit; reload() }"
-          @size-change="(size: number) => { query.limit = size; query.offset = 0; reload() }"
-        />
-      </div>
-    </el-card>
+      <template #pagination>
+        <div v-if="total > 0" class="table-footer">
+          <span>共 {{ total }} 条</span>
+          <LiquidGlassPagination
+            :current-page="Math.floor(query.offset / query.limit) + 1"
+            :page-size="query.limit"
+            :total="total"
+            :page-sizes="[20, 50, 100, 200]"
+            aria-label="调用流水分页"
+            :disabled="loading"
+            @change="changePage"
+          />
+        </div>
+      </template>
+    </LiquidGlassTable>
 
     <AppDialog v-model="detailOpen" title="调用流水详情" width="min(860px, 94vw)">
       <div v-loading="detailLoading" class="detail-body">
-        <el-alert
+        <LiquidGlassNotice
           v-if="payloadDenied"
           type="warning"
-          :closable="false"
-          show-icon
           title="权限不足：查看请求/响应正文需要 mcp-hub:payload:read 权限"
           :description="detailError"
+          source="backdrop"
         />
-        <el-alert v-else-if="detailError" type="error" :closable="false" show-icon :title="`详情加载失败：${detailError}`" />
+        <LiquidGlassNotice
+          v-else-if="detailError"
+          type="error"
+          :title="`详情加载失败：${detailError}`"
+          source="backdrop"
+        />
         <template v-if="detailEntry">
           <el-descriptions :column="2" border size="small">
             <el-descriptions-item label="时间">{{ formatDateTime(detailEntry.createdAt) }}</el-descriptions-item>
@@ -422,13 +440,12 @@ onMounted(() => {
             <el-descriptions-item label="RunId">{{ detailEntry.runId || '-' }}</el-descriptions-item>
           </el-descriptions>
 
-          <el-alert
+          <LiquidGlassNotice
             v-if="detailEntry.errorMessage"
             type="error"
-            :closable="false"
-            show-icon
             title="错误信息"
             :description="detailEntry.errorMessage"
+            source="backdrop"
           />
 
           <div class="payload-block">
@@ -464,178 +481,31 @@ onMounted(() => {
   border: 0;
 }
 
-.call-log-metrics {
-  height: auto;
-  min-height: var(--layout-metric-strip-min-height);
-  padding: 0;
-  overflow: hidden;
-  border: 1px solid rgb(var(--brand-primary-rgb) / 0.16);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--surface-solid-panel) 72%, transparent);
-  box-shadow: 0 18px 42px rgb(var(--brand-primary-rgb) / 0.052);
-}
-
-.call-log-metrics :deep(.metric-strip__item) {
-  min-height: var(--layout-metric-strip-min-height);
-  padding: var(--layout-metric-padding-block) var(--layout-metric-padding-inline);
-  gap: var(--layout-section-gap);
-}
-
-.call-log-metrics :deep(.metric-strip__item + .metric-strip__item) {
-  padding-inline-start: var(--layout-panel-padding);
-}
-
 .call-log-card {
-  overflow: hidden;
-  border: 1px solid rgb(var(--brand-primary-rgb) / 0.14);
-  border-radius: 16px;
-  background: color-mix(in srgb, var(--surface-solid-panel) 76%, transparent);
-  box-shadow: 0 18px 42px -16px rgb(var(--brand-primary-rgb) / 0.08);
-  backdrop-filter: blur(18px);
+  min-height: 0;
 }
 
-.call-log-card :deep(.el-card__body) {
-  padding: 0;
-}
-
-.call-log-toolbar {
+.call-log-toolbar-stack {
   display: grid;
-  grid-template-columns: minmax(240px, 2.2fr) minmax(150px, 1.15fr) minmax(112px, 0.78fr) minmax(112px, 0.78fr) auto;
-  align-items: center;
-  gap: 12px;
-  margin: var(--layout-panel-padding) var(--layout-panel-padding) 0;
-  padding: var(--layout-filter-padding-block) var(--layout-filter-padding-inline);
-  border: 1px solid rgb(var(--brand-primary-rgb) / 0.11);
-  border-radius: 12px;
-  background: var(--brand-soft-bg, var(--surface-glass-control));
-}
-
-.call-log-toolbar :deep(.el-input__wrapper),
-.call-log-toolbar :deep(.el-select__wrapper),
-.advanced-filters :deep(.el-input__wrapper),
-.advanced-filters :deep(.el-select__wrapper) {
-  min-height: 38px;
-  padding: 0 14px;
-  border-radius: 9px;
-  background: var(--surface-solid-control);
-  box-shadow: 0 0 0 1px rgb(var(--brand-primary-rgb) / 0.18) inset;
-}
-
-.call-log-toolbar :deep(.el-input__inner),
-.call-log-toolbar :deep(.el-select__placeholder),
-.call-log-toolbar :deep(.el-select__selected-item),
-.advanced-filters :deep(.el-input__inner),
-.advanced-filters :deep(.el-select__placeholder),
-.advanced-filters :deep(.el-select__selected-item) {
-  color: var(--text-muted);
-  font-size: 13px;
-}
-
-.toolbar-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
+  width: 100%;
   gap: 10px;
-}
-
-.toolbar-more,
-.toolbar-reset,
-.toolbar-search {
-  height: 40px;
-  min-height: 40px;
-  margin: 0;
-  border-radius: 10px;
-  font-weight: 700;
-}
-
-.toolbar-more {
-  width: 40px;
-  padding: 0;
-  color: var(--text-secondary);
-  border-color: rgb(var(--brand-primary-rgb) / 0.18);
-  background: var(--surface-solid-control);
-}
-
-.toolbar-more.is-active {
-  color: var(--brand-active);
-  border-color: rgb(var(--brand-primary-rgb) / 0.32);
-  background: var(--surface-glass-selected);
-}
-
-.toolbar-reset {
-  width: 72px;
-  color: var(--text-primary);
-  border-color: rgb(var(--brand-primary-rgb) / 0.18);
-  background: var(--surface-solid-control);
-}
-
-.toolbar-search {
-  width: 88px;
-  border-color: transparent;
-  background: var(--brand-primary-gradient);
-  box-shadow: 0 10px 18px -10px rgb(var(--brand-primary-rgb) / 0.24);
 }
 
 .advanced-filters {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
   align-items: center;
-  gap: 12px;
-  margin: var(--layout-section-gap) var(--layout-panel-padding) 0;
-  padding: var(--layout-filter-padding-block) var(--layout-filter-padding-inline);
-  border: 1px solid rgb(var(--brand-primary-rgb) / 0.1);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--surface-glass-control) 76%, transparent);
+  gap: var(--layout-control-gap);
 }
 
 .advanced-filter-note {
-  grid-column: 1 / -1;
   color: var(--text-muted);
   font-size: 12px;
-}
-
-.call-log-error {
-  margin: var(--layout-section-gap) var(--layout-panel-padding) 0;
-}
-
-.call-log-table-shell {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  margin: var(--layout-section-gap) var(--layout-panel-padding) 0;
-  overflow: hidden;
-  border: 1px solid rgb(var(--brand-primary-rgb) / 0.12);
-  border-radius: 13px;
-  background: color-mix(in srgb, var(--surface-solid-panel) 74%, transparent);
-}
-
-.call-log-table {
-  --el-table-header-bg-color: color-mix(in srgb, var(--brand-selected-bg) 42%, var(--surface-glass-control));
-  --el-table-row-hover-bg-color: color-mix(in srgb, var(--surface-solid-panel) 84%, transparent);
-  --el-table-border-color: rgb(var(--brand-primary-rgb) / 0.1);
-  background: transparent;
-}
-
-.call-log-table :deep(.el-table__inner-wrapper::before) { height: 0; }
-.call-log-table :deep(.cell) { padding: 0 8px; }
-
-.call-log-table :deep(th.el-table__cell) {
-  height: 44px;
-  color: var(--brand-active);
-  background: color-mix(in srgb, var(--brand-selected-bg) 42%, var(--surface-glass-control)) !important;
-  font-size: 12px;
-  font-weight: 700;
+  white-space: nowrap;
 }
 
 .call-log-table :deep(td.el-table__cell) {
-  height: 62px;
-  color: var(--text-secondary);
-  background: color-mix(in srgb, var(--surface-solid-panel) 84%, transparent) !important;
-  border-bottom-color: rgb(var(--brand-primary-rgb) / 0.1);
-}
-
-.call-log-table :deep(.el-table-fixed-column--right) {
-  background-color: color-mix(in srgb, var(--surface-solid-panel) 92%, transparent) !important;
+  height: 56px;
 }
 
 .muted,
@@ -702,7 +572,6 @@ onMounted(() => {
 
 .call-log-table :deep(.el-table__empty-block) {
   min-height: 236px;
-  background: color-mix(in srgb, var(--surface-solid-panel) 72%, transparent);
 }
 
 .call-log-empty {
@@ -721,11 +590,11 @@ onMounted(() => {
   flex: 0 0 58px;
   align-items: center;
   justify-content: center;
-  border: 1px solid rgb(var(--brand-primary-rgb) / 0.24);
+  border: 1px solid var(--border-glass-edge);
   border-radius: 16px;
-  color: var(--brand-active);
-  background: var(--surface-glass-selected);
-  box-shadow: var(--inner-highlight);
+  color: var(--brand-on-surface);
+  background: var(--surface-glass-inset);
+  box-shadow: var(--glass-rim-double);
   font-size: 26px;
 }
 
@@ -743,42 +612,12 @@ onMounted(() => {
 
 .table-footer {
   display: flex;
-  min-height: 58px;
-  flex-shrink: 0;
+  width: 100%;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: var(--layout-pagination-padding-block) var(--layout-panel-padding);
-  border-top: 1px solid rgb(var(--brand-primary-rgb) / 0.12);
   color: var(--text-muted);
-  background: color-mix(in srgb, var(--surface-glass-control) 72%, transparent);
   font-size: 13px;
-}
-
-.table-footer :deep(.call-log-pagination.el-pagination) {
-  --el-pagination-button-width: 34px;
-  --el-pagination-button-height: 34px;
-  --el-pagination-hover-color: var(--brand-active);
-  gap: 6px;
-}
-
-.table-footer :deep(.call-log-pagination.is-background .btn-prev),
-.table-footer :deep(.call-log-pagination.is-background .btn-next),
-.table-footer :deep(.call-log-pagination.is-background .el-pager li:not(.is-active)) {
-  min-width: 34px;
-  height: 34px;
-  margin: 0;
-  border: 0;
-  border-radius: 8px;
-  background: var(--surface-glass-control);
-  box-shadow: none;
-}
-
-.table-footer :deep(.call-log-pagination.is-background .el-pager li.is-active) {
-  color: var(--brand-active);
-  border-radius: 8px;
-  background: var(--surface-glass-selected);
-  font-weight: 700;
 }
 
 .detail-body {
@@ -803,40 +642,18 @@ onMounted(() => {
 }
 
 @media (max-width: 1200px) {
-  .call-log-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .toolbar-keyword,
-  .toolbar-actions { grid-column: 1 / -1; }
-  .toolbar-actions { justify-self: end; }
   .advanced-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .advanced-filter-note { grid-column: 1 / -1; }
 }
 
 @media (max-width: 760px) {
-  .call-log-toolbar,
-  .advanced-filters {
-    grid-template-columns: minmax(0, 1fr);
-    margin-right: var(--layout-panel-padding);
-    margin-left: var(--layout-panel-padding);
-  }
-
-  .call-log-toolbar { margin-top: var(--layout-panel-padding); }
-  .toolbar-keyword,
-  .toolbar-actions,
-  .advanced-filter-note { grid-column: auto; }
-  .toolbar-actions { width: 100%; justify-self: stretch; }
-  .toolbar-reset,
-  .toolbar-search { flex: 1; width: auto; }
-  .call-log-table-shell,
-  .call-log-error { margin-right: var(--layout-panel-padding); margin-left: var(--layout-panel-padding); }
-  .call-log-table-shell { margin-top: var(--layout-section-gap); }
+  .advanced-filters { grid-template-columns: 1fr; }
   .call-log-empty { align-items: center; flex-direction: column; text-align: center; }
 
   .table-footer {
     align-items: flex-start;
     flex-direction: column;
     overflow-x: auto;
-    padding-right: var(--layout-panel-padding);
-    padding-left: var(--layout-panel-padding);
   }
 }
 </style>

@@ -1,101 +1,81 @@
 <template>
-  <WorkbenchPage class="agent-page" layout="list">
+  <LiquidGlassPage class="agent-page">
     <CollapsibleHeaderRegion :collapsed="isAgentHeaderCollapsed">
       <PageHeader
         variant="overview"
+        presentation="plain"
+        action-presentation="inline"
         domain="agent"
-        eyebrow="Agent Catalog"
         title="Agent 管理"
-        description="统一管理 Agent 身份、项目归属、Supervisor 配置状态和可调用 Workflow。"
+        description="配置 Agent 的职责、可调用 Workflow 和发布版本。"
         :collapsed="isAgentHeaderCollapsed"
       >
         <template #tags>
-          <el-tag effect="light">Supervisor Agent</el-tag>
           <el-tag :type="scopeCanLoadData ? 'info' : 'warning'" effect="light">
             {{ agentScopeTagLabel }}
           </el-tag>
           <el-tag v-if="hasLoadedAgentList" type="success" effect="light">
             当前 {{ agentStatistics.totalAgents }} 个
           </el-tag>
-          <el-tag type="info" effect="light">可调用 Workflow</el-tag>
         </template>
         <template #actions>
-          <ViewToggle v-model="viewMode" />
-          <el-button v-if="canOpenRunOps" :icon="Connection" @click="router.push('/runops')">运行中心</el-button>
-          <el-button v-if="canCreateAgent" type="primary" :icon="Plus" @click="handleCreate">
+          <LiquidGlassViewToggle v-model="viewMode" source="wallpaper" />
+          <LiquidGlassButton source="wallpaper" v-if="canOpenRunOps" :icon="Connection" @click="router.push('/runops')">运行中心</LiquidGlassButton>
+          <LiquidGlassButton source="wallpaper" v-if="canCreateAgent" type="primary" :icon="Plus" @click="handleCreate">
             新建智能体
-          </el-button>
+          </LiquidGlassButton>
         </template>
       </PageHeader>
 
       <template v-if="hasLoadedAgentList" #summary>
-        <MetricStrip :items="metricItems" density="compact" aria-label="智能体指标概览" />
-        <div v-if="statisticsError" class="agent-statistics-warning" role="status" aria-live="polite">
+        <MetricStrip class="glass-workspace-adaptive" :items="metricItems" density="compact" aria-label="智能体指标概览" />
+        <div v-if="statisticsError" class="agent-statistics-warning glass-workspace-adaptive" role="status" aria-live="polite">
           当前范围的 Agent 列表已加载，统计暂时不可用；可以稍后重试。
         </div>
       </template>
     </CollapsibleHeaderRegion>
 
-      <DataTableShell
-        v-if="scopeCanLoadData"
-        v-model:current-page="currentPage"
-        v-model:page-size="pageSize"
-        class="agent-shell workbench-list-surface"
-        :loading="loading"
-        :empty="!hasLoadedAgentList || filteredAgents.length === 0"
-        empty-description="暂无符合条件的智能体"
-        :total="filteredAgents.length"
+    <LiquidGlassTable
+      v-if="scopeCanLoadData"
+      v-model:current-page="currentPage"
+      v-model:page-size="pageSize"
+      class="agent-shell workbench-list-surface"
+      :loading="loading"
+      :empty="!hasLoadedAgentList || filteredAgents.length === 0"
+      empty-description="暂无符合条件的智能体"
+      :total="filteredAgents.length"
       :page-sizes="[10, 20, 50]"
+      :body-layout="viewMode === 'card' ? 'cards' : 'table'"
+      :show-pagination="hasLoadedAgentList"
+      show-empty-pagination
+      pagination-label="Agent 分页"
     >
       <template #toolbar>
-        <FilterBar
-          class="agent-filter-bar"
+        <LiquidGlassFilterBar
           density="compact"
           :loading="loading"
           @query="handleQuery"
           @reset="resetFilters"
         >
-          <el-input
+          <LiquidGlassInput
             v-model="filterKeyword"
             :prefix-icon="Search"
             placeholder="搜索名称、keySlug 或 ID"
             clearable
             class="filter-control is-keyword"
           />
-          <el-select v-model="filterEnabled" placeholder="启用状态" clearable class="filter-control is-narrow">
+          <LiquidGlassSelect v-model="filterEnabled" placeholder="启用状态" clearable class="filter-control is-narrow">
             <el-option label="已启用" :value="true" />
             <el-option label="已停用" :value="false" />
-          </el-select>
-
-          <template #actions>
-            <el-tooltip content="重置筛选" placement="top">
-              <el-button
-                class="filter-reset-button"
-                :icon="RefreshLeft"
-                circle
-                native-type="button"
-                aria-label="重置筛选"
-                @click="resetFilters"
-              />
-            </el-tooltip>
-            <el-button
-              class="filter-search-button"
-              type="primary"
-              native-type="submit"
-              :icon="Search"
-              :loading="loading"
-            >
-              搜索
-            </el-button>
-          </template>
-        </FilterBar>
+          </LiquidGlassSelect>
+        </LiquidGlassFilterBar>
       </template>
 
       <div v-if="viewMode === 'card'" class="agent-card-grid">
         <article
           v-for="agent in pagedAgents"
           :key="agent.id"
-          class="agent-card glass-surface-card"
+          class="agent-card glass-surface-frost"
           @click="handleEdit(agent.id)"
         >
           <div class="agent-card-top">
@@ -180,7 +160,7 @@
               </button>
             </template>
           </el-table-column>
-          <el-table-column prop="keySlug" label="keySlug" min-width="170" show-overflow-tooltip />
+          <el-table-column prop="keySlug" label="标识" min-width="170" show-overflow-tooltip />
           <el-table-column label="项目" width="126" show-overflow-tooltip>
             <template #default="{ row }">
               {{ row.projectCode || projectCodeById(row.projectId) || '全局' }}
@@ -189,7 +169,7 @@
           <el-table-column label="可见性" width="92">
             <template #default="{ row }">{{ visibilityLabel(row.visibility) }}</template>
           </el-table-column>
-          <el-table-column label="Supervisor 配置" min-width="158">
+          <el-table-column label="线上配置" min-width="158">
             <template #default="{ row }">
               <el-tag size="small" :type="configStatusType(row.configStatus)" effect="light">
                 {{ configStatusLabel(row) }}
@@ -266,7 +246,7 @@
 
           <div class="agent-empty-guide__content">
             <h3>创建第一个 Agent</h3>
-            <p>配置 Supervisor，并按需接入 Workflow 工具。</p>
+            <p>写好工作要求，再按需添加 Workflow 和知识库。</p>
             <el-button v-if="canCreateAgent" type="primary" :icon="Plus" @click="handleCreate">
               新建智能体
             </el-button>
@@ -280,23 +260,11 @@
         </el-empty>
       </template>
 
-      <template v-if="hasLoadedAgentList" #pagination>
-        <span class="agent-pagination-total">共 {{ filteredAgents.length }} 条</span>
-        <el-pagination
-          v-model:current-page="currentPage"
-          v-model:page-size="pageSize"
-          class="agent-pagination"
-          background
-          layout="prev, pager, next, sizes"
-          :page-sizes="[10, 20, 50]"
-          :total="filteredAgents.length"
-        />
-      </template>
-    </DataTableShell>
+    </LiquidGlassTable>
 
     <section
       v-else
-      class="agent-scope-panel glass-surface-panel"
+      class="agent-scope-panel glass-surface-panel glass-workspace-adaptive"
       :aria-label="agentScopeLabel"
     >
       <ProjectScopeState
@@ -311,14 +279,15 @@
         @retry="retryScope"
       />
     </section>
-  </WorkbenchPage>
+  </LiquidGlassPage>
 </template>
 
 <script setup lang="ts">
+import { formatDateTime } from '@/utils/dateTime'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, type TableInstance } from 'element-plus'
-import { Connection, Cpu, Plus, RefreshLeft, Search } from '@element-plus/icons-vue'
+import { Connection, Cpu, Plus, Search } from '@element-plus/icons-vue'
 import type { Agent, AgentStatistics } from '@/types/workflow'
 import {
   deleteAgent,
@@ -326,16 +295,13 @@ import {
   listAgents,
   updateAgent,
 } from '@/api/workflow'
-import ViewToggle from '@/components/ViewToggle.vue'
+import { LiquidGlassButton, LiquidGlassFilterBar, LiquidGlassInput, LiquidGlassSelect, LiquidGlassTable, LiquidGlassViewToggle, LiquidGlassPage } from '@/components/common/liquid-glass'
 import { useAppStore } from '@/store/app'
 import { usePageProjectScope } from '@/composables/usePageProjectScope'
 import { agentListActions, type AgentListActionId } from '@/utils/agentActions'
 import CollapsibleHeaderRegion from '@/components/common/CollapsibleHeaderRegion.vue'
-import DataTableShell from '@/components/common/DataTableShell.vue'
-import FilterBar from '@/components/common/FilterBar.vue'
 import MetricStrip from '@/components/common/MetricStrip.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
-import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
 import ProjectScopeState from '@/components/common/ProjectScopeState.vue'
 import type { MetricStripItem } from '@/components/common/glassWorkbench'
 import { useCollapsiblePageHeader } from '@/composables/useCollapsiblePageHeader'
@@ -652,13 +618,6 @@ function configStatusLabel(agent: Agent) {
   return `${statusLabels[agent.configStatus] || agent.configStatus}${version}`
 }
 
-function formatDateTime(value?: string | null) {
-  if (!value) return '-'
-  const parsed = Date.parse(value)
-  if (!Number.isFinite(parsed)) return value
-  return new Date(parsed).toLocaleString()
-}
-
 function agentInitial(name?: string | null) {
   return name?.trim().slice(0, 1).toUpperCase() || 'A'
 }
@@ -876,154 +835,14 @@ watch(isAgentHeaderCollapsed, () => {
 </script>
 
 <style scoped lang="scss">
-.agent-page {
-  height: 100%;
-  max-height: 100%;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.agent-page :deep(.collapsible-header-region) {
-  flex: 0 0 auto;
-}
-
-.agent-shell {
-  flex: 1 1 auto;
-  min-height: 0;
-  gap: 0;
-  overflow: hidden;
-  padding: 0;
-  border-radius: 16px;
-}
-
-.agent-filter-bar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--layout-control-gap);
-  width: 100%;
-  padding: var(--layout-filter-padding-block) var(--layout-filter-padding-inline);
-  border-color: rgb(var(--brand-primary-rgb) / 0.11);
-  border-radius: 12px;
-  background: var(--brand-soft-bg, var(--surface-glass-control));
-  box-shadow: none;
-}
-
-.filter-control {
-  width: 100%;
-  min-width: 0;
-
-  &.is-keyword {
-    min-width: 0;
-  }
-}
-
-.agent-filter-bar :deep(.filter-bar__fields) {
-  display: grid;
-  flex: 1 1 480px;
-  grid-template-columns: minmax(300px, 2.2fr) minmax(138px, 0.72fr);
-  align-items: center;
-  gap: var(--layout-control-gap);
-  min-width: min(100%, 480px);
-}
-
 .agent-statistics-warning {
   margin-top: 10px;
   padding: 8px 12px;
   border: 1px solid color-mix(in srgb, var(--el-color-warning) 24%, var(--border-divider));
   border-radius: 9px;
-  color: var(--el-color-warning-dark-2);
+  color: var(--status-warning);
   background: color-mix(in srgb, var(--el-color-warning) 7%, transparent);
   font-size: 12px;
-}
-
-.agent-filter-bar :deep(.filter-bar__actions) {
-  flex: 0 0 auto;
-  display: grid;
-  grid-template-columns: 40px 88px;
-  align-items: center;
-  gap: var(--layout-control-gap);
-}
-
-.agent-filter-bar :deep(.el-input__wrapper),
-.agent-filter-bar :deep(.el-select__wrapper) {
-  min-height: 38px;
-  padding: 0 14px;
-  border-radius: 9px;
-  background: var(--surface-solid-control);
-  box-shadow: 0 0 0 1px rgb(var(--brand-primary-rgb) / 0.18) inset;
-}
-
-.agent-filter-bar :deep(.el-input__inner),
-.agent-filter-bar :deep(.el-select__placeholder),
-.agent-filter-bar :deep(.el-select__selected-item) {
-  color: var(--text-muted);
-  font-size: 13px;
-}
-
-.agent-filter-bar :deep(.el-input__prefix),
-.agent-filter-bar :deep(.el-input__suffix),
-.agent-filter-bar :deep(.el-select__suffix),
-.agent-filter-bar :deep(.el-select__caret) {
-  color: rgb(var(--brand-primary-rgb) / 0.52);
-}
-
-.filter-reset-button,
-.filter-search-button {
-  height: 40px;
-  min-height: 40px;
-  border-radius: 10px;
-  font-weight: 700;
-}
-
-.filter-reset-button {
-  width: 40px;
-  color: var(--text-secondary);
-  border-color: rgb(var(--brand-primary-rgb) / 0.18);
-  background: var(--surface-solid-control);
-}
-
-.filter-reset-button:hover {
-  color: var(--brand-active);
-  border-color: rgb(var(--brand-primary-rgb) / 0.28);
-  background: var(--surface-glass-selected);
-}
-
-.filter-search-button {
-  width: 88px;
-  border-color: transparent;
-  background: var(--brand-primary-gradient);
-  box-shadow: 0 10px 18px -10px rgb(var(--brand-primary-rgb) / 0.24);
-}
-
-.agent-shell :deep(.data-table-shell__toolbar) {
-  display: block;
-  flex: 0 0 auto;
-  margin: var(--layout-panel-padding) var(--layout-panel-padding) 0;
-}
-
-.agent-shell :deep(.data-table-shell__body) {
-  display: flex;
-  min-height: 0;
-  flex: 1 1 auto;
-  flex-direction: column;
-  margin: var(--layout-section-gap) var(--layout-panel-padding) 0;
-}
-
-.agent-shell.is-empty :deep(.data-table-shell__body) {
-  min-height: 46px;
-  flex: 0 0 46px;
-}
-
-.agent-shell :deep(.data-table-shell__pagination) {
-  min-height: 0;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--layout-section-gap);
-  padding: var(--layout-pagination-padding-block) var(--layout-panel-padding);
-  border-top-color: rgb(var(--brand-primary-rgb) / 0.12);
-  color: var(--text-muted);
-  background: color-mix(in srgb, var(--surface-glass-control) 78%, transparent);
 }
 
 .agent-shell :deep(.data-table-shell__empty) {
@@ -1171,108 +990,9 @@ watch(isAgentHeaderCollapsed, () => {
   flex: 1;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid rgb(var(--brand-primary-rgb) / 0.12);
-  border-radius: 13px;
-  background: var(--surface-glass-control);
 }
 
-.agent-table {
-  --el-table-header-bg-color: color-mix(in srgb, var(--brand-selected-bg) 42%, var(--surface-fallback-panel));
-  --el-table-row-hover-bg-color: color-mix(in srgb, var(--brand-primary) 8%, var(--surface-fallback-panel));
-  --el-table-border-color: rgb(var(--brand-primary-rgb) / 0.1);
-  width: 100%;
-  background: transparent;
-}
-
-.agent-table :deep(.el-table__inner-wrapper::before) {
-  height: 0;
-}
-
-.agent-table :deep(.cell) {
-  padding: 0 10px;
-}
-
-.agent-table :deep(th.el-table__cell) {
-  height: 44px;
-  color: var(--brand-active);
-  background: color-mix(in srgb, var(--brand-selected-bg) 42%, var(--surface-fallback-panel)) !important;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.agent-table :deep(td.el-table__cell) {
-  height: 62px;
-  color: var(--text-secondary);
-  background: color-mix(in srgb, var(--surface-solid-panel) 82%, transparent) !important;
-  border-bottom-color: rgb(var(--brand-primary-rgb) / 0.1);
-}
-
-.agent-table :deep(.el-table__row:hover > td.el-table__cell),
-.agent-table :deep(.el-table__body tr.hover-row > td.el-table__cell) {
-  background: rgb(var(--brand-primary-rgb) / 0.08) !important;
-}
-
-.agent-table :deep(.el-table-fixed-column--right),
-.agent-table :deep(.el-table-fixed-column--left) {
-  background-color: var(--surface-fallback-panel) !important;
-}
-
-.agent-table :deep(th.el-table-fixed-column--right),
-.agent-table :deep(th.el-table-fixed-column--left) {
-  background-color: color-mix(in srgb, var(--brand-selected-bg) 42%, var(--surface-fallback-panel)) !important;
-}
-
-.agent-table :deep(td.el-table-fixed-column--right),
-.agent-table :deep(td.el-table-fixed-column--left) {
-  background-color: var(--surface-fallback-panel) !important;
-}
-
-.agent-table :deep(.el-table__row:hover > td.el-table-fixed-column--right),
-.agent-table :deep(.el-table__row:hover > td.el-table-fixed-column--left),
-.agent-table :deep(.el-table__body tr.hover-row > td.el-table-fixed-column--right),
-.agent-table :deep(.el-table__body tr.hover-row > td.el-table-fixed-column--left) {
-  background-color: color-mix(in srgb, var(--brand-primary) 8%, var(--surface-fallback-panel)) !important;
-}
-
-.agent-pagination-total {
-  flex: 0 0 auto;
-  font-size: 13px;
-}
-
-.agent-shell :deep(.agent-pagination.el-pagination) {
-  --el-pagination-button-width: 34px;
-  --el-pagination-button-height: 34px;
-  --el-pagination-hover-color: var(--brand-active);
-  gap: 6px;
-}
-
-.agent-shell :deep(.agent-pagination.is-background .btn-prev),
-.agent-shell :deep(.agent-pagination.is-background .btn-next),
-.agent-shell :deep(.agent-pagination.is-background .el-pager li:not(.is-active)) {
-  min-width: 34px;
-  height: 34px;
-  margin: 0;
-  border: 0;
-  border-radius: 8px;
-  background: var(--surface-solid-control);
-  box-shadow: none;
-}
-
-.agent-shell :deep(.agent-pagination.is-background .el-pager li.is-active) {
-  color: var(--brand-active);
-  background: var(--surface-glass-selected);
-  font-weight: 700;
-}
-
-.agent-shell :deep(.agent-pagination .el-pagination__sizes .el-select) {
-  width: 94px;
-}
-
-.agent-shell :deep(.agent-pagination .el-pagination__sizes .el-select__wrapper) {
-  min-height: 34px;
-  height: 34px;
-  border-radius: 8px;
-}
+.agent-table { width: 100%; }
 
 .agent-name-cell {
   display: flex;
@@ -1295,7 +1015,7 @@ watch(isAgentHeaderCollapsed, () => {
   flex: 0 0 32px;
   border: 1px solid rgb(var(--brand-primary-rgb) / 0.28);
   border-radius: 9px;
-  color: var(--brand-active);
+  color: var(--brand-on-surface);
   background: linear-gradient(
     90deg,
     var(--surface-solid-control) 0%,
@@ -1366,7 +1086,7 @@ watch(isAgentHeaderCollapsed, () => {
 
 .agent-card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
   gap: var(--section-gap);
 }
 
@@ -1385,7 +1105,7 @@ watch(isAgentHeaderCollapsed, () => {
 
   &:hover {
     border-color: var(--brand-primary);
-    box-shadow: var(--shadow-floating);
+    box-shadow: var(--shadow-overlay);
     transform: translateY(-1px);
   }
 }
@@ -1402,7 +1122,7 @@ watch(isAgentHeaderCollapsed, () => {
   flex-shrink: 0;
   border: 1px solid var(--border-subtle);
   border-radius: 12px;
-  color: var(--brand-active);
+  color: var(--brand-on-surface);
   background: var(--surface-glass-selected);
   box-shadow: var(--inner-highlight);
 }
@@ -1464,64 +1184,7 @@ watch(isAgentHeaderCollapsed, () => {
   }
 }
 
-@media (max-width: 900px) {
-  .agent-filter-bar :deep(.filter-bar__fields) {
-    flex-basis: 100%;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    min-width: 0;
-  }
-
-  .filter-control.is-keyword {
-    grid-column: 1 / -1;
-  }
-}
-
 @media (max-width: 760px) {
-  .agent-shell :deep(.data-table-shell__toolbar),
-  .agent-shell :deep(.data-table-shell__body) {
-    margin-right: var(--layout-panel-padding);
-    margin-left: var(--layout-panel-padding);
-  }
-
-  .agent-shell :deep(.data-table-shell__toolbar) {
-    margin-top: var(--layout-panel-padding);
-  }
-
-  .agent-shell :deep(.data-table-shell__body) {
-    margin-top: var(--layout-section-gap);
-  }
-
-  .agent-filter-bar :deep(.filter-bar__fields) {
-    flex-basis: 100%;
-    grid-template-columns: minmax(0, 1fr);
-    min-width: 0;
-  }
-
-  .agent-filter-bar :deep(.filter-bar__actions) {
-    width: 100%;
-    justify-content: flex-start;
-  }
-
-  .filter-control.is-keyword {
-    grid-column: auto;
-  }
-
-  .filter-control,
-  .filter-control.is-keyword,
-  .filter-control.is-project,
-  .filter-control.is-narrow {
-    width: 100%;
-    min-width: 0;
-  }
-
-  .agent-shell :deep(.data-table-shell__pagination) {
-    align-items: flex-start;
-    flex-direction: column;
-    padding-right: var(--layout-panel-padding);
-    padding-left: var(--layout-panel-padding);
-    overflow-x: auto;
-  }
-
   .agent-shell :deep(.data-table-shell__empty) {
     padding: var(--layout-panel-padding);
   }

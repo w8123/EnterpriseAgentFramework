@@ -15,15 +15,13 @@
       </el-aside>
 
       <el-container class="layout-workspace">
-        <div v-if="!isStudioPage" class="breadcrumb-rail">
-          <AppBreadcrumb :show-back="breadcrumbShowBack" />
+        <div v-if="!isStudioPage && !hideBreadcrumb" class="breadcrumb-rail">
+          <AppBreadcrumb />
         </div>
 
-        <el-main class="main-content">
+        <el-main ref="mainContent" class="main-content">
           <router-view v-slot="{ Component }">
-            <transition name="page" mode="out-in">
-              <component :is="Component" class="main-content-page" />
-            </transition>
+            <component :is="Component" :key="contentViewKey" class="main-content-page" />
           </router-view>
         </el-main>
       </el-container>
@@ -34,7 +32,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useTheme } from '@/composables/useTheme'
 import { useAppStore } from '@/store/app'
@@ -54,6 +52,19 @@ const appStore = useAppStore()
 providePageProjectScope()
 
 const route = useRoute()
+const mainContent = ref<{ $el: HTMLElement } | null>(null)
+// Detail identities remount only the content; nested workbenches keep their shell.
+const contentViewKey = computed(() => (
+  typeof route.meta.rootViewKey === 'string' ? route.meta.rootViewKey : route.path
+))
+
+watch(contentViewKey, () => {
+  const element = mainContent.value?.$el
+  if (element) {
+    element.scrollTop = 0
+    element.scrollLeft = 0
+  }
+}, { flush: 'post' })
 
 type LayoutMode = 'standard' | 'project-workbench' | 'edge-to-edge' | 'studio'
 
@@ -62,19 +73,18 @@ const layoutMode = computed<LayoutMode>(
 )
 const isStudioPage = computed(() => layoutMode.value === 'studio')
 const { isSidebarCollapsed, toggleSidebar } = useResponsiveSidebar({
-  compactOnNarrow: () => route.meta.compactSidebarOnNarrow === true,
+  // 窄屏（≤768px）默认收起侧栏；个别页面可用 compactSidebarOnNarrow: false 退出。
+  compactOnNarrow: () => route.meta.compactSidebarOnNarrow !== false,
   collapsedPreference: () => appStore.sidebarCollapsed,
   togglePreference: () => appStore.toggleSidebar(),
 })
-const breadcrumbShowBack = computed(
-  () => route.meta.breadcrumbShowBack !== false,
-)
 const sidebarWidth = computed(() =>
   isSidebarCollapsed.value
     ? 'var(--layout-sidebar-collapsed-width)'
     : 'var(--layout-sidebar-expanded-width)',
 )
 const hideSidebarProjectPanel = computed(() => Boolean(route.meta.hideSidebarProjectPanel))
+const hideBreadcrumb = computed(() => Boolean(route.meta.hideBreadcrumb))
 
 </script>
 
@@ -83,7 +93,7 @@ const hideSidebarProjectPanel = computed(() => Boolean(route.meta.hideSidebarPro
   height: 100vh;
   position: relative;
   overflow: hidden;
-  background: color-mix(in srgb, var(--brand-selected-bg) 48%, #f8fbff);
+  background: var(--surface-page-canvas);
 }
 
 .layout-workspace {
@@ -91,6 +101,7 @@ const hideSidebarProjectPanel = computed(() => Boolean(route.meta.hideSidebarPro
   z-index: 1;
   flex-direction: column;
   min-width: 0;
+  height: 100%;
 }
 
 /* 侧栏容器：浮动玻璃卡的呼吸边距（Glass Workbench v2）。 */
@@ -101,21 +112,18 @@ const hideSidebarProjectPanel = computed(() => Boolean(route.meta.hideSidebarPro
   box-sizing: border-box;
   padding: var(--layout-sidebar-inset-block) var(--layout-sidebar-inset-end)
     var(--layout-sidebar-inset-block) var(--layout-sidebar-inset-start);
-  transition: width 0.18s ease;
+  transition: width var(--motion-duration-normal) var(--motion-easing-standard);
 }
 
 .breadcrumb-rail {
-  flex: 0 0 var(--layout-breadcrumb-height);
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  height: var(--layout-breadcrumb-height);
+  min-height: var(--layout-breadcrumb-height);
   padding: 0 var(--layout-content-inline);
+  padding-top: var(--layout-heading-spacing);
   background: transparent;
-}
-
-.main-layout.is-dark {
-  background: #0c1424;
 }
 
 .main-content {
@@ -124,11 +132,16 @@ const hideSidebarProjectPanel = computed(() => Boolean(route.meta.hideSidebarPro
   position: relative;
   isolation: isolate;
   padding: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 .main-content-page {
   position: relative;
   z-index: 1;
+  flex: 1 0 auto;
+  width: 100%;
 }
 
 .layout-studio {

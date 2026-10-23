@@ -69,7 +69,7 @@ const DetailDialogStub = {
 }
 
 const filterSelect = (wrapper: ReturnType<typeof mount>, role: 'project' | 'classification' | 'status') =>
-  wrapper.findAllComponents(ElSelect).find(select => select.classes().includes(`is-${role}`))!
+  wrapper.findAllComponents(ElSelect).find(select => select.element.closest(`.filter-control.is-${role}`))!
 
 describe('business method catalog scope ownership', () => {
   let wrapper: ReturnType<typeof mount>

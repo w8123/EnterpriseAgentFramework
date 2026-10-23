@@ -49,6 +49,12 @@
 | [personal-agent-memory.md](./personal-agent-memory.md) | Agent 记忆：会话记忆、个人长期记忆、Agent 记忆策略、用户自助管理、检索投影与生产配置 |
 | [business-index-resolution.md](./business-index-resolution.md) | 业务索引回源：带版本引用、按当前身份回源鉴权的 resolver 契约（原「业务记忆」） |
 
+## 前端设计系统
+
+| 文档 | 用途 |
+| --- | --- |
+| [frontend-liquid-glass-design-system.md](./frontend-liquid-glass-design-system.md) | 管理端液态玻璃主题的 token 分层、材质、偏好、SDK 隔离与维护规则 |
+
 ## 开放协议
 
 | 文档 | 用途 |

@@ -42,6 +42,9 @@ import java.util.Optional;
 @RestController
 public class ControlRuntimePublicController {
 
+    /** Runtime-reserved body key for a Control-checked debug config (see RuntimeAgentExecutionService). */
+    static final String DEBUG_CONFIG_VERSION_KEY = "__debugConfigVersionId";
+
     private static final List<String> AGENT_SKILL_ATTESTED_FIELDS = List.of(
             "skillId", "skillVersionId", "publisher", "name", "visibility", "projectCode",
             "version", "sourceSha256", "contentTreeSha256", "sourceRoot",
@@ -1190,19 +1193,24 @@ public class ControlRuntimePublicController {
     /**
      * Knowledge base → Agent in one step: Runtime creates and publishes the template
      * knowledge Q&A Workflow in the Agent's project and publishes the Agent with it.
-     * Needs Agent and Workflow publish on that project plus knowledge read.
+     * Needs Agent and Workflow publish on that project plus knowledge read; with
+     * attachToAgent=false it only prepares the Workflow and needs Agent write instead of publish.
      */
     @PostMapping("/api/agents/{agentId}/knowledge-qa")
     public ResponseEntity<Object> attachKnowledgeQaWorkflow(@PathVariable String agentId,
                                                             @RequestBody Map<String, Object> body) {
+        // attachToAgent=false only prepares the Workflow; the config page adds it to the Agent draft.
+        boolean attachToAgent = body == null || !Boolean.FALSE.equals(body.get("attachToAgent"));
         if (runtimeManagementAccess != null) {
-            PlatformAuthenticatedSession session = requireRuntimePermission(PlatformPermissions.AGENT_PUBLISH);
+            String agentPermission = attachToAgent ? PlatformPermissions.AGENT_PUBLISH : PlatformPermissions.AGENT_WRITE;
+            PlatformAuthenticatedSession session = requireRuntimePermission(agentPermission);
             ResponseEntity<Object> agent = runtimeProxyClient.getAgent(agentId);
-            requireRuntimeResponseProject(session, PlatformPermissions.AGENT_PUBLISH, agent);
+            requireRuntimeResponseProject(session, agentPermission, agent);
             requireRuntimeResponseProject(session, PlatformPermissions.WORKFLOW_PUBLISH, agent);
             requireRuntimePermission(PlatformPermissions.KNOWLEDGE_READ);
         }
         Map<String, Object> runtimeBody = new LinkedHashMap<>();
+        runtimeBody.put("attachToAgent", attachToAgent);
         runtimeBody.put("knowledgeBaseCode", normalizedText(body == null ? null : body.get("knowledgeBaseCode")));
         runtimeBody.put("knowledgeBaseName", normalizedText(body == null ? null : body.get("knowledgeBaseName")));
         runtimeBody.put("modelInstanceId", normalizedText(body == null ? null : body.get("modelInstanceId")));
@@ -1445,6 +1453,7 @@ public class ControlRuntimePublicController {
         safeBody.remove("_trustedUserId");
 
         Optional<PlatformPrincipal> user = authenticatedAgentUser(authorization);
+        attestDebugTarget(safeBody, user);
         if (user.isPresent() && trustedExecutionGateway != null) {
             String trustedUserId = trustedAgentUserId(user.get());
             attestPlatformAgentContext(safeBody, trustedUserId);
@@ -1474,6 +1483,7 @@ public class ControlRuntimePublicController {
         safeBody.remove("trustedIdentity");
         safeBody.remove("_trustedUserId");
         Optional<PlatformPrincipal> user = authenticatedAgentUser(authorization);
+        attestDebugTarget(safeBody, user);
         StreamingResponseBody stream;
         if (user.isPresent() && trustedExecutionGateway != null) {
             String trustedUserId = trustedAgentUserId(user.get());
@@ -1484,6 +1494,40 @@ public class ControlRuntimePublicController {
             stream = outputStream -> runtimeAgentStreamProxy.stream(safeBody, outputStream);
         }
         return streamResponse(stream);
+    }
+
+    /**
+     * A console user may debug an exact Agent config (including the unpublished draft) by sending
+     * {@code debugConfigVersionId}. Only after the agent:debug check on the Agent's project is the
+     * id forwarded under the Runtime-reserved key; client copies of that key are always dropped.
+     */
+    private void attestDebugTarget(Map<String, Object> safeBody, Optional<PlatformPrincipal> user) {
+        safeBody.remove(DEBUG_CONFIG_VERSION_KEY);
+        Object requested = safeBody.remove("debugConfigVersionId");
+        Long configVersionId = positiveLong(requested);
+        if (configVersionId == null) {
+            return;
+        }
+        if (user.isEmpty() || trustedExecutionGateway == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Debugging a draft requires a console login");
+        }
+        PlatformAuthenticatedSession session = requireRuntimePermission(PlatformPermissions.AGENT_DEBUG);
+        String agentId = normalizedText(safeBody.get("agentId"));
+        if (!StringUtils.hasText(agentId)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "agentId is required to debug a configuration");
+        }
+        requireAgentPayload(session, PlatformPermissions.AGENT_DEBUG, safeBody);
+        safeBody.put(DEBUG_CONFIG_VERSION_KEY, configVersionId);
+    }
+
+    private static Long positiveLong(Object raw) {
+        if (raw == null) return null;
+        try {
+            long value = raw instanceof Number number ? number.longValue() : Long.parseLong(String.valueOf(raw).trim());
+            return value > 0 ? value : null;
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
     }
 
     private Optional<PlatformPrincipal> authenticatedAgentUser(String authorization) {

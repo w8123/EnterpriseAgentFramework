@@ -65,7 +65,7 @@ function handleVisibleChange(visible: boolean) {
 }
 
 .project-code {
-  color: #94a3b8;
+  color: var(--text-disabled);
   font-size: 12px;
 }
 </style>

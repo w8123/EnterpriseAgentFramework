@@ -1,66 +1,57 @@
 <template>
   <div class="node-specific-panel">
-    <el-divider>FOREACH 循环（有界串行）</el-divider>
-    <el-form-item label="集合表达式">
-      <el-input v-model="config.collection" placeholder="例如：var.items / nodeOutput.assign" />
-    </el-form-item>
-    <el-form-item label="item 别名">
-      <el-input v-model="config.itemAlias" placeholder="item" />
-    </el-form-item>
-    <el-form-item label="index 别名">
-      <el-input v-model="config.indexAlias" placeholder="index" />
-    </el-form-item>
-    <el-form-item label="输出别名">
-      <el-input v-model="config.outputAlias" placeholder="loop_results → var.loop_results" />
-    </el-form-item>
-    <el-form-item label="循环体输出">
-      <el-input v-model="config.bodyOutput" placeholder="lastOutput / var.rendered" />
-    </el-form-item>
-    <el-form-item label="最大次数">
-      <el-input-number v-model="config.maxIterations" :min="1" :max="1000" />
-    </el-form-item>
-    <el-form-item label="循环体节点">
-      <el-select
-        v-model="config.bodyNodeIds"
-        multiple
-        filterable
-        clearable
-        placeholder="选择属于本 LOOP 的画布节点"
-        style="width: 100%"
-      >
-        <el-option
-          v-for="item in candidateNodes"
-          :key="item.id"
-          :label="item.label"
-          :value="item.id"
-        />
-      </el-select>
-      <div class="hint">候选已排除 START/END、其他 LOOP、INTERACTION、HUMAN_APPROVAL 以及已被其他 LOOP 占用的节点。</div>
-    </el-form-item>
-    <el-form-item label="循环体入口">
-      <el-select v-model="config.bodyEntry" clearable filterable placeholder="从循环体节点中选择" style="width: 100%">
-        <el-option
-          v-for="item in selectedBodyOptions"
-          :key="item.id"
-          :label="item.label"
-          :value="item.id"
-        />
-      </el-select>
-    </el-form-item>
-    <el-form-item label="循环体出口">
-      <el-select v-model="config.bodyExit" clearable filterable placeholder="从循环体节点中选择" style="width: 100%">
-        <el-option
-          v-for="item in selectedBodyOptions"
-          :key="item.id"
-          :label="item.label"
-          :value="item.id"
-        />
-      </el-select>
-    </el-form-item>
+    <ConfigSection title="循环范围" description="逐项串行执行所选节点，最多执行指定次数">
+      <el-form-item label="集合表达式">
+        <el-input v-model="config.collection" placeholder="例如：var.items / nodeOutput.assign" />
+      </el-form-item>
+      <el-form-item label="循环体节点">
+        <el-select
+          v-model="config.bodyNodeIds"
+          multiple
+          filterable
+          clearable
+          placeholder="选择属于本 LOOP 的画布节点"
+          style="width: 100%"
+        >
+          <el-option v-for="item in candidateNodes" :key="item.id" :label="item.label" :value="item.id" />
+        </el-select>
+        <div class="hint">
+          候选已排除 START/END、其他 LOOP、INTERACTION、HUMAN_APPROVAL 以及已被其他 LOOP 占用的节点。
+        </div>
+      </el-form-item>
+      <el-form-item label="循环体入口">
+        <el-select v-model="config.bodyEntry" clearable filterable placeholder="从循环体节点中选择" style="width: 100%">
+          <el-option v-for="item in selectedBodyOptions" :key="item.id" :label="item.label" :value="item.id" />
+        </el-select>
+      </el-form-item>
+      <el-form-item label="循环体出口">
+        <el-select v-model="config.bodyExit" clearable filterable placeholder="从循环体节点中选择" style="width: 100%">
+          <el-option v-for="item in selectedBodyOptions" :key="item.id" :label="item.label" :value="item.id" />
+        </el-select>
+      </el-form-item>
+    </ConfigSection>
+    <ConfigSection title="循环变量与结果" description="设置每次迭代的变量、输出和次数上限" collapsible>
+      <el-form-item label="当前项变量名">
+        <el-input v-model="config.itemAlias" placeholder="item" />
+      </el-form-item>
+      <el-form-item label="索引变量名">
+        <el-input v-model="config.indexAlias" placeholder="index" />
+      </el-form-item>
+      <el-form-item label="输出别名">
+        <el-input v-model="config.outputAlias" placeholder="loop_results → var.loop_results" />
+      </el-form-item>
+      <el-form-item label="循环体输出">
+        <el-input v-model="config.bodyOutput" placeholder="lastOutput / var.rendered" />
+      </el-form-item>
+      <el-form-item label="最大次数">
+        <el-input-number v-model="config.maxIterations" :min="1" :max="1000" />
+      </el-form-item>
+    </ConfigSection>
   </div>
 </template>
 
 <script setup lang="ts">
+import ConfigSection from './ConfigSection.vue'
 import { computed, watch } from 'vue'
 import type { CanvasNode, CanvasNodeData, LoopNodeConfig } from '@/types/studio'
 import { listLoopBodyCandidates, syncLoopBodyMembership } from '@/utils/studioLoop'
@@ -131,7 +122,14 @@ watch(
       nodes: props.canvasNodes || [],
       loopConfig: config.value,
     })
-    Object.assign(config.value, synced)
+    const current = config.value
+    current.mode = synced.mode
+    current.maxIterations = synced.maxIterations
+    current.bodyEntry = synced.bodyEntry
+    current.bodyExit = synced.bodyExit
+    if (JSON.stringify(current.bodyNodeIds) !== JSON.stringify(synced.bodyNodeIds)) {
+      current.bodyNodeIds = synced.bodyNodeIds
+    }
   },
   { deep: true, immediate: true },
 )

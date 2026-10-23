@@ -8,7 +8,7 @@ import ts from 'typescript'
 
 const REQUIRED_LAYOUT_MODES = new Set(['standard', 'project-workbench', 'edge-to-edge', 'studio'])
 const REQUIRED_LAYOUT_TOKEN_SEQUENCES = new Map([
-  ['--layout-breadcrumb-height', [['base :root', '40px']]],
+  ['--layout-breadcrumb-height', [['base :root', 'calc(var(--layout-heading-spacing) + var(--layout-breadcrumb-line-height))']]],
   ['--layout-page-header-height-compact', [['base :root', '60px']]],
   ['--layout-page-header-height-standard', [['base :root', '80px']]],
   ['--layout-page-header-height-emphasis', [['base :root', '88px']]],
@@ -54,9 +54,9 @@ const REQUIRED_LAYOUT_TOKEN_SEQUENCES = new Map([
   [
     '--layout-page-start',
     [
-      ['base :root', '8px'],
-      ['@media (max-width: 900px) :root', '8px'],
-      ['@media (max-width: 760px) :root', '8px'],
+      ['base :root', 'var(--layout-heading-spacing)'],
+      ['@media (max-width: 900px) :root', 'var(--layout-heading-spacing)'],
+      ['@media (max-width: 760px) :root', 'var(--layout-heading-spacing)'],
     ],
   ],
   [
@@ -70,9 +70,9 @@ const REQUIRED_LAYOUT_TOKEN_SEQUENCES = new Map([
   [
     '--layout-page-gap',
     [
-      ['base :root', '10px'],
-      ['@media (max-width: 900px) :root', '10px'],
-      ['@media (max-width: 760px) :root', '8px'],
+      ['base :root', 'var(--layout-heading-spacing)'],
+      ['@media (max-width: 900px) :root', 'var(--layout-heading-spacing)'],
+      ['@media (max-width: 760px) :root', 'var(--layout-heading-spacing)'],
     ],
   ],
   [
@@ -127,21 +127,17 @@ const STANDARD_PAGE_FILES = new Set([
   'src/views/dashboard/Dashboard.vue',
   'src/views/agent/AgentList.vue',
   'src/views/agent/AgentEdit.vue',
-  'src/views/agent/AgentEval.vue',
   'src/views/skill-market/SkillMarket.vue',
   'src/views/skill/SkillCenter.vue',
   'src/views/automation/AutomationCenter.vue',
   'src/views/api-market/ApiMarket.vue',
   'src/views/capability/BusinessCapabilityWorkbench.vue',
   'src/views/api/HttpApiDetail.vue',
-  'src/views/workflow/WorkflowVersions.vue',
   'src/views/runops/RunOpsList.vue',
   'src/views/runops/RunOpsDetail.vue',
   'src/views/KnowledgeList.vue',
-  'src/views/KnowledgeImport.vue',
   'src/views/KnowledgeDetail.vue',
   'src/views/FileDetail.vue',
-  'src/views/RetrievalTest.vue',
   'src/views/BizIndexList.vue',
   'src/views/BizIndexDetail.vue',
   'src/views/model/ModelInstances.vue',
@@ -152,9 +148,12 @@ const STANDARD_PAGE_FILES = new Set([
   'src/views/settings/BusinessUserDirectory.vue',
   'src/views/settings/AuthProviderSettings.vue',
   'src/views/settings/ToolAclList.vue',
-  'src/views/settings/PersonalMemory.vue',
-  'src/views/settings/MemoryErasure.vue',
   'src/views/settings/RuntimeUserMapping.vue',
+  'src/views/runops/RunConversations.vue',
+  'src/views/runops/EvalOverview.vue',
+  'src/views/runops/AgentEval.vue',
+  'src/views/me/MyMemories.vue',
+  'src/views/compliance/DataErasure.vue',
 ])
 
 const PROJECT_WORKBENCH_PAGE_FILES = new Set([
@@ -224,7 +223,7 @@ function createValidFixture() {
       [
         'src/styles/tokens/_layout.scss',
         `:root {
-  --layout-breadcrumb-height: 40px;
+  --layout-breadcrumb-height: calc(var(--layout-heading-spacing) + var(--layout-breadcrumb-line-height));
   --layout-page-header-height-compact: 60px;
   --layout-page-header-height-standard: 80px;
   --layout-page-header-height-emphasis: 88px;
@@ -248,9 +247,9 @@ function createValidFixture() {
   --layout-page-header-compact-padding-block: 8px;
   --layout-page-header-compact-padding-inline: 16px;
   --layout-content-inline: 16px;
-  --layout-page-start: 8px;
+  --layout-page-start: var(--layout-heading-spacing);
   --layout-page-end: 16px;
-  --layout-page-gap: 10px;
+  --layout-page-gap: var(--layout-heading-spacing);
   --layout-page-header-padding-block: 12px;
   --layout-page-header-padding-inline: 16px;
 }
@@ -278,9 +277,9 @@ function createValidFixture() {
 @media (max-width: 900px) {
   :root {
     --layout-content-inline: 16px;
-    --layout-page-start: 8px;
+    --layout-page-start: var(--layout-heading-spacing);
     --layout-page-end: 16px;
-    --layout-page-gap: 10px;
+    --layout-page-gap: var(--layout-heading-spacing);
     --layout-page-header-padding-block: 12px;
     --layout-page-header-padding-inline: 16px;
   }
@@ -289,9 +288,9 @@ function createValidFixture() {
 @media (max-width: 760px) {
   :root {
     --layout-content-inline: 12px;
-    --layout-page-start: 8px;
+    --layout-page-start: var(--layout-heading-spacing);
     --layout-page-end: 12px;
-    --layout-page-gap: 8px;
+    --layout-page-gap: var(--layout-heading-spacing);
     --layout-panel-padding: 12px;
     --layout-page-header-padding-block: 12px;
     --layout-page-header-padding-inline: 12px;
@@ -306,6 +305,11 @@ type WorkbenchPageLayout = 'flow' | 'list'
 const props = defineProps<{ layout?: WorkbenchPageLayout }>()
 </script>
 <template><main :class="['workbench-page', { 'workbench-page--list': props.layout === 'list' }]"><slot /></main></template>`,
+      ],
+      [
+        'src/components/common/LiquidGlassPage.vue',
+        `<script setup lang="ts">import WorkbenchPage from './WorkbenchPage.vue'</script>
+<template><WorkbenchPage class="liquid-glass-page" layout="list"><slot /></WorkbenchPage></template>`,
       ],
       [
         'src/styles/index.scss',
@@ -644,6 +648,7 @@ function directChildClasses(element) {
 
 function workbenchDirectChildren(descriptor) {
   const workbenchPage = findElementByTag(descriptor.template?.ast, 'WorkbenchPage')
+    ?? findElementByTag(descriptor.template?.ast, 'LiquidGlassPage')
   const children = []
 
   function collectEffectiveChildren(parent) {
@@ -1195,6 +1200,18 @@ function validateContract(fixture) {
     }
   }
 
+  const liquidPageSource = fixture.files.get('src/components/common/LiquidGlassPage.vue')
+  if (!liquidPageSource) {
+    failures.push('missing src/components/common/LiquidGlassPage.vue')
+  } else {
+    const liquidPage = parseSfc('src/components/common/LiquidGlassPage.vue', liquidPageSource, failures)
+    const root = templateRootElement(liquidPage)
+    if (root?.tag !== 'WorkbenchPage' || staticAttributeValue(root, 'layout') !== 'list'
+      || !liquidPageSource.includes("import WorkbenchPage from './WorkbenchPage.vue'")) {
+      failures.push('LiquidGlassPage must compose the shared WorkbenchPage with layout="list"')
+    }
+  }
+
   const globalStyleSource = fixture.files.get('src/styles/index.scss')
   if (globalStyleSource === undefined) {
     failures.push('missing src/styles/index.scss')
@@ -1259,7 +1276,12 @@ function validateContract(fixture) {
       continue
     }
     const root = templateRootElement(descriptor)
-    if (root?.tag === 'WorkbenchPage') {
+    if (root?.tag === 'LiquidGlassPage') {
+      const layout = staticAttributeValue(root, 'layout')
+      if (layout != null && layout !== 'list') {
+        failures.push(`${relativePath} list-fill LiquidGlassPage must retain layout="list"`)
+      }
+    } else if (root?.tag === 'WorkbenchPage') {
       if (staticAttributeValue(root, 'layout') !== 'list') {
         failures.push(`${relativePath} list-fill WorkbenchPage must declare layout="list"`)
       }
@@ -1362,7 +1384,7 @@ function validateContract(fixture) {
     }
     const templateSource = descriptor.template?.content ?? ''
     const exemptRoot = templateRootElement(descriptor)
-    if (/<WorkbenchPage\b/.test(templateSource)) {
+    if (/<(?:WorkbenchPage|LiquidGlassPage)\b/.test(templateSource)) {
       failures.push(`${relativePath} exempt page must not use WorkbenchPage`)
     }
     if (exemptRoot && staticClassNames(exemptRoot).includes('project-workbench-page')) {
@@ -1377,7 +1399,7 @@ function validateContract(fixture) {
       continue
     }
     const templateSource = descriptor.template?.content ?? ''
-    if (!/<WorkbenchPage\b/.test(templateSource)) {
+    if (!/<(?:WorkbenchPage|LiquidGlassPage)\b/.test(templateSource)) {
       failures.push(`${relativePath} standard page must use WorkbenchPage`)
     }
     const pageRootClass = rootClass(templateSource)
@@ -1524,7 +1546,7 @@ const MUTATION_PROOFS = [
     expected: '--layout-page-gap',
     mutate: (fixture) =>
       mutateFile(fixture, 'src/styles/tokens/_layout.scss', (source) =>
-        source.replace('  --layout-page-gap: 10px;\n', ''),
+        source.replace('  --layout-page-gap: var(--layout-heading-spacing);\n', ''),
       ),
   },
   {
@@ -1532,7 +1554,7 @@ const MUTATION_PROOFS = [
     expected: '--layout-page-gap',
     mutate: (fixture) =>
       mutateFile(fixture, 'src/styles/tokens/_layout.scss', (source) =>
-        source.replace('--layout-page-gap: 10px', '--layout-page-gap: 12px'),
+        source.replace('--layout-page-gap: var(--layout-heading-spacing)', '--layout-page-gap: 12px'),
       ),
   },
   {
@@ -1582,6 +1604,13 @@ const MUTATION_PROOFS = [
       mutateFile(fixture, 'src/views/StandardPage.vue', (source) =>
         source.replace(' layout="list"', ''),
       ),
+  },
+  {
+    name: 'liquid page loses shared list layout',
+    expected: 'LiquidGlassPage must compose the shared WorkbenchPage',
+    mutate: (fixture) => mutateFile(fixture, 'src/components/common/LiquidGlassPage.vue', (source) =>
+      source.replace('layout="list"', 'layout="flow"'),
+    ),
   },
   {
     name: 'project list page loses fill surface',
@@ -2065,7 +2094,7 @@ function createRepositoryFixture() {
     projectWorkbenchDirectComponentFiles: PROJECT_WORKBENCH_DIRECT_COMPONENT_FILES,
     exemptPageFiles: EXEMPT_PAGE_FILES,
     listFillPageFiles: LIST_FILL_PAGE_FILES,
-    expectedSetSizes: { standard: 31, projectWorkbench: 7, exempt: 3 },
+    expectedSetSizes: { standard: 30, projectWorkbench: 7, exempt: 3 },
     expectedListFillSize: 15,
   }
 }

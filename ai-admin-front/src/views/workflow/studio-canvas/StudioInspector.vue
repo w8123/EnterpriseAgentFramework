@@ -172,7 +172,7 @@ const emit = defineEmits<{
   overflow: hidden;
   border: 1px solid var(--el-border-color-lighter);
   border-radius: 14px;
-  background: var(--el-bg-color-overlay, #fff);
+  background: var(--el-bg-color-overlay, var(--surface-solid-panel));
   box-shadow: 0 20px 52px rgba(15, 23, 42, 0.14);
   pointer-events: auto;
   backdrop-filter: blur(16px);

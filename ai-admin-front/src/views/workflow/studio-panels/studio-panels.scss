@@ -1,0 +1,352 @@
+.node-config-workspace {
+  --config-space: 20px;
+  min-width: 0;
+  color: var(--text-primary);
+
+  .node-primary-config,
+  .node-specific-panel,
+  .config-section-body {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+    min-width: 0;
+  }
+
+  .node-specific-panel > .el-divider {
+    height: auto;
+    margin: 0 0 2px;
+    border: 0;
+
+    .el-divider__text {
+      position: static;
+      padding: 0;
+      transform: none;
+      background: transparent;
+      color: var(--text-primary);
+      font-size: 13px;
+      font-weight: 650;
+    }
+  }
+
+  .el-form-item {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    min-width: 0;
+    margin: 0;
+  }
+
+  .el-form-item__label {
+    justify-content: flex-start;
+    height: auto;
+    margin: 0 0 7px;
+    padding: 0;
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 550;
+    line-height: 1.5;
+  }
+
+  .el-form-item__content {
+    min-width: 0;
+    width: 100%;
+    line-height: 1.6;
+  }
+  .el-select {
+    min-width: 0;
+    width: 100%;
+  }
+  .el-input__wrapper,
+  .el-select__wrapper {
+    min-height: 34px;
+    border-radius: 6px;
+  }
+  .el-textarea__inner {
+    padding: 10px 12px;
+    border-radius: 6px;
+    line-height: 1.65;
+  }
+  .el-input-number {
+    width: 140px;
+  }
+  .el-button + .el-button {
+    margin-left: 0;
+  }
+  .el-segmented {
+    --el-segmented-item-selected-bg-color: var(--brand-primary);
+  }
+  .liquid-notice__title,
+  .liquid-notice__text {
+    font-size: 12px;
+    line-height: 1.6;
+  }
+
+  .config-section {
+    min-width: 0;
+  }
+  .config-section + .config-section {
+    padding-top: var(--config-space);
+    border-top: 1px solid var(--border-divider);
+  }
+  .config-section-heading {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+  .config-section-title {
+    flex: 1;
+    min-width: 0;
+    display: grid;
+    gap: 3px;
+  }
+  .config-section-title strong {
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 650;
+    line-height: 1.5;
+  }
+  .config-section-title > span {
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  .config-section-count {
+    color: var(--text-muted);
+    font: 11px/1.5 var(--config-mono, Consolas, monospace);
+  }
+  .config-section.is-collapsible > summary {
+    margin: 0;
+    padding: 3px 0;
+    cursor: pointer;
+    list-style: none;
+  }
+  summary::-webkit-details-marker {
+    display: none;
+  }
+  .config-section.is-collapsible[open] > summary {
+    margin-bottom: 16px;
+  }
+  .config-section-chevron {
+    flex-shrink: 0;
+    color: var(--text-muted);
+    transition: transform 150ms ease;
+  }
+  .config-section[open] > summary .config-section-chevron {
+    transform: rotate(90deg);
+  }
+  summary:focus-visible {
+    outline: 2px solid var(--border-focus);
+    outline-offset: 4px;
+    border-radius: 4px;
+  }
+  .node-contract-sections {
+    display: grid;
+    gap: 18px;
+    margin-top: 24px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border-divider);
+  }
+  .node-contract-sections > .config-section + .config-section {
+    padding-top: 0;
+    border: 0;
+  }
+
+  .field-table-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+    min-width: 0;
+  }
+  .field-table-head strong {
+    color: var(--text-primary);
+    font-size: 12px;
+    font-weight: 650;
+  }
+  .field-table-head > span,
+  .hint {
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 1.6;
+  }
+  .field-row,
+  .classifier-row,
+  .aggregate-row,
+  .condition-row,
+  .contract-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    align-items: start;
+    min-width: 0;
+    padding: 12px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+    background: var(--surface-solid-control);
+    > * {
+      min-width: 0;
+      max-width: 100%;
+    }
+    > .el-select {
+      width: 100% !important;
+    }
+    > .el-button {
+      justify-self: end;
+    }
+  }
+  .contract-source {
+    grid-column: 1 / -1;
+  }
+  .condition-group {
+    display: grid;
+    gap: 10px;
+    padding: 12px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+  }
+  .condition-group-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .condition-group-head > .el-input {
+    flex: 1;
+    min-width: 100px;
+  }
+  .condition-group-head > .el-select {
+    width: 90px;
+  }
+  .panel-empty-row {
+    padding: 12px;
+    border: 1px dashed var(--border-readable);
+    border-radius: 6px;
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 1.6;
+  }
+  .contract-json {
+    margin: 0;
+    padding: 12px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 6px;
+    background: var(--surface-solid-disabled);
+    color: var(--text-secondary);
+    font:
+      12px/1.65 Consolas,
+      monospace;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .param-hints,
+  .tool-params {
+    display: grid;
+    gap: 10px;
+    margin: 0;
+  }
+  .param-hint-row,
+  .tool-param-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border-divider);
+    font-size: 12px;
+  }
+  .param-hint-row span,
+  .tool-param-row em {
+    color: var(--text-muted);
+    font-style: normal;
+  }
+  .param-hint-row strong,
+  .param-hint-row span {
+    display: block;
+  }
+  .page-action-form,
+  .page-action-arg-list {
+    display: grid;
+    gap: 16px;
+  }
+  .page-action-arg-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    width: 100%;
+    padding: 10px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 6px;
+  }
+  .page-action-arg-row > small,
+  .page-action-arg-row > .el-input:last-child {
+    grid-column: 1 / -1;
+  }
+  .page-action-arg-row > small {
+    color: var(--text-muted);
+    font-size: 11px;
+  }
+  .page-action-arg-type {
+    color: var(--text-secondary);
+    font:
+      11px/34px Consolas,
+      monospace;
+  }
+  .page-action-arg-type em {
+    margin-left: 8px;
+    color: var(--status-warning);
+    font: inherit;
+  }
+
+  @container studio-config (min-width: 700px) {
+    .contract-row {
+      grid-template-columns: minmax(100px, 1fr) 90px auto;
+    }
+    .contract-source {
+      grid-column: 1 / 3;
+    }
+    .output-row {
+      grid-template-columns: minmax(100px, 1fr) 90px minmax(100px, 1fr) auto;
+    }
+    .field-row {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    .condition-row {
+      grid-template-columns: 1fr 100px 1fr auto;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .config-section-chevron {
+      transition: none;
+    }
+  }
+}
+
+.studio-variable-select .variable-option {
+  display: grid;
+  gap: 2px;
+  padding: 5px 0;
+  line-height: 1.5;
+  strong {
+    color: var(--text-primary);
+    font-size: 12px;
+    font-weight: 550;
+  }
+  span {
+    color: var(--brand-primary);
+    font:
+      11px/1.5 Consolas,
+      monospace;
+  }
+  em {
+    color: var(--text-muted);
+    font-size: 11px;
+    font-style: normal;
+  }
+}
+.studio-variable-select .el-select-dropdown__item {
+  height: auto;
+  min-height: 34px;
+}

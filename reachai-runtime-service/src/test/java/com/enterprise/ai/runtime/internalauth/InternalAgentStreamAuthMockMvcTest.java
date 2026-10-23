@@ -66,7 +66,7 @@ class InternalAgentStreamAuthMockMvcTest {
                 .andExpect(status().isUnauthorized());
         verify(executionService, never()).execute(any(), anyBoolean(), any(), any(), any());
         verify(executionService, never()).execute(any(), anyBoolean(), any(), any(), any(), any());
-        verify(executionService, never()).execute(any(), anyBoolean(), any(), any(), any(), any(), any());
+        verify(executionService, never()).execute(any(), anyBoolean(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -92,13 +92,13 @@ class InternalAgentStreamAuthMockMvcTest {
                 .andExpect(status().isUnauthorized());
         verify(executionService, never()).execute(any(), anyBoolean(), any(), any(), any());
         verify(executionService, never()).execute(any(), anyBoolean(), any(), any(), any(), any());
-        verify(executionService, never()).execute(any(), anyBoolean(), any(), any(), any(), any(), any());
+        verify(executionService, never()).execute(any(), anyBoolean(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
     void signedInternalStreamDeliversTrustedIdentityToExecute() throws Exception {
         AtomicReference<WorkflowExecutionIdentity> captured = new AtomicReference<>();
-        when(executionService.execute(any(), anyBoolean(), any(), any(), any(), any(), any())).thenAnswer(inv -> {
+        when(executionService.execute(any(), anyBoolean(), any(), any(), any(), any(), any(), any())).thenAnswer(inv -> {
             captured.set(inv.getArgument(4));
             return Map.of("success", true, "answer", "stream-ok", "sessionId", "s1");
         });
@@ -133,7 +133,7 @@ class InternalAgentStreamAuthMockMvcTest {
     void signedInternalStreamPassesControlTimingAfterAuth() throws Exception {
         AtomicReference<TrustedControlTiming> capturedTiming = new AtomicReference<>();
         AtomicReference<Map<String, Object>> capturedBody = new AtomicReference<>();
-        when(executionService.execute(any(), anyBoolean(), any(), any(), any(), any(), any())).thenAnswer(inv -> {
+        when(executionService.execute(any(), anyBoolean(), any(), any(), any(), any(), any(), any())).thenAnswer(inv -> {
             capturedBody.set(inv.getArgument(0));
             capturedTiming.set(inv.getArgument(5));
             return Map.of("success", true, "answer", "stream-ok", "sessionId", "s1",
@@ -178,7 +178,7 @@ class InternalAgentStreamAuthMockMvcTest {
                 "interactionId", "approval-1",
                 "component", "confirm",
                 "message", "请确认停用班组3");
-        when(executionService.execute(any(), anyBoolean(), any(), any(), any(), any(), any())).thenReturn(Map.of(
+        when(executionService.execute(any(), anyBoolean(), any(), any(), any(), any(), any(), any())).thenReturn(Map.of(
                 "success", false,
                 "answer", "请确认是否停用班组3",
                 "sessionId", "s-approval",
@@ -229,7 +229,38 @@ class InternalAgentStreamAuthMockMvcTest {
                 .andExpect(status().isUnauthorized());
         verify(executionService, never()).execute(any(), anyBoolean(), any(), any(), any(), any());
         verify(executionService, never()).execute(any(), anyBoolean(), any(), any(), any());
-        verify(executionService, never()).execute(any(), anyBoolean(), any(), any(), any(), any(), any());
+        verify(executionService, never()).execute(any(), anyBoolean(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void debugConfigTargetIsHonouredOnlyForPlatformConsoleIdentity() throws Exception {
+        assertEquals(12L, streamDebugTarget("AGENT"));
+        assertEquals(null, streamDebugTarget("EMBED_SESSION"));
+    }
+
+    private Long streamDebugTarget(String source) throws Exception {
+        AtomicReference<Long> captured = new AtomicReference<>(-1L);
+        AtomicReference<Map<String, Object>> capturedBody = new AtomicReference<>();
+        when(executionService.execute(any(), anyBoolean(), any(), any(), any(), any(), any(), any())).thenAnswer(inv -> {
+            capturedBody.set(inv.getArgument(0));
+            captured.set(inv.getArgument(7));
+            return Map.of("success", true, "answer", "ok", "sessionId", "s1");
+        });
+        Map<String, Object> runtimeBody = new LinkedHashMap<>();
+        runtimeBody.put("agentId", "demo");
+        runtimeBody.put("message", "hi");
+        runtimeBody.put(RuntimeAgentExecutionService.DEBUG_CONFIG_VERSION_KEY, 12);
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("body", runtimeBody);
+        payload.put("identity", Map.of("source", source, "userId", "u1"));
+        byte[] body = objectMapper.writeValueAsBytes(payload);
+        Map<String, String> headers = sign(source, "u1", System.currentTimeMillis(), UUID.randomUUID().toString(), body);
+        var builder = post(PATH).contentType(MediaType.APPLICATION_JSON).accept(MediaType.TEXT_EVENT_STREAM).content(body);
+        headers.forEach(builder::header);
+        MvcResult mvcResult = mockMvc.perform(builder).andExpect(request().asyncStarted()).andReturn();
+        mockMvc.perform(asyncDispatch(mvcResult)).andExpect(status().isOk());
+        assertFalse(capturedBody.get().containsKey(RuntimeAgentExecutionService.DEBUG_CONFIG_VERSION_KEY));
+        return captured.get();
     }
 
     private Map<String, String> sign(String source, String userId, long timestamp, String nonce, byte[] body) {

@@ -6,7 +6,7 @@
 
 1. Control 与 Runtime 已部署相同的 `REACHAI_INTERNAL_SERVICE_SECRET`，内部传输模式符合环境要求。
 2. MySQL 时间和 Runtime JVM 时间已由 NTP 同步；应用以 UTC 持久化 Automation/db-scheduler 时间。
-3. 若从 GitHub 基线 `ae9e1ce6` 升级，已备份目标库并完整执行 `sql/upgrade-20260830-platform-consolidated.sql`（Runtime Automation 位于 Section 08）；不得只截取单段执行。
+3. 新库由 `sql/initV2.sql` 创建完整自动化结构；已有库按 [SQL 说明](../../sql/README.md) 核对前置版本并完整执行适用升级。近期合并升级的段落 09 只补齐四张曾缺失的自动化表，不替代自动化全部历史建表。
 4. Control 默认角色授权已由安全 owner 审核，项目级 role binding 已绑定正确 projectCode。
 5. 至少有一个可执行的已发布 Agent 配置版本或 Workflow 版本。
 6. 下游有副作用的 Capability 已验证 occurrence/trace id 幂等策略。

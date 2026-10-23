@@ -1,14 +1,20 @@
 <template>
   <section class="http-api-catalog" aria-label="HTTP API 目录">
-    <ProjectScopeState v-if="!scopeReady || !projectId" title="请选择一个项目查看 API"
+    <ProjectScopeState source="wallpaper" v-if="!scopeReady || !projectId" title="请选择一个项目查看 API"
       :message="scope?.feedbackMessage.value || '请从左侧当前范围选择具体项目。'"
       :status="scope?.status.value === 'blocked' ? 'blocked' : 'pending'"
       :can-retry="scope?.recoveryAction.value === 'retry-catalog' || scope?.recoveryAction.value === 'retry-normalization'"
       :retrying="scope?.isCatalogLoading.value" @retry="scope?.retryScope()" />
 
-    <el-alert v-else-if="error" type="error" :closable="false" show-icon :title="error">
-      <template #default><el-button link type="primary" @click="load">重新加载</el-button></template>
-    </el-alert>
+    <LiquidGlassNotice
+      v-else-if="error"
+      type="error"
+      :title="error"
+      source="wallpaper"
+      class="catalog-load-alert"
+    >
+      <template #actions><el-button link type="primary" @click="load">重新加载</el-button></template>
+    </LiquidGlassNotice>
 
     <BusinessCapabilityCatalogList v-if="scopeReady && projectId" :current-page="page" :page-size="size" :total="total"
       :loading="loading" :empty="!loading && !error && rows.length === 0"
@@ -18,10 +24,10 @@
       @query="applyFilters"
       @page-change="changePage" @size-change="changeSize">
       <template #filters>
-        <el-input v-model="draft.keyword" class="filter-control is-keyword" :prefix-icon="Search" clearable
+        <LiquidGlassInput v-model="draft.keyword" class="filter-control is-keyword" :prefix-icon="Search" clearable
           placeholder="搜索 HTTP API 名称、路径或稳定标识" aria-label="搜索 API"
           @compositionstart="composing = true" @compositionend="composing = false" @clear="applyFilters" />
-        <el-select ref="classificationFilterRef" :model-value="query.filters.value.groupId" class="filter-control is-classification"
+        <LiquidGlassSelect ref="classificationFilterRef" :model-value="query.filters.value.groupId" class="filter-control is-classification"
           placeholder="业务分类" aria-label="业务分类筛选，数量为项目全量"
           :loading="classification.loading.value" :disabled="classification.loading.value || !classification.index.value"
           clearable @change="selectClassification($event || '')">
@@ -41,19 +47,19 @@
                 @click="openSelectedClassification('rename')">重命名分类</el-button>
             </div>
           </template>
-        </el-select>
-        <el-select v-model="draft.environment" clearable placeholder="环境" aria-label="环境筛选"
+        </LiquidGlassSelect>
+        <LiquidGlassSelect v-model="draft.environment" clearable placeholder="环境" aria-label="环境筛选"
           class="filter-control" @change="query.applyField('environment')">
           <el-option v-for="item in environments" :key="item" :label="item" :value="item" />
-        </el-select>
-        <el-select v-model="draft.method" clearable placeholder="HTTP 方法" aria-label="HTTP 方法筛选"
+        </LiquidGlassSelect>
+        <LiquidGlassSelect v-model="draft.method" clearable placeholder="HTTP 方法" aria-label="HTTP 方法筛选"
           class="filter-control" @change="query.applyField('method')">
           <el-option v-for="item in methods" :key="item" :label="item" :value="item" />
-        </el-select>
-        <el-select v-model="draft.sourceStatus" clearable placeholder="来源状态" aria-label="来源状态筛选"
+        </LiquidGlassSelect>
+        <LiquidGlassSelect v-model="draft.sourceStatus" clearable placeholder="来源状态" aria-label="来源状态筛选"
           class="filter-control" @change="query.applyField('sourceStatus')">
           <el-option v-for="item in statuses" :key="item.value" :label="item.label" :value="item.value" />
-        </el-select>
+        </LiquidGlassSelect>
       </template>
 
       <CatalogClassificationSections :rows="rows" :identity="apiIdentity" :index="classification.index.value"
@@ -132,6 +138,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { ElSelect } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
+import { LiquidGlassInput, LiquidGlassSelect, LiquidGlassNotice } from '@/components/common/liquid-glass'
 import { ArrowRight, Search } from '@element-plus/icons-vue'
 import BusinessCapabilityCatalogList from '@/views/capability/components/BusinessCapabilityCatalogList.vue'
 import CatalogClassificationSections from '@/views/capability/components/CatalogClassificationSections.vue'

@@ -31,6 +31,7 @@
     "test:skill": "vitest run --config vitest.skill.config.ts",
     "test:model": "vitest run --config vitest.model.config.ts",
     "test:auth": "vitest run --config vitest.auth.config.ts",
+    "test:liquid-glass": "vitest run --config vitest.auth.config.ts src/components/common/LiquidGlassControls.test.ts src/components/common/LiquidGlassLayer.test.ts src/composables/liquidGlass.test.ts src/components/common/PageHeader.test.ts",
     "test:knowledge": "vitest run --config vitest.knowledge.config.ts",
     "test:dashboard": "vitest run --config vitest.dashboard.config.ts",
     "test:runops": "vitest run --config vitest.runops.config.ts",

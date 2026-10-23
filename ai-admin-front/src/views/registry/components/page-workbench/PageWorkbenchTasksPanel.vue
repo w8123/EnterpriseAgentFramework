@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { LiquidGlassNotice } from '@/components/common/liquid-glass'
 import { computed, ref } from 'vue'
 import { Refresh, Search } from '@element-plus/icons-vue'
 import claudeCodeIcon from '@/assets/ai-coding-providers/claude-code.svg'
@@ -157,15 +158,14 @@ function formatDateTime(value?: string) {
       </div>
     </div>
 
-    <el-alert
+    <LiquidGlassNotice
       v-if="unavailable"
       type="error"
-      show-icon
-      :closable="false"
+      source="backdrop"
       :title="unavailable"
     >
       点击右上角“刷新”重新读取任务状态。任务状态恢复前不会创建新任务。
-    </el-alert>
+    </LiquidGlassNotice>
 
     <div v-if="!unavailable && tasks.length" class="task-toolbar">
       <el-select v-model="typeFilter">

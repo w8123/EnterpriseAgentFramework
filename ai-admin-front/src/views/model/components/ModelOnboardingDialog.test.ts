@@ -93,7 +93,7 @@ function mountDialog() {
         },
         'el-select': { props: ['modelValue'], template: '<select><slot /></select>' },
         'el-option': { props: ['label', 'value'], template: '<option :value="value">{{ label }}</option>' },
-        'el-alert': { props: ['title'], template: '<div class="alert">{{ title }}</div>' },
+        LiquidGlassNotice: { props: ['title'], template: '<div class="alert">{{ title }}</div>' },
         'el-empty': { props: ['description'], template: '<div>{{ description }}</div>' },
       },
     },

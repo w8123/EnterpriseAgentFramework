@@ -234,7 +234,7 @@ Control 中的实现按以下职责组织：
 
 Provider 保存点只回滚同一数据源、同一事务内的领域写入：拒绝结果仍保留 Artifact 与校验事件；后续任务审计失败时，外层事务连同领域写入一起回滚。[持久化回归](../../reachai-control-service/src/test/java/com/enterprise/ai/control/aicoding/application/AiCodingTaskDeliveryPersistenceTest.java) 验证本地 Spring/MyBatis/H2 保存点、幂等与并发乐观锁。HTTP 调用产生的远端副作用不受该保存点控制，不能将这些测试解释成跨服务事务或实际 MySQL 验收。
 
-页面工作台和 RunOps Trace 候选的 Workflow 草稿通过 Runtime 自有的 [投递凭据](../../reachai-runtime-service/src/main/java/com/enterprise/ai/runtime/workflow/RuntimeWorkflowDraftSubmissionService.java) 恢复重试。目标身份由任务作用域确定；相同规范化内容只读取当前结果，新内容需匹配最近一次自动应用修订且目标仍为 DRAFT。外部编辑产生修订冲突时保留当前内容，删除后的目标不能自动重建。凭据和草稿在 Runtime 本地事务内提交，Control 仍按上述 Artifact 幂等规则处理本地结果；这保证两侧可重试，不构成跨服务原子事务。已有环境需先执行 [投递表升级](../../sql/upgrade-20260906-workflow-draft-submissions.sql)，旧请求不做推测性回填。
+页面工作台和 RunOps Trace 候选的 Workflow 草稿通过 Runtime 自有的 [投递凭据](../../reachai-runtime-service/src/main/java/com/enterprise/ai/runtime/workflow/RuntimeWorkflowDraftSubmissionService.java) 恢复重试。目标身份由任务作用域确定；相同规范化内容只读取当前结果，新内容需匹配最近一次自动应用修订且目标仍为 DRAFT。外部编辑产生修订冲突时保留当前内容，删除后的目标不能自动重建。凭据和草稿在 Runtime 本地事务内提交，Control 仍按上述 Artifact 幂等规则处理本地结果；这保证两侧可重试，不构成跨服务原子事务。投递表已进入初始化基线，已有环境按 [SQL 说明](../../sql/README.md#历史版本) 核对结构，旧请求不做推测性回填。
 
 Control 必须把远端结果未确认与确定的领域拒绝分开。页面草稿的响应必须包含当前协议、相同任务与页面、Workflow ID 和修订号；Trace 候选必须取得 Workflow ID、明确的校验结果，以及身份一致的草稿回读、GraphSpec 与修订号。缺失或不匹配时抛出 [应用未确认异常](../../reachai-control-service/src/main/java/com/enterprise/ai/control/aicoding/provider/AiCodingArtifactApplicationUnconfirmedException.java)，让 Control 外层事务回滚，不持久化 APPLIED 或 REJECTED。客户端复用原 `artifactKey`、`clientEventId` 和内容即可通过 Runtime 凭据恢复；已经明确失败的 GraphSpec 校验仍保留拒绝审计，修改内容需要新 key。
 

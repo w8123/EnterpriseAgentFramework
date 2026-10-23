@@ -1,6 +1,6 @@
 <template>
   <section class="role-workbench">
-    <aside class="role-directory">
+    <LiquidGlassCard as="div" source="wallpaper" class="role-directory" role="navigation" aria-label="角色目录">
       <div class="role-directory__header">
         <div>
           <strong>角色目录</strong>
@@ -31,9 +31,9 @@
         </button>
         <el-empty v-if="!filteredRoles.length" description="没有匹配角色" :image-size="72" />
       </div>
-    </aside>
+    </LiquidGlassCard>
 
-    <div class="role-detail">
+    <LiquidGlassCard as="div" source="wallpaper" class="role-detail">
       <template v-if="selectedRole || creating">
         <header class="role-detail__header">
           <div>
@@ -53,12 +53,11 @@
           </div>
         </header>
 
-        <el-alert
+        <LiquidGlassNotice
           v-if="selectedRole?.status === 'INACTIVE'"
           type="warning"
           title="该角色已停用，不会出现在新的账号授权中；已有绑定仍保留以便审计。"
-          :closable="false"
-          show-icon
+          source="backdrop"
         />
 
         <el-form label-position="top" class="role-form">
@@ -145,7 +144,7 @@
       </template>
 
       <el-empty v-else description="请选择角色查看权限" />
-    </div>
+    </LiquidGlassCard>
   </section>
 </template>
 
@@ -160,6 +159,7 @@ import {
   type PlatformRoleManagementView,
 } from '@/api/platformAuth'
 import { groupPlatformPermissions } from '@/auth/platformAccountManagement'
+import { LiquidGlassCard, LiquidGlassNotice } from '@/components/common/liquid-glass'
 
 const props = defineProps<{
   roles: PlatformRoleManagementView[]
@@ -328,13 +328,6 @@ function resourceLabel(resourceType: string) {
   gap: 16px;
 }
 
-.role-directory,
-.role-detail {
-  border: 1px solid var(--border-divider);
-  border-radius: var(--radius-lg);
-  background: var(--surface-glass-panel);
-}
-
 .role-directory {
   display: flex;
   min-width: 0;
@@ -475,6 +468,11 @@ function resourceLabel(resourceType: string) {
   }
 }
 
+.role-form :deep(.el-radio-button__original-radio:disabled + .el-radio-button__inner) {
+  border-color: var(--border-subtle);
+  background: var(--surface-solid-disabled);
+}
+
 .role-form__grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -493,27 +491,22 @@ function resourceLabel(resourceType: string) {
   }
 }
 
+// el-checkbox-group 自带 font-size: 0，会把权限名称和分组标题压成不可见，这里恢复正文字号。
 .permission-groups {
   display: grid;
   gap: 14px;
-}
-
-.permission-group {
-  overflow: hidden;
-  border: 1px solid var(--border-divider);
-  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .permission-group > header {
-  padding: 10px 14px;
-  background: var(--surface-glass-control);
+  padding: 2px 2px 8px;
 }
 
 .permission-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1px;
-  background: var(--border-divider);
+  gap: 8px;
 }
 
 .permission-card {
@@ -522,9 +515,11 @@ function resourceLabel(resourceType: string) {
   grid-template-columns: 24px minmax(0, 1fr) auto;
   align-items: flex-start;
   gap: 6px;
-  min-height: 84px;
+  min-height: 76px;
   padding: 12px;
-  background: var(--surface-glass-panel);
+  border: 1px solid var(--border-glass-edge);
+  border-radius: var(--radius-lg);
+  background: var(--surface-glass-inset);
   cursor: pointer;
 
   > span {
@@ -560,7 +555,8 @@ function resourceLabel(resourceType: string) {
   margin: auto -20px -20px;
   padding: 14px 20px;
   border-top: 1px solid var(--border-divider);
-  background: var(--surface-glass-panel);
+  border-radius: 0 0 var(--radius-xl) var(--radius-xl);
+  background: var(--surface-reading-sticky);
 }
 
 @media (max-width: 1050px) {

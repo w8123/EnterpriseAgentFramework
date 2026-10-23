@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { LiquidGlassNotice } from '@/components/common/liquid-glass'
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Close, Document, Search } from '@element-plus/icons-vue'
@@ -154,7 +155,14 @@ function assetLocation(doc: SemanticDocIndex) {
         <p v-if="!canWrite" class="semantic-reader__permission" role="status">当前账号仅可阅读说明，无法编辑或生成。</p>
         <div class="semantic-reader__body" tabindex="0" role="region" aria-label="文档阅读内容，可滚动">
           <p v-if="loading || documentLoading" class="semantic-reader__state" role="status">正在读取业务说明…</p>
-          <el-alert v-else-if="documentError" :title="documentError" type="error" :closable="false" show-icon><template #default><el-button @click="refreshDocument">重新读取正文</el-button></template></el-alert>
+          <LiquidGlassNotice
+            v-else-if="documentError"
+            :title="documentError"
+            type="error"
+            source="backdrop"
+          >
+            <template #actions><el-button @click="refreshDocument">重新读取正文</el-button></template>
+          </LiquidGlassNotice>
           <CapabilitySemanticDocument v-else-if="selectedDoc?.contentMd?.trim()" :content-md="selectedDoc.contentMd" />
           <div v-else class="semantic-reader__state" role="status"><el-icon aria-hidden="true"><Document /></el-icon>
             <p>{{ isProject && !selectedDoc ? '当前项目尚未补充业务说明' : selectedDoc ? '当前说明尚未填写正文，可编辑或重新生成。' : '这份说明当前不可用，请从目录选择或刷新。' }}</p>

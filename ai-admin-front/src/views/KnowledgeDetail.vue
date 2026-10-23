@@ -1,7 +1,9 @@
 <template>
-  <WorkbenchPage density="comfortable">
+  <WorkbenchPage class="knowledge-detail-page" density="comfortable">
     <PageHeader
       variant="entity"
+      presentation="plain"
+      action-presentation="inline"
       domain="knowledge"
       :title="kbInfo?.name || '知识库详情'"
       show-back
@@ -12,20 +14,20 @@
         <StatusTag :label="accessModeLabel(kbInfo?.accessMode)" :tone="kbInfo?.accessMode === 'FILE_GRANTS' ? 'warning' : 'success'" />
       </template>
       <template #meta>
-        <span v-if="kbInfo?.projectCode">项目 {{ kbInfo.projectCode }}</span>
-        <span>回答模型 {{ modelName(kbInfo?.llmModelInstanceId) }}</span>
+        <div class="knowledge-header-meta">
+          <MetricStrip presentation="inline" source="wallpaper" :items="knowledgeMetrics" aria-label="知识库指标" />
+          <span class="knowledge-header-meta__text">
+            <template v-if="kbInfo?.projectCode">项目 {{ kbInfo.projectCode }} · </template>回答模型 {{ modelName(kbInfo?.llmModelInstanceId) }}
+          </span>
+        </div>
       </template>
       <template #actions>
-        <el-button type="primary" @click="attachDialogVisible = true">
-          <el-icon><Connection /></el-icon>
-          接入 Agent
-        </el-button>
+        <LiquidGlassButton source="wallpaper" type="primary" :icon="Connection" @click="attachDialogVisible = true">接入 Agent</LiquidGlassButton>
       </template>
     </PageHeader>
 
-    <MetricStrip :items="knowledgeMetrics" aria-label="知识库指标" />
-
-    <WorkbenchPanel title="谁在用" density="compact">
+    <LiquidGlassCard source="wallpaper" class="knowledge-usage" aria-labelledby="knowledge-usage-title">
+      <h2 id="knowledge-usage-title" class="knowledge-usage__title">谁在用</h2>
       <div v-if="usage.workflows.length === 0 && !usage.hiddenWorkflowCount" class="usage-empty">
         <span>还没有 Agent 使用这个知识库。接入后，Agent 遇到相关问题会检索本库并按资料回答。</span>
         <el-button type="primary" link @click="attachDialogVisible = true">接入 Agent</el-button>
@@ -49,9 +51,9 @@
         </div>
         <div v-if="usage.hiddenWorkflowCount" class="usage-muted">另有 {{ usage.hiddenWorkflowCount }} 个 Workflow 在你没有权限的项目里。</div>
       </div>
-    </WorkbenchPanel>
+    </LiquidGlassCard>
 
-    <el-tabs v-model="activeTab" class="ops-tabs">
+    <LiquidGlassTabs v-model="activeTab" source="wallpaper" class="knowledge-tabs">
       <el-tab-pane label="文件" name="files">
         <KnowledgeFilesTab :kb-code="kbCode" :kb="kbInfo" @changed="refreshSummary" />
       </el-tab-pane>
@@ -64,7 +66,7 @@
       <el-tab-pane label="设置" name="settings">
         <KnowledgeSettingsTab :kb-code="kbCode" :kb="kbInfo" :model-name="modelName" @saved="fetchKbInfo" />
       </el-tab-pane>
-    </el-tabs>
+    </LiquidGlassTabs>
 
     <KnowledgeAttachAgentDialog
       v-model="attachDialogVisible"
@@ -83,7 +85,7 @@ import MetricStrip from '@/components/common/MetricStrip.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import StatusTag from '@/components/common/StatusTag.vue'
 import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
-import WorkbenchPanel from '@/components/common/WorkbenchPanel.vue'
+import { LiquidGlassButton, LiquidGlassCard, LiquidGlassTabs } from '@/components/common/liquid-glass'
 import type { MetricStripItem } from '@/components/common/glassWorkbench'
 import { getKnowledgeList, getKnowledgeStats, getKnowledgeUsage } from '@/api/knowledge'
 import type { KnowledgeBase, KnowledgeStats, KnowledgeUsage } from '@/types/knowledge'
@@ -109,10 +111,10 @@ const { loadModelNames, modelName } = useModelNames()
 
 const usage = computed(() => usageFor(usages.value, kbCode))
 const knowledgeMetrics = computed<MetricStripItem[]>(() => [
-  { key: 'files', label: '文件', value: stats.value?.fileCount ?? 0, iconKey: 'workflow-sources', tone: 'brand' },
-  { key: 'chunks', label: '段落', value: stats.value?.chunkCount ?? 0, iconKey: 'api-discovery', tone: 'info' },
-  { key: 'active', label: '启用段落', value: stats.value?.activeChunkCount ?? 0, iconKey: 'agent-ready', tone: 'success' },
-  { key: 'hits', label: '命中', value: stats.value?.hitCount ?? 0, iconKey: 'scan', tone: 'brand' },
+  { key: 'files', label: '文件', value: stats.value?.fileCount ?? 0 },
+  { key: 'chunks', label: '段落', value: stats.value?.chunkCount ?? 0 },
+  { key: 'active', label: '启用段落', value: stats.value?.activeChunkCount ?? 0 },
+  { key: 'hits', label: '命中', value: stats.value?.hitCount ?? 0, tone: 'brand' },
 ])
 
 async function fetchKbInfo() {
@@ -148,6 +150,32 @@ onMounted(() => {
 </script>
 
 <style scoped lang="scss">
+.knowledge-header-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  min-width: 0;
+}
+
+.knowledge-header-meta__text {
+  color: var(--text-on-wallpaper-secondary);
+  font-size: 12.5px;
+}
+
+.knowledge-usage {
+  display: grid;
+  gap: 8px;
+  padding-block: 12px;
+}
+
+.knowledge-usage__title {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 650;
+}
+
 .usage-empty,
 .usage-row {
   display: flex;

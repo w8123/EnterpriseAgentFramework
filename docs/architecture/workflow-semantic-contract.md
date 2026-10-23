@@ -155,8 +155,8 @@ Supervisor、MCP 和 Automation 通过 Workflow 所有的 `RuntimePublishedWorkf
 
 `sql/initV2.sql` 是唯一新库基线。项目不提供旧 Workflow 数据转换脚本；旧 Workflow 行、旧版本快照、旧调试会话和旧 GraphSpec 不保证可执行。
 
-`runtime_workflow_capability_reference` 是 Workflow 所有的可重建引用索引，不参与执行语义。定义保存、发布与删除须同时维护索引；发布或审计失败时索引也回滚。已有库先执行 [引用索引升级](../../sql/upgrade-20260905-workflow-reference-index.sql)，Runtime 启动时补齐缺失索引。索引缺失、草稿修订不匹配或图无法解析时，能力影响证据为 `PARTIAL`，不能作为零引用的依据；历史发布版本的固定引用继续参与查询。
+`runtime_workflow_capability_reference` 是 Workflow 所有的可重建引用索引，不参与执行语义。定义保存、发布与删除须同时维护索引；发布或审计失败时索引也回滚。引用索引已进入初始化基线，已有库按 [SQL 说明](../../sql/README.md#历史版本) 核对结构，Runtime 启动时补齐缺失索引。索引缺失、草稿修订不匹配或图无法解析时，能力影响证据为 `PARTIAL`，不能作为零引用的依据；历史发布版本的固定引用继续参与查询。
 
-历史 `upgrade-20260722-workflow-semantics.sql` 已并入 GitHub 基线并从当前树清理。早于 `ae9e1ce6` 的开发/测试库必须先备份，再从对应 Git tag 获取这份破坏性迁移或按当前 `initV2.sql` 重建；当前合并升级不重复承载旧 Workflow 数据转换。
+历史 `upgrade-20260722-workflow-semantics.sql` 已并入 GitHub 基线并从当前树清理。未完成 2026-10-15 及以前全部变更的开发/测试库必须先备份，再从对应 Git tag 获取这份破坏性迁移或按当前 `initV2.sql` 重建；当前合并升级不重复承载旧 Workflow 数据转换。
 
 不得通过在 Runtime 中增加旧字段读取、别名路由或隐式转换来延长旧数据生命周期。

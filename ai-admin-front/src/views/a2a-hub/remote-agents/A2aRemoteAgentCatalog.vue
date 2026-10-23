@@ -6,6 +6,7 @@ import AgentCardPreview from '@/components/a2a-hub/AgentCardPreview.vue'
 import AppDialog from '@/components/common/AppDialog.vue'
 import AppDrawer from '@/components/common/AppDrawer.vue'
 import WorkbenchPanel from '@/components/common/WorkbenchPanel.vue'
+import { LiquidGlassButton, LiquidGlassControl, LiquidGlassEmptyState, LiquidGlassFilterBar, LiquidGlassInput, LiquidGlassNotice, LiquidGlassSelect, LiquidGlassTable } from '@/components/common/liquid-glass'
 import {
   approveA2aRemoteAgentRevision,
   disableA2aRemoteAgent,
@@ -115,6 +116,12 @@ async function reload() {
 
 function applyFilters() {
   query.offset = 0
+  reload()
+}
+
+function changePage(page: number, size: number) {
+  query.limit = size
+  query.offset = (page - 1) * size
   reload()
 }
 
@@ -296,40 +303,46 @@ onMounted(reload)
         <p>由 Control Service 安全发现并固定外部 Agent Card；远端变化必须形成新修订并重新审核。</p>
       </div>
       <div class="section-actions">
-        <el-button :icon="Refresh" :loading="loading" @click="reload">刷新</el-button>
-        <el-button type="primary" :icon="Plus" @click="resetDiscoverForm(); discoverVisible = true">
+        <LiquidGlassControl source="wallpaper">
+          <el-button :icon="Refresh" :loading="loading" @click="reload">刷新</el-button>
+        </LiquidGlassControl>
+        <LiquidGlassButton source="wallpaper" type="primary" :icon="Plus" @click="resetDiscoverForm(); discoverVisible = true">
           发现远程 Agent
-        </el-button>
+        </LiquidGlassButton>
       </div>
     </div>
 
-    <el-alert
+    <LiquidGlassNotice
+      source="wallpaper"
       type="info"
-      :closable="false"
-      show-icon
       title="安全发现、不可变修订、认证方案、出站凭据与 Task 生命周期已经接通；调用仍必须经过 Agent 固定版本绑定。"
-      description="入站 Key 与出站秘密物理分离；只允许审核确认的 Header API Key 或 Bearer，并对 message:send、tasks:get、tasks:cancel 分别授权。"
+      description="入站 Key 与出站秘密物理分离；只允许审核确认的 Header API Key 或 Bearer，并对 message:send、tasks:get、tasks:cancel 分别授权。Agent Card 正文只在审核抽屉中查看。"
     />
 
-    <WorkbenchPanel title="目录与治理状态" description="默认仅展示安全摘要；Agent Card 正文只在审核抽屉中查看。">
-      <div class="filter-bar">
-        <el-input
-          v-model="query.search"
-          clearable
-          :prefix-icon="Search"
-          placeholder="搜索标识或名称"
-          @keyup.enter="applyFilters"
-        />
-        <el-select v-model="query.status" clearable placeholder="信任状态" @change="applyFilters">
-          <el-option v-for="value in ['VERIFYING', 'REVIEW_REQUIRED', 'TRUSTED', 'DISABLED', 'QUARANTINED']" :key="value" :label="a2aLabel(value)" :value="value" />
-        </el-select>
-        <el-select v-model="query.health" clearable placeholder="健康状态" @change="applyFilters">
-          <el-option v-for="value in ['UNKNOWN', 'HEALTHY', 'DEGRADED', 'UNREACHABLE']" :key="value" :label="a2aLabel(value)" :value="value" />
-        </el-select>
-        <el-button type="primary" plain @click="applyFilters">查询</el-button>
-      </div>
-
-      <el-table v-loading="loading" :data="rows" row-key="id" @row-click="openDetail">
+    <LiquidGlassTable
+      class="workbench-list-surface"
+      :current-page="Math.floor(query.offset / query.limit) + 1"
+      :page-size="query.limit"
+      :total="total"
+      :page-sizes="[20, 50, 100]"
+      pagination-label="远程 Agent 分页"
+      :loading="loading"
+      :empty="!loading && rows.length === 0"
+      empty-description="还没有远程 Agent，点「发现远程 Agent」从 HTTPS Agent Card 建立目录项。"
+      @change="changePage"
+    >
+      <template #toolbar>
+        <LiquidGlassFilterBar :loading="loading" :show-reset="false" @query="applyFilters">
+          <LiquidGlassInput v-model="query.search" clearable :prefix-icon="Search" placeholder="搜索标识或名称" aria-label="搜索远程 Agent" @clear="applyFilters" />
+          <LiquidGlassSelect v-model="query.status" class="short-filter" clearable placeholder="信任状态" dropdown-title="信任状态" aria-label="信任状态" @change="applyFilters">
+            <el-option v-for="value in ['VERIFYING', 'REVIEW_REQUIRED', 'TRUSTED', 'DISABLED', 'QUARANTINED']" :key="value" :label="a2aLabel(value)" :value="value" />
+          </LiquidGlassSelect>
+          <LiquidGlassSelect v-model="query.health" class="short-filter" clearable placeholder="健康状态" dropdown-title="健康状态" aria-label="健康状态" @change="applyFilters">
+            <el-option v-for="value in ['UNKNOWN', 'HEALTHY', 'DEGRADED', 'UNREACHABLE']" :key="value" :label="a2aLabel(value)" :value="value" />
+          </LiquidGlassSelect>
+        </LiquidGlassFilterBar>
+      </template>
+      <el-table :data="rows" row-key="id" empty-text=" " @row-click="openDetail">
         <el-table-column label="远程 Agent" min-width="220">
           <template #default="{ row }">
             <div class="identity-cell">
@@ -359,18 +372,7 @@ onMounted(reload)
           <template #default="{ row }"><el-button link type="primary" @click.stop="openDetail(row)">审核</el-button></template>
         </el-table-column>
       </el-table>
-
-      <div class="pagination-row">
-        <span>共 {{ total }} 个远程 Agent</span>
-        <el-pagination
-          :current-page="Math.floor(query.offset / query.limit) + 1"
-          :page-size="query.limit"
-          :total="total"
-          layout="prev, pager, next"
-          @current-change="(page: number) => { query.offset = (page - 1) * query.limit; reload() }"
-        />
-      </div>
-    </WorkbenchPanel>
+    </LiquidGlassTable>
 
     <AppDialog
       v-model="discoverVisible"
@@ -400,8 +402,8 @@ onMounted(reload)
         </div>
       </el-form>
       <template #footer>
-        <el-button @click="discoverVisible = false">取消</el-button>
-        <el-button type="primary" :loading="submitting" @click="submitDiscovery">验证并创建目录项</el-button>
+        <LiquidGlassButton @click="discoverVisible = false">取消</LiquidGlassButton>
+        <LiquidGlassButton type="primary" :loading="submitting" @click="submitDiscovery">验证并创建目录项</LiquidGlassButton>
       </template>
     </AppDialog>
 
@@ -411,7 +413,7 @@ onMounted(reload)
       description="审阅远端声明、网络验证证据和修订历史，再显式固定接口与 Trust Profile。"
       size="min(92vw, 1180px)"
     >
-      <div v-loading="detailLoading" class="detail-shell">
+      <div v-loading="detailLoading" class="detail-shell glass-loading-surface">
         <template v-if="detail">
           <div class="detail-header">
             <div>
@@ -437,11 +439,9 @@ onMounted(reload)
             <div><span>最后结果</span><strong>{{ detail.remoteAgent.lastHealthSummary || '-' }}</strong></div>
           </div>
 
-          <el-alert
+          <LiquidGlassNotice
             v-if="pendingRevision"
             type="warning"
-            :closable="false"
-            show-icon
             title="检测到待审核 Agent Card 修订"
             description="审核建立目录信任并固定接口、认证与凭据；还需在本地 Agent 的发布配置中显式绑定后才可调用。"
           />
@@ -459,7 +459,7 @@ onMounted(reload)
                 <small>{{ revision.agentVersion }} · {{ a2aFormatDate(revision.discoveredAt) }}</small>
                 <code>{{ revision.agentCardSha256.slice(0, 16) }}…</code>
               </button>
-              <el-empty v-if="detail.revisions.length === 0" :image-size="48" description="尚无可审核修订" />
+              <LiquidGlassEmptyState v-if="detail.revisions.length === 0" title="尚无可审核修订" />
             </aside>
 
             <div v-if="selectedRevision" class="revision-detail">
@@ -548,7 +548,7 @@ onMounted(reload)
                 </WorkbenchPanel>
               </div>
             </div>
-            <el-empty v-else description="选择一个修订查看审核材料" />
+            <LiquidGlassEmptyState v-else title="选择一个修订查看审核材料" />
           </div>
         </template>
       </div>
@@ -560,16 +560,18 @@ onMounted(reload)
 .remote-catalog { display: flex; flex-direction: column; gap: var(--layout-page-gap); }
 .section-intro, .section-actions, .detail-header, .title-line, .revision-title, .tag-cluster, .approval-actions { display: flex; align-items: center; gap: 10px; }
 .section-intro, .detail-header, .revision-title { justify-content: space-between; align-items: flex-start; }
+.section-actions { flex-wrap: wrap; }
 .section-intro h2, .section-intro p, .detail-header h3, .detail-header p, .revision-title h4, .revision-title p { margin: 0; }
-.section-intro h2 { font-size: 18px; }
-.section-intro p, .detail-header p, .revision-title p { margin-top: 4px; color: var(--text-muted); font-size: 13px; }
-.filter-bar { display: grid; grid-template-columns: minmax(220px, 1fr) 170px 150px auto; gap: 10px; margin-bottom: 14px; }
+.section-intro h2 { color: var(--text-on-wallpaper); font-size: 18px; }
+.section-intro p { margin-top: 4px; color: var(--text-on-wallpaper-secondary); font-size: 13px; }
+.detail-header p, .revision-title p { margin-top: 4px; color: var(--text-muted); font-size: 13px; }
+/* 状态是短值，筛选条里收窄，把宽度留给搜索框。 */
+.workbench-list-surface :deep(.filter-bar__fields > .liquid-glass-control.short-filter) { flex: 0 1 160px; max-width: 180px; }
 .identity-cell strong, .identity-cell span { display: block; }
 .identity-cell strong { color: var(--text-primary); }
 .identity-cell span { margin-top: 3px; color: var(--text-muted); font: 11px ui-monospace, SFMono-Regular, Consolas, monospace; }
 .callability { color: var(--status-warning); font-size: 12px; }
 .callability.ready { color: var(--status-success); }
-.pagination-row { display: flex; justify-content: space-between; align-items: center; margin-top: 14px; color: var(--text-muted); font-size: 12px; }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .security-boundary { display: flex; gap: 10px; align-items: flex-start; padding: 12px; border: 1px solid var(--border-divider); border-radius: var(--radius-md); color: var(--text-secondary); background: var(--surface-glass-control); line-height: 1.6; font-size: 12px; }
 .detail-shell { min-height: 240px; }
@@ -597,8 +599,8 @@ onMounted(reload)
 .approval-box p { margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.6; }
 .approval-actions { justify-content: flex-end; margin-top: 12px; }
 .evidence-grid { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr); gap: 14px; margin-top: 16px; }
-.evidence-grid pre { max-height: 220px; margin: 0; overflow: auto; color: var(--text-secondary); font: 11px/1.6 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; }
+.evidence-grid pre { max-height: 220px; margin: 0; overflow: auto; padding: 10px; border-radius: var(--radius-md); color: var(--code-text); background: var(--code-surface); font: 11px/1.6 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; }
 .hash-line { display: grid; gap: 5px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border-divider); color: var(--text-muted); font-size: 11px; }
 @media (max-width: 980px) { .summary-grid, .claim-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .evidence-grid { grid-template-columns: 1fr; } }
-@media (max-width: 760px) { .section-intro, .detail-header { flex-direction: column; } .filter-bar, .form-grid, .review-layout { grid-template-columns: 1fr; } .revision-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 760px) { .section-intro, .detail-header { flex-direction: column; } .form-grid, .review-layout { grid-template-columns: 1fr; } .workbench-list-surface :deep(.filter-bar__fields > .liquid-glass-control.short-filter) { max-width: none; } .revision-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 </style>

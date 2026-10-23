@@ -29,7 +29,7 @@ public class BuiltinAgentSkillSource {
             "py", "ps1", "html", "css", "conf", "properties");
     private static final Map<String, Descriptor> DESCRIPTORS = Map.of(
             "agent-ai-coding", new Descriptor(
-                    "agent-ai-coding", "0.1.0", "ReachAI Agent AI Coding skill for project Agent authoring and governed Skill binding."),
+                    "agent-ai-coding", "0.1.1", "ReachAI Agent AI Coding skill for project Agent authoring and governed Skill binding."),
             "reachai-onboarding", new Descriptor(
                     "reachai-onboarding", "0.6.2", "ReachAI SDK onboarding skill for AI coding tools."),
             "workflow-ai-coding", new Descriptor(

@@ -16,7 +16,9 @@ defineProps<{
   overflow: hidden;
   pointer-events: none;
   background: var(--surface-page-background);
-  background-size: var(--brand-page-bg-size, auto);
+  background-size: cover;
+  background-position: var(--theme-wallpaper-position, center);
+  background-repeat: no-repeat;
   box-shadow: inset 0 0 0 1px var(--border-subtle), var(--inner-highlight);
   transition:
     background var(--motion-duration-normal) ease,

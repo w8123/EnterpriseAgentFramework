@@ -3237,10 +3237,10 @@ const requiredElementPlusMappings = [
   {
     selector: '.el-table',
     declarations: {
-      '--el-table-header-bg-color': 'var(--surface-solid-control)',
+      '--el-table-header-bg-color': 'var(--surface-reading-header)',
       '--el-table-header-text-color': 'var(--text-muted)',
       '--el-table-text-color': 'var(--text-secondary)',
-      '--el-table-border-color': 'var(--border-subtle)',
+      '--el-table-border-color': 'var(--border-divider)',
     },
   },
   {
@@ -6780,10 +6780,10 @@ const emit = defineEmits<{
 `
 
 const syntheticElementPlusMappings = `.el-table {
-  --el-table-header-bg-color: var(--surface-solid-control);
+  --el-table-header-bg-color: var(--surface-reading-header);
   --el-table-header-text-color: var(--text-muted);
   --el-table-text-color: var(--text-secondary);
-  --el-table-border-color: var(--border-subtle);
+  --el-table-border-color: var(--border-divider);
 }
 
 .el-pagination {

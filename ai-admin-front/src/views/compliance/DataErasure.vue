@@ -1,36 +1,39 @@
 <template>
   <WorkbenchPage class="memory-erasure-page">
-    <section class="page-hero glass-surface-shell">
-      <div>
-        <span class="eyebrow">COMPLIANCE · DATA ERASURE</span>
-        <h1>跨域数据擦除</h1>
-        <p>以一个可审计请求协调个人长期记忆、检索投影和 Runtime 会话，并收集业务源、RunOps 与备份证明。</p>
-      </div>
-      <el-button :loading="refreshing" :disabled="!currentRequest" @click="refreshCurrent(true)">刷新状态</el-button>
-    </section>
+    <PageHeader
+      variant="standard"
+      presentation="plain"
+      action-presentation="inline"
+      domain="governance"
+      title="跨域数据擦除"
+      description="发起跨服务数据擦除请求，跟踪执行结果与审计证明。"
+    >
+      <template #actions>
+        <LiquidGlassButton source="wallpaper" :icon="Refresh" :loading="refreshing" :disabled="!currentRequest" @click="refreshCurrent(true)">刷新状态</LiquidGlassButton>
+      </template>
+    </PageHeader>
 
-    <el-alert
+    <LiquidGlassNotice
       v-if="!canManage"
-      class="page-alert"
+      source="wallpaper"
       type="error"
-      :closable="false"
-      show-icon
       title="当前账号没有 context:memory:erasure:manage 权限"
       description="只有获得独立全局权限的平台管理员才能创建、重试或提交擦除证据；后端会再次强制校验。"
     />
-    <el-alert
+    <LiquidGlassNotice
       v-else
-      class="page-alert"
+      source="wallpaper"
       type="warning"
-      :closable="false"
-      show-icon
       title="这是跨域永久操作，不等同于“我的记忆”自助清空"
       description="原始 Runtime 用户标识只通过请求体提交，自动域完成后即从编排记录擦除。Legal Hold 不会被绕过；业务源与备份必须由各自 owner 出具证据。"
     />
 
     <section class="workspace-grid">
-      <el-card shadow="never" class="glass-surface-shell">
-        <template #header><strong>创建擦除请求</strong></template>
+      <LiquidGlassCard source="wallpaper" aria-labelledby="erasure-create-title">
+        <header class="section-head">
+          <h2 id="erasure-create-title">创建擦除请求</h2>
+          <p>提交后自动域立即开始处理，人工域等待各 owner 出具证据。</p>
+        </header>
         <el-form label-position="top" :disabled="!canManage || creating">
           <div class="form-grid">
             <el-form-item label="租户 ID" required>
@@ -61,104 +64,108 @@
           <el-form-item label="客户端幂等键">
             <el-input v-model="form.clientRequestId" readonly />
           </el-form-item>
-          <el-button type="danger" :loading="creating" @click="createRequest">创建永久擦除请求</el-button>
+          <LiquidGlassButton type="danger" :loading="creating" @click="createRequest">创建永久擦除请求</LiquidGlassButton>
         </el-form>
-      </el-card>
+      </LiquidGlassCard>
 
-      <el-card shadow="never" class="glass-surface-shell">
-        <template #header><strong>查询已有请求</strong></template>
-        <p class="card-description">使用变更单中保存的请求 ID 恢复操作视图。查询不会返回原始 Runtime 用户标识。</p>
-        <el-input v-model="lookupRequestId" maxlength="64" placeholder="requestId" @keyup.enter="lookupRequest">
-          <template #append>
-            <el-button :loading="lookingUp" :disabled="!canManage" @click="lookupRequest">查询</el-button>
-          </template>
-        </el-input>
+      <LiquidGlassCard source="wallpaper" aria-labelledby="erasure-lookup-title">
+        <header class="section-head">
+          <h2 id="erasure-lookup-title">查询已有请求</h2>
+          <p>使用变更单中保存的请求 ID 恢复操作视图。查询不会返回原始 Runtime 用户标识。</p>
+        </header>
+        <LiquidGlassFilterBar :loading="lookingUp" :show-reset="false" query-label="查询" @query="canManage && lookupRequest()">
+          <LiquidGlassInput v-model="lookupRequestId" maxlength="64" placeholder="requestId" aria-label="擦除请求 ID" :disabled="!canManage" />
+        </LiquidGlassFilterBar>
         <div v-if="currentRequest" class="current-summary">
           <span>当前请求</span>
           <code>{{ currentRequest.requestId }}</code>
           <el-tag :type="requestStatusType(currentRequest.status)">{{ requestStatusLabel(currentRequest.status) }}</el-tag>
         </div>
-      </el-card>
+      </LiquidGlassCard>
     </section>
 
-    <section v-if="currentRequest" class="result-card glass-surface-shell">
+    <section v-if="currentRequest" class="result-section" aria-labelledby="erasure-result-title">
       <div class="result-header">
         <div>
-          <span class="eyebrow">ERASURE REQUEST</span>
-          <h2>{{ currentRequest.requestId }}</h2>
+          <span class="result-eyebrow">擦除请求</span>
+          <h2 id="erasure-result-title">{{ currentRequest.requestId }}</h2>
           <p>tenant {{ currentRequest.tenantId }} · owner HMAC {{ compactHash(currentRequest.runtimeUserHash) }}</p>
         </div>
         <div class="result-actions">
           <el-tag size="large" :type="requestStatusType(currentRequest.status)">
             {{ requestStatusLabel(currentRequest.status) }}
           </el-tag>
-          <el-button
+          <LiquidGlassButton
             v-if="canRetry(currentRequest.status)"
+            source="wallpaper"
             type="warning"
             plain
             :loading="retrying"
             @click="retryRequest"
-          >重新进入自动处理</el-button>
+          >重新进入自动处理</LiquidGlassButton>
         </div>
       </div>
 
-      <el-descriptions :column="3" border class="request-metadata">
-        <el-descriptions-item label="原因码">{{ currentRequest.reasonCode }}</el-descriptions-item>
-        <el-descriptions-item label="证据引用">{{ currentRequest.referenceId }}</el-descriptions-item>
-        <el-descriptions-item label="尝试次数">{{ currentRequest.attemptCount }}</el-descriptions-item>
-        <el-descriptions-item label="自动域完成">{{ formatTime(currentRequest.automatedCompletedAt) }}</el-descriptions-item>
-        <el-descriptions-item label="全部完成">{{ formatTime(currentRequest.completedAt) }}</el-descriptions-item>
-        <el-descriptions-item label="最近失败码">{{ currentRequest.lastFailureCode || '-' }}</el-descriptions-item>
-      </el-descriptions>
+      <LiquidGlassCard source="wallpaper" class="request-metadata">
+        <dl>
+          <div><dt>原因码</dt><dd>{{ currentRequest.reasonCode }}</dd></div>
+          <div><dt>证据引用</dt><dd>{{ currentRequest.referenceId }}</dd></div>
+          <div><dt>尝试次数</dt><dd>{{ currentRequest.attemptCount }}</dd></div>
+          <div><dt>自动域完成</dt><dd>{{ formatTime(currentRequest.automatedCompletedAt) }}</dd></div>
+          <div><dt>全部完成</dt><dd>{{ formatTime(currentRequest.completedAt) }}</dd></div>
+          <div><dt>最近失败码</dt><dd>{{ currentRequest.lastFailureCode || '-' }}</dd></div>
+        </dl>
+      </LiquidGlassCard>
 
-      <el-table :data="currentRequest.domains" stripe class="domain-table">
-        <el-table-column label="数据域" min-width="230">
-          <template #default="{ row }">
-            <strong>{{ domainLabel(row.domainCode) }}</strong>
-            <small>{{ row.domainCode }}</small>
-          </template>
-        </el-table-column>
-        <el-table-column prop="ownerService" label="责任方" min-width="190" />
-        <el-table-column label="方式" width="130">
-          <template #default="{ row }">{{ row.executionMode === 'AUTOMATED' ? '自动核验' : '人工证据' }}</template>
-        </el-table-column>
-        <el-table-column label="状态" width="170">
-          <template #default="{ row }">
-            <el-tag :type="domainStatusType(row.status)">{{ domainStatusLabel(row.status) }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="结果 / 失败码" min-width="200">
-          <template #default="{ row }">
-            <span>{{ row.resultCode || row.lastFailureCode || '-' }}</span>
-            <small v-if="row.affectedCount != null">影响计数 {{ row.affectedCount }}</small>
-          </template>
-        </el-table-column>
-        <el-table-column prop="evidenceReference" label="证据引用" min-width="210" show-overflow-tooltip />
-        <el-table-column label="操作" width="130" fixed="right">
-          <template #default="{ row }">
-            <el-button
-              v-if="canAttest(row)"
-              link
-              type="primary"
-              @click="openEvidence(row)"
-            >提交证据</el-button>
-            <span v-else>-</span>
-          </template>
-        </el-table-column>
-      </el-table>
+      <LiquidGlassTable :show-pagination="false">
+        <el-table :data="currentRequest.domains" stripe class="domain-table">
+          <el-table-column label="数据域" min-width="230">
+            <template #default="{ row }">
+              <strong>{{ domainLabel(row.domainCode) }}</strong>
+              <small>{{ row.domainCode }}</small>
+            </template>
+          </el-table-column>
+          <el-table-column prop="ownerService" label="责任方" min-width="190" />
+          <el-table-column label="方式" width="130">
+            <template #default="{ row }">{{ row.executionMode === 'AUTOMATED' ? '自动核验' : '人工证据' }}</template>
+          </el-table-column>
+          <el-table-column label="状态" width="170">
+            <template #default="{ row }">
+              <el-tag :type="domainStatusType(row.status)">{{ domainStatusLabel(row.status) }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="结果 / 失败码" min-width="200">
+            <template #default="{ row }">
+              <span>{{ row.resultCode || row.lastFailureCode || '-' }}</span>
+              <small v-if="row.affectedCount != null">影响计数 {{ row.affectedCount }}</small>
+            </template>
+          </el-table-column>
+          <el-table-column prop="evidenceReference" label="证据引用" min-width="210" show-overflow-tooltip />
+          <el-table-column label="操作" width="130" fixed="right">
+            <template #default="{ row }">
+              <el-button
+                v-if="canAttest(row)"
+                link
+                type="primary"
+                @click="openEvidence(row)"
+              >提交证据</el-button>
+              <span v-else>-</span>
+            </template>
+          </el-table-column>
+        </el-table>
+      </LiquidGlassTable>
 
-      <el-alert
+      <LiquidGlassNotice
         v-if="currentRequest.status === 'ACTION_REQUIRED'"
+        source="wallpaper"
         type="warning"
-        :closable="false"
-        show-icon
         title="自动域已完成，仍需四个 owner 的证据"
         description="只有全部人工域完成后请求才会进入 COMPLETED；RETAINED_LEGAL 会得到 COMPLETED_WITH_RETENTION，不会伪装为已物理删除。"
       />
     </section>
 
     <AppDialog v-model="evidenceVisible" title="提交责任域证据" width="540px">
-      <el-alert type="info" :closable="false" show-icon :title="domainLabel(evidenceForm.domainCode)" />
+      <LiquidGlassNotice type="info" :title="domainLabel(evidenceForm.domainCode)" />
       <el-form label-position="top" class="evidence-form">
         <el-form-item label="结果" required>
           <el-select v-model="evidenceForm.resultCode" style="width: 100%">
@@ -172,8 +179,8 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="evidenceVisible = false">取消</el-button>
-        <el-button type="primary" :loading="attesting" @click="submitEvidence">提交证据</el-button>
+        <LiquidGlassButton @click="evidenceVisible = false">取消</LiquidGlassButton>
+        <LiquidGlassButton type="primary" :loading="attesting" @click="submitEvidence">提交证据</LiquidGlassButton>
       </template>
     </AppDialog>
   </WorkbenchPage>
@@ -182,8 +189,18 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Refresh } from '@element-plus/icons-vue'
 import AppDialog from '@/components/common/AppDialog.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
 import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
+import {
+  LiquidGlassButton,
+  LiquidGlassCard,
+  LiquidGlassFilterBar,
+  LiquidGlassInput,
+  LiquidGlassNotice,
+  LiquidGlassTable,
+} from '@/components/common/liquid-glass'
 import {
   attestMemoryErasureDomain,
   createMemoryErasureRequest,
@@ -392,29 +409,30 @@ function formatTime(value?: string | null) {
 </script>
 
 <style scoped lang="scss">
-.memory-erasure-page { color: var(--text-primary); }
-.glass-surface-shell { border: 1px solid var(--border-divider); border-radius: var(--radius-lg); background: var(--bg-primary); }
-.page-hero, .result-header { display: flex; justify-content: space-between; align-items: center; gap: var(--layout-panel-padding); }
-.page-hero { padding: var(--layout-panel-padding); }
-.eyebrow { color: var(--brand-primary); font-size: 11px; font-weight: 800; letter-spacing: .14em; }
-h1 { margin: 7px 0 8px; font-size: 28px; }
-h2 { margin: 6px 0; font-size: 20px; overflow-wrap: anywhere; }
-.page-hero p, .result-header p, .card-description { margin: 0; color: var(--text-secondary); }
-.workspace-grid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(320px, .65fr); gap: 16px; }
+.section-head { display: grid; gap: 4px; margin-bottom: 14px; }
+.section-head h2 { margin: 0; color: var(--text-primary); font-size: 16px; }
+.section-head p { margin: 0; color: var(--text-secondary); font-size: 13px; line-height: 1.6; }
+.workspace-grid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(320px, .65fr); align-items: start; gap: var(--layout-page-gap); }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 14px; }
-.card-description { margin-bottom: 16px; font-size: 13px; line-height: 1.7; }
-.current-summary { display: grid; gap: 9px; margin-top: 22px; padding: 14px; border-radius: var(--radius-md); background: var(--bg-secondary); }
+.current-summary { display: grid; justify-items: start; gap: 9px; margin-top: 18px; padding: 14px; border-radius: var(--radius-md); color: var(--text-secondary); background: var(--surface-glass-inset); box-shadow: var(--shadow-glass-inset); }
 .current-summary code { overflow-wrap: anywhere; color: var(--text-primary); }
-.result-card { padding: var(--layout-panel-padding); }
+.result-section { display: flex; flex-direction: column; gap: var(--layout-page-gap); }
+.result-header { display: flex; justify-content: space-between; align-items: center; gap: var(--layout-panel-padding); }
+.result-eyebrow { color: var(--text-on-wallpaper-secondary); font-size: 12px; font-weight: 650; }
+.result-header h2 { margin: 4px 0; color: var(--text-on-wallpaper); font-size: 20px; overflow-wrap: anywhere; }
+.result-header p { margin: 0; color: var(--text-on-wallpaper-secondary); }
 .result-actions { display: flex; align-items: center; gap: 10px; }
-.request-metadata { margin: 18px 0; }
-.domain-table { margin-bottom: 16px; }
+.request-metadata dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px 18px; margin: 0; }
+.request-metadata dt { color: var(--text-muted); font-size: 12px; }
+.request-metadata dd { margin: 4px 0 0; color: var(--text-primary); overflow-wrap: anywhere; }
 .domain-table strong, .domain-table small { display: block; }
+.domain-table strong { color: var(--text-primary); }
 .domain-table small { margin-top: 4px; color: var(--text-muted); font-size: 11px; }
 .evidence-form { margin-top: 16px; }
 @media (max-width: 1000px) {
   .workspace-grid, .form-grid { grid-template-columns: 1fr; }
-  .page-hero, .result-header { align-items: stretch; flex-direction: column; }
+  .request-metadata dl { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .result-header { align-items: stretch; flex-direction: column; }
   .result-actions { align-items: flex-start; flex-wrap: wrap; }
 }
 </style>

@@ -1,11 +1,10 @@
 import {
   hasPlatformPermission,
   PLATFORM_PERMISSION_AGENT_EVALUATE,
-  PLATFORM_PERMISSION_AUTOMATION_READ,
   PLATFORM_PERMISSION_RUNOPS_READ,
 } from '@/auth/platformAccess'
 
-export type RunCenterTabKey = 'conversations' | 'runs' | 'automations' | 'evals'
+export type RunCenterTabKey = 'conversations' | 'runs' | 'evals'
 
 export interface RunCenterTab {
   key: RunCenterTabKey
@@ -15,13 +14,12 @@ export interface RunCenterTab {
 }
 
 /**
- * 运行中心的页签。运行记录、自动化和评测是同一个运营入口下的三种视角，
+ * 运行中心的页签。对话、运行记录和评测是同一个运营入口下的三种视角，
  * 每个页签只按自己的权限显示，路由守卫和 Control 接口仍是安全边界。
  */
 export const RUN_CENTER_TABS: RunCenterTab[] = [
   { key: 'conversations', label: '对话', path: '/runops/conversations', permission: PLATFORM_PERMISSION_RUNOPS_READ },
   { key: 'runs', label: '运行记录', path: '/runops', permission: PLATFORM_PERMISSION_RUNOPS_READ },
-  { key: 'automations', label: '自动化', path: '/runops/automations', permission: PLATFORM_PERMISSION_AUTOMATION_READ },
   { key: 'evals', label: '评测', path: '/runops/evals', permission: PLATFORM_PERMISSION_AGENT_EVALUATE },
 ]
 
@@ -36,10 +34,9 @@ export function firstRunCenterPath(permissions: readonly string[] | null | undef
   return visibleRunCenterTabs(permissions)[0]?.path ?? '/runops/conversations'
 }
 
-/** 运行详情归属运行记录页签；自动化和评测按路径前缀匹配。 */
+/** 运行详情归属运行记录页签；对话和评测按路径前缀匹配。 */
 export function activeRunCenterTab(path: string): RunCenterTabKey {
   if (path.startsWith('/runops/conversations')) return 'conversations'
-  if (path.startsWith('/runops/automations')) return 'automations'
   if (path.startsWith('/runops/evals')) return 'evals'
   return 'runs'
 }

@@ -15,6 +15,7 @@ export default defineConfig({
       'src/utils/documentImport.test.ts',
       'src/components/DocumentImportJobCard.test.ts',
       'src/views/knowledge/knowledgeDetailModel.test.ts',
+      'src/views/knowledge/KnowledgeSettingsTab.test.ts',
     ],
     css: false,
   },

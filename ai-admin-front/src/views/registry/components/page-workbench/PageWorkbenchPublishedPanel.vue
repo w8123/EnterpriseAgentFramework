@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { LiquidGlassNotice } from '@/components/common/liquid-glass'
 import { Refresh } from '@element-plus/icons-vue'
 import type { PublishedPageWorkflow } from '@/types/pageWorkbench'
 import {
@@ -40,14 +41,13 @@ function formatDateTime(value?: string) {
       <el-button :icon="Refresh" @click="emit('refresh')">刷新</el-button>
     </div>
 
-    <el-alert
+    <LiquidGlassNotice
       v-if="unavailable"
       class="published-unavailable"
       type="warning"
-      :closable="false"
+      source="backdrop"
       title="运行服务的发布数据当前不可用"
       description="已发布列表不会使用缓存或模拟指标。请确认运行服务可访问后重试。"
-      show-icon
     />
 
     <div v-if="workflows.length" class="published-list">

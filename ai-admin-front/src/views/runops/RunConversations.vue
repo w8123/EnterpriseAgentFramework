@@ -2,8 +2,9 @@
   <WorkbenchPage class="run-conversations-page" layout="list">
     <PageHeader
       variant="overview"
+      presentation="plain"
+      action-presentation="inline"
       domain="governance"
-      eyebrow="运行中心"
       title="对话"
       description="业务用户在嵌入式对话里问了什么、哪一轮出了问题，点开即可查看对应运行。"
     >
@@ -11,35 +12,46 @@
         <RunCenterNav />
       </template>
       <template #actions>
-        <el-button :icon="Refresh" :loading="loading" @click="loadList">刷新</el-button>
+        <LiquidGlassButton source="wallpaper" :icon="Refresh" :loading="loading" @click="loadList">刷新</LiquidGlassButton>
       </template>
     </PageHeader>
 
-    <section class="conversation-filters glass-surface-control" aria-label="对话筛选">
-      <el-input
+    <form class="conversation-filters" aria-label="对话筛选" @submit.prevent="applyFilters">
+      <LiquidGlassInput
         v-model="filters.keyword"
+        source="wallpaper"
         class="keyword-filter"
         clearable
         placeholder="业务用户 / 会话 ID / 页面路由"
+        aria-label="搜索对话"
         :prefix-icon="Search"
-        @keyup.enter="applyFilters"
         @clear="applyFilters"
       />
-      <el-select v-model="filters.agentId" clearable filterable placeholder="全部 Agent" class="agent-filter" @change="applyFilters">
+      <LiquidGlassSelect v-model="filters.agentId" source="wallpaper" clearable filterable placeholder="全部 Agent" dropdown-title="Agent" aria-label="Agent" class="agent-filter" @change="applyFilters">
         <el-option v-for="agent in agents" :key="agent.id" :label="agent.name || agent.keySlug" :value="agent.id" />
-      </el-select>
-      <el-select v-model="filters.days" class="days-filter" aria-label="时间范围" @change="applyFilters">
+      </LiquidGlassSelect>
+      <LiquidGlassSelect v-model="filters.days" source="wallpaper" class="days-filter" dropdown-title="时间范围" aria-label="时间范围" @change="applyFilters">
         <el-option label="最近 1 天" :value="1" />
         <el-option label="最近 7 天" :value="7" />
         <el-option label="最近 30 天" :value="30" />
-      </el-select>
-      <el-checkbox v-model="filters.problemsOnly" @change="applyFilters">只看有问题的</el-checkbox>
-    </section>
+      </LiquidGlassSelect>
+      <LiquidGlassButton
+        source="wallpaper"
+        native-type="button"
+        :type="filters.problemsOnly ? 'primary' : undefined"
+        :icon="WarningFilled"
+        :aria-pressed="filters.problemsOnly"
+        @click="toggleProblemsOnly"
+      >
+        只看有问题的
+      </LiquidGlassButton>
+      <LiquidGlassButton source="wallpaper" type="primary" native-type="submit" :icon="Search" :loading="loading">查询</LiquidGlassButton>
+    </form>
 
-    <el-alert v-if="loadError" type="error" :title="loadError" :closable="false" show-icon />
+    <LiquidGlassNotice v-if="loadError" source="wallpaper" type="error" :title="loadError" />
 
     <div class="conversation-layout">
-      <section class="conversation-list glass-surface-panel" aria-label="对话列表" v-loading="loading">
+      <LiquidGlassCard source="wallpaper" class="conversation-list" aria-label="对话列表" v-loading="loading">
         <el-empty v-if="!loading && conversations.length === 0" description="这段时间没有嵌入式对话" :image-size="72" />
         <button
           v-for="item in conversations"
@@ -60,9 +72,9 @@
             <span>{{ formatTime(item.lastActiveAt) }}</span>
           </div>
         </button>
-      </section>
+      </LiquidGlassCard>
 
-      <section class="conversation-detail glass-surface-panel" aria-label="对话详情" v-loading="detailLoading">
+      <LiquidGlassCard source="wallpaper" class="conversation-detail" aria-label="对话详情" v-loading="detailLoading">
         <el-empty v-if="!detail && !detailLoading" description="选择左侧的一次对话" :image-size="72" />
         <template v-if="detail">
           <header class="detail-head">
@@ -76,12 +88,11 @@
             </div>
             <el-button link :icon="CopyDocument" @click="copySessionId">复制会话 ID</el-button>
           </header>
-          <el-alert
+          <LiquidGlassNotice
             v-if="!detail.runsAvailable"
             type="warning"
-            :closable="false"
-            show-icon
             title="运行状态暂时取不到，下面只显示对话内容。"
+            source="backdrop"
           />
           <ol class="turn-list">
             <li
@@ -127,7 +138,7 @@
             </li>
           </ol>
         </template>
-      </section>
+      </LiquidGlassCard>
     </div>
 
     <AddToEvalDialog
@@ -144,9 +155,16 @@
 import { computed, nextTick, onMounted, reactive, ref, type ComponentPublicInstance } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { CopyDocument, Refresh, Search } from '@element-plus/icons-vue'
+import { CopyDocument, Refresh, Search, WarningFilled } from '@element-plus/icons-vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
+import {
+  LiquidGlassButton,
+  LiquidGlassCard,
+  LiquidGlassInput,
+  LiquidGlassNotice,
+  LiquidGlassSelect,
+} from '@/components/common/liquid-glass'
 import { getRunCenterConversation, listRunCenterConversations } from '@/api/runops'
 import { listAgents } from '@/api/workflow'
 import type { ConversationDetail, ConversationSummary } from '@/types/runops'
@@ -231,6 +249,11 @@ function applyFilters() {
   loadList()
 }
 
+function toggleProblemsOnly() {
+  filters.problemsOnly = !filters.problemsOnly
+  applyFilters()
+}
+
 async function loadList() {
   loading.value = true
   loadError.value = ''
@@ -309,13 +332,11 @@ onMounted(async () => {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  border-radius: var(--radius-md);
+  gap: var(--layout-control-gap);
 }
 
 .keyword-filter {
-  width: 280px;
+  width: 300px;
 }
 
 .agent-filter {
@@ -323,8 +344,10 @@ onMounted(async () => {
 }
 
 .days-filter {
-  width: 130px;
+  width: 140px;
 }
+
+
 
 .conversation-layout {
   display: grid;
@@ -337,7 +360,6 @@ onMounted(async () => {
 .conversation-detail {
   min-width: 0;
   padding: 8px;
-  border-radius: var(--radius-md);
   overflow: auto;
 }
 
@@ -362,13 +384,19 @@ onMounted(async () => {
   cursor: pointer;
 }
 
-.conversation-item:hover,
-.conversation-item.is-active {
-  background: var(--surface-glass-selected);
+.conversation-item:hover {
+  background: var(--surface-glass-inset);
 }
 
 .conversation-item.is-active {
-  border-color: rgb(var(--brand-primary-rgb) / 0.18);
+  border-color: var(--border-glass-edge);
+  background: var(--surface-glass-inset);
+  box-shadow: var(--glass-rim-double);
+}
+
+.conversation-item:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: -2px;
 }
 
 .conversation-item__head {
@@ -505,6 +533,10 @@ onMounted(async () => {
 
   .conversation-list {
     max-height: 320px;
+  }
+
+  .conversation-filters > .liquid-glass-control {
+    width: 100%;
   }
 }
 </style>

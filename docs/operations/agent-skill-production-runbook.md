@@ -28,19 +28,19 @@ node scripts/check-agent-skill-production-readiness.mjs
 
 该命令只读取仓库文件，不连接 MySQL、不访问 HTTP、不执行 Skill 脚本。它检查：
 
-- `sql/initV2.sql` 与升级 SQL 中五张表的 DDL 是否一致；
+- `sql/initV2.sql` 是否包含目录、绑定和市场表的当前 DDL；
 - 五张表是否登记唯一 owning service；
-- 六项 `skill:*` 权限是否同时存在于新库基线与升级 SQL；
+- 六项 `skill:*` 权限及市场来源种子是否存在于新库基线；
 - Control 制品路径、Runtime 缓存路径、共同内部密钥等配置契约是否存在；
 - Inspector、目录、Runtime adapter、管理端和真实外部包探针等关键文件是否存在。
 
-只有输出 `repositoryReady=true` 才能进入部署验收。输出中的升级 SQL SHA-256 必须写入目标环境证据。
+只有输出 `repositoryReady=true` 才能进入部署验收。新库证据沿用 `migration` 字段，`script` 填 `sql/initV2.sql`，摘要、执行与回读时间须对应真实初始化。符合前置条件的已有库可填 `sql/upgrade-20261019-consolidated.sql` 及其实际执行摘要；Skill 表、来源与权限仍须独立回读，不能由近期升级已执行推定存在。已有库不应为取得证据重跑初始化。
 
 ## 3. 变更授权边界
 
 以下操作会改变外部状态，必须在明确授权和可回滚窗口内执行：
 
-- 从 GitHub 基线 `ae9e1ce6` 升级时，完整执行 `sql/upgrade-20260830-platform-consolidated.sql`（Agent Skill 目录/市场位于 Section 02/04）；
+- 已有库按 [SQL 说明](../../sql/README.md) 选择近期升级或从 Git 历史获取对应迁移；Agent Skill 建表已属于前置基线，近期升级不重建这些表；
 - 构建并替换正在运行的 Control、Runtime 或前端制品；
 - 重启进程、容器或服务；
 - 创建验收用户、角色、项目、Agent、Skill 版本或对话；

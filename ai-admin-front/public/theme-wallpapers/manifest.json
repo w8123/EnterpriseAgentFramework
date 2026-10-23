@@ -1,0 +1,80 @@
+{
+  "license": "Unsplash License",
+  "licenseUrl": "https://unsplash.com/license",
+  "importedAt": "2026-10-20",
+  "images": [
+    {
+      "file": "violet-waves.webp",
+      "author": "Milad Fakurian",
+      "photoId": "DX7pT_guAyE",
+      "source": "https://unsplash.com/photos/an-abstract-purple-background-with-wavy-lines-DX7pT_guAyE",
+      "download": "https://images.unsplash.com/photo-1638272181967-7d3772a91265?fm=webp&fit=max&w=2560&q=82",
+      "brands": [
+        "tech-purple",
+        "nebula-violet"
+      ],
+      "bytes": 49130,
+      "sha256": "0d60f0adeaf4cbbbfd8a77922f1b3debd97e4870c7f242bd0f87abbfb2555c96"
+    },
+    {
+      "file": "ice-blue.webp",
+      "author": "Rohit Choudhari",
+      "photoId": "_E6sXQHsgQc",
+      "source": "https://unsplash.com/photos/abstract-blue-and-white-wavy-lines-background-_E6sXQHsgQc",
+      "download": "https://images.unsplash.com/photo-1771846340715-e5f379d91ad9?fm=webp&fit=max&w=2560&q=82",
+      "brands": [
+        "aurora-cyan"
+      ],
+      "bytes": 151552,
+      "sha256": "ba0d56bba23c5b8f5d503519e69f223abfcd7f9a40001f6827abb4caec17195f"
+    },
+    {
+      "file": "rose-glow.webp",
+      "author": "Milad Fakurian",
+      "photoId": "nY14Fs8pxT8",
+      "source": "https://unsplash.com/photos/abstract-purple-and-pink-gradient-waves-nY14Fs8pxT8",
+      "download": "https://images.unsplash.com/photo-1620641788421-7a1c342ea42e?fm=webp&fit=max&w=2560&q=82",
+      "brands": [
+        "coral-rose"
+      ],
+      "bytes": 42336,
+      "sha256": "7b0ab6c301d67a17b11927cbc37120a76b1024cd772888ce1f9bc74308946f84"
+    },
+    {
+      "file": "sage-folds.webp",
+      "author": "Pawel Czerwinski",
+      "photoId": "4Ui_7KqNtFg",
+      "source": "https://unsplash.com/photos/layered-sage-green-paper-waves-4Ui_7KqNtFg",
+      "download": "https://images.unsplash.com/photo-1713640775951-e85a958314ed?fm=webp&fit=max&w=2560&q=82",
+      "brands": [
+        "metro-green"
+      ],
+      "bytes": 188380,
+      "sha256": "7b282408efaf7e51a8d47533c1e56a121ca2800934e1799945819ebf118d9c12"
+    },
+    {
+      "file": "gold-curves.webp",
+      "author": "Zulfikar Laode",
+      "photoId": "LxcVtiEW5dc",
+      "source": "https://unsplash.com/photos/abstract-smooth-yellow-and-orange-curves-LxcVtiEW5dc",
+      "download": "https://images.unsplash.com/photo-1754795192324-da0b9a2823cb?fm=webp&fit=max&w=2560&q=82",
+      "brands": [
+        "solar-gold"
+      ],
+      "bytes": 60964,
+      "sha256": "e37f4ebb8d75ff36e16d0171c09c1c03454565df86554565b2ec6aa495eeb5ee"
+    },
+    {
+      "file": "deep-blue.webp",
+      "author": "Paul Sawyer",
+      "photoId": "OyYuvj4Dbek",
+      "source": "https://unsplash.com/photos/abstract-blue-waves-on-a-dark-background-OyYuvj4Dbek",
+      "download": "https://images.unsplash.com/photo-1770902634037-08b8e594168b?fm=webp&fit=max&w=2560&q=82",
+      "brands": [
+        "deep-ocean"
+      ],
+      "bytes": 444302,
+      "sha256": "39577df14af75ca3a9b1cbd529ed58b6da9b3fa3f4424f1fa6f3eb90e7a04934"
+    }
+  ]
+}

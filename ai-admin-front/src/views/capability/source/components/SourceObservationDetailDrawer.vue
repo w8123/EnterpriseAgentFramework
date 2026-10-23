@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { LiquidGlassNotice, LiquidGlassButton } from '@/components/common/liquid-glass'
 import AppDrawer from '@/components/common/AppDrawer.vue'
 import SourceOwnerLink from './SourceOwnerLink.vue'
 import { scanSensitiveTypeLabel } from '@/utils/scanSensitiveLabels'
@@ -47,9 +48,14 @@ const emit = defineEmits<{
         <p>{{ row.description || '尚未提供来源说明' }}</p>
         <SourceOwnerLink :project-id="projectId" :observation-id="row.scanToolId" :can-read="canReadOwner" />
       </header>
-      <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon>
-        <template #default><el-button @click="emit('retry')">重新加载详情</el-button></template>
-      </el-alert>
+      <LiquidGlassNotice
+        v-if="error"
+        :title="error"
+        type="error"
+        source="backdrop"
+      >
+        <template #actions><el-button @click="emit('retry')">重新加载详情</el-button></template>
+      </LiquidGlassNotice>
       <template v-else-if="!loading">
         <section class="source-detail-section">
           <h4>来源信息</h4>
@@ -100,7 +106,14 @@ const emit = defineEmits<{
           </div>
           <p v-if="semanticLoading || bodyLoading" class="source-detail-muted" role="status">正在读取业务说明…</p>
           <p v-else-if="semanticError" class="source-detail-muted" role="alert">{{ semanticError }}</p>
-          <el-alert v-else-if="bodyError" :title="bodyError" type="error" :closable="false"><template #default><el-button @click="refreshBody">重新读取正文</el-button></template></el-alert>
+          <LiquidGlassNotice
+            v-else-if="bodyError"
+            :title="bodyError"
+            type="error"
+            source="backdrop"
+          >
+            <template #actions><el-button @click="refreshBody">重新读取正文</el-button></template>
+          </LiquidGlassNotice>
           <div v-else-if="fullDoc?.contentMd" class="source-detail-markdown" v-html="renderMd(fullDoc.contentMd)" />
           <p v-else class="source-detail-muted">还没有补充 AI 语义文档</p>
         </section>
@@ -109,10 +122,10 @@ const emit = defineEmits<{
     <template #footer>
       <div class="source-detail-footer">
         <el-tooltip v-if="row" content="仅刷新这条来源记录；API 接纳状态在所属目录查看，SDK 来源通过项目同步更新。" placement="top">
-          <el-button :disabled="!canWrite || loading || !!error || row.removedFromSource || row.sourceLocation?.toLowerCase().startsWith('sdk:')"
-            :loading="rescanLoading" @click="canWrite && emit('rescanFromSource', row)">扫描更新</el-button>
+          <LiquidGlassButton :disabled="!canWrite || loading || !!error || row.removedFromSource || row.sourceLocation?.toLowerCase().startsWith('sdk:')"
+            :loading="rescanLoading" @click="canWrite && emit('rescanFromSource', row)">扫描更新</LiquidGlassButton>
         </el-tooltip>
-        <el-button @click="visible = false">关闭</el-button>
+        <LiquidGlassButton @click="visible = false">关闭</LiquidGlassButton>
       </div>
     </template>
   </AppDrawer>

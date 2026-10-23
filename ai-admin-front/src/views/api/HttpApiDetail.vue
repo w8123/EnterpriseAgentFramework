@@ -1,6 +1,6 @@
 <template>
   <WorkbenchPage class="http-api-detail">
-    <PageHeader variant="standard" compact :artwork="false" presentation="plain" domain="tool"
+    <PageHeader variant="standard" compact :artwork="false" presentation="plain" action-presentation="inline" domain="tool"
       :title="detail ? `${detail.summary.httpMethod} ${detail.summary.routeTemplate}` : 'API 详情'"
       :description="detail ? `${detail.summary.projectCode} · ${detail.summary.environment}` : '正在读取当前来源与连接状态'"
       show-back back-label="返回 API 目录" @back="backToList">
@@ -16,7 +16,7 @@
         </el-tag>
       </template>
       <template #actions>
-        <el-button :icon="Refresh" :loading="loading" :disabled="descriptionBusy" @click="load">刷新当前状态</el-button>
+        <LiquidGlassButton source="wallpaper" :icon="Refresh" :loading="loading" :disabled="descriptionBusy" @click="load">刷新当前状态</LiquidGlassButton>
       </template>
     </PageHeader>
 
@@ -25,15 +25,15 @@
       :status="scope?.status.value === 'blocked' ? 'blocked' : 'pending'"
       :can-retry="scope?.recoveryAction.value === 'retry-catalog' || scope?.recoveryAction.value === 'retry-normalization'"
       @retry="scope?.retryScope()" />
-    <el-alert v-else-if="pageError" type="error" :closable="false" show-icon :title="pageError">
-      <template #default><el-button link type="primary" @click="load">重新加载</el-button></template>
-    </el-alert>
-    <div v-else-if="loading && !detail" class="api-loading" role="status">正在读取 API 契约与连接…</div>
+    <LiquidGlassNotice v-else-if="pageError" source="wallpaper" type="error" :title="pageError">
+      <template #actions><LiquidGlassButton source="wallpaper" size="small" @click="load">重新加载</LiquidGlassButton></template>
+    </LiquidGlassNotice>
+    <LiquidGlassCard v-else-if="loading && !detail" source="wallpaper" class="api-loading" role="status">正在读取 API 契约与连接…</LiquidGlassCard>
 
     <template v-else-if="detail">
-      <el-tabs v-model="tab" class="api-task-tabs" :before-leave="beforeTabLeave">
+      <LiquidGlassTabs v-model="tab" source="wallpaper" class="api-task-tabs" :before-leave="beforeTabLeave">
         <el-tab-pane label="输入与返回" name="contract">
-      <section class="api-card api-overview" aria-labelledby="api-contract-heading">
+      <LiquidGlassCard source="wallpaper" class="api-card api-overview" aria-labelledby="api-contract-heading">
         <div class="api-section-head">
           <div><p class="api-eyebrow">请求契约</p><h2 id="api-contract-heading">用途与输入</h2></div>
           <span class="api-identity">{{ detail.summary.httpMethod }} <code>{{ detail.summary.routeTemplate }}</code></span>
@@ -72,18 +72,18 @@
           </div>
         </div>
         <p v-else class="api-muted">{{ displayContract ? '所展示契约未声明响应结构。' : '当前响应结构无法比较。' }}</p>
-      </section>
+      </LiquidGlassCard>
 
         </el-tab-pane>
         <el-tab-pane label="业务说明" name="description" lazy>
-          <section class="api-card">
+          <LiquidGlassCard source="wallpaper" class="api-card">
             <CapabilityEnrichmentPanel :project-id="detail.summary.projectId" :project-code="detail.summary.projectCode"
               subject-type="HTTP_API" :subject-id="detail.summary.id" :subject-key="detail.summary.qualifiedName" :navigate="navigate"
               @busy-change="descriptionBusy = $event" @dirty-change="descriptionDirty = $event" />
-          </section>
+          </LiquidGlassCard>
         </el-tab-pane>
         <el-tab-pane label="试调用" name="invocation">
-      <section class="api-card" aria-labelledby="api-call-heading">
+      <LiquidGlassCard source="wallpaper" class="api-card" aria-labelledby="api-call-heading">
         <div class="api-section-head"><div><p class="api-eyebrow">一次受控请求</p><h2 id="api-call-heading">试调用</h2></div></div>
         <p class="api-muted">仅提交已接纳契约声明的参数与请求体；有副作用的操作须逐次确认。平台不会自动重发，HTTP 2xx 不代表业务成功。Studio 两种调试入口仍不执行写 API。内部 POST + WRITE 平铺 JSON 可通过已发布 Workflow 执行；Agent 使用既有写操作确认。</p>
         <p v-if="callBlocker" class="api-warning" role="status">{{ callBlocker }}</p>
@@ -139,12 +139,12 @@
             <span>Run #{{ outcome.runId }} · Trace {{ outcome.traceId }}</span>
           </div>
         </div>
-      </section>
+      </LiquidGlassCard>
         </el-tab-pane>
         <el-tab-pane label="使用位置" name="references">
-      <section class="api-card" aria-labelledby="api-usage-heading">
+      <LiquidGlassCard source="wallpaper" class="api-card" aria-labelledby="api-usage-heading">
         <div class="api-section-head"><div><p class="api-eyebrow">依赖检查</p><h2 id="api-usage-heading">使用位置</h2></div>
-          <el-button :icon="Refresh" :loading="referencesLoading" @click="loadReferences()">刷新使用位置</el-button>
+          <LiquidGlassButton size="small" :icon="Refresh" :loading="referencesLoading" @click="loadReferences()">刷新使用位置</LiquidGlassButton>
         </div>
         <p class="api-muted">查看引用这条 API 的 Workflow 草稿、发布版本及开放入口。</p>
         <div v-if="referencesLoading && !references" class="api-usage-state" role="status">正在查询使用位置…</div>
@@ -152,8 +152,8 @@
           <span>{{ referencesError }}</span><el-button text @click="loadReferences()">重试查询</el-button>
         </div>
         <template v-else-if="references">
-          <el-alert v-if="!referencesComplete" title="部分使用位置尚未确认"
-            description="下方仅展示已查到的引用，不能据此判断没有其他使用方。" type="warning" :closable="false" show-icon />
+          <LiquidGlassNotice v-if="!referencesComplete" title="部分使用位置尚未确认"
+            description="下方仅展示已查到的引用，不能据此判断没有其他使用方。" type="warning" />
           <ul v-if="references.references.length" class="api-usage-list">
             <li v-for="(usage, index) in references.references" :key="`${usage.kind}:${usage.id}:${usage.versionId || index}`">
               <div><strong>{{ usage.name || usage.id }}</strong>
@@ -167,13 +167,13 @@
           </ul>
           <p v-else class="api-usage-state" role="status">{{ referencesComplete ? '还没有被引用。可从 Workflow Studio 添加这条 API。' : '暂未查到已确认的引用；稍后刷新。' }}</p>
         </template>
-      </section>
+      </LiquidGlassCard>
 
         </el-tab-pane>
         <el-tab-pane label="接入信息" name="technical">
-      <section class="api-card" aria-labelledby="api-source-heading">
+      <LiquidGlassCard source="wallpaper" class="api-card" aria-labelledby="api-source-heading">
         <div class="api-section-head"><div><p class="api-eyebrow">来源与接纳</p><h2 id="api-source-heading">当前契约</h2></div>
-          <el-button v-if="canAccept" type="primary" :loading="accepting" @click="acceptCurrent">接纳当前契约</el-button>
+          <LiquidGlassButton v-if="canAccept" type="primary" :loading="accepting" @click="acceptCurrent">接纳当前契约</LiquidGlassButton>
         </div>
         <p v-if="detail.summary.sourceReason" class="api-warning" role="status">{{ detail.summary.sourceReason }}</p>
         <p v-else class="api-muted">{{ detail.summary.sourceStatus === 'ACCEPTED' ? '当前活动来源与已接纳契约一致。' : '来源已确认；接纳后才能配置本批受控试调用。' }}</p>
@@ -248,9 +248,9 @@
           <p>来源集合修订：{{ detail.summary.sourceSetRevision }}</p>
           <p>最近接纳：{{ detail.summary.acceptedBy || '尚未接纳' }} · {{ displayTime(detail.summary.acceptedAt) }}</p>
         </details>
-      </section>
+      </LiquidGlassCard>
 
-      <section class="api-card" aria-labelledby="api-connection-heading">
+      <LiquidGlassCard source="wallpaper" class="api-card" aria-labelledby="api-connection-heading">
         <div class="api-section-head"><div><p class="api-eyebrow">测试环境</p><h2 id="api-connection-heading">配置接入</h2></div></div>
         <p class="api-muted">只保存服务 origin（协议、主机、端口）；完整路径来自已接纳契约，不重复填写 contextPath。</p>
         <div v-if="marketSource" class="api-response-contract" aria-live="polite">
@@ -357,10 +357,10 @@
           :project-id="detail.summary.projectId" :project-code="detail.summary.projectCode"
           :allowed-types="['API_KEY_HEADER', 'BEARER']" :initial-type="credentialDialogMode === 'BEARER' ? 'BEARER' : 'API_KEY_HEADER'"
           :suggested-header="declaredHeader" @created="credentialCreated" />
-      </section>
+      </LiquidGlassCard>
 
         </el-tab-pane>
-      </el-tabs>
+      </LiquidGlassTabs>
     </template>
     <AppDialog v-model="confirmationOpen" title="确认写入试调用" width="560px" @open-auto-focus="focusCancel" @opened="focusCancel">
       <div class="api-confirmation">
@@ -370,19 +370,19 @@
         <p>确认绑定当前契约、来源、连接修订及完整输入；平台不会自动重试或跟随重定向。</p>
       </div>
       <template #footer>
-        <el-button ref="cancelButton" @click="confirmationOpen = false">取消</el-button>
-        <el-button type="warning" :loading="invoking" :disabled="invoking || !confirmationSnapshot" @click="confirmInvocation">确认并写入一次</el-button>
+        <LiquidGlassButton ref="cancelButton" @click="confirmationOpen = false">取消</LiquidGlassButton>
+        <LiquidGlassButton type="warning" :loading="invoking" :disabled="invoking || !confirmationSnapshot" @click="confirmInvocation">确认并写入一次</LiquidGlassButton>
       </template>
     </AppDialog>
     <AppDialog v-model="newAttemptOpen" title="发起新的试调用" width="520px">
       <p>上次请求可能已在业务系统生效。新调用是另一次真实操作，不是恢复查询；请先核对业务状态。</p>
-      <template #footer><el-button @click="newAttemptOpen = false">继续查询原调用</el-button>
-        <el-button type="warning" @click="beginNewAttempt">使用新 ID 准备新调用</el-button></template>
+      <template #footer><LiquidGlassButton @click="newAttemptOpen = false">继续查询原调用</LiquidGlassButton>
+        <LiquidGlassButton type="warning" @click="beginNewAttempt">使用新 ID 准备新调用</LiquidGlassButton></template>
     </AppDialog>
     <AppDialog v-model="discardOpen" title="放弃未提交的输入？" width="440px" :close-on-click-modal="false">
       <p>当前试调用或业务说明有未提交的输入。离开后将清除页面内存中的输入；调用记录只保留 ID 和时间。</p>
-      <template #footer><el-button ref="discardCancelButton" @click="discardOpen = false">继续编辑</el-button>
-        <el-button type="danger" @click="confirmDiscard">放弃输入并离开</el-button></template>
+      <template #footer><LiquidGlassButton ref="discardCancelButton" @click="discardOpen = false">继续编辑</LiquidGlassButton>
+        <LiquidGlassButton type="danger" @click="confirmDiscard">放弃输入并离开</LiquidGlassButton></template>
     </AppDialog>
   </WorkbenchPage>
 </template>
@@ -395,6 +395,7 @@ import { apiMarketLocation } from '@/views/api-market/apiMarketRoutes'
 import { ElMessage } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
+import { LiquidGlassButton, LiquidGlassCard, LiquidGlassNotice, LiquidGlassTabs } from '@/components/common/liquid-glass'
 import PageHeader from '@/components/common/PageHeader.vue'
 import CapabilityEnrichmentPanel from '@/views/capability/components/CapabilityEnrichmentPanel.vue'
 import ProjectScopeState from '@/components/common/ProjectScopeState.vue'
@@ -985,15 +986,15 @@ onBeforeUnmount(() => { ++epoch; resetView() })
 .api-task-tabs { min-width: 0; }
 .api-task-tabs :deep(.el-tab-pane) { display: grid; gap: 16px; }
 .api-task-tabs :deep(.el-tabs__header) { margin-bottom: 16px; }
-.api-card { min-width: 0; padding: var(--panel-padding); border: 1px solid var(--border-divider);
-  border-radius: var(--radius-lg); background: var(--surface-solid-panel); color: var(--text-primary); }
+.api-card { min-width: 0; color: var(--text-primary); }
+.api-card > h3, .api-response-contract > h3 { margin: 18px 0 10px; font-size: 15px; }
 .api-section-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .api-section-head h2, .api-section-head h3 { margin: 0; font-size: 17px; line-height: 1.5; }
 .api-eyebrow { margin: 0 0 4px; color: var(--text-muted); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
 .api-identity { display: flex; gap: 8px; align-items: center; color: var(--brand-active); font-weight: 700; }
 .api-identity code { color: var(--text-primary); overflow-wrap: anywhere; }
 .api-muted { color: var(--text-muted); line-height: 1.6; }
-.api-warning { color: var(--el-color-warning-dark-2); line-height: 1.6; }
+.api-warning { color: var(--status-warning); line-height: 1.6; }
 .api-usage-state { min-height: 48px; display: flex; align-items: center; gap: 12px; color: var(--text-muted); }
 .api-contract-changes, .api-accept-impact { margin: 12px 0; overflow-wrap: anywhere; }
 .api-contract-changes small { color: var(--text-muted); }
@@ -1006,11 +1007,13 @@ onBeforeUnmount(() => { ++epoch; resetView() })
 .api-usage-link { flex: none; color: var(--brand-active); text-decoration: none; }
 .api-usage-link:hover, .api-usage-link:focus-visible { text-decoration: underline; }
 .api-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px;
-  margin: 16px 0; padding: 16px; border-radius: var(--radius-md); background: var(--surface-glass-selected); }
+  margin: 16px 0; padding: 16px; border-radius: var(--radius-md); background: var(--surface-glass-inset); box-shadow: var(--shadow-glass-inset); }
 .api-facts div { min-width: 0; }
 .api-facts span { display: block; color: var(--text-muted); font-size: 12px; }
 .api-facts strong { display: block; margin-top: 5px; overflow-wrap: anywhere; font-size: 13px; }
-.api-contract-table { width: 100%; }
+.api-contract-table { width: 100%; --el-table-bg-color: transparent; --el-table-tr-bg-color: transparent;
+  --el-table-header-bg-color: var(--surface-glass-inset); --el-table-row-hover-bg-color: var(--surface-hover);
+  --el-table-border-color: var(--border-divider); background: transparent; border-radius: var(--radius-md); }
 .api-response-contract { display: grid; gap: 8px; }
 .api-response-contract div { display: flex; gap: 12px; flex-wrap: wrap; padding: 9px 12px; border: 1px solid var(--border-divider); border-radius: var(--radius-sm); }
 .api-source-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 12px; margin-top: 16px; }
@@ -1019,7 +1022,7 @@ onBeforeUnmount(() => { ++epoch; resetView() })
 .api-source-item p, .api-source-item small { overflow-wrap: anywhere; }
 .api-source-item small { color: var(--text-muted); }
 .api-source-item > small { display: block; margin-top: 4px; }
-.api-source-item pre { max-height: 260px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.api-source-item pre, .api-response-contract pre { max-height: 260px; overflow: auto; padding: 12px; border-radius: var(--radius-md); color: var(--code-text); background: var(--code-surface); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
 .api-conflict-list { list-style: none; padding: 0; display: grid; gap: 12px; }
 .api-conflict-list li { padding: 12px; border: 1px solid var(--border-divider); border-radius: var(--radius-md); }
 .api-conflict-list strong, .api-conflict-list dt, .api-conflict-list dd { overflow-wrap: anywhere; }
@@ -1030,7 +1033,7 @@ onBeforeUnmount(() => { ++epoch; resetView() })
 .api-evidence summary { cursor: pointer; color: var(--brand-active); font-weight: 600; }
 .api-contract-compare { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .api-contract-compare pre, .api-result-body { max-height: 300px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;
-  padding: 12px; border-radius: var(--radius-md); background: var(--surface-glass-selected); font-size: 12px; }
+  padding: 12px; border-radius: var(--radius-md); color: var(--code-text); background: var(--code-surface); font-size: 12px; }
 .api-connection-scope { margin-top: 16px; padding: 14px 16px; border: 1px solid var(--border-divider); border-radius: var(--radius-md); }
 .api-connection-scope-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .api-connection-scope-head h3 { margin: 0; font-size: 15px; line-height: 1.5; }
@@ -1045,7 +1048,7 @@ onBeforeUnmount(() => { ++epoch; resetView() })
 .api-result-links { display: flex; flex-wrap: wrap; gap: 12px; color: var(--text-muted); font-size: 12px; }
 .api-result-links a { color: var(--brand-active); }
 .api-confirmation { min-width: 0; overflow-wrap: anywhere; line-height: 1.6; }
-.api-loading { padding: 40px; text-align: center; color: var(--text-muted); }
+.api-loading { padding: 40px; text-align: center; color: var(--text-secondary); }
 @media (max-width: 850px) { .api-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .api-contract-compare, .api-parameter-grid { grid-template-columns: 1fr; } }
 @media (max-width: 560px) { .api-facts { grid-template-columns: 1fr; }

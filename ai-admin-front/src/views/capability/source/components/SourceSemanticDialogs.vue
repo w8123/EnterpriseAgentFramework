@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { LiquidGlassButton } from '@/components/common/liquid-glass'
 import { computed } from 'vue'
 import AppDialog from '@/components/common/AppDialog.vue'
 
@@ -26,8 +27,8 @@ const emit = defineEmits<{
     <p v-if="!canWrite" role="status">当前账号仅可阅读业务说明，无法保存修改。</p>
     <el-input v-model="docEditDraft" :disabled="docEditSaving || !canWrite" type="textarea" :rows="18" resize="none" aria-label="业务说明 Markdown 内容" placeholder="Markdown 内容" />
     <template #footer>
-      <el-button :disabled="docEditSaving" @click="docEditOpen = false">取消</el-button>
-      <el-button type="primary" :loading="docEditSaving" :disabled="!canWrite" @click="!docEditSaving && canWrite && emit('submitDocEdit')">保存</el-button>
+      <LiquidGlassButton :disabled="docEditSaving" @click="docEditOpen = false">取消</LiquidGlassButton>
+      <LiquidGlassButton type="primary" :loading="docEditSaving" :disabled="!canWrite" @click="!docEditSaving && canWrite && emit('submitDocEdit')">保存</LiquidGlassButton>
     </template>
   </AppDialog>
 

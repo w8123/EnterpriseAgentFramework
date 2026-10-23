@@ -4,6 +4,7 @@ import { effectScope, ref, type EffectScope, type Ref } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useWorkflowStudioResources as createWorkflowStudioResources, type UseWorkflowStudioResourcesDeps } from './useWorkflowStudioResources'
 import { useWorkflowStudioPersistence } from './useWorkflowStudioPersistence'
+import { useWorkflowStudioProposalContext } from './useWorkflowStudioProposalContext'
 import type { WorkflowWorkingCopyState } from '@/types/workflow'
 
 const mocks = vi.hoisted(() => ({
@@ -290,10 +291,33 @@ describe('useWorkflowStudioResources owner catalogs', () => {
     expect.soft(fixture.resources.knowledgeOptions.value.map(item => item.code)).toEqual(['orders-kb'])
     expect(fixture.resources.modelOptionsLoading.value).toBe(false)
     expect(fixture.resources.modelOptionsLoadError.value).toBe(false)
-    expect(fixture.aiModelInstanceId.value).toBe('model-orders')
+    expect(fixture.aiModelInstanceId.value).toBe('')
+    expect(fixture.resources.selectedAiEditModel.value?.id).toBe('model-orders')
     await fixture.resources.loadGraphResourceOptions(['llm', 'knowledge'])
     expect(mocks.getModelInstances).toHaveBeenCalledTimes(1)
     expect(mocks.getKnowledgeList).toHaveBeenCalledTimes(1)
+  })
+
+  it('preserves the default choice during a pending model refresh and resolves the current Workflow default', async () => {
+    const models = deferred<{ data: unknown[] }>()
+    mocks.getModelInstances.mockReturnValueOnce(models.promise)
+    const studio = ref(workingCopy({ defaultModelInstanceId: 'model-orders' }))
+    const aiModelInstanceId = ref('model-override')
+    const resources = useWorkflowStudioResources({ studio, aiModelInstanceId, selectedToolName: ref('') })
+    const context = useWorkflowStudioProposalContext({ studio, aiModelInstanceId, authoringModelOptions: resources.authoringModelOptions })
+    const load = resources.loadModelOptions()
+    aiModelInstanceId.value = ''
+    models.resolve({ data: [
+      { id: 'model-orders', modelType: 'LLM', status: 'ACTIVE' },
+      { id: 'model-next', modelType: 'LLM', status: 'ACTIVE' },
+    ] })
+    await load
+    expect(aiModelInstanceId.value).toBe('')
+    expect(resources.selectedAiEditModel.value?.id).toBe('model-orders')
+    expect(context.resolveAiModelInstanceId()).toBe('model-orders')
+    studio.value = { ...studio.value, defaultModelInstanceId: 'model-next' }
+    expect(resources.selectedAiEditModel.value?.id).toBe('model-next')
+    expect(context.resolveAiModelInstanceId()).toBe('model-next')
   })
 
   it.each([

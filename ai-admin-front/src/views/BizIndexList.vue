@@ -1,25 +1,44 @@
 <template>
-  <WorkbenchPage class="biz-index-list-page" layout="list">
+  <LiquidGlassPage class="biz-index-list-page">
     <PageHeader
       variant="standard"
+      presentation="plain"
+      action-presentation="inline"
       domain="knowledge"
-      eyebrow="Business Index"
       title="业务索引管理"
       description="管理业务数据的语义索引、文本模板、向量模型与附件切分配置。"
     >
+      <template #meta>
+        <MetricStrip presentation="inline" source="wallpaper" :items="indexMetrics" aria-label="业务索引概览" />
+      </template>
       <template #actions>
-        <el-button type="primary" :icon="Plus" @click="openCreateDialog">注册索引</el-button>
+        <el-tooltip content="刷新索引" placement="top">
+          <LiquidGlassButton source="wallpaper" circle :icon="Refresh" :loading="bizIndexStore.loading" aria-label="刷新索引" @click="bizIndexStore.fetchList()" />
+        </el-tooltip>
+        <LiquidGlassButton source="wallpaper" type="primary" :icon="Plus" @click="openCreateDialog">注册索引</LiquidGlassButton>
       </template>
     </PageHeader>
 
-    <!-- 索引列表 -->
-    <el-card shadow="never" class="section-card workbench-list-surface">
-      <el-table
-        v-loading="bizIndexStore.loading"
-        :data="bizIndexStore.bizIndexList"
-        stripe
-        style="width: 100%"
-      >
+    <LiquidGlassTable
+      v-model:current-page="currentPage"
+      v-model:page-size="pageSize"
+      class="workbench-list-surface"
+      :total="filteredIndexes.length"
+      :loading="bizIndexStore.loading"
+      :empty="!bizIndexStore.loading && filteredIndexes.length === 0"
+      :empty-description="keyword || statusFilter ? '没有匹配的索引' : '还没有业务索引，点「注册索引」开始。'"
+      pagination-label="业务索引分页"
+    >
+      <template #toolbar>
+        <LiquidGlassFilterBar query-label="筛选" @query="currentPage = 1" @reset="resetFilters">
+          <LiquidGlassInput v-model="keyword" :prefix-icon="Search" clearable placeholder="索引名称、编码或来源系统" aria-label="搜索索引" />
+          <LiquidGlassSelect v-model="statusFilter" class="index-filter is-short" clearable placeholder="全部状态" dropdown-title="索引状态" aria-label="索引状态">
+            <el-option label="启用" value="ACTIVE" />
+            <el-option label="停用" value="INACTIVE" />
+          </LiquidGlassSelect>
+        </LiquidGlassFilterBar>
+      </template>
+      <el-table :data="pagedIndexes" stripe style="width: 100%">
         <el-table-column prop="indexName" label="索引名称" min-width="140">
           <template #default="{ row }">
             <el-button type="primary" link @click="router.push(`/biz-index/${row.indexCode}`)">
@@ -50,7 +69,7 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="createTime" label="创建时间" width="180" />
+        <el-table-column prop="createTime" label="创建时间" width="180" :formatter="formatTableDateTime" />
         <el-table-column label="操作" width="220" fixed="right">
           <template #default="{ row }">
             <el-button type="primary" link size="small"
@@ -73,7 +92,7 @@
           </template>
         </el-table-column>
       </el-table>
-    </el-card>
+    </LiquidGlassTable>
 
     <!-- 注册 / 编辑弹窗 -->
     <AppDialog
@@ -176,24 +195,34 @@
       </el-form>
 
       <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="submitLoading" @click="handleSubmit">
+        <LiquidGlassButton @click="dialogVisible = false">取消</LiquidGlassButton>
+        <LiquidGlassButton type="primary" :loading="submitLoading" @click="handleSubmit">
           {{ isEdit ? '保存' : '注册' }}
-        </el-button>
+        </LiquidGlassButton>
       </template>
     </AppDialog>
-  </WorkbenchPage>
+  </LiquidGlassPage>
 </template>
 
 <script setup lang="ts">
+import { formatTableDateTime } from '@/utils/dateTime'
 import AppDialog from '@/components/common/AppDialog.vue'
 import ModelSelectEmptyState from '@/components/model/ModelSelectEmptyState.vue'
-import { ref, reactive, onMounted } from 'vue'
+import { computed, ref, reactive, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import type { FormInstance, FormRules } from 'element-plus'
 import { ElMessage } from 'element-plus'
-import { Plus } from '@element-plus/icons-vue'
-import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
+import { Plus, Refresh, Search } from '@element-plus/icons-vue'
+import MetricStrip from '@/components/common/MetricStrip.vue'
+import type { MetricStripItem } from '@/components/common/glassWorkbench'
+import {
+  LiquidGlassButton,
+  LiquidGlassFilterBar,
+  LiquidGlassInput,
+  LiquidGlassPage,
+  LiquidGlassSelect,
+  LiquidGlassTable,
+} from '@/components/common/liquid-glass'
 import PageHeader from '@/components/common/PageHeader.vue'
 import { useBizIndexStore } from '@/store/bizIndex'
 import { createBizIndex, updateBizIndex, deleteBizIndex } from '@/api/bizIndex'
@@ -204,6 +233,44 @@ import { normalizeActiveModelInstances } from '@/utils/modelSelection'
 
 const router = useRouter()
 const bizIndexStore = useBizIndexStore()
+
+const keyword = ref('')
+const statusFilter = ref('')
+const currentPage = ref(1)
+const pageSize = ref(20)
+
+// 索引数量有限，列表一次取回，筛选与分页都在前端完成。
+const filteredIndexes = computed(() => {
+  const term = keyword.value.trim().toLowerCase()
+  return bizIndexStore.bizIndexList.filter(item => {
+    if (statusFilter.value && (statusFilter.value === 'ACTIVE') !== (item.status === 'ACTIVE')) return false
+    if (!term) return true
+    return [item.indexName, item.indexCode, item.sourceSystem].some(value => value?.toLowerCase().includes(term))
+  })
+})
+
+const pagedIndexes = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value
+  return filteredIndexes.value.slice(start, start + pageSize.value)
+})
+
+const indexMetrics = computed<MetricStripItem[]>(() => {
+  const list = bizIndexStore.bizIndexList
+  const active = list.filter(item => item.status === 'ACTIVE').length
+  return [
+    { key: 'total', label: '索引', value: list.length, hint: active === list.length ? '全部启用' : `启用 ${active}` },
+    { key: 'records', label: '记录', value: list.reduce((sum, item) => sum + (item.recordCount ?? 0), 0) },
+    { key: 'chunks', label: '附件 Chunk', value: list.reduce((sum, item) => sum + (item.attachmentChunkCount ?? 0), 0) },
+  ]
+})
+
+watch([keyword, statusFilter], () => { currentPage.value = 1 })
+
+function resetFilters() {
+  keyword.value = ''
+  statusFilter.value = ''
+  currentPage.value = 1
+}
 
 const dialogVisible = ref(false)
 const isEdit = ref(false)
@@ -330,13 +397,15 @@ onMounted(() => {
 </script>
 
 <style scoped lang="scss">
-.biz-index-list-page > .section-card {
-  margin-bottom: 0;
+/* 状态是短值，筛选条里收窄，把宽度留给搜索框。 */
+.workbench-list-surface :deep(.filter-bar__fields > .liquid-glass-control.index-filter.is-short) {
+  flex: 1 1 130px;
+  max-width: 170px;
 }
 
 .form-tip {
   font-size: 12px;
-  color: #64748b;
+  color: var(--text-muted);
   margin-top: 4px;
   line-height: 1.4;
 }
@@ -344,7 +413,7 @@ onMounted(() => {
 // ── 日间模式覆盖 ──
 :global([data-theme="light"]) {
   .form-tip {
-    color: #94a3b8;
+    color: var(--text-disabled);
   }
 }
 </style>

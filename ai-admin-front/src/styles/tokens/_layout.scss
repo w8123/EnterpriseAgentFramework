@@ -1,10 +1,14 @@
 :root {
-  --layout-breadcrumb-height: 40px;
+  --layout-breadcrumb-height: calc(var(--layout-heading-spacing) + var(--layout-breadcrumb-line-height));
+  --layout-breadcrumb-line-height: 18px;
+  --layout-breadcrumb-font-size: 14px;
+  --layout-breadcrumb-font-weight: 500;
+  --layout-breadcrumb-separator-gap: 9px;
   --layout-content-inline: 16px;
-  --layout-page-start: 8px;
+  --layout-page-start: var(--layout-heading-spacing);
   --layout-page-end: 16px;
   --layout-list-page-end: var(--layout-sidebar-inset-block);
-  --layout-page-gap: 10px;
+  --layout-page-gap: var(--layout-heading-spacing);
   --layout-panel-padding: 16px;
   --layout-section-gap: 12px;
   --layout-control-gap: 8px;
@@ -33,6 +37,15 @@
   --layout-sidebar-inset-block: 14px;
   --layout-sidebar-inset-start: 14px;
   --layout-sidebar-inset-end: 10px;
+  --layout-heading-spacing: var(--layout-sidebar-inset-block);
+  --layout-page-header-description-gap: var(--layout-control-gap);
+  --layout-page-header-description-size: 14px;
+  --layout-page-header-meta-gap: var(--layout-control-gap);
+  --layout-page-header-title-size: 22px;
+  --layout-page-header-title-line-height: 28px;
+  --layout-page-header-title-indent: 22px;
+  --layout-page-header-marker-width: 4px;
+  --layout-page-header-action-height: 40px;
 }
 
 .project-workbench-page {
@@ -68,9 +81,9 @@
 @media (max-width: 900px) {
   :root {
     --layout-content-inline: 16px;
-    --layout-page-start: 8px;
+    --layout-page-start: var(--layout-heading-spacing);
     --layout-page-end: 16px;
-    --layout-page-gap: 10px;
+    --layout-page-gap: var(--layout-heading-spacing);
     --layout-page-header-padding-block: 12px;
     --layout-page-header-padding-inline: 16px;
   }
@@ -79,9 +92,9 @@
 @media (max-width: 760px) {
   :root {
     --layout-content-inline: 12px;
-    --layout-page-start: 8px;
+    --layout-page-start: var(--layout-heading-spacing);
     --layout-page-end: 12px;
-    --layout-page-gap: 8px;
+    --layout-page-gap: var(--layout-heading-spacing);
     --layout-panel-padding: 12px;
     --layout-page-header-padding-block: 12px;
     --layout-page-header-padding-inline: 12px;

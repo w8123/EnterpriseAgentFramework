@@ -23,6 +23,7 @@
           active: inspectorPanel === 'validation',
           danger: validationTagType === 'danger',
           warning: validationTagType === 'warning',
+          success: validationTagType === 'success',
         }"
         type="button"
         :aria-expanded="inspectorPanel === 'validation'"
@@ -86,34 +87,47 @@ const emit = defineEmits<{
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  gap: 10px;
-  min-height: 56px;
+  gap: 8px;
+  min-height: 52px;
   padding: 8px 18px;
-  border-top: 1px solid rgba(148, 163, 184, 0.28);
-  background: rgba(255, 255, 255, 0.88);
-  backdrop-filter: blur(12px);
+  border-top: 1px solid var(--border-glass-edge);
+  background: var(--surface-glass-shell);
+  -webkit-backdrop-filter: blur(var(--glass-blur-shell)) saturate(var(--glass-saturation));
+  backdrop-filter: blur(var(--glass-blur-shell)) saturate(var(--glass-saturation));
 }
 
 .status-left {
   display: inline-flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
 }
 
 .status-pill {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  min-height: 34px;
-  padding: 0 12px;
-  border: 1px solid #dbe5f2;
+  gap: 7px;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--border-subtle);
   border-radius: 8px;
-  background: #fff;
-  color: #334155;
+  background: var(--surface-solid-control);
+  color: var(--text-secondary);
   cursor: pointer;
   font-size: 12px;
+  font-family: inherit;
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+
+.status-pill:hover {
+  border-color: var(--border-focus);
+  color: var(--text-primary);
+}
+
+.status-pill:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
 }
 
 .status-pill strong,
@@ -123,51 +137,47 @@ const emit = defineEmits<{
 }
 
 .status-pill strong {
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .status-pill em {
-  color: #64748b;
+  color: var(--text-muted);
 }
 
 .status-pill.active {
   border-color: var(--el-color-primary-light-5);
   background: var(--el-color-primary-light-9);
-  box-shadow: 0 8px 20px rgba(79, 70, 229, 0.1);
+  color: var(--brand-primary);
 }
 
 .canvas-tools-pill {
-  color: #4f46e5;
+  color: var(--brand-primary);
 }
 
 .canvas-tools-pill.active {
-  border-color: rgba(99, 102, 241, 0.38);
-  background: linear-gradient(135deg, rgba(238, 242, 255, 0.98), rgba(240, 253, 250, 0.9));
-  box-shadow: 0 8px 20px rgba(79, 70, 229, 0.12);
+  border-color: var(--el-color-primary-light-5);
+  background: var(--el-color-primary-light-9);
 }
 
 .smart-edit-pill {
-  border-color: rgba(99, 102, 241, 0.3);
-  color: #4338ca;
-  background: linear-gradient(135deg, rgba(238, 242, 255, 0.96), rgba(240, 253, 250, 0.86));
-  box-shadow: 0 10px 24px rgba(79, 70, 229, 0.1);
+  color: var(--brand-primary);
 }
 
 .status-dot {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
   border-radius: 999px;
-  background: #22c55e;
+  background: var(--status-neutral);
 }
 
 .status-pill.danger {
-  border-color: #fecaca;
-  color: #b91c1c;
+  border-color: var(--el-color-danger-light-5);
+  color: var(--status-danger);
 }
 
 .status-pill.warning {
-  border-color: #fed7aa;
-  color: #c2410c;
+  border-color: var(--el-color-warning-light-5);
+  color: var(--status-warning);
 }
 
 .status-pill.danger.active {
@@ -181,10 +191,39 @@ const emit = defineEmits<{
 }
 
 .status-pill.danger .status-dot {
-  background: #ef4444;
+  background: var(--status-danger);
 }
 
 .status-pill.warning .status-dot {
-  background: #f59e0b;
+  background: var(--status-warning);
+}
+
+.status-pill.success .status-dot {
+  background: var(--status-success);
+}
+
+@media (max-width: 760px) {
+  .canvas-statusbar {
+    left: 72px;
+    padding: 8px 10px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+  }
+
+  .status-left {
+    flex-wrap: nowrap;
+    gap: 6px;
+  }
+
+  .status-pill {
+    flex-shrink: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status-pill {
+    transition: none;
+  }
 }
 </style>

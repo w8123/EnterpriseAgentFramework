@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import LiquidGlassLayer from './LiquidGlassLayer.vue'
+
 defineOptions({ inheritAttrs: false })
 
 const props = defineProps<{
@@ -16,12 +18,13 @@ const emit = defineEmits<{
 <template>
   <el-drawer
     v-bind="$attrs"
-    class="app-drawer glass-surface-overlay"
+    class="app-drawer glass-surface-overlay liquid-glass-host"
     :model-value="props.modelValue"
     :title="props.title"
     :size="props.size"
     @update:model-value="emit('update:modelValue', $event)"
   >
+    <LiquidGlassLayer host-selector=".app-drawer" />
     <template v-if="$slots.header" #header="headerProps">
       <slot name="header" v-bind="headerProps" />
     </template>

@@ -80,15 +80,15 @@ cosign verify registry.example/reachai/managed-executor-worker@sha256:<digest>
 
 ## 5. 数据库升级
 
-先备份并在同版本影子库演练：
+Managed Executor 建表、Artifact 留存截止时间与索引已进入初始化基线。新库执行：
 
 ```bash
-mysql --defaults-extra-file="$MYSQL_CLIENT_CONFIG" < sql/upgrade-20260830-platform-consolidated.sql
+mysql --defaults-extra-file="$MYSQL_CLIENT_CONFIG" --default-character-set=utf8mb4 < sql/initV2.sql
 ```
 
-该入口面向从 GitHub 基线 `ae9e1ce6` 的整版升级，Managed Executor 位于 Section 07；执行前还必须接受同一脚本中 A2A/MCP clean-slate 段的旧数据处置边界，不能只复制单段运行。
+已有库按 [SQL 说明](../../sql/README.md) 核对前置结构与升级范围；缺失本模块历史结构时，从匹配版本的 Git 历史取回迁移并先在影子库演练。近期合并升级不再承载 Managed Executor 建表。
 
-该脚本直接创建 Artifact 留存截止时间与索引。应用配置若不是默认 30 天，先由数据 owner 审批目标保留策略，并将对象存储生命周期设置为相同或更短期限。
+应用配置若不是默认 30 天，先由数据 owner 审批目标保留策略，并将对象存储生命周期设置为相同或更短期限。
 
 只读核验：
 

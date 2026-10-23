@@ -10,19 +10,26 @@ import {
   EditPen,
   Guide,
   Lock,
+  Reading,
   VideoPlay,
 } from '@element-plus/icons-vue'
 
 import WorkbenchPanel from '@/components/common/WorkbenchPanel.vue'
+import AgentRecentActivity from '@/components/agent/AgentRecentActivity.vue'
 import type { AgentA2aRemoteBindingConfig, AgentWorkflowToolConfig } from '@/types/agent'
 import type { AgentSkillBindingConfig } from '@/types/skill'
 
-type ConfigSection = 'basic' | 'decision' | 'workflows' | 'remote' | 'skills'
+type ConfigSection = 'basic' | 'decision' | 'workflows' | 'knowledge' | 'remote' | 'skills'
 
 const props = defineProps<{
   modelName: string
   systemPrompt: string
   workflowTools: AgentWorkflowToolConfig[]
+  /** 以知识问答 Workflow 接入的知识库，不计入 workflowTools。 */
+  knowledgeTools?: AgentWorkflowToolConfig[]
+  agentId?: string
+  canReadRuns?: boolean
+  canEvaluate?: boolean
   remoteAgents: AgentA2aRemoteBindingConfig[]
   skills: AgentSkillBindingConfig[]
   activeVersionNo?: number | null
@@ -42,11 +49,16 @@ const emit = defineEmits<{
   'add-skill': []
   debug: []
   'show-versions': []
+  'add-knowledge': []
+  'open-run': [traceId: string]
+  'open-runs': []
+  'open-eval': []
 }>()
 
 const enabledWorkflows = computed(() => props.workflowTools.filter((item) => item.enabled !== false))
 const visibleWorkflows = computed(() => enabledWorkflows.value.slice(0, 3))
 const enabledRemoteAgents = computed(() => props.remoteAgents.filter((item) => item.enabled !== false))
+const enabledKnowledge = computed(() => (props.knowledgeTools || []).filter((item) => item.enabled !== false))
 const enabledSkills = computed(() => props.skills.filter((item) => item.enabled !== false))
 const systemPromptSummary = computed(() => {
   const normalized = (props.systemPrompt || '').replace(/\s+/g, ' ').trim()
@@ -179,10 +191,24 @@ function riskClass(value?: string) {
 
       <WorkbenchPanel
         class="overview-panel collaboration-panel"
-        title="Agent 协作与 Skill"
+        title="知识库、协作与 Skill"
         density="compact"
       >
         <div class="collaboration-summary-grid">
+          <div class="collaboration-summary-item">
+            <span class="summary-icon is-blue"><el-icon><Reading /></el-icon></span>
+            <div class="collaboration-copy">
+              <strong>知识库</strong>
+              <span>{{ enabledKnowledge.length ? `已添加 ${enabledKnowledge.length} 个` : '暂未添加' }}</span>
+            </div>
+            <el-button
+              v-if="props.canWrite && !enabledKnowledge.length"
+              link
+              type="primary"
+              @click="emit('add-knowledge')"
+            >添加 <el-icon class="el-icon--right"><ArrowRight /></el-icon></el-button>
+            <el-button v-else link type="primary" @click="emit('edit-section', 'knowledge')">查看 <el-icon class="el-icon--right"><ArrowRight /></el-icon></el-button>
+          </div>
           <div class="collaboration-summary-item">
             <span class="summary-icon"><el-icon><Connection /></el-icon></span>
             <div class="collaboration-copy">
@@ -229,6 +255,16 @@ function riskClass(value?: string) {
         </ul>
         <el-button link type="primary" @click="emit('show-versions')">查看发布详情 <el-icon class="el-icon--right"><ArrowRight /></el-icon></el-button>
       </WorkbenchPanel>
+
+      <AgentRecentActivity
+        v-if="props.agentId"
+        :agent-id="props.agentId"
+        :can-read-runs="Boolean(props.canReadRuns)"
+        :can-evaluate="Boolean(props.canEvaluate)"
+        @open-run="(traceId) => emit('open-run', traceId)"
+        @open-runs="emit('open-runs')"
+        @open-eval="emit('open-eval')"
+      />
 
       <WorkbenchPanel class="overview-side-card scope-summary-card" density="compact">
         <h2>使用范围</h2>
@@ -520,9 +556,9 @@ function riskClass(value?: string) {
   align-items: center;
   gap: 13px;
   padding: 14px;
-  border: 1px dashed var(--border-default);
+  border: 1px dashed var(--border-subtle);
   border-radius: var(--radius-lg);
-  background: var(--bg-subtle);
+  background: var(--surface-hover);
 }
 
 .overview-empty-state > div {
@@ -556,7 +592,7 @@ function riskClass(value?: string) {
 
 .collaboration-summary-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
 }
 

@@ -28,10 +28,15 @@
         <section class="inspector-description">
           <div class="description-label">来源说明</div>
           <p>{{ capabilityDescription(method) }}</p>
-          <el-alert v-if="capabilityDescriptionHasEncodingIssue(method)" title="来源说明存在编码异常，请在来源项目修复后重新同步。" type="warning" :closable="false" show-icon />
+          <LiquidGlassNotice
+            v-if="capabilityDescriptionHasEncodingIssue(method)"
+            title="来源说明存在编码异常，请在来源项目修复后重新同步。"
+            type="warning"
+            source="backdrop"
+          />
         </section>
 
-        <el-tabs v-model="tab" class="inspector-tabs" :before-leave="() => !descriptionBusy">
+        <LiquidGlassTabs v-model="tab" class="inspector-tabs" :before-leave="() => !descriptionBusy">
           <el-tab-pane label="输入与返回" name="contract">
             <section class="inspector-section">
               <header class="section-heading"><h3>输入参数 <span>{{ capabilityParameterCount(parameters.inputs) }}</span></h3><el-button v-if="parameters.inputs.length" text :icon="CopyDocument" @click="copyText(businessMethodInputContract(method), '输入契约')">复制输入契约</el-button></header>
@@ -71,7 +76,13 @@
               <div v-if="referencesLoading" class="reference-state" role="status">正在查询使用位置…</div>
               <div v-else-if="referencesError" class="reference-state" role="alert"><p>{{ referencesError }}</p><el-button v-if="method.projectCode" @click="loadReferences">重试查询</el-button></div>
               <template v-else-if="references">
-                <el-alert v-if="!referencesComplete" title="部分使用位置尚未确认" description="下方仅展示已查到的引用，不能据此判断没有其他使用方。" type="warning" :closable="false" show-icon />
+                <LiquidGlassNotice
+                  v-if="!referencesComplete"
+                  title="部分使用位置尚未确认"
+                  description="下方仅展示已查到的引用，不能据此判断没有其他使用方。"
+                  type="warning"
+                  source="backdrop"
+                />
                 <ul v-if="references.references.length" class="usage-list">
                   <li v-for="(usage, index) in references.references" :key="index">
                     <div class="usage-icon" aria-hidden="true"><el-icon><component :is="usage.kind === 'AGENT' ? User : usage.kind === 'WORKFLOW' ? Connection : Share" /></el-icon></div>
@@ -92,7 +103,7 @@
             </section>
             <section class="inspector-section"><header class="section-heading"><h3>声明信息</h3></header><dl class="technical-facts"><div v-for="fact in technicalFacts" :key="fact.label"><dt>{{ fact.label }}</dt><dd>{{ fact.value }}</dd></div></dl></section>
           </el-tab-pane>
-        </el-tabs>
+        </LiquidGlassTabs>
       </main>
 
       <aside class="inspector-aside" aria-label="调用条件与来源">
@@ -128,8 +139,8 @@
   >
     <p class="discard-copy">当前试调用或业务说明输入尚未提交。放弃后会从页面内存中清除；最近调用记录只保留调用 ID 和时间。</p>
     <template #footer>
-      <el-button ref="discardCancel" native-type="button" @click="cancelDiscard">继续编辑</el-button>
-      <el-button native-type="button" type="danger" @click="confirmDiscard">放弃输入</el-button>
+      <LiquidGlassButton ref="discardCancel" native-type="button" @click="cancelDiscard">继续编辑</LiquidGlassButton>
+      <LiquidGlassButton native-type="button" type="danger" @click="confirmDiscard">放弃输入</LiquidGlassButton>
     </template>
   </AppDialog>
 </template>
@@ -152,6 +163,7 @@ import CapabilityEnrichmentPanel from './CapabilityEnrichmentPanel.vue'
 import { referenceKindLabel, referenceStage, usageRoute } from '../referenceUsage'
 import CapabilityParameterTable from './CapabilityParameterTable.vue'
 import BusinessMethodInvocationPanel from './BusinessMethodInvocationPanel.vue'
+import { LiquidGlassNotice, LiquidGlassTabs, LiquidGlassButton } from '@/components/common/liquid-glass'
 
 const props = withDefaults(defineProps<{
   modelValue: boolean
@@ -338,8 +350,8 @@ onBeforeUnmount(() => { ++sequence; ++referenceSequence })
 .description-label { font-size: 12px; color: var(--text-secondary); }
 .inspector-description > p { margin: 6px 0 0; font-size: 13px; line-height: 1.75; color: var(--text-primary); overflow-wrap: anywhere; }
 .inspector-description .el-alert { margin-top: 12px; }
-.inspector-tabs :deep(.el-tabs__header) { position: sticky; top: 0; z-index: 2; margin: 0; padding-top: 8px; background: var(--surface-fallback-overlay); }
-.inspector-tabs :deep(.el-tabs__item) { height: 44px; font-size: 13px; }
+.inspector-tabs { margin-block-start: 12px; }
+.inspector-tabs :deep(.el-tabs__header) { margin-bottom: 16px; }
 .tab-count { margin-left: 6px; font-size: 11px; }
 .inspector-section { padding: 20px 0 4px; }
 .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 32px; margin-bottom: 12px; }

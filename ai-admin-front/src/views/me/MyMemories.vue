@@ -1,121 +1,136 @@
 <template>
   <WorkbenchPage class="personal-memory-page">
-    <section class="page-hero glass-surface-shell">
-      <div>
-        <span class="eyebrow">PERSONAL MEMORY</span>
-        <h1>我的记忆</h1>
-        <p>这些信息只属于当前登录账号，所有开启了个人记忆的 Agent 都会参考。你可以查看、修改、删除，也可以确认对话中识别出的候选。</p>
-      </div>
-      <div class="hero-actions">
-        <el-button @click="downloadExport">导出 JSON</el-button>
-        <el-button
-          type="danger"
-          plain
-          :loading="erasingAll"
-          @click="eraseAll"
-        >清空全部</el-button>
-        <el-button type="primary" @click="openCreate">添加记忆</el-button>
-      </div>
-    </section>
+    <PageHeader
+      variant="standard"
+      presentation="plain"
+      action-presentation="inline"
+      domain="agent"
+      title="我的记忆"
+      description="管理当前账号的个人记忆，确认对话中识别出的候选信息。"
+    >
+      <template #meta>
+        <MetricStrip presentation="inline" source="wallpaper" :items="memoryMetrics" aria-label="个人记忆概览" />
+      </template>
+      <template #actions>
+        <LiquidGlassButton source="wallpaper" :icon="Download" @click="downloadExport">导出 JSON</LiquidGlassButton>
+        <LiquidGlassButton source="wallpaper" type="danger" plain :loading="erasingAll" @click="eraseAll">清空全部</LiquidGlassButton>
+        <LiquidGlassButton source="wallpaper" type="primary" :icon="Plus" @click="openCreate">添加记忆</LiquidGlassButton>
+      </template>
+    </PageHeader>
 
-    <el-alert
-      class="privacy-alert"
+    <LiquidGlassNotice
+      source="wallpaper"
       type="info"
-      :closable="false"
-      show-icon
       title="记忆用于改善回答，不会授予权限，也不会覆盖安全规则、当前请求或业务数据。密码、Token 和密钥禁止存储。"
     />
 
-    <section class="metrics-grid">
-      <article class="metric-card glass-surface-shell">
-        <span>已确认记忆</span><strong>{{ memoryPage.total }}</strong>
-      </article>
-      <article class="metric-card glass-surface-shell">
-        <span>待确认候选</span><strong>{{ candidatePage.total }}</strong>
-      </article>
-      <article class="metric-card glass-surface-shell">
-        <span>来源 Agent</span><strong>{{ agentOptions.length }}</strong>
-      </article>
-    </section>
+    <LiquidGlassNav source="wallpaper" class="memory-tabs" aria-label="个人记忆视图">
+      <button
+        v-for="tab in memoryTabs"
+        :key="tab.name"
+        type="button"
+        :aria-pressed="activeTab === tab.name"
+        @click="selectTab(tab.name)"
+      >
+        {{ tab.label }}<span v-if="tab.count !== undefined" class="tab-count">{{ tab.count }}</span>
+      </button>
+    </LiquidGlassNav>
 
-    <section class="workspace-card glass-surface-shell">
-      <el-tabs v-model="activeTab" @tab-change="handleTabChange">
-        <el-tab-pane label="已确认" name="memories">
-          <div class="toolbar">
-            <el-input v-model="keyword" clearable placeholder="搜索标题或内容" @keyup.enter="loadMemories" />
-            <el-select v-model="typeFilter" clearable placeholder="全部类型" @change="loadMemories">
-              <el-option v-for="item in typeOptions" :key="item.value" :label="item.label" :value="item.value" />
-            </el-select>
-            <el-select v-model="agentFilter" clearable filterable placeholder="全部来源 Agent" @change="loadMemories">
-              <el-option v-for="agent in agentOptions" :key="agent" :label="agent" :value="agent" />
-            </el-select>
-            <el-button :loading="loadingMemories" @click="loadMemories">刷新</el-button>
+    <LiquidGlassTable
+      v-if="activeTab === 'memories'"
+      body-layout="cards"
+      presentation="collection"
+      :show-pagination="false"
+      :loading="loadingMemories"
+      :empty="!loadingMemories && !memoryPage.items.length"
+    >
+      <template #toolbar>
+        <LiquidGlassFilterBar :loading="loadingMemories" @query="loadMemories" @reset="resetFilters">
+          <LiquidGlassInput v-model="keyword" :prefix-icon="Search" clearable placeholder="搜索标题或内容" aria-label="搜索记忆" />
+          <LiquidGlassSelect v-model="typeFilter" class="short-filter" clearable placeholder="全部类型" dropdown-title="记忆类型" aria-label="记忆类型" @change="loadMemories">
+            <el-option v-for="item in typeOptions" :key="item.value" :label="item.label" :value="item.value" />
+          </LiquidGlassSelect>
+          <LiquidGlassSelect v-model="agentFilter" class="agent-filter" clearable filterable placeholder="全部来源 Agent" dropdown-title="来源 Agent" aria-label="来源 Agent" @change="loadMemories">
+            <el-option v-for="agent in agentOptions" :key="agent" :label="agent" :value="agent" />
+          </LiquidGlassSelect>
+        </LiquidGlassFilterBar>
+      </template>
+      <div class="memory-list">
+        <article v-for="item in memoryPage.items" :key="item.id" class="memory-row">
+          <div class="memory-main">
+            <div class="memory-heading">
+              <el-tag size="small" effect="plain">{{ typeLabel(item.type) }}</el-tag>
+              <strong>{{ item.title || '未命名记忆' }}</strong>
+            </div>
+            <p>{{ item.content }}</p>
+            <small>
+              {{ sourceLabel(item.sourceType) }}<template v-if="item.sourceAgentId"> · 来自 {{ item.sourceAgentId }}</template>
+              · 更新于 {{ formatTime(item.updatedAt) }}
+            </small>
           </div>
-
-          <el-empty v-if="!loadingMemories && !memoryPage.items.length" description="还没有已确认的个人记忆" />
-          <div v-else class="memory-list" v-loading="loadingMemories">
-            <article v-for="item in memoryPage.items" :key="item.id" class="memory-row">
-              <div class="memory-main">
-                <div class="memory-heading">
-                  <el-tag size="small" effect="plain">{{ typeLabel(item.type) }}</el-tag>
-                  <strong>{{ item.title || '未命名记忆' }}</strong>
-                </div>
-                <p>{{ item.content }}</p>
-                <small>
-                  {{ sourceLabel(item.sourceType) }}<template v-if="item.sourceAgentId"> · 来自 {{ item.sourceAgentId }}</template>
-                  · 更新于 {{ formatTime(item.updatedAt) }}
-                </small>
-              </div>
-              <div class="row-actions">
-                <el-button link type="primary" @click="openEdit(item)">编辑</el-button>
-                <el-button link type="danger" @click="forget(item)">删除</el-button>
-              </div>
-            </article>
+          <div class="row-actions">
+            <el-button link type="primary" @click="openEdit(item)">编辑</el-button>
+            <el-button link type="danger" @click="forget(item)">删除</el-button>
           </div>
-        </el-tab-pane>
+        </article>
+      </div>
+      <template #empty>
+        <LiquidGlassEmptyState
+          :title="keyword || typeFilter || agentFilter ? '没有匹配的记忆' : '还没有已确认的个人记忆'"
+          :description="keyword || typeFilter || agentFilter ? '换个关键词或清空筛选再试。' : '在对话里说“记住…”，或点「添加记忆」手动写一条。'"
+        />
+      </template>
+    </LiquidGlassTable>
 
-        <el-tab-pane :label="`待确认 (${candidatePage.total})`" name="candidates">
-          <el-empty v-if="!loadingCandidates && !candidatePage.items.length" description="没有待确认候选" />
-          <div v-else class="memory-list" v-loading="loadingCandidates">
-            <article v-for="item in candidatePage.items" :key="item.id" class="memory-row candidate-row">
-              <div class="memory-main">
-                <div class="memory-heading">
-                  <el-tag size="small" effect="plain">{{ typeLabel(item.type) }}</el-tag>
-                  <strong>{{ item.title || '对话中识别到的信息' }}</strong>
-                  <el-tag v-if="item.conflictMemoryId" size="small" type="warning">可能替换已有记忆</el-tag>
-                  <el-tag v-if="(item.occurrenceCount || 1) > 1" size="small" type="info">
-                    出现 {{ item.occurrenceCount }} 次
-                  </el-tag>
-                </div>
-                <p>{{ item.content }}</p>
-                <small>
-                  {{ item.reason || '对话中识别' }}<template v-if="item.sourceAgentId"> · 来自 {{ item.sourceAgentId }}</template>
-                  · {{ formatTime(item.lastSeenAt || item.createdAt) }}
-                </small>
-              </div>
-              <div class="row-actions">
-                <el-button type="primary" size="small" @click="approve(item)">确认记住</el-button>
-                <el-button size="small" @click="reject(item)">忽略</el-button>
-              </div>
-            </article>
+    <LiquidGlassTable
+      v-else-if="activeTab === 'candidates'"
+      body-layout="cards"
+      presentation="collection"
+      :show-pagination="false"
+      :loading="loadingCandidates"
+      :empty="!loadingCandidates && !candidatePage.items.length"
+    >
+      <div class="memory-list">
+        <article v-for="item in candidatePage.items" :key="item.id" class="memory-row candidate-row">
+          <div class="memory-main">
+            <div class="memory-heading">
+              <el-tag size="small" effect="plain">{{ typeLabel(item.type) }}</el-tag>
+              <strong>{{ item.title || '对话中识别到的信息' }}</strong>
+              <el-tag v-if="item.conflictMemoryId" size="small" type="warning">可能替换已有记忆</el-tag>
+              <el-tag v-if="(item.occurrenceCount || 1) > 1" size="small" type="info">
+                出现 {{ item.occurrenceCount }} 次
+              </el-tag>
+            </div>
+            <p>{{ item.content }}</p>
+            <small>
+              {{ item.reason || '对话中识别' }}<template v-if="item.sourceAgentId"> · 来自 {{ item.sourceAgentId }}</template>
+              · {{ formatTime(item.lastSeenAt || item.createdAt) }}
+            </small>
           </div>
-        </el-tab-pane>
+          <div class="row-actions">
+            <LiquidGlassButton type="primary" size="small" @click="approve(item)">确认记住</LiquidGlassButton>
+            <LiquidGlassButton size="small" @click="reject(item)">忽略</LiquidGlassButton>
+          </div>
+        </article>
+      </div>
+      <template #empty>
+        <LiquidGlassEmptyState title="没有待确认候选" description="Agent 在对话中识别到值得记住的信息时，会先放在这里等你确认。" />
+      </template>
+    </LiquidGlassTable>
 
-        <el-tab-pane label="审计记录" name="audit">
-          <el-table :data="auditEvents" v-loading="loadingAudit" empty-text="暂无审计记录">
-            <el-table-column label="事件" width="160">
-              <template #default="scope">{{ eventLabel(scope.row.eventType) }}</template>
-            </el-table-column>
-            <el-table-column prop="reason" label="原因" min-width="200" />
-            <el-table-column prop="agentId" label="Agent" min-width="140" />
-            <el-table-column prop="decision" label="结果" width="110" />
-            <el-table-column label="时间" width="190">
-              <template #default="scope">{{ formatTime(scope.row.createdAt) }}</template>
-            </el-table-column>
-          </el-table>
-        </el-tab-pane>
-      </el-tabs>
-    </section>
+    <LiquidGlassTable v-else :show-pagination="false" :loading="loadingAudit">
+      <el-table :data="auditEvents" empty-text="暂无审计记录">
+        <el-table-column label="事件" width="160">
+          <template #default="scope">{{ eventLabel(scope.row.eventType) }}</template>
+        </el-table-column>
+        <el-table-column prop="reason" label="原因" min-width="200" />
+        <el-table-column prop="agentId" label="Agent" min-width="140" />
+        <el-table-column prop="decision" label="结果" width="110" />
+        <el-table-column label="时间" width="190">
+          <template #default="scope">{{ formatTime(scope.row.createdAt) }}</template>
+        </el-table-column>
+      </el-table>
+    </LiquidGlassTable>
 
     <AppDialog v-model="editorVisible" :title="editingId ? '编辑记忆' : '添加记忆'" width="560px">
       <el-form label-position="top">
@@ -133,8 +148,8 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="editorVisible = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="save">保存</el-button>
+        <LiquidGlassButton @click="editorVisible = false">取消</LiquidGlassButton>
+        <LiquidGlassButton type="primary" :loading="saving" @click="save">保存</LiquidGlassButton>
       </template>
     </AppDialog>
   </WorkbenchPage>
@@ -143,8 +158,22 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Download, Plus, Search } from '@element-plus/icons-vue'
 import AppDialog from '@/components/common/AppDialog.vue'
+import MetricStrip from '@/components/common/MetricStrip.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
 import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
+import type { MetricStripItem } from '@/components/common/glassWorkbench'
+import {
+  LiquidGlassButton,
+  LiquidGlassEmptyState,
+  LiquidGlassFilterBar,
+  LiquidGlassInput,
+  LiquidGlassNav,
+  LiquidGlassNotice,
+  LiquidGlassSelect,
+  LiquidGlassTable,
+} from '@/components/common/liquid-glass'
 import {
   approveMyMemoryCandidate,
   eraseAllMyMemories,
@@ -167,7 +196,8 @@ import type {
   PersonalMemoryType,
 } from '@/types/memory'
 
-const activeTab = ref('memories')
+type MemoryTab = 'memories' | 'candidates' | 'audit'
+const activeTab = ref<MemoryTab>('memories')
 const keyword = ref('')
 const typeFilter = ref<PersonalMemoryType | ''>('')
 const agentFilter = ref('')
@@ -183,6 +213,16 @@ const editingId = ref<number | null>(null)
 const memoryPage = reactive<PersonalMemoryPage>({ items: [], total: 0, limit: 100, offset: 0 })
 const candidatePage = reactive<PersonalMemoryCandidatePage>({ items: [], total: 0, limit: 100, offset: 0 })
 const auditEvents = ref<PersonalMemoryAudit[]>([])
+const memoryTabs = computed<Array<{ name: MemoryTab; label: string; count?: number }>>(() => [
+  { name: 'memories', label: '已确认', count: memoryPage.total },
+  { name: 'candidates', label: '待确认', count: candidatePage.total },
+  { name: 'audit', label: '审计记录' },
+])
+const memoryMetrics = computed<MetricStripItem[]>(() => [
+  { key: 'memories', label: '已确认记忆', value: memoryPage.total },
+  { key: 'candidates', label: '待确认候选', value: candidatePage.total, tone: candidatePage.total ? 'warning' : undefined },
+  { key: 'agents', label: '来源 Agent', value: agentOptions.value.length },
+])
 const form = reactive<{ type: PersonalMemoryType; title: string; content: string; semanticKey: string }>({
   type: 'NOTE', title: '', content: '', semanticKey: '',
 })
@@ -221,9 +261,17 @@ async function loadAudit() {
   finally { loadingAudit.value = false }
 }
 
-function handleTabChange(name: string | number) {
+function selectTab(name: MemoryTab) {
+  activeTab.value = name
   if (name === 'candidates') loadCandidates()
   if (name === 'audit') loadAudit()
+}
+
+function resetFilters() {
+  keyword.value = ''
+  typeFilter.value = ''
+  agentFilter.value = ''
+  loadMemories()
 }
 
 function resetForm() {
@@ -364,30 +412,22 @@ onMounted(() => Promise.all([loadMemories(), loadCandidates()]))
 </script>
 
 <style scoped lang="scss">
-.personal-memory-page { color: var(--text-primary); }
-.glass-surface-shell { border: 1px solid var(--border-divider); border-radius: var(--radius-lg); background: var(--bg-primary); }
-.page-hero { display: flex; justify-content: space-between; gap: var(--layout-panel-padding); align-items: center; padding: var(--layout-panel-padding); }
-.eyebrow { color: var(--brand-primary); font-size: 11px; font-weight: 800; letter-spacing: .16em; }
-h1 { margin: 7px 0 8px; font-size: 28px; }
-.page-hero p { margin: 0; color: var(--text-secondary); max-width: 720px; }
-.hero-actions { display: flex; gap: 10px; flex-shrink: 0; }
-.metrics-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
-.metric-card { padding: 12px var(--layout-panel-padding); display: flex; justify-content: space-between; align-items: baseline; color: var(--text-secondary); }
-.metric-card strong { color: var(--text-primary); font-size: 24px; }
-.metric-card .metric-text { font-size: 14px; }
-.workspace-card { padding: 8px var(--layout-panel-padding) var(--layout-panel-padding); }
-.toolbar { display: grid; grid-template-columns: minmax(240px, 1fr) 160px 200px auto; gap: 10px; margin: 8px 0 16px; }
+.memory-tabs { align-self: flex-start; }
+.tab-count { min-width: 20px; padding: 0 6px; border-radius: var(--radius-pill); background: var(--surface-glass-inset); font-size: 11px; font-variant-numeric: tabular-nums; text-align: center; }
+/* 类型是短值、来源 Agent 中等长度，筛选条里收窄，把宽度留给搜索框。 */
+:deep(.filter-bar__fields > .liquid-glass-control.short-filter) { flex: 0 1 150px; max-width: 170px; }
+:deep(.filter-bar__fields > .liquid-glass-control.agent-filter) { flex: 0 1 200px; max-width: 220px; }
 .memory-list { display: grid; gap: 10px; }
-.memory-row { display: flex; justify-content: space-between; gap: var(--layout-panel-padding); padding: 12px var(--layout-panel-padding); border: 1px solid var(--border-divider); border-radius: var(--radius-md); background: var(--bg-secondary); }
+.memory-row { display: flex; justify-content: space-between; gap: var(--layout-panel-padding); padding: 12px var(--layout-panel-padding); border: 1px solid var(--border-glass-edge); border-radius: var(--radius-md); background: var(--surface-glass-frost); box-shadow: var(--glass-rim-double); }
 .candidate-row { border-left: 3px solid var(--brand-primary); }
 .memory-main { min-width: 0; }
 .memory-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.memory-heading strong { color: var(--text-primary); }
 .memory-main p { margin: 10px 0 8px; color: var(--text-secondary); white-space: pre-wrap; overflow-wrap: anywhere; }
 .memory-main small { color: var(--text-muted); }
-.row-actions { display: flex; align-items: center; flex-shrink: 0; }
+.row-actions { display: flex; align-items: center; flex-shrink: 0; gap: 8px; }
 @media (max-width: 900px) {
-  .page-hero, .memory-row { flex-direction: column; align-items: stretch; }
-  .metrics-grid { grid-template-columns: 1fr; }
-  .toolbar { grid-template-columns: 1fr; }
+  .memory-row { flex-direction: column; align-items: stretch; }
+  :deep(.filter-bar__fields > .liquid-glass-control:is(.short-filter, .agent-filter)) { max-width: none; }
 }
 </style>

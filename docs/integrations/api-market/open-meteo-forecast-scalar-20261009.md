@@ -8,6 +8,6 @@
 
 完整规范与可执行子集明确区分。[子集来源快照](./open-meteo-forecast-scalar-20261009.json) 记录官方URL、commit、原始字节摘要及参数范围，规范化子集摘要为 `570d8f8258ee4b9d187cb9d2f3416ef098f75c2320c1406f0eee1600781f51fc`，作为新版本spec_hash。不是为旧v1补造一个hash。
 
-新库 `sql/initV2.sql` 与 [窄增量](../../../sql/upgrade-20261009-open-meteo-official-version.sql) 仅INSERT本条公开目录的新版本和新Operation，二遍执行幂等；不更新provider、entry、旧v1、旧Operation、既有project27绑定或凭据。落现库前已只读回查该旧绑定，旧v1仍保持原事实。该增量不代表项目接纳、连接配置、ACL、调用或验证成功；这些必须继续走当前公开管理接口。
+新库 `sql/initV2.sql` 已包含此版本；当时的窄增量（从 Git 历史查阅，见 [SQL 说明](../../../sql/README.md#历史版本)） 仅INSERT本条公开目录的新版本和新Operation，二遍执行幂等；不更新provider、entry、旧v1、旧Operation、既有project27绑定或凭据。落现库前已只读回查该旧绑定，旧v1仍保持原事实。该增量不代表项目接纳、连接配置、ACL、调用或验证成功；这些必须继续走当前公开管理接口。
 
 本轮的实际接入/receipt/VERIFY结果与异常保存在 `output/tasks/qmssmp-e2e-20261009/api-market-*`，以完成后的现场报告为准。

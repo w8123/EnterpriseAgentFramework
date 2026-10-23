@@ -5,6 +5,8 @@
     <PageHeader
       variant="entity"
       domain="project"
+      presentation="plain"
+      action-presentation="inline"
       :title="project?.name || projectCode"
     >
       <template #leading>
@@ -23,7 +25,8 @@
       </template>
       <template #actions>
         <el-tooltip content="AI Coding 接入" placement="top">
-          <el-button
+          <LiquidGlassButton
+            source="wallpaper"
             circle
             :icon="Key"
             :disabled="!project?.id"
@@ -32,7 +35,8 @@
           />
         </el-tooltip>
         <el-tooltip content="刷新" placement="top">
-          <el-button
+          <LiquidGlassButton
+            source="wallpaper"
             circle
             :icon="Refresh"
             :loading="loading"
@@ -41,7 +45,8 @@
           />
         </el-tooltip>
         <el-tooltip content="编辑项目" placement="top">
-          <el-button
+          <LiquidGlassButton
+            source="wallpaper"
             circle
             :icon="EditPen"
             :disabled="!project?.id"
@@ -50,7 +55,8 @@
           />
         </el-tooltip>
         <el-tooltip content="删除项目" placement="top">
-          <el-button
+          <LiquidGlassButton
+            source="wallpaper"
             circle
             type="danger"
             :icon="Delete"
@@ -77,41 +83,33 @@
     />
 
     <template v-else>
-      <el-alert
+      <LiquidGlassNotice
         v-if="projectSection === 'overview' && projectDetailLoadError"
-        class="page-alert"
         type="warning"
-        show-icon
-        :closable="false"
         :title="projectDetailLoadError"
       />
 
-      <el-alert
+      <LiquidGlassNotice
         v-if="projectSection === 'overview' && pageCatalogLoadError"
-        class="page-alert"
         type="error"
-        show-icon
-        :closable="false"
         :title="pageCatalogLoadError"
       >
-        <el-button
-          link
-          type="primary"
-          :loading="loadingPageCatalog"
-          @click="loadPageCatalog"
-        >
-          重新加载页面目录
-        </el-button>
-      </el-alert>
+        <template #actions>
+          <LiquidGlassButton size="small" :loading="loadingPageCatalog" @click="loadPageCatalog">
+            重新加载页面目录
+          </LiquidGlassButton>
+        </template>
+      </LiquidGlassNotice>
 
-      <section v-if="projectSection === 'overview'" class="workbench-grid">
-        <el-card v-for="group in workbenchGroups" :key="group.title" class="detail-card workbench-card" shadow="never">
-          <template #header>
-            <div class="section-title">
-              <span class="title-mark" />
-              <span>{{ group.title }}</span>
-            </div>
-          </template>
+      <section v-if="projectSection === 'overview'" class="workbench-grid" aria-label="项目工作入口">
+        <LiquidGlassCard
+          v-for="group in workbenchGroups"
+          :key="group.title"
+          as="section"
+          source="wallpaper"
+          class="workbench-card"
+        >
+          <h2 class="section-title">{{ group.title }}</h2>
 
           <div class="task-list">
             <button
@@ -134,114 +132,102 @@
               <el-icon class="task-arrow"><ArrowRight /></el-icon>
             </button>
           </div>
-        </el-card>
+        </LiquidGlassCard>
       </section>
 
-      <el-card v-if="projectSection === 'overview'" class="detail-card instance-card workbench-list-surface" shadow="never">
-        <template #header>
-          <div class="table-header">
-            <div class="section-title">
-              <span class="title-mark" />
-              <span>实例心跳（{{ instances.length }}）</span>
-            </div>
-            <div class="header-actions">
-              <el-tooltip :content="`清理离线（${offlineInstanceCount}）`" placement="top">
-                <el-button
-                  circle
-                  :icon="Delete"
-                  :disabled="offlineInstanceCount === 0"
-                  :loading="purgingOffline"
-                  aria-label="清理离线实例"
-                  @click="purgeOfflineInstances"
-                />
-              </el-tooltip>
-              <el-tooltip content="刷新实例" placement="top">
-                <el-button circle :icon="Refresh" aria-label="刷新实例" @click="loadInstances" />
-              </el-tooltip>
-            </div>
+      <section v-if="projectSection === 'overview'" class="instance-section workbench-list-surface" aria-label="实例心跳">
+        <div class="section-head">
+          <h2 class="section-title">
+            实例心跳
+            <span class="section-count">{{ instances.length }}</span>
+          </h2>
+          <div class="header-actions">
+            <el-tooltip :content="`清理离线（${offlineInstanceCount}）`" placement="top">
+              <LiquidGlassButton
+                source="wallpaper"
+                circle
+                :icon="Delete"
+                :disabled="offlineInstanceCount === 0"
+                :loading="purgingOffline"
+                aria-label="清理离线实例"
+                @click="purgeOfflineInstances"
+              />
+            </el-tooltip>
+            <el-tooltip content="刷新实例" placement="top">
+              <LiquidGlassButton source="wallpaper" circle :icon="Refresh" aria-label="刷新实例" @click="loadInstances" />
+            </el-tooltip>
           </div>
-        </template>
-
-        <el-alert
-          v-if="instancesLoadError"
-          type="error"
-          show-icon
-          :closable="false"
-          :title="instancesLoadError"
-        >
-          <el-button
-            link
-            type="primary"
-            :loading="loadingInstances"
-            @click="loadInstances"
-          >
-            重新加载实例
-          </el-button>
-        </el-alert>
-
-        <el-table v-loading="loadingInstances" :data="instances" row-key="id" class="instance-table">
-          <el-table-column prop="instanceId" label="实例 ID" min-width="220" show-overflow-tooltip>
-            <template #default="{ row }">
-              <span class="instance-id">{{ row.instanceId }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column prop="status" label="状态" width="120">
-            <template #default="{ row }">
-              <span class="status-pill" :class="{ offline: row.status !== 'ONLINE', disabled: row.status === 'DISABLED' }">
-                <i />
-                {{ formatInstanceStatusLabel(row.status) }}
-              </span>
-            </template>
-          </el-table-column>
-          <el-table-column prop="host" label="主机" min-width="180">
-            <template #default="{ row }">{{ row.host || '-' }}</template>
-          </el-table-column>
-          <el-table-column prop="port" label="端口" width="100">
-            <template #default="{ row }">{{ row.port || '-' }}</template>
-          </el-table-column>
-          <el-table-column prop="appVersion" label="应用版本" width="130">
-            <template #default="{ row }">{{ row.appVersion || '-' }}</template>
-          </el-table-column>
-          <el-table-column prop="sdkVersion" label="SDK 版本" width="130">
-            <template #default="{ row }">{{ row.sdkVersion || '-' }}</template>
-          </el-table-column>
-          <el-table-column prop="lastHeartbeatAt" label="最近心跳" min-width="180">
-            <template #default="{ row }">{{ formatRelativeTime(row.lastHeartbeatAt) }}</template>
-          </el-table-column>
-          <el-table-column label="治理" width="130">
-            <template #default="{ row }">
-              <el-button
-                v-if="row.status === 'DISABLED'"
-                size="small"
-                @click="setInstanceStatus(row, 'OFFLINE')"
-              >
-                解除禁用
-              </el-button>
-              <el-button
-                v-else
-                size="small"
-                type="danger"
-                plain
-                @click="setInstanceStatus(row, 'DISABLED')"
-              >
-                禁用
-              </el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-
-        <div class="table-footer">
-          <span>共 {{ instances.length }} 条</span>
-          <el-pagination
-            class="registry-pagination"
-            background
-            layout="prev, pager, next, sizes"
-            :total="instances.length || 1"
-            :default-page-size="10"
-            :page-sizes="[5, 10, 20, 50]"
-          />
         </div>
-      </el-card>
+
+        <LiquidGlassNotice v-if="instancesLoadError" type="error" :title="instancesLoadError">
+          <template #actions>
+            <LiquidGlassButton size="small" :loading="loadingInstances" @click="loadInstances">
+              重新加载实例
+            </LiquidGlassButton>
+          </template>
+        </LiquidGlassNotice>
+
+        <LiquidGlassTable
+          v-model:current-page="instancePage"
+          v-model:page-size="instancePageSize"
+          :total="instances.length"
+          :page-sizes="[5, 10, 20, 50]"
+          :loading="loadingInstances"
+          pagination-label="实例分页"
+          class="instance-table-shell"
+        >
+          <el-table :data="pagedInstances" row-key="id" class="instance-table" empty-text="还没有实例上报心跳">
+            <el-table-column prop="instanceId" label="实例 ID" min-width="220" show-overflow-tooltip>
+              <template #default="{ row }">
+                <span class="instance-id">{{ row.instanceId }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="status" label="状态" width="120">
+              <template #default="{ row }">
+                <span class="status-pill" :class="{ offline: row.status !== 'ONLINE', disabled: row.status === 'DISABLED' }">
+                  <i />
+                  {{ formatInstanceStatusLabel(row.status) }}
+                </span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="host" label="主机" min-width="160">
+              <template #default="{ row }">{{ row.host || '-' }}</template>
+            </el-table-column>
+            <el-table-column prop="port" label="端口" width="90">
+              <template #default="{ row }">{{ row.port || '-' }}</template>
+            </el-table-column>
+            <el-table-column prop="appVersion" label="应用版本" width="110">
+              <template #default="{ row }">{{ row.appVersion || '-' }}</template>
+            </el-table-column>
+            <el-table-column prop="sdkVersion" label="SDK 版本" width="110">
+              <template #default="{ row }">{{ row.sdkVersion || '-' }}</template>
+            </el-table-column>
+            <el-table-column prop="lastHeartbeatAt" label="最近心跳" min-width="140">
+              <template #default="{ row }">{{ formatRelativeTime(row.lastHeartbeatAt) }}</template>
+            </el-table-column>
+            <el-table-column label="治理" width="110">
+              <template #default="{ row }">
+                <LiquidGlassButton
+                  v-if="row.status === 'DISABLED'"
+                  size="small"
+                  @click="setInstanceStatus(row, 'OFFLINE')"
+                >
+                  解除禁用
+                </LiquidGlassButton>
+                <LiquidGlassButton
+                  v-else
+                  size="small"
+                  type="danger"
+                  plain
+                  @click="setInstanceStatus(row, 'DISABLED')"
+                >
+                  禁用
+                </LiquidGlassButton>
+              </template>
+            </el-table-column>
+          </el-table>
+        </LiquidGlassTable>
+      </section>
 
       <ProjectBizIndexCard v-if="projectSection === 'overview'" :project-code="project?.projectCode || projectCode" />
     </template>
@@ -269,29 +255,25 @@
         </div>
       </section>
 
-      <el-tabs v-model="aiCodingDialogTab" class="ai-coding-dialog__tabs">
+      <LiquidGlassTabs v-model="aiCodingDialogTab" class="ai-coding-dialog__tabs">
         <el-tab-pane name="overview">
           <template #label>
             <span class="ai-coding-tab-label">接入概览</span>
           </template>
 
-          <el-alert
+          <LiquidGlassNotice
             v-if="aiCodingAccessLoadError"
             :title="aiCodingAccessLoadError"
             type="error"
-            show-icon
-            :closable="false"
+            source="backdrop"
             class="ai-coding-load-alert"
           >
-            <el-button
-              link
-              type="primary"
-              :loading="credentialPolicyLoading"
-              @click="reloadAiCodingSettings"
-            >
-              重新加载
-            </el-button>
-          </el-alert>
+            <template #actions>
+              <LiquidGlassButton size="small" :loading="credentialPolicyLoading" @click="reloadAiCodingSettings">
+                重新加载
+              </LiquidGlassButton>
+            </template>
+          </LiquidGlassNotice>
 
           <section
             class="ai-coding-access-card glass-surface-control"
@@ -461,23 +443,19 @@
               <template #icon><el-icon><Timer /></el-icon></template>
             </GlassSectionHeader>
 
-            <el-alert
+            <LiquidGlassNotice
               v-if="credentialPolicyLoadError"
               :title="credentialPolicyLoadError"
               type="error"
-              show-icon
-              :closable="false"
+              source="backdrop"
               class="ai-coding-load-alert"
             >
-              <el-button
-                link
-                type="primary"
-                :loading="credentialPolicyLoading"
-                @click="reloadAiCodingSettings"
-              >
-                重新加载
-              </el-button>
-            </el-alert>
+              <template #actions>
+                <LiquidGlassButton size="small" :loading="credentialPolicyLoading" @click="reloadAiCodingSettings">
+                  重新加载
+                </LiquidGlassButton>
+              </template>
+            </LiquidGlassNotice>
 
             <div class="ai-coding-credential-grid">
               <label>
@@ -530,22 +508,22 @@
             </div>
           </section>
         </el-tab-pane>
-      </el-tabs>
+      </LiquidGlassTabs>
 
       <template #hint>
         <el-icon><WarningFilled /></el-icon>
         <span>复制全部会包含当前启用的接入秘钥</span>
       </template>
       <template #footer>
-        <el-button @click="aiCodingDialogVisible = false">关闭</el-button>
-        <el-button
+        <LiquidGlassButton @click="aiCodingDialogVisible = false">关闭</LiquidGlassButton>
+        <LiquidGlassButton
           type="primary"
           :icon="DocumentCopy"
           :disabled="Boolean(aiCodingAccessLoadError)"
           @click="copyAiCodingBundle"
         >
           复制全部接入信息
-        </el-button>
+        </LiquidGlassButton>
       </template>
     </GlassDialog>
 
@@ -670,8 +648,8 @@
         </section>
       </el-form>
       <template #footer>
-        <el-button @click="editDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="editSaving" @click="saveEditProject">保存</el-button>
+        <LiquidGlassButton @click="editDialogVisible = false">取消</LiquidGlassButton>
+        <LiquidGlassButton type="primary" :loading="editSaving" @click="saveEditProject">保存</LiquidGlassButton>
       </template>
     </GlassDialog>
 
@@ -682,7 +660,7 @@
 import GlassDialog from '@/components/common/GlassDialog.vue'
 import GlassInfoItem from '@/components/common/GlassInfoItem.vue'
 import GlassSectionHeader from '@/components/common/GlassSectionHeader.vue'
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import {
   ArrowRight,
   Box,
@@ -707,6 +685,13 @@ import { formatInstanceStatusLabel } from '@/utils/registryLabels'
 import { formatRelativeTime } from '@/utils/relativeTime'
 import AppPageBackground from '@/components/common/AppPageBackground.vue'
 import {
+  LiquidGlassButton,
+  LiquidGlassCard,
+  LiquidGlassNotice,
+  LiquidGlassTable,
+  LiquidGlassTabs,
+} from '@/components/common/liquid-glass'
+import {
   formatProjectKindLabel,
   formatVisibilityLabel,
   PROJECT_KIND_SELECT_OPTIONS,
@@ -728,6 +713,8 @@ const { theme } = useTheme()
 const projectKindOptions = PROJECT_KIND_SELECT_OPTIONS
 const visibilityOptions = VISIBILITY_SELECT_OPTIONS
 const aiCodingDialogTab = ref<'overview' | 'endpoints' | 'credentials'>('overview')
+const instancePage = ref(1)
+const instancePageSize = ref(10)
 
 let loadAiCodingAccessFn: (projectId: number) => Promise<void> = async () => {}
 
@@ -795,6 +782,17 @@ function reloadAiCodingSettings() {
     void loadAiCodingAccess(project.value.id)
   }
 }
+
+const pagedInstances = computed(() => {
+  const start = (instancePage.value - 1) * instancePageSize.value
+  return instances.value.slice(start, start + instancePageSize.value)
+})
+
+// 清理离线实例后当前页可能已不存在，回到最后一页。
+watch(() => instances.value.length, (total) => {
+  const lastPage = Math.max(1, Math.ceil(total / instancePageSize.value))
+  if (instancePage.value > lastPage) instancePage.value = lastPage
+})
 
 const aiCodingProjectInfoRows = computed(() => aiCodingInfoRows.value.slice(0, 5))
 const aiCodingEndpointRows = computed(() => aiCodingInfoRows.value.slice(6))

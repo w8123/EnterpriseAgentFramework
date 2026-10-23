@@ -1,5 +1,6 @@
 import { mount } from '@vue/test-utils'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { nextTick } from 'vue'
 import type { DashboardWidgetInstance } from '@/types/operationsDashboard'
 import DashboardGrid from './components/DashboardGrid.vue'
 import DashboardUsageTrend from './components/DashboardUsageTrend.vue'
@@ -44,6 +45,43 @@ describe('DashboardGrid pointer 交互', () => {
 
   afterEach(() => {
     wrappers.splice(0).forEach((wrapper) => wrapper.unmount())
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  it('工具条换行会让下方卡片避让，内容缩回后恢复间距，不改写布局矩形', async () => {
+    const callbacks = new Map<Element, ResizeObserverCallback>()
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(private callback: ResizeObserverCallback) {}
+      observe(element: Element) { callbacks.set(element, this.callback) }
+      disconnect() {}
+    })
+    const shortcut = { ...makeItem({ x: 0, y: 0, w: 12, h: 1 }), instanceId: 'nav', widgetKey: 'navigation.shortcuts' }
+    const metric = makeItem({ x: 0, y: 1, w: 2, h: 2 })
+    const wrapper = mount(DashboardGrid, {
+      props: { items: [shortcut, metric] }, attachTo: document.body,
+      slots: { default: `<template #default="{ instance }"><section><header v-if="instance.instanceId === 'nav'" :data-grid-intrinsic-height="instance.instanceId">入口</header></section></template>` },
+    })
+    wrappers.push(wrapper)
+    const header = wrapper.get('[data-grid-intrinsic-height]').element as HTMLElement
+    const measurement = vi.spyOn(header, 'getBoundingClientRect')
+    const notify = async (height: number) => {
+      const rect = new DOMRect(0, 0, 0, height)
+      measurement.mockReturnValue(rect)
+      callbacks.get(header)!([{
+        target: header, contentRect: rect, borderBoxSize: [], contentBoxSize: [], devicePixelContentBoxSize: [],
+      }], { observe() {}, unobserve() {}, disconnect() {} })
+      await nextTick()
+    }
+    await notify(115)
+    const items = wrapper.findAll('.dash-grid__item')
+    expect((items[0].element as HTMLElement).style.height).toBe('115px')
+    expect((items[1].element as HTMLElement).style.top).toBe('127px')
+    await notify(55)
+    expect((items[0].element as HTMLElement).style.height).toBe('57px')
+    expect((items[1].element as HTMLElement).style.top).toBe('69px')
+    expect(shortcut.rect.h).toBe(1)
+    expect(metric.rect.y).toBe(1)
   })
 
   it('pointerup 提交拖拽候选矩形', () => {

@@ -2,7 +2,7 @@
   <div class="sdk-access-page project-workbench-page workbench-page--list" :class="theme === 'dark' ? 'is-dark-skin' : 'is-light-skin'">
     <AppPageBackground local />
     <span class="page-ambient-center" aria-hidden="true" />
-    <PageHeader variant="workbench" domain="project" title="项目接入工作台">
+    <PageHeader variant="workbench" domain="project" presentation="plain" title="项目接入工作台" description="完成 SDK 接入配置，检查注册与同步状态。">
       <template #meta>
         <span>{{ project?.name || projectCode }} · {{ project?.projectCode || projectCode }} · SDK 接入</span>
       </template>
@@ -16,12 +16,10 @@
       </template>
     </PageHeader>
 
-    <el-alert
+    <LiquidGlassNotice
       v-if="project && !isSdkBackedProject"
       class="page-alert"
       type="warning"
-      show-icon
-      :closable="false"
       title="当前项目不是 SDK 接入项目"
       description="项目接入工作台仅适用于 SDK 接入或混合接入项目；扫描方式项目请继续使用 API 目录和扫描项目工作台。"
     />
@@ -96,10 +94,10 @@
                 :code="javaSdkInstallSnippet"
                 @copy="copyText"
               />
-              <el-alert
+              <LiquidGlassNotice
                 v-else
                 type="warning"
-                :closable="false"
+                source="backdrop"
                 title="平台尚未返回 Java SDK 制品链接"
                 description="请刷新项目接入信息；不要猜测 /maven、/repository 等下载地址。"
               />
@@ -208,12 +206,11 @@
               </div>
               <el-button type="primary" :loading="checking" @click="runCheck">发起自检</el-button>
             </div>
-            <el-alert
+            <LiquidGlassNotice
               title="自检范围：项目配置、实例心跳与 SDK 签名回调"
               description="真实浏览器 Embed 会话由 AI Coding 任务的“浏览器 Embed 闭环”单独验收，不会由本自检代替。"
               type="info"
-              :closable="false"
-              show-icon
+              source="backdrop"
             />
 
             <div v-if="checkResult" class="check-result">
@@ -316,23 +313,19 @@
 
         <section class="ai-coding-main">
           <span class="panel-glass-highlight" aria-hidden="true" />
-          <el-alert
+          <LiquidGlassNotice
             v-if="aiTaskLoadError"
             class="page-alert"
             type="error"
-            show-icon
-            :closable="false"
+            source="backdrop"
             :title="aiTaskLoadError"
           >
-            <el-button
-              link
-              type="primary"
-              :loading="aiOnboardingPromptLoading"
-              @click="retryOnboardingTaskLoad"
-            >
-              重新加载任务状态
-            </el-button>
-          </el-alert>
+            <template #actions>
+              <LiquidGlassButton size="small" :loading="aiOnboardingPromptLoading" @click="retryOnboardingTaskLoad">
+                重新加载任务状态
+              </LiquidGlassButton>
+            </template>
+          </LiquidGlassNotice>
           <div class="panel-head">
             <div>
               <h2>将接入任务交给AI 编程工具</h2>
@@ -475,11 +468,10 @@
       class="ai-onboarding-dialog"
       destroy-on-close
     >
-      <el-alert
+      <LiquidGlassNotice
         class="ai-onboarding-alert"
         type="info"
-        show-icon
-        :closable="false"
+        source="backdrop"
         title="复制交接包到所选 AI 编程工具，让 AI 在业务系统代码仓库里完成 SDK 接入。"
         description="提示词不会包含 App Secret；AI 只会被要求使用本机环境变量或密钥管理器。"
       />
@@ -505,8 +497,8 @@
         readonly
       />
       <template #footer>
-        <el-button @click="aiPromptDialogVisible = false">关闭</el-button>
-        <el-button
+        <LiquidGlassButton @click="aiPromptDialogVisible = false">关闭</LiquidGlassButton>
+        <LiquidGlassButton
           type="primary"
           :icon="DocumentCopy"
           :loading="aiOnboardingPromptLoading"
@@ -518,7 +510,7 @@
           "
         >
           {{ aiOnboardingPromptReady ? '复制交接包' : '生成交接包' }}
-        </el-button>
+        </LiquidGlassButton>
       </template>
     </AppDialog>
 
@@ -574,6 +566,7 @@ import {
 import { useTheme } from '@/composables/useTheme'
 import AppPageBackground from '@/components/common/AppPageBackground.vue'
 import CodeSnippetBlock from '@/components/common/CodeSnippetBlock.vue'
+import { LiquidGlassButton, LiquidGlassNotice } from '@/components/common/liquid-glass'
 import HeaderModeSwitch, { type HeaderModeOption } from '@/components/common/HeaderModeSwitch.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import ProjectRouteMissingState from '@/views/registry/components/ProjectRouteMissingState.vue'
