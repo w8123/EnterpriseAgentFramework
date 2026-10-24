@@ -191,7 +191,7 @@ async function exitPlatform() {
   padding: 52px 46px 44px;
   background:
     radial-gradient(circle at 100% 0%, rgb(var(--brand-primary-rgb) / 0.08), transparent 34%),
-    var(--surface-glass-overlay);
+    var(--surface-glass-inset);
 }
 
 .exploration-pill {

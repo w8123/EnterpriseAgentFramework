@@ -53,7 +53,7 @@
             :disabled="loading"
             :offset="10"
             :popper-options="{ modifiers: [{ name: 'preventOverflow', options: { padding: 12 } }] }"
-            popper-class="ai-edit-model-popover"
+            popper-class="ai-edit-model-popover app-frosted-overlay"
           >
             <template #default>
               <el-button
@@ -642,11 +642,6 @@ function selectModel(id: string) {
   max-width: calc(100vw - 24px);
   padding: 0;
   overflow: hidden;
-  border: 1px solid var(--border-readable);
-  border-radius: 14px;
-  background: var(--surface-solid-overlay);
-  box-shadow: var(--shadow-overlay);
-  backdrop-filter: blur(var(--glass-blur-overlay));
 }
 
 .ai-edit-model-panel {

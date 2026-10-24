@@ -14,6 +14,10 @@ import {
   suspendMcpPublication,
 } from '@/api/mcp'
 import type { McpPublication, McpPublicationState } from '@/types/mcp'
+import { usePlatformCan } from '@/auth/usePlatformCan'
+import { PLATFORM_PERMISSION_MCP_PUBLICATION_MANAGE } from '@/auth/platformAccess'
+const { can } = usePlatformCan()
+const canManage = computed(() => can(PLATFORM_PERMISSION_MCP_PUBLICATION_MANAGE))
 
 const NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_-]{1,127}$/
 
@@ -187,7 +191,7 @@ onMounted(reload)
       </div>
       <div class="section-actions">
         <LiquidGlassButton source="wallpaper" :icon="Refresh" :loading="loading" @click="reload">刷新</LiquidGlassButton>
-        <LiquidGlassButton source="wallpaper" type="primary" :icon="Plus" @click="openCreate">新建发布</LiquidGlassButton>
+        <LiquidGlassButton v-if="canManage" source="wallpaper" type="primary" :icon="Plus" @click="openCreate">新建发布</LiquidGlassButton>
       </div>
     </div>
 
@@ -241,10 +245,10 @@ onMounted(reload)
         <el-table-column label="操作" width="240" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click.stop="openDetail(row)">详情</el-button>
-            <el-button v-if="row.state === 'DRAFT'" link type="success" @click.stop="publishFlow(row)">发布</el-button>
-            <el-button v-if="row.state === 'PUBLISHED'" link type="warning" @click.stop="runStateAction('suspend', row)">暂停</el-button>
-            <el-button v-if="row.state === 'SUSPENDED'" link type="success" @click.stop="runStateAction('resume', row)">恢复</el-button>
-            <el-button v-if="row.state !== 'ARCHIVED'" link type="danger" @click.stop="runStateAction('archive', row)">归档</el-button>
+            <el-button v-if="canManage && row.state === 'DRAFT'" link type="success" @click.stop="publishFlow(row)">发布</el-button>
+            <el-button v-if="canManage && row.state === 'PUBLISHED'" link type="warning" @click.stop="runStateAction('suspend', row)">暂停</el-button>
+            <el-button v-if="canManage && row.state === 'SUSPENDED'" link type="success" @click.stop="runStateAction('resume', row)">恢复</el-button>
+            <el-button v-if="canManage && row.state !== 'ARCHIVED'" link type="danger" @click.stop="runStateAction('archive', row)">归档</el-button>
           </template>
         </el-table-column>
       </el-table>

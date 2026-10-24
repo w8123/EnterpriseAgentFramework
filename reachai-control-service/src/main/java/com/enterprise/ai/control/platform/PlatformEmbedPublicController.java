@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.enterprise.ai.common.dto.ApiResult;
 import com.enterprise.ai.control.client.capability.CapabilityProxyClient;
 import com.enterprise.ai.control.client.runtime.RuntimeProxyClient;
+import com.enterprise.ai.control.identity.BusinessUserSyncService;
 import com.enterprise.ai.control.runtime.RuntimeTrustedAgentExecutionGateway;
 import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
@@ -12,7 +13,9 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.CacheControl;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -34,6 +37,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/embed")
 @RequiredArgsConstructor
@@ -48,6 +52,13 @@ public class PlatformEmbedPublicController {
     private final PlatformEmbedStreamRelay embedStreamRelay;
     private final PlatformPageActionEventMapper pageActionEventMapper;
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private BusinessUserSyncService businessUserSyncService;
+
+    /** Optional so embed keeps working where the user directory is not wired (tests, slim setups). */
+    @Autowired(required = false)
+    void setBusinessUserSyncService(BusinessUserSyncService businessUserSyncService) {
+        this.businessUserSyncService = businessUserSyncService;
+    }
 
     @PostMapping("/token/exchange")
     public ResponseEntity<ApiResult<EmbedTokenExchangeResponse>> exchangeToken(
@@ -93,6 +104,7 @@ public class PlatformEmbedPublicController {
                             principal.roles() == null ? List.of() : principal.roles(),
                             principal.attributes() == null ? Map.of() : principal.attributes()))
                     .build());
+            syncBusinessUser(request.projectCode(), principal);
             Map<String, String> sessionHint = new LinkedHashMap<>();
             sessionHint.put("appId", request.projectCode());
             sessionHint.put("agentId", request.agentId());
@@ -105,6 +117,23 @@ public class PlatformEmbedPublicController {
         } catch (PlatformEmbedTokenException | IllegalArgumentException ex) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .body(ApiResult.fail(403, ex.getMessage()));
+        }
+    }
+
+    /**
+     * The business system just attested this user, so keep the ReachAI user directory current
+     * (created when first seen, roles refreshed). Best effort: embed chat must not fail on it.
+     */
+    private void syncBusinessUser(String projectCode, BusinessPrincipal principal) {
+        if (businessUserSyncService == null) {
+            return;
+        }
+        try {
+            businessUserSyncService.sync(new BusinessUserSyncService.AttestedBusinessUser(
+                    "default", projectCode, principal.externalUserId(), principal.globalUserId(),
+                    principal.userName(), principal.roles()));
+        } catch (RuntimeException syncFailure) {
+            log.warn("business user sync skipped for project {}: {}", projectCode, syncFailure.getMessage());
         }
     }
 

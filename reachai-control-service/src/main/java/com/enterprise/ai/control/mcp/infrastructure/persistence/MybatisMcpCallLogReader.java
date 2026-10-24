@@ -18,7 +18,7 @@ public class MybatisMcpCallLogReader implements McpCallLogReader {
     }
 
     @Override
-    public Page page(String direction, Long publicationId, Long clientId, String method,
+    public Page page(String direction, Long publicationId, Long clientId, Long connectionId, String method,
                      String toolName, Boolean success, String errorCategory, Integer days,
                      int limit, int offset) {
         var query = Wrappers.<McpCallLogEntity>lambdaQuery()
@@ -26,6 +26,7 @@ public class MybatisMcpCallLogReader implements McpCallLogReader {
                         StringUtils.hasText(direction) ? direction.trim().toUpperCase() : null)
                 .eq(publicationId != null, McpCallLogEntity::getPublicationId, publicationId)
                 .eq(clientId != null, McpCallLogEntity::getClientId, clientId)
+                .eq(connectionId != null, McpCallLogEntity::getConnectionId, connectionId)
                 .eq(StringUtils.hasText(method), McpCallLogEntity::getMethod, trim(method))
                 .eq(StringUtils.hasText(toolName), McpCallLogEntity::getToolName, trim(toolName))
                 .eq(success != null, McpCallLogEntity::getSuccess, success)
@@ -69,7 +70,10 @@ public class MybatisMcpCallLogReader implements McpCallLogReader {
                 entity.getTraceId(),
                 entity.getRunId(),
                 entity.getRemoteIp(),
-                entity.getCreatedAt());
+                entity.getCreatedAt(),
+                entity.getConnectionId(),
+                entity.getExternalUserId(),
+                entity.getToolClientName());
     }
 
     private String trim(String value) {

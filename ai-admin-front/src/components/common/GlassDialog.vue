@@ -79,12 +79,6 @@ const emit = defineEmits<{
 .glass-composed-dialog.app-dialog.el-dialog {
   padding: 0;
   overflow: hidden;
-  border: 1px solid var(--border-glass-edge);
-  border-radius: var(--radius-xl);
-  background: var(--glass-droplet-highlight), var(--surface-glass-overlay);
-  box-shadow: var(--shadow-overlay), var(--glass-rim-double);
-  -webkit-backdrop-filter: blur(var(--glass-blur-overlay)) saturate(var(--glass-saturation));
-  backdrop-filter: blur(var(--glass-blur-overlay)) saturate(var(--glass-saturation));
 }
 
 .glass-composed-dialog.app-dialog.el-dialog .el-dialog__header {
@@ -389,19 +383,6 @@ const emit = defineEmits<{
 .glass-dialog-form .el-input.is-disabled .el-input__inner {
   color: var(--text-muted);
   -webkit-text-fill-color: var(--text-muted);
-}
-
-[data-reduce-transparency="true"] .glass-composed-dialog.app-dialog.el-dialog {
-  background: var(--surface-fallback-overlay);
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-}
-
-@media (prefers-reduced-transparency: reduce) {
-  .glass-composed-dialog.app-dialog.el-dialog {
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
 }
 
 @media (max-width: 760px) {

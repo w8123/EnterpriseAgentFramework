@@ -1,3 +1,60 @@
+.app-dialog.el-dialog,
+.app-drawer.el-drawer,
+.el-message-box,
+.app-frosted-overlay,
+.app-frosted-overlay.el-popper.is-light {
+  --glass-tint: var(--surface-glass-modal);
+  --glass-blur-overlay: 40px;
+  // 大面积透镜必须先模糊正文背后的页面，避免透出重叠文字。
+  --glass-blur-refract: var(--glass-blur-overlay);
+  --app-overlay-gap: clamp(8px, 1vw, 16px);
+  --app-overlay-padding: clamp(16px, 2vw, 24px);
+  isolation: isolate;
+  color: var(--text-primary);
+  border: 1px solid var(--border-glass-edge);
+  background: var(--surface-glass-modal);
+  box-shadow: var(--shadow-overlay), var(--glass-rim-double);
+  -webkit-backdrop-filter: blur(var(--glass-blur-overlay)) saturate(var(--glass-saturation));
+  backdrop-filter: blur(var(--glass-blur-overlay)) saturate(var(--glass-saturation));
+}
+
+.app-dialog.el-dialog.is-liquid-refracting,
+.app-drawer.el-drawer.is-liquid-refracting,
+.app-frosted-overlay.is-liquid-refracting {
+  background: transparent;
+}
+
+.app-dialog.el-dialog > .liquid-glass-specular,
+.app-drawer.el-drawer > .liquid-glass-specular,
+.app-frosted-overlay > .liquid-glass-specular {
+  opacity: 0.5;
+}
+
+.app-frosted-overlay,
+.app-frosted-overlay.el-popper.is-light,
+.el-message-box {
+  border-radius: var(--radius-xl);
+}
+
+.app-frosted-overlay {
+  position: relative;
+  overflow: hidden;
+}
+
+.el-message-box {
+  --el-messagebox-border-radius: var(--radius-xl);
+  --el-messagebox-title-color: var(--text-primary);
+  --el-messagebox-content-color: var(--text-secondary);
+  max-inline-size: min(var(--el-messagebox-width, 420px), calc(100vw - 32px));
+  padding: var(--app-overlay-padding);
+}
+
+.el-message-box .el-message-box__message { line-height: 1.65; }
+.el-message-box .el-message-box__btns .el-button {
+  min-height: var(--control-height);
+  border-radius: var(--radius-pill);
+}
+
 .app-dialog.el-dialog {
   position: relative;
   display: flex;
@@ -5,15 +62,17 @@
   max-block-size: calc(100vh - clamp(24px, 10vh, 96px));
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid var(--border-glass-edge);
+  padding: 0;
   border-radius: var(--radius-xl);
-  // 顶部高光与双层亮边，让弹层像一整块厚玻璃。
-  background: var(--glass-droplet-highlight), var(--surface-glass-overlay);
-  box-shadow: var(--shadow-overlay), var(--glass-rim-double);
-  -webkit-backdrop-filter: blur(var(--glass-blur-overlay)) saturate(var(--glass-saturation));
-  backdrop-filter: blur(var(--glass-blur-overlay)) saturate(var(--glass-saturation));
   margin-block-start: clamp(12px, 5vh, 48px) !important;
   margin-block-end: 12px;
+}
+
+.app-dialog.el-dialog .app-dialog__divider,
+.app-drawer.el-drawer .app-drawer__divider {
+  // 保留语义分隔，以留白区分说明与内容，避免头部出现两道横线。
+  margin: 0 0 var(--section-gap);
+  border: 0;
 }
 
 // Keep Element Plus align-center dialogs centered instead of applying the
@@ -25,7 +84,8 @@
 .app-dialog.el-dialog .el-dialog__header {
   flex: 0 0 auto;
   margin: 0;
-  padding: var(--panel-padding);
+  padding: var(--app-overlay-padding);
+  padding-inline-end: calc(var(--app-overlay-padding) + 40px);
   border-block-end: 1px solid var(--border-divider);
   background: transparent;
 }
@@ -38,8 +98,8 @@
 }
 
 .app-dialog.el-dialog .el-dialog__headerbtn {
-  inset-block-start: calc(var(--panel-padding) - 2px);
-  inset-inline-end: var(--panel-padding);
+  inset-block-start: calc(var(--app-overlay-padding) - 4px);
+  inset-inline-end: var(--app-overlay-padding);
 }
 
 .app-dialog.el-dialog .el-dialog__body {
@@ -48,11 +108,10 @@
   max-block-size: min(70vh, 44rem);
   overflow: auto;
   overscroll-behavior: contain;
-  padding: var(--panel-padding);
+  padding: var(--app-overlay-padding);
   color: var(--text-secondary);
   // 正文直接落在弹层的磨砂玻璃上；表单控件与分组卡片各自带玻璃底，阅读对比由弹层白纱保证。
   background: transparent;
-  border-radius: var(--radius-md);
 }
 
 // Element Plus locks document.body when a dialog opens. The workbench itself
@@ -75,9 +134,9 @@ body.el-popup-parent--hidden .sidebar-aside {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: calc(var(--section-gap) / 2);
-  padding: var(--panel-padding);
+  padding: 16px var(--app-overlay-padding);
   border-block-start: 1px solid var(--border-divider);
-  background: transparent;
+  background: var(--surface-glass-inset);
 }
 
 .app-dialog.el-dialog .el-dialog__footer .el-button,
@@ -92,21 +151,31 @@ body.el-popup-parent--hidden .sidebar-aside {
   min-width: 0;
   flex-direction: column;
   overflow: hidden;
-  background: var(--glass-droplet-highlight), var(--surface-glass-overlay);
-  box-shadow: var(--shadow-overlay), var(--glass-rim-double);
-  -webkit-backdrop-filter: blur(var(--glass-blur-overlay)) saturate(var(--glass-saturation));
-  backdrop-filter: blur(var(--glass-blur-overlay)) saturate(var(--glass-saturation));
+  max-inline-size: calc(100vw - 2 * var(--app-overlay-gap));
+  max-block-size: calc(100dvh - 2 * var(--app-overlay-gap));
 }
 
-.app-drawer.el-drawer.rtl { border-radius: var(--radius-lg) 0 0 var(--radius-lg); }
-.app-drawer.el-drawer.ltr { border-radius: 0 var(--radius-lg) var(--radius-lg) 0; }
-.app-drawer.el-drawer.ttb { border-radius: 0 0 var(--radius-lg) var(--radius-lg); }
-.app-drawer.el-drawer.btt { border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
+.app-drawer.el-drawer.rtl,
+.app-drawer.el-drawer.ltr {
+  inset-block: var(--app-overlay-gap);
+  height: auto;
+  border-radius: var(--radius-xl);
+}
+.app-drawer.el-drawer.rtl { right: var(--app-overlay-gap); }
+.app-drawer.el-drawer.ltr { left: var(--app-overlay-gap); }
+.app-drawer.el-drawer.ttb,
+.app-drawer.el-drawer.btt {
+  inset-inline: var(--app-overlay-gap);
+  width: auto;
+  border-radius: var(--radius-xl);
+}
+.app-drawer.el-drawer.ttb { top: var(--app-overlay-gap); }
+.app-drawer.el-drawer.btt { bottom: var(--app-overlay-gap); }
 
 .app-drawer.el-drawer .el-drawer__header {
   flex: 0 0 auto;
   margin: 0;
-  padding: var(--panel-padding);
+  padding: var(--app-overlay-padding);
   border-block-end: 1px solid var(--border-divider);
   background: transparent;
 }
@@ -115,9 +184,101 @@ body.el-popup-parent--hidden .sidebar-aside {
   min-height: 0;
   flex: 1 1 auto;
   overflow: auto;
-  padding: var(--panel-padding);
+  padding: var(--app-overlay-padding);
   color: var(--text-secondary);
   background: transparent;
+  overscroll-behavior: contain;
+}
+
+.app-dialog.el-dialog .el-dialog__headerbtn,
+.app-drawer.el-drawer .el-drawer__close-btn {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--border-glass-edge);
+  border-radius: var(--radius-pill);
+  background: var(--surface-glass-inset);
+  box-shadow: var(--inner-highlight);
+  color: var(--text-secondary);
+  transition: background var(--motion-duration-fast), color var(--motion-duration-fast);
+
+  &:hover { color: var(--brand-on-surface); background: var(--surface-glass-control); }
+}
+
+.app-dialog.el-dialog .el-dialog__headerbtn:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+// 普通业务表单也继承公共玻璃控件皮肤；已接入透镜组件的控件保留自身材质。
+:where(.app-dialog, .app-drawer, .el-message-box) {
+  :where(.el-input__wrapper, .el-select__wrapper):not(.liquid-glass-control *) {
+    min-height: var(--control-height);
+    border-radius: var(--radius-md);
+    background: var(--surface-glass-control);
+    box-shadow: 0 0 0 1px var(--border-readable) inset, var(--inner-highlight);
+
+    &:hover { box-shadow: 0 0 0 1px var(--border-focus) inset, var(--inner-highlight); }
+    &.is-focus, &.is-focused { box-shadow: 0 0 0 1px var(--border-focus) inset, var(--focus-ring); }
+  }
+
+  .el-input.is-disabled .el-input__wrapper,
+  .el-select__wrapper.is-disabled {
+    background: var(--surface-solid-disabled);
+    box-shadow: 0 0 0 1px var(--border-subtle) inset;
+  }
+
+  .el-textarea__inner {
+    border-radius: var(--radius-md);
+    background: var(--surface-solid-control);
+  }
+}
+
+.app-overlay-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 20px;
+
+  > .el-form-item { min-width: 0; }
+  > .app-overlay-form-grid__full { grid-column: 1 / -1; }
+  .el-select { width: 100%; }
+}
+
+.app-overlay-section {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--border-glass-edge);
+  border-radius: var(--radius-lg);
+  background: var(--surface-glass-inset);
+  box-shadow: var(--glass-rim-double);
+}
+
+@media (max-width: 600px) {
+  .app-dialog.el-dialog {
+    max-inline-size: calc(100vw - 16px);
+    max-block-size: calc(100dvh - 16px);
+    margin-block: 8px !important;
+  }
+
+  .app-dialog.el-dialog .el-dialog__body { max-block-size: none; }
+  .app-dialog.el-dialog:not(.is-fullscreen) { width: calc(100vw - 16px) !important; }
+  .app-drawer.el-drawer.rtl,
+  .app-drawer.el-drawer.ltr { width: calc(100vw - 16px) !important; }
+  .app-overlay-form-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+.app-dialog.el-dialog.is-fullscreen {
+  max-inline-size: none;
+  max-block-size: none;
+  margin: 0 !important;
+  border-radius: 0;
+}
+
+.app-dialog.el-dialog.is-fullscreen .el-dialog__body {
+  max-block-size: none;
 }
 
 .el-overlay {
@@ -128,10 +289,20 @@ body.el-popup-parent--hidden .sidebar-aside {
 
 [data-reduce-transparency='true'] {
   .app-dialog.el-dialog,
-  .app-drawer.el-drawer {
+  .app-drawer.el-drawer,
+  .el-message-box,
+  .app-frosted-overlay,
+  .app-frosted-overlay.el-popper.is-light {
     background: var(--surface-fallback-overlay);
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
+  }
+
+  :where(.app-dialog, .app-drawer, .el-message-box, .app-frosted-overlay) {
+    .app-overlay-section { background: var(--surface-fallback-panel); }
+    :where(.el-input__wrapper, .el-select__wrapper, .el-textarea__inner):not(.liquid-glass-control *) {
+      background: var(--surface-fallback-control);
+    }
   }
 }
 
@@ -141,7 +312,38 @@ body.el-popup-parent--hidden .sidebar-aside {
 }
 
 @media (prefers-reduced-transparency: reduce) {
+  .app-dialog.el-dialog,
+  .app-drawer.el-drawer,
+  .el-message-box,
+  .app-frosted-overlay,
+  .app-frosted-overlay.el-popper.is-light {
+    background: var(--surface-fallback-overlay);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  :where(.app-dialog, .app-drawer, .el-message-box, .app-frosted-overlay) {
+    .app-overlay-section { background: var(--surface-fallback-panel); }
+    :where(.el-input__wrapper, .el-select__wrapper, .el-textarea__inner):not(.liquid-glass-control *) {
+      background: var(--surface-fallback-control);
+    }
+  }
   .el-overlay {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .app-dialog.el-dialog,
+  .app-drawer.el-drawer,
+  .el-message-box,
+  .app-frosted-overlay,
+  .app-frosted-overlay.el-popper.is-light {
+    color: CanvasText;
+    border-color: CanvasText;
+    background: Canvas;
+    box-shadow: none;
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }

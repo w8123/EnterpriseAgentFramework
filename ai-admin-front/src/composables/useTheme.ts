@@ -15,8 +15,9 @@ export type BrandTheme =
 const brandOptions: Array<{ value: BrandTheme; label: string }> = [
   { value: 'tech-purple', label: '科技紫' },
   { value: 'aurora-cyan', label: '极光青' },
-  { value: 'nebula-violet', label: '星云紫' },
-  { value: 'coral-rose', label: '珊瑚玫' },
+  // 保留已保存的品牌标识；展示名称与配色同步更新。
+  { value: 'nebula-violet', label: '云雾银' },
+  { value: 'coral-rose', label: '暖珊瑚' },
   { value: 'metro-green', label: '翡翠绿' },
   { value: 'solar-gold', label: '日冕金' },
   { value: 'deep-ocean', label: '深海蓝' },

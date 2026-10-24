@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import LiquidGlassLayer from '@/components/common/LiquidGlassLayer.vue'
 import type { DashboardWidgetConfig, DashboardWidgetInstance } from '@/types/operationsDashboard'
 import { getWidgetDefinition } from '../widgetRegistry'
 import { SHORTCUT_WIDGET_KEY } from '../dashboardShortcuts'
@@ -87,13 +88,14 @@ function apply() {
     <div v-if="instance" class="dash-settings__overlay" @pointerdown.self="emit('close')">
       <aside
         ref="dialogRef"
-        class="dash-settings"
+        class="dash-settings app-frosted-overlay liquid-glass-host"
         :class="{ 'dash-settings--shortcuts': isShortcuts }"
         role="dialog"
         aria-modal="true"
         :aria-label="isShortcuts ? '自定义快捷入口' : '组件设置'"
         data-testid="widget-settings"
       >
+        <LiquidGlassLayer host-selector=".app-frosted-overlay" />
         <header class="dash-settings__header">
           <div><span v-if="isShortcuts" class="dash-settings__eyebrow">我的工作台</span><h3>{{ isShortcuts ? '自定义快捷入口' : '组件设置' }}</h3></div>
           <button type="button" class="dash-settings__close" aria-label="关闭设置" @click="emit('close')">✕</button>
@@ -149,16 +151,12 @@ function apply() {
 
 .dash-settings {
   width: min(360px, 92vw);
-  background: var(--ops-overlay-surface);
-  border: 1px solid var(--ops-border-strong);
-  border-radius: 10px;
-  box-shadow: var(--ops-overlay-shadow);
   max-height: calc(100dvh - 48px);
   display: flex;
   flex-direction: column;
 }
 
-.dash-settings--shortcuts { width: min(580px, calc(100vw - 32px)); border-radius: 14px; }
+.dash-settings--shortcuts { width: min(580px, calc(100vw - 32px)); }
 .dash-settings__eyebrow { display: block; margin-bottom: 3px; color: var(--ops-text-secondary); font-size: 11px; }
 .dash-settings__error { margin: 0; color: var(--ops-danger); font-size: 12px; }
 

@@ -29,7 +29,7 @@ const PLATFORM_ROLE_LABELS: Record<string, string> = {
   PLATFORM_ADMIN: '平台管理员',
   DEVELOPER: '开发人员',
   OPERATOR: '运营人员',
-  AUDITOR: '审计员',
+  MANAGER: '管理人员',
 }
 
 /** 平台用户常见英文显示名 → 中文 */

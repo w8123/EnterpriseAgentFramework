@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import LiquidGlassLayer from '@/components/common/LiquidGlassLayer.vue'
 import { Connection, Grid, Lock, Share } from '@element-plus/icons-vue'
 import type {
   DashboardWidgetDefinition,
@@ -100,12 +101,13 @@ function presetIcon(preset?: DashboardWidgetConfig['shortcutPreset']) {
       @pointerdown.self="emit('close')"
     >
       <aside
-        class="dash-catalog"
+        class="dash-catalog app-frosted-overlay liquid-glass-host"
         role="dialog"
         aria-modal="true"
         aria-label="看板组件目录"
         data-testid="widget-catalog"
       >
+        <LiquidGlassLayer host-selector=".app-frosted-overlay" />
         <header class="dash-catalog__header">
           <div>
             <h3>看板组件目录</h3>
@@ -158,6 +160,7 @@ function presetIcon(preset?: DashboardWidgetConfig['shortcutPreset']) {
   inset: 0;
   display: flex;
   justify-content: flex-end;
+  padding: var(--layout-sidebar-inset-block);
   background: var(--ops-overlay-backdrop);
 }
 
@@ -166,9 +169,6 @@ function presetIcon(preset?: DashboardWidgetConfig['shortcutPreset']) {
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: var(--ops-overlay-surface);
-  border-left: 1px solid var(--ops-border-strong);
-  box-shadow: var(--ops-overlay-shadow);
 }
 
 .dash-catalog__header {
@@ -228,7 +228,7 @@ function presetIcon(preset?: DashboardWidgetConfig['shortcutPreset']) {
   gap: 10px;
   align-items: center;
   padding: 10px;
-  background: var(--ops-surface-soft);
+  background: var(--surface-glass-inset);
   border: 1px solid var(--ops-border);
   border-radius: 7px;
 }
@@ -247,7 +247,7 @@ function presetIcon(preset?: DashboardWidgetConfig['shortcutPreset']) {
 .dash-catalog__group li.is-shortcut {
   padding: 13px 12px;
   border-radius: 10px;
-  background: var(--ops-input-background);
+  background: var(--surface-glass-inset);
 
   strong { display: flex; align-items: center; gap: 7px; font-size: 13px; }
   p { margin-top: 7px; font-size: 11px; }

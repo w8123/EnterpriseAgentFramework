@@ -50,6 +50,18 @@ public class McpHubProperties {
     /** Raw payloads are cleared after this many days when capture is explicitly enabled. */
     private int auditPayloadRetentionDays = 7;
 
+    /**
+     * Public origin AI tools use to reach Control, e.g. https://reachai.example.com.
+     * Empty falls back to the origin of the request that created the connection.
+     */
+    private String publicBaseUrl = "";
+
+    /** Lifetime of an employee's personal AI-tool connection. */
+    private int employeeConnectionTtlDays = 90;
+
+    /** Upper bound of active personal connections per employee. */
+    private int maxEmployeeConnections = 10;
+
     public List<String> supportedProtocolVersions() {
         return List.of(legacyProtocolVersion, modernProtocolVersion);
     }

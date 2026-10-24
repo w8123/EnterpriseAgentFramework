@@ -1191,13 +1191,14 @@ const brandModes = {
     '--brand-hover-rgb': '139 92 246',
     '--brand-active-rgb': '79 70 229',
     '--brand-selected-rgb': '237 233 254',
-    '--theme-wallpaper-image': "url('/theme-wallpapers/violet-waves.webp')",
-    '--theme-wallpaper-position': '38% 50%',
-    '--wallpaper-fallback': '#201145',
-    '--wallpaper-ink': '#f7f9ff',
-    '--wallpaper-ink-muted': '#dce4f0',
-    '--wallpaper-ink-shadow': '0 1px 4px rgb(0 0 0 / 0.4)',
-    '--frost-veil-alpha': '0.62',
+    '--theme-wallpaper-image': "url('/theme-wallpapers/lavender-light.svg')",
+    '--theme-wallpaper-position': 'center',
+    '--wallpaper-fallback': '#eeebf7',
+    '--theme-header-artwork': "url('/page-header-materials/tech-purple.webp')",
+    '--wallpaper-ink': '#24213b',
+    '--wallpaper-ink-muted': '#514c68',
+    '--wallpaper-ink-shadow': 'none',
+    '--frost-veil-alpha': '0.42',
     '--page-header-material': 'var(--surface-page-background)',
     '--page-header-material-position': 'var(--theme-wallpaper-position)',
   },
@@ -1214,6 +1215,7 @@ const brandModes = {
     '--theme-wallpaper-image': "url('/theme-wallpapers/sage-folds.webp')",
     '--theme-wallpaper-position': 'center 58%',
     '--wallpaper-fallback': '#d8d8c9',
+    '--theme-header-artwork': "url('/page-header-materials/metro-green.webp')",
     '--wallpaper-ink': '#172033',
     '--wallpaper-ink-muted': '#3e4a5c',
     '--wallpaper-ink-shadow': 'none',
@@ -1234,6 +1236,7 @@ const brandModes = {
     '--theme-wallpaper-image': "url('/theme-wallpapers/ice-blue.webp')",
     '--theme-wallpaper-position': 'center 42%',
     '--wallpaper-fallback': '#e4edf8',
+    '--theme-header-artwork': "url('/page-header-materials/aurora-cyan.webp')",
     '--wallpaper-ink': '#172033',
     '--wallpaper-ink-muted': '#3e4a5c',
     '--wallpaper-ink-shadow': 'none',
@@ -1242,42 +1245,45 @@ const brandModes = {
     '--page-header-material-position': 'var(--theme-wallpaper-position)',
   },
   'nebula-violet': {
-    '--brand-primary': '#7c3aed',
-    '--brand-hover': '#ec4899',
-    '--brand-active': '#6d28d9',
-    '--brand-disabled': '#c4b5fd',
-    '--brand-selected': '#f3e8ff',
-    '--brand-primary-rgb': '124 58 237',
-    '--brand-hover-rgb': '236 72 153',
-    '--brand-active-rgb': '109 40 217',
-    '--brand-selected-rgb': '243 232 255',
-    '--theme-wallpaper-image': "url('/theme-wallpapers/violet-waves.webp')",
-    '--theme-wallpaper-position': '68% 46%',
-    '--wallpaper-fallback': '#27114c',
-    '--wallpaper-ink': '#f7f9ff',
-    '--wallpaper-ink-muted': '#dce4f0',
-    '--wallpaper-ink-shadow': '0 1px 4px rgb(0 0 0 / 0.4)',
-    '--frost-veil-alpha': '0.62',
+    '--brand-primary': '#526171',
+    '--brand-hover': '#657487',
+    '--brand-active': '#3d4b5c',
+    '--brand-disabled': '#b0bac5',
+    '--brand-selected': '#e7ecf1',
+    '--brand-primary-rgb': '82 97 113',
+    '--brand-hover-rgb': '101 116 135',
+    '--brand-active-rgb': '61 75 92',
+    '--brand-selected-rgb': '231 236 241',
+    '--theme-wallpaper-image': "url('/theme-wallpapers/silver-light.svg')",
+    '--theme-wallpaper-position': 'center',
+    '--wallpaper-fallback': '#e9edf0',
+    '--theme-header-artwork': "url('/page-header-materials/nebula-violet.webp')",
+    '--theme-header-artwork-filter': 'grayscale(1)',
+    '--wallpaper-ink': '#26313b',
+    '--wallpaper-ink-muted': '#4c5966',
+    '--wallpaper-ink-shadow': 'none',
+    '--frost-veil-alpha': '0.38',
     '--page-header-material': 'var(--surface-page-background)',
     '--page-header-material-position': 'var(--theme-wallpaper-position)',
   },
   'coral-rose': {
-    '--brand-primary': '#db2777',
-    '--brand-hover': '#f472b6',
-    '--brand-active': '#be185d',
-    '--brand-disabled': '#f9a8d4',
-    '--brand-selected': '#fce7f3',
-    '--brand-primary-rgb': '219 39 119',
-    '--brand-hover-rgb': '244 114 182',
-    '--brand-active-rgb': '190 24 93',
-    '--brand-selected-rgb': '252 231 243',
-    '--theme-wallpaper-image': "url('/theme-wallpapers/rose-glow.webp')",
-    '--theme-wallpaper-position': 'center 48%',
-    '--wallpaper-fallback': '#291247',
-    '--wallpaper-ink': '#f7f9ff',
-    '--wallpaper-ink-muted': '#dce4f0',
-    '--wallpaper-ink-shadow': '0 1px 4px rgb(0 0 0 / 0.4)',
-    '--frost-veil-alpha': '0.62',
+    '--brand-primary': '#bd533b',
+    '--brand-hover': '#b94b36',
+    '--brand-active': '#a0402d',
+    '--brand-disabled': '#eab19e',
+    '--brand-selected': '#fbe5dc',
+    '--brand-primary-rgb': '189 83 59',
+    '--brand-hover-rgb': '185 75 54',
+    '--brand-active-rgb': '160 64 45',
+    '--brand-selected-rgb': '251 229 220',
+    '--theme-wallpaper-image': "url('/theme-wallpapers/coral-light.svg')",
+    '--theme-wallpaper-position': 'center',
+    '--wallpaper-fallback': '#f8e8df',
+    '--theme-header-artwork': "url('/page-header-materials/coral-rose.webp')",
+    '--wallpaper-ink': '#3e2b26',
+    '--wallpaper-ink-muted': '#6a5047',
+    '--wallpaper-ink-shadow': 'none',
+    '--frost-veil-alpha': '0.4',
     '--page-header-material': 'var(--surface-page-background)',
     '--page-header-material-position': 'var(--theme-wallpaper-position)',
   },
@@ -1294,6 +1300,7 @@ const brandModes = {
     '--theme-wallpaper-image': "url('/theme-wallpapers/gold-curves.webp')",
     '--theme-wallpaper-position': 'center 48%',
     '--wallpaper-fallback': '#f3d692',
+    '--theme-header-artwork': "url('/page-header-materials/solar-gold.webp')",
     '--wallpaper-ink': '#172033',
     '--wallpaper-ink-muted': '#3e4a5c',
     '--wallpaper-ink-shadow': 'none',
@@ -1314,6 +1321,7 @@ const brandModes = {
     '--theme-wallpaper-image': "url('/theme-wallpapers/deep-blue.webp')",
     '--theme-wallpaper-position': 'center 52%',
     '--wallpaper-fallback': '#111a35',
+    '--theme-header-artwork': "url('/page-header-materials/deep-ocean.webp')",
     '--wallpaper-ink': '#f7f9ff',
     '--wallpaper-ink-muted': '#dce4f0',
     '--wallpaper-ink-shadow': '0 1px 4px rgb(0 0 0 / 0.4)',
@@ -1347,6 +1355,15 @@ const brandRuleOracles = [
     declarations: { '--brand-selected': '#2e3156', '--brand-selected-rgb': '46 49 86' },
   },
   {
+    selector: "[data-theme='dark']:is(:not([data-brand]), [data-brand='tech-purple'])",
+    declarations: {
+      '--theme-wallpaper-image': "url('/theme-wallpapers/lavender-dark.svg')",
+      '--wallpaper-fallback': '#1b192b',
+      '--wallpaper-ink': '#f0eef9',
+      '--wallpaper-ink-muted': '#c9c4dd',
+    },
+  },
+  {
     selector: "[data-theme='dark'][data-brand='metro-green']",
     declarations: { '--brand-selected': '#193631', '--brand-selected-rgb': '25 54 49' },
   },
@@ -1356,11 +1373,25 @@ const brandRuleOracles = [
   },
   {
     selector: "[data-theme='dark'][data-brand='nebula-violet']",
-    declarations: { '--brand-selected': '#342655', '--brand-selected-rgb': '52 38 85' },
+    declarations: {
+      '--brand-selected': '#303944',
+      '--brand-selected-rgb': '48 57 68',
+      '--theme-wallpaper-image': "url('/theme-wallpapers/silver-dark.svg')",
+      '--wallpaper-fallback': '#1b2025',
+      '--wallpaper-ink': '#edf1f5',
+      '--wallpaper-ink-muted': '#c2cbd3',
+    },
   },
   {
     selector: "[data-theme='dark'][data-brand='coral-rose']",
-    declarations: { '--brand-selected': '#4b2239', '--brand-selected-rgb': '75 34 57' },
+    declarations: {
+      '--brand-selected': '#4b302a',
+      '--brand-selected-rgb': '75 48 42',
+      '--theme-wallpaper-image': "url('/theme-wallpapers/coral-dark.svg')",
+      '--wallpaper-fallback': '#291e1b',
+      '--wallpaper-ink': '#fbefe8',
+      '--wallpaper-ink-muted': '#dfc7bc',
+    },
   },
   {
     selector: "[data-theme='dark'][data-brand='solar-gold']",
@@ -1402,6 +1433,7 @@ const semanticRuleOracles = [
       "--surface-page-canvas": "#eef1f6",
       "--surface-page-background": "var(--theme-wallpaper-image), linear-gradient(var(--wallpaper-fallback), var(--wallpaper-fallback))",
       "--surface-solid-page": "#f2f4f8",
+      "--workbench-header-artwork-opacity": "0.92",
       "--surface-solid-panel": "rgb(255 255 255 / 0.9)",
       "--surface-solid-control": "rgb(255 255 255 / 0.84)",
       "--surface-solid-overlay": "rgb(253 253 255 / 0.96)",
@@ -1415,6 +1447,7 @@ const semanticRuleOracles = [
       "--surface-glass-panel": "linear-gradient(160deg, rgb(255 255 255 / calc(var(--frost-veil-alpha, 0.5) + 0.1)), rgb(255 255 255 / calc(var(--frost-veil-alpha, 0.5) - 0.04)))",
       "--surface-glass-control": "linear-gradient(160deg, rgb(255 255 255 / 0.88), rgb(255 255 255 / 0.8))",
       "--surface-glass-overlay": "linear-gradient(145deg, rgb(255 255 255 / 0.98), rgb(246 249 255 / 0.96) 60%, rgb(255 255 255 / 0.97))",
+      "--surface-glass-modal": "linear-gradient(145deg, rgb(250 252 249 / 0.68), rgb(235 240 236 / 0.5) 60%, rgb(247 250 246 / 0.62))",
       "--surface-glass-node": "linear-gradient(145deg, rgb(255 255 255 / 0.98), rgb(241 246 253 / 0.94) 58%, rgb(228 235 245 / 0.97))",
       "--glass-node-rim": "inset 0 0 0 1px rgb(255 255 255 / 0.62), inset 0 2px 2px -1px rgb(255 255 255 / 0.98), inset 1px 0 2px rgb(255 255 255 / 0.48), inset 0 -2px 3px -1px rgb(15 23 42 / 0.18)",
       "--shadow-glass-node": "0 2px 5px rgb(15 23 42 / 0.08), 0 16px 32px -12px rgb(15 23 42 / 0.26)",
@@ -1505,6 +1538,7 @@ const semanticRuleOracles = [
       "--surface-page-canvas": "#111317",
       "--surface-page-background": "var(--theme-wallpaper-image), linear-gradient(var(--wallpaper-fallback), var(--wallpaper-fallback))",
       "--surface-solid-page": "#131519",
+      "--workbench-header-artwork-opacity": "0.4",
       "--surface-solid-panel": "rgb(31 34 40 / 0.94)",
       "--surface-solid-control": "rgb(42 45 52 / 0.9)",
       "--surface-solid-overlay": "rgb(33 36 42 / 0.97)",
@@ -1518,6 +1552,7 @@ const semanticRuleOracles = [
       "--surface-glass-panel": "linear-gradient(160deg, rgb(38 41 48 / 0.74), rgb(28 31 36 / 0.64))",
       "--surface-glass-control": "linear-gradient(160deg, rgb(48 52 59 / 0.9), rgb(38 41 47 / 0.84))",
       "--surface-glass-overlay": "linear-gradient(145deg, rgb(34 39 52 / 0.98), rgb(19 25 38 / 0.96) 60%, rgb(28 33 45 / 0.97))",
+      "--surface-glass-modal": "linear-gradient(145deg, rgb(38 44 54 / 0.8), rgb(20 27 39 / 0.68) 60%, rgb(32 39 50 / 0.76))",
       "--surface-glass-node": "linear-gradient(145deg, rgb(57 65 82 / 0.98), rgb(32 39 53 / 0.96) 58%, rgb(24 31 43 / 0.98))",
       "--glass-node-rim": "inset 0 0 0 1px rgb(255 255 255 / 0.13), inset 0 2px 2px -1px rgb(255 255 255 / 0.3), inset 1px 0 2px rgb(255 255 255 / 0.12), inset 0 -2px 3px -1px rgb(0 0 0 / 0.48)",
       "--shadow-glass-node": "0 2px 5px rgb(0 0 0 / 0.25), 0 18px 36px -12px rgb(0 0 0 / 0.48)",
@@ -1596,6 +1631,25 @@ const semanticRuleOracles = [
       "--text-on-wallpaper-secondary": "var(--wallpaper-ink-muted)",
       "--text-on-wallpaper-shadow": "var(--wallpaper-ink-shadow)",
       "--glass-tint": "var(--surface-glass-shell)",
+      "--glass-control-radius": "var(--radius-pill)",
+      "--glass-control-border": "transparent",
+      "--glass-control-primary-ink": "initial",
+      "--glass-control-hover-transform": "translateY(-1px)",
+      "--glass-decoration-display": "block",
+      "--glass-dropdown-clip": "initial",
+      "--glass-dropdown-filter": "drop-shadow(0 10px 14px var(--border-subtle))",
+      "--glass-table-sticky": "initial",
+      "--workbench-control-hover-shadow": "initial",
+      "--workbench-toolbar-surface": "transparent",
+      "--workbench-toolbar-border": "0",
+      "--workbench-toolbar-padding": "0px",
+      "--workbench-toolbar-inset": "initial",
+      "--workbench-table-heading-ink": "initial",
+      "--workbench-header-artwork": "var(--theme-header-artwork)",
+      "--surface-glass-action": "linear-gradient(155deg, rgb(var(--brand-primary-rgb) / 0.42), rgb(var(--brand-primary-rgb) / 0.22) 58%, rgb(var(--brand-hover-rgb) / 0.34))",
+      "--shadow-glass-navigation-selection": "0 8px 18px -8px rgb(15 23 42 / 0.38), 0 1px 2px rgb(15 23 42 / 0.12), inset 0 1.5px 1px rgb(255 255 255 / 0.85), inset 0 -3px 6px -2px rgb(var(--brand-hover-rgb) / 0.42)",
+      "--surface-glass-navigation-selection": "radial-gradient(85% 70% at 28% -8%, rgb(255 255 255 / 0.78), rgb(255 255 255 / 0.12) 52%, transparent 70%), var(--glass-droplet-caustic), linear-gradient(rgb(255 255 255 / calc((var(--frost-veil-alpha, 0.42) - 0.42) * 0.4)), rgb(255 255 255 / calc((var(--frost-veil-alpha, 0.42) - 0.42) * 0.4)))",
+      "--border-glass-navigation-selection": "linear-gradient(112deg, rgb(255 255 255 / 0.96) 0%, rgb(255 255 255 / 0.28) 24%, transparent 42%, transparent 62%, rgb(var(--brand-hover-rgb) / 0.55) 84%, rgb(255 255 255 / 0.9) 100%)",
       "--liquid-specular-light": "none",
       "--liquid-specular-dark": "none",
       "--brand-page-bg": "var(--surface-page-background)",
@@ -1630,7 +1684,7 @@ const semanticRuleOracles = [
     },
   },
   {
-    selector: ":root:not([data-theme='dark']):is([data-brand='tech-purple'], [data-brand='nebula-violet'], [data-brand='coral-rose'], [data-brand='deep-ocean']) .glass-workspace-adaptive",
+    selector: ":root:not([data-theme='dark'])[data-brand='deep-ocean']:not([data-reduce-transparency='true']) .glass-workspace-adaptive",
     declarations: {
       'color-scheme': 'dark',
       '--surface-solid-panel': 'rgb(22 26 40 / 0.96)',
@@ -1969,13 +2023,56 @@ const glassTokenUses = new Set(
 if (!glassTokenUses.has('--surface-fallback-control')) {
   failures.push('glass recipes must consume --surface-fallback-control')
 }
+const sharedGlassTokenSources = [semantic, brand, stripComments(read('src/styles/tokens/_layout.scss'))]
 for (const token of glassTokenUses) {
-  if (!new RegExp(`${escapeRegExp(token)}\\s*:`).test(semantic)) {
-    failures.push(`glass token ${token} is not defined in src/styles/tokens/_semantic.scss`)
+  if (!sharedGlassTokenSources.some((source) => new RegExp(`${escapeRegExp(token)}\\s*:`).test(source))) {
+    failures.push(`glass token ${token} is not defined in shared semantic, brand, or layout tokens`)
   }
 }
 
 expectSassCompiles('src/styles/_glass.scss')
+
+// Check the emitted fallback, not only mixin source: the global switch must
+// remove lens decoration from existing public controls as well as the shell.
+const materialCss = sass.compile(resolve(root, 'src/styles/_glass.scss'), { style: 'expanded' }).css
+const solidMaterial = extractBalancedBlock(materialCss, "[data-reduce-transparency=true] {", 'compiled solid material')
+if (solidMaterial !== null) {
+  for (const [property, value] of Object.entries({
+    '--surface-glass-control': 'var(--surface-fallback-control)',
+    '--surface-glass-panel': 'var(--surface-fallback-panel)',
+    '--surface-glass-modal': 'var(--surface-fallback-overlay)',
+    '--glass-control-radius': 'var(--radius-md)',
+    '--glass-control-primary-ink': 'var(--text-on-brand)',
+    '--glass-decoration-display': 'none',
+    '--glass-dropdown-clip': 'none',
+    '--glass-dropdown-filter': 'none',
+    '--shadow-glass-lens': 'none',
+    '--shadow-glass-navigation-selection': 'none',
+    '--glass-rim-double': '0 0 0 transparent',
+    '--inner-highlight': '0 0 0 transparent',
+    '--glass-table-sticky': 'var(--surface-fallback-panel)',
+    '--workbench-toolbar-padding': '10px',
+    '--workbench-table-heading-ink': 'var(--brand-on-surface)',
+    '--workbench-table-inset': 'var(--layout-panel-padding)',
+    '--workbench-metric-icon-size': '44px',
+  })) {
+    expectExactDeclaration(solidMaterial.body, property, value, 'compiled solid material')
+  }
+}
+const solidSelection = extractBalancedBlock(materialCss, '[data-reduce-transparency=true] .glass-surface-selection {', 'compiled solid selection')
+if (solidSelection !== null) {
+  expectExactDeclaration(solidSelection.body, 'background', 'var(--surface-reading-current)', 'compiled solid selection')
+  expectExactDeclaration(solidSelection.body, 'box-shadow', 'none', 'compiled solid selection')
+}
+
+for (const file of ['src/components/common/LiquidGlassSelect.vue', 'src/components/common/LiquidGlassFilterBar.vue']) {
+  if (/\.(?:el-input__wrapper|el-select__wrapper)\b/.test(stripComments(read(file)))) {
+    failures.push(`${file}: native field decoration belongs to LiquidGlassControl.vue`)
+  }
+}
+if (/\.liquid-glass-(?:control|input|select)[^{]*\.(?:el-input__wrapper|el-select__wrapper)\b/.test(stripComments(read('src/styles/_components.scss')))) {
+  failures.push('src/styles/_components.scss: do not duplicate LiquidGlassControl native field decoration')
+}
 
 const elementPlus = read('src/styles/_element-plus.scss')
 const elementPlusWithoutComments = stripComments(elementPlus)

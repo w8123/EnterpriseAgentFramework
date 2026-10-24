@@ -9,9 +9,13 @@ ReachAI 当前五个服务共用 `reach_ai` MySQL 库，支持 MySQL 5.7 / 8，�
 | 首次获取项目，初始化全新数据库 | 只执行 [initV2.sql](./initV2.sql) |
 | 已有库已完成 2026-10-15 及以前全部变更，补齐 10 月 16–18 日升级 | 执行 [upgrade-20261019-consolidated.sql](./upgrade-20261019-consolidated.sql) |
 | 已核对旧开发库，缺口为近期升级及本文列出的旧对象退场 | 先执行近期合并升级，再执行[开发库补充收口](./upgrade-20261019-development-schema-reconcile.sql) |
+| 已有库补概览页 / 运行中心的运行时间索引（2026-10-23） | 执行 [upgrade-20261023-runtime-run-started-index.sql](./upgrade-20261023-runtime-run-started-index.sql) |
+| 已有库补员工个人 AI 工具连接（2026-10-24） | 执行 [upgrade-20261024-ai-tool-connections.sql](./upgrade-20261024-ai-tool-connections.sql) |
+| 已执行上一行的库补员工可用发布的项目 id（2026-10-24） | 执行 [upgrade-20261024-employee-access-project-id.sql](./upgrade-20261024-employee-access-project-id.sql)，然后在「员工使用」里重新保存 |
+| 已有库把审计员换成管理人员（2026-10-24） | 执行 [upgrade-20261024-platform-manager-role.sql](./upgrade-20261024-platform-manager-role.sql)；执行后不要再重跑合并升级段落 08 |
 | 更老的库，或无法确认前置结构 | 先按[历史版本说明](#历史版本)处理，不能直接套用近期升级 |
 
-当前目录保留上述三份 SQL 和本说明。新库初始化已包含升级后的最终表、列、索引和必要种子，不需要再执行升级脚本。
+当前目录保留上述 SQL 和本说明。新库初始化已包含升级后的最终表、列、索引和必要种子，不需要再执行升级脚本。
 
 ## 新库初始化
 

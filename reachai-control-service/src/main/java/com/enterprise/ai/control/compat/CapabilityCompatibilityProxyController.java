@@ -1,11 +1,19 @@
 package com.enterprise.ai.control.compat;
 
+import com.enterprise.ai.control.identity.PlatformAuthenticatedSession;
+import com.enterprise.ai.control.identity.PlatformConsoleAuthInterceptor;
+import com.enterprise.ai.control.identity.PlatformPermissions;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.RequestEntity;
@@ -18,9 +26,11 @@ import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
+import java.io.IOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.regex.Pattern;
 
 /**
  * Public /api capability route bridge from Control to the owning Capability service.
@@ -42,6 +52,11 @@ public class CapabilityCompatibilityProxyController {
             "Upgrade"
     );
 
+    private static final Pattern PROJECT_DETAIL_PATH = Pattern.compile("/api/scan-projects/\\d+");
+    private static final List<String> PROJECT_SUMMARY_FIELDS = List.of(
+            "id", "name", "projectCode", "projectKind", "environment", "status", "description");
+
+    private final ObjectMapper objectMapper = new ObjectMapper();
     private final RestTemplate restTemplate;
     private final String capabilityServiceUrl;
 
@@ -87,7 +102,63 @@ public class CapabilityCompatibilityProxyController {
             "/api/scan-projects/{*path}"
     })
     public ResponseEntity<byte[]> proxy(RequestEntity<byte[]> requestEntity, HttpServletRequest request) {
-        return proxyRequest(requestEntity, request);
+        ResponseEntity<byte[]> response = proxyRequest(requestEntity, request);
+        if (!HttpMethod.GET.equals(requestEntity.getMethod()) || !response.getStatusCode().is2xxSuccessful()) {
+            return response;
+        }
+        String path = request.getRequestURI();
+        if ("/api/scan-projects".equals(path)) {
+            return sanitizeProjects(response, canReadProjectDetails(request));
+        }
+        if (PROJECT_DETAIL_PATH.matcher(path).matches()) {
+            return sanitizeProjects(response, true);
+        }
+        return response;
+    }
+
+    /**
+     * The console never needs a project's stored API key value, and callers who only pick
+     * projects (managers, operators of a single area) get the identity fields alone.
+     */
+    private ResponseEntity<byte[]> sanitizeProjects(ResponseEntity<byte[]> response, boolean details) {
+        try {
+            JsonNode root = objectMapper.readTree(response.getBody());
+            if (root == null) return response;
+            if (root.isArray()) {
+                ArrayNode rows = objectMapper.createArrayNode();
+                root.forEach(row -> rows.add(sanitizeProject(row, details)));
+                root = rows;
+            } else {
+                root = sanitizeProject(root, details);
+            }
+            HttpHeaders headers = new HttpHeaders();
+            headers.putAll(response.getHeaders());
+            headers.remove(HttpHeaders.CONTENT_LENGTH);
+            return ResponseEntity.status(response.getStatusCode()).headers(headers)
+                    .body(objectMapper.writeValueAsBytes(root));
+        } catch (IOException ex) {
+            return unavailable();
+        }
+    }
+
+    private JsonNode sanitizeProject(JsonNode row, boolean details) {
+        if (!(row instanceof ObjectNode project)) return row;
+        if (!details) {
+            ObjectNode summary = objectMapper.createObjectNode();
+            PROJECT_SUMMARY_FIELDS.forEach(field -> {
+                if (project.has(field)) summary.set(field, project.get(field));
+            });
+            return summary;
+        }
+        project.remove("authApiKeyValue");
+        return project;
+    }
+
+    private boolean canReadProjectDetails(HttpServletRequest request) {
+        return request.getAttribute(PlatformConsoleAuthInterceptor.SESSION_REQUEST_ATTRIBUTE)
+                instanceof PlatformAuthenticatedSession session
+                && (session.permissions().contains(PlatformPermissions.PLATFORM_READ)
+                || session.permissions().contains(PlatformPermissions.ALL));
     }
 
     private ResponseEntity<byte[]> proxyRequest(RequestEntity<byte[]> requestEntity, HttpServletRequest request) {

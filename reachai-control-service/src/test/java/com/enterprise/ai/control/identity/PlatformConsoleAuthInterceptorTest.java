@@ -300,6 +300,18 @@ class PlatformConsoleAuthInterceptorTest {
     }
 
     @Test
+    void readOnlyRolesMayListProjectsButNotOpenProjectDetails() {
+        PlatformAuthenticatedSession manager = sessionWith(
+                new PlatformPermissionGrant("agent:read", "GLOBAL", "*"));
+        PlatformAuthenticatedSession noRole = sessionWith();
+
+        assertTrue(admitsBearer(manager, "GET", "/api/scan-projects", new MockHttpServletResponse()));
+        assertFalse(admitsBearer(manager, "GET", "/api/scan-projects/7", new MockHttpServletResponse()));
+        assertFalse(admitsBearer(manager, "POST", "/api/scan-projects", new MockHttpServletResponse()));
+        assertFalse(admitsBearer(noRole, "GET", "/api/scan-projects", new MockHttpServletResponse()));
+    }
+
+    @Test
     void limitsRegistryInstanceRoutesToTheGrantedProject() {
         PlatformAuthenticatedSession orders = sessionWith(
                 new PlatformPermissionGrant("platform:read", "PROJECT", "orders"),

@@ -125,6 +125,7 @@ const FORBIDDEN_LEGACY_SPACING_TOKENS = [
 
 const STANDARD_PAGE_FILES = new Set([
   'src/views/dashboard/Dashboard.vue',
+  'src/views/NoRoleLanding.vue',
   'src/views/agent/AgentList.vue',
   'src/views/agent/AgentEdit.vue',
   'src/views/skill-market/SkillMarket.vue',
@@ -2094,7 +2095,7 @@ function createRepositoryFixture() {
     projectWorkbenchDirectComponentFiles: PROJECT_WORKBENCH_DIRECT_COMPONENT_FILES,
     exemptPageFiles: EXEMPT_PAGE_FILES,
     listFillPageFiles: LIST_FILL_PAGE_FILES,
-    expectedSetSizes: { standard: 30, projectWorkbench: 7, exempt: 3 },
+    expectedSetSizes: { standard: 31, projectWorkbench: 7, exempt: 3 },
     expectedListFillSize: 15,
   }
 }

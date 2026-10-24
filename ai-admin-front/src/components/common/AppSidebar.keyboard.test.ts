@@ -6,6 +6,7 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import AppSidebar from './AppSidebar.vue'
 import { markPlatformSessionAnonymous, markPlatformSessionAuthenticated } from '@/auth/platformSession'
+import { useTheme } from '@/composables/useTheme'
 
 vi.mock('@/api/scanProject', () => ({ getScanProjects: vi.fn().mockResolvedValue({ data: [] }) }))
 vi.mock('@/api/platformAuth', () => ({ logoutPlatform: vi.fn().mockResolvedValue(undefined) }))
@@ -136,6 +137,84 @@ describe('AppSidebar real Element Plus vertical keyboard navigation', () => {
     await settle()
     expect(focus()).toBe(outside)
     expect(push).not.toHaveBeenCalled()
+  })
+
+  it('keeps teleported preferences interactive and returns focus when dismissed', async () => {
+    const { wrapper } = await setup()
+    const settings = wrapper.findAll<HTMLButtonElement>('.footer-entry')[1]
+    const panel = () => document.body.querySelector<HTMLElement>('.sidebar-footer-popover')
+
+    await settings.trigger('click')
+    await settle()
+    expect(panel()).not.toBeNull()
+    expect(wrapper.element.contains(panel())).toBe(false)
+    panel()!.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+    await settle()
+    expect(panel()).not.toBeNull()
+
+    await key(panel()!, 'Escape')
+    expect(panel()).toBeNull()
+    expect(focus()).toBe(settings.element)
+
+    await settings.trigger('click')
+    await settle()
+    panel()!.querySelector<HTMLButtonElement>('.footer-close')!.click()
+    await settle()
+    expect(panel()).toBeNull()
+    expect(focus()).toBe(settings.element)
+
+    await settings.trigger('click')
+    await settle()
+    document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+    await settle()
+    expect(panel()).toBeNull()
+
+    await settings.trigger('click')
+    await wrapper.setProps({ collapsed: true })
+    await settle()
+    expect(panel()).toBeNull()
+    await wrapper.setProps({ collapsed: false })
+    await settle()
+    expect(panel()).toBeNull()
+  })
+
+  it('shows glass style only while texture is enabled and retains the chosen style when toggled', async () => {
+    const appearance = useTheme()
+    appearance.setReduceTransparency(false)
+    appearance.setGlassRefraction(true)
+    const { wrapper } = await setup()
+    await wrapper.findAll('.footer-entry')[1].trigger('click')
+    await settle()
+
+    const texture = () => document.body.querySelector<HTMLInputElement>('[role="switch"][aria-label="玻璃质感"]')!
+    const styles = () => document.body.querySelector('[role="radiogroup"][aria-label="玻璃样式"]')
+    const choices = () => styles()!.querySelectorAll<HTMLButtonElement>('[role="radio"]')
+    expect(texture().checked).toBe(true)
+    expect(choices()[0].textContent!.trim()).toBe('液态玻璃')
+    expect(choices()[0].getAttribute('aria-checked')).toBe('true')
+    expect(choices()[1].textContent!.trim()).toBe('毛玻璃')
+
+    choices()[1].click()
+    await settle()
+    expect(choices()[1].getAttribute('aria-checked')).toBe('true')
+    expect(document.documentElement.getAttribute('data-glass-refraction')).toBe('off')
+
+    texture().closest<HTMLElement>('.el-switch')!.click()
+    await settle()
+    expect(texture().checked).toBe(false)
+    expect(styles()).toBeNull()
+    expect(document.documentElement.getAttribute('data-reduce-transparency')).toBe('true')
+
+    texture().closest<HTMLElement>('.el-switch')!.click()
+    await settle()
+    expect(texture().checked).toBe(true)
+    expect(choices()[1].getAttribute('aria-checked')).toBe('true')
+    expect(document.documentElement.getAttribute('data-reduce-transparency')).toBe('false')
+
+    choices()[0].click()
+    await settle()
+    expect(choices()[0].getAttribute('aria-checked')).toBe('true')
+    expect(document.documentElement.getAttribute('data-glass-refraction')).toBe('on')
   })
 
   it('migrates focus on permission removal without retaining removed targets or stealing external focus', async () => {

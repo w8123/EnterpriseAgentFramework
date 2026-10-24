@@ -6,7 +6,6 @@ import {
   PLATFORM_PERMISSION_AGENT_DEBUG,
   PLATFORM_PERMISSION_AGENT_EVALUATE,
   PLATFORM_PERMISSION_AGENT_READ,
-  PLATFORM_PERMISSION_AGENT_WRITE,
   PLATFORM_PERMISSION_AUTOMATION_READ,
   PLATFORM_PERMISSION_BUSINESS_USER_READ,
   PLATFORM_PERMISSION_KNOWLEDGE_READ,
@@ -19,7 +18,6 @@ import {
   PLATFORM_PERMISSION_SKILL_READ,
   PLATFORM_PERMISSION_TOOL_ACL_READ,
   PLATFORM_PERMISSION_WORKFLOW_READ,
-  PLATFORM_PERMISSION_WORKFLOW_WRITE,
 } from '@/auth/platformAccess'
 import { resolvePlatformNavigation } from '@/auth/platformNavigation'
 import { platformSessionUser } from '@/auth/platformSession'
@@ -70,6 +68,13 @@ export const routes: RouteRecordRaw[] = [
         component: () => import('@/views/dashboard/Dashboard.vue'),
         meta: { title: '概览', layoutMode: 'standard', hideBreadcrumb: true, compactSidebarOnNarrow: true },
       },
+      // 没有任何平台角色的账号（业务人员）登录后看到的说明页。
+      {
+        path: 'no-role',
+        name: 'NoRoleLanding',
+        component: () => import('@/views/NoRoleLanding.vue'),
+        meta: { title: '欢迎使用 ReachAI', layoutMode: 'standard', hideBreadcrumb: true, hideSidebarProjectPanel: true },
+      },
 
       // ── Agent 管理 ──
       {
@@ -95,7 +100,8 @@ export const routes: RouteRecordRaw[] = [
         meta: {
           title: resolveAgentEditorTitle,
           layoutMode: 'standard',
-          requiredPermissions: [PLATFORM_PERMISSION_AGENT_WRITE],
+          // 只读角色也能打开查看配置；页面内按 agent:write 决定能否保存和发布。
+          requiredPermissions: [PLATFORM_PERMISSION_AGENT_READ],
           breadcrumb: [
             { title: 'AI 资产' },
             { title: 'Agent', to: { path: '/agent' } },
@@ -158,7 +164,8 @@ export const routes: RouteRecordRaw[] = [
         meta: {
           title: 'Workflow 编排 Studio',
           layoutMode: 'studio',
-          requiredPermissions: [PLATFORM_PERMISSION_WORKFLOW_WRITE],
+          // 只读角色以只读画布打开；Studio 内按 workflow:write 决定能否编辑和发布。
+          requiredPermissions: [PLATFORM_PERMISSION_WORKFLOW_READ],
         },
       },
       {
@@ -546,6 +553,12 @@ export const routes: RouteRecordRaw[] = [
             name: 'McpHubPublicationDetail',
             component: () => import('@/views/mcp-hub/McpPublicationDetail.vue'),
             meta: { breadcrumb: [{"title":"AI 资产"},{"title":"集成与开放"},{"title":"MCP 互联中心","to":{"path":"/mcp-hub/overview"}},{"title":"发布详情"}], title: 'MCP 互联中心 · 发布详情', activeMenu: '/mcp-hub', layoutMode: 'standard' },
+          },
+          {
+            path: 'employee-connections',
+            name: 'McpHubEmployeeConnections',
+            component: () => import('@/views/mcp-hub/McpEmployeeConnectionList.vue'),
+            meta: { breadcrumb: [{"title":"AI 资产"},{"title":"集成与开放"},{"title":"MCP 互联中心","to":{"path":"/mcp-hub/overview"}},{"title":"员工连接"}], title: 'MCP 互联中心 · 员工连接', activeMenu: '/mcp-hub', layoutMode: 'standard' },
           },
           {
             path: 'call-logs',

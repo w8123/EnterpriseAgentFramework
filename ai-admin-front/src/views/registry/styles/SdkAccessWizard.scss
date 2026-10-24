@@ -2629,14 +2629,9 @@
   }
 }
 
-/* Shared project-management page background. Keep page surfaces transparent so
-   AppPageBackground matches RegistryProjectDetail across sibling workbenches. */
+/* Keep page surfaces transparent to share MainLayout's workspace background. */
 .sdk-access-page,
 .sdk-access-page.sdk-access-page,
 .sdk-access-page.is-dark-skin {
   background: transparent !important;
-}
-
-.sdk-access-page :deep(.app-page-background) {
-  z-index: 0;
 }

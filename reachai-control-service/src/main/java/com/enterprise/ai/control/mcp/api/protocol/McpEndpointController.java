@@ -1,6 +1,12 @@
 package com.enterprise.ai.control.mcp.api.protocol;
 
 import com.enterprise.ai.control.mcp.api.protocol.McpProtocolRequestGuard.ProtocolMode;
+import com.enterprise.ai.control.mcp.application.employee.AiToolSetupInstructions;
+import com.enterprise.ai.control.mcp.application.employee.McpEmployeeProtocolService;
+import com.enterprise.ai.control.mcp.application.employee.McpEmployeeProtocolService.EmployeeAuditRequest;
+import com.enterprise.ai.control.mcp.application.employee.McpEmployeeProtocolService.EmployeeCallResult;
+import com.enterprise.ai.control.mcp.application.employee.McpEmployeeProtocolService.EmployeeSession;
+import com.enterprise.ai.control.mcp.application.employee.McpEmployeeProtocolService.SystemSession;
 import com.enterprise.ai.control.mcp.application.protocol.McpProtocolApplicationService;
 import com.enterprise.ai.control.mcp.application.protocol.McpProtocolApplicationService.McpAuthenticatedSession;
 import com.enterprise.ai.control.mcp.application.protocol.McpProtocolApplicationService.McpToolCallResult;
@@ -20,6 +26,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 
 /** Dual MCP protocol adapter over the frozen publication application service. */
 @RestController
@@ -32,17 +39,20 @@ public class McpEndpointController {
     private final McpHubProperties properties;
     private final ObjectMapper objectMapper;
     private final McpAuditPayloadSanitizer auditPayloadSanitizer;
+    private final McpEmployeeProtocolService employeeService;
 
     public McpEndpointController(McpProtocolRequestGuard guard,
                                  McpProtocolApplicationService service,
                                  McpHubProperties properties,
                                  ObjectMapper objectMapper,
-                                 McpAuditPayloadSanitizer auditPayloadSanitizer) {
+                                 McpAuditPayloadSanitizer auditPayloadSanitizer,
+                                 McpEmployeeProtocolService employeeService) {
         this.guard = guard;
         this.service = service;
         this.properties = properties;
         this.objectMapper = objectMapper;
         this.auditPayloadSanitizer = auditPayloadSanitizer;
+        this.employeeService = employeeService;
     }
 
     @GetMapping("/mcp/manifest")
@@ -57,7 +67,7 @@ public class McpEndpointController {
     }
 
     /** No resumable SSE stream is offered; POST remains the single endpoint. */
-    @GetMapping({"/mcp", "/mcp/jsonrpc"})
+    @GetMapping({"/mcp", "/mcp/jsonrpc", AiToolSetupInstructions.EMPLOYEE_ENDPOINT_PATH})
     public ResponseEntity<Map<String, Object>> streamNotSupported() {
         if (!properties.isEnabled()) return ResponseEntity.notFound().build();
         return ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED)
@@ -68,19 +78,33 @@ public class McpEndpointController {
     @PostMapping({"/mcp", "/mcp/jsonrpc"})
     public ResponseEntity<?> jsonRpc(HttpServletRequest httpRequest,
                                      @RequestBody(required = false) Map<String, Object> body) {
+        return handle(httpRequest, body, token -> new ClientCaller(service.authenticate(token)),
+                new ClientCaller(null));
+    }
+
+    /** An employee's personal connection from their own AI tool; same protocol, employee identity. */
+    @PostMapping(AiToolSetupInstructions.EMPLOYEE_ENDPOINT_PATH)
+    public ResponseEntity<?> employeeJsonRpc(HttpServletRequest httpRequest,
+                                             @RequestBody(required = false) Map<String, Object> body) {
+        return handle(httpRequest, body, token -> new EmployeeCaller(employeeService.authenticate(token)),
+                new EmployeeCaller(null));
+    }
+
+    private ResponseEntity<?> handle(HttpServletRequest httpRequest, Map<String, Object> body,
+                                     Function<String, Caller> authenticate, Caller anonymous) {
         long startedAt = System.nanoTime();
         String remoteIp = httpRequest.getRemoteAddr();
-        McpAuthenticatedSession session = null;
+        Caller caller = anonymous;
         String method = text(body == null ? null : body.get("method"));
         String toolName = bodyToolName(body);
         try {
             guard.open(httpRequest);
             McpProtocolRequestGuard.ValidatedRequest request = guard.validate(httpRequest, body);
-            session = service.authenticate(guard.bearerToken(httpRequest));
+            caller = authenticate.apply(guard.bearerToken(httpRequest));
             method = request.method();
             toolName = text(request.params().get("name"));
-            DispatchResult dispatched = dispatch(session, request);
-            audit(session, method, toolName, body, dispatched.response(),
+            DispatchResult dispatched = dispatch(caller, request);
+            caller.audit(method, toolName, body, dispatched.response(),
                     dispatched.executionSuccess(), dispatched.errorCategory(), dispatched.errorCode(),
                     dispatched.traceId(), dispatched.runId(), startedAt, remoteIp);
             if (dispatched.notification()) {
@@ -97,20 +121,20 @@ public class McpEndpointController {
             McpProtocolError category = McpProtocolError.of(failure);
             Map<String, Object> response = error(
                     extractId(body), category.jsonRpcCode(failure.code()), category.safeMessage());
-            audit(session, method, toolName, body, response, false, category.name(), failure.code(),
+            caller.audit(method, toolName, body, response, false, category.name(), failure.code(),
                     null, null, startedAt, remoteIp);
             return ResponseEntity.status(category.httpStatus()).body(response);
         } catch (RuntimeException unexpected) {
             McpProtocolError category = McpProtocolError.INTERNAL;
             Map<String, Object> response = error(
                     extractId(body), category.jsonRpcCode("MCP_INTERNAL_ERROR"), category.safeMessage());
-            audit(session, method, toolName, body, response, false, category.name(),
+            caller.audit(method, toolName, body, response, false, category.name(),
                     "MCP_INTERNAL_ERROR", null, null, startedAt, remoteIp);
             return ResponseEntity.status(category.httpStatus()).body(response);
         }
     }
 
-    private DispatchResult dispatch(McpAuthenticatedSession session,
+    private DispatchResult dispatch(Caller caller,
                                     McpProtocolRequestGuard.ValidatedRequest request) {
         return switch (request.method()) {
             case "initialize" -> ok(success(request.id(), initializeResult()), request);
@@ -118,19 +142,19 @@ public class McpEndpointController {
             case "server/discover" -> ok(success(request.id(), discoveryResult()), request);
             case "tools/list" -> {
                 Map<String, Object> result = new LinkedHashMap<>();
-                result.put("tools", service.visibleTools(session));
+                result.put("tools", caller.visibleTools());
                 addModernMeta(result, request.mode());
                 yield ok(success(request.id(), result), request);
             }
-            case "tools/call" -> toolsCall(session, request);
+            case "tools/call" -> toolsCall(caller, request);
             default -> throw new McpDomainException("MCP_METHOD_NOT_FOUND", "method not found");
         };
     }
 
-    private DispatchResult toolsCall(McpAuthenticatedSession session,
+    private DispatchResult toolsCall(Caller caller,
                                      McpProtocolRequestGuard.ValidatedRequest request) {
-        McpToolCallResult result = service.callTool(
-                session, text(request.params().get("name")), arguments(request.params().get("arguments")));
+        McpToolCallResult result = caller.callTool(
+                text(request.params().get("name")), arguments(request.params().get("arguments")));
         Map<String, Object> payload = new LinkedHashMap<>();
         if (result.success()) {
             payload.put("content", List.of(Map.of("type", "text", "text", toJson(result.output()))));
@@ -188,16 +212,85 @@ public class McpEndpointController {
         return new DispatchResult(response, request.notification(), true, null, null, null, null);
     }
 
-    private void audit(McpAuthenticatedSession session, String method, String toolName,
-                       Object requestBody, Object responseBody, boolean success, String errorCategory,
-                       String errorCode, String traceId, String runId, long startedAt, String remoteIp) {
-        service.audit(new McpProtocolApplicationService.McpAuditRequest(
-                session, method, toolName, success,
-                (System.nanoTime() - startedAt) / 1_000_000L,
-                errorCategory,
-                auditPayloadSanitizer.capture(requestBody),
-                auditPayloadSanitizer.capture(responseBody),
-                errorCode, traceId, runId, remoteIp));
+    /** The authenticated party behind one JSON-RPC exchange: an API-key client or an employee. */
+    private interface Caller {
+        List<Map<String, Object>> visibleTools();
+
+        McpToolCallResult callTool(String toolName, Map<String, Object> arguments);
+
+        void audit(String method, String toolName, Object requestBody, Object responseBody,
+                   boolean success, String errorCategory, String errorCode, String traceId,
+                   String runId, long startedAt, String remoteIp);
+    }
+
+    private final class ClientCaller implements Caller {
+        private final McpAuthenticatedSession session;
+
+        private ClientCaller(McpAuthenticatedSession session) {
+            this.session = session;
+        }
+
+        @Override
+        public List<Map<String, Object>> visibleTools() {
+            return service.visibleTools(session);
+        }
+
+        @Override
+        public McpToolCallResult callTool(String toolName, Map<String, Object> arguments) {
+            return service.callTool(session, toolName, arguments);
+        }
+
+        @Override
+        public void audit(String method, String toolName, Object requestBody, Object responseBody,
+                          boolean success, String errorCategory, String errorCode, String traceId,
+                          String runId, long startedAt, String remoteIp) {
+            service.audit(new McpProtocolApplicationService.McpAuditRequest(
+                    session, method, toolName, success,
+                    (System.nanoTime() - startedAt) / 1_000_000L,
+                    errorCategory,
+                    auditPayloadSanitizer.capture(requestBody),
+                    auditPayloadSanitizer.capture(responseBody),
+                    errorCode, traceId, runId, remoteIp));
+        }
+    }
+
+    private final class EmployeeCaller implements Caller {
+        private final EmployeeSession session;
+        private SystemSession lastSystem;
+
+        private EmployeeCaller(EmployeeSession session) {
+            this.session = session;
+        }
+
+        @Override
+        public List<Map<String, Object>> visibleTools() {
+            return employeeService.visibleTools(session);
+        }
+
+        @Override
+        public McpToolCallResult callTool(String toolName, Map<String, Object> arguments) {
+            EmployeeCallResult called = employeeService.callTool(session, toolName, arguments);
+            lastSystem = called.system();
+            return called.result();
+        }
+
+        @Override
+        public void audit(String method, String toolName, Object requestBody, Object responseBody,
+                          boolean success, String errorCategory, String errorCode, String traceId,
+                          String runId, long startedAt, String remoteIp) {
+            SystemSession system = lastSystem;
+            if (system == null && session != null && toolName != null
+                    && session.exposed().get(toolName) != null) {
+                system = session.exposed().get(toolName).system();
+            }
+            employeeService.audit(new EmployeeAuditRequest(
+                    session, system, method, toolName, success,
+                    (System.nanoTime() - startedAt) / 1_000_000L,
+                    errorCategory,
+                    auditPayloadSanitizer.capture(requestBody),
+                    auditPayloadSanitizer.capture(responseBody),
+                    errorCode, traceId, runId, remoteIp));
+        }
     }
 
     private Map<String, Object> success(Object id, Object result) {

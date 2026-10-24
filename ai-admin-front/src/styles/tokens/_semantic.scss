@@ -10,6 +10,7 @@
     var(--theme-wallpaper-image),
     linear-gradient(var(--wallpaper-fallback), var(--wallpaper-fallback));
   --surface-solid-page: #f2f4f8;
+  --workbench-header-artwork-opacity: 0.92;
   --surface-solid-panel: rgb(255 255 255 / 0.9);
   --surface-solid-control: rgb(255 255 255 / 0.84);
   --surface-solid-overlay: rgb(253 253 255 / 0.96);
@@ -25,6 +26,9 @@
   --surface-glass-control: linear-gradient(160deg, rgb(255 255 255 / 0.88), rgb(255 255 255 / 0.8));
   // 弹层覆盖业务文字，底色至少 96% 不透明；开启折射时也不能透出底层文字干扰阅读。
   --surface-glass-overlay: linear-gradient(145deg, rgb(255 255 255 / 0.98), rgb(246 249 255 / 0.96) 60%, rgb(255 255 255 / 0.97));
+  // 大弹层采用低白纱磨砂底，背景色柔和透入，文字由独立强模糊层隔离。
+  // 菜单、代码和密集阅读面继续使用上面的高浓度 overlay。
+  --surface-glass-modal: linear-gradient(145deg, rgb(250 252 249 / 0.68), rgb(235 240 236 / 0.5) 60%, rgb(247 250 246 / 0.62));
   // 工作流节点以较实的磨砂阅读面承载正文，玻璃厚度由边缘与高光体现。
   --surface-glass-node: linear-gradient(145deg, rgb(255 255 255 / 0.98), rgb(241 246 253 / 0.94) 58%, rgb(228 235 245 / 0.97));
   --glass-node-rim: inset 0 0 0 1px rgb(255 255 255 / 0.62), inset 0 2px 2px -1px rgb(255 255 255 / 0.98), inset 1px 0 2px rgb(255 255 255 / 0.48), inset 0 -2px 3px -1px rgb(15 23 42 / 0.18);
@@ -133,6 +137,7 @@
     var(--theme-wallpaper-image),
     linear-gradient(var(--wallpaper-fallback), var(--wallpaper-fallback));
   --surface-solid-page: #131519;
+  --workbench-header-artwork-opacity: 0.4;
   --surface-solid-panel: rgb(31 34 40 / 0.94);
   --surface-solid-control: rgb(42 45 52 / 0.9);
   --surface-solid-overlay: rgb(33 36 42 / 0.97);
@@ -146,6 +151,7 @@
   --surface-glass-panel: linear-gradient(160deg, rgb(38 41 48 / 0.74), rgb(28 31 36 / 0.64));
   --surface-glass-control: linear-gradient(160deg, rgb(48 52 59 / 0.9), rgb(38 41 47 / 0.84));
   --surface-glass-overlay: linear-gradient(145deg, rgb(34 39 52 / 0.98), rgb(19 25 38 / 0.96) 60%, rgb(28 33 45 / 0.97));
+  --surface-glass-modal: linear-gradient(145deg, rgb(38 44 54 / 0.8), rgb(20 27 39 / 0.68) 60%, rgb(32 39 50 / 0.76));
   --surface-glass-node: linear-gradient(145deg, rgb(57 65 82 / 0.98), rgb(32 39 53 / 0.96) 58%, rgb(24 31 43 / 0.98));
   --glass-node-rim: inset 0 0 0 1px rgb(255 255 255 / 0.13), inset 0 2px 2px -1px rgb(255 255 255 / 0.3), inset 1px 0 2px rgb(255 255 255 / 0.12), inset 0 -2px 3px -1px rgb(0 0 0 / 0.48);
   --shadow-glass-node: 0 2px 5px rgb(0 0 0 / 0.25), 0 18px 36px -12px rgb(0 0 0 / 0.48);
@@ -234,6 +240,26 @@
   --text-on-wallpaper-secondary: var(--wallpaper-ink-muted);
   --text-on-wallpaper-shadow: var(--wallpaper-ink-shadow);
   --glass-tint: var(--surface-glass-shell);
+  // 公共控件的材质接口：实色模式只在 _glass.scss 切换这些角色。
+  --glass-control-radius: var(--radius-pill);
+  --glass-control-border: transparent;
+  --glass-control-primary-ink: initial;
+  --glass-control-hover-transform: translateY(-1px);
+  --glass-decoration-display: block;
+  --glass-dropdown-clip: initial;
+  --glass-dropdown-filter: drop-shadow(0 10px 14px var(--border-subtle));
+  --glass-table-sticky: initial;
+  --workbench-control-hover-shadow: initial;
+  --workbench-toolbar-surface: transparent;
+  --workbench-toolbar-border: 0;
+  --workbench-toolbar-padding: 0px;
+  --workbench-toolbar-inset: initial;
+  --workbench-table-heading-ink: initial;
+  --workbench-header-artwork: var(--theme-header-artwork);
+  --surface-glass-action: linear-gradient(155deg, rgb(var(--brand-primary-rgb) / 0.42), rgb(var(--brand-primary-rgb) / 0.22) 58%, rgb(var(--brand-hover-rgb) / 0.34));
+  --shadow-glass-navigation-selection: 0 8px 18px -8px rgb(15 23 42 / 0.38), 0 1px 2px rgb(15 23 42 / 0.12), inset 0 1.5px 1px rgb(255 255 255 / 0.85), inset 0 -3px 6px -2px rgb(var(--brand-hover-rgb) / 0.42);
+  --surface-glass-navigation-selection: radial-gradient(85% 70% at 28% -8%, rgb(255 255 255 / 0.78), rgb(255 255 255 / 0.12) 52%, transparent 70%), var(--glass-droplet-caustic), linear-gradient(rgb(255 255 255 / calc((var(--frost-veil-alpha, 0.42) - 0.42) * 0.4)), rgb(255 255 255 / calc((var(--frost-veil-alpha, 0.42) - 0.42) * 0.4)));
+  --border-glass-navigation-selection: linear-gradient(112deg, rgb(255 255 255 / 0.96) 0%, rgb(255 255 255 / 0.28) 24%, transparent 42%, transparent 62%, rgb(var(--brand-hover-rgb) / 0.55) 84%, rgb(255 255 255 / 0.9) 100%);
   --liquid-specular-light: none;
   --liquid-specular-dark: none;
   --brand-page-bg: var(--surface-page-background);
@@ -272,7 +298,7 @@
 
 // 直接铺在深色壁纸上的工作台使用烟色玻璃与浅色前景。
 // 这是局部材质配色，不切换用户的明暗模式，也不改变 Teleport 到外部的弹层。
-:root:not([data-theme='dark']):is([data-brand='tech-purple'], [data-brand='nebula-violet'], [data-brand='coral-rose'], [data-brand='deep-ocean']) .glass-workspace-adaptive {
+:root:not([data-theme='dark'])[data-brand='deep-ocean']:not([data-reduce-transparency='true']) .glass-workspace-adaptive {
   color-scheme: dark;
   --surface-solid-panel: rgb(22 26 40 / 0.96);
   --surface-solid-control: rgb(40 46 61 / 0.9);

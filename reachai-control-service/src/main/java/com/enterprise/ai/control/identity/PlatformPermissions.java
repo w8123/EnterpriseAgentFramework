@@ -56,6 +56,8 @@ public final class PlatformPermissions {
 
     public static final String SKILL_READ = "skill:read";
     public static final String MCP_HUB_READ = "mcp-hub:read";
+    /** Review and disconnect employees' personal AI-tool connections (managers, operators). */
+    public static final String MCP_EMPLOYEE_CONNECTION_MANAGE = "mcp-hub:employee-connection:manage";
     public static final String A2A_HUB_READ = "a2a-hub:read";
 
     private PlatformPermissions() {

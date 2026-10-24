@@ -46,6 +46,7 @@ import type {
   A2aRemoteAgentDetail,
 } from '@/types/a2aHub'
 import { getModelInstances } from '@/api/model'
+import { canLoadModelCatalog } from '@/auth/modelCatalogAccess'
 import type { ScanProject } from '@/types/scanProject'
 import type { ModelInstance } from '@/types/model'
 import { useProjectStore } from '@/store/project'
@@ -1246,6 +1247,7 @@ export function useAgentEditor() {
   }
 
   async function loadModelInstances() {
+    if (!canLoadModelCatalog()) return
     llmModelInstancesLoading.value = true
     llmModelInstancesLoadError.value = false
     try {

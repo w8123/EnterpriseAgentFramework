@@ -40,6 +40,9 @@ public class MybatisMcpCallAuditRepository implements McpCallAuditRepository {
             entity.setRunId(entry.runId());
             entity.setRemoteIp(entry.remoteIp());
             entity.setCreatedAt(entry.createdAt());
+            entity.setConnectionId(entry.connectionId());
+            entity.setExternalUserId(entry.externalUserId());
+            entity.setToolClientName(entry.toolClientName());
             callLogMapper.insert(entity);
         } catch (RuntimeException exception) {
             LOG.warn("MCP call audit insert failed for method={} tool={}: {}",

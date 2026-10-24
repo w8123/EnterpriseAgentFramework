@@ -334,8 +334,8 @@ onBeforeUnmount(() => { ++sequence; ++referenceSequence })
 </script>
 
 <style scoped lang="scss">
-:global(.app-dialog.capability-inspector.el-dialog) { height: min(820px, calc(100dvh - 56px)); padding: 0; background: var(--surface-fallback-overlay); border-radius: var(--radius-xl); }
-:global(.app-dialog.capability-inspector .el-dialog__header) { padding: 18px 24px 14px; background: var(--surface-solid-panel); }
+:global(.app-dialog.capability-inspector.el-dialog) { height: min(820px, calc(100dvh - 56px)); }
+:global(.app-dialog.capability-inspector .el-dialog__header) { padding: 18px 64px 14px 24px; }
 :global(.app-dialog.capability-inspector .el-dialog__body) { display: flex; padding: 0; overflow: hidden; max-block-size: none; }
 .inspector-heading { padding-right: 28px; }
 .inspector-eyebrow { display: flex; gap: 8px; color: var(--text-secondary); font-size: 12px; }
@@ -364,7 +364,7 @@ onBeforeUnmount(() => { ++sequence; ++referenceSequence })
 .response-definition p { margin: 6px 0 0; font-size: 12px; color: var(--text-secondary); }
 .endpoint-definition { display: flex; align-items: flex-start; gap: 12px; }
 .endpoint-definition > span { font: 600 11px/2 ui-monospace, Consolas, monospace; color: var(--brand-primary); }
-.inspector-aside { padding: 20px; border-left: 1px solid var(--border-divider); background: var(--surface-solid-page); min-height: 0; overflow: auto; overscroll-behavior: contain; }
+.inspector-aside { padding: 20px; border-left: 1px solid var(--border-divider); background: var(--surface-glass-inset); min-height: 0; overflow: auto; overscroll-behavior: contain; }
 .aside-label { display: flex; align-items: center; justify-content: space-between; color: var(--text-secondary); font-size: 12px; margin-bottom: 10px; }
 .aside-label .el-button { height: 24px; padding: 4px; }
 .readiness-title { display: flex; gap: 8px; align-items: flex-start; font-size: 14px; line-height: 1.6; color: var(--text-primary); }

@@ -30,7 +30,7 @@ const emit = defineEmits<{ query: []; reset: [] }>()
 </template>
 
 <style scoped lang="scss">
-/* 全项目统一搜索栏：统一 40px 高度、统一胶囊圆角与毛玻璃边框，对齐项目管理/项目详情语言 */
+/* 筛选栏只负责排列和高度；圆角、背景、边框与状态交给 LiquidGlassControl。 */
 .liquid-glass-filter-bar {
   --control-height: var(--project-list-control-height, 40px);
   width: 100%;
@@ -47,7 +47,6 @@ const emit = defineEmits<{ query: []; reset: [] }>()
   flex: 1 1 160px;
   min-width: 0;
   min-height: var(--control-height);
-  border-radius: var(--radius-pill);
 }
 
 .liquid-glass-filter-bar :deep(.filter-bar__fields > .liquid-glass-input) {
@@ -61,43 +60,10 @@ const emit = defineEmits<{ query: []; reset: [] }>()
   height: var(--control-height);
 }
 
-.liquid-glass-filter-bar :deep(.el-input__wrapper),
-.liquid-glass-filter-bar :deep(.el-select__wrapper) {
-  box-sizing: border-box;
-  min-height: var(--control-height) !important;
-  height: var(--control-height) !important;
-  padding-inline: 14px;
-  border-radius: var(--radius-pill) !important;
-  background: transparent !important;
-  background-color: transparent !important;
-  box-shadow: none !important;
-}
-
 .liquid-glass-filter-bar :deep(.filter-bar__actions) {
   display: flex;
   align-items: center;
   gap: var(--layout-control-gap);
-}
-
-.liquid-glass-filter-bar :deep(.filter-bar__actions .el-button) {
-  min-height: var(--control-height);
-  height: var(--control-height);
-  margin: 0;
-  border-radius: var(--radius-pill);
-}
-
-.liquid-glass-filter-bar :deep(.filter-bar__actions .liquid-glass-control--circle) {
-  flex: 0 0 var(--control-height);
-  width: var(--control-height);
-  height: var(--control-height);
-  border-radius: 50%;
-}
-
-.liquid-glass-filter-bar :deep(.filter-bar__actions .liquid-glass-control--circle .el-button) {
-  width: var(--control-height);
-  height: var(--control-height);
-  padding: 0;
-  border-radius: 50%;
 }
 
 @media (max-width: 720px) {

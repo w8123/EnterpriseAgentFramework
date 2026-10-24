@@ -320,3 +320,32 @@
 - `WizardDialog.vue` 默认底栏保持 `el-button`：`check:glass-components` 契约要求其默认底栏结构固定，不为换按钮放宽检查；全局 `_overlays.scss` 已给弹层底栏按钮统一胶囊样式。
 - 第四轮盘点后，`src` 内 `<template #footer>` 中已无非文字型原生 `el-button`（WizardDialog 除外）。
 - 验证：`npm run build`、`test:liquid-glass`；mcp、auth、skill、workflow（1 条既有失败）、runops、conversation 测试配置改造前后一致；glass-theme、dark-theme-compatibility、page-header-family、overlay-migration 通过，`check:glass-components` 与 dev 一致，`check:page-rhythm` 的失败在 dev 上已存在；`git diff --check` 通过。截图使用模拟数据，位于 `/mnt/project-files/screenshots/liquid-glass/round4-20261022/r4-8-*`。未部署。
+
+### 2026-10-23 弹层公共材质与实际入口补齐
+
+- 公共弹层外壳新增 `--surface-glass-modal`，独立于菜单的高浓度 overlay。正文背景模糊隔离底层文字，边缘保持高光；统一普通输入框、关闭按钮和页脚。四方向抽屉留出边距并使用完整圆角，窄屏适配近全宽，全屏正文解除普通高度限制。
+- 实测发现窄屏接入弹窗被侧栏图标盖住：弹窗原来处于 `layout-workspace` 的 z-index 1 层叠上下文，侧栏为 z-index 10。修正为弹窗 / 模态抽屉默认交给 Element Plus 挂载至 body，显式本地 / 自定义挂载仍可覆盖；非模态 Studio 抽屉保持本地挂载。新增 5 项真实原生组件挂载回归，先复现 2 项失败，再修正并通过。
+- 项目 SDK / 扫描接入表单保留全部字段、默认值和联动，使用顶置标签与双列网格，窄屏单列；可见性 / 接入方式复用 `LiquidGlassSelect`。没有改动接口、请求参数、生成令牌、Starter 配置、复制和关闭清理逻辑。
+- 会话详情使用浮动阅读抽屉。元数据保留完整标识并允许换行，创建与动作时间使用已有日期工具。原表格列保留，新增原生可键盘展开行，展示已有响应中的完整文本、追踪、事件数据，以及页面动作参数 / 结果 / 错误，不新增请求。
+- 删除 GlassDialog、业务方法检查器、来源变化和关系图抽屉覆盖公共外壳的实色背景。公共覆盖涉及 59 个弹窗消费者文件、24 个抽屉消费者文件，不把组件覆盖等同于所有入口的业务验收。
+- 验证：`npm run build`（含 SDK）通过；`test:liquid-glass` 38 项、`RegistryProjectList.test.ts` 10 项通过；glass-theme、dark-theme-compatibility、page-header-family、overlay-migration 通过。glass-components 与改造前完整日志一致，仍有 DataTableShell、AppDialog / AppDrawer、AgentEdit 的既有契约失败；page-rhythm 仍报未改动的 MainLayout `route.path` 契约。没有通过放宽检查掩盖失败。
+- 真实 Edge：七套品牌浅色、科技紫深色、减少透明度回退；项目双标签、校验、扫描方式、下拉层级与 Escape、取消重开；真实会话双标签、完整内容和参数展开；320 / 390 像素无弹层横向溢出。另用独立原生组件 fixture 检查四方向抽屉、自定义挂载、焦点循环与全屏。浏览器外观与尺寸已恢复到原始翡翠绿、浅色、标准密度和窗口尺寸。
+- 跨模块回归新建 Workflow 弹窗：名称 / Key / 项目 / 类型 / 引擎 / 描述完整，类型选项可打开，Escape 只收起选项，取消后焦点回到“新建 Workflow”。只读取并取消，没有新建或发布。
+- 当前环境限制：模型接入向导的目录请求出现 `timeout of 60000ms exceeded`，只完成外壳、加载 / 错误和关闭验证；未验证后续接入。没有生成真实项目令牌，没有写入业务数据，真实令牌结果路径由现有模拟响应测试覆盖。未逐个重新联调全部消费者的保存 / 发布。
+- 证据：`output/playwright/overlay-glass-20261023/`，包括最终构建、测试、静态检查、回归失败日志、主题记录与截图。保留原有 5 个 WIP 文件，逐个 SHA-256 校验一致；未提交、未推送、未部署。
+
+### 2026-10-23 磨砂材质试调
+
+- 用户反馈弹窗白色背景偏重，要求尝试磨砂。只调整公共材质，不改布局、字段或业务逻辑：亮色白纱从 86%–94% 降至 50%–68%，深色同步降低着色浓度；弹层局部背景模糊提高到 40px，边缘光泽减弱为 0.5。背景保留柔和色调，底层文字由模糊隔离，表单与提示区保留独立阅读底。
+- 实际 Edge 检查翡翠绿浅色、科技紫深色、科技紫壁纸下浅色和减少透明度回退；减少透明度时恢复实体背景且关闭折射、模糊。所有外观设置恢复至本轮开始状态。
+- 验证：本轮 `npm run build`、38 项 `test:liquid-glass`、glass-theme、dark-theme-compatibility、overlay-migration 通过；无新增业务写入。记录和截图位于 `output/playwright/modal-frost-20261023/`。这是本地磨砂效果试调，未提交、未部署。
+
+### 2026-10-24 全站剩余弹窗磨砂补齐
+
+- 按用户“所有未改的弹窗”的范围，盘点 80 个 Vue 文件中的 123 个弹层相关声明和 34 个非测试文件中的 69 个 ElMessageBox 调用。声明包含公共封装，不能等同于互不重复的业务弹窗数；明细见 [全站磨砂弹层覆盖清单](2026-10-24-全站磨砂弹层覆盖清单.md)。
+- ElMessageBox 与自定义 `app-frosted-overlay` 接入公共材质和回退；看板组件目录 / 设置增加公共折射层，内部目录、快捷入口预设与条目改用玻璃 inset。删除重复皮肤，避免每个模块自行维护一套白底。
+- 清理模型接入向导主体 / 底栏、来源导入与扫描设置、组合配置弹窗、Agent 协作与选择器、API 市场详情 / 接入、来源变化比较、页面任务分组等局部实底。代码与输入区域保留对比；SDK 记忆面板在自身主题变量下渐进启用磨砂，不耦合管理端。
+- Studio 模型选择、检查 / 变量、高级调试浮层复用公共材质，非模态调试抽屉保留原挂载语义。实测修正了两处叠加问题：确认框的逻辑宽度不能覆盖原有 420px 上限；公共磨砂 Popover 的优先级需要高于后加载的通用菜单皮肤。修正后检查实际计算样式与截图。
+- 验证：完整 `npm run build`（含 SDK）；38 项玻璃、107 项看板、105 项 SDK、3 项模型向导、9 项 Studio 模型选择测试，共 262 项通过。glass-theme、dark-theme-compatibility、overlay-migration 通过；既有 glass-components、page-rhythm 失败沿用前轮基线，没有放宽检查。`git diff --check` 通过。
+- 浏览器：原 Edge 已登录看板设置在上阶段验证；续作时后端和原浏览器会话已停止，前端恢复后认证服务明确不可用，没有绕过认证。独立验收页挂载真实生产组件并标注示例内容，检查确认 / 输入提示、看板目录 / 设置、公共弹窗 / 抽屉、组合配置弹窗和 Studio 浮层的亮暗、减少透明度、390px 窄屏、焦点 / Escape / 草稿取消与内部滚动。不将组件验证写成所有业务提交 / 发布验收。
+- 证据：`output/playwright/all-overlays-20261023/`。原有 5 个用户 WIP 文件逐个 SHA-256 一致；未提交、未推送、未部署。

@@ -22,7 +22,7 @@
         </div>
       </template>
       <template #actions>
-        <LiquidGlassButton source="wallpaper" type="primary" :icon="Connection" @click="attachDialogVisible = true">接入 Agent</LiquidGlassButton>
+        <LiquidGlassButton v-if="canAttachAgent" source="wallpaper" type="primary" :icon="Connection" @click="attachDialogVisible = true">接入 Agent</LiquidGlassButton>
       </template>
     </PageHeader>
 
@@ -30,7 +30,7 @@
       <h2 id="knowledge-usage-title" class="knowledge-usage__title">谁在用</h2>
       <div v-if="usage.workflows.length === 0 && !usage.hiddenWorkflowCount" class="usage-empty">
         <span>还没有 Agent 使用这个知识库。接入后，Agent 遇到相关问题会检索本库并按资料回答。</span>
-        <el-button type="primary" link @click="attachDialogVisible = true">接入 Agent</el-button>
+        <el-button v-if="canAttachAgent" type="primary" link @click="attachDialogVisible = true">接入 Agent</el-button>
       </div>
       <div v-else class="usage-list">
         <div v-for="workflow in usage.workflows" :key="workflow.id" class="usage-row">
@@ -96,6 +96,10 @@ import KnowledgeSettingsTab from './knowledge/KnowledgeSettingsTab.vue'
 import KnowledgeAttachAgentDialog from './knowledge/KnowledgeAttachAgentDialog.vue'
 import { accessModeLabel, resolveKnowledgeDetailTab, usageFor, type KnowledgeDetailTab } from './knowledge/knowledgeDetailModel'
 import { useModelNames } from './knowledge/useModelNames'
+import { usePlatformCan } from '@/auth/usePlatformCan'
+import { PLATFORM_PERMISSION_AGENT_WRITE } from '@/auth/platformAccess'
+const { can } = usePlatformCan()
+const canAttachAgent = computed(() => can(PLATFORM_PERMISSION_AGENT_WRITE))
 
 const route = useRoute()
 const router = useRouter()

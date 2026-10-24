@@ -277,6 +277,38 @@ defineExpose({ reload })
   font-size: 13px;
 }
 
+/* SDK 只依赖自身主题变量，避免嵌入业务系统时耦合管理端样式。 */
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  .eaf-memory {
+    background: color-mix(in srgb, var(--reachai-chat-surface, #fff) 82%, transparent);
+    -webkit-backdrop-filter: blur(32px) saturate(1.15);
+    backdrop-filter: blur(32px) saturate(1.15);
+  }
+}
+
+:global([data-reduce-transparency='true']) .eaf-memory {
+  background: var(--reachai-chat-surface, #fff);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .eaf-memory {
+    background: var(--reachai-chat-surface, #fff);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .eaf-memory {
+    color: CanvasText;
+    background: Canvas;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
 .eaf-memory__head {
   display: flex;
   align-items: center;

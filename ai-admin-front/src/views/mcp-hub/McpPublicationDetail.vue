@@ -5,6 +5,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowLeft, DocumentCopy, Plus, Refresh } from '@element-plus/icons-vue'
 import AppDialog from '@/components/common/AppDialog.vue'
 import CodeSnippetBlock from '@/components/common/CodeSnippetBlock.vue'
+import McpEmployeeAccessPanel from './McpEmployeeAccessPanel.vue'
 import { LiquidGlassButton, LiquidGlassCard, LiquidGlassNotice, LiquidGlassTabs } from '@/components/common/liquid-glass'
 import {
   addMcpPublicationItem,
@@ -38,6 +39,11 @@ import type {
   McpRiskLevel,
   McpRiskSummary,
 } from '@/types/mcp'
+import { usePlatformCan } from '@/auth/usePlatformCan'
+import { PLATFORM_PERMISSION_MCP_CREDENTIAL_MANAGE, PLATFORM_PERMISSION_MCP_PUBLICATION_MANAGE } from '@/auth/platformAccess'
+const { can } = usePlatformCan()
+const canManage = computed(() => can(PLATFORM_PERMISSION_MCP_PUBLICATION_MANAGE))
+const canManageClients = computed(() => can(PLATFORM_PERMISSION_MCP_CREDENTIAL_MANAGE))
 
 const route = useRoute()
 const router = useRouter()
@@ -577,17 +583,17 @@ onMounted(reload)
       </div>
       <div class="detail-actions">
         <LiquidGlassButton source="wallpaper" :icon="Refresh" :loading="loading" @click="reload">刷新</LiquidGlassButton>
-        <LiquidGlassButton source="wallpaper" @click="openEdit">编辑信息</LiquidGlassButton>
+        <LiquidGlassButton v-if="canManage" source="wallpaper" @click="openEdit">编辑信息</LiquidGlassButton>
         <LiquidGlassButton source="wallpaper"
-          v-if="detail.publication.state === 'DRAFT' || detail.publication.state === 'PUBLISHED'"
+          v-if="canManage && (detail.publication.state === 'DRAFT' || detail.publication.state === 'PUBLISHED')"
           type="primary"
           @click="publishFlow"
         >
           {{ detail.publication.state === 'PUBLISHED' ? '发布新修订' : '发布' }}
         </LiquidGlassButton>
-        <LiquidGlassButton source="wallpaper" v-if="detail.publication.state === 'PUBLISHED'" type="warning" @click="runStateAction('suspend')">暂停</LiquidGlassButton>
-        <LiquidGlassButton source="wallpaper" v-if="detail.publication.state === 'SUSPENDED'" type="success" @click="runStateAction('resume')">恢复</LiquidGlassButton>
-        <LiquidGlassButton source="wallpaper" v-if="detail.publication.state !== 'ARCHIVED'" type="danger" @click="runStateAction('archive')">归档</LiquidGlassButton>
+        <LiquidGlassButton source="wallpaper" v-if="canManage && detail.publication.state === 'PUBLISHED'" type="warning" @click="runStateAction('suspend')">暂停</LiquidGlassButton>
+        <LiquidGlassButton source="wallpaper" v-if="canManage && detail.publication.state === 'SUSPENDED'" type="success" @click="runStateAction('resume')">恢复</LiquidGlassButton>
+        <LiquidGlassButton source="wallpaper" v-if="canManage && detail.publication.state !== 'ARCHIVED'" type="danger" @click="runStateAction('archive')">归档</LiquidGlassButton>
       </div>
     </div>
 
@@ -598,7 +604,7 @@ onMounted(reload)
           <div class="tab-toolbar">
             <p class="tab-hint">从能力目录与已发布 Workflow 中挑选条目；发布前先做解析预览与预检，不可逆工具需显式放行。</p>
             <div class="tab-actions">
-              <LiquidGlassButton :icon="Plus" type="primary" @click="openItemDialog">添加条目</LiquidGlassButton>
+              <LiquidGlassButton v-if="canManage" :icon="Plus" type="primary" @click="openItemDialog">添加条目</LiquidGlassButton>
               <LiquidGlassButton :loading="previewLoading" @click="runResolvePreview">解析预览</LiquidGlassButton>
               <LiquidGlassButton :loading="precheckLoading" @click="runPrecheck">预检</LiquidGlassButton>
             </div>
@@ -634,7 +640,7 @@ onMounted(reload)
             </el-table-column>
             <el-table-column label="操作" width="90" fixed="right">
               <template #default="{ row }">
-                <el-button link type="danger" size="small" @click="removeItem(row)">移除</el-button>
+                <el-button v-if="canManage" link type="danger" size="small" @click="removeItem(row)">移除</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -721,7 +727,7 @@ onMounted(reload)
             <el-table-column label="操作" width="100" fixed="right">
               <template #default="{ row }">
                 <el-button
-                  v-if="row.id !== detail.publication.currentRevisionId
+                  v-if="canManage && row.id !== detail.publication.currentRevisionId
                     && (detail.publication.state === 'PUBLISHED' || detail.publication.state === 'SUSPENDED')"
                   link
                   type="warning"
@@ -744,6 +750,7 @@ onMounted(reload)
             <p class="tab-hint">凭证归属本发布；API Key 仅创建/轮换时明文显示一次。工具范围只能引用本发布内的工具名，留空表示整包。</p>
             <div class="tab-actions">
               <LiquidGlassButton
+                v-if="canManageClients"
                 type="primary"
                 :icon="Plus"
                 :disabled="detail.publication.state !== 'PUBLISHED'"
@@ -786,7 +793,7 @@ onMounted(reload)
             <el-table-column prop="lastUsedAt" label="最近调用" width="170">
               <template #default="{ row }">{{ formatDateTime(row.lastUsedAt) }}</template>
             </el-table-column>
-            <el-table-column label="操作" width="150" fixed="right">
+            <el-table-column v-if="canManageClients" label="操作" width="150" fixed="right">
               <template #default="{ row }">
                 <el-button :disabled="row.state !== 'ACTIVE'" link type="primary" size="small" @click="openClientEdit(row)">编辑</el-button>
                 <el-button :disabled="row.state !== 'ACTIVE'" link type="warning" size="small" @click="rotateClient(row)">轮换</el-button>
@@ -794,6 +801,16 @@ onMounted(reload)
               </template>
             </el-table-column>
           </el-table>
+        </LiquidGlassCard>
+      </el-tab-pane>
+
+      <!-- 员工使用：员工在自己的 AI 工具里以本人身份调用 -->
+      <el-tab-pane label="员工使用" name="employees" lazy>
+        <LiquidGlassCard source="wallpaper" class="tab-body">
+          <McpEmployeeAccessPanel
+            :publication-id="publicationId"
+            :published="detail.publication.state === 'PUBLISHED' && Boolean(detail.publication.currentRevisionId)"
+          />
         </LiquidGlassCard>
       </el-tab-pane>
 

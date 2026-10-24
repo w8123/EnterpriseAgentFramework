@@ -15,7 +15,7 @@
         <el-tooltip content="刷新索引" placement="top">
           <LiquidGlassButton source="wallpaper" circle :icon="Refresh" :loading="bizIndexStore.loading" aria-label="刷新索引" @click="bizIndexStore.fetchList()" />
         </el-tooltip>
-        <LiquidGlassButton source="wallpaper" type="primary" :icon="Plus" @click="openCreateDialog">注册索引</LiquidGlassButton>
+        <LiquidGlassButton v-if="canWriteKnowledge" source="wallpaper" type="primary" :icon="Plus" @click="openCreateDialog">注册索引</LiquidGlassButton>
       </template>
     </PageHeader>
 
@@ -76,10 +76,11 @@
               @click="router.push(`/biz-index/${row.indexCode}`)">
               详情
             </el-button>
-            <el-button type="primary" link size="small" @click="openEditDialog(row)">
+            <el-button v-if="canWriteKnowledge" type="primary" link size="small" @click="openEditDialog(row)">
               编辑
             </el-button>
             <el-popconfirm
+              v-if="canWriteKnowledge"
               title="确定删除此索引？所有关联数据将被清除。"
               confirm-button-text="确定"
               cancel-button-text="取消"
@@ -230,6 +231,10 @@ import { getModelInstances } from '@/api/model'
 import type { BizIndex, BizIndexForm } from '@/types/bizIndex'
 import type { ModelInstance } from '@/types/model'
 import { normalizeActiveModelInstances } from '@/utils/modelSelection'
+import { usePlatformCan } from '@/auth/usePlatformCan'
+import { PLATFORM_PERMISSION_KNOWLEDGE_WRITE } from '@/auth/platformAccess'
+const { can } = usePlatformCan()
+const canWriteKnowledge = computed(() => can(PLATFORM_PERMISSION_KNOWLEDGE_WRITE))
 
 const router = useRouter()
 const bizIndexStore = useBizIndexStore()

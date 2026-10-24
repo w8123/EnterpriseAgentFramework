@@ -16,7 +16,7 @@
           placement="bottom-end"
           trigger="click"
           width="560"
-          popper-class="debug-advanced-popover"
+          popper-class="debug-advanced-popover app-frosted-overlay"
         >
           <template #reference>
             <el-button class="debug-advanced-trigger" plain :icon="Operation">
@@ -453,13 +453,6 @@ function resolveWorkflowThinkingPresentation(message: ConversationMessage) {
 :global(.studio-debug-drawer-overlay .studio-debug-drawer) {
   pointer-events: auto;
   min-width: min(760px, 100vw);
-  border-left: 1px solid rgb(var(--brand-primary-rgb) / 0.72);
-  background:
-    radial-gradient(circle at 18% 8%, rgb(var(--brand-primary-rgb) / 0.14), transparent 32%),
-    radial-gradient(circle at 76% 18%, color-mix(in srgb, var(--status-info) 13%, transparent), transparent 28%),
-    linear-gradient(135deg, var(--surface-glass-control), rgb(var(--brand-primary-rgb) / 0.62));
-  box-shadow: -26px 0 72px rgba(15, 23, 42, 0.16);
-  backdrop-filter: blur(20px) saturate(1.18);
 }
 
 :global(.studio-debug-drawer-overlay .studio-debug-drawer.rtl.open),
@@ -473,8 +466,6 @@ function resolveWorkflowThinkingPresentation(message: ConversationMessage) {
   margin-bottom: 0;
   padding: 22px 28px 18px;
   border-bottom: 1px solid var(--border-glass-edge);
-  background: var(--surface-glass-control);
-  backdrop-filter: blur(16px) saturate(1.18);
 }
 
 :global(.studio-debug-drawer-overlay .studio-debug-drawer .el-drawer__close-btn) {
@@ -521,7 +512,7 @@ function resolveWorkflowThinkingPresentation(message: ConversationMessage) {
   padding: 14px;
   border: 1px solid var(--border-readable);
   border-radius: 16px;
-  background: var(--surface-glass-control);
+  background: var(--surface-glass-inset);
   box-shadow: 0 22px 56px rgba(15, 23, 42, 0.1);
   backdrop-filter: blur(18px) saturate(1.16);
 }
@@ -541,9 +532,7 @@ function resolveWorkflowThinkingPresentation(message: ConversationMessage) {
   isolation: isolate;
   overflow: hidden;
   border-color: transparent;
-  background:
-    linear-gradient(var(--surface-glass-control), var(--surface-glass-control)) padding-box,
-    linear-gradient(135deg, var(--surface-solid-panel), var(--surface-pressed)) border-box;
+  background: var(--surface-glass-inset);
 
   .debug-chat-conversation {
     flex: 1;
@@ -576,7 +565,7 @@ function resolveWorkflowThinkingPresentation(message: ConversationMessage) {
     background:
       radial-gradient(circle at 14% 0%, rgb(var(--brand-primary-rgb) / 0.12), transparent 34%),
       radial-gradient(circle at 92% 12%, color-mix(in srgb, var(--status-info) 11%, transparent), transparent 28%),
-      var(--surface-glass-control);
+      var(--surface-glass-inset);
     backdrop-filter: blur(18px) saturate(1.16);
   }
 
@@ -1085,13 +1074,6 @@ function resolveWorkflowThinkingPresentation(message: ConversationMessage) {
 
 :global(.debug-advanced-popover) {
   max-width: min(560px, calc(100vw - 40px));
-  border: 1px solid var(--border-readable) !important;
-  border-radius: 16px !important;
-  background:
-    radial-gradient(circle at 10% 0%, rgb(var(--brand-primary-rgb) / 0.12), transparent 34%),
-    linear-gradient(135deg, var(--surface-solid-panel), var(--surface-glass-control)) !important;
-  box-shadow: 0 24px 62px rgba(15, 23, 42, 0.16) !important;
-  backdrop-filter: blur(18px) saturate(1.16);
 }
 
 @media (prefers-reduced-motion: reduce) {

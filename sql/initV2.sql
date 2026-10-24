@@ -1267,6 +1267,7 @@ CREATE TABLE IF NOT EXISTS `runtime_run` (
     `updated_at`              DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_runtime_run_trace` (`trace_id`),
+    KEY `idx_runtime_run_started` (`started_at`, `id`),
     KEY `idx_runtime_run_project_time` (`project_id`, `started_at`),
     KEY `idx_runtime_run_project_code_time` (`project_code`, `started_at`),
     KEY `idx_runtime_run_status_time` (`status`, `started_at`),
@@ -2226,15 +2227,65 @@ CREATE TABLE IF NOT EXISTS `control_mcp_call_log` (
     `trace_id`         VARCHAR(64)  DEFAULT NULL,
     `run_id`           VARCHAR(64)  DEFAULT NULL COMMENT 'MCP tools/call 关联的 Runtime run（双向复用）',
     `remote_ip`        VARCHAR(64)  DEFAULT NULL,
+    `connection_id`    BIGINT       DEFAULT NULL COMMENT '员工个人 AI 工具连接（员工调用时）',
+    `external_user_id` VARCHAR(128) DEFAULT NULL COMMENT '员工在该业务系统的账号（员工调用时）',
+    `tool_client_name` VARCHAR(64)  DEFAULT NULL COMMENT '员工使用的 AI 工具，如 CLAUDE_CODE / CODEX',
     `created_at`       DATETIME     DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     KEY `idx_direction_created`  (`direction`, `created_at`),
+    KEY `idx_mcp_log_connection` (`connection_id`, `created_at`),
     KEY `idx_publication_created` (`publication_id`, `created_at`),
     KEY `idx_client_created`     (`client_id`, `created_at`),
     KEY `idx_method`             (`method`, `created_at`),
     KEY `idx_trace`              (`trace_id`),
     KEY `idx_mcp_log_project_trace` (`project_code`, `trace_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='MCP 双向调用审计 (MCP Hub)';
+
+CREATE TABLE IF NOT EXISTS `control_mcp_employee_access` (
+    `id`             BIGINT       NOT NULL AUTO_INCREMENT,
+    `publication_id` BIGINT       NOT NULL COMMENT '员工可用的 MCP 发布',
+    `project_id`     BIGINT       DEFAULT NULL COMMENT '员工所属业务系统（项目 id，调用权限按它匹配）',
+    `project_code`   VARCHAR(96)  NOT NULL COMMENT '员工所属业务系统（项目编码）',
+    `display_name`   VARCHAR(128) DEFAULT NULL COMMENT '员工看到的系统名称',
+    `enabled`        TINYINT(1)   NOT NULL DEFAULT 1,
+    `created_at`     DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`     DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_employee_access_publication` (`publication_id`),
+    UNIQUE KEY `uk_employee_access_project`     (`project_code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='员工在自己的 AI 工具中可用的业务系统发布（每个系统一个）';
+
+CREATE TABLE IF NOT EXISTS `control_ai_tool_connection` (
+    `id`               BIGINT       NOT NULL AUTO_INCREMENT,
+    `tenant_id`        VARCHAR(96)  NOT NULL DEFAULT 'default',
+    `business_user_id` BIGINT       NOT NULL COMMENT 'control_business_user.id',
+    `app_id`           VARCHAR(96)  NOT NULL COMMENT '创建连接时所在的业务系统',
+    `external_user_id` VARCHAR(128) NOT NULL COMMENT '创建连接时的业务系统账号',
+    `user_name`        VARCHAR(128) DEFAULT NULL,
+    `tool_kind`        VARCHAR(32)  NOT NULL COMMENT 'CLAUDE_CODE / CODEX / OTHER',
+    `key_prefix`       VARCHAR(16)  NOT NULL COMMENT '连接密钥前缀（展示用）',
+    `key_hash`         VARCHAR(128) NOT NULL COMMENT '连接密钥 SHA-256，明文只展示一次',
+    `state`            VARCHAR(16)  NOT NULL DEFAULT 'ACTIVE' COMMENT 'ACTIVE/REVOKED/EXPIRED；后两者为终态',
+    `expires_at`       DATETIME     DEFAULT NULL,
+    `last_used_at`     DATETIME     DEFAULT NULL,
+    `revoked_at`       DATETIME     DEFAULT NULL,
+    `created_at`       DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`       DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_ai_tool_connection_key` (`key_hash`),
+    KEY `idx_ai_tool_connection_owner` (`tenant_id`, `business_user_id`, `state`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='员工个人 AI 工具连接（在我的 AI 工具中使用）';
+
+CREATE TABLE IF NOT EXISTS `control_ai_tool_connection_system` (
+    `id`             BIGINT      NOT NULL AUTO_INCREMENT,
+    `connection_id`  BIGINT      NOT NULL,
+    `project_code`   VARCHAR(96) NOT NULL COMMENT '员工勾选的业务系统',
+    `publication_id` BIGINT      NOT NULL COMMENT '勾选时该系统的员工可用发布',
+    `created_at`     DATETIME    DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_ai_tool_connection_system` (`connection_id`, `project_code`),
+    KEY `idx_ai_tool_connection_system_project` (`project_code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='员工个人 AI 工具连接勾选的业务系统';
 
 
 -- ============================================================================
@@ -4076,15 +4127,16 @@ CREATE TABLE IF NOT EXISTS `control_platform_auth_audit_event` (
     KEY `idx_platform_auth_audit_target` (`target_type`, `target_id`, `created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='平台认证与高风险身份映射管理操作审计';
 
--- 平台角色（2026-10-17 人员角色与权限重设计）：开发人员按项目授权，运营人员负责 Workflow/Agent/知识/
--- 使用者与调用权限，平台管理员拥有全部权限，审计员只读。普通用户（嵌入式对话的终端用户）不是平台角色，
--- 由业务用户目录与调用权限（control_tool_acl）管理。
+-- 平台角色（2026-10-17 人员角色与权限重设计，2026-10-24 角色账号权限整理）：开发人员按项目授权，
+-- 运营人员负责 Workflow/Agent/知识/MCP/使用者与调用权限，管理人员查看使用记录（谁、用什么 AI 工具、做了什么）
+-- 并可断开员工连接，平台管理员拥有全部权限。普通用户（业务系统员工）不是平台角色，用业务系统账号在嵌入式对话
+-- 或自己的 AI 工具里使用，由业务用户目录与调用权限（control_tool_acl）管理。
 INSERT IGNORE INTO `control_platform_role` (`role_code`, `role_name`, `description`, `role_kind`, `status`)
 VALUES
 ('PLATFORM_ADMIN', '平台管理员', '账号与角色、认证源、模型、合规等平台管理，拥有全部权限', 'SYSTEM', 'ACTIVE'),
 ('DEVELOPER', '开发人员', 'Java 接入开发者：项目接入、SDK 凭证、业务方法与 HTTP API、变化评审；建议按项目授权', 'SYSTEM', 'ACTIVE'),
 ('OPERATOR', '运营人员', 'Agent / Workflow 实施与日常运营：编排、发布、知识、运行中心、使用者与调用权限', 'SYSTEM', 'ACTIVE'),
-('AUDITOR', '审计员', '只读查看配置、运行记录与权限', 'SYSTEM', 'ACTIVE');
+('MANAGER', '管理人员', '查看使用记录：谁、用什么 AI 工具、对哪个系统做了什么；可断开员工连接，其他只读', 'SYSTEM', 'ACTIVE');
 
 INSERT IGNORE INTO `control_platform_permission` (`permission_code`, `permission_name`, `resource_type`, `action`)
 VALUES
@@ -4118,6 +4170,7 @@ VALUES
 ('a2a-hub:payload:read', '在审计下读取 A2A 留存载荷', 'A2A_PAYLOAD', 'READ'),
 ('a2a-hub:conformance:run', '运行 A2A 诊断与一致性检查', 'A2A_CONFORMANCE', 'RUN'),
 ('mcp-hub:read', '查看 MCP 发布与调用摘要', 'MCP_HUB', 'READ'),
+('mcp-hub:employee-connection:manage', '查看和断开员工的 AI 工具连接', 'MCP_EMPLOYEE_CONNECTION', 'MANAGE'),
 ('mcp-hub:publication:manage', '管理 MCP 对外发布', 'MCP_PUBLICATION', 'MANAGE'),
 ('mcp-hub:publication:irreversible', '发布含不可逆工具的 MCP 版本', 'MCP_PUBLICATION', 'PUBLISH_IRREVERSIBLE'),
 ('mcp-hub:credential:manage', '创建、轮换和吊销 MCP 凭证', 'MCP_CREDENTIAL', 'MANAGE'),
@@ -4167,16 +4220,16 @@ WHERE r.role_code = 'OPERATOR'
                             'identity:business-user:read', 'identity:business-user:manage',
                             'skill:read', 'skill:import', 'skill:bind',
                             'mcp-hub:read', 'mcp-hub:publication:manage', 'mcp-hub:credential:manage',
+                            'mcp-hub:employee-connection:manage',
                             'a2a-hub:read', 'a2a-hub:publication:manage', 'a2a-hub:remote-agent:manage',
                             'a2a-hub:task:operate', 'a2a-hub:conformance:run');
 
 INSERT IGNORE INTO `control_platform_role_permission` (`role_id`, `permission_id`)
 SELECT r.id, p.id FROM `control_platform_role` r JOIN `control_platform_permission` p
-WHERE r.role_code = 'AUDITOR'
-  AND p.permission_code IN ('platform:read', 'agent:read', 'workflow:read', 'runops:read',
-                            'automation:read', 'knowledge:read', 'model:read', 'tool-acl:read',
-                            'embed:read', 'identity:business-user:read', 'skill:read',
-                            'mcp-hub:read', 'a2a-hub:read');
+WHERE r.role_code = 'MANAGER'
+  AND p.permission_code IN ('agent:read', 'workflow:read', 'runops:read', 'automation:read',
+                            'knowledge:read', 'tool-acl:read', 'embed:read', 'identity:business-user:read',
+                            'skill:read', 'mcp-hub:read', 'mcp-hub:employee-connection:manage');
 
 INSERT IGNORE INTO `control_platform_auth_provider` (`provider_code`, `provider_name`, `provider_type`, `status`, `config_json`)
 VALUES

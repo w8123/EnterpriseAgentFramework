@@ -3448,7 +3448,7 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
             McpProtocolApplicationService protocol = new McpProtocolApplicationService(
                     clientsRepository, publicationsRepository, callAuditRepository, acl, gateway, json);
             McpEndpointController endpoint = new McpEndpointController(new McpProtocolRequestGuard(properties), protocol,
-                    properties, json, new McpAuditPayloadSanitizer(json, properties));
+                    properties, json, new McpAuditPayloadSanitizer(json, properties), null);
             LoopbackBridge mcpBridge = LoopbackBridge.start(MockMvcBuilders.standaloneSetup(endpoint)
                     .setControllerAdvice(new McpProtocolExceptionHandler(protocol)).build());
             closers.add(mcpBridge);
@@ -4070,7 +4070,7 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
                             new McpPublicationController(publications, managementAccess, audit),
                             new McpClientController(clients, managementAccess, audit),
                             new McpEndpointController(new McpProtocolRequestGuard(mcpProperties), protocol,
-                                    mcpProperties, json, new McpAuditPayloadSanitizer(json, mcpProperties)),
+                                    mcpProperties, json, new McpAuditPayloadSanitizer(json, mcpProperties), null),
                             new com.enterprise.ai.control.capability.CapabilityInvocationConsoleController(
                                     reviewGateway, new com.enterprise.ai.control.capability.RuntimeConsoleCapabilityInvocationGateway(
                                             runtimeProxy(), new InternalServiceAuthSigner(INTERNAL_SECRET), json),

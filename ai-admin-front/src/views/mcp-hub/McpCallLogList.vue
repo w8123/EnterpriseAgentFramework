@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { Connection, Filter, Search } from '@element-plus/icons-vue'
 import AppDialog from '@/components/common/AppDialog.vue'
 import MetricStrip from '@/components/common/MetricStrip.vue'
@@ -25,10 +26,13 @@ const rows = ref<McpCallLogEntry[]>([])
 const total = ref(0)
 const publications = ref<McpPublication[]>([])
 const clients = ref<McpClientView[]>([])
+const route = useRoute()
+const routeConnectionId = Number(route?.query?.connectionId)
 const query = reactive({
   direction: '',
   publicationId: undefined as number | undefined,
   clientId: undefined as number | undefined,
+  connectionId: (Number.isFinite(routeConnectionId) && routeConnectionId > 0 ? routeConnectionId : undefined) as number | undefined,
   method: '',
   toolName: '',
   success: '' as '' | 'true' | 'false',
@@ -109,6 +113,25 @@ function directionLabel(direction?: string | null) {
   return direction === 'INBOUND' ? '入向' : '出向'
 }
 
+const aiToolLabels: Record<string, string> = { CLAUDE_CODE: 'Claude Code', CODEX: 'Codex', OTHER: '其他 AI 工具' }
+
+function callerTitle(row: McpCallLogEntry) {
+  if (row.connectionId != null) return row.clientName || `员工 ${row.externalUserId ?? ''}`.trim()
+  return row.clientName || (row.clientId != null ? `Client #${row.clientId}` : '未绑定凭证')
+}
+
+function callerDetail(row: McpCallLogEntry) {
+  if (row.connectionId == null) return row.projectCode || ''
+  const tool = row.toolClientName ? (aiToolLabels[row.toolClientName] ?? row.toolClientName) : 'AI 工具'
+  return [`员工 · ${tool}`, row.projectCode].filter(Boolean).join(' · ')
+}
+
+function clearConnectionFilter() {
+  query.connectionId = undefined
+  query.offset = 0
+  reload()
+}
+
 function resultLabel(success?: boolean | null) {
   if (success === true) return '成功'
   if (success === false) return '失败'
@@ -153,6 +176,7 @@ async function reload() {
       direction: query.direction || undefined,
       publicationId: query.publicationId,
       clientId: query.clientId,
+      connectionId: query.connectionId,
       method: query.method || undefined,
       toolName: query.toolName || undefined,
       success: query.success === '' ? undefined : query.success === 'true',
@@ -187,6 +211,7 @@ function resetFilters() {
   query.direction = ''
   query.publicationId = undefined
   query.clientId = undefined
+  query.connectionId = undefined
   query.method = ''
   query.toolName = ''
   query.success = ''
@@ -240,6 +265,11 @@ onMounted(() => {
     <MetricStrip presentation="inline" source="wallpaper" class="call-log-metrics" :items="metricItems" aria-label="调用流水指标概览" />
 
     <LiquidGlassNotice v-if="loadError" source="wallpaper" type="error" :title="`调用流水加载失败：${loadError}`" />
+    <LiquidGlassNotice v-if="query.connectionId" source="wallpaper" :title="`只看员工连接 #${query.connectionId} 的调用`">
+      <template #actions>
+        <LiquidGlassButton size="small" @click="clearConnectionFilter">看全部</LiquidGlassButton>
+      </template>
+    </LiquidGlassNotice>
 
     <LiquidGlassTable class="call-log-card workbench-list-surface" :loading="loading" :show-pagination="total > 0">
       <template #toolbar>
@@ -337,11 +367,11 @@ onMounted(() => {
               </span>
             </template>
           </el-table-column>
-          <el-table-column label="Client 凭证" min-width="120">
+          <el-table-column label="调用方" min-width="130">
             <template #default="{ row }">
               <div class="stacked-cell">
-                <strong>{{ row.clientName || (row.clientId != null ? `Client #${row.clientId}` : '未绑定凭证') }}</strong>
-                <span v-if="row.projectCode">{{ row.projectCode }}</span>
+                <strong>{{ callerTitle(row) }}</strong>
+                <span v-if="callerDetail(row)">{{ callerDetail(row) }}</span>
               </div>
             </template>
           </el-table-column>

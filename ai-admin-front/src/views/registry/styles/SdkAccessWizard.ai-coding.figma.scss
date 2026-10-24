@@ -743,7 +743,7 @@
 }
 
 /* Final shared background override: page-specific art layers stay in cards,
-   while the page field itself comes from AppPageBackground. */
+   while the page field itself comes from MainLayout's workspace background. */
 .sdk-access-page,
 .sdk-access-page.sdk-access-page,
 .sdk-access-page.is-dark-skin {

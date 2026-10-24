@@ -414,7 +414,7 @@ function formatDate(value?: string | null) {
     padding: 11px;
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-md);
-    background: var(--surface-solid-control);
+    background: var(--surface-glass-inset);
   }
 
   span {
@@ -450,7 +450,7 @@ function formatDate(value?: string | null) {
   padding: 16px;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
-  background: var(--surface-solid-control);
+  background: var(--surface-glass-inset);
 }
 
 .evidence-section__heading,
@@ -529,7 +529,7 @@ function formatDate(value?: string | null) {
   padding: 16px;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
-  background: var(--surface-solid-control);
+  background: var(--surface-glass-inset);
 }
 
 .operation-card__main {

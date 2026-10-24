@@ -65,4 +65,13 @@ describe('platform route navigation', () => {
       query: { redirect: protectedTarget.fullPath },
     })
   })
+
+  it('sends accounts without any role from the overview to the business-user landing page', () => {
+    expect(platformSessionNavigation({ fullPath: '/dashboard', meta: {} }, 'AUTHENTICATED', []))
+      .toEqual({ path: '/no-role' })
+    expect(platformSessionNavigation({ fullPath: '/dashboard', meta: {} }, 'AUTHENTICATED', ['runops:read']))
+      .toBe(true)
+    expect(platformSessionNavigation({ fullPath: '/me/memories', meta: {} }, 'AUTHENTICATED', []))
+      .toBe(true)
+  })
 })

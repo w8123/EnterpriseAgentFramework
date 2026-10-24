@@ -153,7 +153,7 @@ export interface DashboardWidgetConfig {
   title?: string
   topN?: number
   displayCount?: number
-  shortcutPreset?: 'developer' | 'operator' | 'admin' | 'custom'
+  shortcutPreset?: 'developer' | 'operator' | 'manager' | 'admin' | 'custom'
   /** 只保存代码注册的入口 ID；地址、图标与权限始终从导航注册表解析。 */
   shortcutIds?: string[]
 }

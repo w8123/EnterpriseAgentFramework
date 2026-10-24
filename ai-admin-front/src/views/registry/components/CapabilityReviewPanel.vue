@@ -371,12 +371,12 @@ defineExpose({ refresh: loadChanges })
 .field-diff + .field-diff { margin-top: 20px; }
 .field-name { display: block; margin-bottom: 10px; color: var(--text-secondary); font-size: 12px; font-weight: 600; }
 .field-comparison { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
-.field-comparison section { min-width: 0; padding: 14px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--surface-solid-control); }
+.field-comparison section { min-width: 0; padding: 14px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--surface-glass-inset); }
 .field-comparison .field-after { border-color: rgb(var(--brand-primary-rgb) / 0.2); background: rgb(var(--brand-primary-rgb) / 0.035); }
 .field-comparison small { display: flex; align-items: center; gap: 6px; margin-bottom: 12px; color: var(--text-muted); font-size: 11px; }
 .field-after small { color: var(--brand-active); }
 .field-value { margin: 0; padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; color: var(--text-primary); font: 12px/1.7 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
-.candidate-summary { margin: 16px 0 0; padding: 16px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--surface-solid-control); }
+.candidate-summary { margin: 16px 0 0; padding: 16px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--surface-glass-inset); }
 .candidate-summary > div { display: grid; grid-template-columns: 78px minmax(0, 1fr); gap: 16px; font-size: 12px; line-height: 1.75; }
 .candidate-summary > div + div { margin-top: 12px; }
 .candidate-summary dt, .source-facts dt { color: var(--text-muted); }
@@ -397,7 +397,6 @@ defineExpose({ refresh: loadChanges })
 .decision-context strong { color: var(--text-primary); font-size: 16px; font-weight: 650; }
 .decision-context p { margin: 12px 0 24px; color: var(--text-secondary); font-size: 13px; line-height: 1.85; }
 .decision-error { margin-bottom: 20px; }
-:global(.capability-change-drawer.el-drawer), :global(.capability-change-dialog.el-dialog) { background: var(--surface-solid-overlay); }
 
 @container (max-width: 830px) { .review-table { display: none; } .review-cards { display: grid; } }
 @container (max-width: 630px) { .review-filters { width: 100%; margin-left: 0; } .review-search { width: auto; flex: 1; } }

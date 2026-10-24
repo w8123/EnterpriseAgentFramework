@@ -51,6 +51,7 @@ function deferred<T>() {
   return { promise, resolve, reject }
 }
 
+vi.mock('@/auth/modelCatalogAccess', () => ({ canLoadModelCatalog: () => true, sessionAllows: () => true }))
 vi.mock('@/auth/platformSession', async () => {
   const { ref } = await import('vue')
   return { platformSessionId: ref('session-a') }

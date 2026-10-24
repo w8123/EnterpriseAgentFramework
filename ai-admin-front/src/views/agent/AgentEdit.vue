@@ -6,13 +6,10 @@
       presentation="plain"
       action-presentation="inline"
       :title="isNew ? '新建 Agent' : (form.name || agentId || 'Agent 配置')"
-      eyebrow="Agent 配置"
+      tag-placement="title"
       :description="isNew ? '创建一个能够理解需求并调用企业流程的 Agent。' : (form.description || '尚未填写职责说明')"
       density="compact"
-      height-preset="emphasis"
-      :show-back="!isNew"
       :artwork="false"
-      @back="router.push('/agent')"
     >
       <template v-if="!isNew" #leading>
         <span class="app-page-header__entity-mark agent-entity-mark"><el-icon><Cpu /></el-icon></span>
@@ -24,8 +21,8 @@
         />
         <StatusTag
           v-if="!isNew && activeConfig"
-          :label="`线上版本 v${activeConfig.versionNo}`"
-          tone="success"
+          :label="`线上 v${activeConfig.versionNo}`"
+          tone="info"
         />
         <StatusTag v-if="!isNew && draftConfig" :label="`草稿 v${draftConfig.versionNo} 待发布`" tone="warning" />
       </template>
@@ -198,7 +195,6 @@ import { provideAgentEditor, useAgentEditor } from './edit/useAgentEditor'
 const editor = useAgentEditor()
 provideAgentEditor(editor)
 const {
-  router,
   advancedSettingsVisible,
   agentId,
   isNew,
@@ -259,12 +255,6 @@ const {
 
 .agent-edit-page :deep(.app-page-header) {
   flex: 0 0 auto;
-}
-
-.agent-edit-page :deep(.app-page-header--entity) {
-  min-height: 136px;
-  border: 1px solid var(--border-divider);
-  box-shadow: var(--shadow-panel);
 }
 
 .agent-entity-mark {

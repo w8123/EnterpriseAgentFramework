@@ -18,12 +18,15 @@
         />
       </template>
       <template #meta>
-        <MetricStrip presentation="inline" source="wallpaper" :items="statMetrics" aria-label="索引统计" />
+        <span class="index-source">来源系统 · {{ indexDetail?.sourceSystem || '—' }}</span>
       </template>
       <template #actions>
-        <LiquidGlassButton source="wallpaper" :icon="Refresh" :loading="rebuildLoading" @click="handleRebuild">
+        <LiquidGlassButton v-if="canWriteKnowledge" source="wallpaper" :icon="Refresh" :loading="rebuildLoading" @click="handleRebuild">
           重建索引
         </LiquidGlassButton>
+        <el-tooltip content="接入指南" placement="bottom">
+          <LiquidGlassButton source="wallpaper" :icon="QuestionFilled" circle aria-label="接入指南" @click="guideVisible = true" />
+        </el-tooltip>
       </template>
     </PageHeader>
 
@@ -41,11 +44,19 @@
             :prefix-icon="Search"
             placeholder="输入语义搜索内容"
             aria-label="搜索内容"
+            :disabled="indexEmpty"
             clearable
           />
-          <LiquidGlassButton type="primary" native-type="submit" :loading="searchLoading">搜索</LiquidGlassButton>
+          <LiquidGlassButton type="primary" native-type="submit" :loading="searchLoading" :disabled="indexEmpty || !searchQuery.trim()">搜索</LiquidGlassButton>
         </form>
 
+        <div class="search-summary">
+          <MetricStrip presentation="inline" source="wallpaper" :items="statMetrics" aria-label="索引统计" />
+        </div>
+        <div class="results-heading">
+          <h3>检索结果</h3>
+          <span>{{ searchLoading ? '正在检索…' : searchExecuted && !searchError ? `${searchResults.length} 条匹配` : '按相似度排序' }}</span>
+        </div>
         <el-table v-if="searchResults.length > 0" :data="searchResults" stripe class="search-results">
           <el-table-column prop="bizId" label="业务ID" min-width="140" />
           <el-table-column prop="score" label="相似度" width="100" align="center">
@@ -67,47 +78,56 @@
             <template #default="{ row }">{{ row.matchFileName || '-' }}</template>
           </el-table-column>
         </el-table>
-        <p v-else class="search-hint" role="status">
-          {{ searchExecuted ? '未找到匹配结果，换个说法或检查文本模板。' : '结果会按相似度从高到低列出，并标明命中的是业务字段还是附件。' }}
-        </p>
+        <div v-else class="search-empty" role="status" aria-live="polite">
+          <el-icon class="search-empty__icon"><Search /></el-icon>
+          <h3>{{ searchLoading ? '正在检索业务记录' : searchError ? '搜索未完成' : indexEmpty ? '尚未同步业务记录' : searchExecuted ? '未找到匹配记录' : '用业务描述查找记录' }}</h3>
+          <p>{{ searchLoading ? '结果将按相似度从高到低展示。' : searchError ? '请稍后重试，或检查索引和检索服务状态。' : indexEmpty ? '先通过 SDK 同步业务数据，再在这里验证检索效果。' : searchExecuted ? '换个描述试试，或检查已同步数据的文本模板。' : '输入任务、订单等业务描述，查看命中的字段或附件。' }}</p>
+          <LiquidGlassButton v-if="indexEmpty && !searchLoading" @click="guideVisible = true">查看接入指南</LiquidGlassButton>
+        </div>
       </LiquidGlassCard>
 
       <aside class="biz-index-aside">
         <LiquidGlassCard source="wallpaper" aria-labelledby="biz-index-info-title">
           <header class="section-head">
-            <h2 id="biz-index-info-title">基本信息</h2>
+            <h2 id="biz-index-info-title">索引配置</h2>
           </header>
           <dl class="info-list">
-            <div><dt>来源系统</dt><dd>{{ indexDetail?.sourceSystem || '-' }}</dd></div>
-            <div><dt>Embedding 实例</dt><dd>{{ indexDetail?.embeddingModelInstanceId || '-' }}</dd></div>
-            <div><dt>向量维度</dt><dd>{{ indexDetail?.dimension || '-' }}</dd></div>
-            <div><dt>切分策略</dt><dd>{{ indexDetail?.splitType || '-' }}</dd></div>
-            <div><dt>切分大小 / 重叠</dt><dd>{{ indexDetail?.chunkSize ?? '-' }} / {{ indexDetail?.chunkOverlap ?? '-' }}</dd></div>
-            <div><dt>创建时间</dt><dd>{{ indexDetail?.createTime || '-' }}</dd></div>
             <div class="is-wide"><dt>文本模板</dt><dd><code class="template-code">{{ indexDetail?.textTemplate || '-' }}</code></dd></div>
+            <div class="is-wide"><dt>来源系统</dt><dd>{{ indexDetail?.sourceSystem || '-' }}</dd></div>
             <div class="is-wide"><dt>备注</dt><dd>{{ indexDetail?.remark || '-' }}</dd></div>
           </dl>
-        </LiquidGlassCard>
-
-        <LiquidGlassCard source="wallpaper" aria-labelledby="biz-index-guide-title">
-          <header class="section-head">
-            <h2 id="biz-index-guide-title">接入指南</h2>
-            <p>业务系统用项目凭证把数据推送到这个索引。</p>
-          </header>
-          <LiquidGlassTabs v-model="guideTab" class="guide-tabs">
-            <el-tab-pane v-for="guide in guides" :key="guide.key" :label="guide.label" :name="guide.key">
-              <div class="code-block">
-                <div class="code-header">
-                  <span>{{ guide.caption }}</span>
-                  <el-button size="small" link @click="copyText(guide.code)">复制</el-button>
-                </div>
-                <pre><code>{{ guide.code }}</code></pre>
-              </div>
-            </el-tab-pane>
-          </LiquidGlassTabs>
+          <details class="advanced-config">
+            <summary>高级配置</summary>
+            <dl class="info-list">
+              <div class="is-wide"><dt>Embedding 实例 ID</dt><dd class="instance-id">{{ indexDetail?.embeddingModelInstanceId || '-' }}</dd></div>
+              <div><dt>向量维度</dt><dd>{{ indexDetail?.dimension || '-' }}</dd></div>
+              <div><dt>切分策略</dt><dd>{{ indexDetail?.splitType === 'FIXED' ? '固定长度' : indexDetail?.splitType || '-' }}</dd></div>
+              <div class="is-wide"><dt>切分大小 / 重叠</dt><dd>{{ indexDetail?.chunkSize ?? '-' }} / {{ indexDetail?.chunkOverlap ?? '-' }}</dd></div>
+              <div class="is-wide"><dt>创建时间</dt><dd>{{ indexDetail?.createTime?.replace('T', ' ') || '-' }}</dd></div>
+            </dl>
+          </details>
         </LiquidGlassCard>
       </aside>
     </section>
+
+    <AppDrawer
+      v-model="guideVisible"
+      title="接入指南"
+      :size="'min(720px, 100vw)'"
+      description="业务系统用项目凭证把数据推送到这个索引。示例已填入当前索引编码和字段。"
+    >
+      <LiquidGlassTabs v-model="guideTab" class="guide-tabs">
+        <el-tab-pane v-for="guide in guides" :key="guide.key" :label="guide.label" :name="guide.key">
+          <div class="code-block">
+            <div class="code-header">
+              <span>{{ guide.caption }}</span>
+              <el-button size="small" link @click="copyText(guide.code)">复制</el-button>
+            </div>
+            <pre><code>{{ guide.code }}</code></pre>
+          </div>
+        </el-tab-pane>
+      </LiquidGlassTabs>
+    </AppDrawer>
   </WorkbenchPage>
 </template>
 
@@ -115,7 +135,8 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Refresh, Search } from '@element-plus/icons-vue'
+import { QuestionFilled, Refresh, Search } from '@element-plus/icons-vue'
+import AppDrawer from '@/components/common/AppDrawer.vue'
 import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import MetricStrip from '@/components/common/MetricStrip.vue'
@@ -124,6 +145,10 @@ import { LiquidGlassButton, LiquidGlassCard, LiquidGlassInput, LiquidGlassTabs }
 import StatusTag from '@/components/common/StatusTag.vue'
 import { getBizIndexDetail, getBizIndexStats, bizIndexRebuild, bizIndexSearch } from '@/api/bizIndex'
 import type { BizIndex, BizIndexStats, BizSearchItem } from '@/types/bizIndex'
+import { usePlatformCan } from '@/auth/usePlatformCan'
+import { PLATFORM_PERMISSION_KNOWLEDGE_WRITE } from '@/auth/platformAccess'
+const { can } = usePlatformCan()
+const canWriteKnowledge = computed(() => can(PLATFORM_PERMISSION_KNOWLEDGE_WRITE))
 
 const route = useRoute()
 const router = useRouter()
@@ -138,6 +163,8 @@ const searchQuery = ref('')
 const searchLoading = ref(false)
 const searchResults = ref<BizSearchItem[]>([])
 const searchExecuted = ref(false)
+const searchError = ref(false)
+const indexEmpty = computed(() => stats.value !== null && stats.value.recordCount === 0)
 
 const statMetrics = computed<MetricStripItem[]>(() => [
   { key: 'records', label: '索引记录', value: statsLoading.value && !stats.value ? '…' : stats.value?.recordCount ?? 0 },
@@ -147,6 +174,7 @@ const statMetrics = computed<MetricStripItem[]>(() => [
 ])
 
 const guideTab = ref('http')
+const guideVisible = ref(false)
 
 async function loadDetail() {
   const { data } = await getBizIndexDetail(indexCode)
@@ -177,9 +205,11 @@ async function handleRebuild() {
 }
 
 async function handleSearch() {
-  if (!searchQuery.value.trim()) return
+  if (!searchQuery.value.trim() || indexEmpty.value || searchLoading.value) return
   searchLoading.value = true
   searchExecuted.value = true
+  searchError.value = false
+  searchResults.value = []
   try {
     const { data } = await bizIndexSearch(indexCode, {
       query: searchQuery.value,
@@ -187,6 +217,8 @@ async function handleSearch() {
       scoreThreshold: 0.3,
     })
     searchResults.value = (data as unknown as { results?: BizSearchItem[] })?.results ?? []
+  } catch {
+    searchError.value = true
   } finally {
     searchLoading.value = false
   }
@@ -225,7 +257,7 @@ const curlExample = computed(() => {
 
   return `# 业务系统入口只接受结构化 JSON，并要求 REACHAI_PROJECT_REQUEST_V1。
 # body SHA-256 和签名必须基于发送的精确字节；请优先使用 Java Starter 生成下列值。
-# 项目凭证入口暂不支持附件，附件由已登录平台操作员在本页面上传。
+# 项目凭证入口暂不支持附件自动同步。
 
 curl -X POST "https://your-reachai-host/api/knowledge-ingress/projects/your-project-code/biz-index/${indexCode}/upsert" \\
   -H "Content-Type: application/json" \\
@@ -300,7 +332,7 @@ onMounted(() => {
 <style scoped lang="scss">
 .biz-index-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.6fr) minmax(320px, 1fr);
+  grid-template-columns: minmax(0, 7fr) minmax(280px, 3fr);
   gap: var(--layout-section-gap);
   align-items: start;
 }
@@ -308,6 +340,10 @@ onMounted(() => {
 .biz-index-aside {
   display: grid;
   gap: var(--layout-section-gap);
+  min-width: 0;
+}
+
+.biz-index-search {
   min-width: 0;
 }
 
@@ -340,18 +376,49 @@ onMounted(() => {
   }
 }
 
-.search-results {
-  margin-top: 14px;
+.index-source {
+  color: var(--text-secondary);
+  font-size: 12px;
 }
 
-.search-hint {
-  margin: 14px 0 0;
-  padding: 18px;
-  border: 1px dashed var(--border-glass-edge);
-  border-radius: var(--radius-lg);
+.search-summary {
+  padding: 14px 0 18px;
+}
+
+.results-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-divider);
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: 12px;
+
+  h3 { margin: 0; color: var(--text-primary); font-size: 13px; font-weight: 600; }
+}
+
+.search-results { margin-top: 12px; }
+
+.search-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 36px 16px 28px;
   text-align: center;
+
+  &__icon { margin-bottom: 12px; color: var(--text-muted); font-size: 26px; }
+  h3 { margin: 0; color: var(--text-primary); font-size: 14px; font-weight: 600; }
+  p { margin: 8px 0 16px; color: var(--text-secondary); font-size: 12px; line-height: 1.7; }
+}
+
+.advanced-config {
+  margin-top: 18px;
+  border-top: 1px solid var(--border-divider);
+
+  summary { padding: 14px 0; cursor: pointer; color: var(--text-secondary); font-size: 13px; }
+  summary:focus-visible { outline: 2px solid var(--brand-active); outline-offset: 2px; }
+  .instance-id { font-family: 'Consolas', monospace; font-size: 12px; }
 }
 
 .info-list {
@@ -412,7 +479,6 @@ onMounted(() => {
   }
 
   pre {
-    max-height: 360px;
     margin: 0;
     padding: 14px;
     overflow: auto;

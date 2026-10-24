@@ -19,15 +19,15 @@ const source = useLiquidGlassSource(() => props.source)
   --liquid-tab-ink: var(--text-on-wallpaper-secondary);
   --liquid-tab-active: var(--text-on-wallpaper);
   --liquid-tab-selected: color-mix(in srgb, var(--text-on-wallpaper) 10%, transparent);
-  --liquid-tab-fallback: var(--wallpaper-fallback);
+  --liquid-tab-fallback: var(--surface-fallback-shell);
 }
 .liquid-glass-tabs :deep(.el-tabs__nav-wrap::after), .liquid-glass-tabs :deep(.el-tabs__active-bar) { display: none; }
 .liquid-glass-tabs :deep(.el-tabs__nav) {
-  display: flex; gap: 4px; padding: 4px; border: 1px solid var(--border-glass-edge); border-radius: var(--radius-pill);
+  display: flex; gap: 4px; padding: 4px; border: 1px solid var(--border-glass-edge); border-radius: var(--glass-control-radius);
   background: var(--surface-glass-navigation); box-shadow: var(--glass-rim-double); -webkit-backdrop-filter: blur(var(--glass-blur-frost)); backdrop-filter: blur(var(--glass-blur-frost));
 }
 .liquid-glass-tabs :deep(.el-tabs__item) {
-  height: var(--control-height); padding: 0 18px !important; border: 1px solid transparent; border-radius: var(--radius-pill);
+  height: var(--control-height); padding: 0 18px !important; border: 1px solid transparent; border-radius: var(--glass-control-radius);
   color: var(--liquid-tab-ink); font-size: 13px; font-weight: 500;
 }
 .liquid-glass-tabs :deep(.el-tabs__item.is-active) { color: var(--liquid-tab-active); background: var(--liquid-tab-selected); border-color: var(--border-glass-edge); box-shadow: var(--glass-rim-double); font-weight: 650; }

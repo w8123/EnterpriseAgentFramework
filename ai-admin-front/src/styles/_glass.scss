@@ -15,6 +15,160 @@
   --navigation-divider: var(--border-divider);
 }
 
+// 实色工作台保留主题色、轻渐变与纸面层次；关闭光学效果，不抹掉视觉层级。
+@mixin solid-material-tokens {
+  --surface-page-background: radial-gradient(ellipse at 5% 0%, color-mix(in srgb, var(--accent-color) 13%, var(--surface-solid-page)), transparent 58%), radial-gradient(ellipse at 95% 100%, color-mix(in srgb, var(--accent-color) 9%, var(--surface-solid-page)), transparent 52%), linear-gradient(var(--surface-solid-page), var(--surface-solid-page));
+  --border-subtle: color-mix(in srgb, var(--accent-color) 13%, var(--surface-fallback-panel));
+  --border-readable: color-mix(in srgb, var(--accent-color) 22%, var(--surface-fallback-panel));
+  --border-divider: color-mix(in srgb, var(--accent-color) 9%, var(--surface-fallback-panel));
+  --text-on-wallpaper: var(--text-primary);
+  --text-on-wallpaper-secondary: var(--text-secondary);
+  --text-on-wallpaper-shadow: none;
+  --surface-solid-panel: var(--surface-fallback-panel);
+  --surface-solid-control: var(--surface-fallback-control);
+  --surface-solid-overlay: var(--surface-fallback-overlay);
+  --surface-glass-shell: var(--surface-fallback-shell);
+  --surface-glass-navigation: var(--surface-fallback-shell);
+  --surface-glass-panel: var(--surface-fallback-panel);
+  --surface-glass-frost: var(--surface-fallback-panel);
+  --surface-glass-control: var(--surface-fallback-control);
+  --surface-glass-overlay: var(--surface-fallback-overlay);
+  --surface-glass-modal: var(--surface-fallback-overlay);
+  --surface-glass-node: var(--surface-fallback-panel);
+  --surface-glass-lens: var(--surface-fallback-control);
+  --surface-glass-action: var(--accent-gradient);
+  --surface-glass-inset: var(--surface-hover);
+  --surface-glass-selected: var(--surface-reading-current);
+  --surface-glass-canvas: var(--surface-fallback-panel);
+  --surface-glass-reading: var(--surface-fallback-panel);
+  --surface-reading-header: color-mix(in srgb, var(--accent-color) 7%, var(--surface-fallback-panel));
+  --surface-reading-sticky: var(--surface-fallback-panel);
+  --border-glass-edge: var(--border-subtle);
+  --border-glass-lens: var(--border-readable);
+  --inner-highlight: 0 0 0 transparent;
+  --glass-edge-highlight: none;
+  --glass-sheen: none;
+  --glass-rim-double: 0 0 0 transparent;
+  --glass-node-rim: none;
+  --glass-lens-rim: none;
+  --glass-droplet-highlight: none;
+  --glass-droplet-caustic: none;
+  --glass-specular-opacity: 0;
+  --glass-blur-shell: 0px;
+  --glass-blur-panel: 0px;
+  --glass-blur-frost: 0px;
+  --glass-blur-overlay: 0px;
+  --glass-blur-refract: 0px;
+  --glass-saturation: 1;
+  --shadow-shell: 0 2px 4px color-mix(in srgb, var(--text-primary) 4%, transparent), 0 12px 28px -14px color-mix(in srgb, var(--accent-color) 22%, transparent);
+  --shadow-panel: 0 1px 2px color-mix(in srgb, var(--text-primary) 4%, transparent), 0 8px 24px -14px color-mix(in srgb, var(--accent-color) 22%, transparent);
+  --shadow-overlay: 0 12px 32px -12px var(--border-readable);
+  --shadow-active: 0 2px 3px color-mix(in srgb, var(--accent-color) 18%, transparent), 0 7px 14px -6px color-mix(in srgb, var(--accent-color) 42%, transparent), inset 0 1px 0 rgb(255 255 255 / 0.35);
+  --shadow-danger: none;
+  --shadow-glass-lens: none;
+  --shadow-glass-node: none;
+  --shadow-glass-frost: var(--shadow-panel);
+  --shadow-glass-inset: none;
+  --shadow-glass-navigation-selection: none;
+  --surface-glass-navigation-selection: none;
+  --border-glass-navigation-selection: none;
+  --glass-control-radius: var(--radius-md);
+  --glass-control-border: var(--border-readable);
+  --glass-control-primary-ink: var(--text-on-brand);
+  --glass-control-hover-transform: none;
+  --glass-decoration-display: none;
+  --glass-dropdown-clip: none;
+  --glass-dropdown-filter: none;
+  --glass-table-sticky: var(--surface-fallback-panel);
+  --workbench-control-hover-shadow: var(--shadow-active);
+  --workbench-toolbar-surface: color-mix(in srgb, var(--accent-color) 8%, var(--surface-fallback-panel));
+  --workbench-toolbar-border: 1px solid var(--border-subtle);
+  --workbench-toolbar-padding: 10px;
+  --workbench-toolbar-inset: var(--layout-panel-padding);
+  --workbench-table-heading-ink: var(--brand-on-surface);
+  --workbench-table-inset: var(--layout-panel-padding);
+  --workbench-table-border: 1px solid var(--border-subtle);
+  --workbench-table-radius: 12px;
+  --workbench-table-heading-size: 13px;
+  --workbench-metric-icon-size: 44px;
+  --workbench-metric-label-size: 14px;
+  --workbench-metric-value-size: 28px;
+  --layout-page-header-title-size: 24px;
+  --layout-page-header-title-line-height: 32px;
+  --layout-page-header-description-size: 15px;
+}
+
+@mixin solid-material-details {
+  .glass-surface-lens::before,
+  .glass-surface-lens::after { display: none; }
+
+  .glass-surface-navigation {
+    background: linear-gradient(155deg, var(--surface-fallback-shell) 60%, color-mix(in srgb, var(--accent-color) 5%, var(--surface-fallback-shell)));
+  }
+
+  // 当前菜单、视图、页码共用平面选中面，保留明确的交互反馈。
+  .glass-surface-selection {
+    --surface-fallback-control: var(--surface-reading-current);
+    --surface-solid-control: var(--surface-reading-current);
+    --surface-glass-control: var(--surface-reading-current);
+    background: var(--surface-reading-current);
+    border-color: transparent;
+    box-shadow: none;
+  }
+
+  .liquid-glass-control--primary,
+  .el-button--primary:not(.is-link):not(.is-text):not(.is-plain) {
+    background: var(--surface-glass-action);
+    box-shadow: var(--shadow-active);
+  }
+
+  // 沿用公共页头的彩色插画。稳定阅读底只覆盖文字区，不把装饰图整体洗白。
+  .app-page-header[data-presentation='plain'].has-artwork:not(.is-collapsed) {
+    padding: 14px 18px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    background: linear-gradient(110deg, var(--surface-fallback-panel) 48%, color-mix(in srgb, var(--accent-color) 16%, var(--surface-fallback-panel)));
+    box-shadow: var(--shadow-panel);
+
+    &::before {
+      display: block;
+      background-image: var(--workbench-header-artwork);
+      background-position: right center;
+      opacity: var(--workbench-header-artwork-opacity);
+      filter: var(--theme-header-artwork-filter, none);
+    }
+
+    &::after {
+      display: block;
+      background: linear-gradient(90deg, var(--surface-fallback-panel) 12%, color-mix(in srgb, var(--surface-fallback-panel) 90%, transparent) 28%, color-mix(in srgb, var(--surface-fallback-panel) 42%, transparent) 48%, transparent 75%);
+    }
+
+    .app-page-header__actions .liquid-glass-control--primary {
+      box-shadow: 0 0 0 4px color-mix(in srgb, var(--surface-fallback-control) 78%, transparent), var(--shadow-active);
+    }
+  }
+
+  .liquid-select-popper.el-popper,
+  .liquid-menu-popper.el-popper {
+    border: 1px solid var(--border-readable);
+    border-radius: var(--radius-md);
+    background: var(--surface-fallback-overlay);
+    box-shadow: var(--shadow-overlay);
+  }
+
+  .liquid-select-popper.el-popper .el-select-dropdown__header {
+    padding: 12px 16px 5px;
+  }
+
+  .liquid-select-popper.el-popper .el-select-dropdown__list {
+    padding: 5px 12px 12px;
+  }
+
+  .liquid-menu-popper.el-popper .liquid-menu-content {
+    padding: 10px;
+  }
+}
+
 .glass-surface-shell,
 .glass-surface-panel,
 .glass-surface-overlay {
@@ -94,6 +248,7 @@
     border-radius: inherit;
     background: var(--glass-droplet-highlight), var(--glass-droplet-caustic);
     pointer-events: none;
+    display: var(--glass-decoration-display);
   }
 
   &::after {
@@ -106,6 +261,7 @@
     mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
     mask-composite: exclude;
     pointer-events: none;
+    display: var(--glass-decoration-display);
   }
 }
 
@@ -165,6 +321,9 @@
 }
 
 @supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  :root,
+  :root:not([data-theme='dark'])[data-brand]:not([data-reduce-transparency='true']) .glass-workspace-adaptive { @include solid-material-tokens; }
+  :root { @include solid-material-details; }
   .glass-surface-shell { background: var(--surface-fallback-shell); }
   .glass-surface-panel { background: var(--surface-fallback-panel); }
   .glass-surface-frost { background: var(--surface-fallback-panel); }
@@ -179,6 +338,7 @@
 }
 
 [data-reduce-transparency='true'] {
+  @include solid-material-tokens;
   .glass-surface-shell,
   .glass-surface-panel,
   .glass-surface-frost,
@@ -204,9 +364,37 @@
     background: var(--surface-fallback-shell);
     @include opaque-navigation-ink;
   }
+  @include solid-material-details;
+
+  // 关闭玻璃时只轻透壁纸的颜色与轮廓，控件、浮层和固定列仍用稳定阅读底。
+  // 系统减少透明度和不支持背景滤镜的环境继续走上面的完整实色回退。
+  @supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+    @media not (prefers-reduced-transparency: reduce) {
+      --surface-page-background:
+        radial-gradient(ellipse at 5% 0%, color-mix(in srgb, var(--accent-color) 13%, transparent), transparent 58%),
+        radial-gradient(ellipse at 95% 100%, color-mix(in srgb, var(--accent-color) 9%, transparent), transparent 52%),
+        linear-gradient(color-mix(in srgb, var(--surface-solid-page) 68%, transparent), color-mix(in srgb, var(--surface-solid-page) 68%, transparent)),
+        var(--theme-wallpaper-image),
+        linear-gradient(var(--surface-solid-page), var(--surface-solid-page));
+      --surface-glass-shell: color-mix(in srgb, var(--surface-fallback-shell) 88%, transparent);
+      --surface-glass-navigation: linear-gradient(155deg, color-mix(in srgb, var(--surface-fallback-shell) 86%, transparent) 60%, color-mix(in srgb, color-mix(in srgb, var(--accent-color) 5%, var(--surface-fallback-shell)) 88%, transparent));
+      --surface-glass-panel: color-mix(in srgb, var(--surface-fallback-panel) 90%, transparent);
+      --surface-glass-frost: color-mix(in srgb, var(--surface-fallback-panel) 88%, transparent);
+      --surface-glass-reading: var(--surface-glass-panel);
+      --surface-solid-panel: var(--surface-glass-panel);
+
+      .glass-surface-shell { background: var(--surface-glass-shell); }
+      .glass-surface-navigation { background: var(--surface-glass-navigation); }
+      .glass-surface-panel { background: var(--surface-glass-panel); }
+      .glass-surface-frost { background: var(--surface-glass-frost); }
+    }
+  }
 }
 
 @media (prefers-reduced-transparency: reduce) {
+  :root,
+  :root:not([data-theme='dark'])[data-brand]:not([data-reduce-transparency='true']) .glass-workspace-adaptive { @include solid-material-tokens; }
+  :root { @include solid-material-details; }
   .glass-surface-shell,
   .glass-surface-panel,
   .glass-surface-frost,

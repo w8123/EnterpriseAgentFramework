@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import WorkbenchPage from './WorkbenchPage.vue'
+
+defineProps<{ scrollable?: boolean }>()
 </script>
 
 <template>
-  <WorkbenchPage class="liquid-glass-page" layout="list"><slot /></WorkbenchPage>
+  <WorkbenchPage class="liquid-glass-page" :class="{ 'liquid-glass-page--scrollable': scrollable }" layout="list"><slot /></WorkbenchPage>
 </template>
 
 <style scoped lang="scss">
@@ -12,6 +14,10 @@ import WorkbenchPage from './WorkbenchPage.vue'
   max-height: 100%;
   min-height: 0;
   overflow: hidden;
+}
+
+.liquid-glass-page--scrollable {
+  overflow-y: auto;
 }
 
 .liquid-glass-page > :deep(.collapsible-header-region),

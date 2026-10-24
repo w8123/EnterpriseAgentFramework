@@ -42,16 +42,6 @@ defineExpose({ native, focus: () => native.value?.focus(), blur: () => native.va
 </template>
 
 <style lang="scss">
-.liquid-glass-select .el-select__wrapper,
-.liquid-glass-control:has(.el-select) .el-select__wrapper {
-  min-height: var(--control-height) !important;
-  padding-inline: 14px !important;
-  border-radius: inherit !important;
-  background: transparent !important;
-  background-color: transparent !important;
-  box-shadow: none !important;
-}
-
 // The popup samples wallpaper rather than the table beneath it. This keeps the
 // environment visible without refracting business text into the option labels.
 .liquid-select-popper.el-popper {

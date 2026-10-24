@@ -1,6 +1,8 @@
 import { computed, getCurrentScope, onScopeDispose, ref, watch, type Ref } from 'vue'
 import { getKnowledgeList } from '@/api/knowledge'
 import { getModelInstances } from '@/api/model'
+import { canLoadModelCatalog, sessionAllows } from '@/auth/modelCatalogAccess'
+import { PLATFORM_PERMISSION_READ, PLATFORM_PERMISSION_WORKFLOW_CREDENTIAL_MANAGE } from '@/auth/platformAccess'
 import { listAllBusinessMethods } from '@/api/businessMethod'
 import { platformSessionId } from '@/auth/platformSession'
 import { isBusinessMethodInfo, type BusinessMethodInfo } from '@/types/businessMethod'
@@ -120,7 +122,7 @@ export function useWorkflowStudioResources(deps: UseWorkflowStudioResourcesDeps)
     toolOptions.value = []
     toolOptionsLoading.value = false
     toolOptionsLoadError.value = false
-    if (!projectId || !projectCode) return
+    if (!projectId || !projectCode || !sessionAllows(PLATFORM_PERMISSION_READ)) return
     toolOptionsLoading.value = true
     try {
       const methods = await listAllBusinessMethods(projectId)
@@ -140,6 +142,7 @@ export function useWorkflowStudioResources(deps: UseWorkflowStudioResourcesDeps)
   }
 
   async function loadModelOptions() {
+    if (!canLoadModelCatalog()) return
     const sequence = ++modelOptionsSequence
     const scope = resourceScope()
     const isCurrent = () => sequence === modelOptionsSequence && scope === resourceScope()
@@ -202,6 +205,10 @@ export function useWorkflowStudioResources(deps: UseWorkflowStudioResourcesDeps)
     const sequence = ++credentialOptionsSequence
     const scope = resourceScope()
     const isCurrent = () => shouldApply() && sequence === credentialOptionsSequence && scope === resourceScope()
+    if (!sessionAllows(PLATFORM_PERMISSION_WORKFLOW_CREDENTIAL_MANAGE)) {
+      credentialOptions.value = []
+      return
+    }
     try {
       const { data } = await listWorkflowCredentials({
         projectId: state?.projectId || null,

@@ -2,8 +2,12 @@ package com.enterprise.ai.control.aiassist;
 
 import com.enterprise.ai.control.client.capability.CapabilityProjectOnboardingClient;
 import com.enterprise.ai.control.client.capability.CapabilityAiCodingAccessUpdateRequest;
+import com.enterprise.ai.control.identity.PlatformAuthenticatedSession;
+import com.enterprise.ai.control.identity.PlatformConsoleAuthInterceptor;
+import com.enterprise.ai.control.identity.PlatformPermissions;
 import feign.FeignException;
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -12,6 +16,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -172,7 +177,13 @@ public class ControlAiAssistProjectController {
             Map<String, Object> project = capabilityClient.getOnboardingProjectById(projectId);
             String baseUrl = ControlAiAssistSkillController.requestBaseUrl(request);
             String projectApiRoot = baseUrl + "/api/ai-assist/projects/" + projectId;
-            return ResponseEntity.ok(buildManifest(project, baseUrl, projectApiRoot));
+            OnboardingManifestResponse manifest = buildManifest(project, baseUrl, projectApiRoot);
+            if (!canWriteProject(request, project.get("projectCode"))) {
+                // The AI Coding key acts on the project without a login; only its maintainers may see it.
+                manifest = manifest.withAiCodingAccess(
+                        new AiCodingAccessManifest(manifest.aiCodingAccess().enabled(), null));
+            }
+            return ResponseEntity.ok(manifest);
         } catch (FeignException.NotFound ex) {
             return ResponseEntity.notFound().build();
         }
@@ -181,13 +192,29 @@ public class ControlAiAssistProjectController {
     @PatchMapping("/ai-coding-access")
     public ResponseEntity<AiCodingAccessManifest> updateAiCodingAccess(
             @PathVariable Long projectId,
-            @RequestBody(required = false) CapabilityAiCodingAccessUpdateRequest request) {
+            @RequestBody(required = false) CapabilityAiCodingAccessUpdateRequest request,
+            HttpServletRequest httpRequest) {
         try {
+            Map<String, Object> project = capabilityClient.getOnboardingProjectById(projectId);
+            if (!canWriteProject(httpRequest, project.get("projectCode"))) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                        "platform permission is required for the scoped resource: " + PlatformPermissions.PLATFORM_WRITE);
+            }
             Map<String, Object> body = capabilityClient.updateAiCodingAccess(projectId, request);
             return ResponseEntity.ok(toAiCodingAccess(body));
         } catch (FeignException.NotFound ex) {
             return ResponseEntity.notFound().build();
         }
+    }
+
+    /** Project maintainers only: {@code platform:write} granted globally or for this project. */
+    static boolean canWriteProject(HttpServletRequest request, Object projectCode) {
+        Object candidate = request == null ? null
+                : request.getAttribute(PlatformConsoleAuthInterceptor.SESSION_REQUEST_ATTRIBUTE);
+        return candidate instanceof PlatformAuthenticatedSession session
+                && projectCode != null
+                && session.hasResourcePermission(
+                        PlatformPermissions.PLATFORM_WRITE, "PROJECT", null, String.valueOf(projectCode));
     }
 
     private OnboardingManifestResponse buildManifest(Map<String, Object> project,
@@ -401,6 +428,10 @@ public class ControlAiAssistProjectController {
             AgentSupervisorManifest agentSupervisor,
             SecurityGuidance security
     ) {
+        OnboardingManifestResponse withAiCodingAccess(AiCodingAccessManifest access) {
+            return new OnboardingManifestResponse(schema, project, access, sdk, sdkArtifacts, responseShapes,
+                    gatewayChecklist, endpoints, embed, agentProvisioning, agentSupervisor, security);
+        }
     }
 
     public record GatewayChecklistItem(

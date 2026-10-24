@@ -49,7 +49,8 @@ class McpEndpointControllerTest {
         ObjectMapper objectMapper = new ObjectMapper();
         controller = new McpEndpointController(
                 new McpProtocolRequestGuard(properties), service, properties, objectMapper,
-                new McpAuditPayloadSanitizer(objectMapper, properties));
+                new McpAuditPayloadSanitizer(objectMapper, properties),
+                mock(com.enterprise.ai.control.mcp.application.employee.McpEmployeeProtocolService.class));
     }
 
     @Test

@@ -31,7 +31,9 @@ const attrs = useAttrs()
     :style="$attrs.style"
     :total="0"
   >
-    <template v-if="$slots.toolbar" #toolbar><slot name="toolbar" /></template>
+    <template v-if="$slots.toolbar" #toolbar>
+      <div class="liquid-glass-table__toolbar-inner"><slot name="toolbar" /></div>
+    </template>
     <slot />
     <template v-if="$slots.empty" #empty><slot name="empty" /></template>
     <template v-if="props.showPagination && (props.total > 0 || props.showEmptyPagination || $slots.pagination)" #pagination>
@@ -74,13 +76,21 @@ const attrs = useAttrs()
 @supports (color: light-dark(Canvas, CanvasText)) {
   .liquid-glass-table.glass-workspace-adaptive {
     // Floating cells cover scrolling text; the local color scheme also covers dark wallpapers.
-    --liquid-table-sticky: light-dark(color-mix(in srgb, var(--wallpaper-fallback) 72%, var(--surface-fallback-panel)), var(--surface-fallback-panel));
+    --liquid-table-sticky: var(--glass-table-sticky, light-dark(color-mix(in srgb, var(--wallpaper-fallback) 72%, var(--surface-fallback-panel)), var(--surface-fallback-panel)));
   }
 }
 
 .liquid-glass-table :deep(.data-table-shell__toolbar) {
   display: block;
-  padding: var(--layout-panel-padding);
+  padding: var(--workbench-toolbar-inset, var(--layout-panel-padding));
+}
+
+.liquid-glass-table__toolbar-inner {
+  min-width: 0;
+  padding: var(--workbench-toolbar-padding);
+  border: var(--workbench-toolbar-border);
+  border-radius: var(--radius-md);
+  background: var(--workbench-toolbar-surface);
 }
 
 .liquid-glass-table :deep(.data-table-shell__body) {
@@ -89,6 +99,12 @@ const attrs = useAttrs()
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
+}
+
+.liquid-glass-table:not(.liquid-glass-table--collection):not(.liquid-glass-table--cards) :deep(.data-table-shell__body) {
+  margin-inline: var(--workbench-table-inset, 0px);
+  border: var(--workbench-table-border, 0);
+  border-radius: var(--workbench-table-radius, 0px);
 }
 
 .liquid-glass-table--cards :deep(.data-table-shell__body) {
@@ -147,9 +163,9 @@ const attrs = useAttrs()
 
 .liquid-glass-table :deep(th.el-table__cell) {
   height: 40px;
-  color: var(--text-secondary);
+  color: var(--workbench-table-heading-ink, var(--text-secondary));
   background: var(--surface-reading-header);
-  font-size: 12px;
+  font-size: var(--workbench-table-heading-size, 12px);
   font-weight: 600;
 }
 

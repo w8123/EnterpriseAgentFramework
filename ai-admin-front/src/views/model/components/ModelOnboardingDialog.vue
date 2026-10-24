@@ -917,12 +917,10 @@ function handlePrevious() {
 :global(.model-onboarding-dialog.el-dialog .el-dialog__body) {
   max-block-size: min(72vh, 760px);
   padding: 20px 28px 24px;
-  background: color-mix(in srgb, var(--surface-solid-page) 44%, transparent);
 }
 
 :global(.model-onboarding-dialog.el-dialog .el-dialog__footer) {
   padding: 14px 28px;
-  background: color-mix(in srgb, var(--surface-solid-overlay) 92%, transparent);
 }
 
 @media (max-width: 720px) {

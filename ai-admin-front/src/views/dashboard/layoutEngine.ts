@@ -166,7 +166,7 @@ function parseConfig(value: unknown): Record<string, unknown> {
     if ((key === 'topN' || key === 'displayCount') && typeof entry === 'number' && Number.isFinite(entry)) {
       result[key] = entry
     }
-    if (key === 'shortcutPreset' && typeof entry === 'string' && ['developer', 'operator', 'admin', 'custom'].includes(entry)) {
+    if (key === 'shortcutPreset' && typeof entry === 'string' && ['developer', 'operator', 'manager', 'admin', 'custom'].includes(entry)) {
       result[key] = entry
     }
     if (key === 'shortcutIds' && Array.isArray(entry)) {

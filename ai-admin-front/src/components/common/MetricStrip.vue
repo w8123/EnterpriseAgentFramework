@@ -30,6 +30,7 @@ const props = withDefaults(
       v-for="item in props.items"
       :key="item.key"
       class="metric-strip__item"
+      :data-tone="item.tone"
       role="listitem"
       :title="props.presentation === 'inline' ? item.hint : undefined"
     >
@@ -46,7 +47,7 @@ const props = withDefaults(
 
 <style scoped lang="scss">
 .metric-strip {
-  --metric-icon-bg-size: var(--layout-metric-icon-size);
+  --metric-icon-bg-size: var(--workbench-metric-icon-size, var(--layout-metric-icon-size));
   --metric-icon-bg-radius: 12px;
   --metric-icon-glyph-size: 20px;
   display: grid;
@@ -95,7 +96,7 @@ const props = withDefaults(
 }
 
 .metric-strip__label {
-  font-size: 0.8rem;
+  font-size: var(--workbench-metric-label-size, 0.8rem);
 }
 
 .metric-strip.density-compact .metric-strip__label {
@@ -105,7 +106,7 @@ const props = withDefaults(
 .metric-strip__value {
   overflow: hidden;
   color: var(--text-primary);
-  font-size: 1.45rem;
+  font-size: var(--workbench-metric-value-size, 1.45rem);
   line-height: 1.15;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -122,6 +123,17 @@ const props = withDefaults(
 
 .metric-strip.density-compact .metric-strip__hint {
   font-size: 0.7rem;
+}
+
+@media (min-width: 721px) and (max-width: 1100px) {
+  .metric-strip:not([data-presentation='inline']) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .metric-strip:not([data-presentation='inline']) .metric-strip__item:nth-child(odd) {
+    border-inline-start: 0;
+    padding-inline-start: 0;
+  }
 }
 
 @media (max-width: 720px) {
@@ -196,7 +208,10 @@ const props = withDefaults(
 .metric-strip[data-presentation='inline'].samples-wallpaper :is(.metric-strip__label, .metric-strip__hint) { color: var(--text-on-wallpaper-secondary); }
 .metric-strip[data-presentation='inline'].samples-wallpaper .metric-strip__value { color: var(--text-on-wallpaper); }
 .metric-strip[data-presentation='inline'].samples-wallpaper .metric-strip__item + .metric-strip__item { border-color: color-mix(in srgb, var(--text-on-wallpaper) 16%, transparent); }
+.metric-strip[data-presentation='inline'] .metric-strip__item[data-tone='danger'] .metric-strip__value { color: var(--status-danger); }
+.metric-strip[data-presentation='inline'] .metric-strip__item[data-tone='warning'] .metric-strip__value { color: var(--status-warning); }
 @media (forced-colors: active) {
+  .metric-strip[data-presentation='inline'] .metric-strip__item[data-tone] .metric-strip__value { color: CanvasText; }
   .metric-strip[data-presentation='inline'].samples-wallpaper :is(.metric-strip__label, .metric-strip__value, .metric-strip__hint) { color: CanvasText; }
 }
 </style>

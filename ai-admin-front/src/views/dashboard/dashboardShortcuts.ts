@@ -10,6 +10,8 @@ export interface DashboardShortcut {
   label: string
   detail: string
   to: string
+  /** 决定入口是否可见的主导航地址；子页面入口与所属菜单相同。 */
+  menu: string
   icon: Component
 }
 
@@ -32,7 +34,14 @@ const shortcutSources = [
   ['skills', '/skills', 'Skill 包', '管理标准 Agent Skill 包'],
   ['mcp', '/mcp-hub', 'MCP 开放', '管理 Agent 的 MCP 开放入口'],
   ['a2a', '/a2a-hub', 'A2A 开放', '管理 Agent 的 A2A 开放入口'],
+  ['employee-connections', '/mcp-hub/employee-connections', '员工连接', '谁在用自己的 AI 工具连接业务系统', '/mcp-hub'],
+  ['mcp-call-logs', '/mcp-hub/call-logs', 'AI 工具调用记录', '谁、用什么 AI 工具、调用了什么', '/mcp-hub'],
 ] as const
+
+/** 子页面入口按所属菜单判断可见性和图标。 */
+function menuOf(source: readonly string[]): string {
+  return source[4] ?? source[1]
+}
 
 const menuIcons = new Map<string, Component>()
 for (const entry of sidebarMenu) {
@@ -41,14 +50,16 @@ for (const entry of sidebarMenu) {
   for (const child of entry.children ?? []) menuIcons.set(child.index, entry.icon)
 }
 
-export const dashboardShortcuts: readonly DashboardShortcut[] = shortcutSources.map(([id, to, label, detail]) => ({
-  id, to, label, detail, icon: menuIcons.get(to)!,
-}))
+export const dashboardShortcuts: readonly DashboardShortcut[] = shortcutSources.map((source) => {
+  const [id, to, label, detail] = source
+  return { id, to, label, detail, menu: menuOf(source), icon: menuIcons.get(menuOf(source))! }
+})
 
 export const shortcutPresets = [
   { key: 'developer', title: '开发快捷入口', label: '开发常用', description: '项目接入、业务能力、API 市场', ids: ['projects', 'capabilities', 'api-market'] },
   { key: 'operator', title: '运营快捷入口', label: '运营常用', description: 'Workflow、Agent、知识库与运行中心', ids: ['workflows', 'agents', 'knowledge', 'run-center', 'tool-acl'] },
-  { key: 'admin', title: '平台管理快捷入口', label: '管理常用', description: '账号与角色、认证源、模型与合规', ids: ['platform-users', 'auth-providers', 'model-center', 'compliance'] },
+  { key: 'manager', title: '管理快捷入口', label: '管理人员常用', description: '运行中心、员工连接、AI 工具调用记录与业务用户', ids: ['run-center', 'employee-connections', 'mcp-call-logs', 'business-users'] },
+  { key: 'admin', title: '平台管理快捷入口', label: '平台管理常用', description: '账号与角色、认证源、模型与合规', ids: ['platform-users', 'auth-providers', 'model-center', 'compliance'] },
 ] as const
 
 /** 入口只由共享导航的权限投影决定，不把角色预设当作授权。 */
@@ -59,7 +70,7 @@ export function availableDashboardShortcuts(permissions: readonly string[]): Das
     paths.add(entry.index)
     for (const child of entry.children ?? []) paths.add(child.index)
   }
-  return dashboardShortcuts.filter(shortcut => paths.has(shortcut.to))
+  return dashboardShortcuts.filter(shortcut => paths.has(shortcut.menu))
 }
 
 export function sanitizeShortcutIds(value: unknown): string[] {
@@ -89,7 +100,7 @@ export function shortcutPresetConfig(key: ShortcutPresetKey, permissions?: reado
 export function defaultShortcutConfig(permissions: readonly string[], roles: readonly string[] = []): DashboardWidgetConfig | null {
   const available = new Set(availableDashboardShortcuts(permissions).map(shortcut => shortcut.id))
   if (!available.size) return null
-  const rolePresets: Record<string, ShortcutPresetKey> = { DEVELOPER: 'developer', OPERATOR: 'operator', PLATFORM_ADMIN: 'admin', AUDITOR: 'operator' }
+  const rolePresets: Record<string, ShortcutPresetKey> = { DEVELOPER: 'developer', OPERATOR: 'operator', MANAGER: 'manager', PLATFORM_ADMIN: 'admin' }
   const preferred = roles.map(role => rolePresets[role]).find(key => key && shortcutPresetConfig(key, permissions).shortcutIds?.length)
   const key = preferred ?? (available.has('platform-users') ? 'admin'
     : available.has('workflows') || available.has('agents') || available.has('run-center') ? 'operator'

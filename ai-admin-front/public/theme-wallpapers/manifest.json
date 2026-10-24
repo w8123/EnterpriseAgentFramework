@@ -2,6 +2,14 @@
   "license": "Unsplash License",
   "licenseUrl": "https://unsplash.com/license",
   "importedAt": "2026-10-20",
+  "authoredImages": [
+    { "file": "lavender-light.svg", "brand": "tech-purple", "mode": "light" },
+    { "file": "lavender-dark.svg", "brand": "tech-purple", "mode": "dark" },
+    { "file": "silver-light.svg", "brand": "nebula-violet", "mode": "light" },
+    { "file": "silver-dark.svg", "brand": "nebula-violet", "mode": "dark" },
+    { "file": "coral-light.svg", "brand": "coral-rose", "mode": "light" },
+    { "file": "coral-dark.svg", "brand": "coral-rose", "mode": "dark" }
+  ],
   "images": [
     {
       "file": "violet-waves.webp",
@@ -9,10 +17,7 @@
       "photoId": "DX7pT_guAyE",
       "source": "https://unsplash.com/photos/an-abstract-purple-background-with-wavy-lines-DX7pT_guAyE",
       "download": "https://images.unsplash.com/photo-1638272181967-7d3772a91265?fm=webp&fit=max&w=2560&q=82",
-      "brands": [
-        "tech-purple",
-        "nebula-violet"
-      ],
+      "brands": [],
       "bytes": 49130,
       "sha256": "0d60f0adeaf4cbbbfd8a77922f1b3debd97e4870c7f242bd0f87abbfb2555c96"
     },
@@ -34,9 +39,7 @@
       "photoId": "nY14Fs8pxT8",
       "source": "https://unsplash.com/photos/abstract-purple-and-pink-gradient-waves-nY14Fs8pxT8",
       "download": "https://images.unsplash.com/photo-1620641788421-7a1c342ea42e?fm=webp&fit=max&w=2560&q=82",
-      "brands": [
-        "coral-rose"
-      ],
+      "brands": [],
       "bytes": 42336,
       "sha256": "7b0ab6c301d67a17b11927cbc37120a76b1024cd772888ce1f9bc74308946f84"
     },

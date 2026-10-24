@@ -119,7 +119,7 @@
         <div class="panel-hint">Agent 对话、Workflow 知识节点（没有单独设置时）和「检索测试」都使用这里的设置。低于相似度下限的段落不会返回。</div>
       </WorkbenchPanel>
 
-      <div class="form-footer">
+      <div v-if="canWriteKnowledge" class="form-footer">
         <LiquidGlassButton source="wallpaper" type="primary" :loading="saving" @click="handleSave">保存设置</LiquidGlassButton>
       </div>
     </el-form>
@@ -134,10 +134,15 @@ import { LiquidGlassButton } from '@/components/common/liquid-glass'
 import ModelSelectEmptyState from '@/components/model/ModelSelectEmptyState.vue'
 import { updateKbConfig, updateKnowledge } from '@/api/knowledge'
 import { getModelInstances } from '@/api/model'
+import { canLoadModelCatalog } from '@/auth/modelCatalogAccess'
 import type { KbConfig, KnowledgeBase, KnowledgeBaseForm } from '@/types/knowledge'
 import type { ModelInstance, ModelType } from '@/types/model'
 import { normalizeActiveModelInstances } from '@/utils/modelSelection'
 import { accessModeHint } from './knowledgeDetailModel'
+import { usePlatformCan } from '@/auth/usePlatformCan'
+import { PLATFORM_PERMISSION_KNOWLEDGE_WRITE } from '@/auth/platformAccess'
+const { can } = usePlatformCan()
+const canWriteKnowledge = computed(() => can(PLATFORM_PERMISSION_KNOWLEDGE_WRITE))
 
 const props = defineProps<{
   kbCode: string
@@ -171,6 +176,7 @@ const modelLoading = reactive<Record<ModelType, boolean>>({ EMBEDDING: false, LL
 const modelLoadError = reactive<Record<ModelType, boolean>>({ EMBEDDING: false, LLM: false, RERANKER: false })
 
 async function fetchModels(type: ModelType) {
+  if (!canLoadModelCatalog()) return
   modelLoading[type] = true
   modelLoadError[type] = false
   try {

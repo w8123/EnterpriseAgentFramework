@@ -193,11 +193,11 @@ class ControlGovernanceRoutesTest {
                 7L, "orders", "test", "tenant-a",
                 true, 42L, null, "{\"arguments\":{}}", "{\"result\":{}}", null,
                 "trace-1", "run-1", "127.0.0.1", LocalDateTime.now());
-        when(callLogReader.page(null, null, null, null, null, null, null, null, 50, 0))
+        when(callLogReader.page(null, null, null, null, null, null, null, null, null, 50, 0))
                 .thenReturn(new McpCallLogReader.Page(List.of(entry), 1, 50, 0));
         when(callLogReader.detail(9L)).thenReturn(entry);
 
-        McpCallLogReader.Page page = callLogs.list(request, null, null, null, null,
+        McpCallLogReader.Page page = callLogs.list(request, null, null, null, null, null,
                 null, null, null, null, null, null);
         assertEquals(1, page.total());
         assertNull(page.items().get(0).requestBody());

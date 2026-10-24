@@ -6,6 +6,10 @@ import { getMcpHubOverview } from '@/api/mcp'
 import { LiquidGlassButton, LiquidGlassCard, LiquidGlassNav, LiquidGlassNotice } from '@/components/common/liquid-glass'
 import mcpInterconnectionOnboardingIllustration from '@/assets/illustrations/mcp-interconnection-onboarding-flat.webp'
 import type { McpHubOverview } from '@/types/mcp'
+import { usePlatformCan } from '@/auth/usePlatformCan'
+import { PLATFORM_PERMISSION_MCP_PUBLICATION_MANAGE } from '@/auth/platformAccess'
+const { can } = usePlatformCan()
+const canManage = computed(() => can(PLATFORM_PERMISSION_MCP_PUBLICATION_MANAGE))
 
 const router = useRouter()
 const loading = ref(false)
@@ -146,7 +150,7 @@ onMounted(reload)
         <p>选择能力或已发布 Workflow，完成预检并创建 Client 凭证。</p>
 
         <div class="onboarding-actions">
-          <LiquidGlassButton type="primary" :icon="Promotion" @click="openPublications">创建第一个发布</LiquidGlassButton>
+          <LiquidGlassButton v-if="canManage" type="primary" :icon="Promotion" @click="openPublications">创建第一个发布</LiquidGlassButton>
           <LiquidGlassButton :icon="Refresh" :loading="loading" @click="reload">刷新状态</LiquidGlassButton>
         </div>
       </div>

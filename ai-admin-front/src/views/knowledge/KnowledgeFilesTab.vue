@@ -24,6 +24,7 @@
             Markdown 和 Word 先按标题切成段落，单节超过 {{ kb?.chunkSize || 500 }} 字再按长度切；切分方式在「设置」里调整，改完后重新解析文件即可生效。
           </div>
           <el-upload
+            v-if="canWriteKnowledge"
             :auto-upload="false"
             :show-file-list="false"
             :accept="acceptTypes"
@@ -54,6 +55,7 @@
               查看段落
             </el-button>
             <el-button
+              v-if="canWriteKnowledge"
               type="warning"
               link
               size="small"
@@ -63,7 +65,7 @@
             >
               重新解析
             </el-button>
-            <el-popconfirm title="确定删除该文件及其段落和向量？" @confirm="handleDelete(row)">
+            <el-popconfirm v-if="canWriteKnowledge" title="确定删除该文件及其段落和向量？" @confirm="handleDelete(row)">
               <template #reference><el-button type="danger" link size="small">删除</el-button></template>
             </el-popconfirm>
           </template>
@@ -102,6 +104,10 @@ import {
   validateDocumentFileSize,
 } from '@/utils/documentImport'
 import { chunkStrategyForSplitType } from './knowledgeDetailModel'
+import { usePlatformCan } from '@/auth/usePlatformCan'
+import { PLATFORM_PERMISSION_KNOWLEDGE_WRITE } from '@/auth/platformAccess'
+const { can } = usePlatformCan()
+const canWriteKnowledge = computed(() => can(PLATFORM_PERMISSION_KNOWLEDGE_WRITE))
 
 const props = defineProps<{
   kbCode: string

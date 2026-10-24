@@ -49,6 +49,10 @@ import {
   uniqueProviders,
   readModelApiPayload,
 } from './modelCenterUi'
+import { usePlatformCan } from '@/auth/usePlatformCan'
+import { PLATFORM_PERMISSION_MODEL_MANAGE } from '@/auth/platformAccess'
+const { can } = usePlatformCan()
+const canManageModels = computed(() => can(PLATFORM_PERMISSION_MODEL_MANAGE))
 
 const route = useRoute()
 const router = useRouter()
@@ -262,8 +266,8 @@ onMounted(loadInstances)
         </template>
         <template #actions>
           <LiquidGlassButton source="wallpaper" :icon="Refresh" :loading="loading" @click="loadInstances">刷新</LiquidGlassButton>
-          <LiquidGlassButton source="wallpaper" :icon="Setting" @click="catalogSettingsVisible = true">目录设置</LiquidGlassButton>
-          <LiquidGlassButton source="wallpaper" type="primary" :icon="Plus" @click="openOnboarding()">接入模型</LiquidGlassButton>
+          <LiquidGlassButton v-if="canManageModels" source="wallpaper" :icon="Setting" @click="catalogSettingsVisible = true">目录设置</LiquidGlassButton>
+          <LiquidGlassButton v-if="canManageModels" source="wallpaper" type="primary" :icon="Plus" @click="openOnboarding()">接入模型</LiquidGlassButton>
         </template>
       </PageHeader>
     </CollapsibleHeaderRegion>
@@ -343,7 +347,7 @@ onMounted(loadInstances)
           title="尚未接入模型"
           description="接入第一个模型后，Agent、Workflow、知识库和业务索引就能选用它。"
         >
-          <LiquidGlassButton type="primary" :icon="Plus" @click="openOnboarding()">接入第一个模型</LiquidGlassButton>
+          <LiquidGlassButton v-if="canManageModels" type="primary" :icon="Plus" @click="openOnboarding()">接入第一个模型</LiquidGlassButton>
         </LiquidGlassEmptyState>
         <LiquidGlassEmptyState v-else title="没有匹配的模型" description="换个关键词，或清除筛选查看全部模型。">
           <LiquidGlassButton @click="resetFilters">清除筛选</LiquidGlassButton>

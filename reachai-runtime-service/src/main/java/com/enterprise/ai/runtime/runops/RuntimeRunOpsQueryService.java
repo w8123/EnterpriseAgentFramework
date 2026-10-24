@@ -119,7 +119,7 @@ public class RuntimeRunOpsQueryService {
                                                  int limit,
                                                  int days) {
         return findRecentRuns(projectCode, status, runType, entryType, agentId, userId, sessionId, keyword,
-                limit, days).stream().map(this::toSummary).toList();
+                limit, days, false).stream().map(this::toSummary).toList();
     }
 
     /**
@@ -140,18 +140,22 @@ public class RuntimeRunOpsQueryService {
     private List<RuntimeRunEntity> findRecentRuns(String projectCode, String status, String runType,
                                                  String entryType, String agentId, String userId,
                                                  String keyword, int limit, int days) {
-        return findRecentRuns(projectCode, status, runType, entryType, agentId, userId, null, keyword, limit, days);
+        return findRecentRuns(projectCode, status, runType, entryType, agentId, userId, null, keyword, limit, days,
+                true);
     }
 
     private List<RuntimeRunEntity> findRecentRuns(String projectCode, String status, String runType,
                                                  String entryType, String agentId, String userId,
-                                                 String sessionId, String keyword, int limit, int days) {
+                                                 String sessionId, String keyword, int limit, int days,
+                                                 boolean includeSnapshot) {
         int safeLimit = safeLimit(limit);
         int safeDays = safeDays(days);
         String canonicalStatus = StringUtils.hasText(status)
                 ? RuntimeRunStatus.parse(status).name() : null;
-        LambdaQueryWrapper<RuntimeRunEntity> wrapper = new LambdaQueryWrapper<RuntimeRunEntity>()
-                .isNotNull(RuntimeRunEntity::getTraceId)
+        LambdaQueryWrapper<RuntimeRunEntity> wrapper = includeSnapshot
+                ? new LambdaQueryWrapper<>()
+                : withoutSnapshot();
+        wrapper.isNotNull(RuntimeRunEntity::getTraceId)
                 .ge(RuntimeRunEntity::getStartedAt, LocalDateTime.now().minusDays(safeDays))
                 .eq(StringUtils.hasText(projectCode), RuntimeRunEntity::getProjectCode, trim(projectCode))
                 .eq(StringUtils.hasText(canonicalStatus), RuntimeRunEntity::getStatus, canonicalStatus)
@@ -183,7 +187,7 @@ public class RuntimeRunOpsQueryService {
     public List<RuntimeTraceSummaryView> listRecentTraces(String userId, int limit, int days) {
         int safeLimit = Math.max(1, Math.min(limit, 200));
         int safeDays = Math.max(1, Math.min(days, 30));
-        LambdaQueryWrapper<RuntimeRunEntity> wrapper = new LambdaQueryWrapper<RuntimeRunEntity>()
+        LambdaQueryWrapper<RuntimeRunEntity> wrapper = withoutSnapshot()
                 .ge(RuntimeRunEntity::getStartedAt, LocalDateTime.now().minusDays(safeDays))
                 .orderByDesc(RuntimeRunEntity::getStartedAt)
                 .orderByDesc(RuntimeRunEntity::getId)
@@ -194,6 +198,12 @@ public class RuntimeRunOpsQueryService {
         return runMapper.selectList(wrapper).stream()
                 .map(this::toTraceSummary)
                 .toList();
+    }
+
+    /** 列表只做摘要，不读每行几十 KB 的 snapshot_json；详情与诊断仍读完整行。 */
+    private static LambdaQueryWrapper<RuntimeRunEntity> withoutSnapshot() {
+        return new LambdaQueryWrapper<RuntimeRunEntity>()
+                .select(RuntimeRunEntity.class, field -> !"snapshot_json".equals(field.getColumn()));
     }
 
     private RuntimeTraceSummaryView toTraceSummary(RuntimeRunEntity run) {

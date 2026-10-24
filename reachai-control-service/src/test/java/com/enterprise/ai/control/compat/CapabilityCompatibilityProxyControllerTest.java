@@ -1,5 +1,7 @@
 package com.enterprise.ai.control.compat;
 
+import com.enterprise.ai.control.identity.PlatformAuthenticatedSession;
+import com.enterprise.ai.control.identity.PlatformConsoleAuthInterceptor;
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
@@ -13,6 +15,7 @@ import org.springframework.web.client.RestTemplate;
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -91,6 +94,37 @@ class CapabilityCompatibilityProxyControllerTest {
         assertEquals(MediaType.APPLICATION_JSON, response.getHeaders().getContentType());
         assertArrayEquals(responseBody, response.getBody());
         server.verify();
+    }
+
+    @Test
+    void projectListDropsStoredKeysAndTrimsRowsForCallersWithoutPlatformRead() {
+        String upstream = "[{\"id\":7,\"name\":\"芋道\",\"projectCode\":\"yudao-erp\","
+                + "\"baseUrl\":\"http://erp\",\"authApiKeyValue\":\"stored-key\"}]";
+        String manager = listProjectsAs(upstream, List.of("agent:read"));
+        String developer = listProjectsAs(upstream, List.of("platform:read"));
+
+        assertEquals("[{\"id\":7,\"name\":\"芋道\",\"projectCode\":\"yudao-erp\"}]", manager);
+        assertEquals("[{\"id\":7,\"name\":\"芋道\",\"projectCode\":\"yudao-erp\","
+                + "\"baseUrl\":\"http://erp\"}]", developer);
+    }
+
+    private String listProjectsAs(String upstream, List<String> permissions) {
+        RestTemplate restTemplate = new RestTemplate();
+        MockRestServiceServer server = MockRestServiceServer.createServer(restTemplate);
+        CapabilityCompatibilityProxyController controller =
+                new CapabilityCompatibilityProxyController(restTemplate, "http://capability:18605");
+        server.expect(requestTo("http://capability:18605/api/scan-projects"))
+                .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON)
+                        .body(upstream.getBytes(StandardCharsets.UTF_8)));
+        MockHttpServletRequest servletRequest = new MockHttpServletRequest("GET", "/api/scan-projects");
+        servletRequest.setAttribute(PlatformConsoleAuthInterceptor.SESSION_REQUEST_ATTRIBUTE,
+                new PlatformAuthenticatedSession(null, "s", null, List.of(), permissions, List.of()));
+
+        ResponseEntity<byte[]> response = controller.proxy(
+                new RequestEntity<byte[]>(HttpMethod.GET, URI.create("/api/scan-projects")), servletRequest);
+
+        server.verify();
+        return new String(response.getBody(), StandardCharsets.UTF_8);
     }
 
     @Test

@@ -51,66 +51,107 @@
     <AppDrawer
       v-model="drawerVisible"
       title="会话详情"
-      size="72%"
+      description="查看会话上下文、对话内容与页面动作。展开事件可阅读完整内容。"
+      size="min(1120px, 94vw)"
       append-to-body
       destroy-on-close
     >
       <div v-if="selectedSession" class="session-detail" v-loading="detailLoading">
-        <div class="session-summary">
+        <dl class="session-summary app-overlay-section">
           <div>
-            <span>会话 ID</span>
-            <strong>{{ selectedSession.sessionId }}</strong>
+            <dt>会话 ID</dt>
+            <dd class="session-identifier">{{ selectedSession.sessionId }}</dd>
           </div>
           <div>
-            <span>智能体</span>
-            <strong>{{ selectedSession.agentId || '-' }}</strong>
+            <dt>智能体</dt>
+            <dd>{{ selectedSession.agentId || '-' }}</dd>
           </div>
           <div>
-            <span>用户</span>
-            <strong>{{ selectedSession.externalUserId || '-' }}</strong>
+            <dt>用户</dt>
+            <dd class="session-identifier">{{ selectedSession.externalUserId || '-' }}</dd>
           </div>
           <div>
-            <span>页面实例</span>
-            <strong>{{ selectedSession.pageInstanceId || '-' }}</strong>
+            <dt>页面实例</dt>
+            <dd class="session-identifier">{{ selectedSession.pageInstanceId || '-' }}</dd>
           </div>
           <div>
-            <span>来源域</span>
-            <strong>{{ selectedSession.origin || '-' }}</strong>
+            <dt>来源域</dt>
+            <dd>{{ selectedSession.origin || '-' }}</dd>
           </div>
           <div>
-            <span>路由</span>
-            <strong>{{ selectedSession.route || '-' }}</strong>
+            <dt>路由</dt>
+            <dd>{{ selectedSession.route || '-' }}</dd>
           </div>
           <div>
-            <span>状态</span>
-            <strong>{{ selectedSession.status || '-' }}</strong>
+            <dt>状态</dt>
+            <dd><el-tag :type="selectedSession.status === 'ACTIVE' ? 'success' : 'info'" effect="light">{{ selectedSession.status || '-' }}</el-tag></dd>
           </div>
           <div>
-            <span>创建时间</span>
-            <strong>{{ selectedSession.createdAt || '-' }}</strong>
+            <dt>创建时间</dt>
+            <dd>{{ formatDateTime(selectedSession.createdAt) }}</dd>
           </div>
-        </div>
+        </dl>
 
         <LiquidGlassTabs v-model="activeDetailTab" class="detail-tabs">
           <el-tab-pane label="对话事件" name="chat">
-            <el-table :data="chatEvents" row-key="id" size="small">
-              <el-table-column prop="eventType" label="事件" width="150" />
-              <el-table-column prop="role" label="角色" width="90" />
-              <el-table-column prop="content" label="内容" min-width="260" show-overflow-tooltip />
-              <el-table-column prop="traceId" label="追踪 ID" min-width="160" show-overflow-tooltip />
-              <el-table-column prop="createdAt" label="创建时间" width="180" :formatter="formatTableDateTime" />
-            </el-table>
+            <LiquidGlassTable source="backdrop" :show-pagination="false" class="detail-event-table">
+              <el-table :data="chatEvents" row-key="id" size="small">
+                <el-table-column type="expand" width="44">
+                  <template #default="{ row }">
+                    <div class="session-event-content">
+                      <span class="session-event-label">完整内容</span>
+                      <pre>{{ row.content || '此事件没有文本内容' }}</pre>
+                      <template v-if="row.traceId">
+                        <span class="session-event-label">追踪 ID</span>
+                        <code>{{ row.traceId }}</code>
+                      </template>
+                      <template v-if="row.payloadJson">
+                        <span class="session-event-label">事件数据</span>
+                        <pre>{{ row.payloadJson }}</pre>
+                      </template>
+                    </div>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="eventType" label="事件" width="110" />
+                <el-table-column prop="role" label="角色" width="90" />
+                <el-table-column prop="content" label="内容" min-width="260" show-overflow-tooltip />
+                <el-table-column prop="traceId" label="追踪 ID" min-width="160" show-overflow-tooltip />
+                <el-table-column prop="createdAt" label="创建时间" width="180" :formatter="formatTableDateTime" />
+              </el-table>
+            </LiquidGlassTable>
           </el-tab-pane>
           <el-tab-pane label="页面动作" name="actions">
-            <el-table :data="pageActions" row-key="id" size="small">
-              <el-table-column prop="requestId" label="请求 ID" min-width="180" show-overflow-tooltip />
-              <el-table-column prop="actionKey" label="动作" min-width="180" show-overflow-tooltip />
-              <el-table-column prop="status" label="状态" width="120" />
-              <el-table-column prop="targetPageInstanceId" label="页面实例" min-width="180" show-overflow-tooltip />
-              <el-table-column prop="errorMessage" label="错误" min-width="180" show-overflow-tooltip />
-              <el-table-column prop="requestedAt" label="请求时间" width="180" />
-              <el-table-column prop="completedAt" label="完成时间" width="180" />
-            </el-table>
+            <LiquidGlassTable source="backdrop" :show-pagination="false" class="detail-event-table">
+              <el-table :data="pageActions" row-key="id" size="small">
+                <el-table-column type="expand" width="44">
+                  <template #default="{ row }">
+                    <div class="session-event-content">
+                      <span class="session-event-label">请求 ID</span>
+                      <code>{{ row.requestId }}</code>
+                      <template v-if="row.argsJson">
+                        <span class="session-event-label">请求参数</span>
+                        <pre>{{ row.argsJson }}</pre>
+                      </template>
+                      <template v-if="row.resultJson">
+                        <span class="session-event-label">执行结果</span>
+                        <pre>{{ row.resultJson }}</pre>
+                      </template>
+                      <template v-if="row.errorMessage">
+                        <span class="session-event-label">错误详情</span>
+                        <pre>{{ row.errorMessage }}</pre>
+                      </template>
+                    </div>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="requestId" label="请求 ID" min-width="180" show-overflow-tooltip />
+                <el-table-column prop="actionKey" label="动作" min-width="180" show-overflow-tooltip />
+                <el-table-column prop="status" label="状态" width="120" />
+                <el-table-column prop="targetPageInstanceId" label="页面实例" min-width="180" show-overflow-tooltip />
+                <el-table-column prop="errorMessage" label="错误" min-width="180" show-overflow-tooltip />
+                <el-table-column prop="requestedAt" label="请求时间" width="180" :formatter="formatTableDateTime" />
+                <el-table-column prop="completedAt" label="完成时间" width="180" :formatter="formatTableDateTime" />
+              </el-table>
+            </LiquidGlassTable>
           </el-tab-pane>
         </LiquidGlassTabs>
       </div>
@@ -119,7 +160,7 @@
 </template>
 
 <script setup lang="ts">
-import { formatTableDateTime } from '@/utils/dateTime'
+import { formatDateTime, formatTableDateTime } from '@/utils/dateTime'
 import AppDrawer from '@/components/common/AppDrawer.vue'
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -221,16 +262,14 @@ onMounted(load)
 .session-detail {
   display: grid;
   gap: 16px;
+  container-type: inline-size;
 }
 
 .session-summary {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  padding: 14px;
-  border: 1px solid var(--border-glass-edge);
-  border-radius: var(--radius-lg);
-  background: var(--surface-glass-inset);
+  gap: 16px 24px;
+  margin: 0;
 }
 
 .session-summary div {
@@ -239,26 +278,55 @@ onMounted(load)
   gap: 5px;
 }
 
-.session-summary span {
+.session-summary dt {
   color: var(--text-secondary);
   font-size: 12px;
 }
 
-.session-summary strong {
+.session-summary dd {
   min-width: 0;
-  overflow: hidden;
+  margin: 0;
   color: var(--text-primary);
   font-size: 13px;
   font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
 }
+
+.session-identifier { font-family: var(--font-family-mono, monospace); }
+
+.detail-event-table { flex: none; width: 100%; }
+
+.session-event-content {
+  position: sticky;
+  inset-inline-start: 0;
+  display: grid;
+  gap: 8px;
+  box-sizing: border-box;
+  max-inline-size: 100cqi;
+  padding: 16px 24px;
+  color: var(--text-primary);
+  background: var(--surface-glass-inset);
+}
+
+.session-event-label { font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+
+.session-event-content pre,
+.session-event-content code {
+  margin: 0 0 8px;
+  font: inherit;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.session-event-content code { font-family: var(--font-family-mono, monospace); }
 
 .detail-tabs {
   min-width: 0;
 }
 
-@media (max-width: 980px) {
+@media (max-width: 600px) {
   .session-summary {
     grid-template-columns: 1fr;
   }

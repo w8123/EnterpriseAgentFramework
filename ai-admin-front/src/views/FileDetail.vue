@@ -81,14 +81,14 @@
         </el-table-column>
         <el-table-column label="向量" width="160" align="center">
           <template #default="{ row }">
-            <el-button type="primary" link size="small" :loading="reembeddingId === row.id" @click="handleReembed(row)">
+            <el-button v-if="canWriteKnowledge" type="primary" link size="small" :loading="reembeddingId === row.id" @click="handleReembed(row)">
               重建向量
             </el-button>
           </template>
         </el-table-column>
         <el-table-column label="操作" width="100" fixed="right">
           <template #default="{ row }">
-            <el-button type="primary" link size="small" @click="openEdit(row)">编辑</el-button>
+            <el-button v-if="canWriteKnowledge" type="primary" link size="small" @click="openEdit(row)">编辑</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -132,6 +132,10 @@ import {
   documentProviderLabel,
   formatDocumentSourceLocator,
 } from '@/utils/documentImport'
+import { usePlatformCan } from '@/auth/usePlatformCan'
+import { PLATFORM_PERMISSION_KNOWLEDGE_WRITE } from '@/auth/platformAccess'
+const { can } = usePlatformCan()
+const canWriteKnowledge = computed(() => can(PLATFORM_PERMISSION_KNOWLEDGE_WRITE))
 
 const route = useRoute()
 const router = useRouter()

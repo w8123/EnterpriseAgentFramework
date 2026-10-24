@@ -20,6 +20,7 @@ public final class WorkflowExecutionIdentity {
         A2A_REMOTE_AGENT,
         AUTOMATION,
         MCP_REMOTE_CLIENT,
+        MCP_EMPLOYEE,
         STUDIO_PROJECT_TEST,
         DEBUG_UNTRUSTED
     }
@@ -150,6 +151,24 @@ public final class WorkflowExecutionIdentity {
     }
 
     /**
+     * An employee calling from their own AI tool through a personal connection Control
+     * verified against the synced business-user directory. Unlike a remote MCP Client,
+     * the employee is a trusted business user, so the business system sees the person.
+     */
+    public static WorkflowExecutionIdentity fromMcpEmployee(
+            String tenantId,
+            Long projectId,
+            String projectCode,
+            String externalUserId) {
+        if (!StringUtils.hasText(externalUserId)) {
+            throw new IllegalArgumentException("MCP employee identity requires externalUserId");
+        }
+        return new WorkflowExecutionIdentity(
+                Source.MCP_EMPLOYEE, tenantId, projectId, projectCode,
+                externalUserId, true, true);
+    }
+
+    /**
      * Bind an already attested caller to the server-resolved Agent target project.
      * This does not authorize access to that Agent. No business-input map is accepted here.
      * Caller source, tenant and principal retain the canonical factory semantics, including
@@ -195,6 +214,9 @@ public final class WorkflowExecutionIdentity {
                     : untrustedDebug();
             case MCP_REMOTE_CLIENT -> StringUtils.hasText(userId)
                     ? fromMcpRemoteClient(tenantId, projectId, projectCode, userId)
+                    : untrustedDebug();
+            case MCP_EMPLOYEE -> StringUtils.hasText(userId)
+                    ? fromMcpEmployee(tenantId, projectId, projectCode, userId)
                     : untrustedDebug();
             // A request-scoped Studio trust grant must never survive a generic context snapshot.
             case STUDIO_PROJECT_TEST -> untrustedDebug();

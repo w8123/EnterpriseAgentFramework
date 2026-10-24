@@ -1064,7 +1064,7 @@ function errorMessage(error: unknown) {
   padding: 14px;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
-  background: var(--surface-solid-control);
+  background: var(--surface-glass-inset);
 
   > div {
     display: flex;

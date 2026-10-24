@@ -115,16 +115,6 @@
     background-color var(--motion-duration-fast) ease;
 }
 
-// 毛玻璃控件内保留透明透光和父级胶囊圆角，不被全局实心样式覆盖
-.liquid-glass-control .el-input__wrapper,
-.liquid-glass-control .el-select__wrapper {
-  min-height: var(--control-height);
-  border-radius: inherit !important;
-  background: transparent !important;
-  background-color: transparent !important;
-  box-shadow: none !important;
-}
-
 .el-input__wrapper:hover,
 .el-select__wrapper:hover,
 .el-textarea__inner:hover {
@@ -259,15 +249,6 @@
   border-radius: var(--radius-lg);
   background: var(--surface-solid-overlay);
   box-shadow: var(--shadow-overlay);
-}
-
-.el-message-box {
-  --el-messagebox-border-radius: var(--radius-lg);
-  border: 1px solid var(--border-glass-edge);
-  background: var(--surface-glass-overlay);
-  box-shadow: var(--shadow-overlay);
-  -webkit-backdrop-filter: blur(var(--glass-blur-overlay)) saturate(var(--glass-saturation));
-  backdrop-filter: blur(var(--glass-blur-overlay)) saturate(var(--glass-saturation));
 }
 
 // ── 卡片 ──

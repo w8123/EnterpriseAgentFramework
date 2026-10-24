@@ -149,7 +149,6 @@
               <button
                 type="button"
                 class="agent-name-cell"
-                :disabled="!canWriteAgent(row)"
                 @click="handleEdit(row.id)"
               >
                 <span class="agent-name-avatar">{{ agentInitial(row.name) }}</span>
@@ -724,9 +723,8 @@ function handleCreate() {
   })
 }
 
+/** 有写权限时进入编辑；只读角色进入同一页面查看配置。 */
 function handleEdit(id: string) {
-  const agent = agents.value.find((item) => item.id === id)
-  if (agent && !canWriteAgent(agent)) return
   router.push(`/agent/${id}/edit`)
 }
 

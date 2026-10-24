@@ -1,6 +1,5 @@
 <template>
   <div class="sdk-access-page project-workbench-page workbench-page--list" :class="theme === 'dark' ? 'is-dark-skin' : 'is-light-skin'">
-    <AppPageBackground local />
     <span class="page-ambient-center" aria-hidden="true" />
     <PageHeader variant="workbench" domain="project" presentation="plain" title="项目接入工作台" description="完成 SDK 接入配置，检查注册与同步状态。">
       <template #meta>
@@ -564,7 +563,6 @@ import {
   Refresh,
 } from '@element-plus/icons-vue'
 import { useTheme } from '@/composables/useTheme'
-import AppPageBackground from '@/components/common/AppPageBackground.vue'
 import CodeSnippetBlock from '@/components/common/CodeSnippetBlock.vue'
 import { LiquidGlassButton, LiquidGlassNotice } from '@/components/common/liquid-glass'
 import HeaderModeSwitch, { type HeaderModeOption } from '@/components/common/HeaderModeSwitch.vue'

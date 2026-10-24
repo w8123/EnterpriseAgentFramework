@@ -5,6 +5,8 @@ import KnowledgeSettingsTab from './KnowledgeSettingsTab.vue'
 import type { KnowledgeBase } from '@/types/knowledge'
 import { updateKnowledge, updateKbConfig } from '@/api/knowledge'
 
+// 这些用例覆盖有写权限的角色；只读角色另有用例。
+vi.mock('@/auth/usePlatformCan', () => ({ usePlatformCan: () => ({ can: () => true, canAny: () => true }) }))
 vi.mock('@/api/knowledge', () => ({ updateKnowledge: vi.fn(), updateKbConfig: vi.fn() }))
 vi.mock('@/api/model', () => ({ getModelInstances: vi.fn().mockResolvedValue({ data: [] }) }))
 

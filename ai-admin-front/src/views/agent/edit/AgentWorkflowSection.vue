@@ -514,7 +514,7 @@ const {
   padding: 10px;
   border: 1px solid var(--border-divider);
   border-radius: 12px;
-  background: var(--surface-solid-control);
+  background: var(--surface-glass-inset);
   box-shadow: var(--inner-highlight);
 }
 
@@ -575,7 +575,7 @@ const {
   padding: 12px 14px;
   border: 1px solid var(--border-divider);
   border-radius: 12px;
-  background: var(--surface-solid-control);
+  background: var(--surface-glass-inset);
   cursor: pointer;
   transition: border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
 }

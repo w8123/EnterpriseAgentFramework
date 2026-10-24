@@ -106,6 +106,8 @@ ReachAI 是面向 Java 企业系统的 AI 能力中台，不只是 Workflow Buil
 
 - 管理端是工作台型产品，优先信息密度、扫描效率和可重复操作体验。
 - 主题色、暗色/亮色适配优先使用现有 CSS 变量和主题文件，不要在页面里散落硬编码颜色。
+- 搜索、选择、按钮、图标按钮、视图切换、分页、列表容器和导航优先复用 `@/components/common/liquid-glass` 公共入口；接入方式见 `docs/architecture/frontend-liquid-glass-usage.md`，不要在业务页面复制一套控件。
+- “玻璃质感”开关由公共主题统一处理。业务页面不得自行判断 `reduceTransparency` 或重复写折射、高光、厚边、阴影和实色回退；新增材质需求先扩展公共语义 token 与公共组件，使开关一次覆盖所有使用处。
 - 涉及页面布局时，先确认路由、`MainLayout.vue`、共享组件和状态管理，不要在单页里做难以复用的局部 hack。
 - Workflow Studio 变更要验证画布、配置面板、预览/应用、发布校验、Agent Workflow-as-Tool 配置和调试链路是否仍然一致。
 

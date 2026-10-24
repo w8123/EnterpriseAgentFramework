@@ -14,13 +14,9 @@
   color: var(--text-primary);
 }
 
-.registry-detail-page > :not(.el-overlay):not(.app-page-background) {
+.registry-detail-page > :not(.el-overlay) {
   position: relative;
   z-index: 1;
-}
-
-.registry-detail-page :deep(.app-page-background) {
-  z-index: 0;
 }
 
 /* ── Workbench cards ── */

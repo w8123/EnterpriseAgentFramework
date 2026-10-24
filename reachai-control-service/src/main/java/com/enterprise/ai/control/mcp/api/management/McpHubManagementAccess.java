@@ -17,18 +17,26 @@ public class McpHubManagementAccess {
     public static final String MANAGE_CREDENTIALS = "mcp-hub:credential:manage";
     public static final String MANAGE_CREDENTIAL_ROLES = "mcp-hub:credential-role:manage";
     public static final String READ_PAYLOAD = "mcp-hub:payload:read";
+    public static final String MANAGE_EMPLOYEE_CONNECTIONS = "mcp-hub:employee-connection:manage";
 
     public PlatformAuthenticatedSession require(HttpServletRequest request, String permission) {
+        return requireAny(request, permission);
+    }
+
+    /** Admits a caller holding at least one of {@code permissions}. */
+    public PlatformAuthenticatedSession requireAny(HttpServletRequest request, String... permissions) {
         Object candidate = request == null ? null
                 : request.getAttribute(PlatformConsoleAuthInterceptor.SESSION_REQUEST_ATTRIBUTE);
         if (!(candidate instanceof PlatformAuthenticatedSession session)) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED,
                     "live ReachAI platform login is required");
         }
-        if (session.permissions() == null
-                || (!session.permissions().contains(permission) && !session.permissions().contains("*"))) {
+        boolean granted = session.permissions() != null
+                && (session.permissions().contains("*")
+                || java.util.Arrays.stream(permissions).anyMatch(session.permissions()::contains));
+        if (!granted) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                    "platform permission is required: " + permission);
+                    "platform permission is required: " + String.join(" or ", permissions));
         }
         return session;
     }

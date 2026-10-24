@@ -17,6 +17,7 @@ const emit = defineEmits<{
 
 <template>
   <el-drawer
+    :append-to-body="$attrs.modal !== false"
     v-bind="$attrs"
     class="app-drawer glass-surface-overlay liquid-glass-host"
     :model-value="props.modelValue"

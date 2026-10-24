@@ -7,6 +7,8 @@ const mocks = vi.hoisted(() => ({
   push: vi.fn(),
 }))
 
+// 这些用例覆盖有写权限的角色；只读角色另有用例。
+vi.mock('@/auth/usePlatformCan', () => ({ usePlatformCan: () => ({ can: () => true, canAny: () => true }) }))
 vi.mock('vue-router', () => ({
   useRouter: () => ({ push: mocks.push }),
 }))

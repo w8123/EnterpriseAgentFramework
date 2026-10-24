@@ -17,6 +17,7 @@ const emit = defineEmits<{
 
 <template>
   <el-dialog
+    append-to-body
     v-bind="$attrs"
     class="app-dialog glass-surface-overlay liquid-glass-host"
     :model-value="props.modelValue"

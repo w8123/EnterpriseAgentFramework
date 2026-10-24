@@ -85,7 +85,7 @@ onBeforeUnmount(() => {
     <div class="liquid-dropdown-surface" :class="{ 'samples-wallpaper': source === 'wallpaper' }" aria-hidden="true">
       <div
         class="liquid-dropdown-surface__material glass-surface-frost liquid-glass-host"
-        :style="outline ? { clipPath: `path('${outline}')` } : undefined"
+        :style="outline ? { clipPath: `var(--glass-dropdown-clip, path('${outline}'))` } : undefined"
       >
         <LiquidGlassLayer :source="source" shape="droplet" :drop-corner="dropCorner" :drop-side="dropSide" :drop-offset="dropOffset" :bezel="10" :depth="14" />
       </div>
@@ -115,7 +115,8 @@ onBeforeUnmount(() => {
   inset: 0;
   z-index: -1;
   pointer-events: none;
-  filter: drop-shadow(0 10px 14px var(--border-subtle));
+  border-radius: inherit;
+  filter: var(--glass-dropdown-filter);
 }
 
 .liquid-dropdown-surface__material,
@@ -128,7 +129,7 @@ onBeforeUnmount(() => {
 
 .liquid-dropdown-surface__material {
   --glass-tint: var(--surface-glass-overlay);
-  border-radius: 0;
+  border-radius: inherit;
   border: 0;
   box-shadow: none;
 
@@ -141,6 +142,10 @@ onBeforeUnmount(() => {
 
 .samples-wallpaper .liquid-dropdown-surface__material {
   --glass-tint: var(--surface-glass-frost);
+}
+
+.liquid-dropdown-surface__rim {
+  display: var(--glass-decoration-display);
 }
 
 @media (forced-colors: active) {

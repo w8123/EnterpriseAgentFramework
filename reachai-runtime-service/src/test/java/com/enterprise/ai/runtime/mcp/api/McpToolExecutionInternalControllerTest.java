@@ -24,6 +24,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -159,6 +160,49 @@ class McpToolExecutionInternalControllerTest {
         assertFalse(identity.getValue().userTrusted());
     }
 
+    @Test
+    void employeeConnectionRunsAsTheTrustedEmployeeNamedInTheSignature() throws Exception {
+        when(service.execute(any(), any())).thenReturn(new ExecutionOutcome(
+                true, "OK", Map.of("data", Map.of("stock", 43)), "78", "mcp_trace_e", null));
+        byte[] payload = body(employeeRequest("1"));
+
+        mockMvc.perform(signed(payload, payload, InternalServiceAuthHeaders.IDENTITY_SOURCE_MCP_EMPLOYEE, "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true));
+
+        ArgumentCaptor<WorkflowExecutionIdentity> identity =
+                ArgumentCaptor.forClass(WorkflowExecutionIdentity.class);
+        verify(service).execute(any(), identity.capture());
+        assertEquals(WorkflowExecutionIdentity.Source.MCP_EMPLOYEE, identity.getValue().source());
+        assertEquals("tenant-a", identity.getValue().tenantId());
+        assertEquals("yudao-erp", identity.getValue().projectCode());
+        assertEquals("1", identity.getValue().userId());
+        assertTrue(identity.getValue().userTrusted());
+    }
+
+    @Test
+    void employeeBodyCannotNameSomeoneElseOrDropTheConnection() throws Exception {
+        byte[] otherUser = body(employeeRequest("2"));
+        mockMvc.perform(signed(otherUser, otherUser, InternalServiceAuthHeaders.IDENTITY_SOURCE_MCP_EMPLOYEE, "1"))
+                .andExpect(status().isUnauthorized());
+
+        Map<String, Object> noConnection = employeeRequest("1");
+        noConnection.put("metadata", Map.of("tenantId", "tenant-a", "externalUserId", "1",
+                "projectCode", "yudao-erp"));
+        byte[] missing = body(noConnection);
+        mockMvc.perform(signed(missing, missing, InternalServiceAuthHeaders.IDENTITY_SOURCE_MCP_EMPLOYEE, "1"))
+                .andExpect(status().isUnauthorized());
+        verify(service, never()).execute(any(), any());
+    }
+
+    private Map<String, Object> employeeRequest(String externalUserId) {
+        Map<String, Object> request = request("erp.stock.page");
+        request.put("metadata", Map.of(
+                "tenantId", "tenant-a", "externalUserId", externalUserId, "connectionId", 5,
+                "aiToolKind", "CLAUDE_CODE", "projectCode", "yudao-erp"));
+        return request;
+    }
+
     private Map<String, Object> request(String sourceRef) {
         Map<String, Object> request = new LinkedHashMap<>();
         request.put("sourceKind", "CAPABILITY");
@@ -178,8 +222,12 @@ class McpToolExecutionInternalControllerTest {
 
     private MockHttpServletRequestBuilder signed(
             byte[] signedBody, byte[] sentBody, String identitySource) {
+        return signed(signedBody, sentBody, identitySource, "mcp-client-17");
+    }
+
+    private MockHttpServletRequestBuilder signed(
+            byte[] signedBody, byte[] sentBody, String identitySource, String userId) {
         String tenantId = "tenant-a";
-        String userId = "mcp-client-17";
         String timestamp = String.valueOf(System.currentTimeMillis());
         String nonce = UUID.randomUUID().toString();
         String digest = InternalServiceHmac.bodySha256Hex(signedBody);

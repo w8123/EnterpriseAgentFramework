@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   listMcpCallLogs: vi.fn(),
   listMcpClients: vi.fn(),
   listMcpPublications: vi.fn(),
+  routeQuery: {} as Record<string, string>,
 }))
 
 vi.mock('@/api/mcp', () => ({
@@ -15,6 +16,8 @@ vi.mock('@/api/mcp', () => ({
   listMcpClients: (...args: unknown[]) => mocks.listMcpClients(...args),
   listMcpPublications: (...args: unknown[]) => mocks.listMcpPublications(...args),
 }))
+
+vi.mock('vue-router', () => ({ useRoute: () => ({ query: mocks.routeQuery }) }))
 
 const wrappers: VueWrapper[] = []
 
@@ -101,6 +104,7 @@ describe('MCP 调用流水', () => {
     vi.clearAllMocks()
     mocks.listMcpPublications.mockResolvedValue({ data: { items: [], total: 0 } })
     mocks.listMcpClients.mockResolvedValue({ data: [] })
+    mocks.routeQuery = {}
   })
 
   afterEach(() => {
@@ -150,5 +154,16 @@ describe('MCP 调用流水', () => {
     expect(metrics).toContain('当前页失败1建议排查')
     expect(metrics).toContain('当前页 P95120 ms')
     expect(wrapper.get('.table-footer').text()).toContain('共 12 条')
+  })
+
+  it('从员工连接跳来时只看该连接的调用，可一键看全部', async () => {
+    mocks.routeQuery = { connectionId: '5' }
+    mocks.listMcpCallLogs.mockResolvedValue({ data: { items: [], total: 0, limit: 50, offset: 0 } })
+
+    const wrapper = mountCallLogs()
+    await flushPromises()
+
+    expect(mocks.listMcpCallLogs).toHaveBeenLastCalledWith(expect.objectContaining({ connectionId: 5 }))
+    expect(wrapper.text()).toContain('只看员工连接 #5 的调用')
   })
 })

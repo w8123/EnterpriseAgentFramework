@@ -326,7 +326,7 @@ const semanticTone = computed<MetricTone>(() => toneAliases[props.tone] ?? 'bran
 }
 
 .metric-icon-bg--brand {
-  color: var(--brand-active);
+  color: var(--brand-on-surface);
   border-color: var(--brand-primary);
   background: var(--surface-glass-selected);
 }

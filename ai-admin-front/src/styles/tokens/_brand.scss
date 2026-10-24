@@ -9,13 +9,14 @@
   --brand-hover-rgb: 139 92 246;
   --brand-active-rgb: 79 70 229;
   --brand-selected-rgb: 237 233 254;
-  --theme-wallpaper-image: url('/theme-wallpapers/violet-waves.webp');
-  --theme-wallpaper-position: 38% 50%;
-  --wallpaper-fallback: #201145;
-  --wallpaper-ink: #f7f9ff;
-  --wallpaper-ink-muted: #dce4f0;
-  --wallpaper-ink-shadow: 0 1px 4px rgb(0 0 0 / 0.4);
-  --frost-veil-alpha: 0.62;
+  --theme-wallpaper-image: url('/theme-wallpapers/lavender-light.svg');
+  --theme-wallpaper-position: center;
+  --wallpaper-fallback: #eeebf7;
+  --theme-header-artwork: url('/page-header-materials/tech-purple.webp');
+  --wallpaper-ink: #24213b;
+  --wallpaper-ink-muted: #514c68;
+  --wallpaper-ink-shadow: none;
+  --frost-veil-alpha: 0.42;
   --page-header-material: var(--surface-page-background);
   --page-header-material-position: var(--theme-wallpaper-position);
 }
@@ -33,6 +34,7 @@
   --theme-wallpaper-image: url('/theme-wallpapers/sage-folds.webp');
   --theme-wallpaper-position: center 58%;
   --wallpaper-fallback: #d8d8c9;
+  --theme-header-artwork: url('/page-header-materials/metro-green.webp');
   --wallpaper-ink: #172033;
   --wallpaper-ink-muted: #3e4a5c;
   --wallpaper-ink-shadow: none;
@@ -54,6 +56,7 @@
   --theme-wallpaper-image: url('/theme-wallpapers/ice-blue.webp');
   --theme-wallpaper-position: center 42%;
   --wallpaper-fallback: #e4edf8;
+  --theme-header-artwork: url('/page-header-materials/aurora-cyan.webp');
   --wallpaper-ink: #172033;
   --wallpaper-ink-muted: #3e4a5c;
   --wallpaper-ink-shadow: none;
@@ -62,44 +65,48 @@
   --page-header-material-position: var(--theme-wallpaper-position);
 }
 
+// 云雾银：中性银灰与石墨强调色，沿用原品牌键以保留用户选择和 SDK 契约。
 [data-brand='nebula-violet'] {
-  --brand-primary: #7c3aed;
-  --brand-hover: #ec4899;
-  --brand-active: #6d28d9;
-  --brand-disabled: #c4b5fd;
-  --brand-selected: #f3e8ff;
-  --brand-primary-rgb: 124 58 237;
-  --brand-hover-rgb: 236 72 153;
-  --brand-active-rgb: 109 40 217;
-  --brand-selected-rgb: 243 232 255;
-  --theme-wallpaper-image: url('/theme-wallpapers/violet-waves.webp');
-  --theme-wallpaper-position: 68% 46%;
-  --wallpaper-fallback: #27114c;
-  --wallpaper-ink: #f7f9ff;
-  --wallpaper-ink-muted: #dce4f0;
-  --wallpaper-ink-shadow: 0 1px 4px rgb(0 0 0 / 0.4);
-  --frost-veil-alpha: 0.62;
+  --brand-primary: #526171;
+  --brand-hover: #657487;
+  --brand-active: #3d4b5c;
+  --brand-disabled: #b0bac5;
+  --brand-selected: #e7ecf1;
+  --brand-primary-rgb: 82 97 113;
+  --brand-hover-rgb: 101 116 135;
+  --brand-active-rgb: 61 75 92;
+  --brand-selected-rgb: 231 236 241;
+  --theme-wallpaper-image: url('/theme-wallpapers/silver-light.svg');
+  --theme-wallpaper-position: center;
+  --wallpaper-fallback: #e9edf0;
+  --theme-header-artwork: url('/page-header-materials/nebula-violet.webp');
+  --theme-header-artwork-filter: grayscale(1);
+  --wallpaper-ink: #26313b;
+  --wallpaper-ink-muted: #4c5966;
+  --wallpaper-ink-shadow: none;
+  --frost-veil-alpha: 0.38;
   --page-header-material: var(--surface-page-background);
   --page-header-material-position: var(--theme-wallpaper-position);
 }
 
 [data-brand='coral-rose'] {
-  --brand-primary: #db2777;
-  --brand-hover: #f472b6;
-  --brand-active: #be185d;
-  --brand-disabled: #f9a8d4;
-  --brand-selected: #fce7f3;
-  --brand-primary-rgb: 219 39 119;
-  --brand-hover-rgb: 244 114 182;
-  --brand-active-rgb: 190 24 93;
-  --brand-selected-rgb: 252 231 243;
-  --theme-wallpaper-image: url('/theme-wallpapers/rose-glow.webp');
-  --theme-wallpaper-position: center 48%;
-  --wallpaper-fallback: #291247;
-  --wallpaper-ink: #f7f9ff;
-  --wallpaper-ink-muted: #dce4f0;
-  --wallpaper-ink-shadow: 0 1px 4px rgb(0 0 0 / 0.4);
-  --frost-veil-alpha: 0.62;
+  --brand-primary: #bd533b;
+  --brand-hover: #b94b36;
+  --brand-active: #a0402d;
+  --brand-disabled: #eab19e;
+  --brand-selected: #fbe5dc;
+  --brand-primary-rgb: 189 83 59;
+  --brand-hover-rgb: 185 75 54;
+  --brand-active-rgb: 160 64 45;
+  --brand-selected-rgb: 251 229 220;
+  --theme-wallpaper-image: url('/theme-wallpapers/coral-light.svg');
+  --theme-wallpaper-position: center;
+  --wallpaper-fallback: #f8e8df;
+  --theme-header-artwork: url('/page-header-materials/coral-rose.webp');
+  --wallpaper-ink: #3e2b26;
+  --wallpaper-ink-muted: #6a5047;
+  --wallpaper-ink-shadow: none;
+  --frost-veil-alpha: 0.4;
   --page-header-material: var(--surface-page-background);
   --page-header-material-position: var(--theme-wallpaper-position);
 }
@@ -117,6 +124,7 @@
   --theme-wallpaper-image: url('/theme-wallpapers/gold-curves.webp');
   --theme-wallpaper-position: center 48%;
   --wallpaper-fallback: #f3d692;
+  --theme-header-artwork: url('/page-header-materials/solar-gold.webp');
   --wallpaper-ink: #172033;
   --wallpaper-ink-muted: #3e4a5c;
   --wallpaper-ink-shadow: none;
@@ -126,6 +134,7 @@
 }
 
 [data-brand='deep-ocean'] {
+  --theme-header-artwork: url('/page-header-materials/deep-ocean.webp');
   --brand-primary: #1d4ed8;
   --brand-hover: #06b6d4;
   --brand-active: #1e40af;
@@ -159,6 +168,14 @@
   --brand-selected-rgb: 46 49 86;
 }
 
+// 明暗背景分别设计，避免浅色模式因深色壁纸被迫使用暗色阅读面。
+[data-theme='dark']:is(:not([data-brand]), [data-brand='tech-purple']) {
+  --theme-wallpaper-image: url('/theme-wallpapers/lavender-dark.svg');
+  --wallpaper-fallback: #1b192b;
+  --wallpaper-ink: #f0eef9;
+  --wallpaper-ink-muted: #c9c4dd;
+}
+
 [data-theme='dark'][data-brand='metro-green'] {
   --brand-selected: #193631;
   --brand-selected-rgb: 25 54 49;
@@ -170,13 +187,21 @@
 }
 
 [data-theme='dark'][data-brand='nebula-violet'] {
-  --brand-selected: #342655;
-  --brand-selected-rgb: 52 38 85;
+  --brand-selected: #303944;
+  --brand-selected-rgb: 48 57 68;
+  --theme-wallpaper-image: url('/theme-wallpapers/silver-dark.svg');
+  --wallpaper-fallback: #1b2025;
+  --wallpaper-ink: #edf1f5;
+  --wallpaper-ink-muted: #c2cbd3;
 }
 
 [data-theme='dark'][data-brand='coral-rose'] {
-  --brand-selected: #4b2239;
-  --brand-selected-rgb: 75 34 57;
+  --brand-selected: #4b302a;
+  --brand-selected-rgb: 75 48 42;
+  --theme-wallpaper-image: url('/theme-wallpapers/coral-dark.svg');
+  --wallpaper-fallback: #291e1b;
+  --wallpaper-ink: #fbefe8;
+  --wallpaper-ink-muted: #dfc7bc;
 }
 
 [data-theme='dark'][data-brand='solar-gold'] {

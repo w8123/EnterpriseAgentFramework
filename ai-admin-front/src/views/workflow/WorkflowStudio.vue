@@ -10,6 +10,8 @@
       :save-state-class="saveStateClass"
       :save-badge-text="saveBadgeText"
       :read-only="studioReadOnly"
+      :view-only="!canWriteWorkflow"
+      :hide-run="!canDebugWorkflow"
       :debug-loading="debugLoading"
       :read-only-trial="hasReadOnlyTrialTarget"
       :validating="validating"
@@ -96,7 +98,7 @@
         />
 
         <StudioAiEditBar
-          v-if="!aiEditMinimized"
+          v-if="canWriteWorkflow && !aiEditMinimized"
           v-model:instruction="aiEditInstruction"
           v-model:model-instance-id="aiModelInstanceId"
           :read-only="studioReadOnly"
@@ -157,7 +159,8 @@
           :validation-label="studioValidationLabel"
           :validation-tag-type="studioValidationTagType"
           :variable-count="graphVariables.length"
-          :ai-open="!aiEditMinimized"
+          :ai-open="canWriteWorkflow && !aiEditMinimized"
+          :hide-ai="!canWriteWorkflow"
           @toggle-tools="toggleCanvasOperator"
           @toggle-inspector="toggleInspectorPanel"
           @toggle-ai="toggleAiEditBar"
@@ -171,6 +174,7 @@
         v-model:debug-message="nodeDebugMessage"
         v-model:debug-state-text="nodeDebugStateText"
         :read-only="studioReadOnly"
+        :read-only-reason="canWriteWorkflow ? '' : '你的角色只能查看这个 Workflow，不能编辑或发布。'"
         :node="selectedNode"
         :edge="selectedEdge"
         :edge-label="edgeDisplayLabel(selectedEdge?.condition || selectedEdge?.label, selectedEdge) || ''"
@@ -531,7 +535,7 @@ import WorkflowStudioDebugDrawer from '@/views/workflow/studio-overlays/Workflow
 import WorkflowStudioReadOnlyTrialDrawer from '@/views/workflow/studio-overlays/WorkflowStudioReadOnlyTrialDrawer.vue'
 import { hasReadOnlyTrialTarget as graphHasReadOnlyTrialTarget } from '@/views/workflow/composables/useWorkflowStudioReadOnlyTrial'
 import { hasPlatformResourcePermission, PLATFORM_PERMISSION_WORKFLOW_DEBUG, PLATFORM_PERMISSION_RUNOPS_READ,
-  PLATFORM_PERMISSION_CAPABILITY_INVOKE } from '@/auth/platformAccess'
+  PLATFORM_PERMISSION_CAPABILITY_INVOKE, PLATFORM_PERMISSION_WORKFLOW_WRITE } from '@/auth/platformAccess'
 import WorkflowStudioEvalTargetDialog from '@/views/workflow/studio-overlays/WorkflowStudioEvalTargetDialog.vue'
 import WorkflowStudioPublishDialog from '@/views/workflow/studio-overlays/WorkflowStudioPublishDialog.vue'
 import WorkflowStudioSourceDrawer from '@/views/workflow/studio-overlays/WorkflowStudioSourceDrawer.vue'
@@ -726,10 +730,22 @@ const {
   selectedToolName,
 })
 
+// 没有本项目 workflow:write 的角色（开发人员、管理人员）以只读画布查看。
+const canWriteWorkflow = computed(() => !studio.value || hasPlatformResourcePermission(
+  platformSessionUser.value?.permissionGrants, PLATFORM_PERMISSION_WORKFLOW_WRITE, 'PROJECT', 'BUILD',
+  studio.value.projectCode,
+))
+
+const canDebugWorkflow = computed(() => !studio.value || hasPlatformResourcePermission(
+  platformSessionUser.value?.permissionGrants, PLATFORM_PERMISSION_WORKFLOW_DEBUG, 'PROJECT', 'BUILD',
+  studio.value.projectCode,
+))
+
 const studioReadOnly = computed(() => {
   const authority = studio.value?.definitionAuthority
   const creationChannel = studio.value?.creationChannel
-  return authority === 'SDK' || authority === 'SYSTEM' || creationChannel === 'AI_QUICK_ACCESS'
+  return !canWriteWorkflow.value
+    || authority === 'SDK' || authority === 'SYSTEM' || creationChannel === 'AI_QUICK_ACCESS'
 })
 
 const selectedAiEditModelLabel = computed(() =>

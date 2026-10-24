@@ -6,6 +6,9 @@ import type {
   McpClientCreateRequest,
   McpClientUpdateRequest,
   McpClientView,
+  McpEmployeeAccessView,
+  McpEmployeeConnection,
+  McpEmployeeConnectionPage,
   McpHubOverview,
   McpItemPageView,
   McpPrecheckReport,
@@ -115,6 +118,7 @@ export function listMcpCallLogs(params?: {
   direction?: string
   publicationId?: number
   clientId?: number
+  connectionId?: number
   method?: string
   toolName?: string
   success?: boolean
@@ -128,4 +132,31 @@ export function listMcpCallLogs(params?: {
 
 export function getMcpCallLog(id: number) {
   return controlRequest.get<McpCallLogEntry>(`${ROOT}/call-logs/${id}`)
+}
+
+// ===== 员工使用（员工在自己的 AI 工具里办业务） =====
+
+export function getMcpEmployeeAccess(publicationId: number) {
+  return controlRequest.get<McpEmployeeAccessView>(`${ROOT}/publications/${publicationId}/employee-access`)
+}
+
+export function saveMcpEmployeeAccess(
+  publicationId: number,
+  body: { projectId?: number; projectCode: string; displayName?: string; enabled: boolean },
+) {
+  return controlRequest.put<McpEmployeeAccessView>(`${ROOT}/publications/${publicationId}/employee-access`, body)
+}
+
+export function listMcpEmployeeConnections(params?: {
+  projectCode?: string
+  state?: string
+  keyword?: string
+  limit?: number
+  offset?: number
+}) {
+  return controlRequest.get<McpEmployeeConnectionPage>(`${ROOT}/employee-connections`, { params })
+}
+
+export function revokeMcpEmployeeConnection(id: number) {
+  return controlRequest.post<McpEmployeeConnection>(`${ROOT}/employee-connections/${id}/revoke`)
 }

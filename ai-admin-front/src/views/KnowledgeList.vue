@@ -8,13 +8,9 @@
       title="知识库管理"
       description="管理知识文件和检索配置，为 Agent 与 Workflow 提供参考资料。"
     >
-      <template #summary>
-        <HeaderMiniStat class="glass-workspace-adaptive" label="知识库总数" :value="knowledgeStore.knowledgeList.length" />
-        <HeaderMiniStat class="glass-workspace-adaptive" label="文件总数" :value="totalFileCount" />
-      </template>
       <template #actions>
         <LiquidGlassViewToggle v-model="viewMode" source="wallpaper" />
-        <LiquidGlassButton source="wallpaper" type="primary" :icon="Plus" @click="openCreateDialog">新建知识库</LiquidGlassButton>
+        <LiquidGlassButton v-if="canWriteKnowledge" source="wallpaper" type="primary" :icon="Plus" @click="openCreateDialog">新建知识库</LiquidGlassButton>
       </template>
     </PageHeader>
 
@@ -124,7 +120,7 @@
               class="stat-chip stat-chip--agent"
               :class="{ 'is-connected': agentSummaryBadge(kb.code).connected }"
               :title="usageSummary(usageFor(usages, kb.code))"
-              @click.stop="!agentSummaryBadge(kb.code).connected && openAttachDialog(kb)"
+              @click.stop="canAttachAgent && !agentSummaryBadge(kb.code).connected && openAttachDialog(kb)"
             >
               <el-icon><Connection /></el-icon>
               <span>{{ agentSummaryBadge(kb.code).label }}</span>
@@ -161,7 +157,7 @@
                       <el-icon><Document /></el-icon>
                       <span>文件管理</span>
                     </el-dropdown-item>
-                    <el-dropdown-item command="attach">
+                    <el-dropdown-item v-if="canAttachAgent" command="attach">
                       <el-icon><Connection /></el-icon>
                       <span>接入 Agent</span>
                     </el-dropdown-item>
@@ -169,7 +165,7 @@
                       <el-icon><Setting /></el-icon>
                       <span>知识库设置</span>
                     </el-dropdown-item>
-                    <el-dropdown-item command="delete" divided class="is-danger">
+                    <el-dropdown-item v-if="canWriteKnowledge" command="delete" divided class="is-danger">
                       <el-icon><Delete /></el-icon>
                       <span>删除知识库</span>
                     </el-dropdown-item>
@@ -225,6 +221,7 @@
               详情
             </el-button>
             <el-popconfirm
+              v-if="canWriteKnowledge"
               title="确定删除此知识库？所有关联数据将被清除。"
               confirm-button-text="确定"
               cancel-button-text="取消"
@@ -246,7 +243,7 @@
             <p>{{ emptyDescription }}</p>
           </div>
           <el-button v-if="hasActiveFilters" @click="resetFilters">重置筛选</el-button>
-          <el-button v-else type="primary" :icon="Plus" @click="openCreateDialog">新建知识库</el-button>
+          <el-button v-else-if="canWriteKnowledge" type="primary" :icon="Plus" @click="openCreateDialog">新建知识库</el-button>
         </div>
       </template>
     </LiquidGlassTable>
@@ -424,6 +421,12 @@ import ModelSelectEmptyState from '@/components/model/ModelSelectEmptyState.vue'
 import KnowledgeAttachAgentDialog from './knowledge/KnowledgeAttachAgentDialog.vue'
 import { computed, ref, reactive, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { usePlatformCan } from '@/auth/usePlatformCan'
+import {
+  PLATFORM_PERMISSION_AGENT_WRITE,
+  PLATFORM_PERMISSION_KNOWLEDGE_WRITE,
+} from '@/auth/platformAccess'
+import { canLoadModelCatalog } from '@/auth/modelCatalogAccess'
 import type { FormInstance, FormRules } from 'element-plus'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
@@ -449,7 +452,6 @@ import {
   Delete,
 } from '@element-plus/icons-vue'
 import PageHeader from '@/components/common/PageHeader.vue'
-import HeaderMiniStat from '@/components/common/HeaderMiniStat.vue'
 import { LiquidGlassButton, LiquidGlassFilterBar, LiquidGlassInput, LiquidGlassSelect, LiquidGlassTable, LiquidGlassViewToggle, LiquidGlassPage } from '@/components/common/liquid-glass'
 import { useKnowledgeStore } from '@/store/knowledge'
 import { createKnowledge, deleteKnowledge, getKnowledgeUsage } from '@/api/knowledge'
@@ -462,6 +464,9 @@ import type { ModelInstance } from '@/types/model'
 import { normalizeActiveModelInstances } from '@/utils/modelSelection'
 
 const router = useRouter()
+const { can } = usePlatformCan()
+const canWriteKnowledge = computed(() => can(PLATFORM_PERMISSION_KNOWLEDGE_WRITE))
+const canAttachAgent = computed(() => can(PLATFORM_PERMISSION_AGENT_WRITE))
 const knowledgeStore = useKnowledgeStore()
 const { loadModelNames, modelName } = useModelNames()
 const usages = ref<KnowledgeUsage[]>([])
@@ -586,9 +591,6 @@ const appliedStatusFilter = ref<'' | 'enabled' | 'disabled'>('')
 const appliedEmbeddingFilter = ref<'' | 'configured' | 'unconfigured'>('')
 const currentPage = ref(1)
 const pageSize = ref(10)
-const totalFileCount = computed(() =>
-  knowledgeStore.knowledgeList.reduce((total, item) => total + (item.fileCount ?? 0), 0),
-)
 const hasActiveFilters = computed(() =>
   Boolean(appliedKeyword.value || appliedStatusFilter.value || appliedEmbeddingFilter.value),
 )
@@ -787,6 +789,7 @@ watch(
 
 onMounted(() => {
   knowledgeStore.fetchList()
+  if (!canLoadModelCatalog()) return
   loadModelNames()
   fetchEmbeddingInstances()
   fetchRerankInstances()

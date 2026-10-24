@@ -110,7 +110,7 @@
             @focus="onMenuFocus"
             @keydown="onMenuKeydown"
           >
-            <div v-if="activeMenu === entry.index" class="sidebar-selection-glass glass-surface-lens liquid-glass-host" aria-hidden="true">
+            <div v-if="activeMenu === entry.index" class="sidebar-selection-glass glass-surface-lens glass-surface-selection liquid-glass-host" aria-hidden="true">
               <LiquidGlassLayer :bezel="8" :depth="14" source="wallpaper" />
             </div>
             <el-icon class="menu-icon"><component :is="entry.icon" /></el-icon>
@@ -133,7 +133,7 @@
             <template #title>
               <div
                 v-if="collapsed && entry.children.some(leaf => leaf.index === activeMenu)"
-                class="sidebar-selection-glass glass-surface-lens liquid-glass-host"
+                class="sidebar-selection-glass glass-surface-lens glass-surface-selection liquid-glass-host"
                 aria-hidden="true"
               >
                 <LiquidGlassLayer :bezel="8" :depth="14" source="wallpaper" />
@@ -155,7 +155,7 @@
               @focus="onMenuFocus"
               @keydown="onMenuKeydown"
             >
-              <div v-if="activeMenu === leaf.index" class="sidebar-selection-glass glass-surface-lens liquid-glass-host" aria-hidden="true">
+              <div v-if="activeMenu === leaf.index" class="sidebar-selection-glass glass-surface-lens glass-surface-selection liquid-glass-host" aria-hidden="true">
                 <LiquidGlassLayer :bezel="7" :depth="12" source="wallpaper" />
               </div>
               <span class="menu-label leaf">{{ leaf.label }}</span>
@@ -166,142 +166,192 @@
     </el-scrollbar>
 
     <footer v-if="!collapsed" ref="sidebarFooterRef" class="sidebar-footer">
-      <div v-if="activeFooterPanel" class="sidebar-footer-popover glass-surface-overlay liquid-glass-host" @click.stop>
-        <LiquidGlassLayer :bezel="18" :depth="24" />
-        <div class="footer-tabs" role="tablist" aria-label="账户与设置">
-          <button
-            class="footer-tab"
-            :class="{ active: activeFooterPanel === 'profile' }"
-            type="button"
-            role="tab"
-            :aria-selected="activeFooterPanel === 'profile'"
-            @click="activeFooterPanel = 'profile'"
-          >
-            个人
-          </button>
-          <button
-            class="footer-tab"
-            :class="{ active: activeFooterPanel === 'settings' }"
-            type="button"
-            role="tab"
-            :aria-selected="activeFooterPanel === 'settings'"
-            @click="activeFooterPanel = 'settings'"
-          >
-            设置
-          </button>
-        </div>
-        <div class="footer-tab-panel" role="tabpanel">
-          <div v-if="activeFooterPanel === 'profile'" class="profile-panel">
-            <button
-              class="profile-link"
-              type="button"
-              @click="openMyMemories"
-            >
-              <el-icon><Memo /></el-icon>
-              <span>我的记忆</span>
-            </button>
-            <button
-              class="profile-action"
-              type="button"
-              :disabled="loggingOut"
-              :aria-busy="loggingOut"
-              @click="handleLogout"
-            >
-              <el-icon><SwitchButton /></el-icon>
-              <span>{{ loggingOut ? '正在退出…' : '退出账号' }}</span>
+      <el-popover
+        :visible="Boolean(activeFooterPanel)"
+        :virtual-ref="sidebarFooterRef"
+        virtual-triggering
+        placement="right-end"
+        :fallback-placements="['top-start', 'top-end', 'bottom-start']"
+        :popper-options="footerPopoverOptions"
+        :offset="32"
+        :width="activeFooterPanel === 'settings' ? 'min(416px, calc(100vw - 24px))' : 'min(280px, calc(100vw - 24px))'"
+        :show-arrow="false"
+        :persistent="false"
+        popper-class="sidebar-preferences-popper"
+        @after-enter="focusFooterPanel"
+      >
+        <div
+          v-if="activeFooterPanel"
+          ref="footerPopoverContentRef"
+          class="sidebar-footer-popover glass-surface-overlay liquid-glass-host"
+          role="dialog"
+          :aria-label="activeFooterPanel === 'settings' ? '外观设置' : '个人设置'"
+          @click.stop
+        >
+          <LiquidGlassLayer :bezel="18" :depth="24" />
+          <div class="footer-popover-header">
+            <div class="footer-popover-heading">
+              <h2 class="footer-popover-title" tabindex="-1">{{ activeFooterPanel === 'settings' ? '外观设置' : '个人中心' }}</h2>
+              <p v-if="activeFooterPanel === 'settings'">选择适合你的工作台外观</p>
+            </div>
+            <button class="footer-close" type="button" aria-label="关闭账户与设置" @click="closeFooterPanel">
+              <el-icon><Close /></el-icon>
             </button>
           </div>
-
-          <div v-else class="appearance-panel">
-            <div class="appearance-heading">
-              <span class="panel-kicker">界面设置</span>
-              <strong>主题配色</strong>
-            </div>
-
-            <div class="appearance-subtitle">主题色</div>
-            <div class="brand-choice-list" role="radiogroup" aria-label="主题色">
+          <div class="footer-tab-panel">
+            <div v-if="activeFooterPanel === 'profile'" class="profile-panel">
               <button
-                v-for="option in brandOptions"
-                :key="option.value"
-                class="brand-choice"
-                :class="{ active: option.value === brand }"
+                class="profile-link"
                 type="button"
-                role="radio"
-                :aria-checked="option.value === brand"
-                @click="setBrand(option.value)"
+                @click="openMyMemories"
               >
-                <span class="appearance-swatch" :data-brand="option.value" :data-brand-option="option.value" />
-                <span class="brand-choice-label">{{ option.label }}</span>
-                <el-icon v-if="option.value === brand" class="selected-check"><Check /></el-icon>
+                <el-icon><Memo /></el-icon>
+                <span>我的记忆</span>
+              </button>
+              <button
+                class="profile-action"
+                type="button"
+                :disabled="loggingOut"
+                :aria-busy="loggingOut"
+                @click="handleLogout"
+              >
+                <el-icon><SwitchButton /></el-icon>
+                <span>{{ loggingOut ? '正在退出…' : '退出账号' }}</span>
               </button>
             </div>
 
-            <template v-if="darkThemeEntryReady">
-              <div class="appearance-subtitle">明暗模式</div>
-              <div class="appearance-segment" role="radiogroup" aria-label="明暗模式">
-                <button
-                  v-for="option in themeModeOptions"
-                  :key="option.value"
-                  class="appearance-segment__item"
-                  :class="{ active: option.value === themeMode }"
-                  type="button"
-                  role="radio"
-                  :aria-checked="option.value === themeMode"
-                  @click="setThemeMode(option.value)"
-                >
-                  {{ option.label }}
-                </button>
-              </div>
-            </template>
+            <div v-else class="appearance-panel">
+              <section class="appearance-section" aria-label="主题配色">
+                <div class="appearance-section-heading">
+                  <h3>主题配色</h3>
+                  <span>配色与背景同步切换</span>
+                </div>
+                <div class="brand-choice-list" role="radiogroup" aria-label="主题色">
+                  <button
+                    v-for="option in brandOptions"
+                    :key="option.value"
+                    class="brand-choice"
+                    :class="{ active: option.value === brand }"
+                    type="button"
+                    role="radio"
+                    :aria-checked="option.value === brand"
+                    @click="setBrand(option.value)"
+                  >
+                    <span
+                      class="appearance-swatch"
+                      :data-brand="option.value"
+                      :data-brand-option="option.value"
+                      :data-theme="theme"
+                      aria-hidden="true"
+                    />
+                    <span class="brand-choice-label">{{ option.label }}</span>
+                    <el-icon v-if="option.value === brand" class="selected-check"><Check /></el-icon>
+                  </button>
+                </div>
+              </section>
 
-            <div class="appearance-subtitle">显示密度</div>
-            <div class="appearance-segment" role="radiogroup" aria-label="显示密度">
-              <button
-                v-for="option in densityOptions"
-                :key="option.value"
-                class="appearance-segment__item"
-                :class="{ active: option.value === density }"
-                type="button"
-                role="radio"
-                :aria-checked="option.value === density"
-                @click="setDensity(option.value)"
-              >
-                {{ option.label }}
-              </button>
+              <section class="appearance-section appearance-preferences" aria-label="显示设置">
+                <div v-if="darkThemeEntryReady" class="appearance-field">
+                  <h3>明暗模式</h3>
+                  <div class="appearance-segment" role="radiogroup" aria-label="明暗模式">
+                    <button
+                      v-for="option in themeModeOptions"
+                      :key="option.value"
+                      class="appearance-segment__item"
+                      :class="{ active: option.value === themeMode }"
+                      type="button"
+                      role="radio"
+                      :aria-checked="option.value === themeMode"
+                      @click="setThemeMode(option.value)"
+                    >
+                      <el-icon><component :is="themeModeIcons[option.value]" /></el-icon>
+                      {{ option.label }}
+                    </button>
+                  </div>
+                </div>
+
+                <div class="appearance-field">
+                  <h3>显示密度</h3>
+                  <div class="appearance-segment" role="radiogroup" aria-label="显示密度">
+                    <button
+                      v-for="option in densityOptions"
+                      :key="option.value"
+                      class="appearance-segment__item"
+                      :class="{ active: option.value === density }"
+                      type="button"
+                      role="radio"
+                      :aria-checked="option.value === density"
+                      @click="setDensity(option.value)"
+                    >
+                      {{ option.label }}
+                    </button>
+                  </div>
+                </div>
+              </section>
+
+              <section class="appearance-section" aria-label="玻璃效果">
+                <div class="appearance-section-heading">
+                  <h3>玻璃效果</h3>
+                </div>
+                <div class="appearance-material">
+                  <label class="appearance-toggle">
+                    <span>
+                      <strong>玻璃质感</strong>
+                      <small>{{ glassTextureEnabled ? '让界面呈现通透的玻璃效果' : '当前使用不透明表面' }}</small>
+                    </span>
+                    <el-switch
+                      :model-value="glassTextureEnabled"
+                      aria-label="玻璃质感"
+                      @update:model-value="(value: string | number | boolean) => setReduceTransparency(!Boolean(value))"
+                    />
+                  </label>
+                  <div v-if="glassTextureEnabled" class="appearance-material-style">
+                    <div class="appearance-field">
+                      <h3>玻璃样式</h3>
+                      <div class="appearance-segment" role="radiogroup" aria-label="玻璃样式">
+                        <button
+                          class="appearance-segment__item"
+                          :class="{ active: glassRefraction }"
+                          type="button"
+                          role="radio"
+                          :aria-checked="glassRefraction"
+                          @click="setGlassRefraction(true)"
+                        >
+                          液态玻璃
+                        </button>
+                        <button
+                          class="appearance-segment__item"
+                          :class="{ active: !glassRefraction }"
+                          type="button"
+                          role="radio"
+                          :aria-checked="!glassRefraction"
+                          @click="setGlassRefraction(false)"
+                        >
+                          毛玻璃
+                        </button>
+                      </div>
+                    </div>
+                    <p v-if="glassRefraction && !refractionSupported" class="appearance-material-hint">
+                      当前浏览器显示为毛玻璃效果
+                    </p>
+                  </div>
+                </div>
+              </section>
             </div>
-
-            <div class="appearance-subtitle">材质</div>
-            <label v-if="refractionSupported" class="appearance-toggle">
-              <span>
-                <strong>边缘折射</strong>
-                <small>导航与浮动工具栏的玻璃边缘折射</small>
-              </span>
-              <el-switch
-                :model-value="glassRefraction"
-                :disabled="reduceTransparency"
-                aria-label="边缘折射"
-                @update:model-value="(value: string | number | boolean) => setGlassRefraction(Boolean(value))"
-              />
-            </label>
-            <label class="appearance-toggle">
-              <span>
-                <strong>减少透明度</strong>
-                <small>使用不透明表面，提升对比</small>
-              </span>
-              <el-switch
-                :model-value="reduceTransparency"
-                aria-label="减少透明度"
-                @update:model-value="(value: string | number | boolean) => setReduceTransparency(Boolean(value))"
-              />
-            </label>
+          </div>
+          <div v-if="activeFooterPanel === 'settings'" class="appearance-footer">
+            <el-icon><Check /></el-icon>
+            <span>更改即时生效 · 自动保存</span>
           </div>
         </div>
-      </div>
+      </el-popover>
 
       <button
         class="footer-entry"
         :class="{ active: activeFooterPanel === 'profile' }"
         type="button"
+        aria-haspopup="dialog"
+        :aria-expanded="activeFooterPanel === 'profile'"
         @click="toggleFooterPanel('profile')"
       >
         <el-icon><User /></el-icon>
@@ -312,6 +362,8 @@
         class="footer-entry"
         :class="{ active: activeFooterPanel === 'settings' }"
         type="button"
+        aria-haspopup="dialog"
+        :aria-expanded="activeFooterPanel === 'settings'"
         @click="toggleFooterPanel('settings')"
       >
         <el-icon><Setting /></el-icon>
@@ -323,14 +375,18 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch, type ComponentPublicInstance } from 'vue'
-import type { MenuInstance } from 'element-plus'
+import { ElPopover, type MenuInstance } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import {
   ArrowLeft,
   ArrowRight,
   Check,
+  Close,
   Memo,
+  Monitor,
+  Moon,
   Setting,
+  Sunny,
   SwitchButton,
   User,
 } from '@element-plus/icons-vue'
@@ -365,6 +421,7 @@ const router = useRouter()
 const projectStore = useProjectStore()
 const pageProjectScope = usePageProjectScope()
 const {
+  theme,
   brand,
   brandOptions,
   setBrand,
@@ -379,7 +436,14 @@ const {
   reduceTransparency,
   setReduceTransparency,
 } = useTheme()
+// 正向开关复用现有材质偏好，让全站表面与首屏外观保持一致。
+const glassTextureEnabled = computed(() => !reduceTransparency.value)
 const darkThemeEntryReady = DARK_THEME_ENTRY_READY
+const themeModeIcons = { light: Sunny, dark: Moon, system: Monitor }
+const footerPopoverOptions = {
+  strategy: 'fixed' as const,
+  modifiers: [{ name: 'preventOverflow', options: { padding: 12, altAxis: true, tether: false } }],
+}
 const refractionSupported = supportsLiquidGlassRefraction()
 const collapsed = computed(() => props.collapsed)
 const hideProjectPanel = computed(() => props.hideProjectPanel)
@@ -583,15 +647,24 @@ function toggleFooterPanel(panel: 'profile' | 'settings') {
   activeFooterPanel.value = activeFooterPanel.value === panel ? null : panel
 }
 
-// 个人 / 设置浮层：点击侧栏底部以外的区域或按 Esc 关闭。
+// 浮层挂到 body，避免被侧栏的裁切和玻璃变换限制。
 const sidebarFooterRef = ref<HTMLElement>()
+const footerPopoverContentRef = ref<HTMLElement>()
+function focusFooterPanel() {
+  footerPopoverContentRef.value?.querySelector<HTMLElement>('.footer-popover-title')?.focus({ preventScroll: true })
+}
+function closeFooterPanel() {
+  const entry = sidebarFooterRef.value?.querySelector<HTMLElement>('.footer-entry.active')
+  activeFooterPanel.value = null
+  entry?.focus({ preventScroll: true })
+}
 function closeFooterPanelOnOutsidePointer(event: PointerEvent) {
   const target = event.target as Node | null
-  if (target && sidebarFooterRef.value?.contains(target)) return
+  if (target && (sidebarFooterRef.value?.contains(target) || footerPopoverContentRef.value?.contains(target))) return
   activeFooterPanel.value = null
 }
 function closeFooterPanelOnEscape(event: KeyboardEvent) {
-  if (event.key === 'Escape') activeFooterPanel.value = null
+  if (event.key === 'Escape') closeFooterPanel()
 }
 function unbindFooterPanelDismiss() {
   document.removeEventListener('pointerdown', closeFooterPanelOnOutsidePointer, true)
@@ -603,6 +676,7 @@ watch(activeFooterPanel, (panel) => {
   document.addEventListener('pointerdown', closeFooterPanelOnOutsidePointer, true)
   document.addEventListener('keydown', closeFooterPanelOnEscape)
 })
+watch(collapsed, () => { activeFooterPanel.value = null })
 onBeforeUnmount(unbindFooterPanelDismiss)
 
 async function openMyMemories() {
@@ -660,6 +734,7 @@ async function handleLogout() {
 .app-sidebar::before,
 .app-sidebar::after {
   content: '';
+  display: var(--glass-decoration-display);
   position: absolute;
   border-radius: 50%;
   pointer-events: none;
@@ -1136,7 +1211,7 @@ async function handleLogout() {
   :deep(.el-menu-item.is-active) {
     position: relative;
     background: transparent;
-    border-radius: var(--radius-pill);
+    border-radius: var(--glass-control-radius);
     color: var(--sb-parent-active-text);
     font-weight: 700;
 
@@ -1181,7 +1256,7 @@ async function handleLogout() {
     &.is-active {
       position: relative;
       background: transparent;
-      border-radius: var(--radius-pill);
+      border-radius: var(--glass-control-radius);
       color: var(--sb-child-active-text);
       font-weight: 700;
     }
@@ -1223,31 +1298,15 @@ async function handleLogout() {
 
 /* 水滴边缘：只在左上和右下留亮边，中段淡出，避免一圈均匀描边的“框”感。 */
 .sidebar-selection-glass.glass-surface-lens {
-  box-shadow:
-    0 8px 18px -8px rgb(15 23 42 / 0.38),
-    0 1px 2px rgb(15 23 42 / 0.12),
-    inset 0 1.5px 1px rgb(255 255 255 / 0.85),
-    inset 0 -3px 6px -2px rgb(var(--brand-hover-rgb) / 0.42);
+  box-shadow: var(--shadow-glass-navigation-selection);
 
   &::before {
-    background:
-      radial-gradient(85% 70% at 28% -8%, rgb(255 255 255 / 0.78), rgb(255 255 255 / 0.12) 52%, transparent 70%),
-      var(--glass-droplet-caustic),
-      /* 深色壁纸上给水滴一层极薄的亮纱，让它比周围更通透而不是更暗 */
-      linear-gradient(rgb(255 255 255 / calc((var(--frost-veil-alpha, 0.42) - 0.42) * 0.4)), rgb(255 255 255 / calc((var(--frost-veil-alpha, 0.42) - 0.42) * 0.4)));
+    background: var(--surface-glass-navigation-selection);
   }
 
   &::after {
     padding: 1.5px;
-    background: linear-gradient(
-      112deg,
-      rgb(255 255 255 / 0.96) 0%,
-      rgb(255 255 255 / 0.28) 24%,
-      transparent 42%,
-      transparent 62%,
-      rgb(var(--brand-hover-rgb) / 0.55) 84%,
-      rgb(255 255 255 / 0.9) 100%
-    );
+    background: var(--border-glass-navigation-selection);
   }
 }
 
@@ -1287,51 +1346,92 @@ async function handleLogout() {
   border-top: 1px solid var(--navigation-divider);
 }
 
+:global(.sidebar-preferences-popper.el-popper) {
+  max-width: calc(100vw - 24px);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-xl);
+  background: transparent;
+  box-shadow: none;
+}
+
 .sidebar-footer-popover {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 66px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
-  min-height: 104px;
-  max-height: min(560px, calc(100vh - 136px));
+  width: 100%;
+  max-height: min(680px, calc(100dvh - 32px));
+  box-sizing: border-box;
   border: 1px solid var(--border-glass-edge);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-xl);
   background: var(--surface-glass-overlay);
+  color: var(--text-primary);
+  font-family: var(--font-family-sans);
   box-shadow: var(--shadow-overlay);
   -webkit-backdrop-filter: blur(var(--glass-blur-overlay)) saturate(var(--glass-saturation));
   backdrop-filter: blur(var(--glass-blur-overlay)) saturate(var(--glass-saturation));
 }
 
-.footer-tabs {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  padding: 8px;
-  gap: 6px;
+.footer-popover-header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px 16px;
+  border-bottom: 1px solid var(--border-divider);
 }
 
-.footer-tab {
-  height: 30px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--sb-text);
-  font-size: 13px;
-  font-weight: 700;
-  cursor: pointer;
+.footer-popover-heading {
+  min-width: 0;
 
-  &.active {
-    color: var(--sb-child-active-text);
-    background: var(--sb-child-active-bg);
-    box-shadow: var(--inner-highlight);
+  h2 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 700;
+    line-height: 26px;
+  }
+
+  p {
+    margin: 3px 0 0;
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 18px;
   }
 }
 
+.footer-close {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 16px;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+  }
+}
+
+.footer-close:focus-visible,
+.brand-choice:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
 .footer-tab-panel {
-  min-height: 50px;
-  overflow: auto;
-  padding: 10px 10px 12px;
-  border-top: 1px solid var(--sb-divider);
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  padding: 20px;
 }
 
 .profile-panel {
@@ -1348,10 +1448,10 @@ async function handleLogout() {
   align-items: center;
   gap: 9px;
   padding: 0 12px;
-  border: 1px solid var(--sb-divider);
+  border: 1px solid var(--border-divider);
   border-radius: 8px;
   background: transparent;
-  color: var(--sb-text);
+  color: var(--text-secondary);
   font-size: 13px;
   font-weight: 700;
   cursor: pointer;
@@ -1376,11 +1476,11 @@ async function handleLogout() {
 
 .profile-link {
   .el-icon {
-    color: var(--sb-text);
+    color: var(--text-secondary);
   }
 
   &:hover {
-    border-color: var(--sb-divider);
+    border-color: var(--border-divider);
     background: color-mix(in srgb, var(--brand-primary) 8%, transparent);
     color: var(--brand-primary);
 
@@ -1393,53 +1493,77 @@ async function handleLogout() {
 .appearance-panel {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 20px;
+
+  h3 {
+    margin: 0;
+    color: var(--text-primary);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 20px;
+  }
 }
 
-.appearance-heading {
+.appearance-section-heading {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  color: var(--sb-title);
+  gap: 12px;
+  margin-bottom: 10px;
 
-  strong {
-    font-size: 13px;
+  > span {
+    color: var(--text-muted);
+    font-size: 11px;
     line-height: 18px;
   }
 }
 
-.panel-kicker,
-.appearance-subtitle {
-  color: var(--sb-caption);
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0;
+.appearance-preferences {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-block: 18px;
+  border-block: 1px solid var(--border-divider);
 }
 
-.appearance-subtitle {
-  margin-top: 2px;
+.appearance-field {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+
+  > h3 {
+    flex: 0 0 56px;
+  }
 }
 
 .appearance-segment {
   display: grid;
+  flex: 1;
+  min-width: 0;
   grid-auto-columns: minmax(0, 1fr);
   grid-auto-flow: column;
   gap: 2px;
   padding: 3px;
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-md);
   background: var(--surface-hover);
   box-shadow: inset 0 0 0 1px var(--border-subtle);
 }
 
 .appearance-segment__item {
-  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 4px;
   border: 0;
-  border-radius: var(--radius-pill);
+  border-radius: 7px;
   background: transparent;
-  color: var(--sb-text);
+  color: var(--text-secondary);
+  font-family: inherit;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 500;
+  white-space: nowrap;
   cursor: pointer;
   transition:
     background var(--motion-duration-fast) ease,
@@ -1447,13 +1571,13 @@ async function handleLogout() {
     box-shadow var(--motion-duration-fast) ease;
 
   &:hover {
-    color: var(--sb-title);
+    color: var(--text-primary);
   }
 
   &.active {
     background: var(--surface-solid-opaque);
     color: var(--brand-on-surface);
-    box-shadow: 0 1px 3px rgb(15 23 42 / 0.12), var(--inner-highlight);
+    box-shadow: var(--shadow-panel);
   }
 
   &:focus-visible {
@@ -1462,79 +1586,129 @@ async function handleLogout() {
   }
 }
 
+.appearance-material {
+  padding: 0 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface-hover);
+}
+
+.appearance-material-style {
+  padding-block: 12px;
+  border-top: 1px solid var(--border-divider);
+}
+
+.appearance-material-hint {
+  margin: 8px 0 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 16px;
+}
+
 .appearance-toggle {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  padding: 6px 2px;
+  gap: 16px;
+  padding: 12px 0;
   cursor: pointer;
 
   > span {
     display: flex;
     min-width: 0;
     flex-direction: column;
-    gap: 2px;
+    gap: 4px;
   }
 
   strong {
-    color: var(--sb-title);
+    color: var(--text-primary);
     font-size: 12px;
-    font-weight: 700;
+    font-weight: 600;
+    line-height: 18px;
   }
 
   small {
-    color: var(--sb-caption);
+    color: var(--text-muted);
     font-size: 11px;
-    line-height: 15px;
-  }
-}
-
-.brand-choice {
-  border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-  background: var(--surface-solid-control);
-  color: var(--sb-text);
-  cursor: pointer;
-  transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
-
-  &:hover {
-    border-color: rgb(var(--brand-primary-rgb) / 0.28);
-    background: rgb(var(--brand-primary-rgb) / 0.06);
+    line-height: 16px;
   }
 
-  &.active {
-    border-color: rgb(var(--brand-primary-rgb) / 0.4);
-    background: rgb(var(--brand-primary-rgb) / 0.12);
-    color: var(--brand-on-surface);
-    box-shadow: var(--inner-highlight);
+  :deep(.el-switch) {
+    flex-shrink: 0;
   }
 }
 
 .brand-choice-list {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
 }
 
 .brand-choice {
-  height: 34px;
-  display: inline-flex;
+  position: relative;
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   min-width: 0;
-  padding: 0 8px;
-  font-size: 12px;
-  font-weight: 700;
+  padding: 5px 5px 7px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface-solid-control);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
+  cursor: pointer;
+  transition:
+    border-color var(--motion-duration-fast) ease,
+    background var(--motion-duration-fast) ease,
+    color var(--motion-duration-fast) ease;
+
+  &:hover {
+    border-color: var(--border-readable);
+    background: var(--surface-hover);
+  }
+
+  &.active {
+    border-color: var(--brand-primary);
+    background: var(--brand-soft-bg);
+    color: var(--brand-on-surface);
+    box-shadow: var(--inner-highlight);
+  }
 }
 
 .appearance-swatch {
-  width: 12px;
-  height: 12px;
+  position: relative;
+  width: 100%;
+  height: 34px;
   flex: 0 0 auto;
-  border-radius: 50%;
-  background: var(--brand-primary-gradient);
-  box-shadow: 0 0 0 1px rgb(15 23 42 / 0.08), inset 0 1px 0 rgb(255 255 255 / 0.4);
+  overflow: hidden;
+  border-radius: 5px;
+  background: var(--theme-wallpaper-image) var(--theme-wallpaper-position) / cover, var(--brand-primary-gradient);
+  box-shadow: var(--inner-highlight);
+
+  &::before,
+  &::after {
+    content: '';
+    position: absolute;
+    top: 7px;
+    bottom: 7px;
+    border-radius: 2px;
+    background: var(--surface-solid-control);
+  }
+
+  &::before {
+    left: 7px;
+    width: 10px;
+  }
+
+  &::after {
+    left: 21px;
+    right: 7px;
+    opacity: 0.72;
+  }
 }
 
 .brand-choice-label {
@@ -1545,9 +1719,48 @@ async function handleLogout() {
 }
 
 .selected-check {
-  margin-left: auto;
-  color: var(--brand-primary);
-  font-size: 13px;
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--brand-primary);
+  color: var(--text-on-brand);
+  font-size: 11px;
+}
+
+.appearance-footer {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 11px 20px;
+  border-top: 1px solid var(--border-divider);
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 18px;
+
+  .el-icon {
+    color: var(--brand-on-surface);
+  }
+}
+
+@media (max-width: 460px) {
+  .footer-tab-panel {
+    padding: 16px;
+  }
+
+  .appearance-field {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
+
+    > h3 {
+      flex-basis: auto;
+    }
+  }
 }
 
 .footer-entry {
@@ -1609,7 +1822,7 @@ async function handleLogout() {
     /* 折叠时当前子页面的父级也使用胶囊，保持所属模块可辨认。 */
     :deep(.el-sub-menu.is-active > .el-sub-menu__title) {
       position: relative;
-      border-radius: var(--radius-pill);
+      border-radius: var(--glass-control-radius);
       background: transparent;
     }
   }

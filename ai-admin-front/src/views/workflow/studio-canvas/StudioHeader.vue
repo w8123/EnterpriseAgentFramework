@@ -32,6 +32,7 @@
             <el-tag size="small" type="info" class="studio-slug-tag">{{ keySlug }}</el-tag>
           </el-tooltip>
           <el-tag size="small" type="success">{{ projectCode || '全局' }}</el-tag>
+          <el-tag v-if="viewOnly" size="small" type="warning" effect="plain" class="studio-view-only-tag">只读查看</el-tag>
           <span v-if="saveBadgeText !== visibilityLabel" class="save-state" :class="saveStateClass" role="status">
             <i aria-hidden="true"></i>
             <span>{{ saveBadgeText }}</span>
@@ -42,6 +43,7 @@
     <div class="header-right">
       <div class="header-action-group" role="group" aria-label="检查与调试">
         <el-button
+          v-if="!hideRun"
           class="studio-run-button"
           :icon="VideoPlay"
           :loading="debugLoading"
@@ -55,8 +57,8 @@
         </el-button>
         <el-button class="studio-validate-button" :icon="CircleCheck" :loading="validating" @click="emit('validate')">校验</el-button>
       </div>
-      <span class="header-action-divider" aria-hidden="true"></span>
-      <div class="header-action-group" role="group" aria-label="保存与发布">
+      <span v-if="!viewOnly" class="header-action-divider" aria-hidden="true"></span>
+      <div v-if="!viewOnly" class="header-action-group" role="group" aria-label="保存与发布">
         <el-button class="studio-save-button" :icon="DocumentChecked" :loading="saving" :disabled="readOnly" @click="emit('save')">保存</el-button>
         <el-button
           v-if="showPageAssistantSync"
@@ -108,6 +110,10 @@ defineProps<{
   saveStateClass: Record<string, boolean>
   saveBadgeText: string
   readOnly: boolean
+  /** The caller's role may only look at this Workflow: save, publish and AI edit are hidden, not disabled. */
+  viewOnly?: boolean
+  /** The role lacks workflow:debug, so 调试 is hidden. */
+  hideRun?: boolean
   debugLoading: boolean
   /** The draft calls business methods or APIs, so "调试" runs a read-only trial instead of a sandbox. */
   readOnlyTrial: boolean

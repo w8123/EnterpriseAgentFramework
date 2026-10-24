@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2560" height="1600" viewBox="0 0 2560 1600" fill="none">
+  <defs>
+    <linearGradient id="base" x1="400" y1="0" x2="2120" y2="1600" gradientUnits="userSpaceOnUse"><stop stop-color="#241E1C"/><stop offset=".54" stop-color="#2C211E"/><stop offset="1" stop-color="#482D25"/></linearGradient>
+    <linearGradient id="fold" x1="-170" y1="500" x2="2160" y2="1630" gradientUnits="userSpaceOnUse"><stop stop-color="#754B3D"/><stop offset=".42" stop-color="#50382F"/><stop offset=".73" stop-color="#352822"/><stop offset="1" stop-color="#654236"/></linearGradient>
+    <linearGradient id="lower" x1="300" y1="1500" x2="2200" y2="1500" gradientUnits="userSpaceOnUse"><stop stop-color="#47332A"/><stop offset=".48" stop-color="#30251F"/><stop offset="1" stop-color="#78503F"/></linearGradient>
+    <linearGradient id="edge" x1="0" y1="500" x2="2560" y2="1400" gradientUnits="userSpaceOnUse"><stop stop-color="#E9BDA6" stop-opacity=".28"/><stop offset=".6" stop-color="#EBC6B0" stop-opacity=".12"/><stop offset="1" stop-color="#C4937B" stop-opacity=".3"/></linearGradient>
+  </defs>
+  <path fill="url(#base)" d="M0 0H2560V1600H0z"/>
+  <path fill="url(#fold)" d="M-140 380C360 510 410 1020 1120 1150C1750 1260 2200 830 2700 1030V1740H-140Z"/>
+  <path stroke="url(#edge)" stroke-width="3" d="M-140 380C360 510 410 1020 1120 1150C1750 1260 2200 830 2700 1030"/>
+  <path fill="url(#lower)" d="M-140 1170C420 1040 690 1530 1310 1470C1890 1410 2200 1170 2700 1410V1740H-140Z"/>
+  <path stroke="url(#edge)" stroke-width="2" d="M-140 1170C420 1040 690 1530 1310 1470C1890 1410 2200 1170 2700 1410"/>
+</svg>

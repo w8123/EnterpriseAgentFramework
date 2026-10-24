@@ -137,6 +137,13 @@ import { getAgentStatistics, listAgents, listWorkflows } from '@/api/workflow'
 import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
 import { filterSidebarMenu, sidebarMenu } from '@/components/common/sidebarMenu'
 import { platformSessionId, platformSessionUser } from '@/auth/platformSession'
+import {
+  PLATFORM_PERMISSION_AGENT_READ,
+  PLATFORM_PERMISSION_RUNOPS_READ,
+  PLATFORM_PERMISSION_WORKFLOW_READ,
+  hasPlatformGlobalPermissionGrant,
+  platformProjectPermissionScopes,
+} from '@/auth/platformAccess'
 import type {
   DashboardAgentRankingItem,
   DashboardAttentionSignal,
@@ -293,32 +300,67 @@ function loadProjects(recheckDenied = true) {
   }, [], recheckDenied)
 }
 
+/**
+ * Project-scoped accounts (e.g. a developer granted one project) cannot read the
+ * unfiltered lists, so the overview reads each granted project and merges.
+ */
+async function readAcrossScopes<T>(permission: string,
+  read: (params?: { projectCode: string }) => Promise<T>): Promise<T[]> {
+  const grants = platformSessionUser.value?.permissionGrants ?? []
+  const scopes = hasPlatformGlobalPermissionGrant(grants, permission)
+    ? [] : platformProjectPermissionScopes(grants, permission)
+  if (!scopes.length) return [await read()]
+  return Promise.all(scopes.map(projectCode => read({ projectCode })))
+}
+
+function uniqueById<T extends { id?: unknown }>(rows: T[]): T[] {
+  const seen = new Set<unknown>()
+  return rows.filter((row) => {
+    if (seen.has(row.id)) return false
+    seen.add(row.id)
+    return true
+  })
+}
+
 function loadAgents(recheckDenied = true) {
   return loadDomain('agents', agents, async () => {
-    const { data } = await listAgents(undefined, localFeedback)
-    return requireArray<Agent>(data, 'Agent')
+    const pages = await readAcrossScopes(PLATFORM_PERMISSION_AGENT_READ, async (params) =>
+      requireArray<Agent>((await listAgents(params, localFeedback)).data, 'Agent'))
+    return uniqueById(pages.flat())
   }, [], recheckDenied)
 }
 
 function loadWorkflows(recheckDenied = true) {
   return loadDomain('workflows', workflows, async () => {
-    const { data } = await listWorkflows(undefined, localFeedback)
-    return requireArray<WorkflowWorkingCopy>(data, 'Workflow')
+    const pages = await readAcrossScopes(PLATFORM_PERMISSION_WORKFLOW_READ, async (params) =>
+      requireArray<WorkflowWorkingCopy>((await listWorkflows(params, localFeedback)).data, 'Workflow'))
+    return uniqueById(pages.flat())
   }, [], recheckDenied)
 }
 
 function loadAgentStats(recheckDenied = true) {
   return loadDomain('agentStats', agentStats, async () => {
-    const { data } = await getAgentStatistics(undefined, localFeedback)
-    return requireAgentStatistics(data)
+    const pages = await readAcrossScopes(PLATFORM_PERMISSION_AGENT_READ, async (params) =>
+      requireAgentStatistics((await getAgentStatistics(params, localFeedback)).data))
+    return pages.reduce((sum, item) => ({
+      totalAgents: sum.totalAgents + item.totalAgents,
+      enabledAgents: sum.enabledAgents + item.enabledAgents,
+      workflowToolAgents: sum.workflowToolAgents + item.workflowToolAgents,
+      activeWorkflowTools: sum.activeWorkflowTools + item.activeWorkflowTools,
+    }))
   }, null, recheckDenied)
 }
 
 function loadRuns(recheckDenied = true) {
   const days = rangeDays.value
   return loadDomain('runs', runs, async () => {
-    const { data } = await getRecentRunOps({ days, limit: DASHBOARD_SAMPLE_LIMIT }, localFeedback)
-    return requireArray<RunSummary>(data, '运行记录')
+    const pages = await readAcrossScopes(PLATFORM_PERMISSION_RUNOPS_READ, async (params) =>
+      requireArray<RunSummary>((await getRecentRunOps({ ...params, days, limit: DASHBOARD_SAMPLE_LIMIT },
+        localFeedback)).data, '运行记录'))
+    if (pages.length === 1) return pages[0]
+    return pages.flat()
+      .sort((left, right) => String(right.startedAt ?? '').localeCompare(String(left.startedAt ?? '')))
+      .slice(0, DASHBOARD_SAMPLE_LIMIT)
   }, [], recheckDenied)
 }
 

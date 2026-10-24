@@ -32,9 +32,24 @@ describe('shared PageHeader metadata', () => {
     expect(action).toHaveBeenCalledOnce()
   })
 
-  it('makes tag controls inert while the header is collapsed and restores them when expanded', async () => {
+  it('can move metadata beside the title without duplicating it or changing the accessible heading', async () => {
     wrapper = mount(PageHeader, {
-      global, props: { title: '项目详情', collapsed: true },
+      global, props: { title: '企业查询助手', description: '查询企业字典', variant: 'entity' },
+      slots: { tags: '<span>已启用</span><span>线上 v2</span>' },
+    })
+    await wrapper.setProps({ tagPlacement: 'title' })
+    expect(wrapper.findAll('[role="group"]')).toHaveLength(1)
+    expect(wrapper.get('.app-page-header__title-row [role="group"]').text()).toBe('已启用线上 v2')
+    expect(wrapper.get('h1').text()).toBe('企业查询助手')
+    expect(wrapper.get('.app-page-header__description').text()).toBe('查询企业字典')
+    await wrapper.setProps({ tagPlacement: 'below' })
+    expect(wrapper.get('.app-page-header__title-row').find('[role="group"]').exists()).toBe(false)
+    expect(wrapper.findAll('[role="group"]')).toHaveLength(1)
+  })
+
+  it.each(['below', 'title'] as const)('makes %s tag controls inert while collapsed and restores them when expanded', async (tagPlacement) => {
+    wrapper = mount(PageHeader, {
+      global, props: { title: '项目详情', collapsed: true, tagPlacement },
       slots: { tags: '<button type="button">项目范围</button>' },
     })
     const group = wrapper.get('[role="group"]')

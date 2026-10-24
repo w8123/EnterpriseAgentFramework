@@ -44,6 +44,7 @@
         <em>{{ variableCount }}</em>
       </button>
       <button
+        v-if="!hideAi"
         class="status-pill smart-edit-pill"
         :class="{ active: aiOpen }"
         type="button"
@@ -68,6 +69,8 @@ defineProps<{
   validationTagType: 'danger' | 'warning' | 'success' | 'info'
   variableCount: number
   aiOpen: boolean
+  /** View-only roles cannot use AI editing. */
+  hideAi?: boolean
 }>()
 
 const emit = defineEmits<{

@@ -238,6 +238,8 @@ public class RuntimeMcpToolExecutionService {
         copyScalar(safeMetadata, metadata, "publicationId");
         copyScalar(safeMetadata, metadata, "revisionNo");
         copyScalar(safeMetadata, metadata, "environment");
+        copyScalar(safeMetadata, metadata, "connectionId");
+        copyScalar(safeMetadata, metadata, "aiToolKind");
         return traceRoots.startMcp(RuntimeTraceRootService.Start.builder()
                 .traceId(traceId).spanId(spanId).spanType("MCP_TOOLS_CALL").runtimeType(sourceKind)
                 .nodeId(request.sourceRef()).toolName(request.toolName())
@@ -274,7 +276,9 @@ public class RuntimeMcpToolExecutionService {
     }
 
     private void requireRequest(ExecutionRequest request, WorkflowExecutionIdentity caller) {
-        if (request == null || caller == null || caller.source() != WorkflowExecutionIdentity.Source.MCP_REMOTE_CLIENT
+        if (request == null || caller == null
+                || (caller.source() != WorkflowExecutionIdentity.Source.MCP_REMOTE_CLIENT
+                && caller.source() != WorkflowExecutionIdentity.Source.MCP_EMPLOYEE)
                 || !StringUtils.hasText(request.sourceKind())
                 || !StringUtils.hasText(request.sourceRef())
                 || !StringUtils.hasText(request.toolName())

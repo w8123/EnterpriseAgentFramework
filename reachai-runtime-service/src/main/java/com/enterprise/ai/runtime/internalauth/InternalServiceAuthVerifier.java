@@ -18,6 +18,7 @@ public class InternalServiceAuthVerifier {
             "EMBED_SESSION",
             InternalServiceAuthHeaders.IDENTITY_SOURCE_A2A_REMOTE_AGENT,
             InternalServiceAuthHeaders.IDENTITY_SOURCE_MCP_REMOTE_CLIENT,
+            InternalServiceAuthHeaders.IDENTITY_SOURCE_MCP_EMPLOYEE,
             InternalServiceAuthHeaders.IDENTITY_SOURCE_PLATFORM_SESSION,
             InternalServiceAuthHeaders.IDENTITY_SOURCE_PROJECT_CREDENTIAL);
 

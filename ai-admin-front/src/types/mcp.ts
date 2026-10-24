@@ -145,6 +145,10 @@ export interface McpCallLogEntry {
   runId: string | null
   remoteIp: string | null
   createdAt: string | null
+  /** 员工从自己的 AI 工具发起的调用才有；此时 clientName 是员工姓名。 */
+  connectionId?: number | null
+  externalUserId?: string | null
+  toolClientName?: string | null
 }
 
 /** 简单分页结构（publications 列表）。 */
@@ -201,4 +205,40 @@ export interface McpClientUpdateRequest {
   toolScope: string[]
   enabled: boolean
   expiresAt: string | null
+}
+
+/** 员工可用：某个业务系统的员工可以在自己的 AI 工具里使用本发布。 */
+export interface McpEmployeeAccessView {
+  publicationId: number
+  projectId: number | null
+  projectCode: string | null
+  displayName: string | null
+  enabled: boolean
+}
+
+export interface McpEmployeeConnectionSystem {
+  projectCode: string
+  name: string
+}
+
+export interface McpEmployeeConnection {
+  id: number
+  tenantId: string
+  userName: string | null
+  appId: string
+  externalUserId: string
+  toolKind: 'CLAUDE_CODE' | 'CODEX' | 'OTHER' | string
+  keyPrefix: string
+  state: 'ACTIVE' | 'REVOKED' | 'EXPIRED' | string
+  systems: McpEmployeeConnectionSystem[]
+  createdAt: string | null
+  lastUsedAt: string | null
+  expiresAt: string | null
+}
+
+export interface McpEmployeeConnectionPage {
+  items: McpEmployeeConnection[]
+  total: number
+  limit: number
+  offset: number
 }

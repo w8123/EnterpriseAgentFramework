@@ -9,7 +9,7 @@ import java.util.List;
  */
 public interface McpCallLogReader {
 
-    Page page(String direction, Long publicationId, Long clientId, String method,
+    Page page(String direction, Long publicationId, Long clientId, Long connectionId, String method,
               String toolName, Boolean success, String errorCategory, Integer days,
               int limit, int offset);
 
@@ -36,13 +36,27 @@ public interface McpCallLogReader {
             String traceId,
             String runId,
             String remoteIp,
-            LocalDateTime createdAt) {
+            LocalDateTime createdAt,
+            /** Set on calls an employee made from their own AI tool; clientName then holds the employee name. */
+            Long connectionId,
+            String externalUserId,
+            String toolClientName) {
+
+        public Entry(Long id, String direction, Long publicationId, Long clientId, String clientName,
+                     String method, String toolName, Long projectId, String projectCode, String environment,
+                     String tenantId, Boolean success, Long latencyMs, String errorCategory,
+                     String requestBody, String responseBody, String errorMessage, String traceId,
+                     String runId, String remoteIp, LocalDateTime createdAt) {
+            this(id, direction, publicationId, clientId, clientName, method, toolName, projectId, projectCode,
+                    environment, tenantId, success, latencyMs, errorCategory, requestBody, responseBody,
+                    errorMessage, traceId, runId, remoteIp, createdAt, null, null, null);
+        }
 
         public Entry withoutBodies() {
             return new Entry(id, direction, publicationId, clientId, clientName, method,
                     toolName, projectId, projectCode, environment, tenantId,
                     success, latencyMs, errorCategory, null, null, errorMessage,
-                    traceId, runId, remoteIp, createdAt);
+                    traceId, runId, remoteIp, createdAt, connectionId, externalUserId, toolClientName);
         }
     }
 

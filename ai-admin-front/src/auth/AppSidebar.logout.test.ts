@@ -50,6 +50,7 @@ function mountSidebar() {
         ElMenu: true,
         ElMenuItem: true,
         ElOption: true,
+        ElPopover: { template: '<div><slot /></div>' },
         ElScrollbar: true,
         ElSelect: true,
         ElSubMenu: true,

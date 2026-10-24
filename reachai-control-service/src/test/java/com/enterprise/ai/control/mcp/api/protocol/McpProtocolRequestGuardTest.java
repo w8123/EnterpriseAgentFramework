@@ -82,6 +82,19 @@ class McpProtocolRequestGuardTest {
     }
 
     @Test
+    void initializeWithAnotherDatedVersionIsNegotiatedToTheServerVersion() {
+        var older = guard.validate(legacyRequest(false), Map.of(
+                "jsonrpc", "2.0", "id", 1, "method", "initialize",
+                "params", Map.of("protocolVersion", "2025-06-18")));
+        assertEquals(McpProtocolRequestGuard.ProtocolMode.LEGACY, older.mode());
+
+        assertEquals("MCP_PROTOCOL_VERSION_UNSUPPORTED", assertThrows(McpDomainException.class,
+                () -> guard.validate(legacyRequest(false), Map.of(
+                        "jsonrpc", "2.0", "id", 1, "method", "initialize",
+                        "params", Map.of("protocolVersion", "latest")))).code());
+    }
+
+    @Test
     void validatesModernDiscoverListAndNamedCallEnvelope() {
         var discover = guard.validate(modernRequest("server/discover", null), modernBody(
                 1, "server/discover", Map.of()));

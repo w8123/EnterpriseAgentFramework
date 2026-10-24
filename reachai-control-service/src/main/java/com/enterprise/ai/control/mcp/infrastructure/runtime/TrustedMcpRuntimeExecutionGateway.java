@@ -22,6 +22,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 import static com.enterprise.ai.common.util.Texts.firstText;
+import static com.enterprise.ai.common.internalauth.InternalServiceAuthHeaders.IDENTITY_SOURCE_MCP_EMPLOYEE;
 import static com.enterprise.ai.common.internalauth.InternalServiceAuthHeaders.IDENTITY_SOURCE_MCP_REMOTE_CLIENT;
 
 /**
@@ -81,11 +82,49 @@ public class TrustedMcpRuntimeExecutionGateway implements McpRuntimeExecutionGat
         putIfPresent(metadata, "tenantId", command.tenantId());
         requestBody.put("metadata", metadata);
 
+        return send(requestBody, IDENTITY_SOURCE_MCP_REMOTE_CLIENT, command.tenantId(),
+                "mcp-client-" + command.mcpClientId());
+    }
+
+    @Override
+    public ExecutionOutcome executeAsEmployee(EmployeeToolExecutionCommand command) {
+        if (command == null
+                || !StringUtils.hasText(command.sourceKind())
+                || !StringUtils.hasText(command.sourceRef())
+                || !StringUtils.hasText(command.toolName())
+                || !StringUtils.hasText(command.tenantId())
+                || !StringUtils.hasText(command.externalUserId())
+                || !StringUtils.hasText(command.projectCode())) {
+            throw new IllegalArgumentException("employee tool execution command is invalid");
+        }
+        Map<String, Object> requestBody = new LinkedHashMap<>();
+        requestBody.put("sourceKind", command.sourceKind());
+        requestBody.put("sourceRef", command.sourceRef());
+        requestBody.put("capabilityContractHash", command.capabilityContractHash());
+        if (command.workflowVersionId() != null) {
+            requestBody.put("workflowVersionId", command.workflowVersionId());
+        }
+        requestBody.put("toolName", command.toolName());
+        requestBody.put("arguments", command.arguments() == null ? Map.of() : command.arguments());
+        requestBody.put("timeoutMs", runtimeDeadlineMs());
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("connectionId", command.connectionId());
+        putIfPresent(metadata, "aiToolKind", command.aiToolKind());
+        metadata.put("externalUserId", command.externalUserId());
+        metadata.put("publicationId", command.publicationId());
+        metadata.put("revisionNo", command.revisionNo());
+        putIfPresent(metadata, "projectId", command.projectId());
+        metadata.put("projectCode", command.projectCode());
+        metadata.put("tenantId", command.tenantId());
+        requestBody.put("metadata", metadata);
+        return send(requestBody, IDENTITY_SOURCE_MCP_EMPLOYEE, command.tenantId(), command.externalUserId());
+    }
+
+    private ExecutionOutcome send(Map<String, Object> requestBody, String identitySource,
+                                  String tenantId, String principalKey) {
         byte[] payload = write(requestBody);
-        String principalKey = "mcp-client-" + command.mcpClientId();
         Map<String, String> headers = signer.sign(
-                "POST", EXECUTE_PATH, IDENTITY_SOURCE_MCP_REMOTE_CLIENT,
-                command.tenantId(), principalKey, payload);
+                "POST", EXECUTE_PATH, identitySource, tenantId, principalKey, payload);
         Map<String, Object> result = postJson(EXECUTE_PATH, payload, headers, principalKey);
 
         boolean success = Boolean.TRUE.equals(result.get("success"));

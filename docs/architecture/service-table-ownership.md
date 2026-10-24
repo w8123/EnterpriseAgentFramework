@@ -29,6 +29,8 @@ These rows remain in the ownership matrix because the current baseline still rec
 
 | Table | Owner service | Additional direct access | Notes |
 | --- | --- | --- | --- |
+| `control_ai_tool_connection` | `reachai-control-service` | - | Employee's personal connection from their own AI tool (Claude Code, Codex…); key stored only as SHA-256 |
+| `control_ai_tool_connection_system` | `reachai-control-service` | - | Business systems an employee ticked for one personal AI-tool connection |
 | `control_a2a_publication` | `reachai-control-service` | - | A2A Hub local Agent publication aggregate and current immutable revision |
 | `control_a2a_publication_revision` | `reachai-control-service` | - | Immutable A2A 1.0 Agent Card publication snapshot and conformance evidence |
 | `control_a2a_remote_agent` | `reachai-control-service` | - | Stable remote Agent catalog identity, trust and health state |
@@ -182,6 +184,7 @@ These rows remain in the ownership matrix because the current baseline still rec
 | `control_internal_auth_nonce` | `reachai-control-service` | - | Runtime→Control HMAC nonce anti-replay store shared by Control replicas |
 | `control_mcp_call_log` | `reachai-control-service` | - | MCP Hub bidirectional call audit (OUTBOUND external caller / INBOUND remote server) |
 | `control_mcp_client` | `reachai-control-service` | - | MCP Hub client credential scoped to a single publication; terminal credential states are non-reversible |
+| `control_mcp_employee_access` | `reachai-control-service` | - | Which MCP publication employees of one business system may use from their own AI tools (one per system) |
 | `control_mcp_publication` | `reachai-control-service` | - | MCP Hub outbound publication aggregate with state machine and current revision pointer |
 | `control_mcp_publication_item` | `reachai-control-service` | - | MCP Hub draft publication item referencing a Capability or a published Workflow |
 | `control_mcp_publication_revision` | `reachai-control-service` | - | MCP Hub immutable tool-projection snapshot; the only source of truth for tools/list and tools/call |

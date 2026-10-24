@@ -312,3 +312,25 @@ describe('Dashboard 真实会话的受限入口', () => {
     expect(wrapper.find('.ops-icon-btn').attributes('disabled')).toBeUndefined()
   })
 })
+
+describe('Dashboard 按项目授权', () => {
+  it('只有项目授权的开发人员按每个授权项目读取并合并，而不是请求全量列表', async () => {
+    const permissions = ['agent:read', 'workflow:read', 'runops:read']
+    mocks.setPrincipal({
+      userId: 56, username: 'two-projects', permissions,
+      permissionGrants: ['ERP', 'CRM'].flatMap(scopeValue =>
+        permissions.map(permissionCode => ({ permissionCode, scopeType: 'PROJECT', scopeValue }))),
+    })
+    mocks.agents.mockImplementation((params?: { projectCode?: string }) =>
+      Promise.resolve({ data: [{ id: `${params?.projectCode}-agent`, name: 'a', projectCode: params?.projectCode, enabled: true }] }))
+    mocks.stats.mockResolvedValue({ data: { totalAgents: 1, enabledAgents: 1, workflowToolAgents: 0, activeWorkflowTools: 0 } })
+
+    const wrapper = render()
+    await flushPromises()
+
+    expect(mocks.agents.mock.calls.map(call => call[0])).toEqual([{ projectCode: 'ERP' }, { projectCode: 'CRM' }])
+    expect(mocks.stats).toHaveBeenCalledTimes(2)
+    expect(mocks.runs.mock.calls.map(call => call[0]?.projectCode)).toEqual(['ERP', 'CRM'])
+    expect(wrapper.text()).not.toContain('平台总览不可查看')
+  })
+})

@@ -56,6 +56,10 @@ import {
   readModelApiPayload,
   validateDraftForSave,
 } from './modelCenterUi'
+import { usePlatformCan } from '@/auth/usePlatformCan'
+import { PLATFORM_PERMISSION_MODEL_MANAGE } from '@/auth/platformAccess'
+const { can } = usePlatformCan()
+const canManageModels = computed(() => can(PLATFORM_PERMISSION_MODEL_MANAGE))
 
 const route = useRoute()
 const router = useRouter()
@@ -411,14 +415,14 @@ onBeforeUnmount(() => {
         <template #actions>
           <LiquidGlassButton source="wallpaper" :icon="Refresh" :loading="loading" @click="loadDetail">刷新</LiquidGlassButton>
           <LiquidGlassButton source="wallpaper"
-            v-if="!archived && !editing"
+            v-if="canManageModels && !archived && !editing"
             :loading="testing"
             @click="handleSavedTest"
           >
             测试
           </LiquidGlassButton>
           <LiquidGlassButton source="wallpaper"
-            v-if="!archived && !editing"
+            v-if="canManageModels && !archived && !editing"
             :loading="toggling"
             :icon="Switch"
             @click="handleToggle"
@@ -426,7 +430,7 @@ onBeforeUnmount(() => {
             {{ instance.status === 'ACTIVE' ? '停用' : '启用' }}
           </LiquidGlassButton>
           <LiquidGlassButton source="wallpaper"
-            v-if="!archived && !editing"
+            v-if="canManageModels && !archived && !editing"
             type="primary"
             :icon="EditPen"
             @click="enterEdit"
@@ -434,7 +438,7 @@ onBeforeUnmount(() => {
             编辑配置
           </LiquidGlassButton>
           <LiquidGlassButton source="wallpaper"
-            v-if="!archived"
+            v-if="canManageModels && !archived"
             @click="replaceVisible = true"
           >
             更换上游模型
@@ -504,12 +508,12 @@ onBeforeUnmount(() => {
               <em>{{ instance.lastTestError || '-' }}</em>
             </div>
           </div>
-          <div v-if="!archived" class="panel-actions">
+          <div v-if="canManageModels && !archived" class="panel-actions">
             <el-button :loading="testing" @click="handleSavedTest">测试当前已保存配置</el-button>
           </div>
         </WorkbenchPanel>
 
-        <WorkbenchPanel v-if="!archived" class="glass-workspace-adaptive model-detail__danger" title="危险操作" density="compact">
+        <WorkbenchPanel v-if="canManageModels && !archived" class="glass-workspace-adaptive model-detail__danger" title="危险操作" density="compact">
           <LiquidGlassNotice
             type="warning"
             :title="ARCHIVE_CONFIRM_MESSAGE"

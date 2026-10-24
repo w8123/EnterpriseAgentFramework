@@ -12,7 +12,7 @@ const views = [{ value: 'table' as const, label: '表格视图', icon: Grid }, {
 <template>
   <div class="liquid-view-toggle glass-surface-lens liquid-glass-host" :class="{ 'glass-workspace-adaptive': source === 'wallpaper' }" role="group" aria-label="列表视图">
     <LiquidGlassLayer :source="source" :bezel="7" :depth="12" />
-    <span class="liquid-view-toggle__bubble" :class="{ 'is-card': model === 'card' }" aria-hidden="true" />
+    <span class="liquid-view-toggle__bubble glass-surface-selection" :class="{ 'is-card': model === 'card' }" aria-hidden="true" />
     <el-tooltip v-for="view in views" :key="view.value" :content="view.label" placement="top">
       <button type="button" :aria-label="view.label" :aria-pressed="model === view.value" @click="model = view.value">
         <el-icon><component :is="view.icon" /></el-icon>
@@ -29,7 +29,7 @@ const views = [{ value: 'table' as const, label: '表格视图', icon: Grid }, {
   flex-shrink: 0;
   height: var(--control-height);
   padding: 3px;
-  border-radius: 999px;
+  border-radius: var(--glass-control-radius);
   isolation: isolate;
 }
 .liquid-view-toggle__bubble {
@@ -37,7 +37,7 @@ const views = [{ value: 'table' as const, label: '表格视图', icon: Grid }, {
   inset: 3px auto 3px 3px;
   width: 32px;
   border: 1px solid var(--border-glass-edge);
-  border-radius: 50%;
+  border-radius: var(--glass-control-radius);
   background: var(--surface-solid-control);
   box-shadow: var(--inner-highlight);
   transition: transform var(--motion-duration-fast) var(--motion-easing-standard);
@@ -52,7 +52,7 @@ const views = [{ value: 'table' as const, label: '表格视图', icon: Grid }, {
   height: 100%;
   padding: 0;
   border: 0;
-  border-radius: 50%;
+  border-radius: var(--glass-control-radius);
   color: var(--text-secondary);
   background: transparent;
   cursor: pointer;

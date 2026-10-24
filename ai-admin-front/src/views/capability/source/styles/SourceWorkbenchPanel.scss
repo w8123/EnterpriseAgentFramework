@@ -394,31 +394,6 @@
   display: flex;
   flex-direction: column;
   max-height: calc(100vh - 64px);
-  border: 1px solid var(--border-glass-edge);
-  border-radius: 20px;
-  background:
-    linear-gradient(145deg, var(--surface-glass-control), var(--surface-glass-control)),
-    radial-gradient(circle at 14% 0%, rgb(var(--brand-selected-rgb) / 0.28), transparent 40%),
-    radial-gradient(circle at 92% 10%, rgb(var(--brand-hover-rgb) / 0.16), transparent 34%),
-    var(--brand-glass-bg, var(--surface-glass-control));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.94),
-    inset 0 -1px 0 rgba(255, 255, 255, 0.32),
-    0 32px 86px rgba(15, 23, 42, 0.22),
-    0 0 0 1px rgb(var(--brand-primary-rgb) / 0.06);
-  backdrop-filter: blur(30px) saturate(1.22);
-}
-
-:global(.add-interface-dialog::before) {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  background:
-    radial-gradient(circle at 18% 0%, rgb(var(--brand-primary-rgb) / 0.14), transparent 30%),
-    radial-gradient(circle at 88% 8%, rgb(var(--brand-hover-rgb) / 0.1), transparent 28%),
-    linear-gradient(90deg, var(--surface-hover), transparent 56%);
-  pointer-events: none;
 }
 
 :global(.add-interface-dialog .el-dialog__header),
@@ -431,9 +406,6 @@
   margin-right: 0;
   padding: 18px 22px 16px;
   border-bottom: 1px solid rgb(var(--brand-primary-rgb) / 0.12);
-  background:
-    linear-gradient(180deg, var(--surface-glass-control), var(--surface-hover)),
-    rgb(var(--brand-selected-rgb) / 0.12);
 }
 
 :global(.add-interface-dialog .el-dialog__body) {
@@ -542,34 +514,8 @@
   padding: 20px 22px;
   border: 1px solid rgb(var(--brand-primary-rgb) / 0.2);
   border-radius: 14px;
-  background:
-    linear-gradient(180deg, var(--surface-glass-control), var(--surface-hover)),
-    radial-gradient(circle at 100% 0%, rgb(var(--brand-hover-rgb) / 0.18), transparent 36%),
-    radial-gradient(circle at 0% 100%, rgb(var(--brand-primary-rgb) / 0.1), transparent 36%),
-    var(--brand-glass-card-bg, var(--surface-glass-control));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.84),
-    inset 0 -1px 0 rgba(255, 255, 255, 0.28),
-    0 0 0 1px rgba(255, 255, 255, 0.62),
-    0 0 34px -18px rgb(var(--brand-hover-rgb) / 0.68),
-    0 24px 62px -34px rgba(15, 23, 42, 0.34);
-  backdrop-filter: blur(24px) saturate(1.14);
-}
-
-:global(.add-interface-dialog .source-panel::before) {
-  content: '';
-  position: absolute;
-  inset: 1px;
-  z-index: 0;
-  border: 1px solid var(--border-glass-edge);
-  border-radius: 13px;
-  background:
-    linear-gradient(135deg, var(--surface-glass-control), var(--surface-hover) 42%),
-    linear-gradient(180deg, var(--surface-hover), var(--surface-hover));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.72),
-    inset 0 -1px 0 rgb(var(--brand-primary-rgb) / 0.1);
-  pointer-events: none;
+  background: var(--surface-glass-inset);
+  box-shadow: var(--shadow-glass-inset);
 }
 
 :global(.add-interface-dialog .source-panel > *) {
@@ -654,15 +600,8 @@
   scrollbar-gutter: stable;
   border: 1px solid rgb(var(--brand-primary-rgb) / 0.2);
   border-radius: 14px;
-  background:
-    linear-gradient(145deg, var(--surface-glass-control), var(--surface-glass-control)),
-    var(--brand-glass-card-bg, var(--surface-glass-control));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.82),
-    0 0 0 1px rgba(255, 255, 255, 0.5),
-    0 0 28px -20px rgb(var(--brand-hover-rgb) / 0.6),
-    0 18px 46px -32px rgba(15, 23, 42, 0.26);
-  backdrop-filter: blur(20px) saturate(1.1);
+  background: var(--surface-glass-inset);
+  box-shadow: var(--shadow-glass-inset);
 }
 
 :global(.add-interface-dialog .scan-rules-title) {
@@ -703,10 +642,8 @@
   padding: 12px;
   border: 1px solid rgb(var(--brand-primary-rgb) / 0.11);
   border-radius: 10px;
-  background:
-    linear-gradient(180deg, var(--surface-glass-control), var(--surface-glass-control)),
-    var(--surface-glass-control);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.62);
+  background: var(--surface-glass-inset);
+  box-shadow: var(--shadow-glass-inset);
 }
 
 :global(.add-interface-dialog .add-interface-settings-panel .el-form-item.is-disabled-form-item) {

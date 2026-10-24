@@ -2,17 +2,31 @@ package com.enterprise.ai.control.aiassist;
 
 import com.enterprise.ai.control.client.capability.CapabilityProjectOnboardingClient;
 import com.enterprise.ai.control.client.capability.CapabilityAiCodingAccessUpdateRequest;
+import com.enterprise.ai.control.identity.PlatformAuthenticatedSession;
+import com.enterprise.ai.control.identity.PlatformConsoleAuthInterceptor;
+import com.enterprise.ai.control.identity.PlatformPermissionGrant;
+import com.enterprise.ai.control.identity.PlatformPermissions;
+import com.enterprise.ai.control.identity.PlatformPrincipal;
+import com.enterprise.ai.control.identity.PlatformUserEntity;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.web.server.ResponseStatusException;
 
+import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -40,6 +54,7 @@ class ControlAiAssistProjectControllerTest {
         request.setScheme("http");
         request.setServerName("localhost");
         request.setServerPort(18603);
+        request.setAttribute(PlatformConsoleAuthInterceptor.SESSION_REQUEST_ATTRIBUTE, session("orders"));
 
         ResponseEntity<ControlAiAssistProjectController.OnboardingManifestResponse> response =
                 controller.onboardingManifest(7L, request);
@@ -134,9 +149,12 @@ class ControlAiAssistProjectControllerTest {
                 "enabled", true,
                 "accessKey", "aic_manual"
         ));
+        when(client.getOnboardingProjectById(7L)).thenReturn(Map.of("id", 7L, "projectCode", "orders"));
+        MockHttpServletRequest httpRequest = new MockHttpServletRequest();
+        httpRequest.setAttribute(PlatformConsoleAuthInterceptor.SESSION_REQUEST_ATTRIBUTE, session("orders"));
 
         ResponseEntity<ControlAiAssistProjectController.AiCodingAccessManifest> response =
-                controller.updateAiCodingAccess(7L, request);
+                controller.updateAiCodingAccess(7L, request, httpRequest);
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertNotNull(response.getBody());
@@ -145,4 +163,49 @@ class ControlAiAssistProjectControllerTest {
         verify(client).updateAiCodingAccess(7L, request);
     }
 
+    @Test
+    void hidesAiCodingKeyFromReadOnlyRolesAndOtherProjects() {
+        CapabilityProjectOnboardingClient client = mock(CapabilityProjectOnboardingClient.class);
+        ControlAiAssistProjectController controller = new ControlAiAssistProjectController(client);
+        when(client.getOnboardingProjectById(7L)).thenReturn(Map.of(
+                "id", 7L,
+                "projectCode", "orders",
+                "aiCodingAccess", Map.of("enabled", true, "accessKey", "aic_test")));
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/ai-assist/projects/7/onboarding-manifest");
+        request.setAttribute(PlatformConsoleAuthInterceptor.SESSION_REQUEST_ATTRIBUTE, session("billing"));
+
+        var manifest = controller.onboardingManifest(7L, request).getBody();
+
+        assertNotNull(manifest);
+        assertEquals(true, manifest.aiCodingAccess().enabled());
+        assertNull(manifest.aiCodingAccess().accessKey());
+    }
+
+    @Test
+    void rejectsAiCodingAccessUpdatesOutsideTheGrantedProject() {
+        CapabilityProjectOnboardingClient client = mock(CapabilityProjectOnboardingClient.class);
+        ControlAiAssistProjectController controller = new ControlAiAssistProjectController(client);
+        when(client.getOnboardingProjectById(7L)).thenReturn(Map.of("id", 7L, "projectCode", "orders"));
+        MockHttpServletRequest httpRequest = new MockHttpServletRequest();
+        httpRequest.setAttribute(PlatformConsoleAuthInterceptor.SESSION_REQUEST_ATTRIBUTE, session("billing"));
+
+        ResponseStatusException error = assertThrows(ResponseStatusException.class, () ->
+                controller.updateAiCodingAccess(7L, new CapabilityAiCodingAccessUpdateRequest(true, null), httpRequest));
+
+        assertEquals(HttpStatus.FORBIDDEN, error.getStatusCode());
+        verify(client, never()).updateAiCodingAccess(anyLong(), any());
+    }
+
+    private static PlatformAuthenticatedSession session(String writableProject) {
+        PlatformUserEntity user = new PlatformUserEntity();
+        user.setId(9L);
+        user.setUsername("dev");
+        return new PlatformAuthenticatedSession(
+                PlatformPrincipal.fromUser(user),
+                "session-1",
+                LocalDateTime.now().plusHours(1),
+                List.of("DEVELOPER"),
+                List.of(PlatformPermissions.PLATFORM_WRITE),
+                List.of(new PlatformPermissionGrant(PlatformPermissions.PLATFORM_WRITE, "PROJECT", writableProject)));
+    }
 }

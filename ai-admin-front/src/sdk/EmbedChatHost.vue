@@ -16,15 +16,36 @@
         {{ locale === 'en-US' ? 'Retry' : '重试' }}
       </button>
     </div>
-    <button
-      v-if="memoryPanel && authState.status === 'ready' && !memoryOpen"
-      type="button"
-      class="eaf-chat-memory-toggle"
-      :title="locale === 'en-US' ? 'My memories' : '我的记忆'"
-      @click="memoryOpen = true"
+    <div
+      v-if="authState.status === 'ready' && !memoryOpen && !aiToolOpen && (memoryPanel || aiToolPanel)"
+      class="eaf-chat-tools"
     >
-      {{ locale === 'en-US' ? 'Memories' : '我的记忆' }}
-    </button>
+      <button
+        v-if="aiToolPanel"
+        type="button"
+        class="eaf-chat-memory-toggle"
+        :title="locale === 'en-US' ? 'Use in my AI tool' : '在我的 AI 工具中使用'"
+        @click="aiToolOpen = true"
+      >
+        {{ locale === 'en-US' ? 'Use in my AI tool' : '在我的 AI 工具中使用' }}
+      </button>
+      <button
+        v-if="memoryPanel"
+        type="button"
+        class="eaf-chat-memory-toggle"
+        :title="locale === 'en-US' ? 'My memories' : '我的记忆'"
+        @click="memoryOpen = true"
+      >
+        {{ locale === 'en-US' ? 'Memories' : '我的记忆' }}
+      </button>
+    </div>
+    <EmbedAiToolPanel
+      v-if="aiToolOpen"
+      :api-base="apiBase"
+      :get-token="() => resolveToken('send')"
+      :locale="locale"
+      @close="aiToolOpen = false"
+    />
     <EmbedMemoryPanel
       v-if="memoryOpen"
       :api-base="apiBase"
@@ -64,6 +85,7 @@ import {
 } from '@/conversation/embed'
 import type { ConversationEventEnvelope } from '@/conversation/core/conversationEvents'
 import type { EafPageBridge } from './eafPageBridge'
+import EmbedAiToolPanel from './EmbedAiToolPanel.vue'
 import EmbedMemoryPanel from './EmbedMemoryPanel.vue'
 import { buildEafChatSessionPayload, type EafPageDescriptor } from './embedSession'
 import { extractEmbedPublicMetadata } from '@/conversation/core/adapters/adaptEmbedEvent'
@@ -104,6 +126,8 @@ const props = withDefaults(defineProps<{
   preferStream?: boolean
   /** Show the end user's 我的记忆 entry (their own personal memories). */
   memoryPanel?: boolean
+  /** Show 在我的 AI 工具中使用: the end user connects their own Claude Code / Codex as themselves. */
+  aiToolPanel?: boolean
   onEvent?: (event: EmbedChatHostEvent) => void
   onError?: (error: EafChatError) => void
   onAuthStateChange?: (state: EafChatAuthState) => void
@@ -116,11 +140,13 @@ const props = withDefaults(defineProps<{
   locale: 'zh-CN',
   preferStream: true,
   memoryPanel: true,
+  aiToolPanel: true,
   tokenTimeoutMs: 10_000,
 })
 
 const snapshot = ref<ConversationSnapshot>(createEmptySnapshot())
 const memoryOpen = ref(false)
+const aiToolOpen = ref(false)
 const authState = ref<EafChatAuthState>({
   phase: 'token',
   status: 'loading',
@@ -698,7 +724,13 @@ function reportError(error: unknown) {
 }
 
 function openMemories() {
+  aiToolOpen.value = false
   memoryOpen.value = true
+}
+
+function openAiTools() {
+  memoryOpen.value = false
+  aiToolOpen.value = true
 }
 
 function disposeHost() {
@@ -727,6 +759,7 @@ defineExpose({
   ensureHostSession,
   rebindPage,
   openMemories,
+  openAiTools,
   disposeHost,
 })
 </script>
@@ -775,11 +808,18 @@ defineExpose({
   font: inherit;
 }
 
-.eaf-chat-memory-toggle {
+.eaf-chat-tools {
   /* 放在正常文档流里（右上角一行），避免盖住第一条消息。 */
+  display: flex;
   flex: 0 0 auto;
-  align-self: flex-end;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
   margin: 8px 10px 0;
+}
+
+.eaf-chat-memory-toggle {
+  flex: 0 0 auto;
   padding: 3px 9px;
   border: 1px solid rgb(var(--reachai-chat-primary-rgb, 99 102 241) / 0.22);
   border-radius: 999px;

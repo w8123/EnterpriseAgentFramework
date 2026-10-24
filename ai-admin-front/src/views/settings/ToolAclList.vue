@@ -10,7 +10,7 @@
     >
       <template #actions>
         <LiquidGlassButton source="wallpaper" :icon="MagicStick" aria-label="权限检查" @click="openExplainDialog">权限检查</LiquidGlassButton>
-        <LiquidGlassButton source="wallpaper" :icon="Files" aria-label="批量授权" @click="openBatchDialog">批量授权</LiquidGlassButton>
+        <LiquidGlassButton v-if="canManageAcl" source="wallpaper" :icon="Files" aria-label="批量授权" @click="openBatchDialog">批量授权</LiquidGlassButton>
         <el-tooltip content="刷新" placement="top">
           <LiquidGlassButton
             source="wallpaper"
@@ -21,7 +21,7 @@
             @click="reloadAll"
           />
         </el-tooltip>
-        <LiquidGlassButton source="wallpaper" type="primary" :icon="Plus" @click="openCreateDialog">新建规则</LiquidGlassButton>
+        <LiquidGlassButton v-if="canManageAcl" source="wallpaper" type="primary" :icon="Plus" @click="openCreateDialog">新建规则</LiquidGlassButton>
       </template>
     </PageHeader>
 
@@ -113,6 +113,7 @@
               <template #default="{ row }">
                 <el-switch
                   :model-value="row.enabled !== false"
+                  :disabled="!canManageAcl"
                   :aria-label="`启用规则 #${row.id}`"
                   @change="(v: boolean) => handleToggle(row, v)"
                 />
@@ -126,7 +127,7 @@
                 </div>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="104" class-name="acl-actions">
+            <el-table-column v-if="canManageAcl" label="操作" width="104" class-name="acl-actions">
               <template #default="{ row }">
                 <el-button size="small" link @click.stop="openEditDialog(row)">编辑</el-button>
                 <el-popconfirm
@@ -297,6 +298,10 @@ import type {
   ToolAclTargetKind,
   ToolAclTargetRef,
 } from '@/types/toolAcl'
+import { usePlatformCan } from '@/auth/usePlatformCan'
+import { PLATFORM_PERMISSION_TOOL_ACL_MANAGE } from '@/auth/platformAccess'
+const { can } = usePlatformCan()
+const canManageAcl = computed(() => can(PLATFORM_PERMISSION_TOOL_ACL_MANAGE))
 
 const loading = ref(false)
 const saving = ref(false)

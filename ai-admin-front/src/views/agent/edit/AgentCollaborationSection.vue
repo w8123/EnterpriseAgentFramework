@@ -465,7 +465,7 @@ const {
   border-radius: var(--radius-md);
   background:
     linear-gradient(135deg, color-mix(in srgb, var(--brand-primary) 11%, transparent), transparent 72%),
-    var(--surface-solid-control);
+    var(--surface-glass-inset);
 }
 
 .a2a-dialog-intro__icon,
@@ -671,7 +671,7 @@ const {
   padding: 14px;
   border: 1px solid var(--border-divider);
   border-radius: var(--radius-md);
-  background: var(--surface-solid-control);
+  background: var(--surface-glass-inset);
 }
 
 .a2a-dialog-choice-card__heading {
@@ -705,7 +705,9 @@ const {
   padding: 14px;
   border: 1px solid color-mix(in srgb, var(--status-success) 22%, var(--border-divider));
   border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--status-success-soft) 58%, var(--surface-solid-control));
+  background:
+    linear-gradient(var(--status-success-soft), var(--status-success-soft)),
+    var(--surface-glass-inset);
 }
 
 .a2a-dialog-agent-preview__avatar {
@@ -766,7 +768,7 @@ const {
   padding: 14px;
   border: 1px solid var(--border-divider);
   border-radius: var(--radius-md);
-  background: var(--surface-solid-control);
+  background: var(--surface-glass-inset);
 }
 
 .a2a-dialog-section-heading {
@@ -809,7 +811,7 @@ const {
   overflow: hidden;
   border: 1px solid var(--border-divider);
   border-radius: var(--radius-md);
-  background: var(--surface-solid-control);
+  background: var(--surface-glass-inset);
 }
 
 .a2a-dialog-settings summary {

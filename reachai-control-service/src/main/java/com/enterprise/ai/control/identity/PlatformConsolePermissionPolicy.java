@@ -23,6 +23,9 @@ public final class PlatformConsolePermissionPolicy {
 
     private static final AntPathMatcher PATH_MATCHER = new AntPathMatcher();
     private static final List<String> AUTHENTICATED = List.of();
+    private static final List<String> PROJECT_CATALOG_READERS = List.of(
+            PLATFORM_READ, AGENT_READ, WORKFLOW_READ, RUNOPS_READ, AUTOMATION_READ, KNOWLEDGE_READ,
+            MODEL_READ, TOOL_ACL_READ, EMBED_READ, SKILL_READ, MCP_HUB_READ);
 
     /**
      * @param read  any of these permissions admits GET/HEAD requests
@@ -72,6 +75,9 @@ public final class PlatformConsolePermissionPolicy {
             projectRule("/api/registry/projects/*/instances/**", List.of(PLATFORM_READ), List.of(PLATFORM_WRITE)),
             projectRule("/api/registry/projects/*/page-workbench/**",
                     List.of(PLATFORM_READ), List.of(PLATFORM_WRITE)),
+            // The bare project list feeds every project picker; callers without platform:read
+            // get names only (CapabilityCompatibilityProxyController trims the rows).
+            rule("/api/scan-projects", PROJECT_CATALOG_READERS, List.of(PLATFORM_WRITE)),
             rule("/api/scan-projects/**", List.of(PLATFORM_READ), List.of(PLATFORM_WRITE)),
             rule("/api/ai-assist/projects/**", List.of(PLATFORM_READ), List.of(PLATFORM_WRITE)),
             rule("/api/ai-coding-console/**",

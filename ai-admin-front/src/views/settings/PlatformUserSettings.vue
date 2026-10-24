@@ -2,6 +2,7 @@
   <LiquidGlassPage class="platform-identity-page">
     <PageHeader
       variant="overview"
+      height-preset="compact"
       presentation="plain"
       action-presentation="inline"
       domain="platform"
@@ -19,7 +20,7 @@
       </template>
     </PageHeader>
 
-    <section class="identity-workbench workbench-list-surface" aria-label="账号与权限工作区">
+    <section class="identity-workbench workbench-list-surface" :class="{ 'identity-workbench--roles': activeTab === 'roles' }" aria-label="账号与权限工作区">
       <LiquidGlassTabs v-model="activeTab" source="wallpaper" class="identity-tabs">
         <el-tab-pane name="accounts">
           <template #label>
@@ -33,7 +34,7 @@
           />
         </el-tab-pane>
 
-        <el-tab-pane name="roles">
+        <el-tab-pane name="roles" class="identity-role-pane">
           <template #label>
             <span class="tab-label"><el-icon><Lock /></el-icon>角色与权限<em>{{ roles.length }}</em></span>
           </template>
@@ -194,6 +195,23 @@ onMounted(reload)
     background: color-mix(in srgb, currentColor 14%, transparent);
     font-size: 11px;
     font-style: normal;
+  }
+}
+
+@media (min-width: 1081px) and (min-height: 741px) {
+  .identity-workbench.identity-workbench--roles {
+    flex: 1 1 0;
+  }
+
+  .identity-workbench--roles :deep(.el-tabs__content) {
+    overflow: hidden;
+    padding-bottom: 0;
+  }
+
+  .identity-workbench--roles :deep(.identity-role-pane),
+  .identity-workbench--roles :deep(.identity-role-pane > *) {
+    flex: 1 1 0;
+    min-height: 0;
   }
 }
 

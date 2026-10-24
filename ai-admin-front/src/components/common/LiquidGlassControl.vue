@@ -48,8 +48,8 @@ function resetHighlight(event: PointerEvent) {
   align-items: center;
   min-width: 0;
   max-width: 100%;
-  border-color: transparent;
-  border-radius: var(--radius-pill);
+  border-color: var(--glass-control-border);
+  border-radius: var(--glass-control-radius);
   color: var(--control-ink);
   vertical-align: middle;
   transition: box-shadow var(--motion-duration-normal) ease, transform var(--motion-duration-fast) var(--motion-easing-emphasized);
@@ -83,7 +83,8 @@ function resetHighlight(event: PointerEvent) {
 }
 
 .liquid-glass-control--primary {
-  --glass-tint: var(--surface-glass-action, linear-gradient(155deg, rgb(var(--brand-primary-rgb) / 0.42), rgb(var(--brand-primary-rgb) / 0.22) 58%, rgb(var(--brand-hover-rgb) / 0.34)));
+  --glass-tint: var(--surface-glass-action);
+  --control-ink: var(--glass-control-primary-ink, var(--text-primary));
 }
 
 .liquid-glass-control--field {
@@ -136,8 +137,8 @@ function resetHighlight(event: PointerEvent) {
 }
 
 .liquid-glass-control--button:has(.el-button:hover:not(.is-disabled)) {
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-glass-lens), var(--shadow-active);
+  transform: var(--glass-control-hover-transform);
+  box-shadow: var(--workbench-control-hover-shadow, var(--shadow-glass-lens), var(--shadow-active));
 }
 
 .liquid-glass-control--circle.liquid-glass-control--button :deep(.el-button:not(.is-text):not(.is-link)) {
@@ -161,11 +162,12 @@ function resetHighlight(event: PointerEvent) {
 
 .liquid-glass-control.liquid-glass-control--field :deep(.el-input__wrapper),
 .liquid-glass-control.liquid-glass-control--field :deep(.el-select__wrapper) {
-  min-height: var(--control-height);
-  padding-inline: 14px;
-  border-radius: inherit;
-  background: transparent;
-  box-shadow: none;
+  box-sizing: border-box;
+  min-height: var(--control-height) !important;
+  padding-inline: 14px !important;
+  border-radius: inherit !important;
+  background: transparent !important;
+  box-shadow: none !important;
 }
 
 .liquid-glass-control--field :deep(.el-input),

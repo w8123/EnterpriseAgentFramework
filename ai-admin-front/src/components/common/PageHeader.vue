@@ -30,6 +30,7 @@ const props = withDefaults(
     artwork?: boolean
     presentation?: 'panel' | 'plain'
     actionPresentation?: 'dock' | 'inline'
+    tagPlacement?: 'below' | 'title'
     backLabel?: string
     showBack?: boolean
   }>(),
@@ -42,6 +43,7 @@ const props = withDefaults(
     artwork: true,
     presentation: 'panel',
     actionPresentation: 'dock',
+    tagPlacement: 'below',
     backLabel: '返回',
     showBack: false,
   },
@@ -84,6 +86,7 @@ if (import.meta.env.DEV) {
         'has-artwork': props.artwork,
         'has-leading': props.showBack || Boolean($slots.leading),
         'has-trailing': hasTrailing,
+        'has-title-tags': props.tagPlacement === 'title' && Boolean($slots.tags),
       },
     ]"
     :aria-labelledby="titleId"
@@ -116,6 +119,14 @@ if (import.meta.env.DEV) {
 
       <div class="app-page-header__title-row">
         <h1 :id="titleId" class="app-page-header__title" :title="props.title">{{ props.title }}</h1>
+        <PageHeaderTags
+          v-if="$slots.tags && props.tagPlacement === 'title'"
+          class="app-page-header__title-tags"
+          :collapsed="props.collapsed"
+          :source="props.presentation === 'plain' ? 'wallpaper' : 'backdrop'"
+        >
+          <slot name="tags" />
+        </PageHeaderTags>
       </div>
 
       <p
@@ -126,7 +137,7 @@ if (import.meta.env.DEV) {
         {{ props.description }}
       </p>
       <PageHeaderTags
-        v-if="$slots.tags"
+        v-if="$slots.tags && props.tagPlacement === 'below'"
         class="app-page-header__tags"
         :collapsed="props.collapsed"
         :source="props.presentation === 'plain' ? 'wallpaper' : 'backdrop'"
@@ -393,6 +404,16 @@ if (import.meta.env.DEV) {
   gap: var(--layout-page-header-tag-gap);
 }
 
+.app-page-header.has-title-tags .app-page-header__title-row {
+  flex-wrap: wrap;
+}
+
+.app-page-header__title-tags {
+  flex: 0 1 auto;
+  max-width: 100%;
+  margin-top: 0;
+}
+
 .app-page-header:not(.app-page-header--entity) .app-page-header__title-row::before {
   content: '';
   width: 4px;
@@ -524,7 +545,7 @@ if (import.meta.env.DEV) {
   height: auto;
   min-height: 0;
   padding: 0;
-  align-items: start;
+  align-items: center;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -586,7 +607,7 @@ if (import.meta.env.DEV) {
 }
 
 .app-page-header[data-presentation='plain'] .app-page-header__trailing {
-  align-items: start;
+  align-items: center;
   flex-wrap: wrap;
   gap: var(--layout-page-header-action-gap);
 }
@@ -659,6 +680,16 @@ if (import.meta.env.DEV) {
 
   .app-page-header__leading + .app-page-header__main {
     grid-row: 2;
+  }
+
+  .app-page-header.has-title-tags.has-leading {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+    column-gap: var(--layout-control-gap);
+  }
+
+  .app-page-header.has-title-tags .app-page-header__leading + .app-page-header__main {
+    grid-row: 1;
   }
 
   .app-page-header__title {

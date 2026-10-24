@@ -26,11 +26,13 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -60,6 +62,26 @@ class RuntimeRunOpsQueryServiceTest {
         assertEquals(0, summaries.get(0).toolCallCount());
         verify(toolMapper, never()).selectList(any());
         verify(spanMapper, never()).selectList(any());
+    }
+
+    @Test
+    void recentListSkipsSnapshotColumnButDiagnosticsKeepsIt() {
+        TableInfoHelper.initTableInfo(
+                new MapperBuilderAssistant(new MybatisConfiguration(), "runops-projection-test"),
+                RuntimeRunEntity.class);
+        when(runMapper.selectList(any())).thenReturn(List.of());
+
+        service.recent(null, null, null, null, null, null, 100, 1);
+        service.diagnostics(null, null, null, null, null, null, null, 100, 1);
+
+        @SuppressWarnings("rawtypes")
+        ArgumentCaptor<Wrapper> captor = ArgumentCaptor.forClass(Wrapper.class);
+        verify(runMapper, times(2)).selectList(captor.capture());
+        String listSelect = ((LambdaQueryWrapper<?>) captor.getAllValues().get(0)).getSqlSelect();
+        assertTrue(listSelect.contains("trace_id"));
+        assertTrue(listSelect.contains("metadata_json"));
+        assertFalse(listSelect.contains("snapshot_json"));
+        assertNull(((LambdaQueryWrapper<?>) captor.getAllValues().get(1)).getSqlSelect());
     }
 
     @Test

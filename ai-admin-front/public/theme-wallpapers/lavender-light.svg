@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2560" height="1600" viewBox="0 0 2560 1600" fill="none">
+  <defs>
+    <linearGradient id="base" x1="170" y1="40" x2="2290" y2="1600" gradientUnits="userSpaceOnUse"><stop stop-color="#E8E4F5"/><stop offset=".48" stop-color="#F7F7FC"/><stop offset="1" stop-color="#D8D0EC"/></linearGradient>
+    <linearGradient id="fold" x1="-100" y1="480" x2="2000" y2="1500" gradientUnits="userSpaceOnUse"><stop stop-color="#B9AFD9"/><stop offset=".48" stop-color="#DDD7EF"/><stop offset=".8" stop-color="#F8F7FC"/><stop offset="1" stop-color="#C8BFE3"/></linearGradient>
+    <linearGradient id="edge" x1="-100" y1="600" x2="2400" y2="1700" gradientUnits="userSpaceOnUse"><stop stop-color="#FDFDFF" stop-opacity=".85"/><stop offset=".5" stop-color="#FAF9FE" stop-opacity=".35"/><stop offset="1" stop-color="#B8ACD8" stop-opacity=".65"/></linearGradient>
+    <radialGradient id="light" cx="0" cy="0" r="1" gradientTransform="translate(1760 250) rotate(90) scale(1100 1540)" gradientUnits="userSpaceOnUse"><stop stop-color="#FFFFFF" stop-opacity=".6"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/></radialGradient>
+  </defs>
+  <path fill="url(#base)" d="M0 0H2560V1600H0z"/>
+  <path fill="url(#fold)" d="M-160 250C370 120 500 840 1070 1070C1590 1280 2020 900 2700 1160V1770H-160Z"/>
+  <path stroke="url(#edge)" stroke-width="3" d="M-160 250C370 120 500 840 1070 1070C1590 1280 2020 900 2700 1160"/>
+  <path fill="url(#edge)" fill-opacity=".48" d="M-140 940C300 720 560 1420 1260 1460C1790 1490 2290 1150 2700 1450V1770H-140Z"/>
+  <path fill="url(#light)" d="M0 0H2560V1600H0z"/>
+</svg>

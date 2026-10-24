@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { DataAnalysis, Monitor, Promotion } from '@element-plus/icons-vue'
+import { DataAnalysis, Monitor, Promotion, User } from '@element-plus/icons-vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
 import { LiquidGlassNav } from '@/components/common/liquid-glass'
@@ -10,6 +10,7 @@ const route = useRoute()
 const items = [
   { path: '/mcp-hub/overview', label: '总览', icon: DataAnalysis },
   { path: '/mcp-hub/publications', label: '对外发布', icon: Promotion },
+  { path: '/mcp-hub/employee-connections', label: '员工连接', icon: User },
   { path: '/mcp-hub/call-logs', label: '调用流水', icon: Monitor },
 ]
 
@@ -28,7 +29,7 @@ const activePath = computed(() => {
       action-presentation="inline"
       domain="platform"
       title="MCP 互联中心"
-      description="将能力和已发布 Workflow 安全发布为 MCP Tool。"
+      description="将能力和已发布 Workflow 安全发布为 MCP Tool，也让员工在自己的 AI 工具里以本人身份办业务。"
     >
       <template #meta>
         <LiquidGlassNav source="wallpaper" class="hub-nav" aria-label="MCP 互联中心工作区">

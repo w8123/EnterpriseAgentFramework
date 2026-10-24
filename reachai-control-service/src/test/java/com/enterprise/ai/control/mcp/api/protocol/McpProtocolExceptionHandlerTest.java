@@ -26,7 +26,8 @@ class McpProtocolExceptionHandlerTest {
         ObjectMapper objectMapper = new ObjectMapper();
         McpEndpointController controller = new McpEndpointController(
                 new McpProtocolRequestGuard(properties), service, properties, objectMapper,
-                new McpAuditPayloadSanitizer(objectMapper, properties));
+                new McpAuditPayloadSanitizer(objectMapper, properties),
+                mock(com.enterprise.ai.control.mcp.application.employee.McpEmployeeProtocolService.class));
         mvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new McpProtocolExceptionHandler(service))
                 .build();

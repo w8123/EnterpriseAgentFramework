@@ -140,6 +140,10 @@ const {
   background: var(--surface-solid-control);
 }
 
+.knowledge-picker__row {
+  background: var(--surface-glass-inset);
+}
+
 .knowledge-card__icon {
   display: grid;
   width: 44px;

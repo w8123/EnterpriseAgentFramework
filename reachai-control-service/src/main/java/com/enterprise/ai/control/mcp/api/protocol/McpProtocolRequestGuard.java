@@ -102,7 +102,9 @@ public class McpProtocolRequestGuard {
         String headerVersion = text(request == null ? null : request.getHeader(PROTOCOL_VERSION_HEADER));
         if ("initialize".equals(method)) {
             String requested = text(params.get("protocolVersion"));
-            if (!properties.getLegacyProtocolVersion().equals(requested)) {
+            // Per MCP version negotiation, a client asking for another dated version still gets the
+            // server's version in the initialize result and decides itself whether to continue.
+            if (requested == null || !requested.matches("\\d{4}-\\d{2}-\\d{2}")) {
                 throw protocolError("MCP_PROTOCOL_VERSION_UNSUPPORTED",
                         "unsupported MCP protocol version");
             }

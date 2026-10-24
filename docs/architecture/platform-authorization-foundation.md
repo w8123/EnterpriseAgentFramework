@@ -64,7 +64,7 @@
 | `PLATFORM_ADMIN` | 平台管理员 | GLOBAL | 全部权限（含 `*`），生产应限制人数并保留审计 |
 | `DEVELOPER` | 开发人员（Java 接入开发者） | 建议 PROJECT | 项目与业务能力读写、调试调用；Agent、Workflow、运行记录、知识、模型只读 |
 | `OPERATOR` | 运营人员（Agent / Workflow 实施与运营） | GLOBAL | Agent、Workflow、知识、运行中心、自动化、嵌入与开放、业务用户与调用权限；业务能力只读 |
-| `AUDITOR` | 审计员 | GLOBAL | 只读 |
+| `MANAGER` | 管理人员（看使用记录） | GLOBAL | 运行中心、MCP 员工连接与调用流水、业务用户、调用权限、Agent / Workflow / 知识 / Skill / 自动化只读；可断开员工连接（`mcp-hub:employee-connection:manage`）。2026-10-24 替换原 `AUDITOR`，见 `sql/upgrade-20261024-platform-manager-role.sql` |
 
 “用户”不应新增成一个笼统平台角色。若指业务终端用户，应留在业务身份域；若指只读平台成员，应通过只读权限组合成平台角色。
 

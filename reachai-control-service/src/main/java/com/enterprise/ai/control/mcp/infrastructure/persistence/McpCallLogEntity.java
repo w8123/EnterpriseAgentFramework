@@ -33,4 +33,7 @@ public class McpCallLogEntity {
     private String runId;
     private String remoteIp;
     private LocalDateTime createdAt;
+    private Long connectionId;
+    private String externalUserId;
+    private String toolClientName;
 }

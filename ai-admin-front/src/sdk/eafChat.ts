@@ -100,6 +100,8 @@ export interface EafChatOptions {
   stream?: boolean
   /** Show the end user's 我的记忆 entry inside the chat. Defaults to true. */
   memories?: boolean
+  /** Show 在我的 AI 工具中使用 (connect the user's own Claude Code / Codex as themselves). Defaults to true. */
+  aiTools?: boolean
   theme?: EafChatTheme
   locale?: 'zh-CN' | 'en-US' | string
   position?: EafChatPosition
@@ -523,6 +525,7 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
     placeholder: locale === 'zh-CN' ? '输入消息' : 'Type a message',
     preferStream: options.stream !== false,
     memoryPanel: options.memories !== false,
+    aiToolPanel: options.aiTools !== false,
     onEvent: emitPublicEvent,
     onError: (error: EafChatError) => options.onError?.(error),
     onAuthStateChange: handleAuthState,

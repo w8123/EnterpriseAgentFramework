@@ -9,6 +9,7 @@ import type { ToolAclProjectScope, ToolAclRule } from '@/types/toolAcl'
 const mocks = vi.hoisted(() => ({
   list: vi.fn(), roles: vi.fn(), create: vi.fn(), update: vi.fn(), batch: vi.fn(), explain: vi.fn(),
   remove: vi.fn(), toggle: vi.fn(), tools: vi.fn(), fetchProjects: vi.fn(), store: {} as any, scope: null as any,
+  canManage: true,
 }))
 vi.mock('@/api/toolAcl', () => ({
   listToolAcl: mocks.list, listToolAclRoles: mocks.roles, createToolAcl: mocks.create,
@@ -18,6 +19,7 @@ vi.mock('@/api/toolAcl', () => ({
 vi.mock('@/api/tool', () => ({ listAllTools: mocks.tools }))
 vi.mock('@/store/project', () => ({ useProjectStore: () => mocks.store }))
 vi.mock('@/composables/usePageProjectScope', () => ({ usePageProjectScope: () => mocks.scope }))
+vi.mock('@/auth/usePlatformCan', () => ({ usePlatformCan: () => ({ can: () => mocks.canManage, canAny: () => mocks.canManage }) }))
 
 let wrapper: ReturnType<typeof mount> | undefined
 const baseRule: ToolAclRule = { id: 1, roleCode: 'ops', targetKind: 'TOOL', targetName: 'orders.search', permission: 'ALLOW', enabled: true }
@@ -78,6 +80,7 @@ function closeDiagnosis() {
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.scope = null
+  mocks.canManage = true
   const projects = [{ id: 7, name: 'Orders', projectCode: 'orders' }, { id: 8, name: 'Billing', projectCode: 'billing' }]
   mocks.store = reactive({ projects, currentProject: null, status: 'ready', loading: false, errorMessage: null,
     fetchProjects: mocks.fetchProjects, projectLabel: (project: any) => `${project.name} / ${project.projectCode}` })
@@ -300,5 +303,14 @@ describe('Tool ACL Chinese display', () => {
     await fill('每行一个能力标识，例如 orders.search', apiName)
     button('开始检查').click(); await flushPromises()
     expect(mocks.explain).toHaveBeenCalledWith(expect.objectContaining({ targets: [{ kind: 'TOOL', name: apiName }] }))
+  })
+
+  it('hides rule changes from read-only roles such as managers', async () => {
+    mocks.canManage = false
+    start([baseRule]); await flushPromises()
+    expect(button('新建规则')).toBeUndefined()
+    expect(button('批量授权')).toBeUndefined()
+    expect(button('编辑')).toBeUndefined()
+    expect(document.querySelector('[aria-label="权限检查"]')).not.toBeNull()
   })
 })

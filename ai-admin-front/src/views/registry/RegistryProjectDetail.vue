@@ -1,7 +1,5 @@
 <template>
   <div class="registry-detail-page project-workbench-page workbench-page--list" :class="{ 'is-dark-detail': theme === 'dark' }">
-    <AppPageBackground local />
-
     <PageHeader
       variant="entity"
       domain="project"
@@ -24,7 +22,7 @@
         <HeaderMetaList :items="headerMetaItems" />
       </template>
       <template #actions>
-        <el-tooltip content="AI Coding 接入" placement="top">
+        <el-tooltip v-if="canWriteProject" content="AI Coding 接入" placement="top">
           <LiquidGlassButton
             source="wallpaper"
             circle
@@ -44,7 +42,7 @@
             @click="refresh"
           />
         </el-tooltip>
-        <el-tooltip content="编辑项目" placement="top">
+        <el-tooltip v-if="canWriteProject" content="编辑项目" placement="top">
           <LiquidGlassButton
             source="wallpaper"
             circle
@@ -54,7 +52,7 @@
             @click="openEditDialog"
           />
         </el-tooltip>
-        <el-tooltip content="删除项目" placement="top">
+        <el-tooltip v-if="canWriteProject" content="删除项目" placement="top">
           <LiquidGlassButton
             source="wallpaper"
             circle
@@ -142,7 +140,7 @@
             <span class="section-count">{{ instances.length }}</span>
           </h2>
           <div class="header-actions">
-            <el-tooltip :content="`清理离线（${offlineInstanceCount}）`" placement="top">
+            <el-tooltip v-if="canWriteProject" :content="`清理离线（${offlineInstanceCount}）`" placement="top">
               <LiquidGlassButton
                 source="wallpaper"
                 circle
@@ -205,7 +203,7 @@
             <el-table-column prop="lastHeartbeatAt" label="最近心跳" min-width="140">
               <template #default="{ row }">{{ formatRelativeTime(row.lastHeartbeatAt) }}</template>
             </el-table-column>
-            <el-table-column label="治理" width="110">
+            <el-table-column v-if="canWriteProject" label="治理" width="110">
               <template #default="{ row }">
                 <LiquidGlassButton
                   v-if="row.status === 'DISABLED'"
@@ -683,7 +681,6 @@ import PageHeader from '@/components/common/PageHeader.vue'
 import HeaderMetaList, { type HeaderMetaItem } from '@/components/common/HeaderMetaList.vue'
 import { formatInstanceStatusLabel } from '@/utils/registryLabels'
 import { formatRelativeTime } from '@/utils/relativeTime'
-import AppPageBackground from '@/components/common/AppPageBackground.vue'
 import {
   LiquidGlassButton,
   LiquidGlassCard,
@@ -707,8 +704,14 @@ import { useRegistryProjectWorkbench } from '@/views/registry/composables/useReg
 import ProjectRouteMissingState from '@/views/registry/components/ProjectRouteMissingState.vue'
 import ProjectWorkbenchLoadErrorState from '@/views/registry/components/ProjectWorkbenchLoadErrorState.vue'
 import ProjectBizIndexCard from '@/views/registry/components/ProjectBizIndexCard.vue'
+import { platformSessionUser } from '@/auth/platformSession'
+import { hasPlatformResourcePermission, PLATFORM_PERMISSION_WRITE } from '@/auth/platformAccess'
 
 const { theme } = useTheme()
+// 运营人员等只读角色能查看项目，但看不到编辑、删除和 AI Coding 秘钥。
+const canWriteProject = computed(() => hasPlatformResourcePermission(
+  platformSessionUser.value?.permissionGrants, PLATFORM_PERMISSION_WRITE, 'PROJECT', null, projectCode.value,
+))
 
 const projectKindOptions = PROJECT_KIND_SELECT_OPTIONS
 const visibilityOptions = VISIBILITY_SELECT_OPTIONS

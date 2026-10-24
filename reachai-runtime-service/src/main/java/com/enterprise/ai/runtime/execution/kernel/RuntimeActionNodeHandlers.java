@@ -74,7 +74,8 @@ final class RuntimeActionNodeHandlers {
                     "Scheduled Workflow cannot wait for human interaction at node: " + node.getId(),
                     node.getId(), "INTERACTION");
         }
-        if (identity.source() == WorkflowExecutionIdentity.Source.MCP_REMOTE_CLIENT
+        if ((identity.source() == WorkflowExecutionIdentity.Source.MCP_REMOTE_CLIENT
+                || identity.source() == WorkflowExecutionIdentity.Source.MCP_EMPLOYEE)
                 && interactionType.blocking()) {
             return failure("MCP_WORKFLOW_INTERACTION_UNSUPPORTED",
                     "MCP tools/call cannot suspend for human interaction at node: " + node.getId(),

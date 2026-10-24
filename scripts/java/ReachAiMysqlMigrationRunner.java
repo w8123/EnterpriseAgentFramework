@@ -458,7 +458,7 @@ public final class ReachAiMysqlMigrationRunner {
                                     + "('workspace:build:access','workspace:operate:access','context:runtime-user:review')"));
                     checks.add(requireAtLeast(connection, "recent.system_roles", 4,
                             "SELECT COUNT(*) FROM control_platform_role WHERE role_kind = 'SYSTEM' AND role_code IN "
-                                    + "('PLATFORM_ADMIN','DEVELOPER','OPERATOR','AUDITOR')"));
+                                    + "('PLATFORM_ADMIN','DEVELOPER','OPERATOR','AUDITOR','MANAGER')"));
                     checks.add(requireAtLeast(connection, "recent.admin_acl", 1,
                             "SELECT COUNT(*) FROM control_tool_acl WHERE role_code = 'PLATFORM_ADMIN' "
                                     + "AND target_kind = 'ALL' AND target_name = '*' AND permission = 'ALLOW'"));
@@ -518,7 +518,7 @@ public final class ReachAiMysqlMigrationRunner {
                             "control_platform_role", "role_kind"));
                     checks.add(requireZero(connection, "consolidated.authorization.system_role_kind",
                             "SELECT COUNT(*) FROM control_platform_role WHERE role_code IN "
-                                    + "('PLATFORM_ADMIN','DEVELOPER','OPERATOR','AUDITOR') "
+                                    + "('PLATFORM_ADMIN','DEVELOPER','OPERATOR','AUDITOR','MANAGER') "
                                     + "AND role_kind <> 'SYSTEM'"));
                     break;
                 case "upgrade-20260813-runtime-session-memory.sql":

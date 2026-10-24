@@ -4,6 +4,8 @@ import { defineComponent, nextTick, ref } from 'vue'
 import ElementPlus, { ElInput } from 'element-plus'
 import { LiquidGlassButton, LiquidGlassInput, LiquidGlassSelect, LiquidGlassPagination, LiquidGlassTable, LiquidGlassFilterBar, LiquidGlassViewToggle, LiquidGlassDropdown, LiquidGlassTabs, LiquidGlassEmptyState } from './liquid-glass'
 import LiquidGlassDropdownSurface from './LiquidGlassDropdownSurface.vue'
+import AppDialog from './AppDialog.vue'
+import AppDrawer from './AppDrawer.vue'
 
 let wrapper: VueWrapper | undefined
 const global = { plugins: [ElementPlus], stubs: { LiquidGlassLayer: true, LiquidGlassDropdownSurface: true } }
@@ -18,6 +20,43 @@ afterEach(() => {
   wrapper = undefined
   document.body.innerHTML = ''
   vi.unstubAllGlobals()
+})
+
+describe('public overlay mounting', () => {
+  it.each([
+    ['dialog', AppDialog, '.app-dialog'],
+    ['drawer', AppDrawer, '.app-drawer'],
+  ] as const)('mounts a modal %s outside the isolated workspace so the sidebar cannot cover it', async (_name, component, selector) => {
+    const workspace = document.createElement('main')
+    workspace.style.isolation = 'isolate'
+    workspace.style.zIndex = '1'
+    document.body.append(workspace)
+    wrapper = mount(component, { attachTo: workspace, global, props: { modelValue: true, title: '详情' } })
+    await flushPromises()
+    const overlay = document.querySelector(selector)?.closest('.el-overlay')
+    expect(overlay).not.toBeNull()
+    expect(document.body.contains(overlay!)).toBe(true)
+    expect(workspace.contains(overlay!)).toBe(false)
+  })
+
+  it.each([
+    ['dialog', AppDialog, '.app-dialog'],
+    ['drawer', AppDrawer, '.app-drawer'],
+  ] as const)('preserves an explicit local mount for a %s', async (_name, component, selector) => {
+    const workspace = document.createElement('main')
+    document.body.append(workspace)
+    wrapper = mount(component, { attachTo: workspace, global, props: { modelValue: true, title: '详情' }, attrs: { 'append-to-body': false } })
+    await flushPromises()
+    expect(workspace.contains(document.querySelector(selector))).toBe(true)
+  })
+
+  it('keeps a nonmodal Studio drawer inside its workspace', async () => {
+    const workspace = document.createElement('main')
+    document.body.append(workspace)
+    wrapper = mount(AppDrawer, { attachTo: workspace, global, props: { modelValue: true, title: '调试台' }, attrs: { modal: false, 'lock-scroll': false } })
+    await flushPromises()
+    expect(workspace.contains(document.querySelector('.app-drawer'))).toBe(true)
+  })
 })
 
 describe('public liquid glass controls', () => {

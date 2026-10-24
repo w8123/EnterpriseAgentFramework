@@ -37,6 +37,7 @@ public class McpCallLogController {
             @RequestParam(required = false) String direction,
             @RequestParam(required = false) Long publicationId,
             @RequestParam(required = false) Long clientId,
+            @RequestParam(required = false) Long connectionId,
             @RequestParam(required = false) String method,
             @RequestParam(required = false) String toolName,
             @RequestParam(required = false) Boolean success,
@@ -46,7 +47,7 @@ public class McpCallLogController {
             @RequestParam(required = false) Integer offset) {
         access.require(request, McpHubManagementAccess.READ);
         int safeLimit = Math.min(Math.max(limit == null ? 50 : limit, 1), 500);
-        McpCallLogReader.Page page = callLogReader.page(direction, publicationId, clientId, method,
+        McpCallLogReader.Page page = callLogReader.page(direction, publicationId, clientId, connectionId, method,
                 toolName, success, errorCategory, days, safeLimit,
                 Math.max(offset == null ? 0 : offset, 0));
         return new McpCallLogReader.Page(

@@ -25,7 +25,7 @@
       <LiquidGlassNotice
         v-if="readOnly"
         class="readonly-alert"
-        title="此 Workflow 由其他入口维护，只读展示。请从原创建入口更新。"
+        :title="readOnlyReason || '此 Workflow 由其他入口维护，只读展示。请从原创建入口更新。'"
         type="warning"
         source="backdrop"
       />
@@ -277,6 +277,8 @@ const props = defineProps<{
   width: number
   tab: StudioPropertyTab
   readOnly: boolean
+  /** 只读原因；不传时按「由其他入口维护」提示。 */
+  readOnlyReason?: string
   node: CanvasNode | null
   edge: CanvasEdge | null
   edgeLabel: string

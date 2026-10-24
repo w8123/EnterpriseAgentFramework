@@ -8,8 +8,9 @@ export const EAF_CHAT_THEME_PRESETS = {
   'tech-purple': { primary: '#6366f1', rgb: '99 102 241' },
   'metro-green': { primary: '#0b7a59', rgb: '11 122 89' },
   'aurora-cyan': { primary: '#0891b2', rgb: '8 145 178' },
-  'nebula-violet': { primary: '#7c3aed', rgb: '124 58 237' },
-  'coral-rose': { primary: '#db2777', rgb: '219 39 119' },
+  // 品牌键保持稳定，配色与管理端的云雾银、暖珊瑚同步。
+  'nebula-violet': { primary: '#526171', rgb: '82 97 113' },
+  'coral-rose': { primary: '#bd533b', rgb: '189 83 59' },
   'solar-gold': { primary: '#b45309', rgb: '180 83 9' },
   'deep-ocean': { primary: '#1d4ed8', rgb: '29 78 216' },
 } as const

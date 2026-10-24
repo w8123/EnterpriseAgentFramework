@@ -27,6 +27,9 @@ public final class InternalServiceAuthHeaders {
     /** Control-attested external MCP Client entering the Runtime execution boundary. */
     public static final String IDENTITY_SOURCE_MCP_REMOTE_CLIENT = "MCP_REMOTE_CLIENT";
 
+    /** An employee calling from their own AI tool through a personal connection; the user is trusted. */
+    public static final String IDENTITY_SOURCE_MCP_EMPLOYEE = "MCP_EMPLOYEE";
+
     /** Control asks Capability (the credential owner) to verify a project-signed public request. */
     public static final String IDENTITY_SOURCE_PROJECT_CREDENTIAL_VERIFICATION =
             "PROJECT_CREDENTIAL_VERIFICATION";

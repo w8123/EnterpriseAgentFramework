@@ -92,6 +92,7 @@
             <el-button link type="primary" size="small" @click.stop="selectPage(page.pageKey)">动作详情</el-button>
             <el-button link type="primary" size="small" @click.stop="previewPage(page)">预览</el-button>
             <el-button
+              v-if="canWriteProject"
               link
               type="danger"
               size="small"
@@ -234,7 +235,8 @@
       >
         <el-table-column prop="appKey" label="接入密钥" min-width="150" show-overflow-tooltip>
           <template #default="{ row }">
-            <el-button link type="primary" @click="editCredentialPolicy(row)">{{ row.appKey }}</el-button>
+            <el-button v-if="canManageEmbed" link type="primary" @click="editCredentialPolicy(row)">{{ row.appKey }}</el-button>
+            <span v-else>{{ row.appKey }}</span>
           </template>
         </el-table-column>
         <el-table-column prop="allowedOriginsJson" label="允许来源" min-width="260" show-overflow-tooltip>
@@ -247,7 +249,7 @@
             <CommonStatusTag :status="row.status" />
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="96" fixed="right" align="center">
+        <el-table-column v-if="canManageEmbed" label="操作" width="96" fixed="right" align="center">
           <template #default="{ row }">
             <el-button link type="primary" @click="editCredentialPolicy(row)">编辑</el-button>
           </template>
@@ -298,7 +300,7 @@
           <el-input v-model="rendererAgentsText" clearable placeholder="agent-a,agent-b" />
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" :loading="rendererSaving" @click="saveRenderer">保存渲染器</el-button>
+          <el-button v-if="canManageEmbed" type="primary" :loading="rendererSaving" @click="saveRenderer">保存渲染器</el-button>
           <el-button :loading="rendererLoading" @click="loadRenderers">刷新</el-button>
         </el-form-item>
       </el-form>
@@ -316,7 +318,7 @@
             <CommonStatusTag :status="row.status" />
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="180">
+        <el-table-column v-if="canManageEmbed" label="操作" width="180">
           <template #default="{ row }">
             <el-button link type="primary" @click="editRenderer(row)">编辑</el-button>
             <el-button link type="danger" @click="disableRenderer(row)">停用</el-button>
@@ -365,6 +367,9 @@ import {
   type PageActionRegistryView,
   type PageRegistryView,
 } from '@/api/embedOps'
+import { usePlatformCan } from '@/auth/usePlatformCan'
+import { hasPlatformResourcePermission, PLATFORM_PERMISSION_EMBED_MANAGE, PLATFORM_PERMISSION_WRITE } from '@/auth/platformAccess'
+import { platformSessionUser } from '@/auth/platformSession'
 
 const route = useRoute()
 const router = useRouter()
@@ -388,6 +393,11 @@ const credentialDrawerVisible = ref(false)
 const credentialDialogVisible = ref(false)
 const rendererDrawerVisible = ref(false)
 const currentProjectCode = computed(() => String(route.params.projectCode || route.query.projectCode || ''))
+const { can } = usePlatformCan()
+const canManageEmbed = computed(() => can(PLATFORM_PERMISSION_EMBED_MANAGE))
+const canWriteProject = computed(() => hasPlatformResourcePermission(
+  platformSessionUser.value?.permissionGrants, PLATFORM_PERMISSION_WRITE, 'PROJECT', null, currentProjectCode.value,
+))
 const editingCredentialId = ref<number | null>(null)
 const editingCredentialKey = ref('')
 const credentialOriginsText = ref('')

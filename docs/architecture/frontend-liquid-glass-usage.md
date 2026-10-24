@@ -102,6 +102,8 @@ function reset() {
 
 `LiquidGlassFilterBar` 默认自带圆形重置按钮和搜索按钮，也可通过 `:show-reset="false"` 隐藏重置，或用 `actions` 插槽保留原有操作。表单的 `query` 负责提交；不要再给输入框绑定调用同一查询的 `@keyup.enter`，避免一次 Enter 请求两次。
 
+重置、展开/收起和表格行操作可使用 `LiquidGlassButton link`，复用原生按钮的键盘、禁用和加载行为，以轻量文字呈现；`type="primary"` 标记主要链接操作，`source` 继续适配壁纸或面板上的文字颜色。
+
 卡片目录使用 `body-layout="cards"`，共享容器负责内滚动与留白，页面只保留卡片网格和业务内容。可切换视图的页面使用 `:body-layout="viewMode === 'card' ? 'cards' : 'table'"`；卡片使用 `LiquidGlassCard` 复用 `.glass-surface-frost`。表格固定列在浮起时使用壁纸与面板的混合底色，落回本来位置后恢复表格材质，保证主题协调并遮住下方滚动的文字。
 
 固定列按局部 `color-scheme` 选择阅读底：浅色表面使用壁纸着色，深色模式及深色壁纸采用不透明的深色面板底。浏览器不支持 `light-dark()` 时沿用既有 `--surface-reading-sticky` 降级。
@@ -110,7 +112,11 @@ function reset() {
 
 概览只需少量计数时，可将 `MetricStrip presentation="inline" source="wallpaper"` 放进页头的 `meta` 插槽。它以轻量文字替代独立统计面板，前景色跟随壁纸，不受用户明暗模式影响；面板内仍沿用默认来源。
 
+行内指标项设置 `tone: 'danger'` 或 `tone: 'warning'` 时保留异常语义色，适合失败次数和待审批等需要关注的数值；正常值继续使用默认文字色，强制颜色模式使用系统文字色。
+
 工作台列表页根节点使用 `LiquidGlassPage`，使卡片数量增加时在列表体内滚动、分页保持可见。嵌套在详情页内的局部表格仍可单独使用 `LiquidGlassTable`，由所属页面决定高度。
+
+包含可展开筛选、多段概览的列表可设置 `<LiquidGlassPage scrollable>`：空间充足时保持列表内滚动；低高度窗口中内容超过可用空间时，允许页面纵向滚动，确保分页和操作始终可达。运行中心是这一组合的接入示例。
 
 窄屏布局将统计压成两列，并为列表保留最小可用高度。页头标签缩小并自动换行；固定列恢复普通列顺序，用户可水平滚动查看，避免两侧固定列遮满整个列表。
 
@@ -132,6 +138,13 @@ function reset() {
 
 ## 材质来源和主题
 
+- “玻璃质感”是全局材质开关：开启后选择“液态玻璃”或“毛玻璃”；关闭后共用轻透底的工作台。壁纸以约三成强度融入主题底色，侧栏保留约 86%–88% 的底色、内容卡片保留约 88%–90%、统计条保留约 88%，只轻微透出背景的颜色与轮廓。输入框、选择器、浮层和固定列继续使用不透明阅读底，不保留水滴亮边、焦散或折射。关闭状态继续保留页头装饰、筛选分组、主题色表头、按钮渐变和轻投影；系统要求减少透明度或浏览器不支持背景滤镜时，统一回退为完整实色。
+- 两种外观使用同一套 `LiquidGlass*` 公共组件；名字是现有技术接口，不代表只能渲染玻璃。不要另建一套实色按钮，也不要在业务页面读取 `reduceTransparency` 或复制 `[data-reduce-transparency]` 样式。
+- `useTheme.ts` 管理偏好与首屏属性；`_glass.scss` 的 `solid-material-tokens` / `solid-material-details` 统一管理实色材质；`tokens/_semantic.scss` 提供默认角色。公共控件只消费 `--glass-control-*`、`--glass-decoration-display`、`--glass-dropdown-*` 和 `--glass-table-sticky` 等接口，页面只负责布局、数据与操作。以后新增视觉效果，先补公共角色和公共组件，避免逐页修补。
+- 输入框与选择器内部的高度下限、背景、内边距、圆角和阴影只由 `LiquidGlassControl.vue` 维护；`LiquidGlassFilterBar` 只排布控件，`LiquidGlassSelect` 只补充选择器与浮层的组合。不要再在筛选栏、选择器或全局 Element Plus 配方里重复覆盖同一套内部样式。
+- `LiquidGlassTable` 的公共工具栏内层统一承载筛选分组，使用 `--workbench-toolbar-*`；表格内框、表头和悬停分别使用 `--workbench-table-*`、`--workbench-control-hover-shadow`。实色页头通过 `--theme-header-artwork` 复用对应配色的原始插画，文字区单独铺设阅读底，保留装饰图的色彩与对比。主按钮保留细线高光和轻投影，控件继续使用不透明底色，不启用折射或水滴亮边。
+- 概览统计使用 `MetricStrip` 与 `MetricIconBg`，实色模式通过 `--workbench-metric-*` 统一调整图标底座与文字层级。项目接入概况也复用这套组件；业务页面不要再覆盖图标底色、描边或复制统计条样式。
+- 侧栏、视图和分页的选中装饰统一标记 `glass-surface-selection`；主按钮保持品牌色和清晰的对比，焦点、悬停、禁用与选中反馈在关闭玻璃后仍保留。七套配色、浅色与深色模式继续共用语义颜色。
 - 工作台壁纸上的独立按钮使用 `source="wallpaper"`。在 `LiquidGlassTable` 内部可省略这一属性；显式传入仍可覆盖继承值。
 - 公共控件单独使用时默认为 `source="backdrop"`，适合对话框和嵌套阅读面。浮层保留高浓度阅读底，避免底下的业务文字透入选项。多行文本、复杂表单和长内容继续使用现有 `el-input`、`AppDialog`、`AppDrawer` 阅读配方。
 - `LiquidGlassTable source="backdrop"` 可用于嵌套内容。来源上下文只作用于组件内部，不会改变兄弟组件或用户的全局明暗设置。
@@ -257,3 +270,19 @@ async function loadPage(page: number, pageSize: number) {
 5. 核对翡翠绿与深色壁纸、明暗模式、减少透明度、空结果、键盘操作和窄屏。
 
 回归入口：`npm run test:liquid-glass`、对应页面测试与 `npm run build`。现有接入可参考 `RegistryProjectList.vue`（本地分页）和 `McpPublicationList.vue`（服务端分页）。
+
+## 弹窗与抽屉（2026-10-23）
+
+普通业务弹层使用 `AppDialog` / `AppDrawer`。公共外壳统一消费 `--surface-glass-modal`：磨砂透色、双层亮边和独立背景模糊。2026-10-23 按用户反馈将白纱减淡、局部模糊提高到 40px，并减弱大面积光泽，让壁纸色调柔和透入；菜单和高密度阅读面继续使用较实的 `--surface-glass-overlay`，不降低全站菜单的可读性。不要在页面中重设弹层根节点的背景、模糊和阴影。
+
+弹窗与模态抽屉默认通过 Element Plus 挂载至 `body`，避免被 `MainLayout` 中有独立层叠上下文的侧栏盖住。调用方显式设置 `:append-to-body="false"` 或 `append-to` 时仍按调用方执行；`AppDrawer :modal="false"` 默认保持本地挂载，保留 Studio 调试工作区的使用方式。遮罩、焦点、Escape、关闭事件和销毁仍由 Element Plus 管理。
+
+抽屉四周留边并保留完整圆角；600px 以下的纵向抽屉和普通弹窗使用近全宽。标题、正文、页脚分开布局，长内容在正文内滚动；全屏弹窗不继承普通正文高度上限。减少透明度与强制颜色提供实体阅读底。
+
+表单可在 `label-position="top"` 的 `el-form` 内使用 `app-overlay-form-grid`，宽屏双列、600px 以下单列；需要占整行的表单项加 `app-overlay-form-grid__full`。元数据分组可以使用 `app-overlay-section`。普通输入框继承共享材质；需要水滴下拉时继续使用 `LiquidGlassSelect`，不要复写它的原生 `v-model` 或选项事件。
+
+原生 `ElMessageBox.confirm / prompt / alert` 也由 `_overlays.scss` 统一提供磨砂材质，不再在 `_components.scss` 维护第二套皮肤。保留 Element Plus 的默认最大宽度，窄屏再按视口收窄，避免确认框变成通栏。
+
+自定义浮层（看板目录、设置、Studio 检查面板与大块 Popover）使用 `app-frosted-overlay`。需要边缘折射时，在定位宿主上同时加 `liquid-glass-host`，内部放置 `<LiquidGlassLayer host-selector=".app-frosted-overlay" />`。布局与业务状态留在组件内，背景、边缘、阴影、模糊与阅读回退交给公共样式；Popover 使用 `popper-class="业务类名 app-frosted-overlay"`，公共选择器会覆盖通用菜单皮肤。新增 `role="dialog" / "alertdialog"` 的自定义入口会由 `check:overlay-migration` 检查，独立 SDK 与表单内警示确认区有明确登记。
+
+SDK 记忆面板继续使用独立 `--reachai-chat-*` 变量，不能依赖管理端主题才能显示。全站来源清单与验证边界见 [磨砂弹层覆盖清单](../plans/2026-10-24-全站磨砂弹层覆盖清单.md)。

@@ -1537,7 +1537,7 @@ function messageOf(error: unknown, fallback: string) {
 
 .policy-strip b { margin-right: 6px; color: var(--text-muted); font-weight: 500; }
 .history-table { --el-table-header-bg-color: var(--surface-solid-control); }
-.attempt-panel { padding: 10px 20px 16px 48px; background: var(--surface-solid-control); }
+.attempt-panel { padding: 10px 20px 16px 48px; background: var(--surface-glass-inset); }
 .attempt-list { display: flex; flex-direction: column; gap: 8px; }
 
 .attempt-item {

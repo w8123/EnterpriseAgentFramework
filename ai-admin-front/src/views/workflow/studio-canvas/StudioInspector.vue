@@ -7,7 +7,7 @@
     @mousedown.stop
     @click.stop
   >
-    <section v-if="panel === 'validation'" class="inspector-section">
+    <section v-if="panel === 'validation'" class="inspector-section app-frosted-overlay">
       <div class="inspector-head">
         <div class="inspector-title">
           <span class="inspector-title-icon is-validation">
@@ -74,7 +74,7 @@
         </div>
       </div>
     </section>
-    <section v-else class="inspector-section">
+    <section v-else class="inspector-section app-frosted-overlay">
       <div class="inspector-head">
         <div class="inspector-title">
           <span class="inspector-title-icon is-variable">
@@ -170,12 +170,7 @@ const emit = defineEmits<{
 .inspector-section {
   min-width: 0;
   overflow: hidden;
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 14px;
-  background: var(--el-bg-color-overlay, var(--surface-solid-panel));
-  box-shadow: 0 20px 52px rgba(15, 23, 42, 0.14);
   pointer-events: auto;
-  backdrop-filter: blur(16px);
 }
 
 .inspector-head {
@@ -186,7 +181,7 @@ const emit = defineEmits<{
   min-height: 66px;
   padding: 12px 14px;
   border-bottom: 1px solid var(--el-border-color-lighter);
-  background: linear-gradient(135deg, var(--el-fill-color-blank) 0%, var(--el-color-primary-light-9) 100%);
+  background: var(--surface-glass-inset);
 }
 
 .inspector-title,
@@ -298,7 +293,7 @@ const emit = defineEmits<{
   padding: 10px 11px;
   border: 1px solid var(--el-border-color-lighter);
   border-radius: 10px;
-  background: var(--el-fill-color-blank);
+  background: var(--surface-glass-inset);
   color: var(--el-text-color-primary);
   cursor: pointer;
   text-align: left;
@@ -344,7 +339,7 @@ const emit = defineEmits<{
   padding: 12px;
   border: 1px dashed var(--el-border-color);
   border-radius: 10px;
-  background: var(--el-fill-color-lighter);
+  background: var(--surface-glass-inset);
 }
 
 .inspector-empty-state.is-error {
@@ -402,7 +397,7 @@ const emit = defineEmits<{
   padding: 9px 10px;
   border: 1px solid var(--el-border-color-lighter);
   border-radius: 10px;
-  background: var(--el-fill-color-blank);
+  background: var(--surface-glass-inset);
   color: var(--el-text-color-primary);
   cursor: pointer;
   text-align: left;

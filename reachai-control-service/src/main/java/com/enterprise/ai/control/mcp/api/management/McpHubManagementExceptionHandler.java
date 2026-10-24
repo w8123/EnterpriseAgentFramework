@@ -15,7 +15,9 @@ import java.util.Locale;
         McpHubOverviewController.class,
         McpCallLogController.class,
         McpPublicationController.class,
-        McpClientController.class
+        McpClientController.class,
+        McpEmployeeAccessController.class,
+        McpEmployeeConnectionController.class
 })
 public class McpHubManagementExceptionHandler {
 

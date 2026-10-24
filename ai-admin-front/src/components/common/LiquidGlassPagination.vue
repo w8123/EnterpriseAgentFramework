@@ -88,7 +88,7 @@ onBeforeUnmount(() => {
   <nav class="liquid-pagination" :class="{ 'glass-workspace-adaptive': source === 'wallpaper' }" :aria-label="props.ariaLabel">
     <div ref="dock" class="liquid-pagination__dock glass-surface-lens liquid-glass-host" :class="{ 'samples-wallpaper': source === 'wallpaper' }">
       <LiquidGlassLayer :source="source" :bezel="7" :depth="12" />
-      <span v-if="lens" class="liquid-pagination__selection glass-surface-lens" :style="lens" aria-hidden="true" />
+      <span v-if="lens" class="liquid-pagination__selection glass-surface-lens glass-surface-selection" :style="lens" aria-hidden="true" />
       <el-pagination
         :current-page="currentPage"
         :page-size="pageSize"
@@ -133,7 +133,7 @@ onBeforeUnmount(() => {
   align-items: center;
   min-width: 0;
   padding: 4px;
-  border-radius: var(--radius-pill);
+  border-radius: var(--glass-control-radius);
 
   &.is-liquid-refracting.samples-wallpaper {
     --pagination-ink: var(--text-on-wallpaper);
@@ -145,7 +145,7 @@ onBeforeUnmount(() => {
   position: absolute;
   top: 0;
   left: 0;
-  border-radius: var(--radius-pill);
+  border-radius: var(--glass-control-radius);
   pointer-events: none;
   transition: transform var(--motion-duration-normal) var(--motion-easing-emphasized), width var(--motion-duration-normal) ease;
 
@@ -176,7 +176,7 @@ onBeforeUnmount(() => {
   margin: 0;
   padding: 0 6px;
   border: 0;
-  border-radius: var(--radius-pill);
+  border-radius: var(--glass-control-radius);
   color: var(--pagination-ink);
   background: transparent;
   font-size: 13px;

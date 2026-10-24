@@ -11,26 +11,12 @@
         :collapsed="isProjectHeaderCollapsed"
       >
         <template #actions>
-          <LiquidGlassButton type="primary" :icon="Plus" source="wallpaper" @click="openAccessDialog('sdk')">接入项目</LiquidGlassButton>
+          <LiquidGlassButton v-if="canCreateProject" type="primary" :icon="Plus" source="wallpaper" @click="openAccessDialog('sdk')">接入项目</LiquidGlassButton>
         </template>
       </PageHeader>
 
       <template #summary>
-        <div class="metric-strip glass-surface-frost glass-workspace-adaptive" role="region" aria-label="项目接入概况">
-          <template v-for="(metric, index) in metrics" :key="metric.label">
-            <div v-if="index > 0" class="metric-divider" aria-hidden="true" />
-            <div class="metric-segment">
-              <MetricIconBg class="metric-segment-icon" :icon-key="metric.iconKey" :tone="metric.tone" />
-              <div class="metric-content">
-                <div class="metric-line">
-                  <span class="metric-label">{{ metric.label }}</span>
-                  <em v-if="metric.alert" class="metric-alert">{{ metric.alert }}</em>
-                </div>
-                <strong>{{ metric.value }}</strong>
-              </div>
-            </div>
-          </template>
-        </div>
+        <MetricStrip :items="metrics" class="glass-workspace-adaptive" source="wallpaper" aria-label="项目接入概况" />
       </template>
     </CollapsibleHeaderRegion>
 
@@ -74,7 +60,7 @@
                 title="重置"
                 @click="resetFilters"
               />
-              <LiquidGlassButton :icon="Search" :loading="loading" @click="handleSearch">搜索</LiquidGlassButton>
+              <LiquidGlassButton type="primary" :icon="Search" :loading="loading" @click="handleSearch">搜索</LiquidGlassButton>
             </div>
           </div>
         </template>
@@ -150,7 +136,7 @@
                 </div>
                 <div class="empty-actions">
                   <el-button v-if="hasActiveFilters" @click="resetFilters">清除筛选</el-button>
-                  <el-button v-else type="primary" :icon="Plus" @click="openAccessDialog('sdk')">接入项目</el-button>
+                  <el-button v-else-if="canCreateProject" type="primary" :icon="Plus" @click="openAccessDialog('sdk')">接入项目</el-button>
                 </div>
               </div>
             </div>
@@ -163,7 +149,8 @@
     <AppDialog
       v-model="accessDialogVisible"
       title="接入项目"
-      description="选择 SDK 接入或扫描接入，完成项目身份、连接信息与能力发现配置。"
+      description="选择接入方式，配置项目与业务系统的连接信息。"
+      class="project-access-dialog"
       width="760px"
       destroy-on-close
       :close-on-click-modal="!saving"
@@ -172,37 +159,33 @@
     >
       <LiquidGlassTabs v-model="accessDialogTab" class="access-dialog-tabs">
         <el-tab-pane label="SDK 接入" name="sdk">
-          <el-form :model="sdkForm" label-width="120px" :disabled="saving" novalidate>
-            <el-form-item label="项目名称" required>
-              <el-input v-model="sdkForm.name" placeholder="如：智能客服平台" />
-            </el-form-item>
-            <el-form-item label="项目编码" required>
-              <el-input v-model="sdkForm.projectCode" placeholder="如：customer-service" />
-            </el-form-item>
-            <el-row :gutter="16">
-              <el-col :span="12">
-                <el-form-item label="环境">
-                  <el-input v-model="sdkForm.environment" placeholder="dev / test / prod" />
-                </el-form-item>
-              </el-col>
-              <el-col :span="12">
-                <el-form-item label="负责人">
-                  <el-input v-model="sdkForm.owner" placeholder="负责人姓名" />
-                </el-form-item>
-              </el-col>
-            </el-row>
-            <el-form-item label="可见性">
-              <el-select v-model="sdkForm.visibility" style="width: 100%">
-                <el-option v-for="opt in VISIBILITY_SELECT_OPTIONS" :key="opt.value" :label="opt.label" :value="opt.value" />
-              </el-select>
-            </el-form-item>
-            <el-form-item label="Base URL" required>
-              <el-input v-model="sdkForm.baseUrl" placeholder="http://localhost:8080" />
-            </el-form-item>
+          <el-form :model="sdkForm" label-position="top" :disabled="saving" novalidate class="project-access-form">
+            <div class="app-overlay-form-grid">
+              <el-form-item label="项目名称" required>
+                <el-input v-model="sdkForm.name" placeholder="如：智能客服平台" />
+              </el-form-item>
+              <el-form-item label="项目编码" required>
+                <el-input v-model="sdkForm.projectCode" placeholder="如：customer-service" />
+              </el-form-item>
+              <el-form-item label="环境">
+                <el-input v-model="sdkForm.environment" placeholder="dev / test / prod" />
+              </el-form-item>
+              <el-form-item label="负责人">
+                <el-input v-model="sdkForm.owner" placeholder="负责人姓名" />
+              </el-form-item>
+              <el-form-item label="可见性">
+                <LiquidGlassSelect v-model="sdkForm.visibility" dropdown-title="项目可见性" aria-label="项目可见性">
+                  <el-option v-for="opt in VISIBILITY_SELECT_OPTIONS" :key="opt.value" :label="opt.label" :value="opt.value" />
+                </LiquidGlassSelect>
+              </el-form-item>
+              <el-form-item label="服务地址（Base URL）" required>
+                <el-input v-model="sdkForm.baseUrl" placeholder="http://localhost:8080" />
+              </el-form-item>
+            </div>
             <LiquidGlassNotice
-              title="无需填写 App Key 或 App Secret"
+              title="生成配置，启动后自动注册"
               type="success"
-              description="提交后会生成仅限当前项目、有效期 72 小时的一次性接入令牌和完整 Starter 配置。此时项目尚未注册；业务系统首次启动并注册成功后，项目才会出现在列表中，Starter 会自动保存长期凭据。"
+              description="无需填写 App Key 或 App Secret。接入令牌仅限当前项目，72 小时内可成功使用一次。将 Starter 配置交给业务系统，首次启动注册成功后，项目会出现在列表中，长期凭据由 Starter 自动保存。"
               source="backdrop"
             />
             <LiquidGlassNotice
@@ -215,63 +198,47 @@
         </el-tab-pane>
 
         <el-tab-pane label="扫描接入" name="scan">
-          <el-form label-width="120px">
-            <el-form-item label="项目名称" required>
-              <el-input v-model="scanForm.name" placeholder="如 legacy-crm" />
-            </el-form-item>
-            <el-row :gutter="16">
-              <el-col :span="12">
-                <el-form-item label="项目编码">
-                  <el-input v-model="scanForm.projectCode" placeholder="如 order-service" />
-                </el-form-item>
-              </el-col>
-              <el-col :span="12">
-                <el-form-item label="接入方式">
-                  <el-select v-model="scanForm.projectKind" style="width: 100%">
-                    <el-option v-for="opt in PROJECT_KIND_SELECT_OPTIONS" :key="opt.value" :label="opt.label" :value="opt.value" />
-                  </el-select>
-                </el-form-item>
-              </el-col>
-            </el-row>
-            <el-row :gutter="16">
-              <el-col :span="12">
-                <el-form-item label="环境">
-                  <el-input v-model="scanForm.environment" placeholder="dev / test / prod" />
-                </el-form-item>
-              </el-col>
-              <el-col :span="12">
-                <el-form-item label="负责人">
-                  <el-input v-model="scanForm.owner" placeholder="负责人姓名" />
-                </el-form-item>
-              </el-col>
-            </el-row>
-            <el-row :gutter="16">
-              <el-col :span="12">
-                <el-form-item label="项目域名" required>
-                  <el-input v-model="scanForm.baseUrl" placeholder="http://localhost:18602" />
-                </el-form-item>
-              </el-col>
-              <el-col :span="12">
-                <el-form-item label="可见性">
-                  <el-select v-model="scanForm.visibility" style="width: 100%">
-                    <el-option v-for="opt in VISIBILITY_SELECT_OPTIONS" :key="opt.value" :label="opt.label" :value="opt.value" />
-                  </el-select>
-                </el-form-item>
-              </el-col>
-            </el-row>
-            <el-form-item label="扫描路径" :required="scanForm.projectKind !== 'REGISTERED'">
-              <el-input v-model="scanForm.scanPath" placeholder="服务器上的绝对路径" />
-              <div v-if="scanForm.projectKind === 'REGISTERED'" class="form-hint">SDK 接入项目可不配置扫描路径。</div>
-            </el-form-item>
-            <el-form-item label="扫描方式" required>
-              <el-radio-group v-model="scanForm.scanType">
-                <el-radio value="openapi">OpenAPI</el-radio>
-                <el-radio value="controller">Controller</el-radio>
-              </el-radio-group>
-            </el-form-item>
-            <el-form-item v-if="scanForm.scanType === 'openapi'" label="规范文件">
-              <el-input v-model="scanForm.specFile" placeholder="可选，相对 scanPath；留空自动发现" />
-            </el-form-item>
+          <el-form label-position="top" :disabled="saving" class="project-access-form">
+            <div class="app-overlay-form-grid">
+              <el-form-item label="项目名称" required class="app-overlay-form-grid__full">
+                <el-input v-model="scanForm.name" placeholder="如 legacy-crm" />
+              </el-form-item>
+              <el-form-item label="项目编码">
+                <el-input v-model="scanForm.projectCode" placeholder="如 order-service" />
+              </el-form-item>
+              <el-form-item label="接入方式">
+                <LiquidGlassSelect v-model="scanForm.projectKind" dropdown-title="接入方式" aria-label="扫描项目接入方式">
+                  <el-option v-for="opt in PROJECT_KIND_SELECT_OPTIONS" :key="opt.value" :label="opt.label" :value="opt.value" />
+                </LiquidGlassSelect>
+              </el-form-item>
+              <el-form-item label="环境">
+                <el-input v-model="scanForm.environment" placeholder="dev / test / prod" />
+              </el-form-item>
+              <el-form-item label="负责人">
+                <el-input v-model="scanForm.owner" placeholder="负责人姓名" />
+              </el-form-item>
+              <el-form-item label="服务地址（Base URL）" required>
+                <el-input v-model="scanForm.baseUrl" placeholder="http://localhost:18602" />
+              </el-form-item>
+              <el-form-item label="可见性">
+                <LiquidGlassSelect v-model="scanForm.visibility" dropdown-title="项目可见性" aria-label="扫描项目可见性">
+                  <el-option v-for="opt in VISIBILITY_SELECT_OPTIONS" :key="opt.value" :label="opt.label" :value="opt.value" />
+                </LiquidGlassSelect>
+              </el-form-item>
+              <el-form-item label="扫描路径" class="app-overlay-form-grid__full" :required="scanForm.projectKind !== 'REGISTERED'">
+                <el-input v-model="scanForm.scanPath" placeholder="服务器上的绝对路径" />
+                <div v-if="scanForm.projectKind === 'REGISTERED'" class="form-hint">SDK 接入项目可不配置扫描路径。</div>
+              </el-form-item>
+              <el-form-item label="扫描方式" class="app-overlay-form-grid__full" required>
+                <el-radio-group v-model="scanForm.scanType">
+                  <el-radio value="openapi">OpenAPI</el-radio>
+                  <el-radio value="controller">Controller</el-radio>
+                </el-radio-group>
+              </el-form-item>
+              <el-form-item v-if="scanForm.scanType === 'openapi'" label="规范文件" class="app-overlay-form-grid__full">
+                <el-input v-model="scanForm.specFile" placeholder="可选，相对 scanPath；留空自动发现" />
+              </el-form-item>
+            </div>
           </el-form>
         </el-tab-pane>
       </LiquidGlassTabs>
@@ -291,7 +258,7 @@
           :loading="saving"
           @click="saveScanProject"
         >
-          保存
+          保存项目
         </LiquidGlassButton>
       </template>
     </AppDialog>
@@ -344,7 +311,8 @@ import {
   Search,
 } from '@element-plus/icons-vue'
 import CollapsibleHeaderRegion from '@/components/common/CollapsibleHeaderRegion.vue'
-import MetricIconBg from '@/components/common/MetricIconBg.vue'
+import MetricStrip from '@/components/common/MetricStrip.vue'
+import type { MetricStripItem } from '@/components/common/glassWorkbench'
 import { LiquidGlassButton, LiquidGlassInput, LiquidGlassSelect, LiquidGlassTable, LiquidGlassNotice, LiquidGlassTabs } from '@/components/common/liquid-glass'
 import PageHeader from '@/components/common/PageHeader.vue'
 import { projectCapabilityWorkspaceLocation } from '@/views/capability/businessCapabilityRoutes'
@@ -363,6 +331,10 @@ import {
   formatProjectKindLabel,
   formatScanStatusLabel,
 } from '@/utils/projectLabels'
+import { usePlatformCan } from '@/auth/usePlatformCan'
+import { PLATFORM_PERMISSION_WRITE } from '@/auth/platformAccess'
+const { can } = usePlatformCan()
+const canCreateProject = computed(() => can(PLATFORM_PERMISSION_WRITE))
 
 const router = useRouter()
 
@@ -502,22 +474,23 @@ const pagedProjects = computed(() => {
   return filteredProjects.value.slice(start, start + pageSize.value)
 })
 
-const metrics = computed(() => {
+const metrics = computed<MetricStripItem[]>(() => {
   const total = projects.value.length
   const apiCount = projects.value.reduce((sum, project) => sum + apiCountOf(project), 0)
   const sdkCount = projects.value.filter((project) => ['REGISTERED', 'HYBRID'].includes(project.projectKind || '')).length
   const failedCount = projects.value.filter((project) => project.status === 'failed').length
   const scannedCount = projects.value.filter((project) => project.lastScannedAt).length
   return [
-    { label: '注册项目', value: total, iconKey: 'project', tone: 'brand', alert: '' },
-    { label: '已接入 API', value: apiCount, iconKey: 'api', tone: 'brand', alert: '' },
-    { label: 'SDK 接入项目', value: sdkCount, iconKey: 'sdk', tone: 'brand', alert: '' },
+    { key: 'registered', label: '注册项目', value: total, iconKey: 'project', tone: 'brand' },
+    { key: 'api', label: '已接入 API', value: apiCount, iconKey: 'api', tone: 'brand' },
+    { key: 'sdk', label: 'SDK 接入项目', value: sdkCount, iconKey: 'sdk', tone: 'brand' },
     {
+      key: 'scanned',
       label: '已扫描 / 异常',
       value: `${scannedCount} / ${failedCount}`,
-      alert: failedCount ? `异常 ${failedCount}` : '',
+      hint: failedCount ? `异常 ${failedCount}` : undefined,
       iconKey: 'scan',
-      tone: 'brand',
+      tone: failedCount ? 'danger' : 'brand',
     },
   ]
 })
@@ -777,82 +750,6 @@ function goDetail(project: ScanProject) {
   min-height: 100%;
 }
 
-.metric-strip {
-  display: flex;
-  align-items: stretch;
-  width: 100%;
-  min-width: 0;
-  min-height: var(--layout-metric-strip-min-height);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-}
-
-.metric-segment {
-  display: flex;
-  flex: 1 1 0;
-  align-items: center;
-  gap: var(--layout-metric-gap);
-  min-width: 0;
-  padding: var(--layout-metric-padding-block) var(--layout-metric-padding-inline);
-}
-
-.metric-divider {
-  flex: 0 0 1px;
-  align-self: center;
-  height: 28px;
-  background: var(--border-divider);
-}
-
-.metric-segment-icon {
-  --metric-icon-bg-size: calc(var(--layout-metric-icon-size) * 0.8);
-  --metric-icon-glyph-size: 20px;
-  color: var(--brand-on-surface);
-  border: 0;
-  background: transparent;
-  box-shadow: none;
-}
-
-.metric-content {
-  flex: 1;
-  min-width: 0;
-}
-
-.metric-line {
-  display: flex;
-  align-items: center;
-  gap: var(--layout-control-gap);
-  min-width: 0;
-}
-
-.metric-label {
-  overflow: hidden;
-  color: var(--text-secondary);
-  font-size: 12px;
-  line-height: 18px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.metric-content strong {
-  display: block;
-  margin-top: 2px;
-  color: var(--text-primary);
-  font-size: var(--layout-metric-value-size);
-  font-weight: 650;
-  font-variant-numeric: tabular-nums;
-  line-height: 1.2;
-}
-
-.metric-alert {
-  padding: 1px 6px;
-  border-radius: var(--radius-pill);
-  color: var(--status-warning);
-  background: var(--status-warning-soft);
-  font-size: 11px;
-  font-style: normal;
-  white-space: nowrap;
-}
-
 .project-card {
   display: flex;
   flex: 1;
@@ -1084,17 +981,6 @@ function goDetail(project: ScanProject) {
   }
 }
 
-@media (max-width: 960px) {
-  .metric-strip {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .metric-divider {
-    display: none;
-  }
-}
-
 @media (max-width: 760px) {
   .toolbar {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1103,19 +989,6 @@ function goDetail(project: ScanProject) {
   .toolbar-actions {
     grid-column: 1 / -1;
     justify-content: flex-end;
-  }
-
-  .metric-segment {
-    gap: 6px;
-  }
-
-  .metric-segment-icon {
-    --metric-icon-bg-size: 24px;
-    --metric-icon-glyph-size: 18px;
-  }
-
-  .metric-line {
-    flex-wrap: wrap;
   }
 
   .empty-main {
@@ -1130,7 +1003,27 @@ function goDetail(project: ScanProject) {
 }
 
 .access-dialog-tabs {
-  margin-block-end: var(--layout-section-gap);
+  margin-block-end: 0;
+}
+
+.project-access-form :deep(.el-form-item__label) {
+  height: auto;
+  margin-bottom: 6px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.project-access-form :deep(.el-form-item) {
+  margin-bottom: 18px;
+}
+
+.project-access-form .liquid-glass-select {
+  width: 100%;
+}
+
+.project-access-form :deep(.el-radio-group) {
+  flex-wrap: wrap;
 }
 
 .enrollment-config-textarea :deep(.el-textarea__inner) {

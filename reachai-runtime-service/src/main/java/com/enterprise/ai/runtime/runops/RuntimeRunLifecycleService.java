@@ -574,6 +574,8 @@ public class RuntimeRunLifecycleService implements RuntimeAgentRunLifecyclePort 
         copyScalar(snapshot, metadata, "publicationId");
         copyScalar(snapshot, metadata, "revisionNo");
         copyScalar(snapshot, metadata, "environment");
+        copyScalar(snapshot, metadata, "connectionId");
+        copyScalar(snapshot, metadata, "aiToolKind");
         run.setSnapshotJson(json(snapshot));
         insert(run, "begin MCP run");
         RuntimeRunEntity inserted = find(traceId);

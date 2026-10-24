@@ -133,7 +133,7 @@ function drop(target: string) {
     padding: 12px;
     color: var(--ops-text);
     text-align: left;
-    background: var(--ops-input-background);
+    background: var(--surface-glass-inset);
     border: 1px solid var(--ops-border);
     border-radius: 9px;
     cursor: pointer;
@@ -154,7 +154,7 @@ function drop(target: string) {
   padding: 7px 8px;
   border: 1px solid var(--ops-divider);
   border-radius: 8px;
-  background: var(--ops-input-background);
+  background: var(--surface-glass-inset);
 
   &.is-dragging { opacity: .45; }
   &.is-unavailable .shortcut-editor__name { color: var(--ops-text-muted); }

@@ -16,11 +16,11 @@ const source = useLiquidGlassSource(() => props.source)
 </template>
 
 <style scoped lang="scss">
-.liquid-glass-nav { display: inline-flex; position: relative; max-width: 100%; min-width: 0; padding: 4px; border-radius: var(--radius-pill); isolation: isolate; }
+.liquid-glass-nav { display: inline-flex; position: relative; max-width: 100%; min-width: 0; padding: 4px; border-radius: var(--glass-control-radius); isolation: isolate; }
 .liquid-glass-nav__items { display: flex; position: relative; z-index: 1; min-width: 0; width: 100%; gap: 4px; flex-wrap: wrap; }
 .liquid-glass-nav :deep(.liquid-glass-nav__items > :is(a, button)) {
   display: inline-flex; min-width: 0; min-height: var(--control-height); align-items: center; justify-content: center; gap: 9px;
-  margin: 0; padding: 6px 16px; border: 1px solid transparent; border-radius: var(--radius-pill); background: transparent;
+  margin: 0; padding: 6px 16px; border: 1px solid transparent; border-radius: var(--glass-control-radius); background: transparent;
   color: var(--text-secondary); font: inherit; font-size: 13px; font-weight: 500; line-height: 1.4; text-decoration: none; cursor: pointer;
   transition: background var(--motion-duration-fast) ease, color var(--motion-duration-fast) ease;
 }

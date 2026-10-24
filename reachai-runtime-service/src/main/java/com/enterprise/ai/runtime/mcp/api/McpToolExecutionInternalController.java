@@ -58,6 +58,10 @@ public class McpToolExecutionInternalController {
             HttpServletRequest httpRequest, ToolExecutionRequest request) {
         Object attribute = httpRequest == null
                 ? null : httpRequest.getAttribute(VerifiedInternalServiceAuth.REQUEST_ATTR);
+        if (attribute instanceof VerifiedInternalServiceAuth employee
+                && InternalServiceAuthHeaders.IDENTITY_SOURCE_MCP_EMPLOYEE.equals(employee.identitySource())) {
+            return employeeIdentity(employee, request);
+        }
         if (!(attribute instanceof VerifiedInternalServiceAuth verified)
                 || !InternalServiceAuthHeaders.IDENTITY_SOURCE_MCP_REMOTE_CLIENT
                 .equals(verified.identitySource())
@@ -83,6 +87,31 @@ public class McpToolExecutionInternalController {
         }
         return WorkflowExecutionIdentity.fromMcpRemoteClient(
                 verified.identityTenantId(), projectId, projectCode, verified.identityUserId());
+    }
+
+    /**
+     * The signed principal is the employee's business-system account. The body must name the
+     * same account, tenant and a personal connection; anything else is rejected, never trusted.
+     */
+    private static WorkflowExecutionIdentity employeeIdentity(
+            VerifiedInternalServiceAuth verified, ToolExecutionRequest request) {
+        if (request == null || !StringUtils.hasText(verified.identityUserId())
+                || !StringUtils.hasText(verified.identityTenantId())) {
+            return null;
+        }
+        Map<String, Object> metadata = request.metadata() == null ? Map.of() : request.metadata();
+        if (!verified.identityTenantId().equals(text(metadata.get("tenantId")))
+                || !verified.identityUserId().equals(text(metadata.get("externalUserId")))) {
+            return null;
+        }
+        Long connectionId = longValue(metadata.get("connectionId"));
+        String projectCode = text(metadata.get("projectCode"));
+        if (connectionId == null || connectionId <= 0 || !StringUtils.hasText(projectCode)) {
+            return null;
+        }
+        return WorkflowExecutionIdentity.fromMcpEmployee(
+                verified.identityTenantId(), longValue(metadata.get("projectId")), projectCode,
+                verified.identityUserId());
     }
 
     private static ResponseEntity<Map<String, Object>> unauthorized() {

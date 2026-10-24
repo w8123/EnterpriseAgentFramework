@@ -1,5 +1,5 @@
 <template>
-  <WorkbenchPage class="runops-page" layout="list">
+  <LiquidGlassPage class="runops-page" scrollable>
     <PageHeader
       variant="overview"
       presentation="plain"
@@ -89,21 +89,23 @@
         </LiquidGlassSelect>
         <template #actions>
           <LiquidGlassButton
+            link
             native-type="button"
             :aria-expanded="showMoreFilters"
+            aria-controls="runops-advanced-filters"
             @click="showMoreFilters = !showMoreFilters"
           >
             {{ showMoreFilters ? '收起筛选' : '更多筛选' }}
             <span v-if="advancedFilterCount > 0" class="advanced-count">{{ advancedFilterCount }}</span>
           </LiquidGlassButton>
-          <LiquidGlassButton native-type="button" @click="resetFilters">重置</LiquidGlassButton>
+          <LiquidGlassButton link native-type="button" @click="resetFilters">重置</LiquidGlassButton>
           <LiquidGlassButton type="primary" native-type="submit" :icon="Search" :loading="loading || diagnosticsLoading">
             查询
           </LiquidGlassButton>
         </template>
       </LiquidGlassFilterBar>
 
-      <div v-show="showMoreFilters" class="filter-advanced">
+      <div id="runops-advanced-filters" v-show="showMoreFilters" class="filter-advanced">
         <label class="filter-field">
           <span>项目编码</span>
           <LiquidGlassInput v-model="draftFilters.projectCode" clearable placeholder="全部项目" @keyup.enter="applyFilters" />
@@ -119,24 +121,44 @@
       </div>
     </LiquidGlassCard>
 
-    <section class="runops-diagnostics" aria-label="运行诊断">
-      <LiquidGlassTable class="diagnostics-card" :loading="diagnosticsLoading" :show-pagination="false">
+      <LiquidGlassTable class="diagnostics-card" :loading="diagnosticsLoading" :show-pagination="false" aria-label="运行诊断">
         <template #toolbar>
-          <div class="card-header">
-            <h2>失败聚类</h2>
-            <span class="card-header__meta">{{ diagnostics.failureClusters.length }} 类</span>
+          <div class="card-header diagnostics-header">
+            <div class="diagnostics-heading">
+              <h2>运行诊断</h2>
+              <LiquidGlassNav source="backdrop" class="diagnostics-nav" aria-label="诊断视图">
+                <button type="button" :aria-pressed="diagnosticView === 'failures'" aria-controls="runops-diagnostics-content" @click="openDiagnostics('failures')">
+                  失败聚类
+                  <span :class="{ 'diagnostic-count--danger': diagnostics.failureClusters.length > 0 }">{{ diagnostics.failureClusters.length }}</span>
+                </button>
+                <button type="button" :aria-pressed="diagnosticView === 'versions'" aria-controls="runops-diagnostics-content" @click="openDiagnostics('versions')">
+                  发布版本表现 <span>{{ diagnostics.versionComparisons.length }}</span>
+                </button>
+              </LiquidGlassNav>
+            </div>
+            <LiquidGlassButton
+              link
+              native-type="button"
+              :icon="showDiagnostics ? ArrowUp : ArrowDown"
+              :aria-expanded="showDiagnostics"
+              aria-controls="runops-diagnostics-content"
+              @click="showDiagnostics = !showDiagnostics"
+            >
+              {{ showDiagnostics ? '收起诊断' : '展开诊断' }}
+            </LiquidGlassButton>
           </div>
         </template>
-        <div class="table-panel">
+        <div id="runops-diagnostics-content" v-show="showDiagnostics" class="table-panel diagnostics-panel">
           <el-table
-            v-if="diagnostics.failureClusters.length"
+            v-if="diagnosticView === 'failures' && diagnostics.failureClusters.length"
             class="runops-table"
             :data="diagnostics.failureClusters"
-            stripe
-            max-height="300"
+            max-height="176"
           >
-            <el-table-column prop="count" label="次数" width="52" align="right" />
-            <el-table-column label="运行对象" min-width="110">
+            <el-table-column label="次数" width="76" align="right">
+              <template #default="{ row }"><span class="failure-count">{{ row.count ?? 0 }}</span></template>
+            </el-table-column>
+            <el-table-column label="运行对象" min-width="220">
               <template #default="{ row }">
                 <el-tooltip :content="diagnosticObjectTooltip(row)" placement="top" :show-after="400">
                   <div class="cell-stack">
@@ -146,62 +168,50 @@
                 </el-tooltip>
               </template>
             </el-table-column>
-            <el-table-column label="错误" min-width="148">
+            <el-table-column label="错误摘要" min-width="300">
               <template #default="{ row }">
                 <el-tooltip :content="errorTooltip(row)" placement="top" :show-after="400">
                   <div class="cell-stack">
-                    <div class="issue-title error-code">{{ row.errorCode || row.errorType || 'RUN_FAILED' }}</div>
-                    <div class="issue-meta">{{ row.errorMessage || row.nodeId || row.toolName || '-' }}</div>
+                    <div class="issue-title error-code">{{ errorSummary(row) }}</div>
+                    <div class="issue-meta error-detail">{{ errorDetail(row) }}</div>
                   </div>
                 </el-tooltip>
               </template>
             </el-table-column>
-            <el-table-column label="均耗时" width="72" align="right">
+            <el-table-column label="平均耗时" width="104" align="right">
               <template #default="{ row }">
                 <el-tooltip :content="`${row.avgLatencyMs ?? 0} ms`" placement="top" :show-after="400">
                   <span>{{ formatLatencyMs(row.avgLatencyMs) }}</span>
                 </el-tooltip>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="52" align="center">
+            <el-table-column label="操作" width="108" align="center" fixed="right">
               <template #default="{ row }">
-                <el-button
+                <LiquidGlassButton
                   v-if="row.sampleTraceId"
                   link
                   type="primary"
                   size="small"
                   @click="router.push(`/runops/${row.sampleTraceId}`)"
                 >
-                  样例
-                </el-button>
+                  查看样例
+                </LiquidGlassButton>
                 <span v-else class="muted">-</span>
               </template>
             </el-table-column>
           </el-table>
           <el-empty
-            v-else-if="!diagnosticsLoading"
+            v-else-if="diagnosticView === 'failures' && !diagnosticsLoading"
             :image-size="48"
             description="当前筛选下暂无失败聚类"
           />
-        </div>
-      </LiquidGlassTable>
-
-      <LiquidGlassTable class="diagnostics-card" :loading="diagnosticsLoading" :show-pagination="false">
-        <template #toolbar>
-          <div class="card-header">
-            <h2>发布版本表现</h2>
-            <span class="card-header__meta">{{ diagnostics.versionComparisons.length }} 个版本</span>
-          </div>
-        </template>
-        <div class="table-panel">
           <el-table
-            v-if="diagnostics.versionComparisons.length"
+            v-if="diagnosticView === 'versions' && diagnostics.versionComparisons.length"
             class="runops-table"
             :data="diagnostics.versionComparisons"
-            stripe
-            max-height="300"
+            max-height="176"
           >
-            <el-table-column label="运行对象 / 版本" min-width="150">
+            <el-table-column label="运行对象 / 版本" min-width="240">
               <template #default="{ row }">
                 <el-tooltip :content="diagnosticObjectTooltip(row)" placement="top" :show-after="400">
                   <div class="cell-stack">
@@ -211,52 +221,45 @@
                 </el-tooltip>
               </template>
             </el-table-column>
-            <el-table-column label="成功率" width="108">
+            <el-table-column label="成功率" width="112" align="right">
               <template #default="{ row }">
-                <div class="rate-cell">
-                  <el-progress
-                    :percentage="toPercent(row.successRate)"
-                    :stroke-width="6"
-                    :show-text="false"
-                    :color="successRateColor(row.successRate)"
-                  />
-                  <span class="rate-text">{{ toPercent(row.successRate) }}%</span>
-                </div>
+                <span class="rate-text" :class="{ 'rate-text--warning': toPercent(row.successRate) < 90 && toPercent(row.successRate) >= 70, 'rate-text--danger': toPercent(row.successRate) < 70 }">{{ toPercent(row.successRate) }}%</span>
               </template>
             </el-table-column>
-            <el-table-column prop="runCount" label="运行" width="56" align="right" />
-            <el-table-column prop="failureCount" label="失败" width="56" align="right" />
-            <el-table-column prop="replanCount" label="重规划" width="64" align="right" />
-            <el-table-column label="P95" width="72" align="right">
+            <el-table-column prop="runCount" label="运行" width="84" align="right" />
+            <el-table-column label="失败" width="84" align="right">
+              <template #default="{ row }"><span :class="{ 'failure-count': row.failureCount > 0 }">{{ row.failureCount ?? 0 }}</span></template>
+            </el-table-column>
+            <el-table-column prop="replanCount" label="重规划" width="92" align="right" />
+            <el-table-column label="P95 耗时" width="112" align="right">
               <template #default="{ row }">
                 <el-tooltip :content="`${row.p95LatencyMs ?? 0} ms`" placement="top" :show-after="400">
                   <span>{{ formatLatencyMs(row.p95LatencyMs) }}</span>
                 </el-tooltip>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="56" align="center">
+            <el-table-column label="操作" width="108" align="center" fixed="right">
               <template #default="{ row }">
-                <el-button
+                <LiquidGlassButton
                   v-if="row.latestTraceId"
                   link
                   type="primary"
                   size="small"
                   @click="router.push(`/runops/${row.latestTraceId}`)"
                 >
-                  最新
-                </el-button>
+                  最新运行
+                </LiquidGlassButton>
                 <span v-else class="muted">-</span>
               </template>
             </el-table-column>
           </el-table>
           <el-empty
-            v-else-if="!diagnosticsLoading"
+            v-else-if="diagnosticView === 'versions' && !diagnosticsLoading"
             :image-size="48"
             description="当前筛选下暂无版本表现数据"
           />
         </div>
       </LiquidGlassTable>
-    </section>
 
     <LiquidGlassTable
       v-model:current-page="currentPage"
@@ -278,7 +281,7 @@
             v-if="filteredRuns.length"
             class="runops-table runs-table"
             :data="pagedRuns"
-            stripe
+            height="100%"
           >
             <el-table-column label="状态" width="108">
               <template #default="{ row }">
@@ -288,11 +291,11 @@
               </template>
             </el-table-column>
 
-            <el-table-column label="运行对象" min-width="176">
+            <el-table-column label="运行对象" min-width="200">
               <template #default="{ row }">
                 <div class="run-object">
                   <div class="run-object__title">
-                    <el-tag size="small" effect="plain" :type="row.runType === 'AGENT' ? 'success' : ''">
+                    <el-tag size="small" effect="plain" :type="row.runType === 'AGENT' ? 'success' : 'info'">
                       {{ runTypeLabel(row.runType) }}
                     </el-tag>
                     <el-tooltip :content="runObjectLabel(row)" placement="top" :show-after="400">
@@ -319,7 +322,7 @@
               </template>
             </el-table-column>
 
-            <el-table-column label="版本 / 入口" width="108">
+            <el-table-column label="版本 / 入口" width="120">
               <template #default="{ row }">
                 <el-tooltip :content="`${runVersionLabel(row)} · ${entryTypeLabel(row.entryType)}`" placement="top" :show-after="400">
                   <div class="cell-stack">
@@ -330,11 +333,11 @@
               </template>
             </el-table-column>
 
-            <el-table-column label="项目" width="100" show-overflow-tooltip>
+            <el-table-column label="项目" width="104" show-overflow-tooltip>
               <template #default="{ row }">{{ row.projectCode || '-' }}</template>
             </el-table-column>
 
-            <el-table-column label="决策与调用" min-width="120">
+            <el-table-column label="决策与调用" min-width="132">
               <template #default="{ row }">
                 <div class="decision-metrics">
                   <span>规划 {{ row.planCount ?? 0 }}</span>
@@ -350,8 +353,8 @@
                 <template v-if="isFailedStatus(row.status) && (row.errorCode || row.errorMessage)">
                   <el-tooltip :content="errorTooltip(row)" placement="top" :show-after="300">
                     <div class="cell-stack">
-                      <div class="issue-title error-code">{{ row.errorCode || 'RUN_FAILED' }}</div>
-                      <div class="issue-meta">{{ row.errorMessage || '-' }}</div>
+                      <div class="issue-title error-code">{{ errorSummary(row) }}</div>
+                      <div class="issue-meta error-detail">{{ errorDetail(row) }}</div>
                     </div>
                   </el-tooltip>
                 </template>
@@ -360,7 +363,7 @@
               </template>
             </el-table-column>
 
-            <el-table-column label="耗时 / Token 数" width="92" align="right">
+            <el-table-column label="耗时 / Token" width="112" align="right">
               <template #default="{ row }">
                 <el-tooltip :content="`${row.latencyMs ?? 0} ms · ${row.tokenCost ?? 0} Token`" placement="top" :show-after="400">
                   <div class="cell-stack cell-stack--end">
@@ -371,15 +374,24 @@
               </template>
             </el-table-column>
 
-            <el-table-column prop="startedAt" label="开始时间" width="148" show-overflow-tooltip />
+            <el-table-column label="开始时间" width="120">
+              <template #default="{ row }">
+                <el-tooltip :content="formatDateTime(row.startedAt)" placement="top" :show-after="400">
+                  <div class="cell-stack time-cell">
+                    <div>{{ formatDateTime(row.startedAt).split(' ')[0] }}</div>
+                    <div class="issue-meta">{{ formatDateTime(row.startedAt).split(' ').slice(1).join(' ') }}</div>
+                  </div>
+                </el-tooltip>
+              </template>
+            </el-table-column>
 
-            <el-table-column label="操作" width="92" align="center">
+            <el-table-column label="操作" width="104" align="center" fixed="right">
               <template #default="{ row }">
                 <div class="row-actions">
-                  <el-button link type="primary" size="small" @click="router.push(`/runops/${row.traceId}`)">
+                  <LiquidGlassButton link type="primary" size="small" @click="router.push(`/runops/${row.traceId}`)">
                     详情
-                  </el-button>
-                  <el-button
+                  </LiquidGlassButton>
+                  <LiquidGlassButton
                     v-if="row.runType === 'WORKFLOW' && row.workflowId && canOpenWorkflowStudio(row)"
                     link
                     type="primary"
@@ -387,7 +399,7 @@
                     @click="router.push(`/workflows/${row.workflowId}/studio`)"
                   >
                     编排
-                  </el-button>
+                  </LiquidGlassButton>
                 </div>
               </template>
             </el-table-column>
@@ -401,14 +413,14 @@
 
       </div>
     </LiquidGlassTable>
-  </WorkbenchPage>
+  </LiquidGlassPage>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Refresh, Search } from '@element-plus/icons-vue'
+import { ArrowDown, ArrowUp, Refresh, Search } from '@element-plus/icons-vue'
 import { getRecentRunOps, getRunOpsDiagnostics } from '@/api/runops'
 import RunCenterNav from './components/RunCenterNav.vue'
 import { isHttpApiWriteResultUnconfirmed } from './httpApiWriteOutcome'
@@ -423,7 +435,7 @@ import type {
   VersionComparison,
 } from '@/types/runops'
 import PageHeader from '@/components/common/PageHeader.vue'
-import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
+import { formatDateTime } from '@/utils/dateTime'
 import MetricStrip from '@/components/common/MetricStrip.vue'
 import type { MetricStripItem } from '@/components/common/glassWorkbench'
 import {
@@ -431,6 +443,8 @@ import {
   LiquidGlassCard,
   LiquidGlassFilterBar,
   LiquidGlassInput,
+  LiquidGlassNav,
+  LiquidGlassPage,
   LiquidGlassSelect,
   LiquidGlassTable,
 } from '@/components/common/liquid-glass'
@@ -469,6 +483,8 @@ const readableRunOpsProjects = computed(() => platformProjectPermissionScopes(
 const loading = ref(false)
 const diagnosticsLoading = ref(false)
 const showMoreFilters = ref(false)
+const showDiagnostics = ref(true)
+const diagnosticView = ref<'failures' | 'versions'>('failures')
 const runs = ref<RunSummary[]>([])
 const currentPage = ref(1)
 const pageSize = ref(10)
@@ -543,8 +559,8 @@ const kpis = computed<MetricStripItem[]>(() => {
     : 0
   return [
     { key: 'runs', label: '运行数', value: String(total), hint: `最近 ${appliedFilters.days} 天` },
-    { key: 'failed', label: '失败数', value: String(failed), hint: '失败与超时的根运行' },
-    { key: 'waiting', label: '等待审批', value: String(waiting), hint: '当前阻塞于人工审批' },
+    { key: 'failed', label: '失败数', value: String(failed), hint: '失败与超时的根运行', tone: failed > 0 ? 'danger' : 'neutral' },
+    { key: 'waiting', label: '等待审批', value: String(waiting), hint: '当前阻塞于人工审批', tone: waiting > 0 ? 'warning' : 'neutral' },
     { key: 'latency', label: '平均耗时', value: formatLatencyMs(avgLatency), hint: '按根运行聚合' },
   ]
 })
@@ -679,6 +695,26 @@ function diagnosticObjectTooltip(row: FailureCluster | VersionComparison) {
   return `${diagnosticObjectLabel(row)} · ${diagnosticVersionLabel(row)}`
 }
 
+function openDiagnostics(view: 'failures' | 'versions') {
+  diagnosticView.value = view
+  showDiagnostics.value = true
+}
+
+type RunError = { errorCode?: string; errorType?: string; errorMessage?: string; nodeId?: string; toolName?: string }
+
+function hasErrorMessage(row: RunError) {
+  return Boolean(row.errorMessage?.trim() && row.errorMessage.trim() !== '[omitted]')
+}
+
+function errorSummary(row: RunError) {
+  return hasErrorMessage(row) ? row.errorMessage : row.errorCode || row.errorType || '运行失败'
+}
+
+function errorDetail(row: RunError) {
+  if (hasErrorMessage(row)) return row.errorCode || row.errorType || 'RUN_FAILED'
+  return row.nodeId || row.toolName || (row.errorMessage === '[omitted]' ? '错误详情已省略' : '未记录错误详情')
+}
+
 function errorTooltip(row: { errorCode?: string; errorType?: string; errorMessage?: string; nodeId?: string; toolName?: string }) {
   const code = row.errorCode || row.errorType || 'RUN_FAILED'
   const detail = row.errorMessage || row.nodeId || row.toolName || '-'
@@ -737,13 +773,6 @@ function toPercent(value?: number) {
   return Math.round((value ?? 0) * 100)
 }
 
-function successRateColor(value?: number) {
-  const percent = toPercent(value)
-  if (percent >= 90) return 'var(--status-success)'
-  if (percent >= 70) return 'var(--status-warning)'
-  return 'var(--status-danger)'
-}
-
 /** 展示用耗时格式化，不改变底层 latencyMs 数值。 */
 function formatLatencyMs(ms?: number | null) {
   const value = Number(ms ?? 0)
@@ -796,7 +825,7 @@ watch([filteredRuns, pageSize], () => {
 
 <style scoped lang="scss">
 .runops-page {
-  gap: 12px;
+  gap: var(--layout-section-gap);
 }
 
 .runops-header-meta {
@@ -860,17 +889,44 @@ watch([filteredRuns, pageSize], () => {
   width: 100%;
 }
 
-.runops-diagnostics {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
-  gap: 12px;
-  align-items: stretch;
-}
-
-.diagnostics-card,
-.runs-card {
+.runops-page > .diagnostics-card {
   flex: 0 0 auto;
   min-width: 0;
+  min-height: 0;
+}
+
+.runops-page > .runs-card {
+  flex: 1 1 280px;
+  min-width: 0;
+  min-height: 280px;
+}
+
+.diagnostics-heading {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+
+.diagnostics-nav {
+  --control-height: 28px;
+}
+
+.diagnostics-nav :deep(button > span) {
+  font-variant-numeric: tabular-nums;
+}
+
+.diagnostic-count--danger,
+.failure-count,
+.rate-text--danger {
+  color: var(--status-danger);
+  font-weight: 650;
+}
+
+.rate-text--warning {
+  color: var(--status-warning);
+  font-weight: 650;
 }
 
 .card-header {
@@ -890,18 +946,20 @@ watch([filteredRuns, pageSize], () => {
 
 .table-panel {
   min-width: 0;
-  min-height: 96px;
-  padding: 0 12px 12px;
+  padding: 0 0 8px;
 }
 
 .runs-panel {
-  overflow-x: auto;
-  padding-bottom: 8px;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0;
 }
 
-.runs-panel :deep(.el-table) {
-  --el-table-current-row-bg-color: transparent;
-  min-width: 1060px;
+.runs-panel > .el-table {
+  flex: 1;
+  min-height: 0;
 }
 
 .runops-table {
@@ -916,9 +974,14 @@ watch([filteredRuns, pageSize], () => {
   font-weight: 650;
 }
 
+.runops-table :deep(th.el-table__cell > .cell) {
+  white-space: nowrap;
+}
+
 .runops-table :deep(td.el-table__cell) {
-  height: 52px;
+  height: 48px;
   padding: 6px 0;
+  font-variant-numeric: tabular-nums;
 }
 
 .runops-table :deep(.cell) {
@@ -959,14 +1022,12 @@ watch([filteredRuns, pageSize], () => {
   color: var(--status-danger);
 }
 
-.rate-cell {
-  display: grid;
-  gap: 4px;
+.error-detail,
+.time-cell {
+  font-variant-numeric: tabular-nums;
 }
 
 .rate-text {
-  color: var(--text-secondary);
-  font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -983,6 +1044,10 @@ watch([filteredRuns, pageSize], () => {
 
 .run-object__name {
   min-width: 0;
+}
+
+.run-object__title > .el-tag {
+  flex-shrink: 0;
 }
 
 .run-object__meta {
@@ -1007,7 +1072,7 @@ watch([filteredRuns, pageSize], () => {
   color: var(--text-muted);
   font: inherit;
   font-size: 12px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--font-family-mono);
   text-overflow: ellipsis;
   white-space: nowrap;
   cursor: pointer;
@@ -1038,11 +1103,19 @@ watch([filteredRuns, pageSize], () => {
   font-weight: 600;
 }
 
+.decision-metrics > span {
+  white-space: nowrap;
+}
+
 .row-actions {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 2px;
+  gap: 8px;
+}
+
+.row-actions :deep(.el-button) {
+  margin: 0;
 }
 
 .muted {
@@ -1053,20 +1126,25 @@ watch([filteredRuns, pageSize], () => {
   padding: 20px 8px;
 }
 
-@media (max-width: 1360px) {
-  .runops-diagnostics {
+@media (max-width: 900px) {
+  .filter-advanced {
     grid-template-columns: 1fr;
   }
 }
 
-@media (max-width: 900px) {
-  .runops-page :deep(.app-page-header) {
-    height: auto;
-    min-height: 64px;
+@media (max-width: 760px) {
+  .diagnostics-header {
+    align-items: flex-start;
   }
 
-  .filter-advanced {
-    grid-template-columns: 1fr;
+  .diagnostics-heading {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .diagnostics-nav {
+    --control-height: 26px;
   }
 }
 </style>

@@ -479,8 +479,9 @@ public class ControlRuntimePublicController {
 
     @PostMapping("/api/workflows/runtime-validation")
     public ResponseEntity<Object> validateWorkflowRuntime(@RequestBody Map<String, Object> body) {
-        PlatformAuthenticatedSession session = requireRuntimePermission(PlatformPermissions.WORKFLOW_WRITE);
-        requireWorkflowPayload(session, PlatformPermissions.WORKFLOW_WRITE, body);
+        // Validation does not persist anything; read-only roles see the same checks in the read-only Studio.
+        PlatformAuthenticatedSession session = requireRuntimePermission(PlatformPermissions.WORKFLOW_READ);
+        requireWorkflowPayload(session, PlatformPermissions.WORKFLOW_READ, body);
         return runtimeProxyClient.validateWorkflowRuntime(body);
     }
 
