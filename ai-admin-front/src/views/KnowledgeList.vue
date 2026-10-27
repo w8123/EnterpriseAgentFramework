@@ -437,15 +437,9 @@ import {
   EditPen,
   InfoFilled,
   CopyDocument,
-  Cpu,
-  Rank,
-  Lock,
-  Compass,
   Document,
   Files,
-  Aim,
   Connection,
-  Clock,
   MoreFilled,
   Right,
   Setting,
@@ -458,7 +452,6 @@ import { createKnowledge, deleteKnowledge, getKnowledgeUsage } from '@/api/knowl
 import { getModelInstances } from '@/api/model'
 import type { KnowledgeBase, KnowledgeBaseForm, KnowledgeUsage } from '@/types/knowledge'
 import { usageFor, usageSummary, agentNames } from './knowledge/knowledgeDetailModel'
-import { useModelNames } from './knowledge/useModelNames'
 import { formatRelativeTime } from '@/utils/relativeTime'
 import type { ModelInstance } from '@/types/model'
 import { normalizeActiveModelInstances } from '@/utils/modelSelection'
@@ -468,28 +461,9 @@ const { can } = usePlatformCan()
 const canWriteKnowledge = computed(() => can(PLATFORM_PERMISSION_KNOWLEDGE_WRITE))
 const canAttachAgent = computed(() => can(PLATFORM_PERMISSION_AGENT_WRITE))
 const knowledgeStore = useKnowledgeStore()
-const { loadModelNames, modelName } = useModelNames()
 const usages = ref<KnowledgeUsage[]>([])
 const attachDialogVisible = ref(false)
 const targetAttachKb = ref<KnowledgeBase | null>(null)
-
-function displayEmbeddingModel(id?: string | null): string {
-  if (!id) return '未配置向量'
-  const name = modelName(id)
-  return name.replace(/（.*）/, '') || name
-}
-
-function searchModeLabel(mode?: string | null): string {
-  if (!mode || mode === 'hybrid') return '混合检索'
-  if (mode === 'vector') return '语义检索'
-  if (mode === 'keyword') return '全文检索'
-  return mode
-}
-
-function hasAgentConnected(code: string): boolean {
-  const usage = usageFor(usages.value, code)
-  return (usage.workflows?.length ?? 0) > 0 || (usage.hiddenWorkflowCount ?? 0) > 0
-}
 
 function agentSummaryBadge(code: string): { connected: boolean; label: string } {
   const usage = usageFor(usages.value, code)
@@ -790,7 +764,6 @@ watch(
 onMounted(() => {
   knowledgeStore.fetchList()
   if (!canLoadModelCatalog()) return
-  loadModelNames()
   fetchEmbeddingInstances()
   fetchRerankInstances()
   fetchLlmInstances()

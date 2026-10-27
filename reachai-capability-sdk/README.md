@@ -1,10 +1,6 @@
-# ReachAI Capability SDK
+# Capability SDK
 
-`reachai-capability-sdk` is the JDK 8-compatible declaration contract used by
-business modules that expose capabilities to ReachAI. It has no Spring runtime
-dependency.
-
-## Dependency
+Java 8 兼容的业务能力声明契约，不依赖 Spring 运行时。业务模块用它声明方法、参数、返回与业务索引 resolver；启动模块使用 [Starter](../reachai-spring-boot2-starter/README.md)。
 
 ```xml
 <dependency>
@@ -14,133 +10,13 @@ dependency.
 </dependency>
 ```
 
-Use the version and installation command declared by the ReachAI onboarding
-manifest. Do not guess a Maven repository URL.
+部署使用平台 onboarding manifest 给出的版本、安装命令和摘要，不猜测制品仓库地址。
 
-## Minimal capability
-
-```java
-import com.enterprise.ai.reach.sdk.annotation.ReachCapability;
-import com.enterprise.ai.reach.sdk.annotation.ReachOutput;
-import com.enterprise.ai.reach.sdk.annotation.ReachParam;
-import com.enterprise.ai.reach.sdk.annotation.ReachSideEffectLevel;
-
-public class OrderQueryService {
-
-    @ReachCapability(
-            name = "order.query",
-            title = "Query order",
-            description = "Read one order visible to the current business user",
-            domain = "order",
-            sideEffect = ReachSideEffectLevel.READ,
-            requiredRoles = {"ORDER_READ"},
-            timeoutMs = 3000)
-    public OrderView query(
-            @ReachParam(name = "orderId", required = true) String orderId) {
-        return loadAuthorizedOrder(orderId);
-    }
-
-    public static class OrderView {
-        @ReachOutput(description = "Stable business order id")
-        private String orderId;
-
-        @ReachOutput(description = "Current order status")
-        private String status;
-    }
-}
-```
-
-## Annotation reference
-
-### `@ReachCapability` — methods only
-
-| Member | Type | Default | Meaning |
-| --- | --- | --- | --- |
-| `name` | `String` | `""` | Stable capability key. Prefer an explicit domain name such as `order.query`. |
-| `title` | `String` | `""` | Human-readable title. |
-| `description` | `String` | `""` | Business behavior and authorization boundary. |
-| `domain` | `String` | `""` | Business domain. |
-| `module` | `String` | `""` | Owning business module. |
-| `tags` | `String[]` | `{}` | Search and governance tags. |
-| `sideEffect` | `ReachSideEffectLevel` | `WRITE` | `READ`, `WRITE`, or `IRREVERSIBLE`. Set it explicitly. |
-| `requiredRoles` | `String[]` | `{}` | Business roles required by the capability. The host must still enforce authorization. |
-| `timeoutMs` | `int` | `0` | Timeout override; `0` uses platform policy. |
-| `retryLimit` | `int` | `-1` | Retry override; `-1` uses platform policy. |
-
-### `@ReachParam` — parameters or request fields
-
-| Member | Type | Default | Meaning |
-| --- | --- | --- | --- |
-| `name` | `String` | `""` | Stable input name. Always set it for simple parameters in JDK 8 builds. |
-| `description` | `String` | `""` | Business meaning and constraints. |
-| `required` | `boolean` | `false` | Whether the value is required. |
-| `example` | `String` | `""` | Non-secret example value. |
-| `sourceHint` | `String` | `""` | Suggested source of the value. |
-| `dictType` | `String` | `""` | Optional dictionary/catalog key. |
-| `sensitive` | `boolean` | `false` | Marks data that must be redacted or handled as sensitive. |
-
-### `@ReachOutput` — response DTO fields only
-
-| Member | Type | Default | Meaning |
-| --- | --- | --- | --- |
-| `description` | `String` | `""` | Meaning of the output field. |
-| `example` | `String` | `""` | Non-secret example value. |
-| `sensitive` | `boolean` | `false` | Marks output requiring sensitive-data handling. |
-
-Do not put `@ReachOutput` on methods. Do not treat annotation roles as a
-replacement for the business application's existing authorization checks.
-
-## Business-index resolver contracts
-
-Use these JDK 8 DTOs when a Knowledge business index is enabled for Agent
-memory:
-
-| Type | Purpose |
+| 契约 | 用途 |
 | --- | --- |
-| `ReachBusinessIndexResolverRequest` | `resourceType`, `resourceId`, and the non-authoritative `expectedSourceVersion` index hint. Its fields already carry `@ReachParam` metadata. |
-| `ReachBusinessIndexAccessScope` | Fail-closed tenant, user, resource-id, and row-visibility assertion created from the authoritative business row or an explicitly configured single-tenant deployment binding. |
-| `ReachBusinessIndexResolution` | The current, user-authorized source record and current `sourceVersion`. Its fields carry `@ReachOutput` metadata. |
+| `@ReachCapability` | 明确开放的 Java 方法、说明、副作用与调用要求 |
+| `@ReachParam` / `@ReachOutput` | 输入与返回字段的可消费契约 |
+| `ReachSideEffectLevel` | 声明真实业务操作影响 |
+| `bizindex` | 带版本业务引用、回源解析与权限约束 |
 
-The resolver is still an ordinary read-only `@ReachCapability`. The business
-host must verify the short-lived `X-ReachAI-Invocation-Token`, enforce tenant and
-row-level authorization for its current user, create the result with
-`ReachBusinessIndexResolution.createAuthorized(...)`, and return only fields
-that user may see. The Spring Starter enforces this contract for capabilities
-tagged `business-index-resolver` or using the standard resolver request/return
-types; the compatibility `create(...)` factory does not carry row-authorization
-proof and is rejected on that HTTP invocation path.
-Never treat `expectedSourceVersion` or Knowledge projection text as current
-truth. See the starter README for a complete resolver example.
-
-## Body-bound project request signing
-
-`ReachAiProjectRequestSigner` and `ReachAiProjectRequestHeaders` are JDK 8
-helpers for project-scoped business mutation APIs. The canonical
-`REACHAI_PROJECT_REQUEST_V1` message includes method, path, projectCode, appKey,
-timestamp, nonce, and SHA-256 of the exact transmitted body. Sign only after
-serialization, then transmit those same bytes; reserializing an object after
-signing is expected to fail verification. The Spring Starter's
-`ReachAiBusinessIndexClient` implements this contract for structured Business
-Index upsert, batch upsert, and delete.
-
-## Module boundary
-
-This SDK is a declaration and signing contract only. It does not scan Spring
-beans, register projects, expose callback endpoints, schedule heartbeats, or
-exchange Embed Tokens. Those runtime integration responsibilities belong to
-`reachai-spring-boot2-starter`. Business services still own authentication,
-authorization, tenant isolation, row visibility, and the actual capability
-implementation.
-
-## Build and verification
-
-Run from the repository root:
-
-```powershell
-mvn -pl reachai-capability-sdk -am test
-mvn -pl reachai-capability-sdk,reachai-spring-boot2-starter -am -DskipTests package
-.\scripts\verify-java-sdk-artifacts-cleanroom.ps1
-```
-
-Continue with the [Spring Boot Starter README](../reachai-spring-boot2-starter/README.md)
-and [project registration and capability assets](../docs/02-%E9%A1%B9%E7%9B%AE%E6%B3%A8%E5%86%8C%E4%B8%8E%E8%83%BD%E5%8A%9B%E8%B5%84%E4%BA%A7.md).
+注解不授予业务权限，最终校验和事务仍由业务系统负责。声明、注册、试调用和页面接入的完整顺序见[系统接入](../docs/integration.md)，方法/API 的差异与发布保护见[Workflow](../docs/workflow.md)。

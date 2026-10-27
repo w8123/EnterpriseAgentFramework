@@ -955,9 +955,6 @@ public final class RuntimeGraphSpecExecutionEngine {
                         nodeType));
     }
 
-    public static final int LOOP_DEFAULT_MAX_ITERATIONS = RuntimeLoopNodeHandler.DEFAULT_MAX_ITERATIONS;
-    public static final int LOOP_HARD_MAX_ITERATIONS = RuntimeLoopNodeHandler.HARD_MAX_ITERATIONS;
-
     private RuntimeGraphSpecExecutionResult executeLoopBody(GraphSpec graph,
                                                             Map<String, GraphSpec.Node> nodesById,
                                                             Set<String> bodyNodeIds,
@@ -1017,13 +1014,6 @@ public final class RuntimeGraphSpecExecutionEngine {
         return last == null
                 ? failure("RUNTIME_GRAPH_LOOP_BODY_INVALID", "LOOP body did not execute", bodyEntry, null)
                 : withSteps(last, steps, List.of());
-    }
-
-    /**
-     * Missing / blank → default 100. Present but non-numeric, &lt;1 or &gt;hard max → null (fail-closed).
-     */
-    public static Integer parseLoopMaxIterations(Object raw) {
-        return RuntimeLoopNodeHandler.parseMaxIterations(raw);
     }
 
     private RuntimeGraphSpecExecutionResult cancelled(String nodeId, String nodeType) {

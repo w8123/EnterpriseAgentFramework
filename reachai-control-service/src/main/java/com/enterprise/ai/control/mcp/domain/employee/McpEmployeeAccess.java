@@ -14,7 +14,9 @@ public record McpEmployeeAccess(
         Long projectId,
         String projectCode,
         String displayName,
-        boolean enabled) {
+        boolean enabled,
+        /** Write (non-READ) tools wait for an approver before they run as the employee. */
+        boolean writeApprovalRequired) {
 
     public McpEmployeeAccess {
         if (publicationId <= 0) {
@@ -24,8 +26,13 @@ public record McpEmployeeAccess(
         displayName = McpDomainText.optionalText(displayName);
     }
 
+    public McpEmployeeAccess(Long id, long publicationId, Long projectId, String projectCode, String displayName,
+                             boolean enabled) {
+        this(id, publicationId, projectId, projectCode, displayName, enabled, true);
+    }
+
     public McpEmployeeAccess(Long id, long publicationId, String projectCode, String displayName, boolean enabled) {
-        this(id, publicationId, null, projectCode, displayName, enabled);
+        this(id, publicationId, null, projectCode, displayName, enabled, true);
     }
 
     public String label() {

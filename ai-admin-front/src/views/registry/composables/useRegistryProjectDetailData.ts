@@ -1,4 +1,4 @@
-import { computed, ref, type Ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, type Ref } from 'vue'
 import { useRoute } from 'vue-router'
 import {
   listPageActionCatalog,
@@ -42,6 +42,8 @@ export function useRegistryProjectDetailData(deps: UseRegistryProjectDetailDataD
   let refreshSequence = 0
   let instanceLoadSequence = 0
   let pageCatalogLoadSequence = 0
+  let instanceRequestPending = false
+  let instancePollingTimer: ReturnType<typeof setInterval> | undefined
 
   const offlineInstanceCount = computed(() => countOfflineInstances(instances.value))
 
@@ -50,10 +52,15 @@ export function useRegistryProjectDetailData(deps: UseRegistryProjectDetailDataD
   )
 
   async function loadInstances() {
+    return fetchInstances(true)
+  }
+
+  async function fetchInstances(showLoading: boolean) {
     const requestedProjectCode = project.value?.projectCode || projectCode.value
     if (!requestedProjectCode) return
     const currentLoadSequence = ++instanceLoadSequence
-    loadingInstances.value = true
+    instanceRequestPending = true
+    if (showLoading) loadingInstances.value = true
     instancesLoadError.value = ''
     try {
       const { data } = await listRegistryProjectInstances(requestedProjectCode)
@@ -71,10 +78,31 @@ export function useRegistryProjectDetailData(deps: UseRegistryProjectDetailDataD
       }
     } finally {
       if (currentLoadSequence === instanceLoadSequence) {
+        instanceRequestPending = false
         loadingInstances.value = false
       }
     }
   }
+
+  function refreshVisibleInstances() {
+    if (
+      project.value
+      && !loading.value
+      && !instanceRequestPending
+      && document.visibilityState !== 'hidden'
+    ) void fetchInstances(false)
+  }
+
+  onMounted(() => {
+    instancePollingTimer = setInterval(refreshVisibleInstances, 30_000)
+    document.addEventListener('visibilitychange', refreshVisibleInstances)
+  })
+
+  onBeforeUnmount(() => {
+    clearInterval(instancePollingTimer)
+    document.removeEventListener('visibilitychange', refreshVisibleInstances)
+    instanceLoadSequence += 1
+  })
 
   async function loadPageCatalog() {
     const requestedProjectCode = project.value?.projectCode || projectCode.value
@@ -118,6 +146,7 @@ export function useRegistryProjectDetailData(deps: UseRegistryProjectDetailDataD
     instancesLoadError.value = ''
     pageCatalogLoadError.value = ''
     loadingInstances.value = false
+    instanceRequestPending = false
     loadingPageCatalog.value = false
   }
 

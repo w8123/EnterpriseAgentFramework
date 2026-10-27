@@ -9,7 +9,6 @@ const studioLineCount = studioSource.split(/\r?\n/).length
 
 const requiredOverlays = [
   'WorkflowStudioDebugDrawer',
-  'WorkflowStudioEvalDrawer',
   'WorkflowStudioPublishDialog',
   'WorkflowStudioSourceDrawer',
 ]

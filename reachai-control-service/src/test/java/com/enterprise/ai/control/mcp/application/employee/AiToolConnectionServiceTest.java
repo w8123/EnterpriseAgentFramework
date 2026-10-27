@@ -232,7 +232,7 @@ class AiToolConnectionServiceTest {
     }
 
     static final class FakeAccess implements McpEmployeeAccessRepository {
-        private final List<McpEmployeeAccess> rows = new ArrayList<>();
+        final List<McpEmployeeAccess> rows = new ArrayList<>();
 
         @Override
         public List<McpEmployeeAccess> findEnabled() {
@@ -252,7 +252,8 @@ class AiToolConnectionServiceTest {
         @Override
         public McpEmployeeAccess save(McpEmployeeAccess access) {
             McpEmployeeAccess saved = new McpEmployeeAccess((long) rows.size() + 1, access.publicationId(),
-                    access.projectId(), access.projectCode(), access.displayName(), access.enabled());
+                    access.projectId(), access.projectCode(), access.displayName(), access.enabled(),
+                    access.writeApprovalRequired());
             rows.add(saved);
             return saved;
         }

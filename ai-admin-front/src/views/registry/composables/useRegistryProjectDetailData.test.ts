@@ -1,6 +1,7 @@
-import { ref } from 'vue'
+import { defineComponent, ref } from 'vue'
+import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useRegistryProjectDetailData } from './useRegistryProjectDetailData'
 import { useProjectStore } from '@/store/project'
 
@@ -32,17 +33,29 @@ vi.mock('@/api/embedOps', () => ({
   listPageRegistry: mocks.listPageRegistry,
 }))
 
+const wrappers: VueWrapper[] = []
+
 function createData() {
-  return useRegistryProjectDetailData({
-    projectCode: ref('demo-project'),
-    loadAiCodingAccess: vi.fn().mockResolvedValue(undefined),
-  })
+  let data!: ReturnType<typeof useRegistryProjectDetailData>
+  wrappers.push(mount(defineComponent({
+    setup() {
+      data = useRegistryProjectDetailData({
+        projectCode: ref('demo-project'),
+        loadAiCodingAccess: vi.fn().mockResolvedValue(undefined),
+      })
+      return () => null
+    },
+  })))
+  return data
 }
 
 describe('useRegistryProjectDetailData', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.clearAllMocks()
+    mocks.listRegistryProjectInstances.mockResolvedValue({ data: [] })
+    mocks.listPageRegistry.mockResolvedValue({ data: [] })
+    mocks.listPageActionCatalog.mockResolvedValue({ data: [] })
     mocks.getScanProjects.mockResolvedValue({
       data: [{
         id: 27,
@@ -57,6 +70,57 @@ describe('useRegistryProjectDetailData', () => {
         name: 'Demo Project',
       },
     })
+  })
+
+  afterEach(() => {
+    wrappers.splice(0).forEach((wrapper) => wrapper.unmount())
+    vi.restoreAllMocks()
+    vi.useRealTimers()
+  })
+
+  it('refreshes instance liveness while open and stops polling after leaving', async () => {
+    vi.useFakeTimers()
+    const instance = { id: 1, instanceId: 'worker', status: 'ONLINE' }
+    mocks.listRegistryProjectInstances.mockResolvedValueOnce({ data: [instance] })
+    const data = createData()
+    await data.refresh()
+    expect(data.instances.value[0]?.status).toBe('ONLINE')
+
+    mocks.listRegistryProjectInstances.mockResolvedValue({
+      data: [{ ...instance, status: 'STALE' }],
+    })
+    await vi.advanceTimersByTimeAsync(30_000)
+
+    expect(data.instances.value[0]?.status).toBe('STALE')
+    expect(data.offlineInstanceCount.value).toBe(1)
+    expect(mocks.listRegistryProjectInstances).toHaveBeenCalledTimes(2)
+    wrappers.splice(0).forEach((wrapper) => wrapper.unmount())
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(mocks.listRegistryProjectInstances).toHaveBeenCalledTimes(2)
+  })
+
+  it('pauses hidden pages, refreshes on return, and avoids overlapping background requests', async () => {
+    vi.useFakeTimers()
+    const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden')
+    const data = createData()
+    await data.refresh()
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(mocks.listRegistryProjectInstances).toHaveBeenCalledTimes(1)
+
+    let resolveInstances!: (value: { data: unknown[] }) => void
+    mocks.listRegistryProjectInstances.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveInstances = resolve
+    }))
+    visibility.mockReturnValue('visible')
+    document.dispatchEvent(new Event('visibilitychange'))
+    expect(data.loadingInstances.value).toBe(false)
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(mocks.listRegistryProjectInstances).toHaveBeenCalledTimes(2)
+
+    resolveInstances({ data: [] })
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(mocks.listRegistryProjectInstances).toHaveBeenCalledTimes(3)
   })
 
   it('keeps the real project visible and marks local metrics unavailable', async () => {

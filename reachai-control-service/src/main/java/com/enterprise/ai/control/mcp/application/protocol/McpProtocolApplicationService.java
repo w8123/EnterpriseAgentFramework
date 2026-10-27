@@ -5,6 +5,7 @@ import com.enterprise.ai.control.mcp.application.port.McpCallAuditRepository;
 import com.enterprise.ai.control.mcp.application.port.McpClientRepository;
 import com.enterprise.ai.control.mcp.application.port.McpPublicationRepository;
 import com.enterprise.ai.control.mcp.application.port.McpRuntimeExecutionGateway;
+import com.enterprise.ai.control.mcp.application.schema.McpDottedArgumentShape;
 import com.enterprise.ai.control.mcp.domain.McpDomainException;
 import com.enterprise.ai.control.mcp.domain.client.McpClient;
 import com.enterprise.ai.control.mcp.domain.client.McpClientStatus;
@@ -154,7 +155,7 @@ public class McpProtocolApplicationService {
                             tool.sourceRef(),
                             tool.workflowVersionId(),
                             tool.name(),
-                            arguments == null ? Map.of() : arguments,
+                            arguments == null ? Map.of() : shapedArguments(tool, arguments),
                             client.id(),
                             client.name(),
                             client.projectId(),
@@ -239,6 +240,15 @@ public class McpProtocolApplicationService {
         return view;
     }
 
+    private Map<String, Object> shapedArguments(McpToolProjection tool, Map<String, Object> arguments) {
+        try {
+            return McpDottedArgumentShape.unflatten(arguments,
+                    tool.inputSchemaJson() == null ? null : objectMapper.readTree(tool.inputSchemaJson()));
+        } catch (Exception unreadable) {
+            return arguments;
+        }
+    }
+
     private static Object parseSchema(ObjectMapper objectMapper, String inputSchemaJson) {
         if (inputSchemaJson == null || inputSchemaJson.isBlank()) {
             throw new McpDomainException("MCP_PUBLICATION_REVISION_INVALID",
@@ -250,7 +260,7 @@ public class McpProtocolApplicationService {
                 throw new McpDomainException("MCP_PUBLICATION_REVISION_INVALID",
                         "the frozen tool schema must be a JSON object");
             }
-            return schema;
+            return McpDottedArgumentShape.nest(schema);
         } catch (McpDomainException invalid) {
             throw invalid;
         } catch (Exception invalid) {

@@ -18,6 +18,8 @@ const group = (id = 2, projectId = 7): ScanModule => ({ id, projectId, name: `mo
 const enrichment = (id = 2, type = 'GROUP', projectId = 7) => ({ projectId, subjectType: type, subjectId: id, subjectKey: `key-${id}`,
   semanticDoc: { projectId, subjectType: type, subjectId: id, subjectKey: `key-${id}`, updatedAt: 'r1', contentMd: '分类原说明', status: 'generated' },
   semanticStale: false, groups: [], sourceObservations: [] })
+// AppDialog 挂到 body；测试里把 Element Plus 的 teleport 原地渲染，才能在组件内查找弹窗内容
+const inlineTeleport = defineComponent({ props: { to: null, disabled: Boolean }, setup: (_props, { slots }) => () => slots.default?.() })
 const mounted: ReturnType<typeof mount>[] = []
 afterEach(() => { mounted.splice(0).forEach(wrapper => wrapper.unmount()); vi.clearAllMocks() })
 beforeEach(() => { api.session.value = 'a'; api.user.value = { userId: 1, permissionGrants: [{ permissionCode: 'platform:write', scopeType: 'PROJECT', scopeValue: 'orders' }] }
@@ -31,7 +33,7 @@ async function render(mode: ClassificationEditorProps['mode'] = 'description', e
     ...(closeAutoFocus ? { onCloseAutoFocus: closeAutoFocus } : {}) }) })
   const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: Host }, { path: '/other', component: { template: '<p>其他页面</p>' } }] })
   await router.push('/')
-  const wrapper = mount(defineComponent({ setup: () => () => h(RouterView) }), { global: { plugins: [router, ElementPlus] } })
+  const wrapper = mount(defineComponent({ setup: () => () => h(RouterView) }), { global: { plugins: [router, ElementPlus], stubs: { teleport: inlineTeleport } } })
   mounted.push(wrapper); await flushPromises()
   const editor = wrapper.findComponent(CatalogClassificationEditor)
   const button = (label: string) => editor.findAll('button').find(item => item.text() === label)!
@@ -56,7 +58,7 @@ describe('catalog classification editing', () => {
       expect(leave.props('modelValue')).toBe(true)
       leave.vm.$emit('close-auto-focus'); await flushPromises()
       expect(closeAutoFocus).toHaveBeenCalledOnce()
-      expect(warn.mock.calls.map(args => args.join(' ')).join('\n'))
+      expect(warn.mock.calls.map(args => args.map(arg => typeof arg === 'string' ? arg : '').join(' ')).join('\n'))
         .not.toMatch(/Extraneous non-emits event listeners|could not be automatically inherited|closeAutoFocus/)
     } finally { warn.mockRestore() }
   })

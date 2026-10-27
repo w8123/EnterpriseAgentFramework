@@ -2,11 +2,11 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowLeft, DocumentCopy, Plus, Refresh } from '@element-plus/icons-vue'
+import { ArrowDown, ArrowLeft, CircleCheck, DocumentCopy, FolderOpened, MoreFilled, Plus, Promotion, Refresh, VideoPause, View } from '@element-plus/icons-vue'
 import AppDialog from '@/components/common/AppDialog.vue'
 import CodeSnippetBlock from '@/components/common/CodeSnippetBlock.vue'
 import McpEmployeeAccessPanel from './McpEmployeeAccessPanel.vue'
-import { LiquidGlassButton, LiquidGlassCard, LiquidGlassNotice, LiquidGlassTabs } from '@/components/common/liquid-glass'
+import { LiquidGlassButton, LiquidGlassCard, LiquidGlassDropdown, LiquidGlassEmptyState, LiquidGlassNotice, LiquidGlassTable, LiquidGlassTabs } from '@/components/common/liquid-glass'
 import {
   addMcpPublicationItem,
   archiveMcpPublication,
@@ -50,8 +50,26 @@ const router = useRouter()
 const publicationId = computed(() => Number(route.params.id))
 
 const loading = ref(false)
+const loadError = ref('')
+const publishing = ref(false)
 const detail = ref<McpPublicationDetail | null>(null)
 const activeTab = ref('items')
+const connectionMode = ref('employees')
+
+watch(() => route.query.tab, (tab) => {
+  if (tab === 'connect' || tab === 'employees') {
+    activeTab.value = 'connect'
+    connectionMode.value = 'employees'
+  } else if (tab === 'clients' || tab === 'onboarding') {
+    activeTab.value = 'connect'
+    connectionMode.value = 'clients'
+  } else {
+    activeTab.value = tab === 'revisions' ? 'revisions' : 'items'
+  }
+}, { immediate: true })
+const currentRevision = computed(() => detail.value?.revisions.find(
+  (revision) => revision.id === detail.value?.publication.currentRevisionId,
+))
 
 const stateLabels: Record<string, string> = {
   DRAFT: '草稿',
@@ -151,9 +169,12 @@ function extractErrorMessage(error: unknown): string {
 
 async function reload() {
   loading.value = true
+  loadError.value = ''
   try {
     const { data } = await getMcpPublication(publicationId.value)
     detail.value = data
+  } catch (error) {
+    loadError.value = extractErrorMessage(error)
   } finally {
     loading.value = false
   }
@@ -189,27 +210,44 @@ async function submitEdit() {
 async function publishFlow() {
   const publication = detail.value?.publication
   if (!publication) return
-  await ElMessageBox.confirm(
-    `确认发布「${publication.name}」？条目解析结果将冻结为不可变修订，外部客户端立即按新修订调用。`,
-    '发布确认',
-    { type: 'warning', confirmButtonText: '确认发布' },
-  )
+  try {
+    await ElMessageBox.confirm(
+      `确认发布「${publication.name}」？发布内容保存为新版本，后续调用立即使用该版本。`,
+      '发布确认',
+      { type: 'warning', confirmButtonText: '确认发布' },
+    )
+  } catch {
+    return
+  }
+  publishing.value = true
   try {
     detail.value = (await publishMcpPublication(publicationId.value)).data
-    ElMessage.success('发布成功')
+    ElMessage.success('发布成功，请配置接入方式')
+    activeTab.value = 'connect'
   } catch (error) {
     const message = extractErrorMessage(error)
     if (/irreversible|不可逆/i.test(message)) {
-      await ElMessageBox.confirm(
-        `该发布包含不可逆（IRREVERSIBLE）工具，默认拒绝发布：${message}。必须显式确认放行后才能继续。`,
-        '不可逆工具二次确认',
-        { type: 'error', confirmButtonText: '确认放行并发布' },
-      )
-      detail.value = (await publishMcpPublication(publicationId.value, { irreversibleAcknowledged: true })).data
-      ElMessage.success('发布成功')
+      try {
+        await ElMessageBox.confirm(
+          `包含不可逆操作：${message}。确认后才会放行并发布。`,
+          '不可逆操作确认',
+          { type: 'error', confirmButtonText: '确认放行并发布' },
+        )
+      } catch {
+        return
+      }
+      try {
+        detail.value = (await publishMcpPublication(publicationId.value, { irreversibleAcknowledged: true })).data
+        ElMessage.success('发布成功，请配置接入方式')
+        activeTab.value = 'connect'
+      } catch (retryError) {
+        ElMessage.error(`发布失败：${extractErrorMessage(retryError)}`)
+      }
     } else {
       ElMessage.error(`发布失败：${message}`)
     }
+  } finally {
+    publishing.value = false
   }
 }
 
@@ -221,7 +259,12 @@ async function runStateAction(kind: 'suspend' | 'resume' | 'archive') {
     resume: { title: '恢复发布', message: `确认恢复「${publication.name}」？恢复后按当前修订继续对外服务。` },
     archive: { title: '归档发布', message: `确认归档「${publication.name}」？归档后外部客户端无法再调用该发布。` },
   } as const
-  await ElMessageBox.confirm(prompts[kind].message, prompts[kind].title, { type: 'warning' })
+  try {
+    await ElMessageBox.confirm(prompts[kind].message, prompts[kind].title, { type: 'warning' })
+  } catch (error) {
+    if (error === 'cancel' || error === 'close') return
+    throw error
+  }
   const response = kind === 'suspend'
     ? await suspendMcpPublication(publicationId.value)
     : kind === 'resume'
@@ -250,7 +293,7 @@ async function loadAssets() {
   assetsLoading.value = true
   try {
     const [toolResult, workflowResult] = await Promise.all([listAllTools(), listWorkflows()])
-    tools.value = toolResult
+    tools.value = toolResult.filter(tool => tool.assetType === 'BUSINESS_METHOD' && tool.enabled)
     workflows.value = workflowResult.data ?? []
   } finally {
     assetsLoading.value = false
@@ -570,307 +613,372 @@ onMounted(reload)
       <el-skeleton animated :rows="6" />
     </LiquidGlassCard>
 
-    <div v-if="detail" class="detail-header">
-      <LiquidGlassButton source="wallpaper" circle :icon="ArrowLeft" aria-label="返回发布列表" @click="router.push('/mcp-hub/publications')" />
-      <div class="detail-title">
-        <h2>{{ detail.publication.name }}</h2>
-        <div class="detail-meta">
-          <el-tag :type="stateTone(detail.publication.state)">{{ stateLabel(detail.publication.state) }}</el-tag>
-          <span>当前修订：{{ detail.publication.currentRevisionId ? `#${detail.publication.currentRevisionId}` : '未发布' }}</span>
-          <span>条目 {{ detail.items.length }} 个 · 凭证 {{ detail.clients.length }} 个</span>
-          <span>更新于 {{ formatDateTime(detail.publication.updatedAt) }}</span>
-        </div>
-      </div>
-      <div class="detail-actions">
-        <LiquidGlassButton source="wallpaper" :icon="Refresh" :loading="loading" @click="reload">刷新</LiquidGlassButton>
-        <LiquidGlassButton v-if="canManage" source="wallpaper" @click="openEdit">编辑信息</LiquidGlassButton>
-        <LiquidGlassButton source="wallpaper"
-          v-if="canManage && (detail.publication.state === 'DRAFT' || detail.publication.state === 'PUBLISHED')"
-          type="primary"
-          @click="publishFlow"
-        >
-          {{ detail.publication.state === 'PUBLISHED' ? '发布新修订' : '发布' }}
-        </LiquidGlassButton>
-        <LiquidGlassButton source="wallpaper" v-if="canManage && detail.publication.state === 'PUBLISHED'" type="warning" @click="runStateAction('suspend')">暂停</LiquidGlassButton>
-        <LiquidGlassButton source="wallpaper" v-if="canManage && detail.publication.state === 'SUSPENDED'" type="success" @click="runStateAction('resume')">恢复</LiquidGlassButton>
-        <LiquidGlassButton source="wallpaper" v-if="canManage && detail.publication.state !== 'ARCHIVED'" type="danger" @click="runStateAction('archive')">归档</LiquidGlassButton>
-      </div>
-    </div>
+    <LiquidGlassButton source="wallpaper" link :icon="ArrowLeft" class="detail-back" @click="router.push('/mcp-hub/publications')">
+      返回 MCP 服务
+    </LiquidGlassButton>
 
-    <LiquidGlassTabs v-if="detail" v-model="activeTab" source="wallpaper" class="detail-tabs">
-      <!-- Tab 1 条目 -->
-      <el-tab-pane label="条目" name="items">
-        <LiquidGlassCard v-if="detail" source="wallpaper" class="tab-body">
-          <div class="tab-toolbar">
-            <p class="tab-hint">从能力目录与已发布 Workflow 中挑选条目；发布前先做解析预览与预检，不可逆工具需显式放行。</p>
-            <div class="tab-actions">
-              <LiquidGlassButton v-if="canManage" :icon="Plus" type="primary" @click="openItemDialog">添加条目</LiquidGlassButton>
-              <LiquidGlassButton :loading="previewLoading" @click="runResolvePreview">解析预览</LiquidGlassButton>
-              <LiquidGlassButton :loading="precheckLoading" @click="runPrecheck">预检</LiquidGlassButton>
-            </div>
+    <LiquidGlassNotice v-if="loadError" type="error" source="wallpaper" :title="`服务加载失败：${loadError}`">
+      <template #actions><LiquidGlassButton @click="reload">重试</LiquidGlassButton></template>
+    </LiquidGlassNotice>
+
+    <LiquidGlassCard v-if="detail" source="wallpaper" class="publication-workspace">
+      <header class="detail-header">
+        <div class="detail-title">
+          <p class="detail-eyebrow">MCP 服务</p>
+          <div class="detail-title-row">
+            <h2>{{ detail.publication.name }}</h2>
+            <el-tag :type="stateTone(detail.publication.state)" size="small" effect="light">{{ stateLabel(detail.publication.state) }}</el-tag>
           </div>
+          <p v-if="detail.publication.description" class="detail-description">{{ detail.publication.description }}</p>
+          <p class="detail-updated">更新于 {{ formatDateTime(detail.publication.updatedAt) }}</p>
+        </div>
+        <div class="detail-actions">
+          <LiquidGlassButton link :icon="Refresh" :loading="loading" aria-label="刷新发布详情" title="刷新" @click="reload" />
+          <LiquidGlassButton v-if="canManage" link @click="openEdit">编辑信息</LiquidGlassButton>
+          <LiquidGlassDropdown v-if="canManage && detail.publication.state !== 'ARCHIVED'" trigger="click" title="发布管理">
+            <LiquidGlassButton link :icon="MoreFilled" aria-label="更多发布操作">
+              更多 <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+            </LiquidGlassButton>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item v-if="detail.publication.state === 'PUBLISHED'" :icon="VideoPause" @click="runStateAction('suspend')">暂停发布</el-dropdown-item>
+                <el-dropdown-item :icon="FolderOpened" @click="runStateAction('archive')"><span class="archive-action">归档发布</span></el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </LiquidGlassDropdown>
+          <LiquidGlassButton
+            v-if="canManage && (detail.publication.state === 'DRAFT' || detail.publication.state === 'PUBLISHED')"
+            type="primary"
+            :icon="Promotion"
+            :loading="publishing"
+            :disabled="!detail.items.some(item => item.enabled)"
+            @click="publishFlow"
+          >
+            {{ detail.publication.state === 'PUBLISHED' ? '发布新版本' : '发布' }}
+          </LiquidGlassButton>
+          <LiquidGlassButton v-if="canManage && detail.publication.state === 'SUSPENDED'" type="success" @click="runStateAction('resume')">恢复发布</LiquidGlassButton>
+        </div>
+      </header>
 
-          <el-table :data="detail.items" size="small" stripe>
-            <el-table-column label="来源" width="110">
-              <template #default="{ row }">
-                <el-tag :type="row.sourceKind === 'CAPABILITY' ? 'primary' : 'success'" size="small">
-                  {{ row.sourceKind === 'CAPABILITY' ? '能力' : 'Workflow' }}
-                </el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column prop="sourceRef" label="sourceRef" min-width="180" show-overflow-tooltip />
-            <el-table-column prop="alias" label="对外别名" min-width="140">
-              <template #default="{ row }">{{ row.alias || '-' }}</template>
-            </el-table-column>
-            <el-table-column prop="descriptionOverride" label="说明覆盖" min-width="200" show-overflow-tooltip>
-              <template #default="{ row }">{{ row.descriptionOverride || '-' }}</template>
-            </el-table-column>
-            <el-table-column label="风险覆盖" width="110">
-              <template #default="{ row }">
-                <el-tag v-if="row.riskLevelOverride" :type="riskTone(row.riskLevelOverride)" size="small">
-                  {{ riskLabel(row.riskLevelOverride) }}
-                </el-tag>
-                <span v-else>继承资产</span>
-              </template>
-            </el-table-column>
-            <el-table-column label="启用" width="80">
-              <template #default="{ row }">
-                <el-tag :type="row.enabled ? 'success' : 'info'" size="small">{{ row.enabled ? '启用' : '停用' }}</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column label="操作" width="90" fixed="right">
-              <template #default="{ row }">
-                <el-button v-if="canManage" link type="danger" size="small" @click="removeItem(row)">移除</el-button>
-              </template>
-            </el-table-column>
-          </el-table>
+      <div class="detail-overview">
+        <dl class="detail-facts">
+          <div>
+            <dt>当前版本</dt>
+            <dd>{{ currentRevision ? `r${currentRevision.revisionNo}` : detail.publication.currentRevisionId ? `#${detail.publication.currentRevisionId}` : '未发布' }}</dd>
+          </div>
+          <div>
+            <dt>配置工具</dt>
+            <dd>{{ detail.items.length }}<span>个</span></dd>
+          </div>
+        </dl>
+        <LiquidGlassButton v-if="detail.publication.state === 'PUBLISHED' && activeTab !== 'connect'" type="primary" @click="activeTab = 'connect'">配置接入</LiquidGlassButton>
+      </div>
 
-          <div v-if="previewRows" class="preview-block">
-            <h3>解析预览（tools/list 投影）</h3>
-            <el-table :data="previewRows" size="small" stripe>
-              <el-table-column label="解析" width="90">
-                <template #default="{ row }">
-                  <el-tag :type="row.resolvable ? 'success' : 'danger'" size="small">
-                    {{ row.resolvable ? '成功' : '失败' }}
-                  </el-tag>
+      <LiquidGlassTabs v-model="activeTab" source="backdrop" presentation="underline" class="detail-tabs">
+        <!-- Tab 1 条目 -->
+        <el-tab-pane label="开放工具" name="items">
+          <div class="tab-body">
+            <div class="tab-toolbar">
+              <div class="tab-heading">
+                <h3>配置工具 <span>{{ detail.items.length }}</span></h3>
+                <p v-if="detail.items.length" class="tab-hint">选择要开放的业务方法或已发布 Workflow。</p>
+              </div>
+              <div v-if="detail.items.length" class="tab-actions">
+                <LiquidGlassButton link :icon="View" :loading="previewLoading" @click="runResolvePreview">解析预览</LiquidGlassButton>
+                <LiquidGlassButton link :icon="CircleCheck" :loading="precheckLoading" @click="runPrecheck">预检</LiquidGlassButton>
+                <LiquidGlassButton v-if="canManage" :icon="Plus" @click="openItemDialog">添加工具</LiquidGlassButton>
+              </div>
+            </div>
+
+            <LiquidGlassTable source="backdrop" presentation="collection" :show-pagination="false" class="items-table">
+              <el-table :data="detail.items">
+                <template #empty>
+                  <LiquidGlassEmptyState compact title="选择要开放的工具" description="从业务方法或已发布 Workflow 中选择。">
+                    <LiquidGlassButton v-if="canManage" type="primary" :icon="Plus" @click="openItemDialog">添加工具</LiquidGlassButton>
+                  </LiquidGlassEmptyState>
                 </template>
-              </el-table-column>
-              <el-table-column label="工具 / 问题" min-width="180">
-                <template #default="{ row }">
-                  <template v-if="row.resolvable && row.tool">
-                    <div class="cell-stack">
-                      <strong>{{ row.tool.name }}</strong>
-                      <small>{{ row.tool.description || '暂无描述' }}</small>
+                <el-table-column label="对外工具 / 说明" min-width="280">
+                  <template #default="{ row }">
+                    <div class="item-identity">
+                      <code v-if="row.alias">{{ row.alias }}</code>
+                      <strong v-else>沿用来源工具名</strong>
+                      <span v-if="row.descriptionOverride">{{ row.descriptionOverride }}</span>
                     </div>
                   </template>
-                  <span v-else class="problem-text">{{ row.problem || '解析失败' }}</span>
-                </template>
-              </el-table-column>
-              <el-table-column label="风险级" width="100">
-                <template #default="{ row }">
-                  <el-tag v-if="row.resolvable && row.tool" :type="riskTone(row.tool.riskLevel)" size="small">
-                    {{ riskLabel(row.tool.riskLevel) }}
-                  </el-tag>
-                  <span v-else>-</span>
-                </template>
-              </el-table-column>
-              <el-table-column label="inputSchema" min-width="280">
-                <template #default="{ row }">
-                  <el-collapse v-if="row.resolvable && row.tool">
-                    <el-collapse-item :title="`查看 ${row.tool.name} 的 inputSchema`">
-                      <pre class="schema-json">{{ formatJson(row.tool.inputSchema) }}</pre>
+                </el-table-column>
+                <el-table-column label="来源资产" min-width="240">
+                  <template #default="{ row }">
+                    <div class="item-source">
+                      <el-tag :type="row.sourceKind === 'CAPABILITY' ? 'primary' : 'success'" size="small" effect="plain">
+                        {{ row.sourceKind === 'CAPABILITY' ? '业务能力' : 'Workflow' }}
+                      </el-tag>
+                      <code>{{ row.sourceRef }}</code>
+                    </div>
+                  </template>
+                </el-table-column>
+                <el-table-column label="风险等级" width="120">
+                  <template #default="{ row }">
+                    <el-tag v-if="row.riskLevelOverride" :type="riskTone(row.riskLevelOverride)" size="small">
+                      {{ riskLabel(row.riskLevelOverride) }}
+                    </el-tag>
+                    <span v-else class="inherited-risk">继承资产</span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="状态" width="90">
+                  <template #default="{ row }">
+                    <span class="item-status" :class="{ 'is-enabled': row.enabled }"><i aria-hidden="true" />{{ row.enabled ? '已启用' : '已停用' }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column v-if="canManage" label="操作" width="80" fixed="right" align="right">
+                  <template #default="{ row }">
+                    <LiquidGlassButton link type="danger" size="small" @click="removeItem(row)">移除</LiquidGlassButton>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </LiquidGlassTable>
+
+            <p v-if="detail.items.length" class="publication-note"><el-icon aria-hidden="true"><CircleCheck /></el-icon>检查通过后发布；不可逆操作需要单独确认。</p>
+
+            <div v-if="previewRows" class="preview-block">
+              <h3>解析预览（tools/list 投影）</h3>
+              <LiquidGlassTable source="backdrop" presentation="collection" :show-pagination="false" class="detail-table">
+                <el-table :data="previewRows" size="small" stripe>
+                  <el-table-column label="解析" width="90">
+                    <template #default="{ row }">
+                      <el-tag :type="row.resolvable ? 'success' : 'danger'" size="small">
+                        {{ row.resolvable ? '成功' : '失败' }}
+                      </el-tag>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="工具 / 问题" min-width="180">
+                    <template #default="{ row }">
+                      <template v-if="row.resolvable && row.tool">
+                        <div class="cell-stack">
+                          <strong>{{ row.tool.name }}</strong>
+                          <small>{{ row.tool.description || '暂无描述' }}</small>
+                        </div>
+                      </template>
+                      <span v-else class="problem-text">{{ row.problem || '解析失败' }}</span>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="风险级" width="100">
+                    <template #default="{ row }">
+                      <el-tag v-if="row.resolvable && row.tool" :type="riskTone(row.tool.riskLevel)" size="small">
+                        {{ riskLabel(row.tool.riskLevel) }}
+                      </el-tag>
+                      <span v-else>-</span>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="inputSchema" min-width="280">
+                    <template #default="{ row }">
+                      <el-collapse v-if="row.resolvable && row.tool">
+                        <el-collapse-item :title="`查看 ${row.tool.name} 的 inputSchema`">
+                          <pre class="schema-json">{{ formatJson(row.tool.inputSchema) }}</pre>
+                        </el-collapse-item>
+                      </el-collapse>
+                      <span v-else>-</span>
+                    </template>
+                  </el-table-column>
+                </el-table>
+              </LiquidGlassTable>
+            </div>
+
+            <div v-if="precheckReport" class="preview-block">
+              <h3>预检报告</h3>
+              <LiquidGlassNotice
+                :type="precheckReport.ok ? 'success' : 'error'"
+                :title="precheckReport.ok ? '预检通过，可以发布' : '预检未通过，请先修正条目'"
+                :description="`工具 ${precheckReport.toolCount} 个 · 不可逆 ${precheckReport.irreversibleToolCount} 个 · 风险摘要：只读 ${precheckReport.riskSummary.read} / 写入 ${precheckReport.riskSummary.write} / 页面操作 ${precheckReport.riskSummary.page_action} / 不可逆 ${precheckReport.riskSummary.irreversible} / 未知 ${precheckReport.riskSummary.unknown}`"
+              />
+            </div>
+          </div>
+        </el-tab-pane>
+
+        <el-tab-pane label="接入与使用" name="connect">
+          <div class="tab-body connection-workspace">
+            <LiquidGlassTabs v-model="connectionMode" source="backdrop" presentation="underline" class="connection-tabs">
+              <!-- 员工使用：员工在自己的 AI 工具里以本人身份调用 -->
+              <el-tab-pane label="员工使用" name="employees" lazy>
+                <div class="tab-body">
+                  <McpEmployeeAccessPanel
+                    :publication-id="publicationId"
+                    :published="detail.publication.state === 'PUBLISHED' && Boolean(detail.publication.currentRevisionId)"
+                  />
+                </div>
+              </el-tab-pane>
+
+              <!-- Tab 3 凭证 -->
+              <el-tab-pane label="客户端接入" name="clients">
+                <div class="tab-body">
+                  <div class="tab-toolbar">
+                    <p class="tab-hint">为应用或共享客户端创建独立凭证，按授权范围调用。</p>
+                    <div class="tab-actions">
+                      <LiquidGlassButton
+                        v-if="canManageClients"
+                        type="primary"
+                        :icon="Plus"
+                        :disabled="detail.publication.state !== 'PUBLISHED'"
+                        @click="openClientCreate"
+                      >
+                        创建凭证
+                      </LiquidGlassButton>
+                    </div>
+                  </div>
+                  <LiquidGlassTable source="backdrop" presentation="collection" :show-pagination="false" class="detail-table">
+                    <el-table :data="detail.clients" size="small" stripe>
+                      <el-table-column prop="name" label="名称" min-width="140" />
+                      <el-table-column label="项目 / 环境 / 租户" min-width="210" show-overflow-tooltip>
+                        <template #default="{ row }">{{ row.projectCode }} / {{ row.environment }} / {{ row.tenantId }}</template>
+                      </el-table-column>
+                      <el-table-column label="API Key" width="130">
+                        <template #default="{ row }"><code>{{ row.apiKeyPrefix }}…</code></template>
+                      </el-table-column>
+                      <el-table-column label="状态" width="90">
+                        <template #default="{ row }">
+                          <el-tag
+                            :type="row.state === 'ACTIVE' ? 'success' : row.state === 'EXPIRED' ? 'warning' : 'info'"
+                            size="small"
+                          >
+                            {{ clientStateLabels[row.state] ?? row.state }}
+                          </el-tag>
+                        </template>
+                      </el-table-column>
+                      <el-table-column label="启用" width="70">
+                        <template #default="{ row }">{{ row.enabled ? '是' : '否' }}</template>
+                      </el-table-column>
+                      <el-table-column label="角色" min-width="150" show-overflow-tooltip>
+                        <template #default="{ row }">{{ row.roles.length ? row.roles.join(', ') : '-' }}</template>
+                      </el-table-column>
+                      <el-table-column label="工具范围" min-width="150" show-overflow-tooltip>
+                        <template #default="{ row }">{{ row.toolScope.length ? row.toolScope.join(', ') : '整包' }}</template>
+                      </el-table-column>
+                      <el-table-column prop="expiresAt" label="过期时间" width="170">
+                        <template #default="{ row }">{{ formatDateTime(row.expiresAt) }}</template>
+                      </el-table-column>
+                      <el-table-column prop="lastUsedAt" label="最近调用" width="170">
+                        <template #default="{ row }">{{ formatDateTime(row.lastUsedAt) }}</template>
+                      </el-table-column>
+                      <el-table-column v-if="canManageClients" label="操作" width="150" fixed="right">
+                        <template #default="{ row }">
+                          <el-button :disabled="row.state !== 'ACTIVE'" link type="primary" size="small" @click="openClientEdit(row)">编辑</el-button>
+                          <el-button :disabled="row.state !== 'ACTIVE'" link type="warning" size="small" @click="rotateClient(row)">轮换</el-button>
+                          <el-button :disabled="row.state !== 'ACTIVE'" link type="danger" size="small" @click="revokeClient(row)">吊销</el-button>
+                        </template>
+                      </el-table-column>
+                    </el-table>
+                  </LiquidGlassTable>
+                  <el-collapse class="client-configuration">
+                    <el-collapse-item title="接入配置与示例" name="configuration">
+
+                      <LiquidGlassNotice title="将示例中的 <API_KEY> 替换为刚创建的客户端凭证。员工连接请使用「员工使用」入口。" />
+                      <dl class="endpoint-list">
+                        <div>
+                          <dt>MCP 端点</dt>
+                          <dd>
+                            <code class="inline-code">{{ jsonrpcEndpoint }}</code>
+                            <el-button link size="small" :icon="DocumentCopy" @click="copyText(jsonrpcEndpoint)">复制</el-button>
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>Manifest</dt>
+                          <dd>
+                            <code class="inline-code">{{ manifestEndpoint }}</code>
+                            <el-button link size="small" :icon="DocumentCopy" @click="copyText(manifestEndpoint)">复制</el-button>
+                          </dd>
+                        </div>
+                        <div><dt>协议</dt><dd>MCP（JSON-RPC 2.0 over HTTP）</dd></div>
+                        <div><dt>鉴权</dt><dd><code class="inline-code">Authorization: Bearer &lt;API_KEY&gt;</code></dd></div>
+                      </dl>
+
+                      <el-collapse class="onboarding-collapse">
+                        <el-collapse-item title="Cursor 接入（~/.cursor/mcp.json）" name="cursor">
+                          <CodeSnippetBlock title="~/.cursor/mcp.json" :code="cursorSnippet" @copy="copyText" />
+                        </el-collapse-item>
+                        <el-collapse-item title="Claude 接入（claude mcp add / Desktop 配置）" name="claude">
+                          <CodeSnippetBlock title="claude mcp add" :code="claudeCliSnippet" @copy="copyText" />
+                          <LiquidGlassNotice
+                            class="snippet-alert"
+                            type="warning"
+                            title="Claude Desktop 目前仅支持 stdio MCP，可用 mcp-proxy 把 HTTP 端点桥接为 stdio。"
+                            source="backdrop"
+                          />
+                          <CodeSnippetBlock title="claude_desktop_config.json" :code="claudeDesktopSnippet" @copy="copyText" />
+                        </el-collapse-item>
+                        <el-collapse-item title="curl 自检（modern discover / tools 与 legacy initialize）" name="curl">
+                          <CodeSnippetBlock title="curl" :code="curlSnippet" @copy="copyText" />
+                        </el-collapse-item>
+                      </el-collapse>
                     </el-collapse-item>
                   </el-collapse>
-                  <span v-else>-</span>
-                </template>
-              </el-table-column>
-            </el-table>
+                </div>
+              </el-tab-pane>
+
+            </LiquidGlassTabs>
           </div>
+        </el-tab-pane>
 
-          <div v-if="precheckReport" class="preview-block">
-            <h3>预检报告</h3>
-            <LiquidGlassNotice
-              :type="precheckReport.ok ? 'success' : 'error'"
-              :title="precheckReport.ok ? '预检通过，可以发布' : '预检未通过，请先修正条目'"
-              :description="`工具 ${precheckReport.toolCount} 个 · 不可逆 ${precheckReport.irreversibleToolCount} 个 · 风险摘要：只读 ${precheckReport.riskSummary.read} / 写入 ${precheckReport.riskSummary.write} / 页面操作 ${precheckReport.riskSummary.page_action} / 不可逆 ${precheckReport.riskSummary.irreversible} / 未知 ${precheckReport.riskSummary.unknown}`"
-            />
+        <!-- Tab 2 修订 -->
+        <el-tab-pane label="版本" name="revisions">
+          <div class="tab-body">
+            <p class="tab-hint">每次发布保存一个版本。回滚后，新调用使用选定版本。</p>
+            <LiquidGlassTable source="backdrop" presentation="collection" :show-pagination="false" class="detail-table">
+              <el-table :data="detail.revisions" size="small" stripe :row-class-name="revisionRowClass">
+                <el-table-column label="版本" width="100">
+                  <template #default="{ row }">
+                    <span class="revision-no">r{{ row.revisionNo }}</span>
+                    <el-tag v-if="row.id === detail.publication.currentRevisionId" type="success" size="small" class="current-tag">当前</el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="toolCount" label="工具数" width="90" />
+                <el-table-column label="风险摘要" min-width="260">
+                  <template #default="{ row }">
+                    <span class="risk-summary">
+                      只读 {{ parseRiskSummary(row.riskSummaryJson).read }}
+                      · 写入 {{ parseRiskSummary(row.riskSummaryJson).write }}
+                      · 页面操作 {{ parseRiskSummary(row.riskSummaryJson).page_action }}
+                      · 不可逆 {{ parseRiskSummary(row.riskSummaryJson).irreversible }}
+                      · 未知 {{ parseRiskSummary(row.riskSummaryJson).unknown }}
+                    </span>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="publishedAt" label="发布时间" width="170">
+                  <template #default="{ row }">{{ formatDateTime(row.publishedAt) }}</template>
+                </el-table-column>
+                <el-table-column label="操作" width="100" fixed="right">
+                  <template #default="{ row }">
+                    <el-button
+                      v-if="canManage && row.id !== detail.publication.currentRevisionId
+                        && (detail.publication.state === 'PUBLISHED' || detail.publication.state === 'SUSPENDED')"
+                      link
+                      type="warning"
+                      size="small"
+                      @click="rollbackRevision(row)"
+                    >
+                      回滚到此
+                    </el-button>
+                    <span v-else-if="row.id === detail.publication.currentRevisionId" class="current-text">生效中</span>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </LiquidGlassTable>
           </div>
-        </LiquidGlassCard>
-      </el-tab-pane>
+        </el-tab-pane>
 
-      <!-- Tab 2 修订 -->
-      <el-tab-pane label="修订" name="revisions">
-        <LiquidGlassCard v-if="detail" source="wallpaper" class="tab-body">
-          <p class="tab-hint">修订是发布内容的不可变快照；tools/list 与 tools/call 始终按当前生效修订执行，回滚即切换当前修订指针。</p>
-          <el-table :data="detail.revisions" size="small" stripe :row-class-name="revisionRowClass">
-            <el-table-column label="修订" width="100">
-              <template #default="{ row }">
-                <span class="revision-no">r{{ row.revisionNo }}</span>
-                <el-tag v-if="row.id === detail.publication.currentRevisionId" type="success" size="small" class="current-tag">当前</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column prop="toolCount" label="工具数" width="90" />
-            <el-table-column label="风险摘要" min-width="260">
-              <template #default="{ row }">
-                <span class="risk-summary">
-                  只读 {{ parseRiskSummary(row.riskSummaryJson).read }}
-                  · 写入 {{ parseRiskSummary(row.riskSummaryJson).write }}
-                  · 页面操作 {{ parseRiskSummary(row.riskSummaryJson).page_action }}
-                  · 不可逆 {{ parseRiskSummary(row.riskSummaryJson).irreversible }}
-                  · 未知 {{ parseRiskSummary(row.riskSummaryJson).unknown }}
-                </span>
-              </template>
-            </el-table-column>
-            <el-table-column prop="publishedAt" label="发布时间" width="170">
-              <template #default="{ row }">{{ formatDateTime(row.publishedAt) }}</template>
-            </el-table-column>
-            <el-table-column label="操作" width="100" fixed="right">
-              <template #default="{ row }">
-                <el-button
-                  v-if="canManage && row.id !== detail.publication.currentRevisionId
-                    && (detail.publication.state === 'PUBLISHED' || detail.publication.state === 'SUSPENDED')"
-                  link
-                  type="warning"
-                  size="small"
-                  @click="rollbackRevision(row)"
-                >
-                  回滚到此
-                </el-button>
-                <span v-else class="current-text">生效中</span>
-              </template>
-            </el-table-column>
-          </el-table>
-        </LiquidGlassCard>
-      </el-tab-pane>
-
-      <!-- Tab 3 凭证 -->
-      <el-tab-pane label="凭证" name="clients">
-        <LiquidGlassCard v-if="detail" source="wallpaper" class="tab-body">
-          <div class="tab-toolbar">
-            <p class="tab-hint">凭证归属本发布；API Key 仅创建/轮换时明文显示一次。工具范围只能引用本发布内的工具名，留空表示整包。</p>
-            <div class="tab-actions">
-              <LiquidGlassButton
-                v-if="canManageClients"
-                type="primary"
-                :icon="Plus"
-                :disabled="detail.publication.state !== 'PUBLISHED'"
-                @click="openClientCreate"
-              >
-                创建凭证
-              </LiquidGlassButton>
-            </div>
-          </div>
-          <el-table :data="detail.clients" size="small" stripe>
-            <el-table-column prop="name" label="名称" min-width="140" />
-            <el-table-column label="项目 / 环境 / 租户" min-width="210" show-overflow-tooltip>
-              <template #default="{ row }">{{ row.projectCode }} / {{ row.environment }} / {{ row.tenantId }}</template>
-            </el-table-column>
-            <el-table-column label="API Key" width="130">
-              <template #default="{ row }"><code>{{ row.apiKeyPrefix }}…</code></template>
-            </el-table-column>
-            <el-table-column label="状态" width="90">
-              <template #default="{ row }">
-                <el-tag
-                  :type="row.state === 'ACTIVE' ? 'success' : row.state === 'EXPIRED' ? 'warning' : 'info'"
-                  size="small"
-                >
-                  {{ clientStateLabels[row.state] ?? row.state }}
-                </el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column label="启用" width="70">
-              <template #default="{ row }">{{ row.enabled ? '是' : '否' }}</template>
-            </el-table-column>
-            <el-table-column label="角色" min-width="150" show-overflow-tooltip>
-              <template #default="{ row }">{{ row.roles.length ? row.roles.join(', ') : '-' }}</template>
-            </el-table-column>
-            <el-table-column label="工具范围" min-width="150" show-overflow-tooltip>
-              <template #default="{ row }">{{ row.toolScope.length ? row.toolScope.join(', ') : '整包' }}</template>
-            </el-table-column>
-            <el-table-column prop="expiresAt" label="过期时间" width="170">
-              <template #default="{ row }">{{ formatDateTime(row.expiresAt) }}</template>
-            </el-table-column>
-            <el-table-column prop="lastUsedAt" label="最近调用" width="170">
-              <template #default="{ row }">{{ formatDateTime(row.lastUsedAt) }}</template>
-            </el-table-column>
-            <el-table-column v-if="canManageClients" label="操作" width="150" fixed="right">
-              <template #default="{ row }">
-                <el-button :disabled="row.state !== 'ACTIVE'" link type="primary" size="small" @click="openClientEdit(row)">编辑</el-button>
-                <el-button :disabled="row.state !== 'ACTIVE'" link type="warning" size="small" @click="rotateClient(row)">轮换</el-button>
-                <el-button :disabled="row.state !== 'ACTIVE'" link type="danger" size="small" @click="revokeClient(row)">吊销</el-button>
-              </template>
-            </el-table-column>
-          </el-table>
-        </LiquidGlassCard>
-      </el-tab-pane>
-
-      <!-- 员工使用：员工在自己的 AI 工具里以本人身份调用 -->
-      <el-tab-pane label="员工使用" name="employees" lazy>
-        <LiquidGlassCard source="wallpaper" class="tab-body">
-          <McpEmployeeAccessPanel
-            :publication-id="publicationId"
-            :published="detail.publication.state === 'PUBLISHED' && Boolean(detail.publication.currentRevisionId)"
-          />
-        </LiquidGlassCard>
-      </el-tab-pane>
-
-      <!-- Tab 4 接入指引 -->
-      <el-tab-pane label="接入指引" name="onboarding">
-        <LiquidGlassCard source="wallpaper" class="tab-body">
-          <LiquidGlassNotice title="API Key 在「凭证」页签创建或轮换后一次性显示，请立即保存；下方示例中的 <API_KEY> 替换为该 Key。" />
-          <dl class="endpoint-list">
-            <div>
-              <dt>MCP 端点</dt>
-              <dd>
-                <code class="inline-code">{{ jsonrpcEndpoint }}</code>
-                <el-button link size="small" :icon="DocumentCopy" @click="copyText(jsonrpcEndpoint)">复制</el-button>
-              </dd>
-            </div>
-            <div>
-              <dt>Manifest</dt>
-              <dd>
-                <code class="inline-code">{{ manifestEndpoint }}</code>
-                <el-button link size="small" :icon="DocumentCopy" @click="copyText(manifestEndpoint)">复制</el-button>
-              </dd>
-            </div>
-            <div><dt>协议</dt><dd>MCP（JSON-RPC 2.0 over HTTP）</dd></div>
-            <div><dt>鉴权</dt><dd><code class="inline-code">Authorization: Bearer &lt;API_KEY&gt;</code></dd></div>
-          </dl>
-
-          <el-collapse class="onboarding-collapse">
-            <el-collapse-item title="Cursor 接入（~/.cursor/mcp.json）" name="cursor">
-              <CodeSnippetBlock title="~/.cursor/mcp.json" :code="cursorSnippet" @copy="copyText" />
-            </el-collapse-item>
-            <el-collapse-item title="Claude 接入（claude mcp add / Desktop 配置）" name="claude">
-              <CodeSnippetBlock title="claude mcp add" :code="claudeCliSnippet" @copy="copyText" />
-              <LiquidGlassNotice
-                class="snippet-alert"
-                type="warning"
-                title="Claude Desktop 目前仅支持 stdio MCP，可用 mcp-proxy 把 HTTP 端点桥接为 stdio。"
-                source="backdrop"
-              />
-              <CodeSnippetBlock title="claude_desktop_config.json" :code="claudeDesktopSnippet" @copy="copyText" />
-            </el-collapse-item>
-            <el-collapse-item title="curl 自检（modern discover / tools 与 legacy initialize）" name="curl">
-              <CodeSnippetBlock title="curl" :code="curlSnippet" @copy="copyText" />
-            </el-collapse-item>
-          </el-collapse>
-        </LiquidGlassCard>
-      </el-tab-pane>
-    </LiquidGlassTabs>
+      </LiquidGlassTabs>
+    </LiquidGlassCard>
 
     <!-- 添加条目对话框 -->
     <AppDialog
       v-model="itemDialogOpen"
-      title="添加发布条目"
-      description="条目引用能力目录条目或已发布 Workflow；发布时解析冻结为不可变修订。"
+      title="添加工具"
+      description="选择来源，配置开放给 AI 工具的名称与说明。"
       width="min(600px, 94vw)"
       :close-on-click-modal="false"
     >
       <el-form label-position="top" v-loading="assetsLoading">
         <el-form-item label="来源类型">
           <el-radio-group v-model="itemForm.sourceKind" @change="itemForm.sourceRef = ''">
-            <el-radio-button value="CAPABILITY">能力（Capability Tool）</el-radio-button>
+            <el-radio-button value="CAPABILITY">业务方法</el-radio-button>
             <el-radio-button value="WORKFLOW">Workflow</el-radio-button>
           </el-radio-group>
         </el-form-item>
@@ -879,7 +987,7 @@ onMounted(reload)
             v-if="itemForm.sourceKind === 'CAPABILITY'"
             v-model="itemForm.sourceRef"
             filterable
-            placeholder="搜索并选择能力 Tool（sourceRef 为 Tool name）"
+            placeholder="搜索并选择业务方法"
           >
             <el-option
               v-for="tool in tools"
@@ -892,7 +1000,7 @@ onMounted(reload)
             v-else
             v-model="itemForm.sourceRef"
             filterable
-            placeholder="搜索并选择 Workflow（sourceRef 为 Workflow id）"
+            placeholder="搜索并选择已发布 Workflow"
           >
             <el-option
               v-for="workflow in workflows"
@@ -909,7 +1017,7 @@ onMounted(reload)
           <el-input v-model="itemForm.descriptionOverride" type="textarea" :rows="2" placeholder="留空使用资产自身描述" />
         </el-form-item>
         <el-form-item :required="itemForm.sourceKind === 'WORKFLOW'" label="风险等级">
-          <el-select v-model="itemForm.riskLevelOverride" clearable placeholder="Capability 可继承；Workflow 必须明确选择">
+          <el-select v-model="itemForm.riskLevelOverride" clearable placeholder="业务方法可继承；Workflow 需选择">
             <el-option label="只读（READ）" value="READ" />
             <el-option label="写入（WRITE）" value="WRITE" />
             <el-option label="页面操作（PAGE_ACTION）" value="PAGE_ACTION" />
@@ -1035,14 +1143,28 @@ onMounted(reload)
 <style scoped lang="scss">
 .publication-detail {
   display: flex;
+  min-width: 0;
   flex-direction: column;
-  gap: var(--layout-page-gap);
+  gap: 14px;
+}
+
+.detail-back {
+  align-self: flex-start;
+  min-height: 28px;
+  margin-left: 2px;
+  font-size: 12px;
+}
+
+.publication-workspace {
+  padding: 0;
 }
 
 .detail-header {
   display: flex;
   align-items: flex-start;
-  gap: var(--section-gap);
+  justify-content: space-between;
+  gap: 24px;
+  padding: 26px 28px 22px;
 }
 
 .detail-title {
@@ -1056,57 +1178,257 @@ onMounted(reload)
 
 .detail-title h2 {
   margin: 0;
-  color: var(--text-on-wallpaper);
-  font-size: 18px;
+  color: var(--text-primary);
+  font-size: 23px;
+  font-weight: 650;
+  letter-spacing: -0.035em;
+  line-height: 1.4;
   overflow-wrap: anywhere;
-  text-shadow: var(--text-on-wallpaper-shadow);
 }
 
-.detail-meta {
+.detail-eyebrow {
+  margin: 0 0 8px;
+  color: var(--brand-on-surface);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+}
+
+.detail-title-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 10px;
-  margin-top: 6px;
-  color: var(--text-on-wallpaper-secondary);
+}
+
+.detail-description {
+  margin: 10px 0 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.detail-updated {
+  margin: 10px 0 0;
+  color: var(--text-muted);
   font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 
 .detail-actions {
   display: flex;
   flex: 0 0 auto;
   flex-wrap: wrap;
+  align-items: center;
   justify-content: flex-end;
-  gap: 6px;
+  gap: 20px;
+  padding-top: 20px;
+}
+
+.archive-action {
+  color: var(--status-danger);
+}
+
+.detail-overview {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px 28px;
+  padding: 16px 28px;
+  border-block: 1px solid var(--border-divider);
+}
+
+.detail-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px 28px;
+  margin: 0;
+
+  > div {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+
+  dt {
+    color: var(--text-muted);
+    font-size: 12px;
+  }
+
+  dd {
+    margin: 0;
+    color: var(--text-primary);
+    font-size: 14px;
+    font-weight: 650;
+    font-variant-numeric: tabular-nums;
+  }
+
+  dd span {
+    margin-left: 4px;
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 400;
+  }
+}
+
+.detail-endpoint {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  color: var(--text-muted);
+  font-size: 11px;
+
+  code {
+    color: var(--text-secondary);
+    font-family: var(--font-family-mono);
+    font-size: 11px;
+    overflow-wrap: anywhere;
+  }
+
+  .liquid-glass-button {
+    margin: 0;
+    font-size: 12px;
+  }
 }
 
 .detail-tabs {
   min-width: 0;
+  margin-inline: 28px;
 }
 
 .tab-body {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  min-width: 0;
+  gap: 18px;
+  padding-block: 24px;
 }
+
+.connection-workspace { padding-block: 12px 0; }
+.connection-workspace .tab-body { padding-block: 16px 24px; }
 
 .tab-toolbar {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 18px;
+}
+
+.tab-heading h3 {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 6px;
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 650;
+
+  span {
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 500;
+  }
 }
 
 .tab-hint {
   margin: 0;
   color: var(--text-secondary);
   font-size: 12px;
+  line-height: 1.65;
 }
 
 .tab-actions {
   display: flex;
   flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 20px;
+}
+
+.items-table {
+  --row-height: 84px;
+}
+
+.items-table,
+.detail-table {
+  flex: none;
+}
+
+.item-identity,
+.item-source {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 7px;
+  padding-block: 8px;
+
+  code {
+    font-family: var(--font-family-mono);
+    font-size: 12px;
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+  }
+}
+
+.item-identity {
+  code,
+  strong {
+    color: var(--text-primary);
+    font-weight: 600;
+  }
+
+  span {
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.6;
+  }
+}
+
+.item-source code,
+.inherited-risk {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.item-status {
+  display: inline-flex;
+  align-items: center;
   gap: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+
+  i {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+
+  &.is-enabled {
+    color: var(--status-success);
+  }
+}
+
+.publication-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.7;
+
+  .el-icon {
+    flex-shrink: 0;
+    margin-top: 3px;
+    font-size: 13px;
+  }
 }
 
 .cell-stack strong,
@@ -1148,7 +1470,7 @@ onMounted(reload)
   border-radius: var(--radius-md);
   background: var(--code-surface);
   color: var(--code-text);
-  font-family: Consolas, 'JetBrains Mono', monospace;
+  font-family: var(--font-family-mono);
   font-size: 12px;
 }
 
@@ -1261,6 +1583,38 @@ onMounted(reload)
   .detail-actions,
   .tab-actions {
     justify-content: flex-start;
+  }
+
+  .detail-actions {
+    padding-top: 0;
+  }
+}
+
+@media (max-width: 600px) {
+  .detail-header {
+    gap: 18px;
+    padding: 20px 18px;
+  }
+
+  .detail-title h2 {
+    font-size: 20px;
+  }
+
+  .detail-overview {
+    padding: 14px 18px;
+  }
+
+  .detail-facts {
+    gap: 12px 18px;
+  }
+
+  .detail-tabs {
+    margin-inline: 18px;
+  }
+
+  .detail-actions,
+  .tab-actions {
+    gap: 16px;
   }
 }
 </style>

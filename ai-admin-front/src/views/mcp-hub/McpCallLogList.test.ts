@@ -45,6 +45,7 @@ function mountCallLogs() {
         ElCard: {
           template: '<section class="el-card"><slot /></section>',
         },
+        ElEmpty: true,
         ElInput: {
           props: ['modelValue', 'placeholder'],
           template: '<input :value="modelValue" :placeholder="placeholder" />',
@@ -111,7 +112,7 @@ describe('MCP 调用流水', () => {
     wrappers.splice(0).forEach((wrapper) => wrapper.unmount())
   })
 
-  it('空数据时展示项目管理式指标、单行筛选和引导空状态', async () => {
+  it('空数据时不展示零值指标，保留筛选和简洁空状态', async () => {
     mocks.listMcpCallLogs.mockResolvedValue({
       data: { items: [], total: 0, limit: 50, offset: 0 },
     })
@@ -119,12 +120,8 @@ describe('MCP 调用流水', () => {
     const wrapper = mountCallLogs()
     await flushPromises()
 
-    expect(wrapper.findAll('.metric-strip-stub article')).toHaveLength(4)
-    expect(wrapper.text()).toContain('匹配流水')
-    expect(wrapper.text()).toContain('当前页成功')
-    expect(wrapper.text()).toContain('当前页失败')
-    expect(wrapper.text()).toContain('当前页 P95')
-    expect(wrapper.get('.call-log-empty').text()).toContain('还没有调用流水')
+    expect(wrapper.find('.metric-strip-stub').exists()).toBe(false)
+    expect(wrapper.get('.call-log-empty').text()).toContain('近 7 天暂无调用记录')
     expect(wrapper.find('.table-footer').exists()).toBe(false)
     expect(wrapper.find('.advanced-filters').exists()).toBe(false)
 
@@ -149,7 +146,7 @@ describe('MCP 调用流水', () => {
     await flushPromises()
 
     const metrics = wrapper.get('.metric-strip-stub').text()
-    expect(metrics).toContain('匹配流水12')
+    expect(metrics).toContain('匹配记录12')
     expect(metrics).toContain('当前页成功150%')
     expect(metrics).toContain('当前页失败1建议排查')
     expect(metrics).toContain('当前页 P95120 ms')

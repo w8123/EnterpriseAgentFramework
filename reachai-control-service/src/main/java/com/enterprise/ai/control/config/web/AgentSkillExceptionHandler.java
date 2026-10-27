@@ -12,6 +12,7 @@ import java.time.Instant;
 
 @RestControllerAdvice(assignableTypes = {
         AgentSkillController.class,
+        com.enterprise.ai.control.agentskill.AgentSkillRunCaptureController.class,
         com.enterprise.ai.control.skillmarket.SkillMarketController.class,
         com.enterprise.ai.control.aiassist.ControlAiAssistSkillController.class,
         com.enterprise.ai.control.runtime.ControlRuntimePublicController.class,

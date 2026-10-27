@@ -78,29 +78,6 @@ export interface EmbedChatEventView {
   createdAt?: string
 }
 
-export interface EmbedRendererView {
-  id: number
-  appId: string
-  rendererKey: string
-  name: string
-  version: string
-  inputSchemaJson?: string
-  allowedAgentIdsJson?: string
-  status: string
-  createdAt?: string
-  updatedAt?: string
-}
-
-export interface EmbedRendererPayload {
-  appId: string
-  rendererKey: string
-  name?: string
-  version: string
-  inputSchema?: Record<string, unknown>
-  allowedAgentIds?: string[]
-  status?: string
-}
-
 export interface EmbedCredentialPolicyView {
   id: number
   projectId?: number
@@ -229,28 +206,12 @@ export function listEmbedChatEvents(sessionId: string, limit = 200) {
   return controlRequest.get<EmbedChatEventView[]>('/api/platform/embed/chat-events', { params: { sessionId, limit } })
 }
 
-export function listEmbedRenderers(params: Record<string, unknown> = {}) {
-  return controlRequest.get<EmbedRendererView[]>('/api/platform/embed/renderers', { params })
-}
-
 export function listEmbedCredentialPolicies(params: Record<string, unknown> = {}) {
   return controlRequest.get<EmbedCredentialPolicyView[]>('/api/platform/embed/credentials', { params })
 }
 
 export function updateEmbedCredentialPolicy(id: number, payload: EmbedCredentialPolicyPayload) {
   return controlRequest.put<EmbedCredentialPolicyView>(`/api/platform/embed/credentials/${id}/policy`, payload)
-}
-
-export function createEmbedRenderer(payload: EmbedRendererPayload) {
-  return controlRequest.post<EmbedRendererView>('/api/platform/embed/renderers', payload)
-}
-
-export function updateEmbedRenderer(id: number, payload: EmbedRendererPayload) {
-  return controlRequest.put<EmbedRendererView>(`/api/platform/embed/renderers/${id}`, payload)
-}
-
-export function disableEmbedRenderer(id: number) {
-  return controlRequest.post<void>(`/api/platform/embed/renderers/${id}/disable`)
 }
 
 export interface EmbedReadinessCheck {

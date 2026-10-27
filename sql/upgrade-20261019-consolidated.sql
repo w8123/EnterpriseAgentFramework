@@ -548,7 +548,7 @@ DROP TABLE IF EXISTS `control_context_namespace`;
 -- Source SHA-256 (UTF-8 LF): 40380932f6e077f31ff3b4c6f8b99412437f893a12fd851daaf9a2eb2f69dd15
 -- Begin source 08
 -- 2026-10-17 人员角色与权限重设计 R1
--- 设计见 docs/plans/人员角色与权限重设计方案.md。只改 Control 自有的平台角色/权限种子与角色绑定，不改表结构。
+-- 当前身份与权限规则见 docs/security.md。只改 Control 自有的平台角色/权限种子与角色绑定，不改表结构。
 --
 -- 影响：
 -- 1. 内置角色收口为 PLATFORM_ADMIN（平台管理员）、DEVELOPER（开发人员）、OPERATOR（运营人员）、AUDITOR（审计员）。
@@ -842,7 +842,7 @@ DEALLOCATE PREPARE reachai_run_center_statement;
 -- Consolidated from: sql/upgrade-20261018-knowledge-cleanup.sql
 -- Source SHA-256 (UTF-8 LF): 8a817877694bd9706c2d97d3bc36912210fc9c7972fbf66470ddb9c868db33b8
 -- Begin source 10
--- 知识模块整理（MySQL 5.7 / 8，可重复执行）。方案：docs/plans/知识模块整理方案.md
+-- 知识模块整理（MySQL 5.7 / 8，可重复执行）。当前契约见 docs/data.md。
 -- 影响：
 --   1. knowledge_base 增加 access_mode（谁能检索）：ALL_CALLERS 所有调用方 / FILE_GRANTS 仅逐文件授权用户。
 --      已有知识库全部设为 ALL_CALLERS：原来只有导入人能在对话中查到，执行后调用该 Agent 的所有用户都能查到。

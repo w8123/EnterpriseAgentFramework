@@ -9,7 +9,7 @@ const breadcrumbSource = readFileSync(resolve(__dirname, '../../components/commo
 
 describe('AgentEdit user-facing copy', () => {
   it('uses task-oriented names for the primary configuration areas', () => {
-    expect(template).toContain('eyebrow="Agent 配置"')
+    expect(template).toContain(":title=\"isNew ? '新建 Agent' : (form.name || agentId || 'Agent 配置')\"")
     expect(template).toContain('title="对话与决策"')
     expect(template).toContain('title="可调用 Workflow"')
     expect(template).toContain('title="Agent 协作"')
@@ -18,7 +18,7 @@ describe('AgentEdit user-facing copy', () => {
   })
 
   it('keeps the new Agent header readable without claiming a persisted status', () => {
-    expect(template).toContain('height-preset="emphasis"')
+    expect(template).toContain(":variant=\"isNew ? 'standard' : 'entity'\"")
     expect(template).not.toContain(':compact="isNew"')
     expect(template).toContain('<template v-if="!isNew" #tags>')
   })

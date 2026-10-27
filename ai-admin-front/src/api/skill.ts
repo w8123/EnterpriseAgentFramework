@@ -2,6 +2,8 @@ import { controlRequest } from './request'
 import type {
   AgentSkillAccessCapabilities,
   AgentSkillBundleDiscovery,
+  AgentSkillCaptureDraft,
+  AgentSkillCaptureSource,
   AgentSkillDetail,
   AgentSkillFilePreview,
   AgentSkillImportResult,
@@ -112,4 +114,24 @@ export function downloadAgentSkillPackage(skillId: number, versionId: number) {
   return controlRequest.get<Blob>(`/api/skills/${skillId}/versions/${versionId}/package`, {
     responseType: 'blob',
   })
+}
+
+export function previewAgentSkillCapture(body: {
+  source: AgentSkillCaptureSource
+  callLogIds?: number[]
+  traceId?: string
+  goal?: string
+}) {
+  return controlRequest.post<AgentSkillCaptureDraft>('/api/skills/captures/preview', body, { timeout: 60000 })
+}
+
+export function createAgentSkillCapture(body: {
+  projectCode: string
+  displayName?: string
+  skillMd: string
+  visibility?: string
+  version?: string
+  sourceRef?: string
+}) {
+  return controlRequest.post<AgentSkillImportResult>('/api/skills/captures', body, { timeout: 60000 })
 }

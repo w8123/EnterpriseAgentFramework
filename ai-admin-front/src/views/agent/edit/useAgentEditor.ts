@@ -704,7 +704,7 @@ export function useAgentEditor() {
     workflowTools.value = next.map((tool, priority) => ({ ...tool, priority }))
   }
 
-  // 已保存的协作 Agent 只存任务 ID，按远程 Agent 详情补上任务名称。
+  // 已保存的协作 Agent 只存任务 ID，按外部 Agent 详情补上任务名称。
   const a2aSkillNames = ref<Record<string, string>>({})
   const requestedA2aRemoteAgents = new Set<number>()
   watch(remoteAgentBindings, (bindings) => {
@@ -771,7 +771,7 @@ export function useAgentEditor() {
       })
       a2aBindingDialogVisible.value = true
     } catch {
-      ElMessage.error('加载可协作的远程 Agent 失败')
+      ElMessage.error('加载可协作的外部 Agent 失败')
     } finally {
       a2aBindingLoading.value = false
     }
@@ -789,13 +789,13 @@ export function useAgentEditor() {
       selectedRemoteAgentDetail.value = data
       const revision = data.revisions.find((item) => item.id === remote.currentRevisionId
         && item.reviewStatus === 'APPROVED')
-      if (!revision) throw new Error('该远程 Agent 当前没有已审核可用的版本')
+      if (!revision) throw new Error('该外部 Agent 当前没有已审核可用的版本')
       a2aBindingForm.remoteAgentRevisionId = revision.id
       a2aBindingForm.allowedSkillIds = revision.protocolSkills.map((skill) => skill.id)
       a2aBindingForm.toolName = safeA2aToolName(remote.remoteAgentKey)
       a2aBindingForm.permissionKey = `a2a:remote-agent:${remote.remoteAgentKey}:invoke`
     } catch {
-      ElMessage.error('加载远程 Agent 可用版本失败')
+      ElMessage.error('加载外部 Agent 可用版本失败')
     } finally {
       a2aBindingLoading.value = false
     }
@@ -804,7 +804,7 @@ export function useAgentEditor() {
   function addA2aBinding() {
     if (!a2aBindingForm.principalId || !a2aBindingForm.remoteAgentId
       || !a2aBindingForm.remoteAgentRevisionId || !a2aBindingForm.allowedSkillIds.length) {
-      ElMessage.warning('请选择当前 Agent 的协作身份、远程 Agent，以及至少一项可委派任务')
+      ElMessage.warning('请选择当前 Agent 的协作身份、外部 Agent，以及至少一项可委派任务')
       return
     }
     if (!/^[A-Za-z][A-Za-z0-9_]{1,127}$/.test(a2aBindingForm.toolName || '')) {
@@ -813,7 +813,7 @@ export function useAgentEditor() {
     }
     if (remoteAgentBindings.value.some((item) => item.remoteAgentRevisionId
       === a2aBindingForm.remoteAgentRevisionId)) {
-      ElMessage.warning('这个远程 Agent 版本已添加')
+      ElMessage.warning('这个外部 Agent 版本已添加')
       return
     }
     remoteAgentBindings.value.push({
@@ -963,7 +963,7 @@ export function useAgentEditor() {
     }
     for (const binding of remoteAgentBindings.value) {
       if (!/^[A-Za-z][A-Za-z0-9_]{1,127}$/.test(binding.toolName || '')) {
-        throw new Error(`远程 Agent“${binding.remoteAgentKey || binding.remoteAgentId}”的调用标识格式不正确`)
+        throw new Error(`外部 Agent“${binding.remoteAgentKey || binding.remoteAgentId}”的调用标识格式不正确`)
       }
       if (toolNames.has(binding.toolName)) throw new Error(`调用标识重复：${binding.toolName}`)
       toolNames.add(binding.toolName)

@@ -17,6 +17,8 @@ const isolatedDialogAllowlist = new Map([
   ['src/sdk/EmbedMemoryPanel.vue', 'eaf-memory'],
   ['src/sdk/EmbedAiToolPanel.vue', 'eaf-aitool'],
   ['src/views/capability/components/BusinessMethodInvocationPanel.vue', 'invocation-confirmation'],
+  // 侧栏外观/个人设置弹层自带 glass-surface-overlay + backdrop-filter 磨砂配方，套用全局配方会改掉模糊半径
+  ['src/components/common/AppSidebar.vue', 'sidebar-footer-popover'],
 ])
 
 function normalizePath(file) {

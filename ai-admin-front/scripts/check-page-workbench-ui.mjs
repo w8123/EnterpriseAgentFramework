@@ -120,7 +120,7 @@ for (const forbidden of ['1/4', '2/4', '3/4', '4/4', 'completed', 'step-index'])
 }
 
 expectIncludes(wizard, 'title="页面接入中心"', 'PageAssistantWizard')
-expectIncludes(wizard, '无需理解任务类型', 'PageAssistantWizard')
+expectIncludes(wizard, '接入业务页面，配置页面动作并查看当前接入状态。', 'PageAssistantWizard')
 expectExcludes(wizard, ':analysis-count="findings.length"', 'PageAssistantWizard')
 expectExcludes(wizard, "activeTab === 'analysis'", 'PageAssistantWizard')
 expectExcludes(wizard, 'PageWorkbenchAnalysisPanel', 'PageAssistantWizard')

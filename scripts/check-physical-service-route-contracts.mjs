@@ -94,14 +94,7 @@ const backendLegacyProxyNarrativePatterns = [
 const mainlineDocRoots = [
   'README.md',
   'AGENTS.md',
-  'docs/README.md',
-  'docs/architecture/backend-boundaries-and-naming.md',
-  'docs/architecture/physical-services-and-startup.md',
-  'docs/architecture/legacy-retirement.md',
-  'docs/architecture',
-  'docs/ai-memory/PROJECT-MEMORY.md',
-  'docs/ai-memory/DECISIONS.md',
-  'docs/ai-memory/WORKING-RULES.md'
+  'docs'
 ]
 const mainlineDocLegacyDisabledPatterns = [
   {

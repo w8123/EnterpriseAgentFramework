@@ -1,4 +1,4 @@
-/** MCP 互联中心（MCP Hub）领域类型，与 Control 服务 /api/mcp 契约一一对应。 */
+/** MCP 开放领域类型，与 Control 服务 /api/mcp 契约一一对应。 */
 
 export type McpPublicationState = 'DRAFT' | 'VALIDATING' | 'READY' | 'PUBLISHED' | 'SUSPENDED' | 'ARCHIVED'
 export type McpItemKind = 'CAPABILITY' | 'WORKFLOW'
@@ -6,7 +6,7 @@ export type McpClientState = 'ACTIVE' | 'ROTATED' | 'REVOKED' | 'EXPIRED'
 export type McpCallDirection = 'OUTBOUND' | 'INBOUND'
 export type McpRiskLevel = 'READ' | 'WRITE' | 'PAGE_ACTION' | 'IRREVERSIBLE' | 'UNKNOWN'
 
-/** MCP Hub 总览指标。 */
+/** MCP 开放统计指标，由服务端聚合接口提供。 */
 export interface McpHubOverview {
   publications: number
   publishedPublications: number
@@ -214,6 +214,8 @@ export interface McpEmployeeAccessView {
   projectCode: string | null
   displayName: string | null
   enabled: boolean
+  /** 写操作（非只读能力）先审批，通过后才以员工身份执行。 */
+  writeApprovalRequired: boolean
 }
 
 export interface McpEmployeeConnectionSystem {
@@ -239,6 +241,48 @@ export interface McpEmployeeConnection {
 export interface McpEmployeeConnectionPage {
   items: McpEmployeeConnection[]
   total: number
+  limit: number
+  offset: number
+}
+
+export type McpWriteApprovalState = 'PENDING' | 'EXECUTING' | 'SUCCEEDED' | 'FAILED' | 'REJECTED' | 'EXPIRED'
+
+/** 员工 AI 工具发起的一次写操作，等待或已经过审批。 */
+export interface McpWriteApproval {
+  id: number
+  state: McpWriteApprovalState | string
+  tenantId: string
+  connectionId: number
+  userName: string | null
+  externalUserId: string
+  toolKind: string | null
+  projectCode: string
+  systemName: string | null
+  publicationId: number
+  revisionNo: number
+  toolName: string
+  toolDescription: string | null
+  sourceKind: string
+  sourceRef: string
+  riskLevel: string | null
+  /** 只有审批人或有载荷查看权限的人能看到。 */
+  arguments: unknown
+  decidedBy: string | null
+  decidedAt: string | null
+  decisionComment: string | null
+  executedAt: string | null
+  result: unknown
+  errorCode: string | null
+  runId: string | null
+  traceId: string | null
+  expiresAt: string | null
+  createdAt: string | null
+}
+
+export interface McpWriteApprovalPage {
+  items: McpWriteApproval[]
+  total: number
+  pendingCount: number
   limit: number
   offset: number
 }

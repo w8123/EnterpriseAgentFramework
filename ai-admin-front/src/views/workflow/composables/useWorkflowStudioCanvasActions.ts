@@ -461,13 +461,6 @@ export function useWorkflowStudioCanvasActions({
     markCanvasDirty()
   }
 
-  function applySelectedEdgeCondition(condition: string) {
-    if (studioReadOnly.value) return
-    if (!selectedEdge.value) return
-    selectedEdge.value.condition = condition
-    syncSelectedEdgeLabel()
-  }
-
   return {
     normalizeNodeClassNames,
     stripTransientNodeClasses,
@@ -486,6 +479,5 @@ export function useWorkflowStudioCanvasActions({
     deleteSelection,
     deleteSelectedNode,
     syncSelectedEdgeLabel,
-    applySelectedEdgeCondition,
   }
 }

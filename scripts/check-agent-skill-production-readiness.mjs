@@ -42,9 +42,8 @@ export const REQUIRED_AGENT_SKILL_PERMISSIONS = Object.freeze([
 ])
 
 const REQUIRED_REPOSITORY_FILES = Object.freeze([
-  'docs/architecture/agent-skill-center.md',
-  'docs/architecture/agent-skill-market.md',
-  'docs/architecture/service-table-ownership.md',
+  'docs/agent.md',
+  'docs/contracts/tables.md',
   'sql/initV2.sql',
   AGENT_SKILL_MIGRATION,
   AGENT_SKILL_MARKET_MIGRATION,
@@ -256,7 +255,7 @@ export async function inspectAgentSkillRepository(repoRoot = process.cwd()) {
   const baseline = files['sql/initV2.sql']
   const migration = files[AGENT_SKILL_MIGRATION]
   const marketMigration = files[AGENT_SKILL_MARKET_MIGRATION]
-  const ownership = files['docs/architecture/service-table-ownership.md']
+  const ownership = files['docs/contracts/tables.md']
   const controlConfig = await readRepositoryFile(
     repoRoot,
     'reachai-control-service/src/main/resources/application.yml',

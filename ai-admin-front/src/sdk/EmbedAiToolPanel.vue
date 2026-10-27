@@ -1,6 +1,6 @@
 <template>
-  <section class="eaf-aitool" role="dialog" :aria-label="t.title">
-    <header class="eaf-aitool__head">
+  <section class="eaf-aitool" :class="{ 'eaf-aitool--page': page }" :role="page ? 'region' : 'dialog'" :aria-label="t.title">
+    <header v-if="!page" class="eaf-aitool__head">
       <strong>{{ t.title }}</strong>
       <button type="button" class="eaf-aitool__close" :aria-label="t.close" @click="emit('close')">×</button>
     </header>
@@ -63,6 +63,48 @@
             >{{ t.disconnect }}</button>
           </article>
         </template>
+
+        <template v-if="!page">
+          <button
+            type="button"
+            class="eaf-aitool__link eaf-aitool__portal"
+            data-testid="open-portal"
+            :disabled="openingPortal"
+            @click="openPortal"
+          >{{ t.openPortal }}</button>
+          <p v-if="portalUrl" class="eaf-aitool__step">
+            {{ t.portalBlocked }}<a :href="portalUrl" target="_blank" rel="noopener">{{ t.openPortal }}</a>
+          </p>
+        </template>
+
+        <template v-if="approvals.length">
+          <h4 class="eaf-aitool__label">{{ t.approvals }}</h4>
+          <article v-for="item in approvals" :key="item.approvalId" class="eaf-aitool__item" data-testid="approval-item">
+            <div class="eaf-aitool__text">
+              <strong>#{{ item.approvalId }} {{ item.tool }}</strong>
+              <span>{{ item.businessSystem }} · {{ approvalStateLabel(item.approvalStatus) }}</span>
+              <small v-if="item.comment">{{ t.comment }}{{ item.comment }}</small>
+            </div>
+          </article>
+        </template>
+
+        <template v-if="skills.length">
+          <h4 class="eaf-aitool__label">{{ t.skills }}</h4>
+          <p class="eaf-aitool__step">{{ t.skillHint }}</p>
+          <article v-for="item in skills" :key="item.skillId" class="eaf-aitool__item" data-testid="skill-item">
+            <div class="eaf-aitool__text">
+              <strong>{{ item.displayName || item.name }}</strong>
+              <span>{{ item.description }}</span>
+              <small>{{ item.systemName || item.projectCode }} · v{{ item.version }}</small>
+            </div>
+            <button
+              type="button"
+              class="eaf-aitool__link"
+              :disabled="downloadingId === item.skillId"
+              @click="downloadSkill(item)"
+            >{{ downloadingId === item.skillId ? t.downloading : t.download }}</button>
+          </article>
+        </template>
       </template>
     </div>
   </section>
@@ -80,6 +122,22 @@ interface Connection {
   lastUsedAt?: string | null
   expiresAt?: string | null
 }
+interface Approval {
+  approvalId: number
+  approvalStatus: string
+  tool: string
+  businessSystem: string
+  comment?: string
+}
+interface EmployeeSkill {
+  skillId: number
+  name: string
+  displayName?: string | null
+  description?: string | null
+  projectCode: string
+  systemName?: string | null
+  version: string
+}
 interface Created {
   connection: Connection
   setup: { endpointUrl: string; kind: string; content: string; hint: string }
@@ -89,7 +147,9 @@ const props = withDefaults(defineProps<{
   apiBase: string
   getToken: () => Promise<string>
   locale?: string
-}>(), { locale: 'zh-CN' })
+  /** Shown as a section of the employee personal page instead of over the chat. */
+  page?: boolean
+}>(), { locale: 'zh-CN', page: false })
 
 const emit = defineEmits<{ (event: 'close'): void }>()
 
@@ -117,6 +177,18 @@ const zh = {
   lastUsed: '最近使用',
   neverUsed: '还未使用',
   failed: '操作失败，请稍后重试',
+  approvals: '我的审批',
+  comment: '审批备注：',
+  skills: '可用的做法（Skill）',
+  skillHint: '同事整理好的办事做法。下载后解压，把文件夹放进 ~/.claude/skills/（Claude Code）或 ~/.codex/skills/（Codex），重启 AI 工具后直接说要办的事即可。',
+  download: '下载',
+  downloading: '下载中…',
+  openPortal: '在浏览器里管理',
+  portalBlocked: '浏览器拦截了新窗口，请点这里打开：',
+  approvalStates: {
+    PENDING: '等待审批', EXECUTING: '已通过，执行中', SUCCEEDED: '已通过并执行', FAILED: '已通过但执行失败',
+    REJECTED: '已驳回', EXPIRED: '已过期',
+  } as Record<string, string>,
   tools: { CLAUDE_CODE: 'Claude Code', CODEX: 'Codex', OTHER: '其他 AI 工具' } as Record<string, string>,
 }
 const en: typeof zh = {
@@ -143,6 +215,18 @@ const en: typeof zh = {
   lastUsed: 'Last used',
   neverUsed: 'Not used yet',
   failed: 'Something went wrong. Try again later.',
+  approvals: 'My approvals',
+  comment: 'Note: ',
+  skills: 'Ready-made skills',
+  skillHint: 'Ways of working your colleagues saved. Unzip the download into ~/.claude/skills/ (Claude Code) or ~/.codex/skills/ (Codex), restart the tool, then just ask for the task.',
+  download: 'Download',
+  downloading: 'Downloading…',
+  openPortal: 'Manage in browser',
+  portalBlocked: 'The new window was blocked. Open it here: ',
+  approvalStates: {
+    PENDING: 'Waiting for approval', EXECUTING: 'Approved, running', SUCCEEDED: 'Approved and done',
+    FAILED: 'Approved but failed', REJECTED: 'Rejected', EXPIRED: 'Expired',
+  },
   tools: { CLAUDE_CODE: 'Claude Code', CODEX: 'Codex', OTHER: 'Other AI tool' },
 }
 const t = computed(() => (props.locale === 'en-US' ? en : zh))
@@ -153,12 +237,17 @@ const loading = ref(false)
 const error = ref('')
 const systems = ref<SystemOption[]>([])
 const connections = ref<Connection[]>([])
+const approvals = ref<Approval[]>([])
+const skills = ref<EmployeeSkill[]>([])
+const downloadingId = ref<number | null>(null)
 const picked = ref<string[]>([])
 const toolKind = ref('CLAUDE_CODE')
 const creating = ref(false)
 const created = ref<Created | null>(null)
 const copied = ref(false)
 const busyId = ref<number | null>(null)
+const openingPortal = ref(false)
+const portalUrl = ref('')
 
 async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = await props.getToken()
@@ -188,12 +277,17 @@ async function guarded(action: () => Promise<void>) {
 async function reload() {
   loading.value = true
   await guarded(async () => {
-    const [options, mine] = await Promise.all([
+    const [options, mine, submitted, available] = await Promise.all([
       call<SystemOption[]>('/options'),
       call<Connection[]>(''),
+      // Optional: an older ReachAI without write approval or skills simply shows no list.
+      call<Approval[]>('/approvals').catch(() => [] as Approval[]),
+      call<EmployeeSkill[]>('/skills').catch(() => [] as EmployeeSkill[]),
     ])
     systems.value = options
     connections.value = mine
+    approvals.value = submitted ?? []
+    skills.value = available ?? []
     if (!picked.value.length) {
       picked.value = options.filter((system) => system.current).map((system) => system.projectCode)
     }
@@ -238,8 +332,53 @@ async function disconnect(id: number) {
   busyId.value = null
 }
 
+async function downloadSkill(item: EmployeeSkill) {
+  downloadingId.value = item.skillId
+  await guarded(async () => {
+    const token = await props.getToken()
+    const response = await fetch(`${props.apiBase}/ai-tool-connections/skills/${item.skillId}/package`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}))
+      throw new Error(payload.message || t.value.failed)
+    }
+    const url = URL.createObjectURL(await response.blob())
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `${item.name}-${item.version}.zip`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  })
+  downloadingId.value = null
+}
+
+async function openPortal() {
+  // Open the tab inside the click so pop-up blockers allow it, then point it at the one-time link.
+  const tab = window.open('', '_blank')
+  openingPortal.value = true
+  portalUrl.value = ''
+  await guarded(async () => {
+    const { url } = await call<{ url: string }>('/portal-ticket', { method: 'POST' })
+    if (tab) {
+      tab.opener = null
+      tab.location.href = url
+    } else {
+      portalUrl.value = url
+    }
+  })
+  if (error.value && tab) tab.close()
+  openingPortal.value = false
+}
+
 function toolLabel(kind: string) {
   return t.value.tools[kind] || kind
+}
+
+function approvalStateLabel(state: string) {
+  return t.value.approvalStates[state] || state
 }
 
 function stateLabel(item: Connection) {
@@ -464,6 +603,23 @@ defineExpose({ reload })
   color: var(--reachai-chat-text-muted, #52605f);
   font: inherit;
   cursor: pointer;
+}
+
+.eaf-aitool--page {
+  position: static;
+  inset: auto;
+  z-index: auto;
+  border-radius: 16px;
+}
+
+.eaf-aitool--page .eaf-aitool__hint {
+  margin-top: 14px;
+}
+
+.eaf-aitool__portal {
+  align-self: flex-start;
+  padding-left: 0;
+  color: var(--reachai-chat-primary, #6366f1);
 }
 
 .eaf-aitool__link.danger { color: var(--reachai-chat-danger, #b42318); }

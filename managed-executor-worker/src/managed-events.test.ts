@@ -84,7 +84,8 @@ test('hides absolute paths outside the workspace', () => {
         id: 'item-1',
         type: 'commandExecution',
         command: ['git', 'status'],
-        cwd: path.resolve('C:/other-tenant/repository'),
+        // 用当前盘符/根目录拼绝对路径，Windows 与 Linux 上都落在工作区之外
+        cwd: path.resolve(path.parse(process.cwd()).root, 'other-tenant', 'repository'),
       },
     },
   });

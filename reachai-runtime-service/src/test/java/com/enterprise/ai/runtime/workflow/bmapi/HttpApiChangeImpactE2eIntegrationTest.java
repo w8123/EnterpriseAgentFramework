@@ -28,8 +28,8 @@ class HttpApiChangeImpactE2eIntegrationTest {
             fixture.changeSources("display"); assertEquals(200, fixture.changeScan("openapi").statusCode());
             var display = fixture.multiSourceDetail(); assertEquals("ACCEPTED", display.summary().sourceStatus());
             assertEquals(oldHash, display.summary().candidateContractHash());
-            assertNotEquals(accepted.summary().sourceSetRevision(), display.summary().sourceSetRevision());
-            assertEquals("HTTP_API_PUBLISHED_PIN_STALE", fixture.changeRejectPublished());
+            // 来源修订按语义事实计算（2026-10-15 起）：只改标题、摘要等展示信息不改变来源修订，已发布固定引用继续有效
+            assertEquals(accepted.summary().sourceSetRevision(), display.summary().sourceSetRevision());
             fixture.changeAssertOriginalUntouched(true); evidence.put("displayOnly", fixture.changeEvidence());
 
             fixture.changeSources("required"); assertEquals(200, fixture.changeScan("openapi").statusCode());
@@ -90,8 +90,9 @@ class HttpApiChangeImpactE2eIntegrationTest {
         evidence.put("allRemoved", fixture.changeEvidence());
         fixture.changeSources("restore"); assertEquals(200, fixture.changeScan("controller").statusCode());
         assertEquals(200, fixture.changeScan("openapi").statusCode());
-        assertEquals("ACCEPTED", fixture.multiSourceDetail().summary().sourceStatus()); fixture.changeRejectPublished();
-        evidence.put("restoredOldPinStillRejected", fixture.changeEvidence());
+        // 原样恢复的来源与发布时语义事实一致，旧固定引用重新有效，这里不再断言旧 MCP 被拒
+        assertEquals("ACCEPTED", fixture.multiSourceDetail().summary().sourceStatus());
+        evidence.put("restoredSource", fixture.changeEvidence());
         fixture.changeSources("identity"); assertEquals(200, fixture.changeScan("openapi").statusCode());
         assertEquals(200, fixture.changeScan("controller").statusCode()); fixture.changeAssertIdentityNotMigrated();
         evidence.put("identityRejections", fixture.changeRejectConsoleAndDraft()); fixture.changeRejectPublished();

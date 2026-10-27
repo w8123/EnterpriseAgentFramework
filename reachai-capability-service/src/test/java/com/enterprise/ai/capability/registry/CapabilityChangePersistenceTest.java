@@ -570,10 +570,12 @@ class CapabilityChangePersistenceTest {
         jdbc.update("INSERT INTO capability_project_instance (project_id, project_code, instance_id, status, last_heartbeat_at) VALUES (?, ?, ?, ?, ?)",
                 project.getId(), "orders", "recent", "OFFLINE", java.time.LocalDateTime.now());
         jdbc.update("INSERT INTO capability_project_instance (project_id, project_code, instance_id, status, last_heartbeat_at) VALUES (?, ?, ?, ?, ?)",
+                project.getId(), "orders", "fresh-online", "ONLINE", java.time.LocalDateTime.now());
+        jdbc.update("INSERT INTO capability_project_instance (project_id, project_code, instance_id, status, last_heartbeat_at) VALUES (?, ?, ?, ?, ?)",
                 other.getId(), "other", "OFFLINE", "OFFLINE", old);
         Integer removed = tx.execute(status -> registry.purgeOfflineInstances("orders", 30));
-        assertEquals(2, removed);
-        assertEquals(java.util.Set.of("DISABLED", "ONLINE", "recent"), registry.listInstances("orders").stream()
+        assertEquals(3, removed);
+        assertEquals(java.util.Set.of("DISABLED", "fresh-online", "recent"), registry.listInstances("orders").stream()
                 .map(ProjectInstanceEntity::getInstanceId).collect(java.util.stream.Collectors.toSet()));
         assertEquals(1, registry.listInstances("other").size());
     }

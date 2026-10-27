@@ -19,7 +19,7 @@ const loading = ref(false)
 const saving = ref(false)
 const saved = ref(false)
 const projects = ref<Array<{ id: number; code: string; name: string }>>([])
-const form = reactive({ enabled: false, projectCode: '', displayName: '' })
+const form = reactive({ enabled: false, projectCode: '', displayName: '', writeApprovalRequired: true })
 
 function extractErrorMessage(error: unknown): string {
   const anyError = error as { response?: { data?: { message?: string; detail?: string } }; message?: string }
@@ -36,6 +36,7 @@ async function load() {
     form.enabled = Boolean(data?.enabled)
     form.projectCode = data?.projectCode ?? ''
     form.displayName = data?.displayName ?? ''
+    form.writeApprovalRequired = data?.writeApprovalRequired ?? true
     saved.value = Boolean(data?.projectCode)
   } catch (error) {
     ElMessage.error(`员工使用设置加载失败：${extractErrorMessage(error)}`)
@@ -76,10 +77,12 @@ async function save() {
       projectCode,
       displayName: form.displayName.trim() || undefined,
       enabled: form.enabled,
+      writeApprovalRequired: form.writeApprovalRequired,
     })
     form.enabled = data.enabled
     form.projectCode = data.projectCode ?? ''
     form.displayName = data.displayName ?? ''
+    form.writeApprovalRequired = data.writeApprovalRequired
     saved.value = true
     ElMessage.success(data.enabled ? '已开通，员工现在可以在对话面板里接入自己的 AI 工具' : '已保存，员工暂不可用')
   } catch (error) {
@@ -99,15 +102,14 @@ onMounted(() => {
 <template>
   <div class="employee-access" :aria-busy="loading">
     <p class="tab-hint">
-      开通后，这个业务系统的员工在 AI 对话面板里点「在我的 AI 工具中使用」，勾选系统、复制一行内容，就能在自己的 Claude Code、Codex 里以本人身份办业务。
-      员工能用哪些工具，仍由「调用权限」按业务系统角色控制；不可逆的工具不会开放给员工。
+      员工从业务系统的 AI 对话面板连接自己的 AI 工具，按本人业务角色使用；不可逆操作不向员工开放。
     </p>
 
     <LiquidGlassNotice
       v-if="!published"
       type="warning"
       source="backdrop"
-      title="本发布还没有发布修订，开通后员工也看不到它；先发布再开通。"
+      title="先发布服务，再开通员工使用。"
     />
 
     <el-form label-position="top" class="employee-access__form" :disabled="!canManage">
@@ -126,16 +128,21 @@ onMounted(() => {
         >
           <el-option v-for="project in projects" :key="project.code" :label="`${project.name}（${project.code}）`" :value="project.code" />
         </el-select>
-        <small class="field-hint">一个业务系统只能对应一个发布；员工的身份和角色来自这个系统。</small>
+        <small class="field-hint">每个业务系统可开通一个 MCP 服务，使用员工在该系统的身份。</small>
       </el-form-item>
       <el-form-item label="员工看到的名称">
         <el-input v-model="form.displayName" maxlength="64" placeholder="例如 芋道 ERP" />
+      </el-form-item>
+      <el-form-item label="写操作需要审批">
+        <el-switch v-model="form.writeApprovalRequired" active-text="需要审批" inactive-text="直接执行" />
+        <small class="field-hint">写操作先审批，通过后以员工身份执行一次。</small>
       </el-form-item>
     </el-form>
 
     <div class="employee-access__actions">
       <LiquidGlassButton v-if="canManage" type="primary" :loading="saving" @click="save">保存</LiquidGlassButton>
       <router-link v-if="saved" class="employee-access__link" to="/mcp-hub/employee-connections">查看员工连接</router-link>
+      <router-link v-if="saved && form.writeApprovalRequired" class="employee-access__link" to="/mcp-hub/write-approvals">写操作审批</router-link>
     </div>
   </div>
 </template>

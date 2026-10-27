@@ -103,11 +103,6 @@ function isKnownVariableReference(
 }
 
 export function useWorkflowStudioGraphAnalysis(deps: UseWorkflowStudioGraphAnalysisDeps) {
-  const canvasStats = computed(() => ({
-    nodes: deps.nodes.value.length,
-    edges: deps.edges.value.length,
-  }))
-
   const graphVariables = computed<WorkflowStudioGraphVariable[]>(() => {
     const vars: WorkflowStudioGraphVariable[] = []
     for (const name of declaredWorkflowInputNames(deps.workflowInputSchemaJson?.value)) {
@@ -382,7 +377,6 @@ export function useWorkflowStudioGraphAnalysis(deps: UseWorkflowStudioGraphAnaly
   }
 
   return {
-    canvasStats,
     graphVariables,
     graphLintItems,
     graphLintErrors,

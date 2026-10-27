@@ -27,21 +27,21 @@
 
     <div class="api-card__tags">
       <el-tag size="small" effect="plain">{{ formatApiMarketCategory(entry.categoryCode) }}</el-tag>
-      <el-tag v-for="tag in entry.tags.slice(0, 2)" :key="tag" size="small" effect="plain" type="info">
+      <el-tag v-for="tag in filteredTags" :key="tag" size="small" effect="plain" type="info">
         {{ tag }}
       </el-tag>
     </div>
 
     <dl class="api-card__facts">
-      <div>
+      <div class="api-card__fact">
         <dt><el-icon><Key /></el-icon>认证</dt>
         <dd>{{ formatApiMarketAuth(entry.authType) }}</dd>
       </div>
-      <div>
+      <div class="api-card__fact">
         <dt><el-icon><Money /></el-icon>费用</dt>
         <dd>{{ formatApiMarketPricing(entry.pricingType) }}</dd>
       </div>
-      <div>
+      <div class="api-card__fact">
         <dt><el-icon><DocumentChecked /></el-icon>契约</dt>
         <dd>{{ formatApiMarketSpec(entry.specStatus) }}</dd>
       </div>
@@ -53,8 +53,8 @@
         {{ entry.source?.name || '人工维护' }}
       </span>
       <div class="api-card__actions">
-        <LiquidGlassButton :icon="ArrowRight" @click.stop="emit('open', entry)">查看</LiquidGlassButton>
-        <LiquidGlassButton type="primary" @click.stop="emit('integrate', entry)">接入 API</LiquidGlassButton>
+        <LiquidGlassButton size="small" :icon="ArrowRight" @click.stop="emit('open', entry)">查看</LiquidGlassButton>
+        <LiquidGlassButton size="small" type="primary" @click.stop="emit('integrate', entry)">接入 API</LiquidGlassButton>
       </div>
     </footer>
   </LiquidGlassCard>
@@ -110,6 +110,13 @@ const categoryIcon = computed(() => (
 ))
 const categoryTone = computed(() => (props.entry.categoryCode || 'OTHER').toLowerCase())
 
+const filteredTags = computed(() => {
+  const categoryLabel = formatApiMarketCategory(props.entry.categoryCode)?.trim().toLowerCase()
+  return (props.entry.tags || [])
+    .filter(tag => tag && tag.trim().toLowerCase() !== categoryLabel)
+    .slice(0, 2)
+})
+
 const emit = defineEmits<{
   open: [entry: ApiMarketEntrySummary]
   integrate: [entry: ApiMarketEntrySummary]
@@ -122,10 +129,16 @@ const emit = defineEmits<{
   position: relative;
   display: flex;
   min-width: 0;
-  min-height: 270px;
   flex-direction: column;
-  gap: 14px;
+  gap: 10px;
+  padding: 14px 16px;
   overflow: hidden;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-glass-edge);
+  background: var(--surface-glass-frost);
+  box-shadow: var(--shadow-glass-frost);
+  -webkit-backdrop-filter: blur(var(--glass-blur-frost)) saturate(var(--glass-saturation));
+  backdrop-filter: blur(var(--glass-blur-frost)) saturate(var(--glass-saturation));
   cursor: pointer;
   transition:
     transform var(--motion-duration-fast) var(--motion-easing-standard),
@@ -135,13 +148,30 @@ const emit = defineEmits<{
   &::before {
     content: '';
     position: absolute;
+    top: -50px;
+    right: -30px;
+    width: 120px;
+    height: 120px;
+    border-radius: 999px;
+    background: radial-gradient(circle, rgb(var(--api-tone-rgb) / 0.12), transparent 70%);
+    pointer-events: none;
+  }
+
+  &::after {
+    content: '';
+    position: absolute;
     top: 0;
-    right: 18px;
-    left: 18px;
-    height: 2px;
-    border-radius: 0 0 999px 999px;
-    background: linear-gradient(90deg, rgb(var(--api-tone-rgb) / 0.9), rgb(var(--api-tone-rgb) / 0));
-    opacity: 0.6;
+    left: 12px;
+    right: 12px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.5), transparent);
+    pointer-events: none;
+  }
+
+  &:hover {
+    transform: translateY(-2px);
+    border-color: rgb(var(--brand-primary-rgb) / 0.4);
+    box-shadow: 0 8px 20px -6px color-mix(in srgb, var(--accent-color) 20%, transparent), var(--shadow-glass-frost);
   }
 }
 
@@ -165,21 +195,23 @@ const emit = defineEmits<{
 }
 
 .api-card__header {
-  gap: 12px;
+  gap: 10px;
+  align-items: flex-start;
 }
 
 .api-card__mark {
   display: grid;
-  width: 42px;
-  height: 42px;
-  flex: 0 0 42px;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
   place-items: center;
-  border: 1px solid rgb(var(--api-tone-rgb) / 0.18);
-  border-radius: 12px;
-  background: rgb(var(--api-tone-rgb) / 0.1);
+  border: 1px solid var(--border-glass-edge);
+  border-radius: 8px;
+  background: color-mix(in srgb, rgb(var(--api-tone-rgb)) 10%, var(--surface-glass-inset));
+  box-shadow: var(--glass-rim-double);
   color: rgb(var(--api-tone-rgb));
-  font-size: 19px;
-  font-weight: 800;
+  font-size: 16px;
+  font-weight: 700;
 }
 
 .api-card__identity {
@@ -187,22 +219,24 @@ const emit = defineEmits<{
   flex: 1;
 
   h3 {
-    margin: 3px 0 0;
+    margin: 1px 0 0;
     overflow: hidden;
     color: var(--text-primary);
-    font-size: 17px;
-    font-weight: 750;
-    letter-spacing: -0.015em;
+    font-size: 14px;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+    line-height: 1.35;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 }
 
 .api-card__provider {
-  gap: 5px;
+  gap: 4px;
   overflow: hidden;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 11px;
+  line-height: 1.2;
 
   span {
     overflow: hidden;
@@ -213,58 +247,72 @@ const emit = defineEmits<{
   .el-icon {
     flex: 0 0 auto;
     color: var(--status-success);
+    font-size: 12px;
   }
 }
 
 .api-card__summary {
   display: -webkit-box;
-  min-height: 44px;
+  min-height: 36px;
   margin: 0;
   overflow: hidden;
   color: var(--text-secondary);
-  font-size: 13px;
-  line-height: 1.58;
+  font-size: 12px;
+  line-height: 1.55;
+  letter-spacing: 0.01em;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
 
 .api-card__tags {
   display: flex;
-  min-height: 24px;
+  min-height: 18px;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 5px;
 
   :deep(.el-tag) {
+    height: 18px;
+    padding: 0 6px;
     border-radius: 999px;
-    background: var(--surface-solid-control);
-    font-size: 10px;
+    border: 1px solid var(--border-glass-edge);
+    background: var(--surface-glass-subtle);
+    color: var(--text-secondary);
+    font-size: 10.5px;
+    line-height: 16px;
   }
 }
 
 .api-card__facts {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
+  gap: 0;
   margin: 0;
-  padding: 0;
+  padding: 4px 6px;
+  border: 1px solid var(--border-glass-edge);
+  border-radius: var(--radius-sm);
+  background: var(--surface-glass-inset);
 
-  div {
+  .api-card__fact {
     display: flex;
     min-width: 0;
     flex-direction: column;
-    gap: 3px;
-    padding: 9px 8px;
-    border: 1px solid var(--border-divider);
-    border-radius: 9px;
-    background: color-mix(in srgb, var(--surface-solid-control) 84%, transparent);
+    gap: 2px;
+    padding: 2px 6px;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+
+    &:not(:first-child) {
+      border-left: 1px solid var(--border-subtle);
+    }
   }
 
   dt {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 3px;
     color: var(--text-muted);
-    font-size: 9px;
+    font-size: 10px;
 
     .el-icon {
       font-size: 10px;
@@ -276,7 +324,7 @@ const emit = defineEmits<{
     overflow: hidden;
     color: var(--text-primary);
     font-size: 11px;
-    font-weight: 650;
+    font-weight: 600;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
@@ -284,25 +332,25 @@ const emit = defineEmits<{
 
 .api-card__footer {
   justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
   margin-top: auto;
-  padding-top: 12px;
-  border-top: 1px solid var(--border-divider);
+  padding-top: 8px;
+  border-top: 1px solid var(--border-subtle);
 }
 
 .api-card__source {
   min-width: 0;
-  gap: 5px;
+  gap: 4px;
   overflow: hidden;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .api-card__actions {
   flex: 0 0 auto;
-  gap: 4px;
+  gap: 6px;
 
   :deep(.el-button + .el-button) {
     margin-left: 0;
@@ -312,11 +360,15 @@ const emit = defineEmits<{
 @media (max-width: 520px) {
   .api-card__facts {
     grid-template-columns: 1fr;
-    gap: 8px;
+    gap: 4px;
 
-    div {
-      padding: 0;
-      border: 0;
+    .api-card__fact {
+      padding: 3px 0;
+
+      &:not(:first-child) {
+        border-left: 0;
+        border-top: 1px solid var(--border-subtle);
+      }
     }
   }
 

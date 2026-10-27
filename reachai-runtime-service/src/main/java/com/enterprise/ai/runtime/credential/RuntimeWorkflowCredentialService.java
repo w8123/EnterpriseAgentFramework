@@ -116,15 +116,6 @@ public class RuntimeWorkflowCredentialService {
                 revision(entity)));
     }
 
-    /** @deprecated Prefer {@link #resolve(String, WorkflowExecutionIdentity)}. */
-    @Deprecated
-    public Optional<RuntimeWorkflowCredentialRuntime> resolve(String credentialRef, Long projectId, String projectCode) {
-        WorkflowExecutionIdentity identity = projectId != null || StringUtils.hasText(projectCode)
-                ? WorkflowExecutionIdentity.fromAgent(projectId, projectCode)
-                : WorkflowExecutionIdentity.untrustedDebug();
-        return resolve(credentialRef, identity);
-    }
-
     private boolean isAuthorized(RuntimeWorkflowCredentialEntity entity, WorkflowExecutionIdentity identity) {
         String scope = entity.getScope() == null ? "PROJECT" : entity.getScope().trim().toUpperCase(Locale.ROOT);
         if ("GLOBAL".equals(scope)) {

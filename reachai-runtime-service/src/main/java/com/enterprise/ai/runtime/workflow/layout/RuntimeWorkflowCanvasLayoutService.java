@@ -497,9 +497,14 @@ public class RuntimeWorkflowCanvasLayoutService {
         }
         String kind = firstText(text(data.get("kind")), text(node.get("type")));
         boolean wide = List.of("classifier", "condition", "approval", "loop").contains(kind);
-        int routeCount = listSize(mutableMap(data.get("classifierConfig")).get("classes"));
+        int routeCount = listSize(data.containsKey("classes")
+                ? data.get("classes") : mutableMap(data.get("classifierConfig")).get("classes"));
         if (routeCount == 0) {
-            routeCount = listSize(mutableMap(data.get("conditionConfig")).get("groups"));
+            Map<String, Object> condition = mutableMap(data.get("conditionConfig"));
+            Object groups = data.containsKey("conditionGroups") ? data.get("conditionGroups")
+                    : data.containsKey("groups") ? data.get("groups")
+                    : condition.get("conditionGroups") != null ? condition.get("conditionGroups") : condition.get("groups");
+            routeCount = listSize(groups);
         }
         int height = DEFAULT_NODE_HEIGHT + Math.max(0, routeCount - 2) * 28;
         return new NodeSize(

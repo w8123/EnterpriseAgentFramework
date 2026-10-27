@@ -1,0 +1,118 @@
+name: CI
+
+on:
+  push:
+    branches: [dev, main]
+  pull_request:
+    branches: [dev, main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # 中文测试数据和文件名需要 UTF-8 区域设置
+  LANG: C.UTF-8
+  LC_ALL: C.UTF-8
+
+jobs:
+  backend:
+    name: 后端测试（Maven）
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: 打包 Java SDK 下载产物
+        # Control 对外提供 SDK/starter 下载，jar 不入库，测试前先构建并放进 classpath 资源目录
+        run: |
+          mvn -B -q install -Dmaven.test.skip=true -pl reachai-capability-sdk,reachai-spring-boot2-starter -am
+          node scripts/pack-java-sdk-artifacts.mjs
+      - name: 运行全部模块测试
+        run: mvn -B test -fae
+      - name: 上传测试报告
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: '**/target/surefire-reports/*.txt'
+          retention-days: 7
+
+  frontend:
+    name: 管理端检查与测试
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # 看板等按本地时间分桶的逻辑按北京时间断言
+      TZ: Asia/Shanghai
+    defaults:
+      run:
+        working-directory: ai-admin-front
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: ai-admin-front/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - name: 契约检查
+        run: |
+          npm run check:glass-theme
+          npm run check:dark-theme-compatibility
+          npm run check:page-rhythm
+          npm run check:page-header-family
+          npm run check:overlay-migration
+          npm run check:workflow-layout
+          npm run check:studio-canvas
+          npm run check:sdk-access-workbench
+          npm run check:page-workbench
+          npm run check:business-capability-workbench-ui
+          npm run check:model-center-v2-ui
+          node scripts/check-workflow-empty-state-ui.mjs
+          node scripts/check-project-center-labels.mjs
+          node scripts/check-vite-model-proxy.test.mjs
+      - name: 单元测试
+        run: |
+          for suite in conversation sdk ai-coding workflow api-market skill model auth liquid-glass \
+            knowledge dashboard runops mcp capability bmapi-retirement; do
+            echo "::group::test:$suite"
+            npm run -s "test:$suite"
+            echo "::endgroup::"
+          done
+      - name: 构建（类型检查 + 打包 + 嵌入 SDK）
+        run: npm run build
+
+  repository:
+    name: 仓库级检查
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: 安装 ripgrep
+        # check-mojibake 用 rg 列出待扫描文件
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ripgrep
+      - name: 架构、接口、文档与 SQL 检查
+        run: |
+          node scripts/verify-architecture.mjs
+          node scripts/check-consolidated-upgrade-sql.mjs
+          node scripts/check-mcp-hub-sql.mjs
+          node scripts/check-model-center-v2-sql.mjs
+      - name: 检查脚本自身的测试
+        run: node --test scripts/*.test.mjs
+      - name: Managed Executor Worker
+        working-directory: managed-executor-worker
+        run: |
+          npm ci --no-audit --no-fund
+          npm test

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-import { agentEditSource, agentEditTemplate } from './agentEditSources.testutil'
+import { agentEditTemplate } from './agentEditSources.testutil'
 
 const overviewSource = readFileSync(resolve(__dirname, '../../components/agent/AgentDetailOverview.vue'), 'utf8')
 const overviewTemplate = overviewSource.split('<style scoped')[0]
@@ -66,7 +66,7 @@ describe('Agent detail information hierarchy', () => {
     expect(dialogTemplate).toContain('v-else-if="!trustedRemoteAgents.length"')
     expect(dialogTemplate).toContain('为当前 Agent 创建协作身份')
     expect(dialogTemplate).toContain('打开信任与策略')
-    expect(dialogTemplate).toContain('打开远程 Agent 目录')
+    expect(dialogTemplate).toContain('打开外部 Agent')
     expect(dialogTemplate).toContain('<details class="a2a-dialog-settings">')
     expect(dialogTemplate).toContain('添加到当前 Agent')
   })

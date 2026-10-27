@@ -837,7 +837,7 @@ async function downloadVersion(version: AgentSkillVersion) {
   URL.revokeObjectURL(url)
 }
 
-function sourceLabel(value: string) { return ({ UPLOAD: '上传', GIT: 'Git', MARKET: '市场', BUILTIN: '内置' } as Record<string, string>)[value] || value }
+function sourceLabel(value: string) { return ({ UPLOAD: '上传', GIT: 'Git', MARKET: '市场', BUILTIN: '内置', RUN_CAPTURE: '运行记录沉淀' } as Record<string, string>)[value] || value }
 function objectValue(value: unknown): Record<string, unknown> | null {
   return value != null && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>

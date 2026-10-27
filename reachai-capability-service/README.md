@@ -1,93 +1,15 @@
 # ReachAI Capability Service
 
-`reachai-capability-service` 是 ReachAI Capability Catalog 部署单元，默认端口 `18605`。它拥有业务系统注册、能力快照与评审、扫描目录、能力资产、语义/API 图谱、运行时调用定义和外部 API 市场目录。
+`reachai-capability-service` 负责项目注册、实例、来源、契约接纳、业务方法/API、调用投影与 API 市场。只读写自有表；跨服务通过显式内部 API 协作，同库不改变所有权。
 
-## 职责边界
+- 源码：`src/main/java/`，配置：`src/main/resources/application.yml`。
+- 公共请求、身份和调用方向见[架构](../docs/architecture.md)与[公共路由](../docs/contracts/public-routes.md)。
+- 精确表归属见[所有权清单](../docs/contracts/tables.md)，服务间调用见[内部 API](../docs/contracts/internal-apis.md)。
 
-本服务拥有：
-
-- 项目 Enrollment、项目凭据验证、实例注册/心跳和 SDK 能力同步；
-- Capability 来源观察、内容去重、自动接纳策略、当前候选、项目归属校验、逐项 apply/ignore 与回滚、调用前来源一致性保护；
-- 扫描项目、模块、接口资产、语义文档和 API 图谱快照；
-- 内部 Runtime Composition 兼容存储，以及 `capability_tool_definition` 运行时调用投影；不将 Kernel 模块/Tool 暴露为公共人工资产模型；
-- 调用候选关键词检索诊断和 Runtime Tool/Capability internal execution；
-- API 市场的来源、提供方、条目、不可变版本、Operation、验证证据和项目接入意图。
-
-本服务不保存第三方 API 调用凭据，不执行 Workflow，不拥有 Agent/Trace，也不拥有 Knowledge/Model 数据。历史扫描器底层实现仍可通过 Knowledge internal API 复用，但扫描目录和资产落库归 Capability。
-
-## 公共与内部接口
-
-管理端统一通过 Control 访问下列 public contract：
-
-| 路径族 | 用途 |
-| --- | --- |
-| `/api/registry/projects/**` | 项目、实例、可信来源同步、能力变化与 Enrollment 兼容契约；评审管理路径要求 Control HMAC，不暴露 bulk apply |
-| `/api/scan-projects/**`、`/api/scan-modules/**` | 扫描项目与接口目录 |
-| `/api/semantic-docs/**`、`/api/api-graph/**` | 语义文档与 API 图谱 |
-| `GET /api/tools/**` | 能力目录与兼容的运行时调用投影；只读 |
-| `/api/api-market/**` | 外部 API 发现、详情、统计和项目接入 |
-| `/internal/capability/**` | Control/Runtime 的 HMAC internal contract |
-
-`compatibility` 只表示公共路径形状仍受支持，不表示回退到旧后端。
-
-## 下游依赖
-
-| 变量 | 默认本地目标 | 用途 |
-| --- | --- | --- |
-| `RUNTIME_SERVICE_URL` | `http://localhost:18604` | Runtime-owned 发布/执行相关验证 |
-| `KNOWLEDGE_SERVICE_URL` | `http://localhost:18602` | OpenAPI/Controller 扫描等 Knowledge 实现 |
-| `MODEL_SERVICE_URL` | `http://localhost:18601` | 语义生成或模型相关能力 |
-
-Runtime 通过 Capability internal API 获取/执行能力；不得直接读取 Capability 表。
-
-## 主要代码区域
-
-| Package | 责任 |
-| --- | --- |
-| `capability.registry` | Enrollment、注册、心跳、同步和项目凭据 |
-| `capability.catalog.tool` | 兼容的运行时调用投影 |
-| `capability.catalog.scan` | 扫描项目/模块/接口目录 |
-| `capability.catalog.semantic` | 语义文档 |
-| `capability.catalog.graph` | API 图谱快照 |
-| `agent.capability.catalog` | 内部 Composition 兼容存储；无公共 Kernel CRUD |
-| `capability.externalapi` | API 市场目录和项目接入 |
-| `capability.internal` | Runtime/Control internal contract |
-
-## 配置
-
-配置事实源是 `src/main/resources/application.yml`：
-
-- `SERVER_PORT`（默认 `18605`）；
-- `AI_MYSQL_*`；
-- `RUNTIME_SERVICE_URL`、`KNOWLEDGE_SERVICE_URL`、`MODEL_SERVICE_URL`；
-- `REACHAI_INTERNAL_SERVICE_SECRET`、`REACHAI_INTERNAL_SERVICE_ACCEPTED_SECRETS`、`REACHAI_INTERNAL_TRANSPORT_MODE`。
-
-默认本地模式会提供公开的内部调用开发值，便于开箱体验；显式配置优先，生产 profile 与 Kubernetes 环境必须从 Secret 注入。
-
-Registry/项目请求的身份来自签名、Enrollment 或 Control 已验证主体；浏览器字段不能提升为可信项目身份。
-
-## 构建、启动与验证
+在仓库根目录运行相关模块测试：
 
 ```powershell
-mvn -pl reachai-capability-service -am -DskipTests compile
 mvn -pl reachai-capability-service -am test
-Set-Location reachai-capability-service
-mvn spring-boot:run
 ```
 
-健康检查：`GET http://localhost:18605/actuator/health`。
-
-```powershell
-node scripts/check-service-table-ownership.mjs
-node scripts/check-internal-api-contracts.mjs
-node scripts/check-physical-service-route-contracts.mjs
-```
-
-API 市场和其他新增 schema 必须同时进入 `sql/initV2.sql`、对应 `upgrade-*.sql` 和 ownership 矩阵；SQL 存在不等于目标库已执行。
-
-## 进一步阅读
-
-- [项目注册与能力资产](../docs/02-项目注册与能力资产.md)
-- [API 市场产品与架构契约](../docs/architecture/api-market.md)
-- [Public Route Contracts](../docs/architecture/public-route-contracts.md)
-- [Service Table Ownership](../docs/architecture/service-table-ownership.md)
+本地构建/启动见[开发](../docs/development.md)，正式环境配置与验收见[运维](../docs/operations.md)。模块源码、配置和实际运行结果决定当前行为，本页不复制另一份端口、字段或部署状态表。

@@ -41,8 +41,10 @@ public class AgentSkillCatalogService {
     private static final Pattern PUBLISHER = Pattern.compile("^[a-z0-9][a-z0-9._-]{0,63}$");
     private static final Pattern VERSION = Pattern.compile("^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$");
     private static final Set<String> VISIBILITIES = Set.of("PRIVATE", "PROJECT", "SHARED", "PUBLIC");
-    private static final Set<String> SOURCE_TYPES = Set.of("UPLOAD", "GIT", "MARKET", "BUILTIN");
+    private static final Set<String> SOURCE_TYPES = Set.of("UPLOAD", "GIT", "MARKET", "BUILTIN", "RUN_CAPTURE");
     private static final Set<String> RESERVED_PUBLISHERS = Set.of("reachai");
+    private static final int CONCURRENT_CREATE_LOOKUPS = 20;
+    private static final long CONCURRENT_CREATE_LOOKUP_DELAY_MS = 50;
 
     private final AgentSkillMapper skillMapper;
     private final AgentSkillVersionMapper versionMapper;
@@ -165,7 +167,12 @@ public class AgentSkillCatalogService {
                 skill = candidate;
                 createdSkill = true;
             } catch (DuplicateKeyException concurrentCreate) {
-                skill = findSkill(scopeKey, publisher, inspection.name());
+                String standardName = inspection.name();
+                skill = awaitConcurrentRow(() -> skillMapper.selectOne(Wrappers.<AgentSkillEntity>lambdaQuery()
+                        .eq(AgentSkillEntity::getScopeKey, scopeKey)
+                        .eq(AgentSkillEntity::getPublisher, publisher)
+                        .eq(AgentSkillEntity::getStandardName, standardName)
+                        .last("LIMIT 1 FOR UPDATE")));
                 if (skill == null) {
                     throw AgentSkillException.conflict(
                             "Skill identity was created concurrently; retry the import");
@@ -226,7 +233,12 @@ public class AgentSkillCatalogService {
         try {
             versionMapper.insert(entity);
         } catch (DuplicateKeyException concurrentVersionCreate) {
-            AgentSkillVersionEntity existing = findVersion(skill.getId(), version);
+            Long skillId = skill.getId();
+            AgentSkillVersionEntity existing = awaitConcurrentRow(() -> versionMapper.selectOne(
+                    Wrappers.<AgentSkillVersionEntity>lambdaQuery()
+                            .eq(AgentSkillVersionEntity::getSkillId, skillId)
+                            .eq(AgentSkillVersionEntity::getVersion, version)
+                            .last("LIMIT 1 FOR UPDATE")));
             if (existing != null && inspection.sourceSha256().equals(existing.getSourceSha256())) {
                 ensureArtifact(existing, archive);
                 return new ImportResult(summary(skill), versionView(existing), false);
@@ -486,6 +498,27 @@ public class AgentSkillCatalogService {
                 .last("LIMIT 1"));
     }
 
+    /**
+     * 并发导入撞唯一键后找回对方写入的行。查询必须带 FOR UPDATE 做当前读：
+     * MySQL 可重复读下普通查询沿用事务快照，看不到对方刚提交的数据。
+     * 有的数据库在对方提交前就报重复键，所以短暂重试几次，等对方事务提交。
+     */
+    private <T> T awaitConcurrentRow(java.util.function.Supplier<T> currentRead) {
+        for (int attempt = 0; attempt < CONCURRENT_CREATE_LOOKUPS; attempt++) {
+            T row = currentRead.get();
+            if (row != null) {
+                return row;
+            }
+            try {
+                Thread.sleep(CONCURRENT_CREATE_LOOKUP_DELAY_MS);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                return null;
+            }
+        }
+        return null;
+    }
+
     private AgentSkillVersionEntity requireVersion(Long skillId, Long versionId) {
         if (skillId == null || versionId == null) {
             throw AgentSkillException.notFound("Skill version id is required");
@@ -662,7 +695,7 @@ public class AgentSkillCatalogService {
         String sourceType = StringUtils.hasText(value) ? value.trim().toUpperCase(Locale.ROOT) : "UPLOAD";
         if (!SOURCE_TYPES.contains(sourceType)) {
             throw new AgentSkillException("SKILL_SOURCE_INVALID", HttpStatus.BAD_REQUEST,
-                    "Skill sourceType must be UPLOAD, GIT, MARKET, or BUILTIN");
+                    "Skill sourceType must be UPLOAD, GIT, MARKET, BUILTIN, or RUN_CAPTURE");
         }
         return sourceType;
     }

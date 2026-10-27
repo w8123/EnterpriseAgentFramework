@@ -3,16 +3,16 @@ import type { Component } from 'vue'
 import LiquidGlassCard from './LiquidGlassCard.vue'
 import type { LiquidGlassSource } from './liquidGlassContext'
 
-defineProps<{ title?: string; description?: string; icon?: Component; source?: LiquidGlassSource }>()
+defineProps<{ title?: string; description?: string; icon?: Component; source?: LiquidGlassSource; compact?: boolean }>()
 </script>
 
 <template>
-  <LiquidGlassCard class="liquid-empty-state" :source="source" role="status">
+  <component :is="compact ? 'div' : LiquidGlassCard" class="liquid-empty-state" :class="{ 'liquid-empty-state--compact': compact }" :source="compact ? undefined : source" role="status">
     <span v-if="icon" class="liquid-empty-state__icon" aria-hidden="true"><el-icon><component :is="icon" /></el-icon></span>
     <h3 v-if="title">{{ title }}</h3>
     <p v-if="description">{{ description }}</p>
     <div v-if="$slots.default" class="liquid-empty-state__actions"><slot /></div>
-  </LiquidGlassCard>
+  </component>
 </template>
 
 <style scoped lang="scss">
@@ -44,6 +44,11 @@ defineProps<{ title?: string; description?: string; icon?: Component; source?: L
 }
 .liquid-empty-state__actions { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--layout-control-gap); margin-top: 6px; }
 .liquid-empty-state__actions:empty { display: none; }
+.liquid-empty-state--compact {
+  min-height: 112px;
+  padding: 20px;
+  gap: 8px;
+}
 @media (max-width: 520px) {
   .liquid-empty-state__actions { flex-direction: column; width: 100%; }
 }

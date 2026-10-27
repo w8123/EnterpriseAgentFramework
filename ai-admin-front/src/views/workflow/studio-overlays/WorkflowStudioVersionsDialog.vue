@@ -192,7 +192,6 @@ import {
 } from '@element-plus/icons-vue'
 import { getWorkflow, listWorkflowVersions, rollbackWorkflowVersion } from '@/api/workflow'
 import {
-  formatWorkflowVersionLabel,
   listWorkflowAgentReferences,
   publishLatestAgentWorkflowVersions,
   agentWorkflowFreshnessFailure,
@@ -238,10 +237,6 @@ const canPublish = computed(() => hasPlatformResourcePermission(
   null,
   props.projectCode,
 ))
-
-const activeVersion = computed(() => {
-  return versions.value.find((v) => v.status === 'ACTIVE') || null
-})
 
 const agentList = computed(() => {
   return agentReferences.value?.agents || []

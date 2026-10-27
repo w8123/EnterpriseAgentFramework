@@ -294,7 +294,7 @@
 import AppDialog from '@/components/common/AppDialog.vue'
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import CollapsibleHeaderRegion from '@/components/common/CollapsibleHeaderRegion.vue'
 import MetricStrip from '@/components/common/MetricStrip.vue'
@@ -302,7 +302,7 @@ import type { MetricStripItem } from '@/components/common/glassWorkbench'
 import { LiquidGlassButton, LiquidGlassFilterBar, LiquidGlassInput, LiquidGlassSelect, LiquidGlassTable, LiquidGlassPage } from '@/components/common/liquid-glass'
 import PageHeader from '@/components/common/PageHeader.vue'
 import ProjectScopeState from '@/components/common/ProjectScopeState.vue'
-import { createWorkflow, deleteWorkflow, listWorkflows } from '@/api/workflow'
+import { createWorkflow, listWorkflows } from '@/api/workflow'
 import type { WorkflowWorkingCopy, WorkflowWorkingCopyInput } from '@/types/workflow'
 import type { ScanProject } from '@/types/scanProject'
 import { useAppStore } from '@/store/app'
@@ -408,7 +408,6 @@ const workflowListStatus = ref<WorkflowListStatus>('idle')
 const loading = computed(() => workflowListStatus.value === 'loading')
 const workflowErrorMessage = ref('')
 const creating = ref(false)
-const deletingId = ref('')
 const createDialogVisible = ref(false)
 const workflows = ref<WorkflowWorkingCopy[]>([])
 const keyword = ref('')
@@ -671,7 +670,6 @@ function invalidateWorkflowData() {
   workflows.value = []
   workflowListStatus.value = 'idle'
   workflowErrorMessage.value = ''
-  deletingId.value = ''
   currentPage.value = 1
 }
 
@@ -694,7 +692,6 @@ function currentWorkflowListParams(): WorkflowListParams {
 async function loadWorkflows() {
   const scopeKey = pageProjectScope.requestKey.value
   const generation = ++workflowDataGeneration
-  deletingId.value = ''
   if (!pageProjectScope.canLoadData.value) {
     workflows.value = []
     workflowListStatus.value = 'idle'
@@ -776,46 +773,6 @@ function openStudio(id: string) {
 
 function openWorkflow(row: WorkflowWorkingCopy) {
   openStudio(row.id)
-}
-
-function canDeleteWorkflow(row: WorkflowWorkingCopy) {
-  return row.deletable === true && canWriteWorkflow(row)
-}
-
-async function confirmDeleteWorkflow(row: WorkflowWorkingCopy) {
-  if (!scopeCanLoadData.value || !canDeleteWorkflow(row)) return
-  const operationScopeKey = pageProjectScope.requestKey.value
-  const operationGeneration = workflowDataGeneration
-  try {
-    await ElMessageBox.confirm(
-      `确认删除草稿 Workflow「${row.name}」吗？删除后不可恢复。`,
-      '删除确认',
-      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' },
-    )
-  } catch {
-    return
-  }
-  if (
-    !isCurrentWorkflowRequest(operationGeneration, operationScopeKey)
-    || !canDeleteWorkflow(row)
-  ) return
-
-  deletingId.value = row.id
-  try {
-    await deleteWorkflow(row.id)
-    if (!isCurrentWorkflowRequest(operationGeneration, operationScopeKey)) return
-    ElMessage.success('Workflow 已删除')
-    void loadWorkflows()
-  } catch (error) {
-    if (isCurrentWorkflowRequest(operationGeneration, operationScopeKey)) {
-      ElMessage.error(error instanceof Error && error.message ? error.message : '删除 Workflow 失败')
-    }
-  } finally {
-    if (
-      isCurrentWorkflowRequest(operationGeneration, operationScopeKey)
-      && deletingId.value === row.id
-    ) deletingId.value = ''
-  }
 }
 
 function backToProject() {

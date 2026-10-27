@@ -787,16 +787,10 @@ final class RuntimeModelNodeHandlers {
         return null;
     }
 
-    private record ClassifierClass(String id,
-                                   String label,
-                                   String description,
-                                   List<String> keywords) {
+    private record ClassifierClass(String id, String label, String description, List<String> keywords) {
     }
 
-    private record ClassifierDecision(String route,
-                                      double confidence,
-                                      String matchedBy,
-                                      String modelOutput) {
+    private record ClassifierDecision(String route, double confidence, String matchedBy, String modelOutput) {
     }
 
     private record ModelClassifierOutput(String route, double confidence) {

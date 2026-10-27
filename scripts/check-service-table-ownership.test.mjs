@@ -90,7 +90,7 @@ assert.match(missingDocResult.stderr, /missing service table ownership doc/)
 
 const missingRowRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'reachai-table-owner-missing-row-'))
 writeEntity(missingRowRoot, 'reachai-control-service', 'com.enterprise.ai.control', 'ControlThingEntity', 'control_thing')
-write(missingRowRoot, 'docs/architecture/service-table-ownership.md', `
+write(missingRowRoot, 'docs/contracts/tables.md', `
 # Service Table Ownership
 
 | Table | Owner service | Additional direct access | Notes |
@@ -109,7 +109,7 @@ assert.match(missingRowResult.stderr, /control_thing/)
 const undocumentedSharedRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'reachai-table-owner-undocumented-shared-'))
 writeEntity(undocumentedSharedRoot, 'reachai-control-service', 'com.enterprise.ai.control', 'SharedThingEntity', 'shared_thing')
 writeEntity(undocumentedSharedRoot, 'reachai-runtime-service', 'com.enterprise.ai.runtime', 'RuntimeSharedThingEntity', 'shared_thing')
-write(undocumentedSharedRoot, 'docs/architecture/service-table-ownership.md', `
+write(undocumentedSharedRoot, 'docs/contracts/tables.md', `
 # Service Table Ownership
 
 | Table | Owner service | Additional direct access | Notes |
@@ -130,7 +130,7 @@ const allowedRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'reachai-table-owner-a
 writeEntity(allowedRoot, 'reachai-control-service', 'com.enterprise.ai.control', 'ControlThingEntity', 'control_thing')
 writeEntity(allowedRoot, 'reachai-runtime-service', 'com.enterprise.ai.runtime', 'RuntimeSharedThingEntity', 'shared_thing')
 writeEntity(allowedRoot, 'reachai-control-service', 'com.enterprise.ai.control', 'SharedThingEntity', 'shared_thing')
-write(allowedRoot, 'docs/architecture/service-table-ownership.md', `
+write(allowedRoot, 'docs/contracts/tables.md', `
 # Service Table Ownership
 
 | Table | Owner service | Additional direct access | Notes |
@@ -148,7 +148,7 @@ assert.strictEqual(allowedResult.status, 0, allowedResult.stderr || allowedResul
 
 const staleAdditionalAccessRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'reachai-table-owner-stale-additional-'))
 writeEntity(staleAdditionalAccessRoot, 'reachai-control-service', 'com.enterprise.ai.control', 'ControlThingEntity', 'control_thing')
-write(staleAdditionalAccessRoot, 'docs/architecture/service-table-ownership.md', `
+write(staleAdditionalAccessRoot, 'docs/contracts/tables.md', `
 # Service Table Ownership
 
 | Table | Owner service | Additional direct access | Notes |
@@ -175,7 +175,7 @@ class BadControlService {
     private RuntimeWorkflowDefinitionMapper mapper;
 }
 `)
-write(crossServiceMapperImportRoot, 'docs/architecture/service-table-ownership.md', `
+write(crossServiceMapperImportRoot, 'docs/contracts/tables.md', `
 # Service Table Ownership
 
 | Table | Owner service | Additional direct access | Notes |
@@ -202,7 +202,7 @@ CREATE TABLE IF NOT EXISTS \`baseline_only_thing\` (
   \`id\` BIGINT NOT NULL
 );
 `)
-write(missingInitTableRowRoot, 'docs/architecture/service-table-ownership.md', `
+write(missingInitTableRowRoot, 'docs/contracts/tables.md', `
 # Service Table Ownership
 
 | Table | Owner service | Additional direct access | Notes |
@@ -230,7 +230,7 @@ CREATE TABLE IF NOT EXISTS \`control_v2_table\` (
   \`id\` BIGINT NOT NULL
 );
 `)
-write(initV2PreferredRoot, 'docs/architecture/service-table-ownership.md', `
+write(initV2PreferredRoot, 'docs/contracts/tables.md', `
 # Service Table Ownership
 
 | Table | Owner service | Additional direct access | Notes |
@@ -256,7 +256,7 @@ writeMapperWithSelect(
   'BadControlMapper',
   'SELECT id FROM runtime_owned WHERE id = #{id}'
 )
-write(annotatedSqlCrossServiceRoot, 'docs/architecture/service-table-ownership.md', `
+write(annotatedSqlCrossServiceRoot, 'docs/contracts/tables.md', `
 # Service Table Ownership
 
 | Table | Owner service | Additional direct access | Notes |
@@ -276,7 +276,7 @@ assert.match(annotatedSqlCrossServiceResult.stderr, /reachai-control-service -> 
 const xmlSqlCrossServiceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'reachai-table-owner-xml-sql-'))
 writeEntity(xmlSqlCrossServiceRoot, 'reachai-runtime-service', 'com.enterprise.ai.runtime', 'RuntimeXmlOwnedEntity', 'runtime_xml_owned')
 writeXmlMapper(xmlSqlCrossServiceRoot, 'reachai-control-service', 'mapper/BadMapper.xml', 'SELECT id FROM runtime_xml_owned WHERE id = #{id}')
-write(xmlSqlCrossServiceRoot, 'docs/architecture/service-table-ownership.md', `
+write(xmlSqlCrossServiceRoot, 'docs/contracts/tables.md', `
 # Service Table Ownership
 
 | Table | Owner service | Additional direct access | Notes |
@@ -302,7 +302,7 @@ writeJdbcTemplateDao(
   'BadControlJdbcDao',
   'SELECT id FROM runtime_jdbc_owned WHERE id = ?'
 )
-write(jdbcSqlCrossServiceRoot, 'docs/architecture/service-table-ownership.md', `
+write(jdbcSqlCrossServiceRoot, 'docs/contracts/tables.md', `
 # Service Table Ownership
 
 | Table | Owner service | Additional direct access | Notes |

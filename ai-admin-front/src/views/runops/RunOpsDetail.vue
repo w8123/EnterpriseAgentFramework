@@ -61,6 +61,13 @@
           加入评测集
         </LiquidGlassButton>
         <LiquidGlassButton
+          v-if="canCaptureSkill"
+          source="wallpaper"
+          @click="captureVisible = true"
+        >
+          沉淀成 Skill
+        </LiquidGlassButton>
+        <LiquidGlassButton
           v-if="canOperateRun && canReplayRunType(summary?.runType)"
           source="wallpaper"
           type="primary"
@@ -368,6 +375,13 @@
         @cancel="cancelCandidateTask"
       />
     </AppDrawer>
+    <SkillCaptureDialog
+      v-if="captureVisible"
+      v-model="captureVisible"
+      source="RUN"
+      :trace-id="traceId"
+      :can-create-workflow="canWriteProjectWorkflow"
+    />
     <AddToEvalDialog
       v-if="canAddToEval && summary?.agentId"
       v-model="addToEvalVisible"
@@ -391,6 +405,7 @@ import PageHeader from '@/components/common/PageHeader.vue'
 import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
 import RunOpsInvestigationWorkbench from './components/RunOpsInvestigationWorkbench.vue'
 import AddToEvalDialog from './components/AddToEvalDialog.vue'
+import SkillCaptureDialog from '@/views/skill/components/SkillCaptureDialog.vue'
 import { toolCallFailed, toolCallStatus } from './toolCallOutcome'
 import { HTTP_API_WRITE_UNCONFIRMED_GUIDANCE, runHasUnconfirmedHttpApiWrite } from './httpApiWriteOutcome'
 import { consoleHttpApiAuditLabel, consoleHttpApiTransportMessage } from './consoleHttpApiDiagnostics'
@@ -421,6 +436,7 @@ import {
   hasPlatformResourcePermission,
   PLATFORM_PERMISSION_AGENT_EVALUATE,
   PLATFORM_PERMISSION_RUNOPS_OPERATE,
+  PLATFORM_PERMISSION_SKILL_IMPORT,
   PLATFORM_PERMISSION_WORKFLOW_WRITE,
 } from '@/auth/platformAccess'
 import { platformSessionUser } from '@/auth/platformSession'
@@ -477,6 +493,26 @@ const canAddToEval = computed(() => Boolean(
   && summary.value.agentId
   && summary.value.entryType !== 'EVAL'
   && hasPlatformPermission(platformSessionUser.value?.permissions, PLATFORM_PERMISSION_AGENT_EVALUATE),
+))
+const captureVisible = ref(false)
+// 有成功的工具调用、且有所属业务系统的运行，才能沉淀成 Skill。
+const canCaptureSkill = computed(() => Boolean(
+  summary.value?.projectCode
+  && detail.value?.toolCalls?.some((call) => call.success && call.toolName)
+  && hasPlatformResourcePermission(
+    platformSessionUser.value?.permissionGrants,
+    PLATFORM_PERMISSION_SKILL_IMPORT,
+    'PROJECT',
+    null,
+    summary.value?.projectCode,
+  ),
+))
+const canWriteProjectWorkflow = computed(() => hasPlatformResourcePermission(
+  platformSessionUser.value?.permissionGrants,
+  PLATFORM_PERMISSION_WORKFLOW_WRITE,
+  'PROJECT',
+  null,
+  summary.value?.projectCode,
 ))
 const canOperateRun = computed(() => hasPlatformResourcePermission(
   platformSessionUser.value?.permissionGrants,

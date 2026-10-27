@@ -1060,6 +1060,14 @@ function mainLayoutRouteProperties(descriptor, failures) {
   }
 
   function collectForbiddenAccesses(node) {
+    // 内容区重挂载 key 允许回退到 route.path；它只决定何时重建页面，不参与布局外壳判断
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.name.text === 'contentViewKey'
+    ) {
+      return
+    }
     if (
       ts.isPropertyAccessExpression(node) &&
       isRouteExpression(node.expression) &&

@@ -4,6 +4,7 @@ import com.enterprise.ai.control.client.runtime.RuntimeProxyClient;
 import com.enterprise.ai.control.memory.PersonalMemoryIdentityResolver;
 import com.enterprise.ai.control.identity.PlatformAuthProperties;
 import com.enterprise.ai.control.identity.PlatformAuthenticatedSession;
+import com.enterprise.ai.control.identity.PlatformPermissions;
 import com.enterprise.ai.control.identity.PlatformBearerAuthService;
 import com.enterprise.ai.control.identity.PlatformConsoleAuthInterceptor;
 import com.enterprise.ai.control.identity.PlatformConsoleAuthWebConfig;
@@ -211,7 +212,8 @@ class ControlRuntimeAgentCookieAuthenticationTest {
         user.setId(id);
         user.setUsername("test-user-" + id);
         return new PlatformAuthenticatedSession(PlatformPrincipal.fromUser(user), "session-" + id,
-                LocalDateTime.of(2099, 1, 1, 0, 0), List.of(), List.of(), List.of());
+                // 清理调试会话的接口要求 agent:debug；执行接口只要求已登录
+                LocalDateTime.of(2099, 1, 1, 0, 0), List.of(), List.of(PlatformPermissions.AGENT_DEBUG), List.of());
     }
 
     @Configuration
@@ -232,5 +234,6 @@ class ControlRuntimeAgentCookieAuthenticationTest {
         @Bean RuntimeDebugSessionGateway debugSessions() { return mock(RuntimeDebugSessionGateway.class); }
         @Bean RuntimeWorkflowReleaseGateway workflowReleases() { return mock(RuntimeWorkflowReleaseGateway.class); }
         @Bean RuntimeManagementAccess management() { return mock(RuntimeManagementAccess.class); }
+        @Bean RuntimeTrustedRunOpsReplayGateway runOpsReplays() { return mock(RuntimeTrustedRunOpsReplayGateway.class); }
     }
 }

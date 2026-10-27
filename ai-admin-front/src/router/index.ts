@@ -51,6 +51,13 @@ export const routes: RouteRecordRaw[] = [
     meta: { title: '登录状态验证不可用', public: true },
   },
   {
+    // 员工个人页：从业务系统的 AI 对话面板一键打开，不登录 ReachAI 控制台。
+    path: '/my/ai-tools',
+    name: 'EmployeePortal',
+    component: () => import('@/views/EmployeePortal.vue'),
+    meta: { title: '我的 AI 工具', public: true },
+  },
+  {
     path: '/access-denied',
     name: 'AccessDenied',
     component: () => import('@/views/AccessDenied.vue'),
@@ -529,42 +536,47 @@ export const routes: RouteRecordRaw[] = [
           ],
         },
       },
-      // ── MCP 互联中心：独立产品模块 ──
+      // ── MCP 开放：独立产品模块 ──
       {
         path: 'mcp-hub',
         component: () => import('@/views/mcp-hub/McpHubLayout.vue'),
-        redirect: '/mcp-hub/overview',
+        redirect: '/mcp-hub/publications',
         meta: { activeMenu: '/mcp-hub', layoutMode: 'standard', requiredPermissions: [PLATFORM_PERMISSION_MCP_HUB_READ] },
         children: [
           {
             path: 'overview',
             name: 'McpHubOverview',
-            component: () => import('@/views/mcp-hub/McpHubOverview.vue'),
-            meta: { breadcrumb: [{"title":"AI 资产"},{"title":"集成与开放"},{"title":"MCP 互联中心","to":{"path":"/mcp-hub/overview"}},{"title":"总览"}], title: 'MCP 互联中心 · 总览', activeMenu: '/mcp-hub', layoutMode: 'standard' },
+            redirect: '/mcp-hub/publications',
           },
           {
             path: 'publications',
             name: 'McpHubPublications',
             component: () => import('@/views/mcp-hub/McpPublicationList.vue'),
-            meta: { breadcrumb: [{"title":"AI 资产"},{"title":"集成与开放"},{"title":"MCP 互联中心","to":{"path":"/mcp-hub/overview"}},{"title":"对外发布"}], title: 'MCP 互联中心 · 对外发布', activeMenu: '/mcp-hub', layoutMode: 'standard' },
+            meta: { breadcrumb: [{"title":"AI 资产"},{"title":"集成与开放"},{"title":"MCP 开放","to":{"path":"/mcp-hub/publications"}},{"title":"MCP 服务"}], title: 'MCP 开放 · MCP 服务', activeMenu: '/mcp-hub', layoutMode: 'standard' },
           },
           {
             path: 'publications/:id',
             name: 'McpHubPublicationDetail',
             component: () => import('@/views/mcp-hub/McpPublicationDetail.vue'),
-            meta: { breadcrumb: [{"title":"AI 资产"},{"title":"集成与开放"},{"title":"MCP 互联中心","to":{"path":"/mcp-hub/overview"}},{"title":"发布详情"}], title: 'MCP 互联中心 · 发布详情', activeMenu: '/mcp-hub', layoutMode: 'standard' },
+            meta: { breadcrumb: [{"title":"AI 资产"},{"title":"集成与开放"},{"title":"MCP 开放","to":{"path":"/mcp-hub/publications"}},{"title":"服务详情"}], title: 'MCP 开放 · 服务详情', activeMenu: '/mcp-hub', layoutMode: 'standard' },
           },
           {
             path: 'employee-connections',
             name: 'McpHubEmployeeConnections',
             component: () => import('@/views/mcp-hub/McpEmployeeConnectionList.vue'),
-            meta: { breadcrumb: [{"title":"AI 资产"},{"title":"集成与开放"},{"title":"MCP 互联中心","to":{"path":"/mcp-hub/overview"}},{"title":"员工连接"}], title: 'MCP 互联中心 · 员工连接', activeMenu: '/mcp-hub', layoutMode: 'standard' },
+            meta: { breadcrumb: [{"title":"AI 资产"},{"title":"集成与开放"},{"title":"MCP 开放","to":{"path":"/mcp-hub/publications"}},{"title":"员工连接"}], title: 'MCP 开放 · 员工连接', activeMenu: '/mcp-hub', layoutMode: 'standard' },
+          },
+          {
+            path: 'write-approvals',
+            name: 'McpHubWriteApprovals',
+            component: () => import('@/views/mcp-hub/McpWriteApprovalList.vue'),
+            meta: { breadcrumb: [{"title":"AI 资产"},{"title":"集成与开放"},{"title":"MCP 开放","to":{"path":"/mcp-hub/publications"}},{"title":"写操作审批"}], title: 'MCP 开放 · 写操作审批', activeMenu: '/mcp-hub', layoutMode: 'standard' },
           },
           {
             path: 'call-logs',
             name: 'McpHubCallLogs',
             component: () => import('@/views/mcp-hub/McpCallLogList.vue'),
-            meta: { breadcrumb: [{"title":"AI 资产"},{"title":"集成与开放"},{"title":"MCP 互联中心","to":{"path":"/mcp-hub/overview"}},{"title":"调用流水"}], title: 'MCP 互联中心 · 调用流水', activeMenu: '/mcp-hub', layoutMode: 'standard' },
+            meta: { breadcrumb: [{"title":"AI 资产"},{"title":"集成与开放"},{"title":"MCP 开放","to":{"path":"/mcp-hub/publications"}},{"title":"调用记录"}], title: 'MCP 开放 · 调用记录', activeMenu: '/mcp-hub', layoutMode: 'standard' },
           },
         ],
       },
@@ -586,19 +598,19 @@ export const routes: RouteRecordRaw[] = [
             path: 'publications',
             name: 'A2aHubPublications',
             component: () => import('@/views/a2a-hub/publications/A2aPublicationList.vue'),
-            meta: { breadcrumb: [{"title":"AI 资产"},{"title":"集成与开放"},{"title":"A2A 互联中心","to":{"path":"/a2a-hub/overview"}},{"title":"本地发布"}], title: 'A2A 互联中心 · 本地发布', activeMenu: '/a2a-hub', layoutMode: 'standard' },
+            meta: { breadcrumb: [{"title":"AI 资产"},{"title":"集成与开放"},{"title":"A2A 互联中心","to":{"path":"/a2a-hub/overview"}},{"title":"对外发布"}], title: 'A2A 互联中心 · 对外发布', activeMenu: '/a2a-hub', layoutMode: 'standard' },
           },
           {
             path: 'remote-agents',
             name: 'A2aHubRemoteAgents',
             component: () => import('@/views/a2a-hub/remote-agents/A2aRemoteAgentCatalog.vue'),
-            meta: { breadcrumb: [{"title":"AI 资产"},{"title":"集成与开放"},{"title":"A2A 互联中心","to":{"path":"/a2a-hub/overview"}},{"title":"远程 Agent"}], title: 'A2A 互联中心 · 远程 Agent', activeMenu: '/a2a-hub', layoutMode: 'standard' },
+            meta: { breadcrumb: [{"title":"AI 资产"},{"title":"集成与开放"},{"title":"A2A 互联中心","to":{"path":"/a2a-hub/overview"}},{"title":"外部 Agent"}], title: 'A2A 互联中心 · 外部 Agent', activeMenu: '/a2a-hub', layoutMode: 'standard' },
           },
           {
             path: 'tasks',
             name: 'A2aHubTasks',
             component: () => import('@/views/a2a-hub/tasks/A2aTaskCenter.vue'),
-            meta: { breadcrumb: [{"title":"AI 资产"},{"title":"集成与开放"},{"title":"A2A 互联中心","to":{"path":"/a2a-hub/overview"}},{"title":"任务中心"}], title: 'A2A 互联中心 · 任务中心', activeMenu: '/a2a-hub', layoutMode: 'standard' },
+            meta: { breadcrumb: [{"title":"AI 资产"},{"title":"集成与开放"},{"title":"A2A 互联中心","to":{"path":"/a2a-hub/overview"}},{"title":"协作任务"}], title: 'A2A 互联中心 · 协作任务', activeMenu: '/a2a-hub', layoutMode: 'standard' },
           },
           {
             path: 'trust',

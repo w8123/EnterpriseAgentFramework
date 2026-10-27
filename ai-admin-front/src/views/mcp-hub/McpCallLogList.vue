@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { Connection, Filter, Search } from '@element-plus/icons-vue'
+import { Filter, Search } from '@element-plus/icons-vue'
 import AppDialog from '@/components/common/AppDialog.vue'
 import MetricStrip from '@/components/common/MetricStrip.vue'
 import {
   LiquidGlassButton,
+  LiquidGlassEmptyState,
   LiquidGlassFilterBar,
   LiquidGlassInput,
   LiquidGlassNotice,
@@ -16,6 +17,13 @@ import {
 import type { MetricStripItem } from '@/components/common/glassWorkbench'
 import { getMcpCallLog, listMcpCallLogs, listMcpClients, listMcpPublications } from '@/api/mcp'
 import type { McpCallLogEntry, McpClientView, McpPublication } from '@/types/mcp'
+import SkillCaptureDialog from '@/views/skill/components/SkillCaptureDialog.vue'
+import { platformSessionUser } from '@/auth/platformSession'
+import {
+  PLATFORM_PERMISSION_SKILL_IMPORT,
+  PLATFORM_PERMISSION_WORKFLOW_WRITE,
+  hasPlatformPermission,
+} from '@/auth/platformAccess'
 
 const numberFormatter = new Intl.NumberFormat('zh-CN')
 const loading = ref(false)
@@ -58,7 +66,7 @@ const pageP95Latency = computed(() => {
 const metricItems = computed<MetricStripItem[]>(() => [
   {
     key: 'matched',
-    label: '匹配流水',
+    label: '匹配记录',
     value: numberFormatter.format(total.value),
     hint: `近 ${query.days} 天`,
     iconKey: 'api-discovery',
@@ -92,6 +100,9 @@ const metricItems = computed<MetricStripItem[]>(() => [
 
 const hasAdvancedFilters = computed(() => Boolean(
   query.direction || query.clientId || query.method || query.errorCategory,
+))
+const hasRecordFilters = computed(() => Boolean(
+  hasAdvancedFilters.value || query.publicationId || query.connectionId || query.toolName || query.success,
 ))
 
 function formatDateTime(value?: string | null): string {
@@ -222,6 +233,28 @@ function resetFilters() {
   reload()
 }
 
+// 「沉淀成 Skill」：勾选同一业务系统里成功的工具调用，按顺序生成 SKILL.md 草稿。
+const canCaptureSkill = computed(() => hasPlatformPermission(
+  platformSessionUser.value?.permissions, PLATFORM_PERMISSION_SKILL_IMPORT))
+const canCreateWorkflow = computed(() => hasPlatformPermission(
+  platformSessionUser.value?.permissions, PLATFORM_PERMISSION_WORKFLOW_WRITE))
+const selectedCalls = ref<McpCallLogEntry[]>([])
+const captureOpen = ref(false)
+const captureIds = ref<number[]>([])
+
+function capturable(row: McpCallLogEntry) {
+  return row.id != null && row.method === 'tools/call' && row.success === true && Boolean(row.toolName)
+}
+
+function onSelectionChange(selection: McpCallLogEntry[]) {
+  selectedCalls.value = selection
+}
+
+function openCapture() {
+  captureIds.value = selectedCalls.value.map((row) => row.id as number)
+  captureOpen.value = true
+}
+
 // 流水详情包含正文，需要 mcp-hub:payload:read 权限。
 const detailOpen = ref(false)
 const detailLoading = ref(false)
@@ -259,15 +292,25 @@ onMounted(() => {
 </script>
 
 <template>
-  <section class="call-log-page">
-    <h2 class="visually-hidden">调用流水</h2>
+  <section class="call-log-page mcp-list-page">
+    <h2 class="visually-hidden">调用记录</h2>
 
-    <MetricStrip presentation="inline" source="wallpaper" class="call-log-metrics" :items="metricItems" aria-label="调用流水指标概览" />
+    <MetricStrip v-if="total > 0" presentation="inline" source="wallpaper" class="call-log-metrics" :items="metricItems" aria-label="调用记录指标概览" />
 
-    <LiquidGlassNotice v-if="loadError" source="wallpaper" type="error" :title="`调用流水加载失败：${loadError}`" />
+    <LiquidGlassNotice v-if="loadError" source="wallpaper" type="error" :title="`调用记录加载失败：${loadError}`" />
     <LiquidGlassNotice v-if="query.connectionId" source="wallpaper" :title="`只看员工连接 #${query.connectionId} 的调用`">
       <template #actions>
         <LiquidGlassButton size="small" @click="clearConnectionFilter">看全部</LiquidGlassButton>
+      </template>
+    </LiquidGlassNotice>
+
+    <LiquidGlassNotice
+      v-if="canCaptureSkill && selectedCalls.length"
+      source="wallpaper"
+      :title="`已选 ${selectedCalls.length} 条调用，可以把这套做法沉淀成 Skill，给其他员工复用`"
+    >
+      <template #actions>
+        <LiquidGlassButton size="small" type="primary" @click="openCapture">沉淀成 Skill</LiquidGlassButton>
       </template>
     </LiquidGlassNotice>
 
@@ -279,16 +322,16 @@ onMounted(() => {
               v-model="query.toolName"
               clearable
               :prefix-icon="Search"
-              placeholder="搜索工具名称"
-              aria-label="搜索工具名称"
+              placeholder="工具名称"
+              aria-label="工具名称"
             />
             <LiquidGlassSelect
               v-model="query.publicationId"
               clearable
               filterable
-              dropdown-title="发布单元"
-              aria-label="发布单元"
-              :placeholder="publicationLoadFailed ? '发布单元暂不可用' : '发布单元'"
+              dropdown-title="MCP 服务"
+              aria-label="MCP 服务"
+              :placeholder="publicationLoadFailed ? '服务列表暂不可用' : 'MCP 服务'"
             >
               <el-option
                 v-for="publication in publications"
@@ -326,17 +369,13 @@ onMounted(() => {
 
           <el-collapse-transition>
             <div v-if="advancedFiltersOpen" class="advanced-filters">
-              <LiquidGlassSelect v-model="query.direction" clearable placeholder="调用方向" dropdown-title="调用方向" aria-label="调用方向">
-                <el-option label="出向（外部 Client 调用平台）" value="OUTBOUND" />
-                <el-option label="入向（平台调用外部，M2）" value="INBOUND" />
-              </LiquidGlassSelect>
               <LiquidGlassSelect
                 v-model="query.clientId"
                 clearable
                 filterable
-                placeholder="Client 凭证"
-                dropdown-title="Client 凭证"
-                aria-label="Client 凭证"
+                placeholder="客户端凭证"
+                dropdown-title="客户端凭证"
+                aria-label="客户端凭证"
                 :disabled="!query.publicationId"
               >
                 <el-option
@@ -356,18 +395,12 @@ onMounted(() => {
         </div>
       </template>
 
-        <el-table :data="rows" class="call-log-table">
+        <el-table :data="rows" class="call-log-table" @selection-change="onSelectionChange">
+          <el-table-column v-if="canCaptureSkill" type="selection" width="40" :selectable="capturable" />
           <el-table-column prop="createdAt" label="时间" width="150">
             <template #default="{ row }"><span class="muted">{{ formatDateTime(row.createdAt) }}</span></template>
           </el-table-column>
-          <el-table-column label="方向" width="76">
-            <template #default="{ row }">
-              <span class="direction-pill" :class="row.direction === 'INBOUND' ? 'is-inbound' : 'is-outbound'">
-                <i />{{ directionLabel(row.direction) }}
-              </span>
-            </template>
-          </el-table-column>
-          <el-table-column label="调用方" min-width="130">
+          <el-table-column label="使用者 / AI 工具" min-width="170">
             <template #default="{ row }">
               <div class="stacked-cell">
                 <strong>{{ callerTitle(row) }}</strong>
@@ -375,11 +408,14 @@ onMounted(() => {
               </div>
             </template>
           </el-table-column>
-          <el-table-column label="调用内容" min-width="180">
+          <el-table-column label="业务系统" min-width="130">
+            <template #default="{ row }">{{ row.projectCode || '—' }}</template>
+          </el-table-column>
+          <el-table-column label="操作内容" min-width="220">
             <template #default="{ row }">
               <div class="stacked-cell call-target-cell">
-                <strong>{{ row.method || '未知方法' }}</strong>
-                <span>{{ row.toolName || '未指定工具' }}</span>
+                <strong>{{ row.toolName || row.method || '未知操作' }}</strong>
+                <span v-if="row.toolName && row.method !== 'tools/call'">{{ row.method }}</span>
               </div>
             </template>
           </el-table-column>
@@ -391,19 +427,6 @@ onMounted(() => {
               </div>
             </template>
           </el-table-column>
-          <el-table-column label="错误分层" width="104">
-            <template #default="{ row }">
-              <span :class="row.errorCategory ? 'error-category' : 'muted'">{{ row.errorCategory || '-' }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="链路证据" min-width="180">
-            <template #default="{ row }">
-              <div class="stacked-cell evidence-cell">
-                <strong>{{ row.traceId || '无 TraceId' }}</strong>
-                <span>{{ row.remoteIp ? `来源 ${row.remoteIp}` : '来源 IP 未记录' }}</span>
-              </div>
-            </template>
-          </el-table-column>
           <el-table-column label="操作" width="68" fixed="right">
             <template #default="{ row }">
               <el-button link type="primary" :disabled="row.id == null" @click="openDetail(row)">详情</el-button>
@@ -411,13 +434,10 @@ onMounted(() => {
           </el-table-column>
 
           <template #empty>
-            <div class="call-log-empty">
-              <span class="call-log-empty__icon"><el-icon><Connection /></el-icon></span>
-              <div>
-                <h3>还没有调用流水</h3>
-                <p>发布 MCP 服务并完成首次调用后，这里会记录结果、耗时与链路证据。</p>
-              </div>
-            </div>
+            <LiquidGlassEmptyState class="call-log-empty" compact :title="loadError ? '调用记录加载失败' : hasRecordFilters ? '没有匹配的调用记录' : `近 ${query.days} 天暂无调用记录`">
+              <LiquidGlassButton v-if="loadError" @click="reload">重试</LiquidGlassButton>
+              <LiquidGlassButton v-else-if="hasRecordFilters" link type="primary" @click="resetFilters">重置筛选</LiquidGlassButton>
+            </LiquidGlassEmptyState>
           </template>
         </el-table>
 
@@ -429,7 +449,7 @@ onMounted(() => {
             :page-size="query.limit"
             :total="total"
             :page-sizes="[20, 50, 100, 200]"
-            aria-label="调用流水分页"
+            aria-label="调用记录分页"
             :disabled="loading"
             @change="changePage"
           />
@@ -437,7 +457,15 @@ onMounted(() => {
       </template>
     </LiquidGlassTable>
 
-    <AppDialog v-model="detailOpen" title="调用流水详情" width="min(860px, 94vw)">
+    <SkillCaptureDialog
+      v-if="captureOpen"
+      v-model="captureOpen"
+      source="MCP_CALLS"
+      :call-log-ids="captureIds"
+      :can-create-workflow="canCreateWorkflow"
+    />
+
+    <AppDialog v-model="detailOpen" title="调用记录详情" width="min(860px, 94vw)">
       <div v-loading="detailLoading" class="detail-body">
         <LiquidGlassNotice
           v-if="payloadDenied"
@@ -600,45 +628,8 @@ onMounted(() => {
 .result-pill.is-unknown { color: var(--status-neutral); }
 .error-category { font-size: 12px; font-weight: 700; }
 
-.call-log-table :deep(.el-table__empty-block) {
-  min-height: 236px;
-}
-
-.call-log-empty {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 18px;
-  padding: 34px 20px;
-  text-align: left;
-}
-
-.call-log-empty__icon {
-  display: inline-flex;
-  width: 58px;
-  height: 58px;
-  flex: 0 0 58px;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--border-glass-edge);
-  border-radius: 16px;
-  color: var(--brand-on-surface);
-  background: var(--surface-glass-inset);
-  box-shadow: var(--glass-rim-double);
-  font-size: 26px;
-}
-
-.call-log-empty h3,
-.call-log-empty p { margin: 0; }
-.call-log-empty h3 { color: var(--text-primary); font-size: 16px; }
-
-.call-log-empty p {
-  max-width: 520px;
-  margin-top: 6px;
-  color: var(--text-muted);
-  font-size: 12px;
-  line-height: 1.55;
-}
+.call-log-table :deep(.el-table__empty-block) { min-height: 152px; }
+.call-log-empty { margin-block: 20px; }
 
 .table-footer {
   display: flex;

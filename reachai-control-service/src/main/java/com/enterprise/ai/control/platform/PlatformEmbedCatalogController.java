@@ -18,7 +18,6 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -40,7 +39,6 @@ public class PlatformEmbedCatalogController {
     private final PlatformEmbedSessionMapper sessionMapper;
     private final PlatformPageActionEventMapper pageActionEventMapper;
     private final PlatformEmbedChatEventMapper chatEventMapper;
-    private final PlatformEmbedRendererMapper rendererMapper;
     private final ObjectMapper objectMapper;
     private final PlatformEmbedTokenService embedTokenService;
 
@@ -320,59 +318,6 @@ public class PlatformEmbedCatalogController {
                 .toList());
     }
 
-    @GetMapping("/api/platform/embed/renderers")
-    public ResponseEntity<List<EmbedRendererView>> listRenderers(@RequestParam(required = false) String appId,
-                                                                 @RequestParam(required = false) String rendererKey,
-                                                                 @RequestParam(required = false) String status,
-                                                                 @RequestParam(defaultValue = "100") int limit) {
-        LambdaQueryWrapper<PlatformEmbedRendererEntity> wrapper =
-                new LambdaQueryWrapper<PlatformEmbedRendererEntity>()
-                        .eq(StringUtils.hasText(appId), PlatformEmbedRendererEntity::getAppId, appId)
-                        .eq(StringUtils.hasText(rendererKey), PlatformEmbedRendererEntity::getRendererKey, rendererKey)
-                        .eq(StringUtils.hasText(status), PlatformEmbedRendererEntity::getStatus, status)
-                        .orderByDesc(PlatformEmbedRendererEntity::getId)
-                        .last("limit " + safeLimit(limit, 100));
-        return ResponseEntity.ok(rendererMapper.selectList(wrapper).stream()
-                .map(this::toRendererView)
-                .toList());
-    }
-
-    @PostMapping("/api/platform/embed/renderers")
-    public ResponseEntity<EmbedRendererView> createRenderer(@RequestBody EmbedRendererPayload request) {
-        PlatformEmbedRendererEntity entity = new PlatformEmbedRendererEntity();
-        applyRendererPayload(entity, request);
-        LocalDateTime now = LocalDateTime.now();
-        entity.setCreatedAt(now);
-        entity.setUpdatedAt(now);
-        rendererMapper.insert(entity);
-        return ResponseEntity.ok(toRendererView(entity));
-    }
-
-    @PutMapping("/api/platform/embed/renderers/{id}")
-    public ResponseEntity<EmbedRendererView> updateRenderer(@PathVariable Long id,
-                                                            @RequestBody EmbedRendererPayload request) {
-        PlatformEmbedRendererEntity entity = rendererMapper.selectById(id);
-        if (entity == null) {
-            return ResponseEntity.notFound().build();
-        }
-        applyRendererPayload(entity, request);
-        entity.setUpdatedAt(LocalDateTime.now());
-        rendererMapper.updateById(entity);
-        return ResponseEntity.ok(toRendererView(entity));
-    }
-
-    @PostMapping("/api/platform/embed/renderers/{id}/disable")
-    public ResponseEntity<Void> disableRenderer(@PathVariable Long id) {
-        PlatformEmbedRendererEntity entity = rendererMapper.selectById(id);
-        if (entity == null) {
-            return ResponseEntity.notFound().build();
-        }
-        entity.setStatus("DISABLED");
-        entity.setUpdatedAt(LocalDateTime.now());
-        rendererMapper.updateById(entity);
-        return ResponseEntity.ok().build();
-    }
-
     private int safeLimit(int requested, int fallback) {
         int value = requested <= 0 ? fallback : requested;
         return Math.min(Math.max(value, 1), 1000);
@@ -480,20 +425,6 @@ public class PlatformEmbedCatalogController {
                 instantText(entity.getCreatedAt()));
     }
 
-    private EmbedRendererView toRendererView(PlatformEmbedRendererEntity entity) {
-        return new EmbedRendererView(
-                entity.getId(),
-                entity.getAppId(),
-                entity.getRendererKey(),
-                entity.getName(),
-                entity.getVersion(),
-                entity.getInputSchemaJson(),
-                entity.getAllowedAgentIdsJson(),
-                entity.getStatus(),
-                instantText(entity.getCreatedAt()),
-                instantText(entity.getUpdatedAt()));
-    }
-
     private PlatformEmbedSessionEntity resolveDebugSession(PageView page,
                                                            PageActionDebugRequest request) {
         if (request != null && StringUtils.hasText(request.sessionId())) {
@@ -511,19 +442,6 @@ public class PlatformEmbedCatalogController {
                 .eq(PlatformEmbedSessionEntity::getStatus, "ACTIVE")
                 .orderByDesc(PlatformEmbedSessionEntity::getId)
                 .last("limit 1"));
-    }
-
-    private void applyRendererPayload(PlatformEmbedRendererEntity entity, EmbedRendererPayload request) {
-        if (request == null) {
-            throw new IllegalArgumentException("renderer request is required");
-        }
-        entity.setAppId(requireText(request.appId(), "appId"));
-        entity.setRendererKey(requireText(request.rendererKey(), "rendererKey"));
-        entity.setName(StringUtils.hasText(request.name()) ? request.name().trim() : request.rendererKey().trim());
-        entity.setVersion(requireText(request.version(), "version"));
-        entity.setInputSchemaJson(toJson(request.inputSchema() == null ? Map.of() : request.inputSchema()));
-        entity.setAllowedAgentIdsJson(toJson(request.allowedAgentIds() == null ? List.of() : request.allowedAgentIds()));
-        entity.setStatus(StringUtils.hasText(request.status()) ? request.status().trim() : "ACTIVE");
     }
 
     private String requireText(String value, String field) {
@@ -657,31 +575,6 @@ public class PlatformEmbedCatalogController {
             String payloadJson,
             String traceId,
             String createdAt
-    ) {
-    }
-
-    record EmbedRendererView(
-            Long id,
-            String appId,
-            String rendererKey,
-            String name,
-            String version,
-            String inputSchemaJson,
-            String allowedAgentIdsJson,
-            String status,
-            String createdAt,
-            String updatedAt
-    ) {
-    }
-
-    public record EmbedRendererPayload(
-            String appId,
-            String rendererKey,
-            String name,
-            String version,
-            Map<String, Object> inputSchema,
-            List<String> allowedAgentIds,
-            String status
     ) {
     }
 

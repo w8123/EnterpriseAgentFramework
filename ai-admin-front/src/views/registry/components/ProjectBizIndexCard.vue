@@ -7,11 +7,10 @@
           <span class="biz-index-count">{{ indexes.length }}</span>
         </h2>
         <p class="biz-index-hint">
-          业务索引由业务系统通过 SDK 按项目同步（如商品、订单的可检索文本），用于在 Workflow 结果里回源业务记录。
-          目前 Agent 还不能直接检索业务索引；制度、手册等文档请放到「知识库」。
+          通过 SDK 同步业务索引，用于 Workflow 结果回源。
         </p>
       </div>
-      <LiquidGlassButton source="wallpaper" @click="router.push('/biz-index')">管理业务索引</LiquidGlassButton>
+      <LiquidGlassButton source="wallpaper" aria-label="管理业务索引" @click="router.push('/biz-index')">管理</LiquidGlassButton>
     </div>
     <LiquidGlassTable :show-pagination="false" :loading="loading">
       <el-table :data="indexes" row-key="indexCode" empty-text="这个项目还没有同步业务索引">

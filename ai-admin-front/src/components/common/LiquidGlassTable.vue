@@ -157,6 +157,10 @@ const attrs = useAttrs()
   min-height: 0;
 }
 
+.liquid-glass-table :deep(.el-scrollbar__view:has(> .el-table__empty-block)) {
+  height: 100%;
+}
+
 .liquid-glass-table :deep(.el-table__inner-wrapper::before) {
   display: none;
 }

@@ -1,6 +1,6 @@
 ---
 name: reachai-onboarding
-description: Integrate Java business systems with ReachAI SDK registration, SDK instance heartbeat, gateway/embed access, and optional API Management handoff. Use when asked to connect a Spring Boot service to ReachAI, add reachai-capability-sdk or reachai-spring-boot2-starter, configure reachai.registry/reachai.project/reachai.capability, prepare @ReachCapability metadata for later manual SDK sync, or verify SDK onboarding from a ReachAI manifest.
+description: Integrate Java business systems with ReachAI SDK registration, instance heartbeat, gateway/embed access, and business capability source sync. Use when asked to connect a Spring Boot service to ReachAI, add reachai-capability-sdk or reachai-spring-boot2-starter, configure reachai.registry/reachai.project/reachai.capability, prepare @ReachCapability declarations, or verify SDK onboarding from a ReachAI manifest.
 ---
 
 # ReachAI Onboarding
@@ -28,7 +28,7 @@ Prefer minimal, reviewable changes:
 - Do not invent dependency download paths such as `/repository/**`, `/maven/**`, `/repository/maven/**`, `/api/embed/sdk`, or `/npm/**`. Do not use `cd ai-admin-front && npm run build:sdk` as the business-project install path.
 - Gateway checklist is a top-level `gatewayChecklist` object list on the onboarding manifest (`id`, `description`, `required`, `verificationHint`, `failureImpact`). See `references/java-sdk-access.md`.
 - Avoid changing unrelated business logic, package structure, formatting, or dependency versions.
-- SDK onboarding must not scan or sync business APIs on application startup. After compile, registration and heartbeat succeed, an active ReachAI `PROJECT_ONBOARDING` task may explicitly trigger exactly one audited SDK sync with `POST <taskRoot>/verifications/SDK_SYNC`; the task token scopes that operation to its own project. The equivalent console action remains API Management（API 管理）手动触发的 SDK 同步. Restrict both paths to business-owned packages and never include framework, platform, third-party, starter, or shared infrastructure controllers as business APIs.
+- SDK onboarding must not scan or sync business APIs on application startup. After compile, registration and heartbeat succeed, an active ReachAI `PROJECT_ONBOARDING` task may explicitly trigger exactly one audited SDK sync with `POST <taskRoot>/verifications/SDK_SYNC`; the task token scopes that operation to its own project. Console users trigger SDK sync from the project's 业务能力 → 接入与变更. Restrict both paths to business-owned packages and never include framework, platform, third-party, starter, or shared infrastructure controllers as business APIs.
 
 ## Workflow
 
@@ -40,7 +40,7 @@ Prefer minimal, reviewable changes:
    - Spring Boot version.
    - Runnable application module.
    - Business-owned Java base packages from application classes, controllers, services, and module names, as the explicit SDK sync boundary.
-   - Framework/platform packages that must be excluded from task-scoped or API Management SDK sync.
+   - Framework/platform packages that must be excluded from task-scoped or console SDK sync.
    - Existing `application.yml`, `bootstrap.yml`, profile-specific config, or config-center conventions.
    - Existing Spring Security, Sa-Token, Shiro, custom login interceptors, CSRF rules, gateway routes, and ingress/firewall boundaries that can affect the inbound SDK sync callback.
 4. Resolve and add dependencies using the manifest `sdkArtifacts`, `references/java-sdk-access.md`, and `templates/pom-dependencies.xml`. Platform artifact links are the default when no corporate Maven publication exists.
@@ -103,9 +103,9 @@ Prefer minimal, reviewable changes:
 11. Call the manifest's `sdkAccessCheckUrl` only after local compile/config succeeds, or explain why a live check cannot run.
    - Interpret the platform SDK self-check separately: `CODE_READY` requires observed Starter registration, `RUNTIME_READY` requires a fresh instance heartbeat, and `SDK_CALLBACK_READY` requires a successful signed callback plus a received capability snapshot.
    - For an active task handoff, after `CODE_READY` and `RUNTIME_READY` are observed, explicitly call `POST <taskRoot>/verifications/SDK_SYNC` with the task Bearer token. No body is required. This operation is project-scoped, succeeds only for a `RUNNING` onboarding task, and writes a verification event back to the task.
-   - For a non-task manifest flow, use the API Management manual SDK sync action; do not invent project-key or public trigger endpoints.
+   - For a non-task manifest flow, use manual SDK sync in the project's 业务能力 → 接入与变更; do not invent project-key or public trigger endpoints.
    - The SDK self-check does not prove browser acceptance. Task readiness `E2E_READY` remains pending until ReachAI observes an authorized Embed session, user message and assistant reply created after the current task started. The session may come from the real browser SDK or from `reachai-doctor --mode e2e` using a business-supplied test Authorization/Cookie; doctor never mints or mocks the business identity. This proves only the authorized conversation protocol: declared Workflow capability nodes and Page Actions need their own exact-Trace / real-browser evidence in the Page Workbench. Final launcher visibility and interaction quality remain user acceptance items.
-   - A computed SDK sync callback target is not proof of connectivity. The actual task-scoped or API Management sync must distinguish unreachable host/timeout, business-auth or CSRF 401/403, route/context-path 404/405, and Starter signature rejection.
+   - A computed SDK sync callback target is not proof of connectivity. The actual task-scoped or console sync must distinguish unreachable host/timeout, business-auth or CSRF 401/403, route/context-path 404/405, and Starter signature rejection.
 12. For a task handoff, follow `protocolGuide.eventStateRules` and write real `STARTED` / `PROGRESS` events to the current task. While the task is `WAITING_USER`, you may report work that does not depend on the answer with `PROGRESS`; it preserves `WAITING_USER` and every open question. Submit blocking ambiguities through `/questions`, poll for the user's answer, then write `RESUMED` only after all answers have been read. Before submission, run the Bootstrap-provided `Test-ReachAiArtifact -Content <artifact-content>` local schema check; `Send-ReachAiArtifact` runs the same check again before posting. Finish by submitting exactly one artifact matching the JSON Schema in task context; never invent success evidence.
 13. Report changed files, commands run, results, SDK sync verification status, the observed SDK sync callback target, its route/login/CSRF handling, optional scan package choices, gateway route/token broker status, front-end integration status, and whether the user-scoped secret still needs to be configured.
 
@@ -134,7 +134,7 @@ End with:
 - Dependency/configuration summary.
 - Gateway route and embed token broker summary.
 - Front-end embed/chat integration summary.
-- SDK sync verification/API Management handoff status and any optional capability annotations prepared.
+- SDK sync verification, current business method/API source status, and capability declarations prepared.
 - Verification commands and results.
 - Whether `REACHAI_REGISTRY_APP_SECRET` still needs to be configured outside the repository.
 - Task id, whether progress/questions were written back, and the submitted artifact key.

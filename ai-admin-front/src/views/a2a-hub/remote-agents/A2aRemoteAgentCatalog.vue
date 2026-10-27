@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Connection, Plus, Refresh, Search } from '@element-plus/icons-vue'
+import { Plus, Refresh, Search } from '@element-plus/icons-vue'
 import AgentCardPreview from '@/components/a2a-hub/AgentCardPreview.vue'
 import AppDialog from '@/components/common/AppDialog.vue'
 import AppDrawer from '@/components/common/AppDrawer.vue'
 import WorkbenchPanel from '@/components/common/WorkbenchPanel.vue'
-import { LiquidGlassButton, LiquidGlassControl, LiquidGlassEmptyState, LiquidGlassFilterBar, LiquidGlassInput, LiquidGlassNotice, LiquidGlassSelect, LiquidGlassTable } from '@/components/common/liquid-glass'
+import { LiquidGlassButton, LiquidGlassEmptyState, LiquidGlassInput, LiquidGlassNotice, LiquidGlassSelect, LiquidGlassTable } from '@/components/common/liquid-glass'
+import A2aListToolbar from '../A2aListToolbar.vue'
 import {
   approveA2aRemoteAgentRevision,
   disableA2aRemoteAgent,
@@ -28,7 +30,11 @@ import type {
   A2aTrustProfile,
 } from '@/types/a2aHub'
 import { a2aFormatDate, a2aLabel, a2aTone } from '@/utils/a2aHub'
+import { usePlatformCan } from '@/auth/usePlatformCan'
 
+const route = useRoute()
+const router = useRouter()
+const { can } = usePlatformCan()
 const loading = ref(false)
 const submitting = ref(false)
 const rows = ref<A2aRemoteAgent[]>([])
@@ -97,6 +103,16 @@ function callabilityLabel(code: string) {
   return labels[code] ?? code
 }
 
+function remoteStatusLabel(agent: A2aRemoteAgent): string {
+  if (agent.status !== 'TRUSTED') return a2aLabel(agent.status)
+  if (agent.healthStatus === 'UNREACHABLE') return '不可达'
+  if (!agent.callable) {
+    const label = callabilityLabel(agent.callabilityCode)
+    return label === agent.callabilityCode ? '暂不可调用' : label
+  }
+  return agent.healthStatus === 'DEGRADED' ? '健康降级' : '可调用'
+}
+
 async function reload() {
   loading.value = true
   try {
@@ -134,6 +150,12 @@ function resetDiscoverForm() {
   })
 }
 
+function openDiscover() {
+  if (!can('a2a-hub:remote-agent:manage')) return
+  resetDiscoverForm()
+  discoverVisible.value = true
+}
+
 async function openDetail(row: A2aRemoteAgent | number) {
   const id = typeof row === 'number' ? row : row.id
   detailVisible.value = true
@@ -168,7 +190,7 @@ function prepareReview(revision?: A2aRemoteAgentRevision) {
 async function submitDiscovery() {
   if (!discoverForm.remoteAgentKey.trim() || !discoverForm.displayName.trim()
     || !discoverForm.agentCardUrl.trim()) {
-    ElMessage.warning('请填写远程 Agent 标识、显示名称和 Agent Card HTTPS URL')
+    ElMessage.warning('请填写外部 Agent 标识、显示名称和 Agent Card HTTPS URL')
     return
   }
   submitting.value = true
@@ -197,7 +219,7 @@ async function rediscover() {
   if (!agent) return
   await ElMessageBox.confirm(
     '系统将从服务端重新执行 DNS/IP/TLS 校验并拉取 Agent Card。远端内容变化不会自动获得信任。',
-    '重新发现远程 Agent',
+    '重新发现外部 Agent',
     { type: 'warning', confirmButtonText: '开始验证' },
   )
   submitting.value = true
@@ -234,7 +256,7 @@ async function approveRevision() {
   }
   await ElMessageBox.confirm(
     '批准后会固定不可变修订、HTTP+JSON 接口、认证方案、出站凭据与 Trust Profile。远端调用仍由独立调用门禁控制。',
-    '批准远程 Agent 修订',
+    '批准外部 Agent 修订',
     { type: 'warning', confirmButtonText: '批准并固定' },
   )
   submitting.value = true
@@ -260,15 +282,15 @@ async function rejectRevision() {
   if (!agent || !revision) return
   try {
     const { value } = await ElMessageBox.prompt(
-      '拒绝后该远程 Agent 会保持隔离。请填写不包含凭据或敏感正文的审核原因。',
-      '拒绝远程 Agent 修订',
+      '拒绝后该外部 Agent 会保持隔离。请填写不包含凭据或敏感正文的审核原因。',
+      '拒绝外部 Agent 修订',
       { inputPlaceholder: '例如：提供方身份无法确认', confirmButtonText: '拒绝修订' },
     )
     submitting.value = true
     const { data } = await rejectA2aRemoteAgentRevision(agent.id, revision.id, value)
     detail.value = data
     selectedRevisionId.value = revision.id
-    ElMessage.warning('修订已拒绝，远程 Agent 保持隔离')
+    ElMessage.warning('修订已拒绝，外部 Agent 保持隔离')
     await reload()
   } catch {
     // Dialog cancellation is not an error.
@@ -281,7 +303,7 @@ async function changeEnabled(enabled: boolean) {
   const agent = detail.value?.remoteAgent
   if (!agent) return
   const action = enabled ? '启用' : '停用'
-  await ElMessageBox.confirm(`${action}远程 Agent 目录项？`, `${action}远程 Agent`, {
+  await ElMessageBox.confirm(`${action}外部 Agent 目录项？`, `${action}外部 Agent`, {
     type: 'warning',
   })
   const { data } = enabled
@@ -292,92 +314,67 @@ async function changeEnabled(enabled: boolean) {
   await reload()
 }
 
+watch(() => route.query.action, async (action) => {
+  if (action !== 'create') return
+  const nextQuery = { ...route.query }
+  delete nextQuery.action
+  await router.replace({ query: nextQuery })
+  openDiscover()
+}, { immediate: true })
+
 onMounted(reload)
 </script>
 
 <template>
-  <section class="remote-catalog">
-    <div class="section-intro">
-      <div>
-        <h2>远程 Agent 目录</h2>
-        <p>由 Control Service 安全发现并固定外部 Agent Card；远端变化必须形成新修订并重新审核。</p>
-      </div>
-      <div class="section-actions">
-        <LiquidGlassControl source="wallpaper">
-          <el-button :icon="Refresh" :loading="loading" @click="reload">刷新</el-button>
-        </LiquidGlassControl>
-        <LiquidGlassButton source="wallpaper" type="primary" :icon="Plus" @click="resetDiscoverForm(); discoverVisible = true">
-          发现远程 Agent
-        </LiquidGlassButton>
-      </div>
-    </div>
-
-    <LiquidGlassNotice
-      source="wallpaper"
-      type="info"
-      title="安全发现、不可变修订、认证方案、出站凭据与 Task 生命周期已经接通；调用仍必须经过 Agent 固定版本绑定。"
-      description="入站 Key 与出站秘密物理分离；只允许审核确认的 Header API Key 或 Bearer，并对 message:send、tasks:get、tasks:cancel 分别授权。Agent Card 正文只在审核抽屉中查看。"
-    />
-
+<section class="remote-catalog" aria-label="外部 Agent">
     <LiquidGlassTable
       class="workbench-list-surface"
       :current-page="Math.floor(query.offset / query.limit) + 1"
       :page-size="query.limit"
       :total="total"
+      :show-pagination="total > query.limit"
       :page-sizes="[20, 50, 100]"
-      pagination-label="远程 Agent 分页"
+      pagination-label="外部 Agent 分页"
       :loading="loading"
       :empty="!loading && rows.length === 0"
-      empty-description="还没有远程 Agent，点「发现远程 Agent」从 HTTPS Agent Card 建立目录项。"
+      empty-description="暂无外部 Agent"
       @change="changePage"
     >
       <template #toolbar>
-        <LiquidGlassFilterBar :loading="loading" :show-reset="false" @query="applyFilters">
-          <LiquidGlassInput v-model="query.search" clearable :prefix-icon="Search" placeholder="搜索标识或名称" aria-label="搜索远程 Agent" @clear="applyFilters" />
+        <A2aListToolbar :loading="loading" @query="applyFilters" @refresh="reload">
+          <LiquidGlassInput v-model="query.search" clearable :prefix-icon="Search" placeholder="搜索名称或标识" aria-label="搜索外部 Agent" @clear="applyFilters" />
           <LiquidGlassSelect v-model="query.status" class="short-filter" clearable placeholder="信任状态" dropdown-title="信任状态" aria-label="信任状态" @change="applyFilters">
             <el-option v-for="value in ['VERIFYING', 'REVIEW_REQUIRED', 'TRUSTED', 'DISABLED', 'QUARANTINED']" :key="value" :label="a2aLabel(value)" :value="value" />
           </LiquidGlassSelect>
           <LiquidGlassSelect v-model="query.health" class="short-filter" clearable placeholder="健康状态" dropdown-title="健康状态" aria-label="健康状态" @change="applyFilters">
             <el-option v-for="value in ['UNKNOWN', 'HEALTHY', 'DEGRADED', 'UNREACHABLE']" :key="value" :label="a2aLabel(value)" :value="value" />
           </LiquidGlassSelect>
-        </LiquidGlassFilterBar>
+          <template #actions>
+            <LiquidGlassButton v-if="can('a2a-hub:remote-agent:manage')" type="primary" :icon="Plus" @click="openDiscover">接入外部 Agent</LiquidGlassButton>
+          </template>
+        </A2aListToolbar>
       </template>
       <el-table :data="rows" row-key="id" empty-text=" " @row-click="openDetail">
-        <el-table-column label="远程 Agent" min-width="220">
+        <el-table-column label="外部 Agent" min-width="260" show-overflow-tooltip>
+          <template #default="{ row }"><div class="identity-cell"><strong>{{ row.displayName }}</strong><span>{{ row.remoteAgentKey }}</span></div></template>
+        </el-table-column>
+        <el-table-column label="状态" min-width="160">
           <template #default="{ row }">
-            <div class="identity-cell">
-              <strong>{{ row.displayName }}</strong>
-              <span>{{ row.remoteAgentKey }}</span>
-            </div>
+            <el-tag size="small" :type="row.status !== 'TRUSTED' ? a2aTone(row.status) : row.callable && !['DEGRADED', 'UNREACHABLE'].includes(row.healthStatus) ? 'success' : 'warning'"
+              :title="'信任：' + a2aLabel(row.status) + '；健康：' + a2aLabel(row.healthStatus)">
+              {{ remoteStatusLabel(row) }}
+            </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="tenantScope" label="Tenant Scope" min-width="130">
-          <template #default="{ row }">{{ row.tenantScope || '全局' }}</template>
-        </el-table-column>
-        <el-table-column label="状态" width="120">
-          <template #default="{ row }"><el-tag :type="a2aTone(row.status)" effect="plain">{{ a2aLabel(row.status) }}</el-tag></template>
-        </el-table-column>
-        <el-table-column label="健康" width="110">
-          <template #default="{ row }"><el-tag :type="a2aTone(row.healthStatus)" effect="plain">{{ a2aLabel(row.healthStatus) }}</el-tag></template>
-        </el-table-column>
-        <el-table-column label="可调用" min-width="180">
-          <template #default="{ row }">
-            <span class="callability" :class="{ ready: row.callable }">{{ row.callable ? '可调用' : callabilityLabel(row.callabilityCode) }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="最近发现" width="180">
-          <template #default="{ row }">{{ a2aFormatDate(row.lastDiscoveredAt) }}</template>
-        </el-table-column>
-        <el-table-column label="操作" width="90" fixed="right">
-          <template #default="{ row }"><el-button link type="primary" @click.stop="openDetail(row)">审核</el-button></template>
-        </el-table-column>
+        <el-table-column label="最近检查" width="180"><template #default="{ row }">{{ a2aFormatDate(row.lastHealthCheckedAt) }}</template></el-table-column>
+        <el-table-column label="操作" width="90" fixed="right"><template #default="{ row }"><el-button link type="primary" @click.stop="openDetail(row)">{{ row.status === 'REVIEW_REQUIRED' ? '审核' : '查看' }}</el-button></template></el-table-column>
       </el-table>
     </LiquidGlassTable>
 
     <AppDialog
       v-model="discoverVisible"
-      title="发现远程 Agent"
-      description="只接受 HTTPS Agent Card URL。服务端不会跟随重定向，并会拒绝私网、回环、链路本地、元数据和文档保留地址。"
+      title="接入外部 Agent"
+      description="填写服务方提供的 HTTPS Agent Card 地址。审核通过后，在本地 Agent 的协作配置中绑定使用。"
       width="640px"
       destroy-on-close
     >
@@ -396,10 +393,6 @@ onMounted(reload)
         <el-form-item label="Agent Card URL" required>
           <el-input v-model="discoverForm.agentCardUrl" placeholder="https://agent.example.com/.well-known/agent-card.json" />
         </el-form-item>
-        <div class="security-boundary">
-          <el-icon><Connection /></el-icon>
-          <span>URL 由 Control Service 拉取；浏览器不会直连远端，也不会携带平台登录态或入站凭据。</span>
-        </div>
       </el-form>
       <template #footer>
         <LiquidGlassButton @click="discoverVisible = false">取消</LiquidGlassButton>
@@ -409,7 +402,7 @@ onMounted(reload)
 
     <AppDrawer
       v-model="detailVisible"
-      title="远程 Agent 审核"
+      title="外部 Agent 审核"
       description="审阅远端声明、网络验证证据和修订历史，再显式固定接口与 Trust Profile。"
       size="min(92vw, 1180px)"
     >
@@ -437,6 +430,8 @@ onMounted(reload)
             <div><span>固定认证方案</span><strong>{{ detail.remoteAgent.preferredSecuritySchemeKey || '匿名 / 未固定' }}</strong></div>
             <div><span>调用门禁</span><strong>{{ callabilityLabel(detail.remoteAgent.callabilityCode) }}</strong></div>
             <div><span>最后结果</span><strong>{{ detail.remoteAgent.lastHealthSummary || '-' }}</strong></div>
+            <div><span>最近发现</span><strong>{{ a2aFormatDate(detail.remoteAgent.lastDiscoveredAt) }}</strong></div>
+            <div><span>最近检查</span><strong>{{ a2aFormatDate(detail.remoteAgent.lastHealthCheckedAt) }}</strong></div>
           </div>
 
           <LiquidGlassNotice
@@ -558,22 +553,17 @@ onMounted(reload)
 
 <style scoped lang="scss">
 .remote-catalog { display: flex; flex-direction: column; gap: var(--layout-page-gap); }
-.section-intro, .section-actions, .detail-header, .title-line, .revision-title, .tag-cluster, .approval-actions { display: flex; align-items: center; gap: 10px; }
-.section-intro, .detail-header, .revision-title { justify-content: space-between; align-items: flex-start; }
+.section-actions, .detail-header, .title-line, .revision-title, .tag-cluster, .approval-actions { display: flex; align-items: center; gap: 10px; }
+.detail-header, .revision-title { justify-content: space-between; align-items: flex-start; }
 .section-actions { flex-wrap: wrap; }
-.section-intro h2, .section-intro p, .detail-header h3, .detail-header p, .revision-title h4, .revision-title p { margin: 0; }
-.section-intro h2 { color: var(--text-on-wallpaper); font-size: 18px; }
-.section-intro p { margin-top: 4px; color: var(--text-on-wallpaper-secondary); font-size: 13px; }
+.detail-header h3, .detail-header p, .revision-title h4, .revision-title p { margin: 0; }
 .detail-header p, .revision-title p { margin-top: 4px; color: var(--text-muted); font-size: 13px; }
 /* 状态是短值，筛选条里收窄，把宽度留给搜索框。 */
 .workbench-list-surface :deep(.filter-bar__fields > .liquid-glass-control.short-filter) { flex: 0 1 160px; max-width: 180px; }
-.identity-cell strong, .identity-cell span { display: block; }
+.identity-cell strong, .identity-cell span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .identity-cell strong { color: var(--text-primary); }
 .identity-cell span { margin-top: 3px; color: var(--text-muted); font: 11px ui-monospace, SFMono-Regular, Consolas, monospace; }
-.callability { color: var(--status-warning); font-size: 12px; }
-.callability.ready { color: var(--status-success); }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-.security-boundary { display: flex; gap: 10px; align-items: flex-start; padding: 12px; border: 1px solid var(--border-divider); border-radius: var(--radius-md); color: var(--text-secondary); background: var(--surface-glass-control); line-height: 1.6; font-size: 12px; }
 .detail-shell { min-height: 240px; }
 .summary-grid, .claim-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 16px 0; }
 .summary-grid > div, .claim-grid > div { min-width: 0; padding: 10px; border: 1px solid var(--border-divider); border-radius: var(--radius-md); background: var(--surface-glass-control); }
@@ -602,5 +592,5 @@ onMounted(reload)
 .evidence-grid pre { max-height: 220px; margin: 0; overflow: auto; padding: 10px; border-radius: var(--radius-md); color: var(--code-text); background: var(--code-surface); font: 11px/1.6 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; }
 .hash-line { display: grid; gap: 5px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border-divider); color: var(--text-muted); font-size: 11px; }
 @media (max-width: 980px) { .summary-grid, .claim-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .evidence-grid { grid-template-columns: 1fr; } }
-@media (max-width: 760px) { .section-intro, .detail-header { flex-direction: column; } .form-grid, .review-layout { grid-template-columns: 1fr; } .workbench-list-surface :deep(.filter-bar__fields > .liquid-glass-control.short-filter) { max-width: none; } .revision-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 760px) { .detail-header { flex-direction: column; } .form-grid, .review-layout { grid-template-columns: 1fr; } .workbench-list-surface :deep(.filter-bar__fields > .liquid-glass-control.short-filter) { max-width: none; } .revision-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 </style>

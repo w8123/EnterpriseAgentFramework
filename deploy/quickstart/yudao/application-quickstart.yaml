@@ -1,0 +1,62 @@
+# 芋道一键体验配置：叠加在上游 application-local.yaml 之上（spring.profiles.active=local,quickstart）。
+spring:
+  datasource:
+    dynamic:
+      datasource:
+        master:
+          url: jdbc:mysql://${YUDAO_DB_HOST:mysql}:3306/yudao?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&nullCatalogMeansCurrent=true&rewriteBatchedStatements=true
+          username: yudao
+          password: ${YUDAO_DB_PASSWORD}
+        slave:
+          lazy: true
+          url: jdbc:mysql://${YUDAO_DB_HOST:mysql}:3306/yudao?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&nullCatalogMeansCurrent=true&rewriteBatchedStatements=true
+          username: yudao
+          password: ${YUDAO_DB_PASSWORD}
+  data:
+    redis:
+      host: ${YUDAO_REDIS_HOST:redis}
+      port: 6379
+      database: 1
+  redis:
+    host: ${YUDAO_REDIS_HOST:redis}
+    port: 6379
+    database: 1
+  quartz:
+    auto-startup: false
+    job-store-type: memory
+  boot:
+    admin:
+      client:
+        enabled: false
+
+yudao:
+  captcha:
+    enable: false
+  security:
+    mock-enable: false
+  reachai:
+    default-tenant-id: 1
+    default-user-id: 1
+  tenant:
+    ignore-urls:
+      - /jmreport/*
+      - /reachai/**
+
+reachai:
+  registry:
+    url: ${REACHAI_REGISTRY_URL:http://reachai-control:18603}
+    enrollment-token: ${REACHAI_REGISTRY_ENROLLMENT_TOKEN:}
+    credential-store-path: /app/data/reachai-credentials.properties
+  project:
+    code: yudao-erp
+    name: 芋道 ERP
+    base-url: ${YUDAO_INTERNAL_URL:http://yudao-server:48080}
+    environment: test
+  capability:
+    scan-mode: ANNOTATED_ONLY
+    scan-packages:
+      - cn.iocoder.yudao.module.erp.controller.admin
+
+logging:
+  file:
+    name: /app/logs/yudao-server.log

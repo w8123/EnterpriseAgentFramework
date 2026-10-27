@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 const root = process.cwd()
-const docPath = 'docs/architecture/internal-api-contracts.md'
+const docPath = 'docs/contracts/internal-apis.md'
 const internalPathPattern = /\/internal\/(?:runtime|capability|control)(?:\/[^"`'\s),}]*)?/g
 const internalPathExactPattern = /\/internal\/(?:runtime|capability|control)(?:\/.*)?/
 const mappingAnnotationPattern = /@(Get|Post|Put|Patch|Delete|Request)Mapping\s*\(([\s\S]*?)\)/g

@@ -14,7 +14,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",
-    "test": "npm run build && node --test dist/src",
+    "test": "npm run build && node --test dist/src/*.test.js",
     "schema:generate": "node scripts/generate-app-server-schema.mjs"
   },
   "managedExecutor": {

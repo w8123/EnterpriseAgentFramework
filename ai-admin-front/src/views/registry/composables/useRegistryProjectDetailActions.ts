@@ -69,7 +69,7 @@ export function useRegistryProjectDetailActions(deps: UseRegistryProjectDetailAc
     if (!deps.projectCode.value || deps.offlineInstanceCount.value === 0) return
     try {
       await ElMessageBox.confirm(
-        `将删除 ${deps.offlineInstanceCount.value} 条离线/心跳超时状态的实例心跳记录。是否继续？`,
+        `将删除 ${deps.offlineInstanceCount.value} 条离线状态的实例心跳记录。是否继续？`,
         '清理离线实例',
         { type: 'warning', confirmButtonText: '清理', cancelButtonText: '取消' },
       )

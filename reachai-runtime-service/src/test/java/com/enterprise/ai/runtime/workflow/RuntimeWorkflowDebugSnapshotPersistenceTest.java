@@ -55,7 +55,8 @@ class RuntimeWorkflowDebugSnapshotPersistenceTest {
     @BeforeEach
     void setUp() throws Exception {
         database = new RuntimeQueryTestDatabase(List.of("runtime_workflow", "runtime_executable_debug_session",
-                        "runtime_run", "runtime_trace_span", "runtime_tool_call_log"),
+                        // 结束运行时会统计 Guard 拒绝与确认次数，缺这张表会让结束写入失败、运行一直停在 RUNNING
+                        "runtime_run", "runtime_trace_span", "runtime_tool_call_log", "runtime_guard_decision_log"),
                 RuntimeWorkflowDefinitionMapper.class, RuntimeExecutableDebugSessionMapper.class,
                 RuntimeRunMapper.class, RuntimeTraceSpanMapper.class, RuntimeToolCallLogMapper.class);
         workflows = database.mapper(RuntimeWorkflowDefinitionMapper.class);

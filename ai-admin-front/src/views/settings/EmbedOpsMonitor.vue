@@ -14,7 +14,6 @@
       <template #actions>
         <LiquidGlassButton source="wallpaper" :icon="ChatDotRound" @click="goSessionAudit">嵌入式会话审计</LiquidGlassButton>
         <LiquidGlassButton source="wallpaper" :icon="Lock" @click="openCredentialDrawer">嵌入授权</LiquidGlassButton>
-        <LiquidGlassButton source="wallpaper" :icon="Cpu" @click="openRendererDrawer">嵌入渲染器</LiquidGlassButton>
       </template>
     </PageHeader>
 
@@ -282,50 +281,6 @@
         <LiquidGlassButton type="primary" :loading="credentialSaving" @click="saveCredentialPolicy">保存策略</LiquidGlassButton>
       </template>
     </AppDialog>
-
-    <AppDrawer
-      v-model="rendererDrawerVisible"
-      title="嵌入渲染器注册表"
-      size="760px"
-      destroy-on-close
-    >
-      <el-form class="renderer-form" inline>
-        <el-form-item label="渲染器">
-          <el-input v-model="rendererForm.rendererKey" clearable placeholder="bzsdk.teamProfile" />
-        </el-form-item>
-        <el-form-item label="版本">
-          <el-input v-model="rendererForm.version" clearable placeholder="1.0.0" />
-        </el-form-item>
-        <el-form-item label="智能体">
-          <el-input v-model="rendererAgentsText" clearable placeholder="agent-a,agent-b" />
-        </el-form-item>
-        <el-form-item>
-          <el-button v-if="canManageEmbed" type="primary" :loading="rendererSaving" @click="saveRenderer">保存渲染器</el-button>
-          <el-button :loading="rendererLoading" @click="loadRenderers">刷新</el-button>
-        </el-form-item>
-      </el-form>
-      <el-table
-        v-loading="rendererLoading"
-        :data="renderers"
-        row-key="id"
-        size="small"
-      >
-        <el-table-column prop="rendererKey" label="渲染器" min-width="180" show-overflow-tooltip />
-        <el-table-column prop="version" label="版本" width="120" />
-        <el-table-column prop="allowedAgentIdsJson" label="允许智能体" min-width="180" show-overflow-tooltip />
-        <el-table-column prop="status" label="状态" width="100">
-          <template #default="{ row }">
-            <CommonStatusTag :status="row.status" />
-          </template>
-        </el-table-column>
-        <el-table-column v-if="canManageEmbed" label="操作" width="180">
-          <template #default="{ row }">
-            <el-button link type="primary" @click="editRenderer(row)">编辑</el-button>
-            <el-button link type="danger" @click="disableRenderer(row)">停用</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-    </AppDrawer>
   </LiquidGlassPage>
 </template>
 
@@ -345,24 +300,18 @@ import {
 import type { MetricStripItem } from '@/components/common/glassWorkbench'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ChatDotRound, Cpu, Lock, Monitor, Search } from '@element-plus/icons-vue'
+import { ChatDotRound, Lock, Monitor, Search } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import CommonStatusTag from '@/components/CommonStatusTag.vue'
 import { formatRelativeTime } from '@/utils/relativeTime'
 import {
-  createEmbedRenderer,
   deletePageRegistry,
-  disableEmbedRenderer as disableEmbedRendererApi,
   listEmbedCredentialPolicies,
-  listEmbedRenderers,
   listPageActionReferences,
   listPageActionCatalog,
   listPageRegistry,
   updateEmbedCredentialPolicy,
-  updateEmbedRenderer,
   type EmbedCredentialPolicyView,
-  type EmbedRendererPayload,
-  type EmbedRendererView,
   type PageActionReferenceView,
   type PageActionRegistryView,
   type PageRegistryView,
@@ -376,8 +325,6 @@ const router = useRouter()
 const catalogLoading = ref(false)
 const credentialLoading = ref(false)
 const credentialSaving = ref(false)
-const rendererLoading = ref(false)
-const rendererSaving = ref(false)
 const referenceLoading = ref(false)
 const deletingPageId = ref<number | null>(null)
 const pageRegistry = ref<PageRegistryView[]>([])
@@ -388,10 +335,8 @@ const actionDrawerVisible = ref(false)
 const referenceDialogVisible = ref(false)
 const referenceAction = ref<PageActionRegistryView | null>(null)
 const credentialPolicies = ref<EmbedCredentialPolicyView[]>([])
-const renderers = ref<EmbedRendererView[]>([])
 const credentialDrawerVisible = ref(false)
 const credentialDialogVisible = ref(false)
-const rendererDrawerVisible = ref(false)
 const currentProjectCode = computed(() => String(route.params.projectCode || route.query.projectCode || ''))
 const { can } = usePlatformCan()
 const canManageEmbed = computed(() => can(PLATFORM_PERMISSION_EMBED_MANAGE))
@@ -403,18 +348,10 @@ const editingCredentialKey = ref('')
 const credentialOriginsText = ref('')
 const credentialAgentsText = ref('')
 const credentialTtlSeconds = ref(600)
-const editingRendererId = ref<number | null>(null)
-const rendererAgentsText = ref('')
 const catalogFilters = reactive({
   pageKey: String(route.query.pageKey || ''),
   actionKeyword: '',
   status: '',
-})
-const rendererForm = reactive({
-  rendererKey: '',
-  name: '',
-  version: '1.0.0',
-  status: 'ACTIVE',
 })
 
 const filteredActions = computed(() => {
@@ -573,65 +510,6 @@ async function saveCredentialPolicy() {
   } finally {
     credentialSaving.value = false
   }
-}
-
-async function loadRenderers() {
-  rendererLoading.value = true
-  try {
-    const params = currentProjectCode.value ? { appId: currentProjectCode.value } : {}
-    const { data } = await listEmbedRenderers(params)
-    renderers.value = data || []
-  } finally {
-    rendererLoading.value = false
-  }
-}
-
-async function openRendererDrawer() {
-  rendererDrawerVisible.value = true
-  await loadRenderers()
-}
-
-async function saveRenderer() {
-  rendererSaving.value = true
-  try {
-    const payload: EmbedRendererPayload = {
-      appId: currentProjectCode.value,
-      rendererKey: rendererForm.rendererKey.trim(),
-      name: rendererForm.name.trim() || rendererForm.rendererKey.trim(),
-      version: rendererForm.version.trim() || '1.0.0',
-      inputSchema: {},
-      allowedAgentIds: rendererAgentsText.value.split(',').map((item) => item.trim()).filter(Boolean),
-      status: rendererForm.status,
-    }
-    if (editingRendererId.value) {
-      await updateEmbedRenderer(editingRendererId.value, payload)
-    } else {
-      await createEmbedRenderer(payload)
-    }
-    editingRendererId.value = null
-    await loadRenderers()
-  } finally {
-    rendererSaving.value = false
-  }
-}
-
-function editRenderer(row: EmbedRendererView) {
-  editingRendererId.value = row.id
-  rendererForm.rendererKey = row.rendererKey
-  rendererForm.name = row.name || row.rendererKey
-  rendererForm.version = row.version || '1.0.0'
-  rendererForm.status = row.status || 'ACTIVE'
-  try {
-    const agents = JSON.parse(row.allowedAgentIdsJson || '[]')
-    rendererAgentsText.value = Array.isArray(agents) ? agents.join(',') : ''
-  } catch {
-    rendererAgentsText.value = ''
-  }
-}
-
-async function disableRenderer(row: EmbedRendererView) {
-  await disableEmbedRendererApi(row.id)
-  await loadRenderers()
 }
 
 async function openActionReferences(row: PageActionRegistryView) {
@@ -847,17 +725,6 @@ onMounted(loadCatalog)
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.renderer-form {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 12px;
-  margin-bottom: 14px;
-}
-
-.renderer-form :deep(.el-form-item) {
-  margin: 0;
 }
 
 @media (max-width: 980px) {

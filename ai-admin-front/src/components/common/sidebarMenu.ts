@@ -103,7 +103,7 @@ export const sidebarMenu: SidebarEntry[] = [
     icon: Share,
     children: [
       { index: '/api-market', label: 'API 市场', requiredPermissions: [PLATFORM_PERMISSION_READ] },
-      { index: '/mcp-hub', label: 'MCP Hub', requiredPermissions: [PLATFORM_PERMISSION_MCP_HUB_READ] },
+      { index: '/mcp-hub', label: 'MCP 开放', requiredPermissions: [PLATFORM_PERMISSION_MCP_HUB_READ] },
       { index: '/a2a-hub', label: 'A2A 互联中心', requiredPermissions: [PLATFORM_PERMISSION_A2A_HUB_READ] },
     ],
   },

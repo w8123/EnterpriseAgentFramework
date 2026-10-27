@@ -153,8 +153,9 @@ class HttpApiMarketBindingE2eIntegrationTest {
             assertEquals("UNKNOWN", verification(f).get("status"));
             assertEquals(200, f.multiSourcePublicRequest("POST", "/api/apis/1/invocations", f.marketInvocationBody(1)).statusCode());
             var current = f.marketConnection(1);
-            var saved = f.multiSourcePublicRequest("PUT", "/api/apis/1/connection", Map.of("origin", current.get("origin"),
-                    "authMode", "NONE", "expectedRevision", current.get("revision")));
+            var save = new java.util.LinkedHashMap<String, Object>(Map.of("origin", current.get("origin"), "authMode", "NONE"));
+            save.put("expectedRevision", BusinessMethodWorkflowMcpE2eIntegrationTest.Fixture.overrideRevision(current));
+            var saved = f.multiSourcePublicRequest("PUT", "/api/apis/1/connection", save);
             assertEquals(200, saved.statusCode()); assertEquals("STALE", verification(f).get("status"));
             int before = ((Number)f.marketEvidence().get("upstreamRequests")).intValue();
             for (String kind : List.of("entry", "version", "operation")) {

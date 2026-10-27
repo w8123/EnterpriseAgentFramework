@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 const root = process.cwd()
-const ownershipDoc = 'docs/architecture/service-table-ownership.md'
+const ownershipDoc = 'docs/contracts/tables.md'
 const serviceRoots = [
   'reachai-control-service',
   'reachai-runtime-service',

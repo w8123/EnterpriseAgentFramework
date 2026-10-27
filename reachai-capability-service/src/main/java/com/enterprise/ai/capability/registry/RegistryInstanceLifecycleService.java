@@ -6,6 +6,7 @@ import com.enterprise.ai.agent.registry.ProjectInstanceEntity;
 import com.enterprise.ai.agent.registry.ProjectInstanceMapper;
 import com.enterprise.ai.agent.registry.RegistryContracts.InstanceHeartbeatRequest;
 import com.enterprise.ai.agent.registry.RegistryContracts.InstanceHeartbeatResponse;
+import com.enterprise.ai.capability.catalog.scan.CapabilityProjectInstanceOnlineSupport;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -49,9 +50,14 @@ public class RegistryInstanceLifecycleService {
     }
 
     public List<ProjectInstanceEntity> listInstances(ScanProjectEntity project) {
-        return instanceMapper.selectList(Wrappers.<ProjectInstanceEntity>lambdaQuery()
+        List<ProjectInstanceEntity> instances = instanceMapper.selectList(Wrappers.<ProjectInstanceEntity>lambdaQuery()
                 .eq(ProjectInstanceEntity::getProjectId, project.getId())
                 .orderByDesc(ProjectInstanceEntity::getLastHeartbeatAt));
+        LocalDateTime now = LocalDateTime.now();
+        // Derive liveness on read; never overwrite a concurrent heartbeat or administrative state.
+        instances.forEach(instance -> instance.setStatus(
+                CapabilityProjectInstanceOnlineSupport.statusOrNull(instance, now)));
+        return instances;
     }
 
     @Transactional(propagation = Propagation.MANDATORY)
@@ -72,10 +78,15 @@ public class RegistryInstanceLifecycleService {
     @Transactional(propagation = Propagation.MANDATORY)
     public int purgeOfflineInstances(ScanProjectEntity project, int minIdleMinutes) {
         int minutes = Math.max(0, minIdleMinutes);
-        LocalDateTime cutoff = LocalDateTime.now().minusMinutes(minutes);
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime cutoff = now.minusMinutes(minutes);
+        LocalDateTime onlineCutoff = now.minusMinutes(CapabilityProjectInstanceOnlineSupport.HEARTBEAT_ONLINE_MINUTES);
         return instanceMapper.delete(Wrappers.<ProjectInstanceEntity>lambdaQuery()
                 .eq(ProjectInstanceEntity::getProjectCode, project.getProjectCode())
-                .in(ProjectInstanceEntity::getStatus, List.of("OFFLINE", "STALE"))
+                .and(q -> q.in(ProjectInstanceEntity::getStatus, List.of("OFFLINE", "STALE"))
+                        .or(expired -> expired.eq(ProjectInstanceEntity::getStatus, "ONLINE")
+                                .and(heartbeat -> heartbeat.isNull(ProjectInstanceEntity::getLastHeartbeatAt)
+                                        .or().le(ProjectInstanceEntity::getLastHeartbeatAt, onlineCutoff))))
                 .and(q -> q.isNull(ProjectInstanceEntity::getLastHeartbeatAt)
                         .or()
                         .lt(ProjectInstanceEntity::getLastHeartbeatAt, cutoff)));
@@ -89,6 +100,7 @@ public class RegistryInstanceLifecycleService {
         if (entity == null) {
             throw new IllegalArgumentException("实例不存在: " + instanceId);
         }
+        entity.setStatus(CapabilityProjectInstanceOnlineSupport.statusOrNull(entity));
         return entity;
     }
 

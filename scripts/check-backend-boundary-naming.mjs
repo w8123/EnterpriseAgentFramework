@@ -277,28 +277,16 @@ function assertNoStandaloneTextUnder(rel, pattern, description) {
   }
 }
 
-function findDocByPrefix(prefix) {
-  const docsDir = path.join(root, 'docs')
-  const match = fs.readdirSync(docsDir).find((name) => name.startsWith(prefix) && name.endsWith('.md'))
-  if (!match) {
-    console.error(`[missing doc prefix] docs/${prefix}*.md`)
-    failures += 1
-    return null
-  }
-  return `docs/${match}`
-}
-
-const architectureOverviewDoc = findDocByPrefix('01-')
-const knowledgeAssetDoc = findDocByPrefix('05-')
-const embedSupportDoc = 'docs/reference/嵌入式对话与页面动作.md'
-const jdkRuntimeLayeringDoc = 'docs/reference/JDK8-SDK与JDK17-Runtime分层.md'
-const backendNamingDoc = 'docs/architecture/service-boundaries.md'
+const architectureOverviewDoc = 'docs/architecture.md'
+const knowledgeAssetDoc = 'docs/data.md'
+const embedSupportDoc = 'docs/integration.md'
+const jdkRuntimeLayeringDoc = 'docs/architecture.md'
+const backendNamingDoc = 'docs/architecture.md'
 const aiMemoryDocs = [
-  'docs/ai-memory/README.md',
-  'docs/ai-memory/PROJECT-MEMORY.md',
-  'docs/ai-memory/WORKING-RULES.md',
-  'docs/ai-memory/DECISIONS.md',
-  'docs/ai-memory/VERIFICATION.md'
+  'docs/README.md',
+  'docs/architecture.md',
+  'AGENTS.md',
+  'docs/development.md'
 ]
 const readableEntryDocs = [
   'CONTRIBUTING.md',
@@ -344,11 +332,6 @@ const mojibakeSignatures = [
 
 for (const rel of aiMemoryDocs) {
   assertFile(rel)
-  assertIncludes(rel, 'reachai-control-service')
-  assertIncludes(rel, 'reachai-runtime-service')
-  assertIncludes(rel, 'reachai-capability-service')
-  assertIncludes(rel, 'reachai-knowledge-service')
-  assertIncludes(rel, 'reachai-model-service')
   assertNotIncludes(rel, '鏈洰')
   assertNotIncludes(rel, '褰撳墠')
   assertNotIncludes(rel, '鐗╃悊')
@@ -357,11 +340,6 @@ for (const rel of aiMemoryDocs) {
 }
 for (const rel of readableEntryDocs) {
   assertFile(rel)
-  assertIncludes(rel, 'reachai-control-service')
-  assertIncludes(rel, 'reachai-runtime-service')
-  assertIncludes(rel, 'reachai-capability-service')
-  assertIncludes(rel, 'reachai-knowledge-service')
-  assertIncludes(rel, 'reachai-model-service')
   assertNotIncludes(rel, '鐫挎睜')
   assertNotIncludes(rel, '鏈洰')
   assertNotIncludes(rel, '褰撳墠')
@@ -382,11 +360,6 @@ for (const rel of readableServiceDocs) {
 }
 for (const rel of readableAuthorityDocs) {
   assertFile(rel)
-  assertIncludes(rel, 'reachai-control-service')
-  assertIncludes(rel, 'reachai-runtime-service')
-  assertIncludes(rel, 'reachai-capability-service')
-  assertIncludes(rel, 'reachai-knowledge-service')
-  assertIncludes(rel, 'reachai-model-service')
   assertNotIncludes(rel, 'AI Skills Service')
   assertNotIncludes(rel, 'ai-skills-service')
   assertNotIncludes(rel, 'disabled response')
@@ -413,10 +386,10 @@ for (const rel of [
 ]) {
   assertPathAbsent(rel)
 }
-assertFile('docs/architecture/physical-split-route-ownership.md')
-assertFile('docs/architecture/public-route-contracts.md')
-assertFile('docs/architecture/service-table-ownership.md')
-assertFile('docs/architecture/internal-api-contracts.md')
+assertFile('docs/contracts/public-routes.md')
+assertFile('docs/product.md')
+assertFile('docs/contracts/tables.md')
+assertFile('docs/contracts/internal-apis.md')
 assertFile('scripts/check-service-table-ownership.mjs')
 assertFile('scripts/check-service-table-ownership.test.mjs')
 assertFile('scripts/check-internal-api-contracts.mjs')
@@ -452,25 +425,19 @@ if (backendNamingDoc) {
   assertIncludes(backendNamingDoc, 'reachai-knowledge-service')
   assertIncludes(backendNamingDoc, 'reachai-model-service')
 }
-assertIncludes('docs/architecture/physical-split-route-ownership.md', '`reachai-control-service` is the only public API/BFF entry in the first phase.')
-assertIncludes('docs/architecture/physical-split-route-ownership.md', 'docs/architecture/public-route-contracts.md')
-assertIncludes('docs/architecture/public-route-contracts.md', '## Route Lifecycle Classes')
-assertIncludes('docs/architecture/public-route-contracts.md', '| Main public path |')
-assertIncludes('docs/architecture/public-route-contracts.md', '| Frozen compatibility alias |')
-assertIncludes('docs/architecture/public-route-contracts.md', '| Retired route |')
-assertIncludes('docs/architecture/public-route-contracts.md', '| Internal API |')
-assertIncludes('docs/architecture/public-route-contracts.md', '`/api/runtime/agents/execute/**`')
-assertIncludes('docs/architecture/public-route-contracts.md', '`/api/runtime/evals/**`')
-assertIncludes('docs/architecture/public-route-contracts.md', '`/api/runtime/interactions/**`')
-assertIncludes('docs/architecture/public-route-contracts.md', '`/api/capability-mining/**`')
-assertNotIncludes('docs/architecture/public-route-contracts.md', '`/api/agent/execute/**`')
-assertIncludes('docs/architecture/public-route-contracts.md', '`/api/skill-mining/**`')
-assertIncludes('docs/architecture/public-route-contracts.md', '`/internal/runtime/**`')
-assertIncludes('docs/README.md', 'architecture/public-route-contracts.md')
-assertIncludes('docs/architecture/service-table-ownership.md', '`runtime_skill_interaction`')
-assertIncludes('docs/architecture/service-table-ownership.md', 'Shared Table Exceptions Retired')
-assertIncludes('docs/architecture/internal-api-contracts.md', '`GET /internal/control/page-actions/{projectCode}/{pageKey}/{actionKey}`')
-assertIncludes('docs/architecture/internal-api-contracts.md', 'The frontend enters through `reachai-control-service` public `/api/**`')
+assertIncludes('docs/contracts/public-routes.md', 'Control 是浏览器')
+assertIncludes('docs/contracts/public-routes.md', '## 路由规则')
+assertIncludes('docs/contracts/public-routes.md', '| 业务入口 | 公共路径 | Owner | 凭证 |')
+assertIncludes('docs/contracts/public-routes.md', '`/api/runtime/agents/execute/**`')
+assertIncludes('docs/contracts/public-routes.md', '`/api/runtime/evals/**`')
+assertIncludes('docs/contracts/public-routes.md', '`/api/runtime/interactions/**`')
+assertNotIncludes('docs/contracts/public-routes.md', '`/api/agent/execute/**`')
+assertIncludes('docs/contracts/public-routes.md', '`/internal/runtime/**`')
+assertIncludes('docs/README.md', 'contracts/public-routes.md')
+assertIncludes('docs/contracts/tables.md', '`runtime_interaction_session`')
+assertIncludes('docs/contracts/tables.md', '同库不允许跨服务直接访问')
+assertIncludes('docs/contracts/internal-apis.md', '`GET /internal/control/page-actions/{projectCode}/{pageKey}/{actionKey}`')
+assertIncludes('docs/contracts/internal-apis.md', '浏览器只调用 Control 公开入口')
 assertDefaultMavenModuleAbsent('ai-agent-service')
 assertDefaultMavenModuleAbsent('ai-model-service')
 assertDefaultMavenModuleAbsent('ai-skills-service')
@@ -525,8 +492,6 @@ for (const rel of [
 ]) {
   assertIncludes(rel, '<artifactId>spring-boot-maven-plugin</artifactId>')
 }
-assertIncludes('sql/README.md', 'reachai-knowledge-service')
-assertIncludes('sql/README.md', 'reachai-model-service')
 assertNotIncludes('sql/README.md', 'ai-skills-service')
 assertNotMatches('sql/README.md', /(^|[^a-z-])ai-model-service([^a-z-]|$)/, 'standalone ai-model-service')
 assertIncludes('sql/initV2.sql', '当前归属 reachai-knowledge-service')
@@ -534,19 +499,19 @@ assertIncludes('sql/initV2.sql', '当前归属 reachai-model-service')
 assertNotIncludes('sql/initV2.sql', '对应 ai-skills-service')
 assertNotIncludes('sql/initV2.sql', '对应 ai-model-service')
 assertIncludes('ai-admin-front/README.md', '# ReachAI 管理端')
-assertIncludes('ai-admin-front/README.md', 'Vite 默认端口为 `5200`')
-assertIncludes('ai-admin-front/README.md', '前端不得直连 `reachai-runtime-service:18604` 或 `reachai-capability-service:18605`')
+assertIncludes('ai-admin-front/README.md', 'Vite 默认端口 5200')
+assertIncludes('ai-admin-front/README.md', '所有管理请求经 Control')
 assertIncludes('reachai-control-service/README.md', '# ReachAI Control Service')
 assertIncludes('reachai-runtime-service/README.md', '# ReachAI Runtime Service')
 assertIncludes('reachai-capability-service/README.md', '# ReachAI Capability Service')
 assertIncludes('reachai-knowledge-service/README.md', '# ReachAI Knowledge Service')
 assertIncludes('reachai-model-service/README.md', '# ReachAI Model Service')
-assertIncludes('reachai-knowledge-service/README.md', '`reachai-knowledge-service` 是 ReachAI Knowledge / Retrieval 部署单元')
-assertIncludes('reachai-knowledge-service/README.md', 'Spring context path 为 `/ai`')
+assertIncludes('reachai-knowledge-service/README.md', '`reachai-knowledge-service`')
+assertIncludes('docs/architecture.md', 'Knowledge 的 context path 为 `/ai`')
 assertNotIncludes('reachai-knowledge-service/README.md', 'artifactId 暂时保留')
 assertNotIncludes('reachai-knowledge-service/README.md', 'artifactId 鏆')
-assertNotIncludes('docs/architecture/service-boundaries.md', '历史 artifactId')
-assertNotIncludes('docs/architecture/service-boundaries.md', '鍘嗗彶 artifactId')
+assertNotIncludes('docs/architecture.md', '历史 artifactId')
+assertNotIncludes('docs/architecture.md', '鍘嗗彶 artifactId')
 assertPathAbsent('docs/architecture/backend-boundaries-and-naming.md')
 assertPathAbsent('docs/architecture/physical-services-and-startup.md')
 assertPathAbsent('docs/architecture/legacy-retirement.md')

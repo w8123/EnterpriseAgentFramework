@@ -19,6 +19,10 @@
     "sourceSha256": "3335b16232032c2f8e71276b296f59d3d511c51e8101d4d054b1b6856bb9a230",
     "contentTreeSha256": "6027de1884a657564f12652da8847aae4e2a7871b1d9c216c05f96e301c493a1"
   },
+  "reachai-onboarding@0.6.3": {
+    "sourceSha256": "c4d0ea12851c9ba898a8e47beb8e501c39a2181ea816d3b2c2991bfaee279d49",
+    "contentTreeSha256": "1e3961b133553db0ca7f6ef888ac2ebe724aa5002d1529ec97d92719cdd3042d"
+  },
   "workflow-ai-coding@0.1.0": {
     "sourceSha256": "168d6b2163e689a51340dc6bd477776df3ab337eabdde8c8ff45088865f84c23",
     "contentTreeSha256": "c609d5cdd1ca89782fabbbd99d5a9ad9ccc95751035fc785732b75fcbae171c0"
@@ -26,5 +30,9 @@
   "workflow-ai-coding@0.1.1": {
     "sourceSha256": "d31c8aca90fb568118d91f7342dfb11f17148b1301fcfded5fae1d51e189d012",
     "contentTreeSha256": "a77c4884c6a25631b00563f943c3aa97402d1ddc471b732bbb43a4f887bb2646"
+  },
+  "workflow-ai-coding@0.1.2": {
+    "sourceSha256": "8d3605ddd5bfe016ea7ea480f0aed0f8f6871aca81683cd6d4c85ddf0161494f",
+    "contentTreeSha256": "3f237764148df53776853f7239da9c135bfee95886c9f2325abeb5f1ac9bbcdd"
   }
 }

@@ -19,9 +19,6 @@ public final class WorkflowCheckpointCodec {
     public static final String ENGINE_VERSION = "RUNTIME_KERNEL_V2";
     public static final int DEFAULT_MAX_CHECKPOINT_BYTES = 256 * 1024;
     public static final int HARD_MAX_CHECKPOINT_BYTES = 1024 * 1024;
-    /** @deprecated use {@link #DEFAULT_MAX_CHECKPOINT_BYTES}; retained for source compatibility. */
-    @Deprecated
-    public static final int MAX_CHECKPOINT_BYTES = DEFAULT_MAX_CHECKPOINT_BYTES;
 
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() { };
     private static final Set<String> RESERVED_STATE_KEYS = Set.of(

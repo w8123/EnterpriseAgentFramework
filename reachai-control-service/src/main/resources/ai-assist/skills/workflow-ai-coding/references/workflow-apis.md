@@ -22,7 +22,7 @@ Responses:
 - `401` — missing `aiCodingKey`
 - `403` — invalid key or AI Coding access disabled for the project
 
-These endpoints do **not** accept platform Bearer login. Admin UI (Workflow Studio `/api/workflows/studio/**`) continues to use Bearer separately.
+These endpoints use the project key. Workflow Studio `/api/workflows/studio/**` uses the platform HttpOnly session Cookie; non-read-only browser requests also send `X-ReachAI-CSRF`.
 
 API base URL depends on deployment; use the base URL in the current project or task handoff context.
 

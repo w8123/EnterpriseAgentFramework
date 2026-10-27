@@ -1,5 +1,7 @@
 import { controlRequest } from './request'
 import type {
+  McpWriteApproval,
+  McpWriteApprovalPage,
   McpCallLogEntry,
   McpCallLogPageView,
   McpClientCredentialIssue,
@@ -142,7 +144,7 @@ export function getMcpEmployeeAccess(publicationId: number) {
 
 export function saveMcpEmployeeAccess(
   publicationId: number,
-  body: { projectId?: number; projectCode: string; displayName?: string; enabled: boolean },
+  body: { projectId?: number; projectCode: string; displayName?: string; enabled: boolean; writeApprovalRequired?: boolean },
 ) {
   return controlRequest.put<McpEmployeeAccessView>(`${ROOT}/publications/${publicationId}/employee-access`, body)
 }
@@ -159,4 +161,29 @@ export function listMcpEmployeeConnections(params?: {
 
 export function revokeMcpEmployeeConnection(id: number) {
   return controlRequest.post<McpEmployeeConnection>(`${ROOT}/employee-connections/${id}/revoke`)
+}
+
+// ===== 写操作审批（员工 AI 工具发起的写操作） =====
+
+export function listMcpWriteApprovals(params?: {
+  projectCode?: string
+  state?: string
+  keyword?: string
+  limit?: number
+  offset?: number
+}) {
+  return controlRequest.get<McpWriteApprovalPage>(`${ROOT}/write-approvals`, { params })
+}
+
+export function getMcpWriteApproval(id: number) {
+  return controlRequest.get<McpWriteApproval>(`${ROOT}/write-approvals/${id}`)
+}
+
+export function approveMcpWriteApproval(id: number, comment?: string) {
+  // 通过后会立即以员工身份执行一次，留足执行时间。
+  return controlRequest.post<McpWriteApproval>(`${ROOT}/write-approvals/${id}/approve`, { comment }, { timeout: 130000 })
+}
+
+export function rejectMcpWriteApproval(id: number, comment?: string) {
+  return controlRequest.post<McpWriteApproval>(`${ROOT}/write-approvals/${id}/reject`, { comment })
 }

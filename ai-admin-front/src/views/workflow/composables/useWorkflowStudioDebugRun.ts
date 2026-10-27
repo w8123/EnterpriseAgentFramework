@@ -914,7 +914,6 @@ export function useWorkflowStudioDebugRun(deps: UseWorkflowStudioDebugRunDeps) {
     debugStepStatus,
     stringifyDebugPayload,
     formatElapsed,
-    buildDebugBaseRequest,
     nodeDebugState,
     nodeRunClass,
     nodeRunLabel,

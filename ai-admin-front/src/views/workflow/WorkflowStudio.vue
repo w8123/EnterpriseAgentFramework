@@ -463,7 +463,6 @@ import {
   ArrowRight,
   ArrowUp,
   Close,
-  Delete,
   Grid,
   Search,
 } from '@element-plus/icons-vue'
@@ -540,7 +539,6 @@ import WorkflowStudioEvalTargetDialog from '@/views/workflow/studio-overlays/Wor
 import WorkflowStudioPublishDialog from '@/views/workflow/studio-overlays/WorkflowStudioPublishDialog.vue'
 import WorkflowStudioSourceDrawer from '@/views/workflow/studio-overlays/WorkflowStudioSourceDrawer.vue'
 import WorkflowStudioVersionsDialog from '@/views/workflow/studio-overlays/WorkflowStudioVersionsDialog.vue'
-import { useWorkflowStudioNodeMetadata } from '@/views/workflow/composables/useWorkflowStudioNodeMetadata'
 import { useWorkflowStudioPalette } from '@/views/workflow/composables/useWorkflowStudioPalette'
 import { useWorkflowStudioDebugSession } from '@/views/workflow/composables/useWorkflowStudioDebugSession'
 import { isPlatformAuthenticated, platformSessionId, platformSessionUser } from '@/auth/platformSession'
@@ -872,7 +870,6 @@ const {
   graphNodeTypeCapabilitiesLoaded,
 })
 
-const { nodeKindLabel } = useWorkflowStudioNodeMetadata()
 
 // Every node kind renders through StudioNodeCard; VueFlow still needs one slot per node type.
 const studioCanvasNodeKinds: CanvasNodeKind[] = [
@@ -1196,7 +1193,6 @@ const {
   deleteSelection,
   deleteSelectedNode,
   syncSelectedEdgeLabel,
-  applySelectedEdgeCondition,
   edgeDisplayLabel,
   stripTransientNodeClasses,
 } = useWorkflowStudioCanvasActions({
@@ -1227,7 +1223,6 @@ const {
 })
 
 const {
-  canvasStats,
   graphVariables,
   graphLintItems,
   graphLintErrors,
@@ -1363,7 +1358,6 @@ const {
 })
 
 const {
-  buildDebugBaseRequest,
   nodeDebugState: resolveNodeDebugState,
   nodeRunClass: resolveNodeRunClass,
   nodeRunLabel: resolveNodeRunLabel,
@@ -1469,8 +1463,6 @@ const {
   regenerateAiAuthoring,
   clearAiEditPreview,
   applyAiEditPreview,
-  operationKey,
-  operationTarget,
 } = useWorkflowStudioProposalActions({
   workflowId,
   studioReadOnly,
@@ -1682,11 +1674,20 @@ onMounted(async () => {
     ElMessage.warning('旧扫描 API 查询模板已退场；请添加 API 节点并用“选择 API”，再由展示输出交互消费节点结果。原图保持不变。')
   }
   focusReferenceNode()
+  prefillAiInstructionFromRoute()
   resetHistorySnapshot()
   await validateRuntime({ silent: true, syncCanvas: false })
   window.addEventListener('resize', updateViewportWidth)
   window.addEventListener('keydown', handleStudioShortcut)
 })
+
+/** 「沉淀成 Skill」里的「生成 Workflow 草稿」把运行步骤写成需求，带到 AI 编辑栏里由用户确认生成。 */
+function prefillAiInstructionFromRoute() {
+  const instruction = typeof route.query.aiInstruction === 'string' ? route.query.aiInstruction.trim() : ''
+  if (!instruction || !canWriteWorkflow.value || nodes.value.length) return
+  aiEditInstruction.value = instruction.slice(0, 2000)
+  aiEditMinimized.value = false
+}
 
 onUnmounted(() => {
   clearPanelValidation()

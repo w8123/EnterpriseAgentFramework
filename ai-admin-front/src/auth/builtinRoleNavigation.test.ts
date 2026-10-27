@@ -35,14 +35,14 @@ describe('built-in role navigation', () => {
     expect(labels).toEqual(expect.arrayContaining(['项目管理', '业务能力', 'API 市场', 'Workflow', 'Agent']))
     expect(labels).not.toContain('账号与权限')
     expect(labels).not.toContain('调用权限')
-    expect(labels).not.toContain('MCP Hub')
+    expect(labels).not.toContain('MCP 开放')
     expect(labels).not.toContain('Skill')
   })
 
   it('shows operators Workflow, Agent, knowledge, MCP and call permissions but no platform accounts', () => {
     const labels = visibleLabels(filterSidebarMenu(sidebarMenu, roles.OPERATOR))
     expect(labels).toEqual(expect.arrayContaining([
-      'Workflow', 'Agent', 'Skill', 'MCP Hub', '知识库', '自动化中心', '运行中心', '业务用户', '调用权限',
+      'Workflow', 'Agent', 'Skill', 'MCP 开放', '知识库', '自动化中心', '运行中心', '业务用户', '调用权限',
     ]))
     expect(labels).not.toContain('账号与权限')
     expect(labels).not.toContain('认证源')
@@ -51,13 +51,14 @@ describe('built-in role navigation', () => {
 
   it('shows managers usage records without projects, models or administration', () => {
     const labels = visibleLabels(filterSidebarMenu(sidebarMenu, roles.MANAGER))
-    expect(labels).toEqual(expect.arrayContaining(['运行中心', 'MCP Hub', '业务用户', '调用权限', 'Agent', 'Workflow']))
+    expect(labels).toEqual(expect.arrayContaining(['运行中心', 'MCP 开放', '业务用户', '调用权限', 'Agent', 'Workflow']))
     for (const hidden of ['项目管理', '业务能力', 'API 市场', '模型中心', '账号与权限', 'A2A 互联中心']) {
       expect(labels).not.toContain(hidden)
     }
     expect(roles.MANAGER).toContain('mcp-hub:employee-connection:manage')
+    expect(roles.MANAGER).toContain('mcp-hub:write-approval:manage')
     expect(roles.MANAGER.some((code) => /:(write|publish|manage)$/.test(code)
-      && code !== 'mcp-hub:employee-connection:manage')).toBe(false)
+      && code !== 'mcp-hub:employee-connection:manage' && code !== 'mcp-hub:write-approval:manage')).toBe(false)
   })
 
   it('picks the matching overview shortcuts for each role', () => {
@@ -65,7 +66,7 @@ describe('built-in role navigation', () => {
     expect(defaultShortcutConfig(roles.OPERATOR, ['OPERATOR'])?.shortcutPreset).toBe('operator')
     expect(defaultShortcutConfig(roles.MANAGER, ['MANAGER'])).toEqual({
       shortcutPreset: 'manager',
-      shortcutIds: ['run-center', 'employee-connections', 'mcp-call-logs', 'business-users'],
+      shortcutIds: ['write-approvals', 'run-center', 'employee-connections', 'mcp-call-logs', 'business-users'],
     })
     expect(defaultShortcutConfig(roles.PLATFORM_ADMIN, ['PLATFORM_ADMIN'])?.shortcutPreset).toBe('admin')
   })

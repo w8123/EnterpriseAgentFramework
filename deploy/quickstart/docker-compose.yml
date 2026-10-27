@@ -1,0 +1,263 @@
+##
+## ReachAI + 芋道 ERP 一键体验
+##
+##   cd deploy/quickstart
+##   cp .env.example .env        # 可选：填大模型 API Key，才能在对话面板里聊天
+##   docker compose up -d --build
+##
+## 打开：ReachAI 管理台 http://localhost:18080（admin / admin123）
+##       芋道 ERP      http://localhost:48080（admin / admin123）
+## 详细说明见 deploy/quickstart/README.md
+##
+name: reachai-quickstart
+
+x-reachai-service: &reachai-service
+  image: reachai-quickstart/server:local
+  build:
+    context: ../..
+    dockerfile: deploy/quickstart/reachai/Dockerfile
+    target: server
+  restart: unless-stopped
+  depends_on:
+    mysql: { condition: service_healthy }
+    redis: { condition: service_started }
+
+x-reachai-env: &reachai-env
+  AI_MYSQL_HOST: mysql
+  AI_MYSQL_USER: reach_ai
+  AI_MYSQL_PASSWORD: ${REACHAI_DB_PASSWORD:-reachai_demo}
+  REDIS_HOST: redis
+  MILVUS_HOST: milvus
+  MODEL_SERVICE_URL: http://reachai-model:18601
+  KNOWLEDGE_SERVICE_URL: http://reachai-knowledge:18602
+  CAPABILITY_SERVICE_URL: http://reachai-capability:18605
+  RUNTIME_SERVICE_URL: http://reachai-runtime:18604
+  CONTROL_SERVICE_URL: http://reachai-control:18603
+  REACHAI_BOOTSTRAP_ADMIN_PASSWORD: ${REACHAI_ADMIN_PASSWORD:-admin123}
+  MODEL_CREDENTIAL_SECRET: ${MODEL_CREDENTIAL_SECRET:-quickstart-model-credential-secret-change-me}
+  AGENT_WORKFLOW_CREDENTIAL_SECRET: ${AGENT_WORKFLOW_CREDENTIAL_SECRET:-quickstart-workflow-credential-secret-change-me}
+  EAF_EMBED_TOKEN_SECRET: ${EAF_EMBED_TOKEN_SECRET:-quickstart-embed-token-secret-change-me-32bytes}
+  REACHAI_MCP_HUB_PUBLIC_BASE_URL: ${REACHAI_PUBLIC_URL:-http://localhost:18080}
+  # 演示环境里芋道在 Docker 内网，HTTP API 需要访问内网地址
+  RUNTIME_HTTP_EGRESS_ALLOW_PRIVATE: "true"
+  REACHAI_DOCLING_ENABLED: "false"
+  REACHAI_KNOWLEDGE_ARTIFACT_LOCAL_ROOT: /app/data/knowledge-artifacts
+
+services:
+
+  mysql:
+    image: reachai-quickstart/mysql:local
+    build:
+      context: ../..
+      dockerfile: deploy/quickstart/yudao/Dockerfile
+      target: mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-reachai_root}
+      REACHAI_DB_PASSWORD: ${REACHAI_DB_PASSWORD:-reachai_demo}
+      YUDAO_DB_PASSWORD: ${YUDAO_DB_PASSWORD:-yudao_demo}
+      TZ: Asia/Shanghai
+    command: >-
+      --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+      --default-time-zone=+08:00 --max-connections=500
+    ports:
+      - "${MYSQL_PORT:-13306}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      # 初始化期间 MySQL 不监听 TCP，所以能经 127.0.0.1 查到演示数据才算就绪
+      test: ["CMD-SHELL", "mysql -h127.0.0.1 -uroot -p\"$$MYSQL_ROOT_PASSWORD\" -e 'SELECT 1 FROM yudao.erp_stock LIMIT 1' >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 120
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+
+  # 知识服务启动依赖 Milvus。单机模式：内嵌 etcd、本地存储。
+  milvus:
+    image: milvusdb/milvus:v2.4.4
+    restart: unless-stopped
+    command: ["milvus", "run", "standalone"]
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      ETCD_USE_EMBED: "true"
+      ETCD_DATA_DIR: /var/lib/milvus/etcd
+      ETCD_CONFIG_PATH: /milvus/configs/embedEtcd.yaml
+      COMMON_STORAGETYPE: local
+    volumes:
+      - milvus-data:/var/lib/milvus
+      - ./milvus/embedEtcd.yaml:/milvus/configs/embedEtcd.yaml:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  reachai-model:
+    <<: *reachai-service
+    command: ["model"]
+    environment:
+      <<: *reachai-env
+      JAVA_OPTS: -Xms96m -Xmx384m -XX:+UseSerialGC
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:18601/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  reachai-knowledge:
+    <<: *reachai-service
+    command: ["knowledge"]
+    depends_on:
+      mysql: { condition: service_healthy }
+      redis: { condition: service_started }
+      milvus: { condition: service_healthy }
+    environment:
+      <<: *reachai-env
+      JAVA_OPTS: -Xms128m -Xmx512m -XX:+UseSerialGC
+    volumes:
+      - reachai-data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:18602/ai/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
+
+  reachai-capability:
+    <<: *reachai-service
+    command: ["capability"]
+    environment:
+      <<: *reachai-env
+      JAVA_OPTS: -Xms96m -Xmx384m -XX:+UseSerialGC
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:18605/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  reachai-runtime:
+    <<: *reachai-service
+    command: ["runtime"]
+    environment:
+      <<: *reachai-env
+      JAVA_OPTS: -Xms128m -Xmx640m -XX:+UseSerialGC
+      RUNTIME_SESSION_MEMORY_STATE_STORE: redis
+      RUNTIME_SESSION_MEMORY_REDIS_URI: redis://redis:6379
+      RUNTIME_SESSION_MEMORY_JSON_DIR: /app/data/session-memory
+      RUNTIME_SKILL_CACHE_DIR: /app/data/skill-cache
+    volumes:
+      - reachai-data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:18604/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
+
+  reachai-control:
+    <<: *reachai-service
+    command: ["control"]
+    environment:
+      <<: *reachai-env
+      JAVA_OPTS: -Xms128m -Xmx640m -XX:+UseSerialGC
+      REACHAI_SKILL_ARTIFACT_ROOT: /app/data/skill-artifacts
+    volumes:
+      - reachai-data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:18603/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 40
+      start_period: 40s
+
+  reachai-web:
+    image: reachai-quickstart/web:local
+    build:
+      context: ../..
+      dockerfile: deploy/quickstart/reachai/Dockerfile
+      target: web
+    restart: unless-stopped
+    depends_on:
+      reachai-control: { condition: service_healthy }
+    ports:
+      - "${REACHAI_PORT:-18080}:80"
+
+  # 一次性初始化：注册芋道项目、配置模型 / Agent / 嵌入对话 / 员工 AI 工具连接。重复执行是安全的。
+  reachai-init:
+    image: python:3.12-alpine
+    restart: "no"
+    depends_on:
+      reachai-control: { condition: service_healthy }
+      reachai-runtime: { condition: service_healthy }
+      reachai-capability: { condition: service_healthy }
+      reachai-model: { condition: service_healthy }
+      reachai-knowledge: { condition: service_healthy }
+    environment:
+      REACHAI_URL: http://reachai-control:18603
+      REACHAI_ADMIN_USERNAME: admin
+      REACHAI_ADMIN_PASSWORD: ${REACHAI_ADMIN_PASSWORD:-admin123}
+      YUDAO_PUBLIC_URL: ${YUDAO_PUBLIC_URL:-http://localhost:48080}
+      LLM_PROVIDER: ${LLM_PROVIDER:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - ./init/bootstrap.py:/bootstrap.py:ro
+      - shared:/shared
+    command: ["python", "-I", "/bootstrap.py"]
+
+  yudao-server:
+    image: reachai-quickstart/yudao-server:local
+    build:
+      context: ../..
+      dockerfile: deploy/quickstart/yudao/Dockerfile
+      target: server
+    restart: unless-stopped
+    depends_on:
+      mysql: { condition: service_healthy }
+      redis: { condition: service_started }
+      reachai-control: { condition: service_healthy }
+    environment:
+      YUDAO_DB_PASSWORD: ${YUDAO_DB_PASSWORD:-yudao_demo}
+      JAVA_OPTS: -Xms128m -Xmx640m -XX:+UseSerialGC
+    volumes:
+      - yudao-data:/app/data
+      - shared:/shared:ro
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "-o", "/dev/null", "http://localhost:48080/admin-api/system/tenant/get-id-by-name?name=%E8%8A%8B%E9%81%93%E6%BA%90%E7%A0%81"]
+      interval: 10s
+      timeout: 5s
+      retries: 60
+      start_period: 60s
+
+  yudao-web:
+    image: reachai-quickstart/yudao-web:local
+    build:
+      context: ../..
+      dockerfile: deploy/quickstart/yudao/Dockerfile
+      target: web
+    restart: unless-stopped
+    depends_on:
+      - yudao-server
+    environment:
+      REACHAI_PUBLIC_URL: ${REACHAI_PUBLIC_URL:-http://localhost:18080}
+    ports:
+      - "${YUDAO_PORT:-48080}:80"
+
+volumes:
+  mysql-data:
+  redis-data:
+  milvus-data:
+  reachai-data:
+  yudao-data:
+  shared:

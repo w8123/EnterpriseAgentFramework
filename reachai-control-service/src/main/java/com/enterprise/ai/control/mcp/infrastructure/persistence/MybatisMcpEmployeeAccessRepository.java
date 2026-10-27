@@ -52,6 +52,7 @@ public class MybatisMcpEmployeeAccessRepository implements McpEmployeeAccessRepo
         entity.setProjectCode(access.projectCode());
         entity.setDisplayName(access.displayName());
         entity.setEnabled(access.enabled());
+        entity.setWriteApprovalRequired(access.writeApprovalRequired());
         entity.setUpdatedAt(now);
         try {
             if (entity.getId() == null) {
@@ -70,6 +71,7 @@ public class MybatisMcpEmployeeAccessRepository implements McpEmployeeAccessRepo
     private McpEmployeeAccess toDomain(McpEmployeeAccessEntity entity) {
         return new McpEmployeeAccess(entity.getId(), entity.getPublicationId(), entity.getProjectId(),
                 entity.getProjectCode(),
-                entity.getDisplayName(), Boolean.TRUE.equals(entity.getEnabled()));
+                entity.getDisplayName(), Boolean.TRUE.equals(entity.getEnabled()),
+                !Boolean.FALSE.equals(entity.getWriteApprovalRequired()));
     }
 }

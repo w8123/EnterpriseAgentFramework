@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { agentEditScript as script, agentEditSource as source, agentEditTemplate as template } from './agentEditSources.testutil'
+import { agentEditScript as script, agentEditTemplate as template } from './agentEditSources.testutil'
 
 describe('AgentEdit Workflow version freshness', () => {
   it('tells the user the published config still runs an older Workflow version', () => {

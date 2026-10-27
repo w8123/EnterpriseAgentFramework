@@ -53,6 +53,29 @@ class ModelStreamFailureTest {
         assertFalse(failure.toSafeMetadata().toString().contains("do-not-return"));
     }
 
+    @Test
+    void providerErrorShowsUpstreamStatusAndCodeWithoutLeakingPayload() {
+        ModelStreamFailure failure = ModelStreamFailure.providerError(
+                null,
+                "Model provider API error: HTTP 403 {\"error\":{\"message\":\"Access to model denied. upstream-secret\","
+                        + "\"type\":\"AccessDenied.Unpurchased\",\"code\":\"AccessDenied.Unpurchased\"},"
+                        + "\"request_id\":\"e3ea2a9c\"}",
+                diag(null, false, false));
+
+        assertEquals(ModelStreamFailure.MODEL_PROVIDER_REQUEST_FAILED, failure.code());
+        assertTrue(failure.safeMessage().contains("HTTP 403"));
+        assertTrue(failure.safeMessage().contains("AccessDenied.Unpurchased"));
+        assertTrue(failure.safeMessage().contains("无权使用该模型"));
+        assertFalse(failure.safeMessage().contains("upstream-secret"));
+        assertFalse(failure.safeMessage().contains("e3ea2a9c"));
+    }
+
+    @Test
+    void providerErrorWithoutRecognizableDetailKeepsGenericMessage() {
+        ModelStreamFailure failure = ModelStreamFailure.providerError(null, "connection refused", null);
+        assertEquals("模型供应商调用失败，请到 ReachAI 模型中心重新测试并检查连接配置后重试。", failure.safeMessage());
+    }
+
     private static ModelStreamDiagnostics diag(String finishReason, boolean consumed, boolean completed) {
         return ModelStreamDiagnostics.builder()
                 .modelInstanceId("seed-deepseek-v4-flash")

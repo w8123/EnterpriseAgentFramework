@@ -6,6 +6,7 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.resolve(scriptDir, '..')
 const docsRoot = path.join(repoRoot, 'docs')
 const failures = []
+const linksByFile = new Map()
 
 function relative(file) {
   return path.relative(repoRoot, file).replaceAll(path.sep, '/')
@@ -40,6 +41,11 @@ function decodeLinkTarget(value) {
   }
 }
 
+function isWithin(file, directory) {
+  const resolved = path.relative(directory, file)
+  return resolved === '' || (!resolved.startsWith(`..${path.sep}`) && resolved !== '..' && !path.isAbsolute(resolved))
+}
+
 function validateMarkdownFile(file, requireHeading = true) {
   const text = readText(file)
   const firstContent = text.split(/\r?\n/).find((line) => line.trim().length > 0)
@@ -48,6 +54,8 @@ function validateMarkdownFile(file, requireHeading = true) {
   }
 
   const lines = text.split(/\r?\n/)
+  const links = new Set()
+  linksByFile.set(file, links)
   for (let index = 0; index < lines.length; index += 1) {
     const trailingWhitespace = lines[index].match(/[ \t]+$/)?.[0]
     if (trailingWhitespace && trailingWhitespace !== '  ') {
@@ -59,12 +67,17 @@ function validateMarkdownFile(file, requireHeading = true) {
       if (target.startsWith('<') && target.endsWith('>')) {
         target = target.slice(1, -1)
       }
-      if (!target || /^(?:https?:|mailto:|data:|#)/i.test(target)) continue
+      if (!target || /^(?:[a-z][a-z0-9+.-]*:|#)/i.test(target)) continue
 
       const pathPart = target.split('#', 1)[0].split('?', 1)[0]
       if (!pathPart) continue
       const decoded = decodeLinkTarget(pathPart)
       const resolved = path.resolve(path.dirname(file), decoded)
+      links.add(resolved)
+      if (isWithin(resolved, path.join(repoRoot, 'output'))) {
+        if (isWithin(file, docsRoot)) fail(file, '核心文档不得链接本机历史执行产物', index + 1)
+        continue
+      }
       if (!fs.existsSync(resolved)) {
         fail(file, `本地链接不存在: ${target}`, index + 1)
       }
@@ -75,21 +88,20 @@ function validateMarkdownFile(file, requireHeading = true) {
 const markdownFiles = walkFiles(docsRoot, (file) => file.endsWith('.md'))
 for (const file of markdownFiles) validateMarkdownFile(file)
 
-const indexedSections = ['architecture', 'guides', 'operations', 'plans', 'reference', 'ai-memory']
-for (const section of indexedSections) {
-  const directory = path.join(docsRoot, section)
-  const indexFile = path.join(directory, 'README.md')
-  if (!fs.existsSync(indexFile)) {
-    fail(indexFile, '目录缺少 README.md')
-    continue
+// 一个入口形成可遍历的阅读图，不要求每层目录都复制 README 索引。
+const entryFile = path.join(docsRoot, 'README.md')
+const reachable = new Set()
+const pending = [entryFile]
+while (pending.length > 0) {
+  const current = pending.pop()
+  if (reachable.has(current)) continue
+  reachable.add(current)
+  for (const target of linksByFile.get(current) || []) {
+    if (linksByFile.has(target)) pending.push(target)
   }
-  const indexText = decodeLinkTarget(readText(indexFile))
-  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-    if (!entry.isFile() || !entry.name.endsWith('.md') || entry.name === 'README.md') continue
-    if (!indexText.includes(entry.name)) {
-      fail(indexFile, `未索引同目录文档: ${entry.name}`)
-    }
-  }
+}
+for (const file of markdownFiles) {
+  if (!reachable.has(file)) fail(entryFile, `未从文档入口可达: ${relative(file)}`)
 }
 
 const rootPom = readText(path.join(repoRoot, 'pom.xml'))
@@ -112,18 +124,28 @@ for (const readme of moduleReadmes) {
 }
 validateMarkdownFile(path.join(repoRoot, 'README.md'), false)
 
-for (const section of ['architecture', 'reference']) {
-  const directory = path.join(docsRoot, section)
-  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-    if (!entry.isFile() || !entry.name.endsWith('.md')) continue
-    if (/(?:implementation-plan|实施计划|实施方案|执行提示词)/i.test(entry.name)) {
-      fail(path.join(directory, entry.name), '阶段性计划应放入 docs/plans/')
-    }
-  }
-}
+// 模块之外的规则、设计、部署和随产品分发的 Skill 同样需要可用的引用。
+const additionalPaths = [
+  'AGENTS.md', 'CONTRIBUTING.md', 'sql/README.md',
+  'deploy/quickstart/README.md', 'managed-executor-worker/README.md',
+  'ai-admin-front/DESIGN.md', 'ai-admin-front/THIRD_PARTY_NOTICES.md',
+  '.cursor/rules/reachai-project.mdc',
+]
+const additionalRoots = [
+  'reachai-control-service/src/main/resources/ai-assist/skills',
+  'ai-admin-front/src/assets/ai-coding-providers',
+]
+const additionalMarkdownFiles = [
+  ...additionalPaths.map((name) => path.join(repoRoot, name)).filter((file) => fs.existsSync(file)),
+  ...additionalRoots.flatMap((name) => {
+    const directory = path.join(repoRoot, name)
+    return fs.existsSync(directory) ? walkFiles(directory, (file) => file.endsWith('.md')) : []
+  }),
+]
+for (const file of additionalMarkdownFiles) validateMarkdownFile(file, false)
 
 const stableOverviewFiles = [
-  ...markdownFiles.filter((file) => !file.startsWith(path.join(docsRoot, 'plans') + path.sep)),
+  ...markdownFiles,
   ...serviceModules.map((name) => path.join(repoRoot, name, 'README.md')),
   path.join(repoRoot, 'ai-admin-front', 'README.md'),
 ]
@@ -131,6 +153,7 @@ const stableOverviewFiles = [
 const portableDocumentationFiles = [
   ...markdownFiles,
   ...moduleReadmes,
+  ...additionalMarkdownFiles,
   path.join(repoRoot, 'README.md'),
 ]
 
@@ -191,4 +214,4 @@ if (failures.length > 0) {
   process.exit(1)
 }
 
-console.log(`documentation check passed (${markdownFiles.length} docs, ${serviceModules.length} service READMEs)`)
+console.log(`documentation check passed (${markdownFiles.length} docs, ${additionalMarkdownFiles.length} additional Markdown files, ${serviceModules.length} service READMEs)`)

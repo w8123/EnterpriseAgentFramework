@@ -3,6 +3,8 @@ package com.enterprise.ai.runtime.agentscope;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * 模型流终态业务失败。用稳定 code 表达根因，禁止靠字符串 contains 判断。
@@ -18,6 +20,10 @@ public final class ModelStreamFailure extends RuntimeException {
             "MODEL_PROVIDER_BALANCE_INSUFFICIENT";
     public static final String MODEL_CONTEXT_LENGTH_EXCEEDED = "MODEL_CONTEXT_LENGTH_EXCEEDED";
     public static final String MODEL_PROVIDER_REQUEST_FAILED = "MODEL_PROVIDER_REQUEST_FAILED";
+
+    private static final Pattern UPSTREAM_HTTP_STATUS = Pattern.compile("(?i)\\bHTTP\\s+(\\d{3})\\b");
+    private static final Pattern UPSTREAM_ERROR_CODE =
+            Pattern.compile("\"code\"\\s*:\\s*\"([A-Za-z][A-Za-z0-9._-]{1,63})\"");
 
     private final String code;
     private final String safeMessage;
@@ -101,9 +107,36 @@ public final class ModelStreamFailure extends RuntimeException {
         }
         return new ModelStreamFailure(
                 MODEL_PROVIDER_REQUEST_FAILED,
-                "模型供应商调用失败，请到 ReachAI 模型中心重新测试并检查连接配置后重试。",
+                "模型供应商调用失败" + upstreamHint(upstreamCode, upstreamMessage)
+                        + "，请到 ReachAI 模型中心重新测试并检查连接配置后重试。",
                 "provider_error",
                 diagnostics);
+    }
+
+    /**
+     * 只取供应商 HTTP 状态码和错误码这类短标识，便于运行记录直接看出根因，不回传上游响应体。
+     */
+    static String upstreamHint(String upstreamCode, String upstreamMessage) {
+        String message = upstreamMessage == null ? "" : upstreamMessage;
+        Matcher status = UPSTREAM_HTTP_STATUS.matcher(message);
+        Matcher errorCode = UPSTREAM_ERROR_CODE.matcher(message);
+        String httpStatus = status.find() ? status.group(1)
+                : upstreamCode != null && upstreamCode.matches("[45]\\d{2}") ? upstreamCode : null;
+        String providerCode = errorCode.find() ? errorCode.group(1) : null;
+        if (httpStatus == null && providerCode == null) {
+            return "";
+        }
+        StringBuilder hint = new StringBuilder("（供应商返回");
+        if (httpStatus != null) {
+            hint.append(" HTTP ").append(httpStatus);
+        }
+        if (providerCode != null) {
+            hint.append(httpStatus == null ? " " : "，").append("错误码 ").append(providerCode);
+        }
+        if ("401".equals(httpStatus) || "403".equals(httpStatus)) {
+            hint.append("，账号可能无权使用该模型或密钥已失效");
+        }
+        return hint.append("）").toString();
     }
 
     public boolean isDefinitiveProviderFailure() {

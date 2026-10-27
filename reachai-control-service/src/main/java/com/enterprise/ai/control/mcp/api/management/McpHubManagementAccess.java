@@ -18,6 +18,7 @@ public class McpHubManagementAccess {
     public static final String MANAGE_CREDENTIAL_ROLES = "mcp-hub:credential-role:manage";
     public static final String READ_PAYLOAD = "mcp-hub:payload:read";
     public static final String MANAGE_EMPLOYEE_CONNECTIONS = "mcp-hub:employee-connection:manage";
+    public static final String MANAGE_WRITE_APPROVALS = "mcp-hub:write-approval:manage";
 
     public PlatformAuthenticatedSession require(HttpServletRequest request, String permission) {
         return requireAny(request, permission);

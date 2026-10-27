@@ -2,11 +2,12 @@
 import { onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Refresh, Search } from '@element-plus/icons-vue'
+import { Search } from '@element-plus/icons-vue'
 import AppDialog from '@/components/common/AppDialog.vue'
 import AppDrawer from '@/components/common/AppDrawer.vue'
 import WorkbenchPanel from '@/components/common/WorkbenchPanel.vue'
-import { LiquidGlassControl, LiquidGlassFilterBar, LiquidGlassInput, LiquidGlassNotice, LiquidGlassSelect, LiquidGlassTable, LiquidGlassTabs } from '@/components/common/liquid-glass'
+import { LiquidGlassInput, LiquidGlassNotice, LiquidGlassSelect, LiquidGlassTable, LiquidGlassTabs } from '@/components/common/liquid-glass'
+import A2aListToolbar from '../A2aListToolbar.vue'
 import A2aTaskStateBadge from '@/components/a2a-hub/A2aTaskStateBadge.vue'
 import TaskTimeline from '@/components/a2a-hub/TaskTimeline.vue'
 import {
@@ -25,6 +26,7 @@ import type {
 } from '@/types/a2aHub'
 import {
   a2aFormatBytes,
+  a2aCompactId,
   a2aFormatDate,
   a2aLabel,
   a2aTaskCenterDeepLink,
@@ -36,7 +38,16 @@ const router = useRouter()
 const loading = ref(false)
 const rows = ref<A2aTaskSummary[]>([])
 const total = ref(0)
-const filters = reactive({ search: '', direction: '', state: '', tenantScope: '', limit: 50, offset: 0 })
+const filters = reactive({ search: '', direction: '', state: '', tenantScope: '', limit: 20, offset: 0 })
+const taskStates = ['TASK_STATE_SUBMITTED', 'TASK_STATE_WORKING', 'TASK_STATE_INPUT_REQUIRED', 'TASK_STATE_AUTH_REQUIRED', 'TASK_STATE_COMPLETED', 'TASK_STATE_FAILED', 'TASK_STATE_CANCELED', 'TASK_STATE_REJECTED']
+
+function routeDirection(value: unknown): string {
+  return value === 'INBOUND' || value === 'OUTBOUND' ? value : ''
+}
+
+function routeState(value: unknown): string {
+  return typeof value === 'string' && taskStates.includes(value) ? value : ''
+}
 
 const detailVisible = ref(false)
 const detailLoading = ref(false)
@@ -75,9 +86,15 @@ async function reload() {
   }
 }
 
-function applyFilters() {
+async function applyFilters() {
   filters.offset = 0
-  reload()
+  const next = { ...route.query }
+  if (filters.direction) next.direction = filters.direction
+  else delete next.direction
+  if (filters.state) next.state = filters.state
+  else delete next.state
+  await router.replace({ query: next })
+  await reload()
 }
 
 function changePage(page: number, size: number) {
@@ -165,16 +182,29 @@ watch(detailVisible, (visible) => {
   if (!visible && route.query.taskId) {
     const next = { ...route.query }
     delete next.taskId
-    delete next.direction
+    if (filters.direction) next.direction = filters.direction
+    else delete next.direction
     router.replace({ query: next })
   }
 })
 
+watch(() => [route.query.direction, route.query.state], ([direction, state]) => {
+  if (route.query.taskId) return
+  const nextDirection = routeDirection(direction)
+  const nextState = routeState(state)
+  if (filters.direction === nextDirection && filters.state === nextState) return
+  filters.direction = nextDirection
+  filters.state = nextState
+  filters.offset = 0
+  reload()
+})
+
 onMounted(async () => {
   const deepLink = a2aTaskCenterDeepLink(route.query)
+  filters.direction = deepLink?.direction ?? routeDirection(route.query.direction)
+  filters.state = routeState(route.query.state)
   if (deepLink) {
     filters.search = deepLink.taskId
-    filters.direction = deepLink.direction
   }
   await reload()
   if (deepLink) await openDetail(deepLink)
@@ -182,51 +212,41 @@ onMounted(async () => {
 </script>
 
 <template>
-  <section class="task-center">
-    <div class="section-intro">
-      <div><h2>任务中心</h2><p>按协议 Task 还原身份、策略、Runtime、消息与 Artifact 的完整证据链。</p></div>
-      <LiquidGlassControl source="wallpaper">
-        <el-button :icon="Refresh" :loading="loading" @click="reload">刷新</el-button>
-      </LiquidGlassControl>
-    </div>
-
+<section class="task-center" aria-label="协作任务">
     <LiquidGlassTable
       class="workbench-list-surface"
       :current-page="Math.floor(filters.offset / filters.limit) + 1"
       :page-size="filters.limit"
       :total="total"
-      :page-sizes="[20, 50, 100, 200]"
-      pagination-label="A2A Task 分页"
+      :show-pagination="total > filters.limit"
+      :page-sizes="[20, 50, 100]"
+      pagination-label="协作任务分页"
       :loading="loading"
       :empty="!loading && rows.length === 0"
-      empty-description="没有符合条件的 A2A Task。"
+      empty-description="暂无符合条件的任务"
       @change="changePage"
     >
       <template #toolbar>
-        <LiquidGlassFilterBar :loading="loading" :show-reset="false" @query="applyFilters">
-          <LiquidGlassInput v-model="filters.search" clearable :prefix-icon="Search" placeholder="taskId、contextId、traceId、Principal 或错误码" aria-label="搜索 Task" @clear="applyFilters" />
-          <LiquidGlassSelect v-model="filters.direction" class="short-filter" clearable placeholder="全部方向" dropdown-title="方向" aria-label="方向" @change="applyFilters"><el-option label="入站" value="INBOUND" /><el-option label="出站" value="OUTBOUND" /></LiquidGlassSelect>
-          <LiquidGlassSelect v-model="filters.state" class="short-filter" clearable placeholder="全部状态" dropdown-title="Task 状态" aria-label="Task 状态" @change="applyFilters">
-            <el-option v-for="state in ['TASK_STATE_SUBMITTED','TASK_STATE_WORKING','TASK_STATE_INPUT_REQUIRED','TASK_STATE_AUTH_REQUIRED','TASK_STATE_COMPLETED','TASK_STATE_FAILED','TASK_STATE_CANCELED','TASK_STATE_REJECTED']" :key="state" :value="state" :label="a2aLabel(state)" />
+        <A2aListToolbar :loading="loading" @query="applyFilters" @refresh="reload">
+          <LiquidGlassInput v-model="filters.search" clearable :prefix-icon="Search" placeholder="搜索任务、协作对象或调用身份" aria-label="搜索任务" @clear="applyFilters" />
+          <LiquidGlassSelect v-model="filters.direction" class="short-filter" clearable placeholder="全部方向" dropdown-title="协作方向" aria-label="协作方向" @change="applyFilters"><el-option label="对外服务" value="INBOUND" /><el-option label="外部协作" value="OUTBOUND" /></LiquidGlassSelect>
+          <LiquidGlassSelect v-model="filters.state" class="short-filter" clearable placeholder="全部状态" dropdown-title="任务状态" aria-label="任务状态" @change="applyFilters">
+            <el-option v-for="state in taskStates" :key="state" :value="state" :label="a2aLabel(state)" />
           </LiquidGlassSelect>
           <LiquidGlassInput v-model="filters.tenantScope" class="short-filter" clearable placeholder="租户范围" aria-label="租户范围" @clear="applyFilters" />
-        </LiquidGlassFilterBar>
+        </A2aListToolbar>
       </template>
-      <el-table :data="rows" stripe size="small" empty-text=" " @row-click="openDetail">
-        <el-table-column prop="submittedAt" label="受理时间" width="165"><template #default="{ row }">{{ a2aFormatDate(row.submittedAt) }}</template></el-table-column>
-        <el-table-column prop="direction" label="方向" width="66"><template #default="{ row }">{{ a2aLabel(row.direction) }}</template></el-table-column>
-        <el-table-column prop="taskId" label="Task / Context" min-width="220"><template #default="{ row }"><div class="cell-stack"><strong>{{ row.taskId }}</strong><small>{{ row.contextId }}</small></div></template></el-table-column>
+      <el-table :data="rows" class="task-list-table" stripe size="small" empty-text=" " @row-click="openDetail">
+        <el-table-column prop="submittedAt" label="受理时间" width="160"><template #default="{ row }">{{ a2aFormatDate(row.submittedAt) }}</template></el-table-column>
+        <el-table-column prop="direction" label="方向" width="106"><template #default="{ row }">{{ row.direction === 'INBOUND' ? '对外服务' : '外部协作' }}</template></el-table-column>
+        <el-table-column label="协作对象" min-width="200" show-overflow-tooltip><template #default="{ row }">{{ row.publicationKey || row.remoteAgentKey || '—' }}</template></el-table-column>
         <el-table-column label="状态" width="104"><template #default="{ row }"><A2aTaskStateBadge :state="row.state" /></template></el-table-column>
-        <el-table-column label="出站同步" width="132"><template #default="{ row }"><span v-if="row.direction === 'OUTBOUND'">{{ pollStatusLabel(row.outboundPollStatus) }}</span><span v-else>-</span></template></el-table-column>
-        <el-table-column label="协作对象" min-width="150"><template #default="{ row }"><div class="cell-stack"><strong>{{ row.publicationKey || row.remoteAgentKey || '-' }}</strong><small>{{ row.principalKey }}</small></div></template></el-table-column>
-        <el-table-column prop="statusSummary" label="安全摘要" min-width="170" show-overflow-tooltip />
-        <el-table-column label="Runtime" min-width="150"><template #default="{ row }"><div class="cell-stack"><strong>{{ row.runtimeRunId || '无 Workflow Run' }}</strong><small>{{ row.traceId || '-' }}</small></div></template></el-table-column>
-        <el-table-column label="错误" min-width="130"><template #default="{ row }"><span class="error-text">{{ row.errorCode || '-' }}</span></template></el-table-column>
-        <el-table-column label="操作" width="76" fixed="right"><template #default="{ row }"><el-button link type="primary" @click.stop="openDetail(row)">调查</el-button></template></el-table-column>
+        <el-table-column prop="taskId" label="任务 ID" min-width="220"><template #default="{ row }"><span class="task-identifier" :title="row.taskId">{{ a2aCompactId(row.taskId) }}</span></template></el-table-column>
+        <el-table-column label="操作" width="76" fixed="right"><template #default="{ row }"><el-button link type="primary" @click.stop="openDetail(row)">查看</el-button></template></el-table-column>
       </el-table>
     </LiquidGlassTable>
 
-    <AppDrawer v-model="detailVisible" title="A2A Task 调查" size="min(1040px, 95vw)">
+    <AppDrawer v-model="detailVisible" title="协作任务详情" size="min(1040px, 95vw)">
       <div v-if="detail" v-loading="detailLoading" class="task-detail glass-loading-surface">
         <LiquidGlassNotice v-if="detail.eventGapDetected" type="error" title="检测到事件序号缺口：当前投影可能不完整，请先检查 outbox 与数据库一致性。" />
         <div class="task-heading">
@@ -241,6 +261,8 @@ onMounted(async () => {
             <el-descriptions-item label="Execution">{{ detail.runtime.executionId }}</el-descriptions-item>
             <el-descriptions-item label="Workflow Run">{{ detail.runtime.runId || '-' }}</el-descriptions-item>
             <el-descriptions-item label="Trace">{{ detail.runtime.traceId || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="Context">{{ detail.task.contextId || '-' }}</el-descriptions-item>
+            <el-descriptions-item v-if="detail.task.errorCode" label="错误码"><span class="error-text">{{ detail.task.errorCode }}</span></el-descriptions-item>
             <el-descriptions-item label="受理">{{ a2aFormatDate(detail.task.submittedAt) }}</el-descriptions-item>
             <el-descriptions-item label="截止">{{ a2aFormatDate(detail.task.deadlineAt) }}</el-descriptions-item>
             <el-descriptions-item label="取消阶段">{{ detail.task.cancelPhase || '-' }}</el-descriptions-item>
@@ -289,11 +311,10 @@ onMounted(async () => {
 
 <style scoped lang="scss">
 .task-center, .task-detail { display: flex; flex-direction: column; gap: var(--layout-page-gap); }
-.section-intro, .task-heading, .task-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.section-intro { align-items: flex-start; }
-.section-intro h2, .section-intro p, .task-heading h3, .task-heading p { margin: 0; }
-.section-intro h2 { color: var(--text-on-wallpaper); font-size: 18px; }
-.section-intro p { margin-top: 4px; color: var(--text-on-wallpaper-secondary); font-size: 13px; }
+.task-heading, .task-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.task-heading h3, .task-heading p { margin: 0; }
+.task-identifier { display: block; overflow: hidden; color: var(--text-muted); font: 12px/1.5 var(--font-family-mono, ui-monospace, monospace); text-overflow: ellipsis; white-space: nowrap; }
+.task-list-table :deep(.cell) { white-space: nowrap; }
 .task-heading p { margin-top: 4px; color: var(--text-muted); font-size: 13px; }
 /* 方向、状态、租户是短值，筛选条里收窄，把宽度留给搜索框。 */
 .workbench-list-surface :deep(.filter-bar__fields > .liquid-glass-control.short-filter) { flex: 0 1 150px; max-width: 170px; }
@@ -309,7 +330,6 @@ onMounted(async () => {
 .payload-viewer { max-height: 480px; margin: 0; overflow: auto; padding: 14px; border: 1px solid var(--border-divider); border-radius: var(--radius-md); color: var(--code-text); background: var(--code-surface); font: 12px/1.65 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; word-break: break-word; }
 
 @media (max-width: 900px) {
-  .section-intro { align-items: stretch; flex-direction: column; }
   .workbench-list-surface :deep(.filter-bar__fields > .liquid-glass-control.short-filter) { max-width: none; }
   .task-heading { flex-direction: column; }
   .task-actions { justify-content: flex-start; }

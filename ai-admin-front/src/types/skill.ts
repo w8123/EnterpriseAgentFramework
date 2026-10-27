@@ -32,7 +32,7 @@ export interface AgentSkillVersion {
   skillId: number
   version: string
   status: AgentSkillVersionStatus
-  sourceType: 'UPLOAD' | 'GIT' | 'MARKET' | 'BUILTIN' | string
+  sourceType: 'UPLOAD' | 'GIT' | 'MARKET' | 'BUILTIN' | 'RUN_CAPTURE' | string
   sourceRef?: string | null
   sourceSha256: string
   contentTreeSha256: string
@@ -144,4 +144,40 @@ export interface AgentSkillBindingConfig {
   required: boolean
   enabled: boolean
   priority: number
+}
+
+/** 「沉淀成 Skill」：从员工 AI 工具调用记录或一次运行生成的 SKILL.md 草稿。 */
+export type AgentSkillCaptureSource = 'MCP_CALLS' | 'RUN'
+
+export interface AgentSkillCaptureField {
+  name: string
+  type?: string | null
+  required: boolean
+  description?: string | null
+  usedInRun: boolean
+}
+
+export interface AgentSkillCaptureStep {
+  order: number
+  toolName: string
+  description?: string | null
+  riskLevel?: string | null
+  requiresApproval: boolean
+  fields: AgentSkillCaptureField[]
+  available: boolean
+}
+
+export interface AgentSkillCaptureDraft {
+  projectCode: string
+  projectId?: number | null
+  systemName: string
+  name: string
+  displayName: string
+  description: string
+  skillMd: string
+  steps: AgentSkillCaptureStep[]
+  warnings: string[]
+  workflowInstruction: string
+  sourceRef: string
+  version: string
 }

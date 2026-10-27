@@ -48,7 +48,7 @@ const labels: Record<string, string> = {
   API_KEY: 'API Key',
   BEARER: 'Bearer Token',
   LOCAL_AGENT: '本地 Agent',
-  REMOTE_AGENT: '远程 Agent',
+  REMOTE_AGENT: '外部 Agent',
   REMOTE_CLIENT: '远程客户端',
   HMAC: 'HMAC',
   OAUTH2_CLIENT_CREDENTIALS: 'OAuth2 Client Credentials',
@@ -110,6 +110,11 @@ export function a2aTaskTerminal(state?: string | null): boolean {
     'TASK_STATE_CANCELED',
     'TASK_STATE_REJECTED',
   ].includes(state ?? '')
+}
+
+export function a2aCompactId(value?: string | null): string {
+  if (!value) return '—'
+  return value.length <= 26 ? value : `${value.slice(0, 14)}…${value.slice(-8)}`
 }
 
 export function a2aFormatDate(value?: string | null): string {

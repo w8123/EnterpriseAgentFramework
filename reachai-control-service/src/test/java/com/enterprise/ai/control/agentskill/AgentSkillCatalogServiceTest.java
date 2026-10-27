@@ -38,6 +38,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
                 "spring.datasource.driver-class-name=org.h2.Driver",
                 "spring.datasource.username=sa",
                 "spring.datasource.password=",
+                // H2 的可重复读下 FOR UPDATE 也读快照；读已提交才能模拟 MySQL 当前读看到并发事务提交的行
+                "spring.datasource.hikari.transaction-isolation=TRANSACTION_READ_COMMITTED",
                 "spring.sql.init.mode=always",
                 "spring.sql.init.schema-locations=classpath:agent-skill-test-schema.sql",
                 "spring.data.redis.repositories.enabled=false",

@@ -1,0 +1,7 @@
+**/node_modules
+**/target
+**/dist
+.git
+deploy/k8s
+managed-executor-worker
+**/*.log

@@ -1,6 +1,9 @@
 package com.enterprise.ai.control.platform;
 
 import com.enterprise.ai.common.dto.ApiResult;
+import com.enterprise.ai.control.agentskill.AgentSkillEmployeeCatalog;
+import com.enterprise.ai.control.agentskill.AgentSkillEmployeeCatalog.EmployeeSkill;
+import com.enterprise.ai.control.agentskill.AgentSkillException;
 import com.enterprise.ai.control.identity.BusinessUserSyncService;
 import com.enterprise.ai.control.identity.BusinessUserSyncService.AttestedBusinessUser;
 import com.enterprise.ai.control.identity.BusinessUserSyncService.BusinessUserDisabledException;
@@ -10,11 +13,14 @@ import com.enterprise.ai.control.mcp.application.employee.AiToolConnectionServic
 import com.enterprise.ai.control.mcp.application.employee.AiToolConnectionService.EmployeeOwner;
 import com.enterprise.ai.control.mcp.application.employee.AiToolConnectionService.SystemOption;
 import com.enterprise.ai.control.mcp.application.employee.AiToolSetupInstructions;
+import com.enterprise.ai.control.mcp.application.employee.McpWriteApprovalService;
 import com.enterprise.ai.control.mcp.domain.McpDomainException;
 import com.enterprise.ai.control.mcp.domain.employee.AiToolKind;
 import com.enterprise.ai.control.mcp.infrastructure.McpHubProperties;
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.util.StringUtils;
@@ -27,8 +33,10 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.nio.charset.StandardCharsets;
+import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
+import java.util.Map;
 import java.util.function.Function;
 
 /**
@@ -43,16 +51,74 @@ public class EmbedAiToolConnectionController {
     private final PlatformEmbedTokenService tokenService;
     private final BusinessUserSyncService businessUserSyncService;
     private final AiToolConnectionService connectionService;
+    private final McpWriteApprovalService approvalService;
     private final McpHubProperties properties;
+    private final AgentSkillEmployeeCatalog skillCatalog;
+    private final EmployeePortalSessionService portalSessions;
 
     public EmbedAiToolConnectionController(PlatformEmbedTokenService tokenService,
                                            BusinessUserSyncService businessUserSyncService,
                                            AiToolConnectionService connectionService,
-                                           McpHubProperties properties) {
+                                           McpWriteApprovalService approvalService,
+                                           McpHubProperties properties,
+                                           AgentSkillEmployeeCatalog skillCatalog,
+                                           EmployeePortalSessionService portalSessions) {
         this.tokenService = tokenService;
         this.businessUserSyncService = businessUserSyncService;
         this.connectionService = connectionService;
+        this.approvalService = approvalService;
         this.properties = properties;
+        this.portalSessions = portalSessions;
+        this.skillCatalog = skillCatalog;
+    }
+
+    /** 「可用的做法」: published Skills of the systems this employee can connect, to install in their AI tool. */
+    @GetMapping("/skills")
+    public ResponseEntity<ApiResult<List<EmployeeSkill>>> skills(
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization) {
+        return handle(authorization, owner -> skillCatalog.list(systems(owner)));
+    }
+
+    @GetMapping("/skills/{skillId}/package")
+    public ResponseEntity<?> skillPackage(
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+            @PathVariable Long skillId) {
+        EmployeeOwner owner;
+        try {
+            owner = owner(authorization);
+        } catch (PlatformEmbedTokenException ex) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ApiResult.fail(401, ex.getMessage()));
+        } catch (BusinessUserDisabledException ex) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResult.fail(403, "该账号已被停用"));
+        }
+        AgentSkillEmployeeCatalog.Package pkg;
+        try {
+            pkg = skillCatalog.packageFor(skillId, systems(owner));
+        } catch (AgentSkillException ex) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResult.fail(404, "这个做法不存在或已下线"));
+        }
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment()
+                        .filename(pkg.filename(), StandardCharsets.UTF_8).build().toString())
+                .header("X-ReachAI-Skill-SHA256", pkg.sha256())
+                .contentType(MediaType.parseMediaType("application/zip"))
+                .contentLength(pkg.body().length)
+                .body(pkg.body());
+    }
+
+    private Map<String, String> systems(EmployeeOwner owner) {
+        Map<String, String> systems = new LinkedHashMap<>();
+        for (SystemOption option : connectionService.options(owner)) {
+            systems.put(option.projectCode(), option.name());
+        }
+        return systems;
+    }
+
+    /** 「我的审批」: write operations the employee's AI tools submitted, newest first. */
+    @GetMapping("/approvals")
+    public ResponseEntity<ApiResult<List<Map<String, Object>>>> approvals(
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization) {
+        return handle(authorization, approvalService::mine);
     }
 
     @GetMapping("/options")
@@ -78,7 +144,23 @@ public class EmbedAiToolConnectionController {
                     request == null ? null : request.systems());
             AiToolKind kind = AiToolKind.valueOf(created.connection().toolKind());
             return new CreatedConnectionResponse(created.connection(),
-                    AiToolSetupInstructions.forTool(kind, baseUrl(httpRequest), created.secret()));
+                    AiToolSetupInstructions.forTool(kind, PlatformPublicOrigin.resolve(properties, httpRequest), created.secret()));
+        });
+    }
+
+    /**
+     * 「在浏览器里管理」: a single-use link that signs the same employee into the
+     * personal page without a password. The link is only good for a minute.
+     */
+    @PostMapping("/portal-ticket")
+    public ResponseEntity<ApiResult<PortalTicketResponse>> portalTicket(
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+            HttpServletRequest httpRequest) {
+        return handle(authorization, owner -> {
+            EmployeePortalSessionService.Issued ticket = portalSessions.issueTicket(owner);
+            return new PortalTicketResponse(
+                    PlatformPublicOrigin.resolve(properties, httpRequest) + "/my/ai-tools#ticket=" + ticket.value(),
+                    ticket.expiresAt().toString());
         });
     }
 
@@ -129,32 +211,12 @@ public class EmbedAiToolConnectionController {
                 synced.externalUserId(), synced.externalUserName(), synced.roles());
     }
 
-    private String baseUrl(HttpServletRequest request) {
-        if (StringUtils.hasText(properties.getPublicBaseUrl())) {
-            return properties.getPublicBaseUrl().trim();
-        }
-        String scheme = firstHeader(request, "X-Forwarded-Proto");
-        if (!StringUtils.hasText(scheme)) {
-            scheme = request.getScheme();
-        }
-        String host = firstHeader(request, "X-Forwarded-Host");
-        if (!StringUtils.hasText(host)) {
-            host = firstHeader(request, HttpHeaders.HOST);
-        }
-        if (!StringUtils.hasText(host)) {
-            host = request.getServerName() + ":" + request.getServerPort();
-        }
-        return scheme.toLowerCase(Locale.ROOT) + "://" + host;
-    }
-
-    private static String firstHeader(HttpServletRequest request, String name) {
-        String value = request.getHeader(name);
-        return StringUtils.hasText(value) ? value.split(",")[0].trim() : null;
-    }
-
     public record CreateConnectionRequest(String toolKind, List<String> systems) {
     }
 
     public record CreatedConnectionResponse(ConnectionView connection, AiToolSetupInstructions.Setup setup) {
+    }
+
+    public record PortalTicketResponse(String url, String expiresAt) {
     }
 }

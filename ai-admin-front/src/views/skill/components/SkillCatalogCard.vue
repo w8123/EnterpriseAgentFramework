@@ -43,23 +43,38 @@ const emit = defineEmits<{ open: [skill: AgentSkillSummary] }>()
 </template>
 
 <style scoped lang="scss">
-.skill-card { display: flex; min-width: 0; flex-direction: column; gap: 12px; padding: 16px; }
+.skill-card {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 13px;
+  padding: 18px;
+  transition:
+    transform var(--motion-duration-fast) var(--motion-easing-standard),
+    border-color var(--motion-duration-fast) ease,
+    box-shadow var(--motion-duration-fast) ease;
+
+  &:hover {
+    transform: translateY(-2px);
+    border-color: rgb(var(--brand-primary-rgb) / 0.35);
+  }
+}
 .skill-card__header { display: flex; align-items: flex-start; gap: 10px; }
 .skill-card__mark { flex: 0 0 22px; margin-top: 2px; color: var(--brand-on-surface); font-size: 22px; }
 .skill-card__identity { flex: 1; min-width: 0; }
-.skill-card__identity h3 { margin: 0; font-size: 16px; line-height: 1.4; }
+.skill-card__identity h3 { margin: 0; font-size: 15px; line-height: 1.45; }
 .skill-card__open { display: flex; width: 100%; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 0; border: 0; border-radius: 4px; color: var(--text-primary); background: transparent; font: inherit; font-weight: 650; text-align: left; cursor: pointer; }
 .skill-card__open > span { display: -webkit-box; overflow: hidden; overflow-wrap: anywhere; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .skill-card__open > .el-icon { flex: 0 0 14px; margin-top: 4px; color: var(--text-muted); font-size: 12px; }
 .skill-card__open:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 5px; }
-.skill-card__package { display: block; overflow: hidden; margin-top: 4px; color: var(--text-muted); font-family: var(--font-family-mono); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-.skill-card__description { display: -webkit-box; min-height: 42px; overflow: hidden; margin: 0; color: var(--text-secondary); font-size: 13px; line-height: 1.6; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-.skill-card__context { display: flex; min-width: 0; align-items: center; gap: 8px; margin-top: auto; font-size: 11px; }
+.skill-card__package { display: block; overflow: hidden; margin-top: 6px; color: var(--text-muted); font-family: var(--font-family-mono); font-size: 11px; letter-spacing: 0.02em; opacity: 0.9; text-overflow: ellipsis; white-space: nowrap; }
+.skill-card__description { display: -webkit-box; min-height: 44px; overflow: hidden; margin: 2px 0 0; color: var(--text-secondary); font-size: 13px; line-height: 1.72; letter-spacing: 0.015em; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.skill-card__context { display: flex; min-width: 0; align-items: center; gap: 10px; margin-top: auto; font-size: 11px; }
 .skill-card__scope { overflow: hidden; color: var(--text-secondary); text-overflow: ellipsis; white-space: nowrap; }
 .skill-card__trust { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 4px; color: var(--text-muted); }
 .skill-card__trust.is-unverified { color: var(--status-warning); }
 .skill-card__context :deep(.status-tag) { flex: 0 0 auto; margin-left: auto; font-size: 11px; }
-.skill-card__footer { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 12px; padding-top: 10px; border-top: 1px solid var(--border-divider); }
+.skill-card__footer { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 12px; padding-top: 11px; border-top: 1px solid var(--border-subtle); }
 .skill-card__versions { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0; }
 .skill-card__versions > div { display: flex; align-items: baseline; gap: 6px; }
 .skill-card__versions dt, .skill-card__version-count { color: var(--text-muted); font-size: 11px; }

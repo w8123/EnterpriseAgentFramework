@@ -1,5 +1,6 @@
 package com.enterprise.ai.runtime.execution;
 
+import com.enterprise.ai.agent.graph.GraphSpecLoopConfig;
 import com.enterprise.ai.runtime.client.capability.RuntimeCapabilityCatalogClient;
 import com.enterprise.ai.runtime.client.control.RuntimeControlCatalogClient;
 import com.enterprise.ai.runtime.client.knowledge.RuntimeKnowledgeRetrievalClient;
@@ -31,9 +32,9 @@ public final class RuntimeGraphSpecExecutor {
     public static final String TRUSTED_IDENTITY_CONTEXT_KEY =
             RuntimeGraphSpecExecutionEngine.TRUSTED_IDENTITY_CONTEXT_KEY;
     public static final int LOOP_DEFAULT_MAX_ITERATIONS =
-            RuntimeGraphSpecExecutionEngine.LOOP_DEFAULT_MAX_ITERATIONS;
+            GraphSpecLoopConfig.DEFAULT_MAX_ITERATIONS;
     public static final int LOOP_HARD_MAX_ITERATIONS =
-            RuntimeGraphSpecExecutionEngine.LOOP_HARD_MAX_ITERATIONS;
+            GraphSpecLoopConfig.HARD_MAX_ITERATIONS;
 
     private final RuntimeGraphSpecExecutionEngine engine;
 
@@ -91,7 +92,7 @@ public final class RuntimeGraphSpecExecutor {
     }
 
     public static Integer parseLoopMaxIterations(Object raw) {
-        return RuntimeGraphSpecExecutionEngine.parseLoopMaxIterations(raw);
+        return GraphSpecLoopConfig.parseMaxIterations(raw);
     }
 
     public RuntimeGraphSpecExecutionResult execute(String graphSpecJson, Map<String, Object> request) {

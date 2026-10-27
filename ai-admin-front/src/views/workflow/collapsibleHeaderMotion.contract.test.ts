@@ -64,11 +64,12 @@ describe('collapsible list header motion contract', () => {
     )
   })
 
-  it('smooths the table viewport resize after the header motion settles', () => {
+  it('lets the table viewport follow the header motion through flex layout', () => {
     expect(collapsibleHeaderComposableSource).toContain('const LAYOUT_TRANSITION_DURATION = 240')
     expect(collapsibleHeaderComposableSource).toContain('const INTERACTION_SETTLE_DELAY = 280')
+    // 表格由 flex 撑满外壳，随头部收起自然伸缩，不再单独给 max-height 加过渡
     expect(workflowListSource).toMatch(
-      /\.workflow-table \{[\s\S]*?transition: max-height var\(--motion-duration-fast\) var\(--motion-easing-standard\);[\s\S]*?:deep\(\.el-scrollbar__wrap\) \{[\s\S]*?transition: max-height var\(--motion-duration-fast\) var\(--motion-easing-standard\);/,
+      /\.workflow-table-shell \{[\s\S]*?flex: 1;[\s\S]*?min-height: 0;[\s\S]*?\}\s*\.workflow-table \{[\s\S]*?flex: 1;[\s\S]*?min-height: 0;/,
     )
   })
 

@@ -25,16 +25,17 @@ if (
 
 const transformationGroupIndex = sidebar.indexOf("{ kind: 'group', label: '智能化改造' }")
 const dashboardIndex = sidebar.indexOf("{ kind: 'item', index: '/dashboard', label: '概览', icon: DataAnalysis }")
-const projectManagementIndex = sidebar.indexOf("{ kind: 'item', index: '/registry/projects', label: '项目管理', icon: Connection }")
+// 菜单项现在按多行对象书写并带 requiredPermissions，用正则定位
+const projectManagementIndex = sidebar.search(/index:\s*'\/registry\/projects',\s*label:\s*'项目管理'/)
 const assetGroupIndex = sidebar.indexOf("{ kind: 'group', label: 'AI 资产' }")
-const skillIndex = sidebar.indexOf("{ kind: 'item', index: '/skills', label: 'Skill', icon: Collection }")
+const skillIndex = sidebar.search(/index:\s*'\/skills',\s*label:\s*'Skill'/)
 const businessCapabilityIndex = sidebar.search(/index:\s*'\/business-capabilities',\s*label:\s*'业务能力'/)
 const workflowIndex = sidebar.indexOf("index: '/workflows'")
 const agentIndex = sidebar.indexOf("index: '/agent'")
 const integrationIndex = sidebar.indexOf("index: '/integration-group'")
-const apiMarketIndex = sidebar.indexOf("{ index: '/api-market', label: 'API 市场' }")
+const apiMarketIndex = sidebar.search(/index:\s*'\/api-market',\s*label:\s*'API 市场'/)
 const runtimeGovernanceGroupIndex = sidebar.indexOf("{ kind: 'group', label: '运行与治理' }")
-const runOpsIndex = sidebar.indexOf("index: '/runops'")
+const runOpsIndex = sidebar.indexOf("index: '/run-center'")
 const platformResourceGroupIndex = sidebar.indexOf("{ kind: 'group', label: '平台资源' }")
 
 if (
@@ -154,7 +155,7 @@ if (/\b(?:diffRegistryCapabilities|syncRegistryCapabilities|CapabilitySyncReques
 
 const capabilityWorkbench = readFileSync(resolve(root, 'src/views/capability/BusinessCapabilityWorkbench.vue'), 'utf8')
 const httpApiCatalog = readFileSync(resolve(root, 'src/views/api/HttpApiCatalog.vue'), 'utf8')
-if (!capabilityWorkbench.includes('<el-tabs') || !capabilityWorkbench.includes('Java 业务方法')
+if (!capabilityWorkbench.includes('<LiquidGlassTabs') || !capabilityWorkbench.includes('Java 业务方法')
   || !capabilityWorkbench.includes('HTTP API') || !capabilityWorkbench.includes('<router-view')
   || !capabilityWorkbench.includes('query: route.query') || !capabilityWorkbench.includes('activeTab === tab.value')
   || !httpApiCatalog.includes("useCatalogQuery('api'") || httpApiCatalog.includes('<PageHeader')) {

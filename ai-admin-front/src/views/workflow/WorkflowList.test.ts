@@ -8,7 +8,7 @@ import {
   type RouteRecordRaw,
 } from 'vue-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import WorkflowList from './WorkflowList.vue'
 import AppSidebar from '@/components/common/AppSidebar.vue'
 import {
@@ -32,7 +32,6 @@ const mocks = vi.hoisted(() => ({
   getScanProjects: vi.fn(),
   listWorkflows: vi.fn(),
   createWorkflow: vi.fn(),
-  deleteWorkflow: vi.fn(),
 }))
 
 vi.mock('@/api/scanProject', () => ({
@@ -42,17 +41,14 @@ vi.mock('@/api/scanProject', () => ({
 vi.mock('@/api/workflow', () => ({
   listWorkflows: (...args: unknown[]) => mocks.listWorkflows(...args),
   createWorkflow: (...args: unknown[]) => mocks.createWorkflow(...args),
-  deleteWorkflow: (...args: unknown[]) => mocks.deleteWorkflow(...args),
 }))
 
-vi.mock('element-plus', () => ({
+vi.mock('element-plus', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('element-plus')>()),
   ElMessage: {
     error: vi.fn(),
     success: vi.fn(),
     warning: vi.fn(),
-  },
-  ElMessageBox: {
-    confirm: vi.fn(),
   },
 }))
 
@@ -339,7 +335,6 @@ describe('WorkflowList project scope integration', () => {
     mocks.getScanProjects.mockResolvedValue({ data: [createProject(1, 'project-a'), createProject(2, 'project-b')] })
     mocks.listWorkflows.mockResolvedValue({ data: [] })
     mocks.createWorkflow.mockResolvedValue({ data: createWorkflow('created', null, null) })
-    mocks.deleteWorkflow.mockResolvedValue({ data: null })
   })
 
   afterEach(() => {
@@ -820,30 +815,4 @@ describe('WorkflowList project scope integration', () => {
     expect(mocks.createWorkflow).not.toHaveBeenCalled()
   })
 
-  it('checks deletable, write permission, and scope again before deleting', async () => {
-    authenticate(['project-a', 'project-b'], ['project-b'])
-    const rowB = createWorkflow('b', 2, 'project-b')
-    const rowA = createWorkflow('a', 1, 'project-a')
-    mocks.listWorkflows.mockResolvedValue({ data: [rowB, rowA] })
-    const mounted = await mountWorkflowList('/workflows?projectId=2&projectCode=project-b')
-    const workflowVm = mounted.workflowWrapper.vm as unknown as {
-      confirmDeleteWorkflow: (row: WorkflowWorkingCopy) => Promise<void>
-    }
-    vi.mocked(ElMessageBox.confirm).mockResolvedValueOnce('confirm' as never)
-    await workflowVm.confirmDeleteWorkflow(rowB)
-    expect(mocks.deleteWorkflow).toHaveBeenCalledWith('b')
-
-    mocks.deleteWorkflow.mockClear()
-    let confirmDelete!: (value: unknown) => void
-    vi.mocked(ElMessageBox.confirm).mockReturnValueOnce(new Promise((resolve) => {
-      confirmDelete = resolve
-    }) as never)
-    const deleting = workflowVm.confirmDeleteWorkflow(rowB)
-    await mounted.router.push('/workflows?projectId=1&projectCode=project-a')
-    await settle()
-    confirmDelete('confirm')
-    await deleting
-    expect(mocks.deleteWorkflow).not.toHaveBeenCalled()
-    expect(rowA.projectCode).toBe('project-a')
-  })
 })

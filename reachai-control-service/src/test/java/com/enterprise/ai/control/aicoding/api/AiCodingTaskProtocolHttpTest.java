@@ -1504,8 +1504,11 @@ class AiCodingTaskProtocolHttpTest {
     @Test
     void generatedWindowsBootstrapRestoresEncryptedSessionAndWritesUtf8Artifact()
             throws Exception {
+        // 只在 Windows 上跑：Linux/CI 没有 SystemRoot，也没有 Windows PowerShell
+        String systemRoot = System.getenv("SystemRoot");
+        assumeTrue(systemRoot != null);
         Path powerShell = Path.of(
-                System.getenv("SystemRoot"),
+                systemRoot,
                 "System32",
                 "WindowsPowerShell",
                 "v1.0",

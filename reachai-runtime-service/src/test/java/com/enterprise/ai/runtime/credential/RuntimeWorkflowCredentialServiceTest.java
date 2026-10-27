@@ -1,6 +1,7 @@
 package com.enterprise.ai.runtime.credential;
 
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
+import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -125,7 +126,7 @@ class RuntimeWorkflowCredentialServiceTest {
                 .thenReturn(entity);
         RuntimeWorkflowCredentialService service = new RuntimeWorkflowCredentialService(mapper, cipher, new ObjectMapper());
 
-        var runtime = service.resolve("cred_orders", null, "orders");
+        var runtime = service.resolve("cred_orders", WorkflowExecutionIdentity.fromAgent(null, "orders"));
 
         assertTrue(runtime.isPresent());
         assertEquals("API_KEY_HEADER", runtime.get().type());
@@ -148,9 +149,9 @@ class RuntimeWorkflowCredentialServiceTest {
                 .thenReturn(entity);
         RuntimeWorkflowCredentialService service = new RuntimeWorkflowCredentialService(mapper, cipher, new ObjectMapper());
 
-        assertTrue(service.resolve("cred_orders", null, null).isEmpty());
-        assertTrue(service.resolve("cred_orders", null, "other").isEmpty());
-        assertTrue(service.resolve("cred_orders", null, "orders").isPresent());
+        assertTrue(service.resolve("cred_orders", WorkflowExecutionIdentity.untrustedDebug()).isEmpty());
+        assertTrue(service.resolve("cred_orders", WorkflowExecutionIdentity.fromAgent(null, "other")).isEmpty());
+        assertTrue(service.resolve("cred_orders", WorkflowExecutionIdentity.fromAgent(null, "orders")).isPresent());
     }
 
     @Test

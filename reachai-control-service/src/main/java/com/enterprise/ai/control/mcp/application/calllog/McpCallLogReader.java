@@ -15,6 +15,9 @@ public interface McpCallLogReader {
 
     Entry detail(long id);
 
+    /** Newest calls made through the given personal connections, without bodies. */
+    List<Entry> recentByConnections(List<Long> connectionIds, int limit);
+
     record Entry(
             Long id,
             String direction,

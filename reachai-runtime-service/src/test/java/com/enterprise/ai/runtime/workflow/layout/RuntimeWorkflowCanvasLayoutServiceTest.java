@@ -89,6 +89,30 @@ class RuntimeWorkflowCanvasLayoutServiceTest {
     }
 
     @Test
+    void flatAndLegacyBranchConfigurationsHaveTheSameLayout() {
+        List<Map<String, Object>> branches = List.of(
+                Map.of("id", "first"), Map.of("id", "second"),
+                Map.of("id", "third"), Map.of("id", "fourth"));
+        for (String type : List.of("INTENT_CLASSIFIER", "IF_ELSE")) {
+            String flatKey = "INTENT_CLASSIFIER".equals(type) ? "classes" : "conditionGroups";
+            String nestedKey = "INTENT_CLASSIFIER".equals(type) ? "classifierConfig" : "conditionConfig";
+            String nestedField = "INTENT_CLASSIFIER".equals(type) ? "classes" : "groups";
+            GraphSpec flat = graph(List.of(
+                    GraphSpec.Node.builder().id("router").type(type).config(Map.of(flatKey, branches)).build(),
+                    GraphSpec.Node.builder().id("other").type("TEMPLATE").build()),
+                    List.of(), "router", List.of("router"));
+            GraphSpec nested = graph(List.of(
+                    GraphSpec.Node.builder().id("router").type(type)
+                            .config(Map.of(nestedKey, Map.of(nestedField, branches))).build(),
+                    GraphSpec.Node.builder().id("other").type("TEMPLATE").build()),
+                    List.of(), "router", List.of("router"));
+
+            assertEquals(service.projectAndLayout(nested, Map.of(), RuntimeWorkflowCanvasLayoutService.Options.defaults()),
+                    service.projectAndLayout(flat, Map.of(), RuntimeWorkflowCanvasLayoutService.Options.defaults()), type);
+        }
+    }
+
+    @Test
     void reachableCycleTerminatesAndKeepsMainDirection() {
         GraphSpec graph = graph(
                 List.of(node("a", "TOOL", 240, 156), node("b", "TOOL", 240, 156)),

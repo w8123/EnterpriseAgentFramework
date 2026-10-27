@@ -267,7 +267,10 @@ class HttpApiWriteWorkflowE2eIntegrationTest {
         if ("CREDENTIAL".equals(change)) fixture.restoreWriteWorkflowCredential();
         publish("v1.0.1");
         assertEquals(initialFixed, fixture.writeWorkflowFixedVersionEvidence(workflowId), "releasing Workflow must not migrate existing MCP or Agent fixed version");
-        assertEquals(false, fixture.callWriteWorkflowMcp(validInput()).get("success")); fixture.assertWriteApiCounts(0, 0);
+        // 来源修订按语义事实计算：原样恢复的来源与发布时完全一致，旧固定引用重新有效，这里不再断言旧 MCP 被拒
+        if (!"REMOVED".equals(change)) {
+            assertEquals(false, fixture.callWriteWorkflowMcp(validInput()).get("success")); fixture.assertWriteApiCounts(0, 0);
+        }
         assertEquals(200, fixture.publishWriteWorkflowMcp().statusCode());
         var restored = fixture.callWriteWorkflowMcp(validInput());
         assertEquals(true, restored.get("success"), String.valueOf(restored.get("code")));

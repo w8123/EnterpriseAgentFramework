@@ -36,6 +36,9 @@
     "test:dashboard": "vitest run --config vitest.dashboard.config.ts",
     "test:runops": "vitest run --config vitest.runops.config.ts",
     "test:mcp": "vitest run --config vitest.mcp.config.ts",
+    "test:a2a": "vitest run --config vitest.a2a.config.ts",
+    "test:capability": "vitest run --config vitest.capability.config.ts",
+    "test:bmapi-retirement": "vitest run --config vitest.bmapi-retirement.config.ts",
     "preview": "vite preview"
   },
   "dependencies": {

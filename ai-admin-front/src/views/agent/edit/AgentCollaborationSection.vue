@@ -75,7 +75,7 @@
         <div class="a2a-dialog-intro__copy">
           <small>AGENT COLLABORATION</small>
           <strong>把任务交给可信的外部 Agent</strong>
-          <p>仅显示已经建立信任并通过评审的远程 Agent。</p>
+          <p>仅显示已经建立信任并通过评审的外部 Agent。</p>
         </div>
         <span class="a2a-dialog-intro__protocol">A2A</span>
       </header>
@@ -84,10 +84,10 @@
         <span class="a2a-dialog-empty__icon"><el-icon><Connection /></el-icon></span>
         <small class="a2a-dialog-empty__eyebrow">还差 1 项准备</small>
         <h3>为当前 Agent 创建协作身份</h3>
-        <p>协作身份用于识别任务由谁发起，并套用对应的信任与权限策略。完成后再回来选择远程 Agent。</p>
+        <p>协作身份用于识别任务由谁发起，并套用对应的信任与权限策略。完成后再回来选择外部 Agent。</p>
         <ol class="a2a-setup-path" aria-label="添加协作 Agent 的步骤">
           <li class="is-current"><span>1</span><div><strong>创建协作身份</strong><small>当前待完成</small></div></li>
-          <li><span>2</span><div><strong>选择远程 Agent</strong><small>从可信目录选择</small></div></li>
+          <li><span>2</span><div><strong>选择外部 Agent</strong><small>从可信目录选择</small></div></li>
           <li><span>3</span><div><strong>确认委派范围</strong><small>添加到当前 Agent</small></div></li>
         </ol>
       </section>
@@ -96,7 +96,7 @@
         <span class="a2a-dialog-empty__icon is-ready"><el-icon><Check /></el-icon></span>
         <small class="a2a-dialog-empty__eyebrow is-ready">协作身份已就绪</small>
         <h3>还没有可选择的可信 Agent</h3>
-        <p>请先在 A2A 互联中心发现远程 Agent，完成评审并建立信任，再回到这里添加。</p>
+        <p>请先在 A2A 互联中心接入外部 Agent，完成评审并建立信任，再回到这里添加。</p>
         <ol class="a2a-setup-path" aria-label="添加协作 Agent 的步骤">
           <li class="is-done"><span>1</span><div><strong>创建协作身份</strong><small>已经完成</small></div></li>
           <li class="is-current"><span>2</span><div><strong>建立远程信任</strong><small>当前待完成</small></div></li>
@@ -121,7 +121,7 @@
               <span>2</span>
               <div><strong>选择协作对象</strong><small>只列出已建立信任的 Agent</small></div>
             </div>
-            <el-select v-model="a2aRemoteAgentSelection" filterable placeholder="请选择远程 Agent" @change="handleA2aRemoteAgentChanged">
+            <el-select v-model="a2aRemoteAgentSelection" filterable placeholder="请选择外部 Agent" @change="handleA2aRemoteAgentChanged">
               <el-option v-for="remote in trustedRemoteAgents" :key="remote.id" :label="`${remote.displayName} · ${remote.remoteAgentKey}`" :value="remote.id" />
             </el-select>
           </section>
@@ -154,7 +154,7 @@
             collapse-tags
             :max-collapse-tags="2"
             :disabled="!selectedA2aRemoteRevision"
-            :placeholder="selectedA2aRemoteAgent ? '请选择允许委派的任务' : '请先选择远程 Agent'"
+            :placeholder="selectedA2aRemoteAgent ? '请选择允许委派的任务' : '请先选择外部 Agent'"
           >
             <el-option v-for="skill in selectedA2aRemoteRevision?.protocolSkills || []" :key="skill.id" :label="`${skill.name} · ${skill.id}`" :value="skill.id" />
           </el-select>
@@ -179,7 +179,7 @@
         <div class="a2a-dialog-footer__actions">
           <LiquidGlassButton @click="a2aBindingDialogVisible = false">取消</LiquidGlassButton>
           <LiquidGlassButton v-if="!localAgentPrincipals.length" type="primary" @click="openA2aTrustWorkspace">打开信任与策略</LiquidGlassButton>
-          <LiquidGlassButton v-else-if="!trustedRemoteAgents.length" type="primary" @click="openA2aRemoteAgentCatalog">打开远程 Agent 目录</LiquidGlassButton>
+          <LiquidGlassButton v-else-if="!trustedRemoteAgents.length" type="primary" @click="openA2aRemoteAgentCatalog">打开外部 Agent</LiquidGlassButton>
           <LiquidGlassButton v-else type="primary" :disabled="!a2aBindingReady" @click="addA2aBinding">添加到当前 Agent</LiquidGlassButton>
         </div>
       </div>

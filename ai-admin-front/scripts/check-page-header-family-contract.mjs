@@ -31,6 +31,7 @@ const files = {
   mcpHub: 'src/views/mcp-hub/McpHubLayout.vue',
   router: 'src/router/index.ts',
   a2aHub: 'src/views/a2a-hub/A2aHubLayout.vue',
+  a2aListToolbar: 'src/views/a2a-hub/A2aListToolbar.vue',
   a2aOverview: 'src/views/a2a-hub/A2aHubOverview.vue',
   a2aPublications: 'src/views/a2a-hub/publications/A2aPublicationList.vue',
   a2aRemoteAgents: 'src/views/a2a-hub/remote-agents/A2aRemoteAgentCatalog.vue',
@@ -44,10 +45,9 @@ const files = {
   runOpsDetail: 'src/views/runops/RunOpsDetail.vue',
 }
 
+// 科技紫、珊瑚玫瑰两套主题已改用 SVG 壁纸（lavender-*/coral-*），这里只校验仍在使用的 WebP 素材
 const materialFiles = [
-  'violet-waves.webp',
   'ice-blue.webp',
-  'rose-glow.webp',
   'sage-folds.webp',
   'gold-curves.webp',
   'deep-blue.webp',
@@ -201,6 +201,16 @@ const directiveProp = (node, name, argument) => node?.props?.find(prop => prop.t
   prop.name === name && (argument === undefined ? !prop.arg : prop.arg?.content === argument))
 const directiveText = (node, name, argument) => directiveProp(node, name, argument)?.exp?.content?.trim()
 
+function importsComponent(owner, name, module) {
+  return owner.script.statements.some(node => {
+    if (!ts.isImportDeclaration(node) || literalText(node.moduleSpecifier) !== module) return false
+    if (node.importClause?.name?.text === name) return true
+    const bindings = node.importClause?.namedBindings
+    return bindings && ts.isNamedImports(bindings) && bindings.elements.some(element =>
+      element.name.text === name && (element.propertyName?.text ?? element.name.text) === name)
+  })
+}
+
 function vueAst(source, label, failures) {
   const parsed = parseSfc(source, { filename: label })
   if (parsed.errors.length) failures.push(`${label} must remain a parseable SFC`)
@@ -249,9 +259,6 @@ function validateMcpHubHeader(failures, source) {
   if (!(staticProp(header, 'variant') === 'overview' && staticProp(header, 'domain') === 'platform')) {
     failures.push('McpHubLayout shared PageHeader must remain exactly overview/platform')
   }
-  if (!staticProp(header, 'description')?.trim()) {
-    failures.push('McpHubLayout PageHeader must retain a non-empty purpose description')
-  }
 }
 
 function validateA2aHubOwners(failures, sources) {
@@ -278,10 +285,12 @@ function validateA2aHubOwners(failures, sources) {
   const layout = vueAst(sources.a2aHub, 'A2aHubLayout', failures)
   const roots = layout.ast?.children.filter(node => node.type === NodeTypes.ELEMENT) ?? []
   const header = layout.elements.filter(node => node.tag === 'PageHeader')
-  const nav = layout.elements.find(node => node.tag === 'nav')
+  const nav = layout.elements.find(node => node.tag === 'LiquidGlassNav')
   const link = layout.elements.find(node => node.tag === 'router-link')
-  const items = astNodes(layout.script, node => ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === 'items')[0]?.initializer
-  const paths = items && ts.isArrayLiteralExpression(items) ? items.elements.map(node => literalText(objectProperty(node, 'path'))) : []
+  const pathsFor = name => {
+    const items = astNodes(layout.script, node => ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === name)[0]?.initializer
+    return items && ts.isArrayLiteralExpression(items) ? items.elements.map(node => literalText(objectProperty(node, 'path'))) : []
+  }
   assert(roots.length === 1 && roots[0].tag === 'WorkbenchPage' && header.length === 1 &&
     roots[0].children.includes(header[0]) &&
     layout.script.statements.some(node => ts.isImportDeclaration(node) &&
@@ -289,20 +298,37 @@ function validateA2aHubOwners(failures, sources) {
     !header[0].props.some(prop => prop.type === NodeTypes.DIRECTIVE && ['if', 'show', 'else', 'else-if'].includes(prop.name)) &&
     roots[0].children.some(node => node.type === NodeTypes.ELEMENT && node.tag === 'router-view'),
   'A2aHubLayout must retain one reachable shared PageHeader and its child router view')
-  assert(staticProp(nav, 'aria-label') === 'A2A Hub 工作区' && directiveText(link, 'for') === 'item in items' &&
+  assert(staticProp(nav, 'aria-label') === 'A2A 互联中心工作区' && directiveText(link, 'for') === 'item in items' &&
     directiveText(link, 'bind', 'to') === 'item.path' && directiveText(link, 'bind', 'key') === 'item.path' &&
-    link.children.some(node => node.type === NodeTypes.ELEMENT && node.tag === 'strong' &&
-      node.children.some(child => child.type === NodeTypes.INTERPOLATION && child.content?.content.trim() === 'item.label')) &&
-    JSON.stringify(paths) === JSON.stringify(a2aOwners.map(([routePath]) => `/a2a-hub/${routePath}`)) &&
+    link.children.some(node => node.type === NodeTypes.INTERPOLATION && node.content?.content.trim() === 'item.label') &&
+    JSON.stringify(pathsFor('items')) === JSON.stringify(a2aOwners.slice(0, 4).map(([routePath]) => `/a2a-hub/${routePath}`)) &&
     link.props.every(prop => prop.type === NodeTypes.ATTRIBUTE
-      ? ['class'].includes(prop.name)
+      ? false
       : prop.type === NodeTypes.DIRECTIVE && (prop.name === 'for' ||
-        (prop.name === 'bind' && ['key', 'to', 'class', 'title'].includes(prop.arg?.content)))) &&
+        (prop.name === 'bind' && ['key', 'to', 'class', 'title', 'aria-current'].includes(prop.arg?.content)))) &&
     !layout.styles.some(style => /outline\s*:\s*(?:none|0)(?:\s|;|})/i.test(style.content)),
-  'A2aHubLayout must retain six native keyboard-focusable workspace links without focus suppression')
-  assert(layout.elements.some(node => node.tag === 'el-tag' && staticProp(node, 'type') === 'primary') &&
-    layout.elements.some(node => node.tag === 'el-tag' && staticProp(node, 'type') === 'info'),
-  'A2aHubLayout must retain the protocol status tags')
+  'A2aHubLayout must retain four native keyboard-focusable workspace links without focus suppression')
+  const managementMenu = layout.elements.find(node => node.tag === 'LiquidGlassDropdown')
+  const managementItem = layout.elements.find(node => node.tag === 'el-dropdown-item' && directiveText(node, 'for') === 'item in managementItems')
+  const openManagement = layout.script.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === 'openManagement')
+  assert(staticProp(managementMenu, 'trigger') === 'click' && directiveText(managementMenu, 'on', 'command') === 'openManagement' &&
+    layout.elements.some(node => node.tag === 'LiquidGlassButton' && staticProp(node, 'aria-label') === '治理与诊断') &&
+    directiveText(managementItem, 'bind', 'command') === 'item.path' &&
+    managementItem?.children.some(node => node.type === NodeTypes.INTERPOLATION && node.content?.content.trim() === 'item.label') &&
+    JSON.stringify(pathsFor('managementItems')) === JSON.stringify(a2aOwners.slice(4).map(([routePath]) => `/a2a-hub/${routePath}`)) &&
+    astNodes(openManagement?.body, node => ts.isCallExpression(node) && node.expression.getText() === 'router.push' && node.arguments[0]?.getText() === 'command').length > 0,
+  'A2aHubLayout must retain its labeled management menu and both routed tools')
+  assert(layout.elements.some(node => node.tag === 'AppDialog' && staticProp(node, 'title') === 'A2A 使用说明' && directiveText(node, 'model') === 'helpVisible') &&
+    layout.elements.some(node => node.tag === 'el-dropdown-item' && staticProp(node, 'command') === 'help') &&
+    astNodes(openManagement?.body, node => ts.isBinaryExpression(node) && node.left.getText() === 'helpVisible.value' &&
+      node.operatorToken.kind === ts.SyntaxKind.EqualsToken && node.right.kind === ts.SyntaxKind.TrueKeyword).length > 0,
+  'A2aHubLayout must retain its reachable usage help')
+  const toolbar = vueAst(sources.a2aListToolbar, files.a2aListToolbar, failures)
+  assert(importsComponent(toolbar, 'LiquidGlassButton', '@/components/common/liquid-glass') &&
+    toolbar.elements.some(node => node.tag === 'LiquidGlassButton' && directiveText(node, 'on', 'click') === "$emit('refresh')" &&
+      staticProp(node, 'aria-label') === '刷新' && directiveText(node, 'bind', 'loading') === 'loading' &&
+      !directiveProp(node, 'if') && !directiveProp(node, 'show')),
+  'A2aListToolbar must retain its accessible refresh action')
   for (const [, key, rootClass, reloadApi] of a2aOwners) {
     const owner = vueAst(sources[key], files[key], failures)
     const rootNode = owner.ast?.children.find(node => node.type === NodeTypes.ELEMENT)
@@ -315,16 +341,20 @@ function validateA2aHubOwners(failures, sources) {
     }
     visit(heading)
     const reload = owner.script.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === 'reload')
-    const importsPanel = owner.script.statements.some(node => ts.isImportDeclaration(node) &&
-      literalText(node.moduleSpecifier) === '@/components/common/WorkbenchPanel.vue' && node.importClause?.name?.text === 'WorkbenchPanel')
-    assert(rootNode?.tag === 'section' && staticProp(rootNode, 'class') === rootClass && importsPanel &&
-      ![rootNode, heading].some(node => node?.props.some(prop => prop.type === NodeTypes.DIRECTIVE && ['if', 'show', 'else', 'else-if'].includes(prop.name))) &&
+    assert((importsComponent(owner, 'WorkbenchPanel', '@/components/common/WorkbenchPanel.vue') && owner.elements.some(node => node.tag === 'WorkbenchPanel')) ||
+      (importsComponent(owner, 'LiquidGlassTable', '@/components/common/liquid-glass') && owner.elements.some(node => node.tag === 'LiquidGlassTable')),
+    `${files[key]} must render an imported workbench surface`)
+    const hasRefresh = owner.elements.some(node => !directiveProp(node, 'if') && !directiveProp(node, 'show') &&
+      directiveText(node, 'bind', 'loading') === 'loading' &&
+      ((['el-button', 'LiquidGlassButton'].includes(node.tag) && directiveText(node, 'on', 'click') === 'reload') ||
+        (node.tag === 'A2aListToolbar' && directiveText(node, 'on', 'refresh') === 'reload' &&
+          importsComponent(owner, 'A2aListToolbar', '../A2aListToolbar.vue'))))
+    assert(rootNode?.tag === 'section' && staticProp(rootNode, 'class') === rootClass &&
+      !rootNode?.props.some(prop => prop.type === NodeTypes.DIRECTIVE && ['if', 'show', 'else', 'else-if'].includes(prop.name)) &&
       !owner.elements.some(node => node.tag === 'PageHeader') &&
-      headingElements.some(node => node.tag === 'h2') &&
-      headingElements.some(node => node.tag === 'el-button' && directiveText(node, 'on', 'click') === 'reload' &&
-        directiveText(node, 'bind', 'loading') === 'loading' && !directiveProp(node, 'if') && !directiveProp(node, 'show')) &&
+      (!['a2aTrust', 'a2aDeveloper'].includes(key) || headingElements.some(node => node.tag === 'h2')) && hasRefresh &&
       astNodes(reload?.body, node => ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === reloadApi).length > 0,
-    `${files[key]} must preserve its reachable section heading and real reload action under the shared Hub header`)
+    `${files[key]} must preserve its reachable content and real reload action under the shared Hub header`)
   }
 }
 
@@ -455,7 +485,6 @@ function validate(sources, { validateAssets = true } = {}) {
   expectPageHeader(failures, sources.mcpHub, 'overview', 'platform', 'McpHubLayout', { noActionControls: true })
   validateMcpHubHeader(failures, sources.mcpHub)
   expectPageHeader(failures, sources.a2aHub, 'overview', 'platform', 'A2aHubLayout', { noActionControls: true, primaryLast: true })
-  expectIncludes(failures, pageHeaderTag(sources.a2aHub), 'description=', 'A2aHubLayout PageHeader description')
   validateA2aHubOwners(failures, sources)
   // Metrics plus account/role/audit partitions make identity governance an overview.
   expectPageHeader(failures, sources.platformUsers, 'overview', 'platform', 'PlatformUserSettings', { enriched: true })
@@ -476,8 +505,8 @@ function validate(sources, { validateAssets = true } = {}) {
       failures.push(`AgentList overview must render ${label}`)
     }
   }
-  if ((sources.knowledgeList.match(/<HeaderMiniStat\b/g) ?? []).length !== 2) {
-    failures.push('KnowledgeList overview header must render exactly two HeaderMiniStat items')
+  if (sources.knowledgeList.includes('<HeaderMiniStat')) {
+    failures.push('KnowledgeList overview header must not render HeaderMiniStat items')
   }
   if (sources.modelInstances.includes('<HeaderMiniStat')) {
     failures.push('ModelInstances overview header must not render HeaderMiniStat items')
@@ -547,16 +576,19 @@ if (process.argv.includes('--self-test')) {
       ['a2a-wrong-domain', 'a2aHub', value => value.replace('domain="platform"', 'domain="governance"'), 'A2aHubLayout PageHeader is missing domain="platform"'],
       ['a2a-wrong-variant', 'a2aHub', value => value.replace('variant="overview"', 'variant="standard"'), 'A2aHubLayout PageHeader is missing variant="overview"'],
       ['a2a-hidden-header', 'a2aHub', value => value.replace('<PageHeader', '<PageHeader v-show="false"'), 'one reachable shared PageHeader'],
-      ['a2a-keyboard-focus', 'a2aHub', value => value.replace('class="hub-nav__item"', 'tabindex="-1" class="hub-nav__item"'), 'six native keyboard-focusable workspace links'],
-      ['a2a-focus-suppression', 'a2aHub', value => value.replace('</style>', '.hub-nav__item:focus-visible { outline: none; }\n</style>'), 'six native keyboard-focusable workspace links'],
-      ['a2a-wrong-link-target', 'a2aHub', value => value.replace(':to="item.path"', ':to="\'/a2a-hub/overview\'"'), 'six native keyboard-focusable workspace links'],
-      ['a2a-missing-link-label', 'a2aHub', value => value.replace('<strong>{{ item.label }}</strong>', '<strong />'), 'six native keyboard-focusable workspace links'],
+      ['a2a-keyboard-focus', 'a2aHub', value => value.replace('<router-link', '<router-link tabindex="-1"'), 'four native keyboard-focusable workspace links'],
+      ['a2a-focus-suppression', 'a2aHub', value => value.replace('</style>', '.hub-nav a:focus-visible { outline: none; }\n</style>'), 'four native keyboard-focusable workspace links'],
+      ['a2a-wrong-link-target', 'a2aHub', value => value.replace(':to="item.path"', ':to="\'/a2a-hub/overview\'"'), 'four native keyboard-focusable workspace links'],
+      ['a2a-missing-link-label', 'a2aHub', value => value.replace('{{ item.label }}', ''), 'four native keyboard-focusable workspace links'],
+      ['a2a-management-command', 'a2aHub', value => value.replace(':command="item.path"', 'command="noop"'), 'labeled management menu and both routed tools'],
+      ['a2a-management-route', 'a2aHub', value => value.replace('router.push(command)', 'router.push("/a2a-hub/overview")'), 'labeled management menu and both routed tools'],
+      ['a2a-missing-help', 'a2aHub', value => value.replace('command="help"', 'command="noop"'), 'reachable usage help'],
+      ['a2a-toolbar-refresh', 'a2aListToolbar', value => value.replace("$emit('refresh')", "$emit('noop')"), 'accessible refresh action'],
       ['a2a-wrong-owner', 'router', value => value.replace("@/views/a2a-hub/tasks/A2aTaskCenter.vue", "@/views/a2a/A2aSessionMonitor.vue"), 'A2A Hub tasks must register its current exact owner'],
       ...a2aOwners.map(([routePath, key]) => [`a2a-${routePath}-reload`, key,
-        value => value.replace('@click="reload"', '@click="noop"'), 'reachable section heading and real reload action']),
+        value => value.replaceAll('@click="reload"', '@click="noop"').replaceAll('@refresh="reload"', '@refresh="noop"'), 'reachable content and real reload action']),
+      ['a2a-trust-missing-surface', 'a2aTrust', value => value.replaceAll('<LiquidGlassTable', '<section').replaceAll('</LiquidGlassTable>', '</section>'), 'must render an imported workbench surface'],
       ['mcp-wrong-variant', 'mcpHub', value => value.replace('variant="overview"', 'variant="standard"'), 'McpHubLayout PageHeader is missing variant="overview"'],
-      ['mcp-missing-description', 'mcpHub', value => value.replace('description="将能力和已发布 Workflow 安全发布为 MCP Tool。"', ''), 'McpHubLayout PageHeader must retain a non-empty purpose description'],
-      ['mcp-empty-description', 'mcpHub', value => value.replace('description="将能力和已发布 Workflow 安全发布为 MCP Tool。"', 'description="  \n  "'), 'McpHubLayout PageHeader must retain a non-empty purpose description'],
       ['mcp-hidden-header', 'mcpHub', value => value.replace('<PageHeader', '<PageHeader v-show="false"'), 'one reachable direct shared PageHeader'],
       ['mcp-conditional-header', 'mcpHub', value => value.replace('<PageHeader', '<PageHeader v-if="false"'), 'one reachable direct shared PageHeader'],
       ['mcp-unreachable-header', 'mcpHub', value => value.replace(/(<PageHeader\b[\s\S]*?\/>)/, '<template v-if="false">$1</template>'), 'one reachable direct shared PageHeader'],
@@ -590,9 +622,8 @@ if (process.argv.includes('--self-test')) {
       ['filter-control-outside-dock', 'businessUsers', value => value.replace('<LiquidGlassFilterBar', '<!-- filters stay outside PageHeader -->\n    <LiquidGlassFilterBar')],
       ['a2a-header-attribute-order', 'a2aHub', value => value.replace('variant="overview"', '').replace('domain="platform"', 'domain="platform" variant="overview"')],
       ['a2a-native-link-comment', 'a2aHub', value => value.replace('<router-link', '<!-- native link retains keyboard focus -->\n      <router-link')],
-      ['mcp-optional-eyebrow', 'mcpHub', value => value.replace('title="MCP 互联中心"', 'eyebrow="MCP HUB" title="MCP 互联中心"')],
-      ['mcp-description-attribute-order', 'mcpHub', value => value.replace(/\s+description="将能力和已发布 Workflow 安全发布为 MCP Tool。"/, '')
-        .replace('domain="platform"', 'description="将能力和已发布 Workflow 安全发布为 MCP Tool。"\n      domain="platform"')],
+      ['mcp-optional-eyebrow', 'mcpHub', value => value.replace('title="MCP 开放"', 'eyebrow="MCP" title="MCP 开放"')],
+      ['mcp-optional-description', 'mcpHub', value => value.replace('domain="platform"', 'description="管理 MCP 服务与员工接入。"\n      domain="platform"')],
     ]
     for (const [name, key, mutate] of safeProofs) {
       let transformed

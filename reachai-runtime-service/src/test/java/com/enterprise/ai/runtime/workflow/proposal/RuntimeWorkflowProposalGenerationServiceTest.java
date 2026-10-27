@@ -1,5 +1,6 @@
 package com.enterprise.ai.runtime.workflow.proposal;
 
+import com.enterprise.ai.agent.graph.GraphSpec;
 import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient;
 import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient.ModelChatData;
 import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient.ModelChatRequest;
@@ -90,6 +91,40 @@ class RuntimeWorkflowProposalGenerationServiceTest {
                 - x(node(result.canvasSnapshot(), "start")) - 240.0);
         assertEquals(centerY(node(result.canvasSnapshot(), "start")), centerY(node(result.canvasSnapshot(), "answer")));
         assertEquals("model-1", modelClient.requests.get(0).getModelInstanceId());
+    }
+
+    @Test
+    void projectsNodesAddedByRepairIntoTheReturnedCanvas() {
+        ObjectMapper mapper = new ObjectMapper();
+        var validation = RuntimeWorkflowReleaseValidationResult.builder().build();
+        GraphSpec repaired = GraphSpec.builder()
+                .entryNodeId("repaired")
+                .exitNodeIds(List.of("answer"))
+                .node(GraphSpec.Node.builder().id("repaired").type("TEMPLATE")
+                        .config(Map.of("template", "fixed")).build())
+                .node(GraphSpec.Node.builder().id("answer").type("ANSWER")
+                        .config(Map.of("template", "done")).build())
+                .edge(GraphSpec.Edge.builder().id("fixed-edge").from("repaired").to("answer").build())
+                .build();
+        RuntimeWorkflowProposalRepairService repair = mock(RuntimeWorkflowProposalRepairService.class);
+        when(repair.repair(any(), any(), any())).thenReturn(
+                new RuntimeWorkflowProposalRepairService.RepairResult(repaired, validation, 1, List.of()));
+        var model = new CapturingModelClient("""
+                {"entryNodeId":"answer","exitNodeIds":["answer"],"nodes":[{"id":"answer","type":"ANSWER","label":"Answer","config":{"template":"done"}}],"edges":[]}
+                """);
+        var service = new RuntimeWorkflowProposalGenerationService(mapper, model,
+                new RuntimeWorkflowCanvasLayoutService(mapper), validationService(), repair);
+
+        var result = service.generate(new RuntimeWorkflowProposalGenerationRequest(
+                "workflow-1", "Repaired", "Generate workflow", "orders", "model-1", "GENERAL",
+                List.of(), List.of(), List.of(), List.of()));
+
+        assertTrue(result.validationErrors().isEmpty());
+        assertEquals(Set.of("start", "repaired", "answer", "end"),
+                ((List<?>) result.canvasSnapshot().get("nodes")).stream()
+                        .map(item -> String.valueOf(((Map<?, ?>) item).get("id")))
+                        .collect(Collectors.toSet()));
+        assertTrue(x(node(result.canvasSnapshot(), "repaired")) < x(node(result.canvasSnapshot(), "answer")));
     }
 
     @Test
@@ -314,20 +349,21 @@ class RuntimeWorkflowProposalGenerationServiceTest {
     @Test
     void finalKnowledgeConfigSerializationOmitsDirectReturnFields() throws Exception {
         ObjectMapper objectMapper = new ObjectMapper();
+        var model = new CapturingModelClient("""
+                {"entryNodeId":"lookup","exitNodeIds":["lookup"],"nodes":[{"id":"lookup","type":"KNOWLEDGE_RETRIEVAL","label":"Lookup","config":{"knowledgeBaseCodes":["kb1"],"query":"input","directReturnEnabled":true,"directReturnThreshold":0.9}}],"edges":[]}
+                """);
+        var validation = validationService();
         RuntimeWorkflowProposalGenerationService service = new RuntimeWorkflowProposalGenerationService(
                 objectMapper,
-                new CapturingModelClient("{}"),
+                model,
                 new RuntimeWorkflowCanvasLayoutService(objectMapper),
-                validationService(),
-                mock(RuntimeWorkflowProposalRepairService.class));
-        var method = RuntimeWorkflowProposalGenerationService.class.getDeclaredMethod("knowledgeConfig", Map.class);
-        method.setAccessible(true);
-        @SuppressWarnings("unchecked")
-        Map<String, Object> config = (Map<String, Object>) method.invoke(service, Map.of(
-                "knowledgeBaseCodes", List.of("kb1"),
-                "query", "input",
-                "directReturnEnabled", true,
-                "directReturnThreshold", 0.9D));
+                validation,
+                new RuntimeWorkflowProposalRepairService(objectMapper, model,
+                        new RuntimeWorkflowGraphMutationService(objectMapper), validation));
+        var result = service.generate(new RuntimeWorkflowProposalGenerationRequest(
+                "workflow-1", "Knowledge", "Generate knowledge lookup", "orders", "model-1", "GENERAL",
+                List.of(), List.of(), List.of(), List.of()));
+        Map<String, Object> config = result.graphSpec().getNodes().get(0).getConfig();
         String json = objectMapper.writeValueAsString(config);
         assertFalse(json.contains("directReturnEnabled"));
         assertFalse(json.contains("directReturnThreshold"));

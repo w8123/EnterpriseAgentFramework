@@ -137,6 +137,6 @@
   "debtBaseline": {
     "recordedAt": "2026-09-05",
     "reason": "Expanded scanner coverage: long cycles, fully qualified references, flat Mapper and Entity types. Existing uncovered debt is recorded exactly and must only shrink.",
-    "evidence": "docs/architecture/internal-module-boundaries.md"
+    "evidence": "docs/architecture.md"
   }
 }

@@ -2,8 +2,8 @@
 import { onMounted, reactive, ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Refresh, Search } from '@element-plus/icons-vue'
-import { LiquidGlassButton, LiquidGlassFilterBar, LiquidGlassInput, LiquidGlassSelect, LiquidGlassTable } from '@/components/common/liquid-glass'
+import { Search } from '@element-plus/icons-vue'
+import { LiquidGlassButton, LiquidGlassEmptyState, LiquidGlassFilterBar, LiquidGlassInput, LiquidGlassSelect, LiquidGlassTable } from '@/components/common/liquid-glass'
 import { listMcpEmployeeConnections, revokeMcpEmployeeConnection } from '@/api/mcp'
 import type { McpEmployeeConnection } from '@/types/mcp'
 import { usePlatformCan } from '@/auth/usePlatformCan'
@@ -13,9 +13,11 @@ const canRevoke = computed(() => canAny(PLATFORM_PERMISSION_MCP_EMPLOYEE_CONNECT
 
 const router = useRouter()
 const loading = ref(false)
+const loadError = ref('')
 const rows = ref<McpEmployeeConnection[]>([])
 const total = ref(0)
 const query = reactive({ keyword: '', projectCode: '', state: 'ACTIVE', limit: 20, offset: 0 })
+const hasFilters = computed(() => Boolean(query.keyword.trim() || query.projectCode.trim() || query.state !== 'ACTIVE'))
 
 const stateOptions = [
   { value: 'ACTIVE', label: '使用中' },
@@ -46,6 +48,7 @@ function extractErrorMessage(error: unknown): string {
 
 async function reload() {
   loading.value = true
+  loadError.value = ''
   try {
     const { data } = await listMcpEmployeeConnections({
       keyword: query.keyword.trim() || undefined,
@@ -59,7 +62,7 @@ async function reload() {
   } catch (error) {
     rows.value = []
     total.value = 0
-    ElMessage.error(`员工连接加载失败：${extractErrorMessage(error)}`)
+    loadError.value = extractErrorMessage(error)
   } finally {
     loading.value = false
   }
@@ -110,17 +113,7 @@ onMounted(reload)
 </script>
 
 <template>
-  <section class="employee-connection-page">
-    <div class="section-intro">
-      <div>
-        <h2>员工连接</h2>
-        <p>员工在业务系统的 AI 对话面板里勾选系统后，用自己的 Claude Code、Codex 等工具以本人身份办业务。这里能看到每条连接，必要时直接断开。</p>
-      </div>
-      <div class="section-actions">
-        <LiquidGlassButton source="wallpaper" :icon="Refresh" :loading="loading" @click="reload">刷新</LiquidGlassButton>
-      </div>
-    </div>
-
+  <section class="employee-connection-page mcp-list-page">
     <LiquidGlassTable
       class="workbench-list-surface"
       :current-page="Math.floor(query.offset / query.limit) + 1"
@@ -130,9 +123,17 @@ onMounted(reload)
       pagination-label="员工连接分页"
       :loading="loading"
       :empty="!loading && rows.length === 0"
-      empty-description="还没有员工连接。在发布详情的「员工使用」里开通后，员工就能在对话面板里接入自己的 AI 工具。"
       @change="changePage"
     >
+      <template #empty>
+        <LiquidGlassEmptyState v-if="loadError" compact title="连接加载失败" :description="loadError">
+          <LiquidGlassButton @click="reload">重试</LiquidGlassButton>
+        </LiquidGlassEmptyState>
+        <LiquidGlassEmptyState v-else-if="hasFilters" compact title="没有匹配的连接">
+          <LiquidGlassButton link type="primary" @click="resetFilters">重置筛选</LiquidGlassButton>
+        </LiquidGlassEmptyState>
+        <LiquidGlassEmptyState v-else compact title="暂无使用中的连接" />
+      </template>
       <template #toolbar>
         <LiquidGlassFilterBar :loading="loading" @query="applyFilters" @reset="resetFilters">
           <LiquidGlassInput
@@ -201,34 +202,6 @@ onMounted(reload)
   gap: var(--layout-page-gap);
 }
 
-.section-intro,
-.section-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.section-intro {
-  align-items: flex-start;
-}
-
-.section-intro h2,
-.section-intro p {
-  margin: 0;
-}
-
-.section-intro h2 {
-  color: var(--text-on-wallpaper);
-  font-size: 18px;
-}
-
-.section-intro p {
-  margin-top: 4px;
-  color: var(--text-on-wallpaper-secondary);
-  font-size: 13px;
-}
-
 .workbench-list-surface :deep(.filter-bar__fields > .liquid-glass-control.state-filter),
 .workbench-list-surface :deep(.filter-bar__fields > .liquid-glass-control.system-filter) {
   flex: 0 1 160px;
@@ -254,11 +227,6 @@ onMounted(reload)
 }
 
 @media (max-width: 760px) {
-  .section-intro {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
   .workbench-list-surface :deep(.filter-bar__fields > .liquid-glass-control.state-filter),
   .workbench-list-surface :deep(.filter-bar__fields > .liquid-glass-control.system-filter) {
     max-width: none;

@@ -61,7 +61,8 @@ class RuntimeHttpApiConsoleEgressGatewayTest {
         var request = Request.create(Request.HttpMethod.PUT, "http://runtime/internal/runtime/http-api-connections",
                 Map.of(), new byte[0], StandardCharsets.UTF_8, null);
         var response = Response.builder().request(request).status(409).headers(Map.of())
-                .body(json.writeValueAsString(Map.of("code", code, "message", "private-upstream-detail")),
+                // 带内网地址的上游原文不属于可直接展示的冲突原因，必须被通用提示替换
+                .body(json.writeValueAsString(Map.of("code", code, "message", "private-upstream-detail http://10.0.0.5/internal")),
                         StandardCharsets.UTF_8).build();
         when(runtime.saveHttpApiConnection(any(), any())).thenThrow(FeignException.errorStatus("save", response));
         var command = new HttpApiConsoleContracts.ConnectionCommand(1, 3L, "http-api:bzjs21:count", 36L,

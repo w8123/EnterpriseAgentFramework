@@ -6,6 +6,8 @@ import org.junit.jupiter.api.Test;
 import java.time.LocalDateTime;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class CapabilityProjectInstanceOnlineSupportTest {
@@ -35,6 +37,26 @@ class CapabilityProjectInstanceOnlineSupportTest {
     @Test
     void missingInstanceIsNotOnline() {
         assertFalse(CapabilityProjectInstanceOnlineSupport.isOnline(null, now));
+    }
+
+    @Test
+    void expiredOnlineStatusIncludesBoundaryAndMissingHeartbeat() {
+        assertEquals("STALE", CapabilityProjectInstanceOnlineSupport.statusOrNull(instance("ONLINE", now.minusDays(9)), now));
+        assertEquals("STALE", CapabilityProjectInstanceOnlineSupport.statusOrNull(instance("ONLINE", now.minusMinutes(5)), now));
+        assertEquals("STALE", CapabilityProjectInstanceOnlineSupport.statusOrNull(instance("ONLINE", null), now));
+        assertEquals("ONLINE", CapabilityProjectInstanceOnlineSupport.statusOrNull(instance("ONLINE", now.minusMinutes(5).plusSeconds(1)), now));
+    }
+
+    @Test
+    void effectiveStatusPreservesAdministrativeStatesAndDoesNotMutateObservation() {
+        for (String status : new String[]{"OFFLINE", "STALE", "DISABLED"}) {
+            assertEquals(status, CapabilityProjectInstanceOnlineSupport.statusOrNull(instance(status, now.minusDays(9)), now));
+        }
+        ProjectInstanceEntity expired = instance("ONLINE", now.minusDays(9));
+        assertEquals("STALE", CapabilityProjectInstanceOnlineSupport.statusOrNull(expired, now));
+        assertEquals("ONLINE", expired.getStatus());
+        assertNull(CapabilityProjectInstanceOnlineSupport.statusOrNull(null, now));
+        assertNull(CapabilityProjectInstanceOnlineSupport.statusOrNull(instance(" ", now), now));
     }
 
     private ProjectInstanceEntity instance(String status, LocalDateTime heartbeatAt) {

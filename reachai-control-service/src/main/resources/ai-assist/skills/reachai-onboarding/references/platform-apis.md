@@ -71,7 +71,7 @@ AI coding tools should use the URL from the platform prompt without adding `aiCo
 X-ReachAI-AiCoding-Key: {key}
 ```
 
-Do not use platform Bearer login for external tool calls. Platform console users may still use console-owned `/api/ai-assist/projects/**` endpoints with their normal login token.
+External tools use the project key. Browser requests to console-owned `/api/ai-assist/projects/**` use the platform HttpOnly session Cookie and send `X-ReachAI-CSRF` for non-read-only operations.
 
 The response does not echo the raw key in `aiCodingAccess.accessKey` or `agentProvisioning.provisionAgentUrl`. Reuse the same header when calling returned platform URLs. Do not add `aiCodingKey` query parameters to returned URLs.
 
@@ -354,15 +354,9 @@ Every event and artifact uses a caller-generated idempotency key. Retrying the s
 
 ReachAI cannot wake an inactive local Cursor/Codex session without installing a local component. Do not claim otherwise and do not install a Runner, resident process, global package, or system software.
 
-## Tool Reconcile
-
-`POST /api/scan-projects/{projectId}/tools/reconcile`
-
-Use after task-scoped or API Management SDK sync when the platform has received capability snapshots and the user wants API catalog rows reconciled. Task `SDK_SYNC` does not auto-reconcile or publish Tools.
-
 ## Explicit SDK Sync Callback
 
-Task-scoped `SDK_SYNC` verification and API Management manual SDK sync use the same two-hop server-side flow:
+Task-scoped `SDK_SYNC` verification and manual SDK sync in the project's 业务能力 → 接入与变更 use the same two-hop server-side flow:
 
 1. ReachAI sends signed `POST {project.baseUrl}{project.contextPath}/reachai/registry/capabilities/sync` to the latest online SDK instance.
 2. The Starter scans the configured business packages and sends the capability snapshot back to ReachAI `POST /api/registry/projects/{projectCode}/capabilities/sync`.
@@ -371,9 +365,6 @@ The inbound business-system callback must bypass ordinary business login/JWT aut
 
 The SDK access check may report the computed callback target, but only an actual signed sync and received `SDK_CALLBACK` snapshot proves reachability and security-chain compatibility. `SDK_CALLBACK_READY` and authorized-conversation `E2E_READY` remain independent acceptance gates. Diagnose failures by status/signature: connection refused or timeout means address/network/firewall, 401/403 usually means business security or credential mismatch, and 404/405 usually means gateway route or context-path mismatch.
 
-## Future Extension Points
+## Endpoint Discovery
 
-Do not assume these exist unless the manifest exposes them:
-- MCP tool endpoints.
-- One-time secret token endpoints.
-- Deployment or production rollout endpoints.
+Use the endpoints and credentials exposed by the current manifest. Do not infer MCP, secret issuance, deployment, or rollout APIs from product names or guessed paths.

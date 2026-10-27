@@ -63,11 +63,11 @@ const sourceType = computed(() => {
 .market-card {
   position: relative;
   display: grid;
-  grid-template-rows: auto minmax(42px, 1fr) auto auto;
+  grid-template-rows: auto minmax(44px, 1fr) auto auto;
   min-width: 0;
   min-height: 206px;
   gap: 13px;
-  padding: 16px;
+  padding: 18px;
   overflow: hidden;
   border: 1px solid var(--border-glass-edge);
   border-radius: var(--radius-lg);
@@ -166,7 +166,8 @@ code {
   overflow: hidden;
   color: var(--el-text-color-regular);
   font-size: 12px;
-  line-height: 1.6;
+  line-height: 1.7;
+  letter-spacing: 0.012em;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }

@@ -2096,7 +2096,7 @@ WHERE NOT EXISTS (
 
 
 -- ============================================================================
--- 七.d、MCP 互联中心（MCP Hub，clean-slate；M1 出向重塑）
+-- 七.d、MCP 开放（技术命名空间 mcp-hub；M1 出向重塑）
 --   - 旧 Phase P2 暴露白名单 / Client / 调用日志结构不兼容、不迁移、不双写。
 --   - control_mcp_client / control_mcp_call_log 仅在检测到 Phase P2 旧结构时删除，
 --     避免基线重复执行误删已经按新结构运行的数据。
@@ -2248,12 +2248,53 @@ CREATE TABLE IF NOT EXISTS `control_mcp_employee_access` (
     `project_code`   VARCHAR(96)  NOT NULL COMMENT '员工所属业务系统（项目编码）',
     `display_name`   VARCHAR(128) DEFAULT NULL COMMENT '员工看到的系统名称',
     `enabled`        TINYINT(1)   NOT NULL DEFAULT 1,
+    `write_approval_required` TINYINT(1) NOT NULL DEFAULT 1 COMMENT '写操作需要审批后执行',
     `created_at`     DATETIME     DEFAULT CURRENT_TIMESTAMP,
     `updated_at`     DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_employee_access_publication` (`publication_id`),
     UNIQUE KEY `uk_employee_access_project`     (`project_code`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='员工在自己的 AI 工具中可用的业务系统发布（每个系统一个）';
+
+CREATE TABLE IF NOT EXISTS `control_mcp_write_approval` (
+    `id`                       BIGINT        NOT NULL AUTO_INCREMENT,
+    `tenant_id`                VARCHAR(96)   NOT NULL DEFAULT 'default',
+    `connection_id`            BIGINT        NOT NULL COMMENT '发起的员工 AI 工具连接',
+    `business_user_id`         BIGINT        NOT NULL COMMENT 'control_business_user.id',
+    `external_user_id`         VARCHAR(128)  NOT NULL COMMENT '员工在该业务系统的账号',
+    `user_name`                VARCHAR(128)  DEFAULT NULL,
+    `tool_kind`                VARCHAR(32)   DEFAULT NULL COMMENT 'CLAUDE_CODE / CODEX / OTHER',
+    `project_id`               BIGINT        DEFAULT NULL,
+    `project_code`             VARCHAR(96)   NOT NULL COMMENT '业务系统',
+    `system_name`              VARCHAR(128)  DEFAULT NULL,
+    `publication_id`           BIGINT        NOT NULL,
+    `revision_no`              INT           NOT NULL DEFAULT 0,
+    `tool_name`                VARCHAR(128)  NOT NULL COMMENT '员工看到的工具名',
+    `tool_description`         VARCHAR(1000) DEFAULT NULL,
+    `source_kind`              VARCHAR(32)   NOT NULL,
+    `source_ref`               VARCHAR(255)  NOT NULL,
+    `workflow_version_id`      BIGINT        DEFAULT NULL,
+    `capability_contract_hash` VARCHAR(64)   DEFAULT NULL,
+    `risk_level`               VARCHAR(32)   DEFAULT NULL,
+    `arguments_json`           MEDIUMTEXT    NOT NULL COMMENT '提交时冻结的参数，审批人不能修改',
+    `arguments_hash`           VARCHAR(64)   NOT NULL COMMENT '参数 SHA-256，用于识别重复提交',
+    `state`                    VARCHAR(16)   NOT NULL DEFAULT 'PENDING' COMMENT 'PENDING/EXECUTING/SUCCEEDED/FAILED/REJECTED/EXPIRED',
+    `decided_by`               VARCHAR(128)  DEFAULT NULL,
+    `decided_at`               DATETIME      DEFAULT NULL,
+    `decision_comment`         VARCHAR(500)  DEFAULT NULL,
+    `executed_at`              DATETIME      DEFAULT NULL,
+    `result_json`              MEDIUMTEXT    DEFAULT NULL,
+    `error_code`               VARCHAR(96)   DEFAULT NULL,
+    `run_id`                   VARCHAR(64)   DEFAULT NULL,
+    `trace_id`                 VARCHAR(64)   DEFAULT NULL,
+    `expires_at`               DATETIME      NOT NULL,
+    `created_at`               DATETIME      DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`               DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_write_approval_state` (`state`, `expires_at`),
+    KEY `idx_write_approval_owner` (`tenant_id`, `business_user_id`, `state`),
+    KEY `idx_write_approval_connection` (`connection_id`, `state`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='员工 AI 工具发起的写操作审批单';
 
 CREATE TABLE IF NOT EXISTS `control_ai_tool_connection` (
     `id`               BIGINT       NOT NULL AUTO_INCREMENT,
@@ -3733,21 +3774,6 @@ CREATE TABLE IF NOT EXISTS `control_embed_chat_event` (
     KEY `idx_embed_chat_event_trace` (`trace_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='嵌入式对话事件审计';
 
-CREATE TABLE IF NOT EXISTS `control_embed_renderer` (
-    `id`                BIGINT       NOT NULL AUTO_INCREMENT,
-    `renderer_key`      VARCHAR(160) NOT NULL,
-    `app_id`            VARCHAR(96)  NOT NULL,
-    `name`              VARCHAR(128) NOT NULL,
-    `version`           VARCHAR(32)  NOT NULL DEFAULT '1.0',
-    `input_schema_json` TEXT         DEFAULT NULL,
-    `allowed_agent_ids_json` TEXT    DEFAULT NULL,
-    `status`            VARCHAR(24)  NOT NULL DEFAULT 'ACTIVE',
-    `created_at`        DATETIME     DEFAULT CURRENT_TIMESTAMP,
-    `updated_at`        DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_embed_renderer` (`app_id`, `renderer_key`, `version`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='嵌入式对话自定义结构化渲染器注册';
-
 -- ============================================================================
 -- 个人长期记忆（Control 所有）
 -- 记忆归属用户（tenant + runtime user），在 Agent 间共享；每条记录来源 Agent。
@@ -4171,6 +4197,7 @@ VALUES
 ('a2a-hub:conformance:run', '运行 A2A 诊断与一致性检查', 'A2A_CONFORMANCE', 'RUN'),
 ('mcp-hub:read', '查看 MCP 发布与调用摘要', 'MCP_HUB', 'READ'),
 ('mcp-hub:employee-connection:manage', '查看和断开员工的 AI 工具连接', 'MCP_EMPLOYEE_CONNECTION', 'MANAGE'),
+('mcp-hub:write-approval:manage', '审批员工的写操作', 'MCP_WRITE_APPROVAL', 'MANAGE'),
 ('mcp-hub:publication:manage', '管理 MCP 对外发布', 'MCP_PUBLICATION', 'MANAGE'),
 ('mcp-hub:publication:irreversible', '发布含不可逆工具的 MCP 版本', 'MCP_PUBLICATION', 'PUBLISH_IRREVERSIBLE'),
 ('mcp-hub:credential:manage', '创建、轮换和吊销 MCP 凭证', 'MCP_CREDENTIAL', 'MANAGE'),
@@ -4220,7 +4247,7 @@ WHERE r.role_code = 'OPERATOR'
                             'identity:business-user:read', 'identity:business-user:manage',
                             'skill:read', 'skill:import', 'skill:bind',
                             'mcp-hub:read', 'mcp-hub:publication:manage', 'mcp-hub:credential:manage',
-                            'mcp-hub:employee-connection:manage',
+                            'mcp-hub:employee-connection:manage', 'mcp-hub:write-approval:manage',
                             'a2a-hub:read', 'a2a-hub:publication:manage', 'a2a-hub:remote-agent:manage',
                             'a2a-hub:task:operate', 'a2a-hub:conformance:run');
 
@@ -4229,7 +4256,8 @@ SELECT r.id, p.id FROM `control_platform_role` r JOIN `control_platform_permissi
 WHERE r.role_code = 'MANAGER'
   AND p.permission_code IN ('agent:read', 'workflow:read', 'runops:read', 'automation:read',
                             'knowledge:read', 'tool-acl:read', 'embed:read', 'identity:business-user:read',
-                            'skill:read', 'mcp-hub:read', 'mcp-hub:employee-connection:manage');
+                            'skill:read', 'mcp-hub:read', 'mcp-hub:employee-connection:manage',
+                            'mcp-hub:write-approval:manage');
 
 INSERT IGNORE INTO `control_platform_auth_provider` (`provider_code`, `provider_name`, `provider_type`, `status`, `config_json`)
 VALUES

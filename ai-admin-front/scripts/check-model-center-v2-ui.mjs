@@ -75,7 +75,11 @@ mustInclude(api, 'from-template', 'api/model.ts must expose from-template')
 mustInclude(api, 'test-draft', 'api/model.ts must expose test-draft')
 mustInclude(api, '/archive', 'api/model.ts must expose archive')
 mustNotInclude(api, 'deleteModelInstance', 'api/model.ts must not export deleteModelInstance')
-mustNotInclude(api, ".delete<", 'api/model.ts must not DELETE model instances')
+// 模型实例只归档不删除；供应商账号（PROVIDER_ACCOUNTS）允许删除
+const deleteTargets = [...api.matchAll(/\.delete<[^>]*>>?\(\s*([^,)]+)/g)].map((match) => match[1].trim())
+if (deleteTargets.some((target) => !target.startsWith('`${PROVIDER_ACCOUNTS}/'))) {
+  failures.push('api/model.ts must not DELETE model instances')
+}
 
 mustNotInclude(listPage, '<el-table', 'ModelInstances.vue must not keep el-table')
 mustNotInclude(listPage, 'ViewMode', 'ModelInstances.vue must not keep ViewMode')

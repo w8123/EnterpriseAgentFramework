@@ -212,7 +212,7 @@ export function useTheme() {
 }
 
 /**
- * 深色模式入口：全站页面完成 token 迁移并通过深色走查后开放（见 docs/plans/液态玻璃UI改造实施记录.md）。
+ * 深色模式入口与维护说明见 ai-admin-front/DESIGN.md。
  * 默认仍为浅色；若后续新页面未适配深色，可临时置回 false 关闭外观面板中的明暗选项。
  */
 export const DARK_THEME_ENTRY_READY = true

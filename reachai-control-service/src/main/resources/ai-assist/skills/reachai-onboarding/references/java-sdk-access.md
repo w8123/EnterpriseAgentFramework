@@ -20,7 +20,7 @@ Do not default every platform API to `data.` or to top-level fields. See `refere
 - Add `reachai-capability-sdk` to every module that declares `@ReachCapability`, `@ReachParam`, or response DTO fields annotated with `@ReachOutput`.
 - In a single-module service, both dependencies usually go into the root `pom.xml`.
 - In a multi-module service, do not add the starter to pure API, DTO, or library modules.
-- The legacy artifact name remains `reachai-spring-boot2-starter`, but the published Starter includes both legacy `spring.factories` metadata and Spring Boot 3 `AutoConfiguration.imports` metadata. Its bytecode remains Java 8-compatible and it supports Spring Boot 2.7+ and Spring Boot 3 when the business application manages its own Spring dependency versions. This does not lower Spring Boot 3's Java requirement: a Boot 3 application must still run on the Java version required by that Boot release.
+- `reachai-spring-boot2-starter` includes Spring Boot 2 `spring.factories` and Spring Boot 3 `AutoConfiguration.imports` metadata. Its bytecode is Java 8-compatible; the business application manages its Spring dependency versions. Verify compatibility with the target application's build and run Boot 3 on the Java version required by that Boot release.
 
 ## Maven Dependencies
 
@@ -65,13 +65,13 @@ Prefer an existing dependency-management pattern if the business repo already ce
 
 Add `reachai.registry`, `reachai.project`, and `reachai.capability` configuration to the active service configuration. Keep the app secret as an environment variable.
 
-The starter registers the project and instance and sends heartbeat data during SDK onboarding. Do not add a capability startup-sync setting. For a task handoff, an active `PROJECT_ONBOARDING` task explicitly triggers project-scoped SDK sync with `POST <taskRoot>/verifications/SDK_SYNC` after registration and heartbeat pass. For console onboarding, ReachAI **API Management（API 管理）** 负责手动触发 SDK 同步. Both are explicit actions over the same signed two-hop callback; neither runs on business application startup.
+The starter registers the project and instance and sends heartbeat data during SDK onboarding. Do not add a capability startup-sync setting. For a task handoff, an active `PROJECT_ONBOARDING` task explicitly triggers project-scoped SDK sync with `POST <taskRoot>/verifications/SDK_SYNC` after registration and heartbeat pass. Console users trigger SDK sync from the project's **业务能力 → 接入与变更**. Both are explicit actions over the same signed two-hop callback; neither runs on business application startup.
 
 `reachai.project.base-url` is the business-system address as seen from the ReachAI server. It is not merely a browser URL or a local developer convenience. Do not keep `localhost`, `127.0.0.1`, or `::1` when ReachAI and the business service run on different machines, containers, or network namespaces.
 
 ## Explicit SDK Sync Boundary
 
-ReachAI should sync business APIs, not every controller visible in the Spring application context. This boundary applies to both task-scoped `SDK_SYNC` verification and API Management manual SDK sync.
+ReachAI syncs business-owned methods and HTTP APIs within the configured packages. Exclude framework and infrastructure controllers from both task-scoped `SDK_SYNC` verification and console SDK sync.
 
 Before writing optional `reachai.capability` scan boundary configuration:
 - Identify the runnable application's real business package from the `@SpringBootApplication` class, business controller/service packages, and Maven module names.
@@ -114,7 +114,7 @@ Do not set `scan-packages` to generic roots such as `com`, `com.company`, or a p
 
 ## Optional Capability Metadata Preparation
 
-Only prepare annotations when the user explicitly asks to expose API metadata. A successful signed snapshot is required for task-level `SDK_CALLBACK_READY`, but reconciling/publishing catalog Tools remains a separate API Management decision.
+Prepare capability declarations within the user's requested scope. A successful signed snapshot is required for task-level `SDK_CALLBACK_READY`; review accepted contracts in the business method/API owners before use. Tool definitions are derived projections, not a separate asset to publish manually.
 
 Start with low-risk read-only methods:
 - Query by id/code/name.
@@ -220,7 +220,7 @@ Machine-readable checklist ids used by onboarding manifests:
 | id | required | verificationHint | failureImpact |
 | --- | --- | --- | --- |
 | `embed-route-forwarding` | true | Probe token broker + embed proxy rewrite | Chat cannot authenticate or call embed APIs |
-| `registry-callback-route` | true | ReachAI can POST `/reachai/registry/capabilities/sync` | API Management SDK sync fails |
+| `registry-callback-route` | true | ReachAI can POST `/reachai/registry/capabilities/sync` | SDK source sync fails |
 | `cors-options` | true | Browser Network shows real status, not `0 Unknown Error` | Failures hidden as CORS/status 0 |
 | `security-webfilter-chain` | true | Dedicated WebFlux chain without oauth2ResourceServer for embed | Embed Bearer rejected as business JWT |
 | `ignore-urls-remove-jwt` | true | Authorization header reaches ReachAI unchanged | Embed token stripped before proxy |

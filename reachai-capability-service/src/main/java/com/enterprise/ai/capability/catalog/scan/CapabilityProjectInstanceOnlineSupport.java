@@ -23,7 +23,7 @@ public final class CapabilityProjectInstanceOnlineSupport {
         if (instance == null) {
             return false;
         }
-        if (!"ONLINE".equalsIgnoreCase(String.valueOf(instance.getStatus()))) {
+        if (!"ONLINE".equalsIgnoreCase(String.valueOf(instance.getStatus()).trim())) {
             return false;
         }
         LocalDateTime lastHeartbeatAt = instance.getLastHeartbeatAt();
@@ -34,9 +34,14 @@ public final class CapabilityProjectInstanceOnlineSupport {
     }
 
     public static String statusOrNull(ProjectInstanceEntity instance) {
+        return statusOrNull(instance, LocalDateTime.now());
+    }
+
+    public static String statusOrNull(ProjectInstanceEntity instance, LocalDateTime now) {
         if (instance == null || !StringUtils.hasText(instance.getStatus())) {
             return null;
         }
-        return instance.getStatus().trim();
+        String status = instance.getStatus().trim();
+        return "ONLINE".equalsIgnoreCase(status) && !isOnline(instance, now) ? "STALE" : status;
     }
 }

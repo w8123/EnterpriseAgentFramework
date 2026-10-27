@@ -1,77 +1,65 @@
-# ReachAI 管理端设计上下文
+# 管理端设计与组件
 
-本文件是管理端设计上下文入口，不复制既有规范。完整视觉方向与迁移原则以 [`../docs/plans/前端Glass-Workbench设计系统与UI重构.md`](../docs/plans/前端Glass-Workbench设计系统与UI重构.md) 为准；2026-10-22 确认的公共页头与紧凑工作台尺度以本文件“间距与密度”及对应运行时 token 为准。
+管理端是工作台，优先信息密度、扫描效率与可重复操作。视觉用于表达当前任务、数据和操作层级，状态、身份与业务约束来自后端。
 
-## 产品气质
+## 页面结构
 
-- 面向企业研发、平台管理员和运行治理人员，是高频工作台，不是营销落地页。
-- 延续 Glass Workbench：浅蓝灰画布、克制的蓝青环境光、轻玻璃表面、薄边框和高信息密度。
-- 页面首屏优先呈现范围、状态、主要任务和下一步；装饰不能压过数据与操作。
-- 业务能力工作台使用 `PageHeader` 的 `standard + compact + artwork=false + presentation=plain` 变体；页头左侧为标题与用途说明，右侧集中“能力目录／接入与变更”和“整理”操作；当前范围由共享侧栏和目录筛选表达。Java／HTTP 类别仅在目录下方的 TAB 行显示；业务分类融入目录，批量说明与关联分析从“整理”菜单按需打开；分类说明、重命名与成员归类在目录完成，不提供分类合并。批量说明页通过页头“能力目录”返回，不另设返回按钮与用途说明行；关联分析保留工具栏返回入口。窄屏页头与类型 TAB 操作行按可用宽度换行，操作入口保持可达。
-- Java 业务方法与 HTTP API 目录均使用 Element Plus“业务分类”下拉；Java 全域浏览时在关键词与分类之间增加项目筛选，移除表格上方横排分类导航和分类分段；窄屏筛选自然换行，下拉弹层使用组件自有滚动。能力始终在一张分页表中平铺，独立“业务分类”列展示全部归属，分类名称可点击查看说明。HTTP 下拉选中具体分类后，弹层 footer 提供“查看分类说明”，调整模式另有“重命名分类”，所选空分类也可由该入口维护。分类是可选的业务整理信息，未分类资产仍可正常查找和查看。两个目录默认浏览；从页头右侧“整理 → 调整分类”原位进入临时调整模式后，才显示行复选框、选择本页、批量归类、单条归类及重命名；归类编辑器仍支持新建、移除与清空。“退出调整”在同一位置明确可见，退出清空勾选、保留筛选和分页并回焦到整理入口，未保存输入沿用既有保护。切项目、账号、TAB 或工作视图退出模式；搜索和分页操作保持模式。普通分类筛选隐藏当前类型零成员分类，所选空分类与编辑选项保留；原始 module/类名放入分类详情。两类分类下拉不显示额外的搜索范围或“项目全量”提示，计数取项目全量，统计口径保留在可访问名称中。Java 正式列表响应中的空分类数组表示未分类，`null` 表示本次读取失败并显示待更新，字段缺失仅在同项目完整索引确认成员时回退；HTTP 从当前项目完整 typed 分类索引核实每条归属，可核实空集合与索引失败或未知成员分别显示未分类和待更新。分类索引读取失败保留列表和重试；Java 全部项目范围仍展示各行 owner 返回的分类名称；未限定目录项目时，点击分类切换到所属项目查看详情。可通过目录项目下拉限定项目后筛选分类，侧栏继续保留全部项目。HTTP 全部项目范围保持原有提示。
-- Java 业务方法与 HTTP API 目录均从搜索栏直接进入筛选与列表，不显示顶部统计或查询概览；HTTP 的匹配总数只在分页页脚呈现，环境与 HTTP 方法继续作为筛选条件。目录参考项目管理列表，复用 `_project-list.scss` 的筛选面板、16px 内边距、12px 筛选到表格间隔、圆角表格边框和底部分页配方；`FilterBar presentation=panel` 保留浅品牌色筛选底色，`project-list-table-shell--catalog` 只补多行身份所需的行间距。分页采用总数居左、翻页与每页条数居右的背景按钮样式，单页也保留完整导航。HTTP 将来源种类、活动来源数量和接纳状态合为“来源与接纳”列，移除“连接 / 试调用”列及窄屏对应摘要，列表只展示资产、分类、环境和来源接纳信息；“下一步”列及窄屏对应提示、专用派生逻辑一并移除；来源与接纳状态继续展示，具体异常原因在详情中读取。连接与当前账号调用记录在详情按需读取，列表不再触发 Runtime 汇总；路径使用与共享项目列表一致的等宽字体。主表面的半透明背景、内高光、阴影与 blur 保留。筛选输入、下拉和按钮统一引用项目列表的 40px 高度变量，文字、边框、焦点与圆角一起复用。
-- 目录桌面布局使用具名 `project-list-table-shell--fit` 填充现有 MainLayout 内容区，底部间距与侧栏复用同一布局 token；表格内部滚动，分页贴近底部。960px 及以下保留自然文档流，共享来源表单不受 fit 影响。正常统计提示保留可访问文本，未知状态保留可见说明；共享组件默认变体保持。
-- Java 业务方法列表突出名称与业务说明，业务分类独立成列并可点击查看详情，侧栏具体项目时保留轻量来源元信息，全域时隐藏整条所属项目／来源元信息；操作性质保持独立，综合“状态”保留启停及来源事实并提供说明，不称为可调用。正常来源一致状态不使用脉冲。技术稳定标识在详情中查看与复制，仍可用于搜索。
-- 目录行视觉由 `BusinessCapabilityCatalogList.vue` 统一拥有：表头使用低对比品牌底色和次级文字，行内以 14px 名称、13px 说明形成层级；Java 的方法标记与名称同行来源标签组成紧凑身份，HTTP 沿用方法标签与完整路径。分类使用轻底按钮，允许多归属和长名称换行；“查看”使用带箭头的 32px 轻按钮。只读性质使用中性边框标签，正常来源一致用静态绿点与文字，异常标签保持原语义；行悬停和键盘焦点使用同一浅品牌底色。固定操作列使用现有不透明 fallback 表面，避免窄屏透出被遮挡文字。复用现有品牌、文字、表面、边框与状态 token，不扩展全站主题。
-- 共用来源变化/评审组件的 `density=compact` 变体供业务能力工作台使用，缩小空态与说明间距；其他调用者默认保留 comfortable 密度，不在使用方覆盖组件内部几何。
-- 来源变化以自动处理为默认路径，所属项目内只提示需要业务判断的当前例外；批次、策略与审计放入详情和处理记录，不组织成用户必须逐步完成的流程。
-- 接入与变更使用连续玻璃工作面，当前变化和同步结果先于来源记录；搜索与接入操作同属工具栏，模块使用可折叠分组和公共表头。复用 `glass-surface-panel` 与 `_project-list.scss` 的表面、40px控件，不叠实色白卡；表面随内容收紧。来源行可核实并打开正式资产；完整标识、参数、说明和单条维护由共享抽屉呈现。
-- 来源工具栏不提供无实际作用的“更新检索索引”。实验室和调用候选检索页面已删除（2026-10-18）。
-- 语义页复用连续玻璃表面，使用说明目录与单篇阅读区：桌面并排，目录与正文分别在各自区域内滚动；960px及以下上下排列，恢复自然文档流。项目、分组、方法/API与来源说明通过目录切换，批量补充与刷新集中在同一工具栏，当前文档的生成/编辑/所属资产入口贴近标题。来源观察默认折叠。业务说明正文由共享 `CapabilitySemanticDocument.vue` 统一紧凑标题、段落、引用、表格与代码排版，不改写原始Markdown或叠加实色白卡。
-- 关联分析复用单一连续玻璃工作面：返回入口、唯一分析标题和主要动作集中在 `CapabilityGraphToolbar`，次行区分显示选项与连线模式；常驻契约关联的语义边界，完整操作说明使用共享帮助抽屉。桌面图谱面板以具名 `is-graph / source-graph-workbench` 变体填充现有内容区、画布内部滚动；960px及以下恢复自然文档流，控件换行，不影响来源/说明页。图谱节点、边、图例及布局语义保持。
-- 两类资产详情按“输入与返回／业务说明／试调用／使用位置／接入信息”组织，聚焦理解、试用与维护；详情不提供“用于 Workflow”或创建流程入口，编排时在 Workflow Studio 内选择方法/API。说明就在详情阅读和编辑；五个任务分区复用 Element Plus Tabs。Java 保持共享详情弹层，API 保持原稳定详情路由。关系提示与关联分析属于编排参考，实际使用位置独立查询并可查看已有 Workflow。
-- API 详情页头同样使用 `standard + compact + artwork=false + presentation=plain`，任务标题统一读取公共 22px token，避免背景装饰影响状态识别。
-- 业务能力目录、工具和 HTTP 详情通过共享 MainLayout 的 `compactSidebarOnNarrow` 变体，在 768px 及以下默认折叠侧栏；用户可临时展开，回到桌面恢复原偏好。此变体不改其他页面或全局侧栏偏好。
+- 先核对路由、`MainLayout.vue`、共享导航与项目作用域，再调整页面；内容切换保持布局壳稳定。
+- `PageHeader` 统一标题、说明与主操作，不另建重复 hero、返回栏或范围卡片。
+- 列表使用连续工作面，搜索、筛选、视图切换、表格与分页形成一条任务路径。空、加载、失败、无权限和局部数据缺失分别表达。
+- 项目、账号、TAB 或路由变化使旧请求与确认失效；未保存输入、冲突和写操作保持明确保护。
+- 窄屏自然换行，宽表局部滚动；键盘、焦点、Escape、关闭回焦和可访问名称随改动一起验证。
 
-## 分类调整
+## 主题的唯一维护位置
 
-分类调整模式集中呈现整理任务：继续隐藏页头工作视图导航与其他整理入口，Java／HTTP TAB 继续标明当前对象，页头操作区以“退出调整”替换“整理”。Java 表格隐藏来源、操作性质、状态和详情入口；HTTP 表格隐藏环境、来源与接纳和详情入口，保留名称／方法路径、当前归属、勾选和归类。搜索与筛选保持可用，退出后恢复浏览信息。选择操作栏右侧提供独立“新增分类”，空目录也可使用；弹窗复用分类编辑器及未保存保护。调整模式显示项目全部分类（包括零成员），普通浏览沿用零成员隐藏规则；新增成功回到当前目录并重读分类，不改变能力归属或已有筛选。
+| 层 | 位置 |
+| --- | --- |
+| 品牌 | `src/styles/tokens/_brand.scss` |
+| 语义颜色、表面、边框和状态 | `src/styles/tokens/_semantic.scss` |
+| 控件密度 | `src/styles/tokens/_density.scss` |
+| 页面间距与布局节奏 | `src/styles/tokens/_layout.scss` |
+| 材质与回退 | `src/styles/_glass.scss` |
+| Element Plus 映射与组件配方 | `_element-plus.scss`、`_components.scss`、`_overlays.scss` |
+| 折射层 | `src/components/common/LiquidGlassLayer.vue` |
+| 用户偏好 | `src/composables/useTheme.ts` |
 
-## 运行时映射
+业务页面使用现有 token，不散落硬编码颜色，不单独判断减少透明度，也不复制模糊、高光、厚边、阴影或实色回退。新材质先扩展公共语义与组件；减少透明度、暗色、强制颜色和不支持滤镜的回退由公共层处理。
 
-- Token 所有权：运行时 CSS 为事实源。
-- 品牌原语：`src/styles/tokens/_brand.scss`。
-- 语义颜色、表面、文字和状态：`src/styles/tokens/_semantic.scss`。
-- 密度与布局：`src/styles/tokens/_density.scss`、`src/styles/tokens/_layout.scss`。
-- 全局基线与滚动条：`src/styles/index.scss`。
-- Element Plus 映射：`src/styles/_element-plus.scss`。
+## 公共入口
 
-当前正式入口只提供亮色主题和品牌色切换。暗色 token 作为兼容层保留，在完成跨页面验收前不向用户展示不可用的明暗切换控件。
+```ts
+import {
+  LiquidGlassPage, LiquidGlassFilterBar, LiquidGlassTable,
+  LiquidGlassButton, LiquidGlassInput, LiquidGlassSelect,
+  LiquidGlassTabs, LiquidGlassDropdown,
+} from '@/components/common/liquid-glass'
+```
 
-## 间距与密度
+| 组件 | 用途 |
+| --- | --- |
+| LiquidGlassPage / PageHeaderTags | 页面布局与页头辅助信息 |
+| LiquidGlassFilterBar / Input / Select | 搜索、筛选、表单输入 |
+| LiquidGlassTable / Pagination | 表格、空态与分页；业务列由使用方提供 |
+| LiquidGlassButton / Dropdown | 主次操作、图标按钮和菜单 |
+| LiquidGlassNav / Tabs / ViewToggle | 工作区、标签和视图切换 |
+| LiquidGlassCard / EmptyState / Notice | 内容分区、状态与页面提示 |
 
-- 全站保留 Glass Workbench 的玻璃表面、配色、圆角和横幅素材，收紧重复容器留白；项目管理、业务能力、Workflow、Agent、知识库、模型、运行治理与配置页面共用同一空间层级。
-- 页面、列表与页头几何由 `src/styles/tokens/_layout.scss` 拥有，经 `WorkbenchPage`、`PageHeader`、`MetricStrip`、`_project-list.scss` 和页面已有配方消费；Element Plus 卡片内边距由 `_element-plus.scss` 映射。页面局部和响应式覆盖同样消费 token，不再复制 28px／22px 列表配方。
-- 桌面主内容左右边距为 16px，760px 及以下为 12px。列表面板内边距为 16px，窄屏为 12px；筛选到表格间隔为 12px，同组控件间隔为 8px；筛选条自身内边距为上下 8px、左右 12px，分页上下为 12px。
-- 业务页面使用自然高度的 plain 页头，标题 22px／行高 28px，说明 14px，组内间距 8px。显式 panel 变体保留 compact／standard／emphasis 的 60／80／88px 最小高度；不得把卡片高度带到 plain 页头。窄屏标签、主要动作与工作视图导航自然换行。
-- 统计条上下内边距为 12px、左右为 16px，图标为 40px、主要数值为 24px。局部统计条最小高度为 72px，含说明的统计项随内容自然增高；窄屏按列换行，避免固定高度裁切数值或说明。
-- 通用密度由 `src/styles/tokens/_density.scss` 拥有：compact／comfortable／spacious 的面板内边距为 12／16／24px，区块间隔为 12／16／20px；保留各档控件和行高。列表优先 compact；详情与表单使用 comfortable 或明确的 spacious 分组。画布、调试对话与嵌入式交互保留各自任务布局，继续享用共享页头与页面外缘尺度。
-- 全站紧凑化只调整几何；表格少量数据时的剩余空间、分页和滚动归属继续按所属页面契约处理。
+属性、事件和插槽遵循包装组件与其原生 Element Plus 控件。业务页面继续提供 loading、disabled、权限和业务处理，不因换皮肤重写操作。`class/style` 的外壳应用、原生 ref 与扩展属性以 [公共导出](src/components/common/liquid-glass/index.ts)及组件定义为准。
 
-## 公共页头与导航（2026-10-22）
+## 弹层与对话
 
-管理端的 38 处 `PageHeader` 共用 `_layout.scss` 参数；页面不再分别设置页头字号、上下 padding 或负位移。Dashboard 保留运营控件和布局编辑行为，标题与说明仍读取相同字号、组内间距和外层间距；Studio 保留画布专用顶栏。
+普通弹窗和抽屉使用 `AppDialog` / `AppDrawer`，保留挂载、宽度、事件、焦点循环和关闭语义。非模态 Studio 面板按原挂载方式处理，不为样式统一改变交互。材质覆盖只证明外观，不代表保存、发布或认证业务已验收。
 
-| 角色 | 公共参数 | 当前值 |
-| --- | --- | --- |
-| 侧栏与面包屑顶部基准、页头到下一区块 | `--layout-heading-spacing` | 沿用侧栏外缘 14px |
-| 主副标题间距 | `--layout-page-header-description-gap` | 沿用同组控件间距 8px |
-| 标签、状态、元信息与上一行间距 | `--layout-page-header-meta-gap` | 8px |
-| 标题字号／行高 | `--layout-page-header-title-size` / `--layout-page-header-title-line-height` | 22px／28px |
-| 说明字号 | `--layout-page-header-description-size` | 14px |
-| 面包屑字号／字重／行高 | `--layout-breadcrumb-font-size` / `--layout-breadcrumb-font-weight` / `--layout-breadcrumb-line-height` | 14px／500／18px |
-| 面包屑分隔符两侧间距 | `--layout-breadcrumb-separator-gap` | 9px |
-| 标题色条、标题与辅助文字左对齐 | `--layout-page-header-marker-width` / `--layout-page-header-title-indent` | 4px／22px |
-| 右侧操作按钮高度／组内间隔 | `--layout-page-header-action-height` / `--layout-page-header-action-gap` | 40px／8px |
+管理端与 SDK 共用的对话样式在 `src/conversation/styles/conversation-tokens.css`。SDK 只读取自身根节点主题，不被宿主的 `html.dark` 或同名变量污染；`eaf.*` 与 `Eaf*` 是兼容技术身份。
 
-- 标题只命名当前任务或对象；说明写用途。删除只重复面包屑的英文眉题与技术宣传标签，保留真实范围、数量和状态。
-- 主操作、刷新和模式切换位于标题右侧，顶部对齐；类型 TAB 与内容区按统一外层间距接续。宽度不足时操作区整行换行，原生 TAB、导航与按钮保持键盘可达。
-- 非 entity 标题保留色条，说明、标签、meta 对齐标题文字；entity 页头由返回或实体图标建立左侧层级，不额外插入色条。
-- 面包屑以项目管理为样式基准：统一文字和 `/` 分隔符，不插入“返回”按钮；可点击父级与当前项使用同一字号和字重，当前项以文字颜色区分。使用当前功能分组，长路径自然换行并撑高导航栏；正文不能靠负 margin 覆盖导航。页面不从路由路径推导布局。
-- 页头收起只隐藏辅助内容，主标题与操作保持可见；标签控件与元信息同时设置不可交互状态，展开后恢复。
+## 业务能力与 Studio
 
-## 变更约束
+Java 方法和 HTTP API 目录均为平铺分页表，分类是可选元数据。关键词与下拉分开保存，刷新或分类变化不能丢失未提交输入。普通模式隐藏批量调整控件，进入“整理 → 调整分类”后就地维护成员；失权、未知分类与确认未分类分开处理。
 
-- 新页面优先复用共享页面骨架、标题、筛选、表格、反馈和 Overlay；不在单页复制等价视觉角色。
-- Durable token 的修改必须同时更新运行时 owner、相关契约测试与浏览器证据。
-- 可滚动内容必须继承全局可见滚动条；局部只允许声明 `scrollbar-gutter` 等几何例外，不得隐藏滚动条。
+Studio 节点选中后在右侧直接编辑，保留一层配置/测试/调试记录；主配置优先，高级契约按需展开。名称、变量插入、提示词预览与当前节点操作贴近。运行语义与发布约束见 [Workflow](../docs/workflow.md)，不能靠画布表现新增节点能力。
+
+## 验证
+
+运行相关组件/行为测试和 `npm run build`，按改动检查 `check:glass-theme`、`check:dark-theme-compatibility`、`check:glass-components`、`check:overlay-migration`、`check:page-rhythm` 与 `check:page-header-family`。新断言不削弱既有契约。
+
+浏览器覆盖桌面/窄屏、亮暗与品牌、减少透明度、加载/空/失败、键盘、焦点和取消。夹具注明范围；发布使用的 SDK 另验证宿主隔离。新增第三方算法或素材同步 [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES.md)。

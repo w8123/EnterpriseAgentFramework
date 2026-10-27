@@ -87,8 +87,8 @@ describe('catalog navigation with the real shared project scope', () => {
     expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ projectId: 37, groupId: 6, current: 3, keyword: '已提交' }))
     expect(scope.selection.value).toBe('all')
     expect(scope.currentScopeLabel.value).toBe('全部项目')
-    expect(view.findAllComponents(ElSelect).find(item => item.classes().includes('is-project'))!.props('modelValue')).toBe('37')
-    expect(view.findAllComponents(ElSelect).find(item => item.classes().includes('is-classification'))!.props('modelValue')).toBe('6')
+    expect(view.findAllComponents(ElSelect).find(item => item.props('ariaLabel') === '项目筛选')!.props('modelValue')).toBe('37')
+    expect(view.findAllComponents(ElSelect).find(item => item.props('ariaLabel')?.startsWith('业务分类筛选'))!.props('modelValue')).toBe('6')
   })
 
   it('keeps the real sidebar scope at all projects while filtering Java methods to a local owner', async () => {
@@ -106,7 +106,7 @@ describe('catalog navigation with the real shared project scope', () => {
     expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ projectId: undefined }))
     await view.get('input[aria-label="搜索 Java 业务方法"]').setValue('尚未提交')
     const storeChanges = mocks.store.selectCurrentProject.mock.calls.length
-    const project = view.findAllComponents(ElSelect).find(item => item.classes().includes('is-project'))!
+    const project = view.findAllComponents(ElSelect).find(item => item.props('ariaLabel') === '项目筛选')!
     project.vm.$emit('change', '37'); await flushPromises()
     expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ projectId: 37, current: 1, keyword: undefined }))
     expect(router.currentRoute.value.query).toMatchObject({ scope: 'all', methodProjectId: '37' })

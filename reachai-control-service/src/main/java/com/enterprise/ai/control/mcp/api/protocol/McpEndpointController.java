@@ -162,8 +162,15 @@ public class McpEndpointController {
             payload.put("isError", false);
         } else {
             String code = result.errorCode() == null ? "MCP_TOOL_EXECUTION_FAILED" : result.errorCode();
-            payload.put("content", List.of(Map.of("type", "text", "text", code)));
-            payload.put("structuredContent", Map.of("errorCode", code));
+            // Only approval refusals carry a message written for the employee; runtime output stays private.
+            Object message = code.startsWith("MCP_APPROVAL_") && result.output() != null
+                    ? result.output().get("message") : null;
+            Map<String, Object> structured = new LinkedHashMap<>();
+            structured.put("errorCode", code);
+            if (message != null) structured.put("message", message);
+            payload.put("content", List.of(Map.of("type", "text",
+                    "text", message == null ? code : code + ": " + message)));
+            payload.put("structuredContent", structured);
             payload.put("isError", true);
         }
         Map<String, Object> meta = new LinkedHashMap<>();

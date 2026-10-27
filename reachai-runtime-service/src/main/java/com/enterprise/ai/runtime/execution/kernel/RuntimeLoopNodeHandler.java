@@ -2,6 +2,7 @@ package com.enterprise.ai.runtime.execution.kernel;
 
 import com.enterprise.ai.agent.graph.AgentGraphNodeType;
 import com.enterprise.ai.agent.graph.GraphSpec;
+import com.enterprise.ai.agent.graph.GraphSpecLoopConfig;
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionCancellation;
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionEventSink;
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionResult;
@@ -11,16 +12,12 @@ import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 /** Executes LOOP configuration and iteration while delegating nested graph driving to the kernel. */
 final class RuntimeLoopNodeHandler {
-
-    static final int DEFAULT_MAX_ITERATIONS = 100;
-    static final int HARD_MAX_ITERATIONS = 1000;
 
     private final RuntimeNodeValueResolver valueResolver;
     private final LoopBodyExecutor bodyExecutor;
@@ -43,28 +40,27 @@ final class RuntimeLoopNodeHandler {
                 }
             }
         }
-        Map<String, Object> config = loopConfigOf(node);
-        String mode = firstText(text(config.get("mode")), "FOREACH");
+        GraphSpecLoopConfig loop = GraphSpecLoopConfig.from(node);
+        String mode = loop.mode();
         if (!"FOREACH".equalsIgnoreCase(mode)) {
             return failure("RUNTIME_GRAPH_LOOP_MODE_UNSUPPORTED",
                     "LOOP v1 only supports FOREACH mode", node.getId(), "LOOP");
         }
-        String collectionExpr = firstText(text(config.get("collection")), text(config.get("itemExpression")));
-        String itemAlias = firstText(text(config.get("itemAlias")), "item");
-        String indexAlias = firstText(text(config.get("indexAlias")), "index");
-        String outputAlias = firstText(
-                text(config.get("outputAlias")), text(config.get("loopKey")), "loop_results");
-        String bodyOutputExpr = firstText(text(config.get("bodyOutput")), "lastOutput");
-        String bodyEntry = text(config.get("bodyEntry"));
-        String bodyExit = firstText(text(config.get("bodyExit")), bodyEntry);
-        Integer maxIterations = parseMaxIterations(config.get("maxIterations"));
+        String collectionExpr = loop.collection();
+        String itemAlias = loop.itemAlias();
+        String indexAlias = loop.indexAlias();
+        String outputAlias = loop.outputAlias();
+        String bodyOutputExpr = loop.bodyOutput();
+        String bodyEntry = loop.bodyEntry();
+        String bodyExit = loop.bodyExit();
+        Integer maxIterations = loop.maxIterations();
         if (maxIterations == null) {
             return failure("RUNTIME_GRAPH_LOOP_MAX_ITERATIONS_INVALID",
-                    "LOOP maxIterations must be between 1 and " + HARD_MAX_ITERATIONS
-                            + " (missing defaults to " + DEFAULT_MAX_ITERATIONS + ")",
+                    "LOOP maxIterations must be between 1 and " + GraphSpecLoopConfig.HARD_MAX_ITERATIONS
+                            + " (missing defaults to " + GraphSpecLoopConfig.DEFAULT_MAX_ITERATIONS + ")",
                     node.getId(), "LOOP");
         }
-        Set<String> bodyNodeIds = loopBodyNodeIds(config, bodyEntry, bodyExit);
+        Set<String> bodyNodeIds = loop.bodyNodeIds();
         if (!StringUtils.hasText(collectionExpr)) {
             return failure("RUNTIME_GRAPH_LOOP_COLLECTION_REQUIRED",
                     "LOOP requires collection expression", node.getId(), "LOOP");
@@ -78,6 +74,10 @@ final class RuntimeLoopNodeHandler {
             return failure("RUNTIME_GRAPH_LOOP_ALIAS_INVALID",
                     "LOOP itemAlias/indexAlias/outputAlias must be valid non-reserved aliases",
                     node.getId(), "LOOP");
+        }
+        if (itemAlias.equals(indexAlias) || itemAlias.equals(outputAlias) || indexAlias.equals(outputAlias)) {
+            return failure("RUNTIME_GRAPH_LOOP_ALIAS_CONFLICT",
+                    "LOOP itemAlias/indexAlias/outputAlias must be distinct", node.getId(), "LOOP");
         }
         if (!StringUtils.hasText(bodyEntry) || !nodesById.containsKey(bodyEntry)
                 || !StringUtils.hasText(bodyExit) || !nodesById.containsKey(bodyExit)
@@ -179,26 +179,6 @@ final class RuntimeLoopNodeHandler {
                 metadata);
     }
 
-    static Integer parseMaxIterations(Object raw) {
-        if (raw == null) return DEFAULT_MAX_ITERATIONS;
-        if (raw instanceof String text && !StringUtils.hasText(text)) return DEFAULT_MAX_ITERATIONS;
-        int value;
-        if (raw instanceof Number number) {
-            if (raw instanceof Double || raw instanceof Float) {
-                double decimal = number.doubleValue();
-                if (!Double.isFinite(decimal) || Math.floor(decimal) != decimal) return null;
-            }
-            value = number.intValue();
-        } else {
-            try {
-                value = Integer.parseInt(String.valueOf(raw).trim());
-            } catch (NumberFormatException ex) {
-                return null;
-            }
-        }
-        return value < 1 || value > HARD_MAX_ITERATIONS ? null : value;
-    }
-
     private Map<String, Object> copyExecutionContext(Map<String, Object> source) {
         Map<String, Object> copy = new LinkedHashMap<>();
         if (source == null) return copy;
@@ -215,36 +195,6 @@ final class RuntimeLoopNodeHandler {
             }
         }
         return copy;
-    }
-
-    private Map<String, Object> loopConfigOf(GraphSpec.Node node) {
-        Map<String, Object> config = node.getConfig() == null ? Map.of() : node.getConfig();
-        Map<String, Object> nested = mapValue(config.get("loopConfig"));
-        if (nested == null || nested.isEmpty()) return config;
-        Map<String, Object> merged = new LinkedHashMap<>(nested);
-        for (Map.Entry<String, Object> entry : config.entrySet()) {
-            if (!"loopConfig".equals(entry.getKey())) {
-                merged.putIfAbsent(entry.getKey(), entry.getValue());
-            }
-        }
-        return merged;
-    }
-
-    private static Set<String> loopBodyNodeIds(Map<String, Object> config,
-                                               String bodyEntry,
-                                               String bodyExit) {
-        Set<String> ids = new LinkedHashSet<>();
-        Object raw = config.get("bodyNodeIds");
-        if (raw instanceof List<?> list) {
-            for (Object item : list) {
-                if (item != null && StringUtils.hasText(String.valueOf(item))) {
-                    ids.add(String.valueOf(item).trim());
-                }
-            }
-        }
-        if (StringUtils.hasText(bodyEntry)) ids.add(bodyEntry.trim());
-        if (StringUtils.hasText(bodyExit)) ids.add(bodyExit.trim());
-        return ids;
     }
 
     private static Map<String, Object> loopTraceSummary(int collectionSize,
@@ -284,17 +234,6 @@ final class RuntimeLoopNodeHandler {
         step.put("name", name);
         step.put("detail", detail);
         return step;
-    }
-
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> mapValue(Object value) {
-        return value instanceof Map<?, ?> map ? (Map<String, Object>) map : null;
-    }
-
-    private String text(Object value) {
-        if (value == null) return null;
-        String text = String.valueOf(value);
-        return StringUtils.hasText(text) ? text.trim() : null;
     }
 
     private String firstText(String... values) {

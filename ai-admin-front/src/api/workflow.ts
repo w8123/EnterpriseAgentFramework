@@ -195,10 +195,6 @@ export function cancelWorkflowDebugSession(sessionId: string) {
   )
 }
 
-export function deleteWorkflow(id: string) {
-  return controlRequest.delete(`/api/workflows/${encodeURIComponent(id)}`)
-}
-
 export function listWorkflowVersions(workflowId: string) {
   return controlRequest.get<WorkflowVersion[]>(
     `/api/workflows/${encodeURIComponent(workflowId)}/versions`,

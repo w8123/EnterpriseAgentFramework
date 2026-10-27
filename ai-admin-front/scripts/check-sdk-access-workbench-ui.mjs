@@ -263,7 +263,7 @@ for (const [name, source] of [
     `${name} should recommend the curated annotated-only capability surface`,
   )
 }
-assert.match(snippetSource, /API 管理[\s\S]*手动触发/, 'AI Coding prompt should say SDK interface scanning is manually triggered from API management')
+assert.match(snippetSource, /启动只注册项目与实例，同步在项目内手动触发/, 'AI Coding prompt should say SDK interface sync is manually triggered inside the project')
 assert.match(onboardingSkillSource, /API 管理[\s\S]*手动触发/, 'Packaged onboarding skill should say SDK interface scanning is manually triggered from API management')
 assert.match(javaSdkAccessSource, /API 管理[\s\S]*手动触发/, 'Java SDK reference should say SDK interface scanning is manually triggered from API management')
 assert.match(

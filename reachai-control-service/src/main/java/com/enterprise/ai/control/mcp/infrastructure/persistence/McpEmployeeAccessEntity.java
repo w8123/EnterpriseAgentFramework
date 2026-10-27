@@ -17,6 +17,7 @@ public class McpEmployeeAccessEntity {
     private String projectCode;
     private String displayName;
     private Boolean enabled;
+    private Boolean writeApprovalRequired;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

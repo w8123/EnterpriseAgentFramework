@@ -689,7 +689,7 @@ function selectedCount(permissions: PlatformPermissionView[]) {
 
 const RESOURCE_LABELS: Record<string, string> = {
   A2A: 'A2A 互联',
-  MCP: 'MCP 发布与调用',
+  MCP: 'MCP 开放',
   A2A_CONFORMANCE: 'A2A 诊断与一致性',
   A2A_CREDENTIAL: 'A2A 凭证',
   A2A_HUB: 'A2A 互联',
@@ -704,9 +704,9 @@ const RESOURCE_LABELS: Record<string, string> = {
   MCP_CREDENTIAL: 'MCP 凭证',
   MCP_CREDENTIAL_ROLE: 'MCP 凭证角色',
   MCP_EMPLOYEE_CONNECTION: 'MCP 员工连接',
-  MCP_HUB: 'MCP 发布与调用',
+  MCP_HUB: 'MCP 开放',
   MCP_PAYLOAD: 'MCP 留存载荷',
-  MCP_PUBLICATION: 'MCP 对外发布',
+  MCP_PUBLICATION: 'MCP 服务发布',
   MEMORY_ERASURE: '跨域数据擦除',
   RUNTIME_SESSION: '会话保留',
   RUNTIME_USER_MAPPING: '运行时用户映射',

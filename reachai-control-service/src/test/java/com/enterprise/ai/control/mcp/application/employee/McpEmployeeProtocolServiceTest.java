@@ -55,7 +55,7 @@ class McpEmployeeProtocolServiceTest {
     @BeforeEach
     void setUp() {
         service = new McpEmployeeProtocolService(connections, access, publications, sync, acl, gateway, audit,
-                new ObjectMapper());
+                new McpWriteApprovalServiceTest.FakeApprovals(), new ObjectMapper());
         access.save(new McpEmployeeAccess(null, 11L, "yudao-erp", "芋道 ERP", true));
         access.save(new McpEmployeeAccess(null, 12L, 3L, "crm", "客户管理", true));
         published(11L, List.of(tool("erpStockPage", "READ", "yudao-erp.erpStockPage"),
@@ -156,6 +156,7 @@ class McpEmployeeProtocolServiceTest {
         assertEquals("zs", entry.getValue().externalUserId());
         assertEquals("CLAUDE_CODE", entry.getValue().toolClientName());
         assertEquals("crm", entry.getValue().projectCode());
+        assertEquals(3L, entry.getValue().projectId());
     }
 
     private AiToolConnection connect(LocalDateTime expiresAt, String... projectCodes) {

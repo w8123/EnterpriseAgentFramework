@@ -32,8 +32,6 @@ import StatusTag from '@/components/common/StatusTag.vue'
 import { useAgentEditorContext } from './useAgentEditor'
 
 const {
-  isNew,
-  activeSection,
   configVersions,
   canWriteAgent,
   activeConfig,

@@ -17,7 +17,8 @@ import java.util.Locale;
         McpPublicationController.class,
         McpClientController.class,
         McpEmployeeAccessController.class,
-        McpEmployeeConnectionController.class
+        McpEmployeeConnectionController.class,
+        McpWriteApprovalController.class
 })
 public class McpHubManagementExceptionHandler {
 
@@ -25,7 +26,7 @@ public class McpHubManagementExceptionHandler {
     public ResponseEntity<ProblemDetail> handle(McpDomainException exception) {
         HttpStatus status = status(exception.code());
         ProblemDetail detail = ProblemDetail.forStatusAndDetail(status, exception.getMessage());
-        detail.setTitle("MCP Hub request failed");
+        detail.setTitle("MCP 开放请求失败");
         detail.setType(URI.create("urn:reachai:mcp-hub:error:"
                 + exception.code().toLowerCase(Locale.ROOT).replace('_', '-')));
         detail.setProperty("code", exception.code());
@@ -37,7 +38,8 @@ public class McpHubManagementExceptionHandler {
         if (code != null && code.endsWith("_NOT_FOUND")) {
             return HttpStatus.NOT_FOUND;
         }
-        if (code != null && (code.endsWith("_CONFLICT") || code.endsWith("_ARCHIVED"))) {
+        if (code != null && (code.endsWith("_CONFLICT") || code.endsWith("_ARCHIVED")
+                || code.endsWith("_NOT_PENDING"))) {
             return HttpStatus.CONFLICT;
         }
         return HttpStatus.BAD_REQUEST;

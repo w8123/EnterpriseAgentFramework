@@ -70,7 +70,7 @@ describe('sidebarMenu information architecture', () => {
     if (integration?.kind !== 'item') return
     expect(integration.children).toEqual([
       { index: '/api-market', label: 'API 市场', requiredPermissions: ['platform:read'] },
-      { index: '/mcp-hub', label: 'MCP Hub', requiredPermissions: ['mcp-hub:read'] },
+      { index: '/mcp-hub', label: 'MCP 开放', requiredPermissions: ['mcp-hub:read'] },
       { index: '/a2a-hub', label: 'A2A 互联中心', requiredPermissions: ['a2a-hub:read'] },
     ])
     const agent = sidebarMenu.find(entry => entry.kind === 'item' && entry.index === '/agent')

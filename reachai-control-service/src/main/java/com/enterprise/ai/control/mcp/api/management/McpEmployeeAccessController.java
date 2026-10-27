@@ -35,7 +35,7 @@ public class McpEmployeeAccessController {
     public EmployeeAccessView get(HttpServletRequest request, @PathVariable long publicationId) {
         access.require(request, McpHubManagementAccess.READ);
         return service.find(publicationId).map(EmployeeAccessView::of)
-                .orElse(new EmployeeAccessView(publicationId, null, null, null, false));
+                .orElse(new EmployeeAccessView(publicationId, null, null, null, false, true));
     }
 
     @PutMapping
@@ -43,21 +43,23 @@ public class McpEmployeeAccessController {
                                    @RequestBody SaveRequest body) {
         PlatformAuthenticatedSession session = access.require(request, McpHubManagementAccess.MANAGE_PUBLICATIONS);
         McpEmployeeAccess saved = service.save(publicationId, body.projectId(), body.projectCode(), body.displayName(),
-                body.enabled() == null || body.enabled());
+                body.enabled() == null || body.enabled(), body.writeApprovalRequired());
         auditService.record(session, "MCP_EMPLOYEE_ACCESS_SAVED", "MCP_PUBLICATION",
                 String.valueOf(publicationId),
-                Map.of("projectCode", saved.projectCode(), "enabled", saved.enabled()));
+                Map.of("projectCode", saved.projectCode(), "enabled", saved.enabled(),
+                        "writeApprovalRequired", saved.writeApprovalRequired()));
         return EmployeeAccessView.of(saved);
     }
 
-    public record SaveRequest(Long projectId, String projectCode, String displayName, Boolean enabled) {
+    public record SaveRequest(Long projectId, String projectCode, String displayName, Boolean enabled,
+                              Boolean writeApprovalRequired) {
     }
 
     public record EmployeeAccessView(long publicationId, Long projectId, String projectCode, String displayName,
-                                     boolean enabled) {
+                                     boolean enabled, boolean writeApprovalRequired) {
         static EmployeeAccessView of(McpEmployeeAccess access) {
             return new EmployeeAccessView(access.publicationId(), access.projectId(), access.projectCode(),
-                    access.displayName(), access.enabled());
+                    access.displayName(), access.enabled(), access.writeApprovalRequired());
         }
     }
 }

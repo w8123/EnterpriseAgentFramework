@@ -9,6 +9,12 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 class CatalogOwnerFingerprintReaderTest {
+    static {
+        var metadata = new org.apache.ibatis.builder.MapperBuilderAssistant(new com.baomidou.mybatisplus.core.MybatisConfiguration(), "fingerprint-reader-tests");
+        for (Class<?> type : List.of(BusinessMethodAssetEntity.class, BusinessMethodRevisionEntity.class, HttpApiAssetEntity.class)) {
+            com.baomidou.mybatisplus.core.metadata.TableInfoHelper.initTableInfo(metadata, type);
+        }
+    }
     final BusinessMethodAssetMapper methods = mock(BusinessMethodAssetMapper.class);
     final BusinessMethodRevisionMapper revisions = mock(BusinessMethodRevisionMapper.class);
     final HttpApiAssetMapper apis = mock(HttpApiAssetMapper.class);

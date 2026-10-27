@@ -8,48 +8,31 @@
       title="API 市场"
       description="集中发现、评估并接入公开 API。"
     >
-      <template #tags>
-        <el-tag effect="light">公开 API 目录</el-tag>
-        <el-tag type="success" effect="light">当前 {{ stats.publishedApis }} 个 API</el-tag>
-        <el-tag type="info" effect="light">{{ stats.verifiedApis }} 个已验证</el-tag>
-      </template>
       <template #actions>
-        <el-tooltip content="来源可追溯" placement="bottom">
-          <span class="market-source-status" role="img" aria-label="来源可追溯">
-            <el-icon><CircleCheckFilled /></el-icon>
-          </span>
-        </el-tooltip>
-        <el-tooltip content="刷新目录" placement="bottom">
-          <LiquidGlassButton source="wallpaper"
-            class="market-refresh"
-            circle
-            :icon="Refresh"
-            :loading="refreshing"
-            aria-label="刷新目录"
-            @click="refreshCurrentTab"
-          />
-        </el-tooltip>
+        <div class="market-header-actions">
+          <LiquidGlassNav source="wallpaper" class="market-tabs" aria-label="API 市场功能导航">
+            <button
+              v-for="tab in tabs"
+              :key="tab.name"
+              type="button"
+              :class="{ 'is-active': activeTab === tab.name }"
+              :aria-pressed="activeTab === tab.name"
+              @click="switchTab(tab.name)"
+            >
+              <el-icon aria-hidden="true"><component :is="tab.icon" /></el-icon>
+              {{ tab.label }}
+            </button>
+          </LiquidGlassNav>
+          <el-tooltip content="来源可追溯" placement="bottom">
+            <span class="market-source-status" role="img" aria-label="来源可追溯">
+              <el-icon><CircleCheckFilled /></el-icon>
+            </span>
+          </el-tooltip>
+        </div>
       </template>
     </PageHeader>
 
-    <LiquidGlassNav source="wallpaper" :columns="4" class="market-tabs" aria-label="API 市场功能导航">
-      <button
-        v-for="tab in tabs"
-        :key="tab.name"
-        type="button"
-        :class="{ 'is-active': activeTab === tab.name }"
-        :aria-pressed="activeTab === tab.name"
-        @click="switchTab(tab.name)"
-      >
-        <span class="market-tabs__icon"><component :is="tab.icon" /></span>
-        <span class="market-tabs__copy">
-          <strong>{{ tab.label }}</strong>
-          <small>{{ tab.description }}</small>
-        </span>
-      </button>
-    </LiquidGlassNav>
-
-    <LiquidGlassTable v-if="activeTab === 'discover'" class="catalog-results" body-layout="cards"
+    <LiquidGlassTable v-if="activeTab === 'discover'" class="catalog-results workbench-list-surface" body-layout="cards" presentation="collection"
       v-model:current-page="page.current" v-model:page-size="page.size" :total="page.total" :page-sizes="[24, 48, 96]"
       :loading="loadingEntries" :empty="!loadingEntries && !entries.length" pagination-label="API 市场分页" @change="loadEntries">
       <template #toolbar>
@@ -62,13 +45,6 @@
           placeholder="搜索 API 名称、能力或提供方"
           @clear="applyFilters"
         />
-        <LiquidGlassSelect v-model="filters.authType" clearable placeholder="认证方式" aria-label="认证方式" @change="applyFilters">
-          <el-option label="无需认证" value="NONE" />
-          <el-option label="API Key · Header" value="API_KEY_HEADER" />
-          <el-option label="API Key · Query" value="API_KEY_QUERY" />
-          <el-option label="Bearer Token" value="BEARER" />
-          <el-option label="OAuth 2.0" value="OAUTH2" />
-        </LiquidGlassSelect>
         <LiquidGlassSelect
           v-model="filters.verificationStatus"
           clearable
@@ -89,24 +65,10 @@
             :value="source.sourceKey"
           />
         </LiquidGlassSelect>
-        <LiquidGlassSelect v-model="filters.specFilter" clearable placeholder="机器可读契约" aria-label="机器可读契约" @change="applyFilters">
-          <el-option label="有 OpenAPI" value="yes" />
-          <el-option label="暂无 OpenAPI" value="no" />
-        </LiquidGlassSelect>
         <template #actions>
-        <LiquidGlassButton
-          class="catalog-reset"
-          :icon="RefreshLeft"
-          :disabled="!hasActiveFilters"
-          @click="resetFilters"
-        >重置</LiquidGlassButton>
         <LiquidGlassButton class="catalog-search" type="primary" :icon="Search" native-type="submit" :loading="loadingEntries">搜索</LiquidGlassButton>
         </template>
       </LiquidGlassFilterBar>
-        <footer class="catalog-toolbar__summary">
-          <span><strong>{{ page.total }}</strong> 个可接入 API</span>
-          <small>按认证、验证状态、目录来源与契约筛选</small>
-        </footer>
       </template>
       <div class="api-card-grid">
         <ApiMarketEntryCard v-for="entry in entries" :key="entry.entryKey" :entry="entry" @open="openEntry" @integrate="quickIntegrate" />
@@ -477,10 +439,8 @@ const stats = reactive<ApiMarketStats>({
 const page = reactive<ApiMarketPage>({ records: [], total: 0, current: 1, size: 24, pages: 0 })
 const filters = reactive({
   keyword: '',
-  authType: '',
   verificationStatus: '',
   source: '',
-  specFilter: '' as '' | 'yes' | 'no',
 })
 const integrationFilters = reactive<{ status?: string }>({})
 const integrationProjectId = computed(() => scope.canLoadData.value ? scope.requestParams.value?.projectId : undefined)
@@ -513,8 +473,7 @@ const integrationBlocker = computed(() => {
 })
 
 const hasActiveFilters = computed(() => Boolean(
-  filters.keyword || filters.authType || filters.verificationStatus
-  || filters.source || filters.specFilter,
+  filters.keyword || filters.verificationStatus || filters.source,
 ))
 
 onMounted(async () => {
@@ -533,10 +492,8 @@ async function loadEntries() {
       current: page.current,
       size: page.size,
       keyword: filters.keyword.trim() || undefined,
-      authType: filters.authType || undefined,
       verificationStatus: filters.verificationStatus || undefined,
       source: filters.source || undefined,
-      specAvailable: filters.specFilter ? filters.specFilter === 'yes' : undefined,
     })
     entries.value = data.records || []
     Object.assign(page, data)
@@ -621,7 +578,7 @@ function applyFilters() {
 
 function resetFilters() {
   Object.assign(filters, {
-    keyword: '', authType: '', verificationStatus: '', source: '', specFilter: '',
+    keyword: '', verificationStatus: '', source: '',
   })
   applyFilters()
 }
@@ -764,70 +721,25 @@ function errorMessage(error: unknown) {
   gap: var(--layout-page-gap);
 }
 
-.market-source-status { display: grid; place-items: center; color: var(--status-success); font-size: 19px; }
-.market-tabs__icon {
-  display: grid;
-  width: 22px;
-  height: 22px;
-  flex: 0 0 22px;
-  place-items: center;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 15px;
-}
-
-.market-tabs :deep(button.is-active) .market-tabs__icon {
-  background: transparent;
-  color: var(--brand-active);
-}
-
-.market-tabs__copy {
+.market-header-actions {
   display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 1px;
-
-  strong {
-    overflow: hidden;
-    font-size: 12px;
-    font-weight: 700;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  small {
-    overflow: hidden;
-    color: var(--text-muted);
-    font-size: 10px;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-}
-.catalog-toolbar__summary {
-  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  grid-column: 1 / -1;
-  gap: 7px;
-  padding-top: 8px;
-  border-top: 1px solid var(--border-subtle);
-  color: var(--text-secondary);
-  font-size: 11px;
-
-  strong {
-    color: var(--text-primary);
-    font-size: 13px;
-    font-variant-numeric: tabular-nums;
-  }
-
-  small {
-    color: var(--text-muted);
-    font-size: 10px;
-  }
+  gap: var(--layout-control-gap);
+}
+.market-tabs {
+  margin-top: 0;
+}
+.market-source-status {
+  display: grid;
+  place-items: center;
+  color: var(--status-success);
+  font-size: 19px;
 }
 
 .api-card-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 310px), 1fr));
   gap: 16px;
 }
 
@@ -965,7 +877,7 @@ function errorMessage(error: unknown) {
 
 .source-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 310px), 1fr));
   gap: 14px;
   padding: 18px;
 }

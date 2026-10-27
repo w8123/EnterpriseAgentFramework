@@ -16,6 +16,8 @@ import org.apache.ibatis.plugin.Signature;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mybatis.spring.SqlSessionTemplate;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Configuration;
@@ -123,14 +125,80 @@ class RegistryInstanceConcurrencyTest {
         assertFalse(current().getUpdatedAt().isBefore(observedAt.get()));
     }
 
-    @Test void cleanupCannotDeleteAnInstanceRevivedAfterCandidateSelection() throws Exception {
-        heartbeat("initial"); status("OFFLINE");
+    @ParameterizedTest
+    @ValueSource(strings = {"ONLINE", "OFFLINE"})
+    void cleanupCannotDeleteAnInstanceRevivedAfterCandidateSelection(String initialStatus) throws Exception {
+        heartbeat("initial"); status(initialStatus);
         jdbc.update("UPDATE capability_project_instance SET last_heartbeat_at = ?", LocalDateTime.now().minusHours(2));
         var removed = new AtomicInteger(-1);
         race(() -> removed.set(lifecycle.purgeOfflineInstances(project, 30)), () -> heartbeat("revived"));
         assertEquals(0, removed.get());
         assertEquals("ONLINE", current().getStatus());
         assertEquals("revived", current().getAppVersion());
+    }
+
+    @Test void nineDayOldOnlineObservationIsReportedAsStaleWithoutChangingStoredState() {
+        heartbeat("initial");
+        LocalDateTime lastHeartbeat = LocalDateTime.now().minusDays(9).withNano(0);
+        jdbc.update("UPDATE capability_project_instance SET last_heartbeat_at = ?", lastHeartbeat);
+
+        var instance = lifecycle.listInstances(project).get(0);
+
+        assertEquals("STALE", instance.getStatus());
+        assertEquals(lastHeartbeat, instance.getLastHeartbeatAt());
+        assertEquals("ONLINE", current().getStatus());
+    }
+
+    @Test void missingHeartbeatCannotBeReportedAsOnline() {
+        heartbeat("initial");
+        jdbc.update("UPDATE capability_project_instance SET last_heartbeat_at = NULL");
+        assertEquals("STALE", lifecycle.listInstances(project).get(0).getStatus());
+    }
+
+    @Test void newHeartbeatRevivesExpiredOnlineObservation() {
+        heartbeat("initial");
+        jdbc.update("UPDATE capability_project_instance SET last_heartbeat_at = ?", LocalDateTime.now().minusDays(9));
+        assertEquals("STALE", lifecycle.listInstances(project).get(0).getStatus());
+
+        var response = tx.execute(s -> lifecycle.heartbeat(project, request("revived")));
+
+        assertEquals("ONLINE", response.instance().getStatus());
+        assertEquals("ONLINE", lifecycle.listInstances(project).get(0).getStatus());
+    }
+
+    @Test void administrativeOnlineStatusDoesNotReplaceFreshHeartbeatEvidence() {
+        heartbeat("initial");
+        jdbc.update("UPDATE capability_project_instance SET last_heartbeat_at = ?", LocalDateTime.now().minusDays(9));
+        var response = tx.execute(s -> lifecycle.updateInstanceStatus(project, "worker", "ONLINE"));
+        assertEquals("STALE", response.getStatus());
+        status("DISABLED");
+        assertEquals("DISABLED", lifecycle.listInstances(project).get(0).getStatus());
+    }
+
+    @Test void cleanupIncludesExpiredOnlineObservationsAndPreservesFreshDisabledAndOtherProjects() {
+        LocalDateTime now = LocalDateTime.now();
+        insertInstance(7, "orders", "expired", "ONLINE", now.minusDays(9));
+        insertInstance(7, "orders", "missing", "ONLINE", null);
+        insertInstance(7, "orders", "offline", "OFFLINE", now.minusDays(9));
+        insertInstance(7, "orders", "stale", "STALE", now.minusDays(9));
+        insertInstance(7, "orders", "fresh", "ONLINE", now.minusMinutes(1));
+        insertInstance(7, "orders", "disabled", "DISABLED", now.minusDays(9));
+        insertInstance(8, "other", "expired", "ONLINE", now.minusDays(9));
+
+        int removed = tx.execute(s -> lifecycle.purgeOfflineInstances(project, 0));
+        assertEquals(4, removed);
+        assertEquals(3, instances.selectCount(null));
+        assertEquals(2, lifecycle.listInstances(project).size());
+    }
+
+    @Test void cleanupRespectsMinimumIdleTimeForExpiredOnlineObservations() {
+        LocalDateTime now = LocalDateTime.now();
+        insertInstance(7, "orders", "recently-expired", "ONLINE", now.minusMinutes(10));
+        insertInstance(7, "orders", "long-expired", "ONLINE", now.minusHours(2));
+
+        int removed = tx.execute(s -> lifecycle.purgeOfflineInstances(project, 30));
+        assertEquals(1, removed);
+        assertEquals("recently-expired", lifecycle.listInstances(project).get(0).getInstanceId());
     }
 
     @Test void concurrentFirstHeartbeatsConvergeOnOneInstance() throws Exception {
@@ -184,6 +252,12 @@ class RegistryInstanceConcurrencyTest {
         return new InstanceHeartbeatRequest("worker", null, "host", 8080, version, "sdk", Map.of("note", "新观察-" + version));
     }
     private ProjectInstanceEntity current() { return instances.selectOne(null); }
+
+    private void insertInstance(long projectId, String projectCode, String instanceId,
+                                String status, LocalDateTime heartbeatAt) {
+        jdbc.update("INSERT INTO capability_project_instance (project_id, project_code, instance_id, status, last_heartbeat_at) VALUES (?, ?, ?, ?, ?)",
+                projectId, projectCode, instanceId, status, heartbeatAt);
+    }
 
     private void race(Runnable pausedTransaction, Runnable committedTransaction) throws Exception {
         var executor = Executors.newSingleThreadExecutor();

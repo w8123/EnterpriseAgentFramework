@@ -29,13 +29,15 @@ public class McpEmployeeAccessService {
 
     @Transactional
     public McpEmployeeAccess save(long publicationId, Long projectId, String projectCode, String displayName,
-                                  boolean enabled) {
+                                  boolean enabled, Boolean writeApprovalRequired) {
         requirePublication(publicationId);
-        Long existingId = accessRepository.findByPublicationId(publicationId)
-                .map(McpEmployeeAccess::id)
-                .orElse(null);
-        return accessRepository.save(new McpEmployeeAccess(existingId, publicationId,
-                projectId != null && projectId > 0 ? projectId : null, projectCode, displayName, enabled));
+        Optional<McpEmployeeAccess> existing = accessRepository.findByPublicationId(publicationId);
+        // Omitted keeps the current choice; a new system starts with approval on.
+        boolean approval = writeApprovalRequired != null ? writeApprovalRequired
+                : existing.map(McpEmployeeAccess::writeApprovalRequired).orElse(true);
+        return accessRepository.save(new McpEmployeeAccess(existing.map(McpEmployeeAccess::id).orElse(null),
+                publicationId, projectId != null && projectId > 0 ? projectId : null, projectCode, displayName,
+                enabled, approval));
     }
 
     private void requirePublication(long publicationId) {

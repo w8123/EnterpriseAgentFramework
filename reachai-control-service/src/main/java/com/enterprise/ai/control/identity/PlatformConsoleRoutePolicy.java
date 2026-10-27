@@ -108,6 +108,7 @@ public final class PlatformConsoleRoutePolicy {
     private static List<String> independentProtocolPatterns() {
         List<String> patterns = new ArrayList<>(List.of(
             "/api/embed/**",
+            "/api/employee-portal/**",
             "/embed/**",
             "/api/v1/agents/**",
             "/api/ai-assist/skills/**",

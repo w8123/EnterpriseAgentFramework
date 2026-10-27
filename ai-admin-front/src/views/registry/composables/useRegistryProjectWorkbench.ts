@@ -13,7 +13,7 @@ export interface UseRegistryProjectWorkbenchDeps {
   projectCode: Ref<string>
   isSdkBackedProject: Readonly<Ref<boolean>>
   goCapability: (path: string) => void
-  goCapabilitySync: () => void
+  goCapabilitySync?: () => void
   goCapabilitySources: () => void
   goWorkflowList: () => void
   goPageActionGovernance: () => void
@@ -50,11 +50,6 @@ export function useRegistryProjectWorkbench(deps: UseRegistryProjectWorkbenchDep
       title: '项目资源',
       items: [
         {
-          title: '接入与变更',
-          desc: 'SDK 按策略自动接纳声明；在这里处理例外变化并查看同步记录。',
-          icon: Grid, tone: 'blue', disabled: !deps.project.value?.id, action: deps.goCapabilitySync,
-        },
-        {
           title: '业务能力',
           desc: '查找业务方法和 HTTP API，查看参数、试调用及使用位置。',
           icon: Grid,
@@ -76,20 +71,20 @@ export function useRegistryProjectWorkbench(deps: UseRegistryProjectWorkbenchDep
       title: '编排与发布',
       items: [
         {
-          title: 'Workflow 编排',
-          desc: '查看并编辑本项目下的可执行 Workflow，进入 Studio、版本和发布链路。',
-          icon: Operation,
-          tone: 'blue',
-          disabled: !deps.project.value?.projectCode && !deps.projectCode.value,
-          action: deps.goWorkflowList,
-        },
-        {
           title: 'Agent管理',
           desc: '管理版本、发布状态、Trace、页面动作闭环和权限决策。',
           icon: User,
           tone: 'orange',
           disabled: !deps.project.value?.id,
           action: () => deps.goCapability('/agent'),
+        },
+        {
+          title: 'Workflow 编排',
+          desc: '查看并编辑本项目下的可执行 Workflow，进入 Studio、版本和发布链路。',
+          icon: Operation,
+          tone: 'blue',
+          disabled: !deps.project.value?.projectCode && !deps.projectCode.value,
+          action: deps.goWorkflowList,
         },
       ],
     },

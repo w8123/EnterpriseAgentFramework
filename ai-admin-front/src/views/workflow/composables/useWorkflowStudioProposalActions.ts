@@ -348,8 +348,6 @@ export function useWorkflowStudioProposalActions(deps: UseWorkflowStudioProposal
     }
   }
 
-  const operationKey = proposalOperationKey
-
   return {
     aiEditOperationGroups,
     aiEditPreviewFailed,
@@ -357,8 +355,6 @@ export function useWorkflowStudioProposalActions(deps: UseWorkflowStudioProposal
     regenerateAiAuthoring,
     clearAiEditPreview,
     applyAiEditPreview,
-    operationKey,
-    operationTarget,
     isAiEditPreviewSucceeded,
     formatAiAuthoringFailureMessage,
     isWorkingCopyCanvasEmpty,

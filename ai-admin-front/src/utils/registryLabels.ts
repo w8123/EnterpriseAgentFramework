@@ -3,7 +3,7 @@ const INSTANCE_STATUS_LABELS: Record<string, string> = {
   ONLINE: '在线',
   OFFLINE: '离线',
   DISABLED: '已禁用',
-  STALE: '心跳超时',
+  STALE: '离线',
 }
 
 /** Runtime 类型 / Adapter 标识 */

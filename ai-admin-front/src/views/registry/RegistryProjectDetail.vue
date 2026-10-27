@@ -133,7 +133,7 @@
         </LiquidGlassCard>
       </section>
 
-      <section v-if="projectSection === 'overview'" class="instance-section workbench-list-surface" aria-label="实例心跳">
+      <section v-if="projectSection === 'overview'" class="instance-section" aria-label="实例心跳">
         <div class="section-head">
           <h2 class="section-title">
             实例心跳
@@ -169,6 +169,7 @@
           v-model:current-page="instancePage"
           v-model:page-size="instancePageSize"
           :total="instances.length"
+          :show-pagination="instances.length >= 6"
           :page-sizes="[5, 10, 20, 50]"
           :loading="loadingInstances"
           pagination-label="实例分页"

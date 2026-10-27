@@ -58,6 +58,8 @@ public final class PlatformPermissions {
     public static final String MCP_HUB_READ = "mcp-hub:read";
     /** Review and disconnect employees' personal AI-tool connections (managers, operators). */
     public static final String MCP_EMPLOYEE_CONNECTION_MANAGE = "mcp-hub:employee-connection:manage";
+    /** Approve or reject write calls from employees' own AI tools (managers, operators). */
+    public static final String MCP_WRITE_APPROVAL_MANAGE = "mcp-hub:write-approval:manage";
     public static final String A2A_HUB_READ = "a2a-hub:read";
 
     private PlatformPermissions() {

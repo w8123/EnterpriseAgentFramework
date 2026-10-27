@@ -749,7 +749,7 @@ Move every disabled route to a local implementation later.
 writeFile(forbiddenMainlineDocDisabledRouteVocabularyRoot, 'docs/architecture/legacy-retirement.md', `
 Do not keep a disabled response fallback.
 `)
-writeFile(forbiddenMainlineDocDisabledRouteVocabularyRoot, 'docs/architecture/physical-split-route-ownership.md', `
+writeFile(forbiddenMainlineDocDisabledRouteVocabularyRoot, 'docs/contracts/public-routes.md', `
 Remaining Runtime disabled-route backlog: none.
 `)
 writeFile(forbiddenMainlineDocDisabledRouteVocabularyRoot, 'reachai-capability-service/src/main/java/com/enterprise/ai/capability/TestCapabilityController.java', `

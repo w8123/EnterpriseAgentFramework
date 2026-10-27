@@ -205,7 +205,6 @@ const {
   publishing,
   publishingLatestWorkflows,
   workflowFreshness,
-  workflowTools,
   remoteAgentBindings,
   skillBindings,
   supervisor,

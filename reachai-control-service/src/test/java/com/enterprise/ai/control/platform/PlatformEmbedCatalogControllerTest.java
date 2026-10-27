@@ -93,7 +93,7 @@ class PlatformEmbedCatalogControllerTest {
     }
 
     @Test
-    void listsEmbedOperationalDataAndManagesRenderers() {
+    void listsEmbedOperationalData() {
         Fixture fixture = fixture();
         PlatformEmbedSessionEntity session = new PlatformEmbedSessionEntity();
         session.setSessionId("sess-1");
@@ -106,15 +106,6 @@ class PlatformEmbedCatalogControllerTest {
         PlatformEmbedChatEventEntity chat = new PlatformEmbedChatEventEntity();
         chat.setEventType("message");
         when(fixture.chatMapper.selectList(any())).thenReturn(List.of(chat));
-        PlatformEmbedRendererEntity renderer = new PlatformEmbedRendererEntity();
-        renderer.setId(61L);
-        renderer.setAppId("bzjs12");
-        renderer.setRendererKey("table");
-        renderer.setName("Table");
-        renderer.setVersion("1.0");
-        renderer.setStatus("ACTIVE");
-        when(fixture.rendererMapper.selectList(any())).thenReturn(List.of(renderer));
-        when(fixture.rendererMapper.selectById(61L)).thenReturn(renderer);
 
         assertEquals(
                 "sess-1",
@@ -127,19 +118,6 @@ class PlatformEmbedCatalogControllerTest {
         assertEquals(
                 "message",
                 fixture.controller.listChatEvents("sess-1", 200).getBody().get(0).eventType());
-        assertEquals(
-                "table",
-                fixture.controller.listRenderers("bzjs12", null, null, 100)
-                        .getBody().get(0).rendererKey());
-
-        fixture.controller.createRenderer(new PlatformEmbedCatalogController.EmbedRendererPayload(
-                "bzjs12", "chart", "Chart", "1.0", Map.of(), List.of(), "ACTIVE"));
-        fixture.controller.updateRenderer(61L, new PlatformEmbedCatalogController.EmbedRendererPayload(
-                "bzjs12", "table", "Table v2", "1.1", Map.of(), List.of(), "ACTIVE"));
-        fixture.controller.disableRenderer(61L);
-
-        verify(fixture.rendererMapper).insert(any());
-        verify(fixture.rendererMapper, times(2)).updateById(any());
     }
 
     @Test
@@ -287,14 +265,12 @@ class PlatformEmbedCatalogControllerTest {
         PlatformEmbedSessionMapper sessionMapper = mock(PlatformEmbedSessionMapper.class);
         PlatformPageActionEventMapper eventMapper = mock(PlatformPageActionEventMapper.class);
         PlatformEmbedChatEventMapper chatMapper = mock(PlatformEmbedChatEventMapper.class);
-        PlatformEmbedRendererMapper rendererMapper = mock(PlatformEmbedRendererMapper.class);
         PlatformEmbedCatalogController controller = new PlatformEmbedCatalogController(
                 pageCatalog,
                 capabilityClient,
                 sessionMapper,
                 eventMapper,
                 chatMapper,
-                rendererMapper,
                 new ObjectMapper(),
                 TOKEN_SERVICE);
         return new Fixture(
@@ -303,8 +279,7 @@ class PlatformEmbedCatalogControllerTest {
                 capabilityClient,
                 sessionMapper,
                 eventMapper,
-                chatMapper,
-                rendererMapper);
+                chatMapper);
     }
 
     private PageView page() {
@@ -356,7 +331,6 @@ class PlatformEmbedCatalogControllerTest {
             CapabilityProjectOnboardingClient capabilityClient,
             PlatformEmbedSessionMapper sessionMapper,
             PlatformPageActionEventMapper eventMapper,
-            PlatformEmbedChatEventMapper chatMapper,
-            PlatformEmbedRendererMapper rendererMapper) {
+            PlatformEmbedChatEventMapper chatMapper) {
     }
 }

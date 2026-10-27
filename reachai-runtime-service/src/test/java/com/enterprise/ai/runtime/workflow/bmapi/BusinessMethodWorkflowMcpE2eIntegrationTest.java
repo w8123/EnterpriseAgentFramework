@@ -479,6 +479,9 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
         Fixture.McpSurface surface = fixture.publishMcpWorkflow(release);
         Long credentialId = fixture.database.jdbc().queryForObject(
                 "SELECT id FROM capability_registry_project_credential WHERE project_code=?", Long.class, PROJECT_CODE);
+        // 只有凭据状态变化才递增修订；停用再启用让旧绑定失效，凭据本身仍可用
+        fixture.registrySecurity.updateAdministrativePolicy(credentialId,
+                List.of("https://orders.test"), List.of(), 600, "INACTIVE");
         fixture.registrySecurity.updateAdministrativePolicy(credentialId,
                 List.of("https://orders.test"), List.of(), 600, "ACTIVE");
         fixture.assertMcpRejected(surface, "BUSINESS_METHOD_EXECUTION_BINDING_CHANGED", 0);
@@ -1080,6 +1083,8 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
         var allowed = com.enterprise.ai.common.capability.WorkflowReadOnlyTrialPolicy.AllowedTarget.businessMethod(target, oldOwner);
         Long credentialId = fixture.database.jdbc().queryForObject(
                 "SELECT id FROM capability_registry_project_credential WHERE project_code=?", Long.class, PROJECT_CODE);
+        // 只有凭据状态变化才递增修订；停用再启用让旧执行修订失效
+        fixture.registrySecurity.updateAdministrativePolicy(credentialId, List.of("https://trial.orders.test"), List.of(), 600, "INACTIVE");
         fixture.registrySecurity.updateAdministrativePolicy(credentialId, List.of("https://trial.orders.test"), List.of(), 600, "ACTIVE");
         String path = "/internal/runtime/workflows/studio/read-only-trials";
         var command = new com.enterprise.ai.common.capability.WorkflowReadOnlyTrialPolicy.TrialCommand(2,
@@ -1967,8 +1972,14 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
         }
         void changeWriteApiConnection() throws Exception {
             var connection = responseMap(multiSourcePublicRequest("GET", "/api/apis/1/connection", null));
-            assertEquals(200, multiSourcePublicRequest("PUT", "/api/apis/1/connection", Map.of("origin", writeApiBridge.baseUrl(),
-                    "authMode", "API_KEY_HEADER", "credentialRef", writeApiCredentialRef, "expectedRevision", connection.get("revision"))).statusCode());
+            var save = new LinkedHashMap<String, Object>(Map.of("origin", writeApiBridge.baseUrl(),
+                    "authMode", "API_KEY_HEADER", "credentialRef", writeApiCredentialRef));
+            save.put("expectedRevision", overrideRevision(connection));
+            assertEquals(200, multiSourcePublicRequest("PUT", "/api/apis/1/connection", save).statusCode());
+        }
+        /** 保存单 API 覆盖用 overrideRevision；revision 是调用时钉住的生效修订（行修订*2，覆盖 +1），不能拿来做乐观锁。 */
+        static Object overrideRevision(Map<String, Object> connection) {
+            return connection.containsKey("overrideRevision") ? connection.get("overrideRevision") : connection.get("revision");
         }
         void changeWriteApiCredential() throws Exception {
             // Simulate a privileged concurrent edit through Runtime's actual credential API.

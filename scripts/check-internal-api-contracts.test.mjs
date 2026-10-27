@@ -50,7 +50,7 @@ class RuntimeHealthController {
     Object health() { return null; }
 }
 `)
-write(undocumentedEndpointRoot, 'docs/architecture/internal-api-contracts.md', `
+write(undocumentedEndpointRoot, 'docs/contracts/internal-apis.md', `
 # Internal API Contracts
 
 | Contract | Owner service | Consumers | Purpose | Frontend callable |
@@ -75,7 +75,7 @@ class RuntimeHealthController {
     Object health() { return null; }
 }
 `)
-write(frontendLeakRoot, 'docs/architecture/internal-api-contracts.md', `
+write(frontendLeakRoot, 'docs/contracts/internal-apis.md', `
 # Internal API Contracts
 
 | Contract | Owner service | Consumers | Purpose | Frontend callable |
@@ -120,7 +120,7 @@ interface CapabilityRuntimeTraceClient {
     Object recent();
 }
 `)
-write(allowedRoot, 'docs/architecture/internal-api-contracts.md', `
+write(allowedRoot, 'docs/contracts/internal-apis.md', `
 # Internal API Contracts
 
 | Contract | Owner service | Consumers | Purpose | Frontend callable |

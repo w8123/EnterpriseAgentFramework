@@ -31,9 +31,9 @@ public class BuiltinAgentSkillSource {
             "agent-ai-coding", new Descriptor(
                     "agent-ai-coding", "0.1.1", "ReachAI Agent AI Coding skill for project Agent authoring and governed Skill binding."),
             "reachai-onboarding", new Descriptor(
-                    "reachai-onboarding", "0.6.2", "ReachAI SDK onboarding skill for AI coding tools."),
+                    "reachai-onboarding", "0.6.3", "ReachAI SDK onboarding skill for AI coding tools."),
             "workflow-ai-coding", new Descriptor(
-                    "workflow-ai-coding", "0.1.1", "ReachAI Workflow AI Coding skill for editing, validating, and debugging workflow drafts."));
+                    "workflow-ai-coding", "0.1.2", "ReachAI Workflow AI Coding skill for editing, validating, and debugging workflow drafts."));
 
     private final PathMatchingResourcePatternResolver resources = new PathMatchingResourcePatternResolver();
 

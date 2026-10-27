@@ -6,6 +6,7 @@ import org.springframework.stereotype.Repository;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 @Repository
@@ -46,6 +47,18 @@ public class MybatisMcpCallLogReader implements McpCallLogReader {
         return Optional.ofNullable(callLogMapper.selectById(id))
                 .map(this::toEntry)
                 .orElse(null);
+    }
+
+    @Override
+    public List<Entry> recentByConnections(List<Long> connectionIds, int limit) {
+        if (connectionIds == null || connectionIds.isEmpty()) {
+            return List.of();
+        }
+        var query = Wrappers.<McpCallLogEntity>lambdaQuery()
+                .in(McpCallLogEntity::getConnectionId, connectionIds)
+                .orderByDesc(McpCallLogEntity::getId)
+                .last("LIMIT " + Math.max(1, Math.min(limit, 200)));
+        return callLogMapper.selectList(query).stream().map(this::toEntry).map(Entry::withoutBodies).toList();
     }
 
     private Entry toEntry(McpCallLogEntity entity) {
